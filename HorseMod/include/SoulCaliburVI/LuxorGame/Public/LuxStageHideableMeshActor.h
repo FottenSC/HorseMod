@@ -1,0 +1,37 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "LuxActor.h"
+#include "LuxStageHideableMeshActor.generated.h"
+
+class ULuxStageMeshComponent;
+class UStaticMeshComponent;
+
+UCLASS(Blueprintable)
+class LUXORGAME_API ALuxStageHideableMeshActor : public ALuxActor {
+    GENERATED_BODY()
+public:
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, meta=(AllowPrivateAccess=true))
+    UStaticMeshComponent* BaseMeshComponent;
+    
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, meta=(AllowPrivateAccess=true))
+    ULuxStageMeshComponent* DitherMeshComponent;
+    
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
+    bool bDitherEnabled;
+    
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
+    int32 DitherFrame;
+    
+    ALuxStageHideableMeshActor(const FObjectInitializer& ObjectInitializer);
+
+    UFUNCTION(BlueprintCallable)
+    void SetMeshHidden(bool inHidden);
+    
+    UFUNCTION(BlueprintCallable)
+    void Initialize();
+    
+    UFUNCTION(BlueprintCallable)
+    void Finalize();
+    
+};
+

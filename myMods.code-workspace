@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"chat.tools.terminal.autoApprove": {
+			".\\build_mods_shipping.bat": true,
+			"Group-Object": true
+		}
+	}
+}

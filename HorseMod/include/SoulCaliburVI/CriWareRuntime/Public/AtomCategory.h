@@ -1,0 +1,28 @@
+#pragma once
+#include "CoreMinimal.h"
+//CROSS-MODULE INCLUDE V2: -ModuleName=Engine -ObjectName=BlueprintFunctionLibrary -FallbackName=BlueprintFunctionLibrary
+#include "AtomCategory.generated.h"
+
+UCLASS(Blueprintable)
+class CRIWARERUNTIME_API UAtomCategory : public UBlueprintFunctionLibrary {
+    GENERATED_BODY()
+public:
+    UAtomCategory();
+
+    UFUNCTION(BlueprintCallable)
+    static void SetVolumeByName(const FString& CategoryName, float Volume);
+    
+    UFUNCTION(BlueprintCallable)
+    static void SetAisacControlByName(const FString& CategoryName, const FString& AisacName, float Value);
+    
+    UFUNCTION(BlueprintCallable)
+    static void PauseByName(const FString& CategoryName, bool bPause);
+    
+    UFUNCTION(BlueprintCallable)
+    static bool IsPausedByName(const FString& CategoryName);
+    
+    UFUNCTION(BlueprintCallable)
+    static float GetVolumeByName(const FString& CategoryName);
+    
+};
+

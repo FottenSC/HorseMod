@@ -1,0 +1,6 @@
+#include "LuxCreationPhotoWeaponVisibilitySelectWindowConfig.h"
+
+ULuxCreationPhotoWeaponVisibilitySelectWindowConfig::ULuxCreationPhotoWeaponVisibilitySelectWindowConfig() {
+}
+
+

@@ -1,0 +1,7 @@
+#include "StaticMeshSourceModel.h"
+
+FStaticMeshSourceModel::FStaticMeshSourceModel() {
+    this->LODDistance = 0.00f;
+    this->ScreenSize = 0.00f;
+}
+

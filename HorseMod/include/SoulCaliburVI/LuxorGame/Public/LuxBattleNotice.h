@@ -1,0 +1,22 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "LuxBattleHUDBase.h"
+#include "Templates/SubclassOf.h"
+#include "LuxBattleNotice.generated.h"
+
+class UUserWidget;
+
+UCLASS(Blueprintable)
+class ALuxBattleNotice : public ALuxBattleHUDBase {
+    GENERATED_BODY()
+public:
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
+    TSubclassOf<UUserWidget> NoticeClass;
+    
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, Instanced, meta=(AllowPrivateAccess=true))
+    UUserWidget* NoticeInstance;
+    
+    ALuxBattleNotice(const FObjectInitializer& ObjectInitializer);
+
+};
+

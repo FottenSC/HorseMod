@@ -1,0 +1,45 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "DebugDisplayProperty.h"
+#include "ScriptViewportClient.h"
+#include "GameViewportClient.generated.h"
+
+class UConsole;
+class UGameInstance;
+class UTexture;
+class UWorld;
+
+UCLASS(Blueprintable, NonTransient, Within=Engine)
+class ENGINE_API UGameViewportClient : public UScriptViewportClient {
+    GENERATED_BODY()
+public:
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
+    UConsole* ViewportConsole;
+    
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
+    TArray<FDebugDisplayProperty> DebugProperties;
+    
+protected:
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
+    UWorld* World;
+    
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
+    UGameInstance* GameInstance;
+    
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, Transient, meta=(AllowPrivateAccess=true))
+    UTexture* BackgroundTexture;
+    
+public:
+    UGameViewportClient();
+
+    UFUNCTION(BlueprintCallable, Exec)
+    void SSSwapControllers();
+    
+    UFUNCTION(BlueprintCallable, Exec)
+    void ShowTitleSafeArea();
+    
+    UFUNCTION(BlueprintCallable, Exec)
+    void SetConsoleTarget(int32 PlayerIndex);
+    
+};
+

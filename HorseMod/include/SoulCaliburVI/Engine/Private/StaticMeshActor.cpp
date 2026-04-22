@@ -1,0 +1,13 @@
+#include "StaticMeshActor.h"
+#include "StaticMeshComponent.h"
+
+AStaticMeshActor::AStaticMeshActor(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {
+    this->bCanBeDamaged = false;
+    this->bCanBeInCluster = true;
+    this->RootComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StaticMeshComponent0"));
+    this->StaticMeshComponent = (UStaticMeshComponent*)RootComponent;
+    this->bStaticMeshReplicateMovement = false;
+    this->NavigationGeometryGatheringMode = ENavDataGatheringMode::Default;
+}
+
+

@@ -1,0 +1,10 @@
+#include "AnimationRecordingSettings.h"
+
+FAnimationRecordingSettings::FAnimationRecordingSettings() {
+    this->bRecordInWorldSpace = false;
+    this->bRemoveRootAnimation = false;
+    this->bAutoSaveAsset = false;
+    this->SampleRate = 0.00f;
+    this->Length = 0.00f;
+}
+

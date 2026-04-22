@@ -1,0 +1,17 @@
+#pragma once
+#include "CoreMinimal.h"
+//CROSS-MODULE INCLUDE V2: -ModuleName=CoreUObject -ObjectName=LinearColor -FallbackName=LinearColor
+#include "MaterialExpressionParameter.h"
+#include "MaterialExpressionVectorParameter.generated.h"
+
+UCLASS(Blueprintable, CollapseCategories, MinimalAPI)
+class UMaterialExpressionVectorParameter : public UMaterialExpressionParameter {
+    GENERATED_BODY()
+public:
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
+    FLinearColor DefaultValue;
+    
+    UMaterialExpressionVectorParameter();
+
+};
+

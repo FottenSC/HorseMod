@@ -1,0 +1,60 @@
+# ============================================================================
+# HorseMod — .gitignore
+# ============================================================================
+
+# --- Build outputs ----------------------------------------------------------
+build_cmake_*/
+build/
+out/
+target/              # Rust (RE-UE4SS has patternsleuth crate)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# --- Intermediate / object files -------------------------------------------
+*.o
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.ipdb
+*.iobj
+*.tlog
+*.res
+*.rsp
+
+# --- Binaries (we don't ship the .dll from the repo; CI or local build) ----
+*.dll
+*.exe
+*.lib
+*.pyc
+__pycache__/
+
+# Exception: keep third-party vendored import libs shipped by RE-UE4SS
+# (GLFW pre-built archives).
+!RE-UE4SS/deps/third/GLFW/lib-vc2022/*.lib
+
+# --- Ghidra scratch dumps (local investigation output) ---------------------
+_decomp_tmp.c
+_tmp_func.c
+decomp.c
+*.ghidra_dump.c
+
+# --- IDE / editor metadata --------------------------------------------------
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.vcxproj.filters
+*.swp
+*~
+
+# --- OS metadata ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# --- Logs / temp ------------------------------------------------------------
+*.log
+tmp/

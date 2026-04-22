@@ -1,0 +1,6 @@
+#include "LuxCreationDisplayOptionWeaponVisibilitySelectWindowConfig.h"
+
+ULuxCreationDisplayOptionWeaponVisibilitySelectWindowConfig::ULuxCreationDisplayOptionWeaponVisibilitySelectWindowConfig() {
+}
+
+

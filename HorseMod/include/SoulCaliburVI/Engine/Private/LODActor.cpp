@@ -1,0 +1,12 @@
+#include "LODActor.h"
+#include "StaticMeshComponent.h"
+
+ALODActor::ALODActor(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {
+    this->bCanBeDamaged = false;
+    this->RootComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StaticMeshComponent0"));
+    this->StaticMeshComponent = (UStaticMeshComponent*)RootComponent;
+    this->LODDrawDistance = 5000.00f;
+    this->LODLevel = 0;
+}
+
+

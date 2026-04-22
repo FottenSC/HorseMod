@@ -1,0 +1,25 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "PanelWidget.h"
+#include "GridPanel.generated.h"
+
+class UGridSlot;
+class UWidget;
+
+UCLASS(Blueprintable)
+class UMG_API UGridPanel : public UPanelWidget {
+    GENERATED_BODY()
+public:
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
+    TArray<float> ColumnFill;
+    
+    UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
+    TArray<float> RowFill;
+    
+    UGridPanel();
+
+    UFUNCTION(BlueprintCallable)
+    UGridSlot* AddChildToGrid(UWidget* Content);
+    
+};
+
