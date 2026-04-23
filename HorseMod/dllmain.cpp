@@ -85,6 +85,7 @@
 #include "horselib/CamLock.hpp"
 #include "horselib/VFXOff.hpp"
 #include "horselib/GamePause.hpp"
+#include "horselib/CharaInvis.hpp"
 
 #include <Mod/CppUserModBase.hpp>
 #include <UE4SSProgram.hpp>
@@ -336,17 +337,30 @@ private:
     std::atomic<bool> m_lock_camera{false};
 
     // ---- Hide characters ----------------------------------------------------
-    // Toggles both ALuxBattleChara's SetCharacterVisibility(false) every
-    // frame while held.  Same shape as the weapon-hide path: re-apply ON
-    // every frame to fight game-driven re-shows, and call once with
-    // true on the ON->OFF edge to restore.
+    // Bytepatch port of somberness's CE "Invisible" cheat — see
+    // horselib/CharaInvis.hpp for the full disassembly walk.
+    //
+    // Replaces the earlier per-frame SetCharacterVisibility(false) UFunction
+    // re-apply loop.  That approach worked for normal moves but flickered
+    // visibility ON for one frame on certain moves (Critical Edges, super
+    // intros, transformations) because:
+    //   * The cockpit hook fires during Slate tick (BEFORE world tick).
+    //   * Engine's chara-tick during world tick would re-set the visibility
+    //     flag back to "visible" as part of the move's state machine.
+    //   * Render then drew the chara visible for that one frame.
+    //   * Our next cockpit-tick re-hid it, producing the flicker.
+    //
+    // The new approach inverts the engine's own visibility-compare
+    // instructions inside ALuxBattleChara_SyncMoveStateVisibility so that
+    // every read of the visibility flag now produces "hidden" — eliminating
+    // the race because we're INSIDE the read path, not racing the writes.
     //
     // Useful when you're diagnosing hitbox shapes on a specific move —
     // the character mesh and its skirt/cape/hair occlude the volumes.
     // Hitboxes are part of the gameplay skeleton, not the mesh, so they
     // keep updating fine while the mesh is invisible.
+    Horse::CharaInvis m_chara_invis{};
     std::atomic<bool> m_hide_chara{false};
-    std::atomic<bool> m_last_applied_hide_chara{false};
 
     // ---- Suppress VFX -------------------------------------------------------
     // Bytepatch port of somberness's CE "VFX off" cheat — see
@@ -710,18 +724,11 @@ private:
         // instances of the class.
         static Horse::Fn s_fn_set_weapon_vis;
 
-        // ---- Character-mesh visibility snapshot -------------------------
-        // Same pattern as weapons above.  SetCharacterVisibility is the
-        // sibling BlueprintCallable on ALuxBattleChara — it drives the
-        // mesh's bHiddenInGame without disabling simulation, so hitboxes,
-        // inputs, and move processing continue to run while the model is
-        // invisible.  We still re-apply every frame when ON to fight back
-        // against cinematic cues / state cleanups that un-hide it, and
-        // once on the ON->OFF transition to restore.
-        const bool hide_chara_now    = m_hide_chara.load();
-        const bool was_hiding_chara  = m_last_applied_hide_chara.load();
-        const bool apply_chara_vis   = hide_chara_now || was_hiding_chara;
-        static Horse::Fn s_fn_set_chara_vis;
+        // ---- Character-mesh visibility ----------------------------------
+        // Now handled by Horse::CharaInvis bytepatches (see ImGui block
+        // for the toggle).  No per-frame UFunction call here — the
+        // patch lives inside the engine's own visibility-getter so it
+        // works invariantly across all move states without flicker.
 
         m_lux.forEachChara([&](int i, Horse::Obj chara) {
             if (i >= 2) return;  // only P1 / P2; ignore spectators
@@ -736,14 +743,6 @@ private:
                 struct { bool bVisible; } p{ !hide_weapons_now };
                 chara.callRaw(s_fn_set_weapon_vis,
                               L"SetWeaponVisibility", &p);
-            }
-
-            // Mirror for the character mesh itself.
-            if (apply_chara_vis)
-            {
-                struct { bool bVisible; } p{ !hide_chara_now };
-                chara.callRaw(s_fn_set_chara_vis,
-                              L"SetCharacterVisibility", &p);
             }
 
             // Snapshot this player's three toggles once per chara so the
@@ -845,7 +844,6 @@ private:
         if (charas_seen > 0)
         {
             m_last_applied_hide_weapons.store(hide_weapons_now);
-            m_last_applied_hide_chara.store(hide_chara_now);
         }
 
         m_backend.endFrame();
@@ -1395,21 +1393,37 @@ private:
                 }
             }
 
-            // --- Hide characters ---------------------------------------
+            // --- Hide characters (bytepatch, no flicker) ---------------
+            // Inverts the engine's own visibility-compare instructions
+            // inside ALuxBattleChara_SyncMoveStateVisibility — the
+            // chara stays hidden through every move state including
+            // critical edges and transformations that previously caused
+            // 1-frame flickers.  See horselib/CharaInvis.hpp.
             bool hc = m_hide_chara.load();
             if (ImGui::Checkbox("Hide characters", &hc))
+            {
                 m_hide_chara.store(hc);
+                m_chara_invis.set(hc);
+            }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Hide both characters' meshes while leaving simulation\n"
-                "(inputs, collision, hitboxes, move processing) fully\n"
-                "active.  Handy for isolating raw hitbox geometry when\n"
-                "the model itself obscures what you're trying to see.\n\n"
-                "Uses ALuxBattleChara::SetCharacterVisibility(bool) — a\n"
-                "BlueprintCallable UFunction on the battle chara class.\n"
-                "Re-applied every frame while on, so cinematic visibility\n"
-                "cues are overridden.  Turning the toggle off calls\n"
-                "SetCharacterVisibility(true) once per chara and then\n"
-                "leaves the state alone.");
+                "Hide both characters' meshes (and attached components —\n"
+                "hair tassels, skirts, accessories) while leaving\n"
+                "simulation fully active.  Hitboxes are part of the\n"
+                "gameplay skeleton, not the mesh, so they keep updating\n"
+                "fine while the model is invisible.\n\n"
+                "Implemented as two single-byte patches inside\n"
+                "ALuxBattleChara_SyncMoveStateVisibility — flips the\n"
+                "engine's own visibility-compare instructions so the\n"
+                "renderer reads 'hidden' regardless of move-state\n"
+                "writes.  No flicker on critical edges, supers, or\n"
+                "transformations.\n\n"
+                "Ported from somberness's CE 'Invisible' cheat.");
+
+            if (!m_chara_invis.is_resolved() && hc)
+            {
+                ImGui::TextDisabled(
+                    "(chara-invis AOB did not resolve — check log)");
+            }
 
             // --- Suppress VFX ------------------------------------------
             // Bytepatch port of somberness's CE "VFX off" cheat.
