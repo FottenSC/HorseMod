@@ -86,6 +86,7 @@
 #include "horselib/VFXOff.hpp"
 #include "horselib/GamePause.hpp"
 #include "horselib/CharaInvis.hpp"
+#include "horselib/SpeedControl.hpp"
 
 #include <Mod/CppUserModBase.hpp>
 #include <UE4SSProgram.hpp>
@@ -361,6 +362,29 @@ private:
     // keep updating fine while the mesh is invisible.
     Horse::CharaInvis m_chara_invis{};
     std::atomic<bool> m_hide_chara{false};
+
+    // ---- Speed control (slow-motion / freeze) -------------------------------
+    // Bytepatch port of somberness's CE "Speed control v2" cheat — see
+    // horselib/SpeedControl.hpp for the full disassembly walk and the
+    // user contract.
+    //
+    // 5 trampolines hijack every load of the engine's master delta-time /
+    // time-dilation float and redirect it to a single user-controlled
+    // `speedval` slot in the CodeCave.  Result: the LuxMoveVM simulation
+    // (animations, hit timing, opcode-stream execution, motion-object
+    // advancement) all scale uniformly with speedval.
+    //
+    //   speedval = 0.0   → frozen
+    //   speedval = 0.05  → 20× slow-mo (great for active-frame inspection)
+    //   speedval = 0.1   → 10× slow-mo
+    //   speedval = 0.5   → half speed
+    //   speedval = 1.0   → normal
+    //
+    // Independent of the GamePause toggle and the F6 step hotkey — they
+    // gate different mechanisms and stack cleanly.
+    Horse::SpeedControl m_speed_control{};
+    std::atomic<bool>   m_speed_enabled{false};
+    std::atomic<float>  m_speed_value{1.0f};
 
     // ---- Suppress VFX -------------------------------------------------------
     // Bytepatch port of somberness's CE "VFX off" cheat — see
@@ -1390,6 +1414,95 @@ private:
                 else if (m_game_pause.is_paused())
                 {
                     ImGui::TextDisabled("(paused — F6 to step)");
+                }
+            }
+
+            // --- Speed control (slow-motion / freeze) ------------------
+            // Replaces the engine's master delta-time reads with a load
+            // from a single user-controlled float.  Independent of the
+            // Freeze-frame toggle above — Freeze gates the chara state
+            // machine, this gates ALL dt-driven subsystems (animation,
+            // hit timing, particles within the MoveVM scope).
+            //
+            // First click on the checkbox installs the patches lazily;
+            // subsequent slider drags just live-update the float.  The
+            // preset buttons use common analysis values; type any value
+            // 0.0..2.0 in the slider for fine tuning.
+            {
+                bool sc_on = m_speed_enabled.load();
+                if (ImGui::Checkbox("Slow-motion", &sc_on))
+                {
+                    m_speed_enabled.store(sc_on);
+                    if (sc_on && !m_speed_control.is_enabled())
+                    {
+                        if (!m_speed_control.is_resolved())
+                            m_speed_control.resolve();
+                        // Push current slider value into speedval BEFORE
+                        // enabling so the first frame after enable reads
+                        // the right rate (default 1.0 = no-op).
+                        m_speed_control.set_value(m_speed_value.load());
+                        m_speed_control.enable();
+                    }
+                    else if (!sc_on)
+                    {
+                        m_speed_control.disable();
+                    }
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Scale the simulation rate.  Hijacks 5 engine reads of\n"
+                    "the master delta-time / time-dilation float and\n"
+                    "redirects them to the slider value below.\n\n"
+                    "Independent of Freeze frame — both stack cleanly.\n\n"
+                    "Ported from somberness's CE 'Speed control v2' cheat.");
+
+                // Slider only meaningful when the patches are live; we
+                // still allow drag while off so the user can pre-set
+                // their target value before flipping on.
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(140.0f);
+                float sv = m_speed_value.load();
+                if (ImGui::SliderFloat("##speedval", &sv, 0.0f, 2.0f, "%.3fx"))
+                {
+                    if (sv < 0.0f) sv = 0.0f;
+                    if (sv > 2.0f) sv = 2.0f;
+                    m_speed_value.store(sv);
+                    if (m_speed_control.is_enabled())
+                        m_speed_control.set_value(sv);
+                }
+
+                // Preset buttons for common hitbox-analysis speeds.
+                // Values match the CE author's hotkey presets plus a
+                // 0.5 added for general "slow but watchable" use.
+                struct Preset { const char* label; float value; };
+                static const Preset kPresets[] = {
+                    {"Freeze##sp",   0.0f },
+                    {"0.001x##sp",   0.001f },
+                    {"0.01x##sp",    0.01f },
+                    {"0.1x##sp",     0.1f },
+                    {"0.5x##sp",     0.5f },
+                    {"1x##sp",       1.0f },
+                };
+                for (const auto& p : kPresets)
+                {
+                    if (ImGui::SmallButton(p.label))
+                    {
+                        m_speed_value.store(p.value);
+                        if (m_speed_control.is_enabled())
+                            m_speed_control.set_value(p.value);
+                    }
+                    ImGui::SameLine();
+                }
+                ImGui::NewLine();
+
+                if (!m_speed_control.is_resolved() && sc_on)
+                {
+                    ImGui::TextDisabled(
+                        "(speed-control AOBs did not resolve — check log)");
+                }
+                else if (m_speed_control.is_enabled())
+                {
+                    ImGui::TextDisabled("(active — speedval = %.3fx)",
+                                        m_speed_value.load());
                 }
             }
 
