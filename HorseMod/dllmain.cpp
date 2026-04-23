@@ -182,6 +182,27 @@ private:
     // frame?".
     std::atomic<bool> m_hide_not_damage_active{false};
 
+    // "Per-frame damage-active only" filter — strictly tighter than
+    // m_hide_not_damage_active.  When ON, hide every attack node whose
+    // +0x17 slot bit is NOT set in the chara's PER-FRAME damage mask
+    // (computed by mirroring the engine's pMoveVMCell lookup at
+    // 0x14033cca0; see KHitWalker::readPerFrameDamageMask).
+    //
+    // Why this matters: m_hide_not_damage_active reads
+    // **(chara+0x44058), which is set ONCE PER MOVE-SLOT (in
+    // LuxMoveVM_SetActiveMoveSlot @ 0x140300c70) and stays constant
+    // through startup / active / recovery.  As a result hitboxes
+    // appear "damage-active" through the entire move duration even
+    // though damage is only dealt during the active-frame window.
+    //
+    // The per-frame mask follows the move's authored sub-frame
+    // timeline: it turns OFF during startup, ON during damage frames,
+    // OFF during recovery — exactly what hitbox-data analysis wants.
+    // Default OFF (additive over the existing toggles); typically
+    // used together with m_hide_cold_atk to slice down to "only the
+    // currently-dealing-damage volume".
+    std::atomic<bool> m_hide_not_per_frame_active{false};
+
     // "Addressable hurtboxes only" filter — hurtbox classifier gate.
     //
     // Correction to an earlier attempt at a +0x14-based "live hurtboxes"
@@ -732,6 +753,7 @@ private:
             const bool show_body       = shouldShow(pi, Horse::KHitList::Body   );
             const bool hide_cold_atk   = m_hide_cold_atk.load();
             const bool hide_not_dmg    = m_hide_not_damage_active.load();
+            const bool hide_not_pf     = m_hide_not_per_frame_active.load();
             const bool hide_unaddr_hurt = m_hide_unaddressable_hurt.load();
             if (!show_hurt && !show_atk && !show_body) return;
 
@@ -788,6 +810,14 @@ private:
                             // during neutral and only lights up on real
                             // active frames.
                             if (hide_not_dmg && !d.is_damage_active) return;
+                            // Per-frame damage gate — strictest of the
+                            // three "is this attack live" filters.
+                            // Hides the box during startup AND recovery
+                            // within the same move-slot, leaving only
+                            // the engine-authored damage-window frames
+                            // visible.  Independent of the other two,
+                            // so users can stack them or use just this.
+                            if (hide_not_pf && !d.is_per_frame_active) return;
                             break;
                         case Horse::KHitList::Body:
                             if (!show_body) return;
@@ -1108,6 +1138,46 @@ private:
                 "On : strongest 'currently hitting' filter.\n"
                 "Off: show all geometry-live attacks (respects +0x14 if\n"
                 "     that filter is also on).");
+        }
+
+        // --- Per-frame damage-active only (move sub-frame cell) ----------
+        // STRICTEST of the three "is this attack live" filters.  Mirrors
+        // the engine's pMoveVMCell lookup at 0x14033cca0: walks
+        // chara+0x44dc2 (current sub-frame id) + chara+0x455c0 (move
+        // bank base) to fetch the per-sub-frame damage bitmask, then
+        // tests this node's slot bit in it.
+        //
+        // Difference vs. "Damage-active only" above:
+        //  • +0x44058 (above) is set ONCE per move-slot in
+        //    LuxMoveVM_SetActiveMoveSlot (0x140300c70) and stays put
+        //    through startup/active/recovery — so a hitbox shows
+        //    "damage-active" through the entire move duration.
+        //  • The per-frame mask follows the move's authored sub-frame
+        //    timeline, switching off during pre-active and post-active
+        //    frames just like the engine's hit-detection does.
+        //
+        // Use this to answer "exactly which frames does this hitbox
+        // deal damage on?" — which is what frame-data analysis wants.
+        {
+            bool pf = m_hide_not_per_frame_active.load();
+            if (ImGui::Checkbox("Per-frame damage-active only (sub-frame cell)", &pf))
+                m_hide_not_per_frame_active.store(pf);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "When on, hide attack-list nodes whose slot bit is not\n"
+                "set in the engine's PER-FRAME damage mask for this\n"
+                "chara's currently-active move sub-frame.\n\n"
+                "Strictly tighter than 'Damage-active only' above:\n"
+                " • Damage-active reads *chara[+0x44058], a per-move\n"
+                "   mask set on slot transition — stays on through the\n"
+                "   whole move including startup and recovery.\n"
+                " • Per-frame reads the move-data sub-frame cell,\n"
+                "   which advances each frame and turns off outside\n"
+                "   the authored damage window.\n\n"
+                "On  : answers 'does this hitbox deal damage on THIS\n"
+                "      frame?'.  Useful for frame-data analysis —\n"
+                "      step the game with F6 and watch the box appear\n"
+                "      only during the move's active frames.\n"
+                "Off : ignore this filter (the other gates still run).");
         }
 
         // --- Addressable hurtboxes only (classifier-range gate) ----------

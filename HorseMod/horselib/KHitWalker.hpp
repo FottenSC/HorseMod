@@ -265,6 +265,36 @@ namespace Horse
         constexpr uintptr_t OpponentActiveAttackCellCopy  = 0x44048;  // u64** -> u64 mask at [0]
         constexpr uintptr_t CurrentActiveAttackCell       = 0x44048;  // legacy alias
 
+        // --- Per-frame damage-mask lookup inputs ----------------------------
+        // The mask at **(chara+0x44058) is set ONCE PER MOVE-SLOT (inside
+        // LuxMoveVM_SetActiveMoveSlot @ 0x140300c70) and stays constant
+        // across that slot's startup / active / recovery frames.  For a
+        // frame-accurate "is this slot dealing damage RIGHT NOW" answer
+        // we have to mirror the exact lookup TickHitResolutionAndBody
+        // Collision (0x14033cca0) does each frame:
+        //
+        //   moveSubId = *(uint16_t*)(chara + 0x44dc2);     // current sub-frame id
+        //   bankBase  = *(void**   )(chara + 0x455c0);     // MoveVM bank base
+        //   subBank   = (moveSubId >> 12) & 0xF;            // 0..15 sub-bank index
+        //   subOff    = *(uint16_t*)(bankBase + (subBank + 7)*4);
+        //   subCnt    = *(uint16_t*)(bankBase + 0x1e + subBank*4);
+        //   frameIdx  = moveSubId & 0x7FF;
+        //   if (frameIdx < subCnt) {
+        //       sfRec    = bankBase + (subOff + frameIdx)*0x48 + 0x30;
+        //       cellBone = *(int16_t*)(sfRec + 0x3c);
+        //       cell     = (uint64_t*)(bankBase
+        //                             + *(uint32_t*)(bankBase + 0x10)
+        //                             + cellBone * 0x70);
+        //       perFrameMask = *cell;   // <-- per-frame damage gate
+        //   }
+        //
+        // `bankBase` is the MoveVM's per-chara bank pointer (one per
+        // chara, swapped on move change).  `moveSubId` advances each
+        // game frame as the move animation plays; multiple sub-frames
+        // can share the same `cellBone` when the move is in a hold.
+        constexpr uintptr_t MoveCurrentSubFrameId   = 0x44dc2;  // uint16
+        constexpr uintptr_t MoveBankBasePtr         = 0x455c0;  // void*
+
         // Body / pushbox list — pure physics, no damage.
         // Written / iterated by LuxBattle_SolvePhysBodyCollision @ 0x14030CCF0
         // via `chara + 0x44078 + 0x400 = chara + 0x44478`.
@@ -612,14 +642,39 @@ namespace Horse
 
         // True when this attack node's +0x17 slot bit is ALSO set in
         // this chara's own active-attack-cell mask
-        // (*(u64*)(chara+0x44058))[0].  That's the move-authored
-        // "this slot is dealing damage right now" mask.  Combined with
-        // +0x14, this is the full predicate the classifier uses to
-        // light up PerHurtboxBitmask and write reactions.  Use this
-        // field (not is_current_attack) if you want "only show the
-        // attack volume the current move is CURRENTLY trying to hit
-        // with".  Always false for hurtbox / body entries.
+        // (*(u64*)(chara+0x44058))[0].  That mask is set ONCE PER
+        // MOVE-SLOT (in LuxMoveVM_SetActiveMoveSlot @ 0x140300c70) so
+        // it stays constant across the whole move duration including
+        // pre-damage startup AND post-damage recovery — which means
+        // this filter shows hitboxes as "active" through the entire
+        // move, not just the damage frames.  Always false for
+        // hurtbox / body entries.
+        //
+        // For a strictly tighter "actually dealing damage THIS frame"
+        // signal, use `is_per_frame_active` below instead.
         bool        is_damage_active;
+
+        // True when this attack node's +0x17 slot bit is set in the
+        // PER-FRAME damage mask (MoveVM sub-frame cell), which IS
+        // tied to the current animation frame and DOES advance through
+        // startup / active / recovery.  Computed by mirroring the
+        // pMoveVMCell lookup that LuxBattle_TickHitResolutionAndBody
+        // Collision (0x14033cca0) does each frame.  See
+        // KHitWalker::readPerFrameDamageMask for the full pointer
+        // chain.
+        //
+        // This is the strictest "the engine considers this slot live
+        // for damage on THIS frame" predicate available without
+        // hooking the move-state machine.  The user-visible difference
+        // vs. is_damage_active: this turns OFF during startup frames
+        // (move announced but no damage yet), the active-frame window
+        // only, and turns OFF during recovery — exactly what hitbox
+        // researchers want for frame-data analysis.
+        //
+        // Always false for hurtbox / body entries.  Returns false (no
+        // bits set) if the chara isn't currently in any move, which
+        // is the correct neutral-state behaviour.
+        bool        is_per_frame_active;
 
         // Raw `node[+0x14] != 0` for any list kind.  For ATTACK nodes
         // this is the GeometryActiveGate rewritten every tick from the
@@ -773,6 +828,98 @@ namespace Horse
             return (mask >> (slotByte & 0x3Fu)) & 1ull;
         }
 
+        // Read the chara's PER-FRAME damage mask — strictly tighter than
+        // readOwnAttackMask.  Mirrors the pMoveVMCell lookup that
+        // LuxBattle_TickHitResolutionAndBodyCollision (0x14033cca0)
+        // performs each frame to decide which slots are damage-active
+        // for the current sub-frame of the active move.  Returns 0 if:
+        //   - chara is null
+        //   - the chara isn't currently in a move (bank pointer null)
+        //   - any pointer-chase or bounds check fails (graceful — caller
+        //     just sees "no slot is active", which renders nothing).
+        //
+        // All loads are SafeRead-wrapped because we're chasing into game
+        // memory we don't own — the bank pointer, sub-frame record, and
+        // cell record are all owned by the MoveVM and could be torn down
+        // between our read and the engine's overwrite (e.g. mid-frame
+        // move transition).  Reading torn data via SafeRead returns 0
+        // for the offending qword; the worst-case observable effect is
+        // a 1-frame "all hidden" flash on a move transition.
+        //
+        // Cost: ~6 dependent loads per chara per frame.  Negligible vs.
+        // the per-node bone-transform call we already make per draw.
+        //
+        // CONSTANT REFERENCES (offsets confirmed against the current
+        // build by Ghidra at 0x140300c70 plate; see ChaOffsets above):
+        //   0x44dc2  uint16  current move sub-frame id
+        //   0x455c0  void*   MoveVM bank-base pointer
+        //   bank+0x10  uint32  cell-table byte offset (added to bank base)
+        //   bank+(0x1c+sb*4)  uint16  sub-frame count for sub-bank `sb`
+        //   bank+(0x1c+sb*4+4) uint16  sub-frame START offset (NB: original
+        //                              expression `(sb+7)*4` decodes to
+        //                              `0x1c + sb*4 + 4` = the entry
+        //                              immediately AFTER the count)
+        //   per sub-frame record (0x48 bytes, base = bank+0x30+(start+i)*0x48):
+        //     +0x3c  int16  cell bone index (selects which 0x70-byte cell)
+        //   per cell (0x70 bytes, base = bank + bank+0x10 + cellBone*0x70):
+        //     +0x00  uint64 active-slot bitmask  <-- THE per-frame damage gate
+        static uint64_t readPerFrameDamageMask(void* chara) noexcept
+        {
+            if (!chara) return 0;
+            auto* b = reinterpret_cast<uint8_t*>(chara);
+
+            // Step 1: chara state — current sub-frame id + bank base.
+            uint16_t moveSubId = 0;
+            if (!SafeReadUInt16(b + ChaOffsets::MoveCurrentSubFrameId,
+                                &moveSubId)) return 0;
+            void* bankBase = nullptr;
+            if (!SafeReadPtr(b + ChaOffsets::MoveBankBasePtr, &bankBase))
+                return 0;
+            const auto bbAddr = reinterpret_cast<uintptr_t>(bankBase);
+            if (bbAddr < 0x10000ULL || bbAddr > 0x00007fffffffffffULL)
+                return 0;
+            auto* bb = reinterpret_cast<uint8_t*>(bankBase);
+
+            // Step 2: pick sub-bank from the upper nibble; read its
+            // start-offset and count from the bank header.
+            const uint16_t subBank  = (moveSubId >> 12) & 0xF;
+            uint16_t subOff = 0;
+            uint16_t subCnt = 0;
+            if (!SafeReadUInt16(bb + (subBank + 7) * 4, &subOff)) return 0;
+            if (!SafeReadUInt16(bb + 0x1e + subBank * 4, &subCnt)) return 0;
+
+            // Step 3: bound-check the sub-frame index.  Out-of-range
+            // means we're outside the move's authored timeline — most
+            // commonly at the very start (frame 0) or after move-end
+            // before the engine clears state.
+            const uint16_t frameIdx = moveSubId & 0x7FF;
+            if (frameIdx >= subCnt) return 0;
+
+            // Step 4: locate the sub-frame record (0x48 bytes each;
+            // payload starts at +0x30 from bank base, so each record
+            // index `i` lives at bank + 0x30 + (subOff + i) * 0x48).
+            auto* sfRec = bb + (static_cast<size_t>(subOff) + frameIdx) * 0x48 + 0x30;
+            uint16_t cellBoneRaw = 0;
+            if (!SafeReadUInt16(sfRec + 0x3c, &cellBoneRaw)) return 0;
+            // The field is signed in the engine; high bit set = "no
+            // active cell this sub-frame" sentinel.  Treat as "no bits
+            // set" rather than wrapping into garbage during the cell-
+            // table address arithmetic below.
+            const int16_t cellBone = static_cast<int16_t>(cellBoneRaw);
+            if (cellBone < 0) return 0;
+
+            // Step 5: cell-table base lives at *(uint32*)(bankBase+0x10),
+            // ADDED to bankBase (not subtracted).  Each cell is 0x70 bytes;
+            // its first u64 is the active-slot bitmask.
+            uint32_t cellTableOff = 0;
+            if (!SafeReadUInt32(bb + 0x10, &cellTableOff)) return 0;
+            auto* cellPtr = bb + cellTableOff
+                          + static_cast<size_t>(cellBone) * 0x70;
+            uint64_t mask = 0;
+            if (!SafeReadUInt64(cellPtr, &mask)) return 0;
+            return mask;
+        }
+
         // Walk all three KHit lists on `chara` and yield draw primitives
         // to `visit(const KHitDraw&)`.
         //
@@ -849,6 +996,15 @@ namespace Horse
             // frame, no attack authored as live); every slot bit test
             // will then return false, which is what we want.
             const uint64_t own_attack_mask = readOwnAttackMask(list_chara);
+
+            // Pre-read THIS chara's PER-FRAME damage mask — strictly
+            // tighter than own_attack_mask.  Reflects the current
+            // sub-frame of the active move; turns off during startup
+            // and recovery within the same move-slot.  Same neutral
+            // behaviour as own_attack_mask: zero = nothing live this
+            // frame.  See KHitWalker::readPerFrameDamageMask for the
+            // pointer-chase rationale.
+            const uint64_t per_frame_mask = readPerFrameDamageMask(list_chara);
 
             // Pre-read the per-hurtbox reaction state table (22 × i32).
             //
@@ -992,15 +1148,18 @@ namespace Horse
             // --- Attack list -------------------------------------------------
             walkList(ue_chara, poseSelector, atk_head,
                      KHitList::Attack, active_cell, own_attack_mask,
-                     reactions_hot, hurt_slot_count, verbose, visit);
+                     per_frame_mask, reactions_hot, hurt_slot_count,
+                     verbose, visit);
             // --- Hurtbox list ------------------------------------------------
             walkList(ue_chara, poseSelector, hurt_head,
                      KHitList::Hurtbox, active_cell, own_attack_mask,
-                     reactions_hot, hurt_slot_count, verbose, visit);
+                     per_frame_mask, reactions_hot, hurt_slot_count,
+                     verbose, visit);
             // --- Body / pushbox list -----------------------------------------
             walkList(ue_chara, poseSelector, body_head,
                      KHitList::Body, active_cell, own_attack_mask,
-                     reactions_hot, hurt_slot_count, verbose, visit);
+                     per_frame_mask, reactions_hot, hurt_slot_count,
+                     verbose, visit);
         }
 
         // Throttle log output to ~twice per second at 60 FPS.
@@ -1052,6 +1211,7 @@ namespace Horse
                              KHitList listKind,
                              void* /*activeAttackCell — cross-chara, unused*/,
                              uint64_t ownAttackMask,
+                             uint64_t perFrameMask,
                              const int32_t (&reactions)[22],
                              int32_t hurtSlotCount,
                              bool verbose,
@@ -1136,6 +1296,14 @@ namespace Horse
                 d.is_damage_active      = (listKind == KHitList::Attack &&
                                            slotBitInMask(boneId,
                                                          ownAttackMask));
+                // Per-frame damage gate — strictly tighter than
+                // is_damage_active.  Off during startup/recovery within
+                // the same move; on only during the engine's "live for
+                // damage THIS frame" window.  See KHitDraw doc for the
+                // analysis-vs-runtime distinction.
+                d.is_per_frame_active   = (listKind == KHitList::Attack &&
+                                           slotBitInMask(boneId,
+                                                         perFrameMask));
                 d.stream_tag            = streamTag;
                 d.bone_id_internal      = boneId;
                 d.flags10               = flags10;
