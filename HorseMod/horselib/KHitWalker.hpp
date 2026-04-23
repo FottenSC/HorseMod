@@ -20,22 +20,173 @@
 // Per-chara list heads (relative to ALuxBattleChara*, which is the same
 // object as g_LuxBattle_CharaSlotP1 / P2):
 //
-//     +0x44478  KHitBase*  AttackListHead       (every attack node)
-//     +0x44490  int32      AttackListCount
-//     +0x44498  KHitBase*  HurtboxListHead      (every hurtbox node)
-//     +0x444B0  int32      HurtboxListCount
-//     +0x444B8  KHitBase*  BodyListHead         (pushbox / body volumes)
-//     +0x444B4  int32      BodyListCount
-//     +0x44048  KHitBase*  CurrentActiveAttackCell  (null unless attack hot)
-//     +0x1c74   int32[22]  PerHurtboxReactionState (non-zero after a hit)
+//     +0x44478  KHitBase*  BodyListHead         (neither deal nor receive
+//                                                damage — pushbox used by
+//                                                LuxBattle_SolvePhysBodyCollision
+//                                                @ 0x14030CCF0 for
+//                                                character-to-character
+//                                                physical pushing.  Proof:
+//                                                tick @ 0x14033CCA0 calls
+//                                                SolvePhysBodyCollision with
+//                                                CharaSlot+0x44078, and inside
+//                                                SolvePhys iterates
+//                                                param_1+0x400 = chara+0x44478.)
+//     +0x44498  KHitBase*  AttackListHead       (deal damage or initiate a
+//                                                grab.  The CategoryMask at
+//                                                node+0x08 drives classifier
+//                                                decisions.  Proof: tick pass
+//                                                in LuxBattleChara_
+//                                                UpdateAllKHitWorldCenters
+//                                                @ 0x14030D6A0 iterates this
+//                                                list as the ATTACKER side,
+//                                                OR'ing each node's +0x08
+//                                                into opponent's
+//                                                PerHurtboxBitmask slot.
+//                                                Also: tick @ 0x14033CCA0
+//                                                activates nodes here via
+//                                                `*(node+0x14) =
+//                                                (hotMask >> node[+0x17]) & 1`.)
+//     +0x444B8  KHitBase*  HurtboxListHead      (receive damage.  Each
+//                                                node's +0x17 BoneId byte
+//                                                indexes PerHurtboxBitmask[i]
+//                                                and PerHurtboxReactionState[i].
+//                                                Proof:
+//                                                UpdateAllKHitWorldCenters
+//                                                iterates this list as the
+//                                                DEFENDER side, using node
+//                                                +0x17 as the slot index.)
+//     +0x44494  int32      HurtboxSlotCount     (bound read by classifier at
+//                                                LuxBattle_ResolveAttackVsHurtbox
+//                                                Mask22 @ 0x14033C100 to
+//                                                iterate PerHurtboxBitmask[22].
+//                                                NOT positionally adjacent to
+//                                                the hurtbox list head — the
+//                                                Lux engine happens to store
+//                                                it next to the attack list
+//                                                head.  Equals 22 in practice.)
+//     +0x44048  KHitBase*  CurrentActiveAttackCell  (CROSS-CHARA: copied
+//                                                from OPPONENT chara's
+//                                                +0x44058 each tick, so
+//                                                comparing it to nodes in
+//                                                THIS chara's attack list
+//                                                will never match.  Use
+//                                                node+0x14 (engine's own
+//                                                per-frame active gate) to
+//                                                decide "hot" instead.)
+//     +0x44078  u64[22]    PerHurtboxBitmask    (defender-side aggregation —
+//                                                bitmask of attacking
+//                                                categories hitting hurtbox i)
+//     +0x1c74   int32[22]  PerHurtboxReactionState (classifier output:
+//                                                0=None 1=Hit 2=BlockedLow
+//                                                3=BlockedHigh 4=MH_Loser
+//                                                6=Tech 8=MH_Winner 9=AirHit
+//                                                10=MH_Trade B=WallSplat
+//                                                C=Stagger — see enum
+//                                                LuxHitReactionState in
+//                                                Ghidra)
+//
+// Historical note
+// ---------------
+// Earlier revisions of this file (and the corresponding Ghidra plate on
+// LuxBattle_TickHitResolutionAndBodyCollision @ 0x14033CCA0) had the
+// three list heads rotated:  +0x44478 was labelled "AttackListHead",
+// +0x44498 was labelled "HurtboxListHead", +0x444B8 was labelled
+// "BodyListHead".  That mislabelling is why attack boxes in the overlay
+// appeared to never make contact with the opponent on hit — the boxes
+// labelled "attack" were the pushbox list, not the damage list.  The
+// labels above are the corrected mapping, cross-verified in Ghidra.
+//
+// Engine-derived role categorisation (the RIGHT way to categorise)
+// ----------------------------------------------------------------
+// Instead of inventing size-based buckets, we follow the engine's own
+// partition.  Two pieces fit together:
+//
+//   (1) At stream-deserialise time, BOTH KHitChk_InitSphereFromStream
+//       @ 0x14030E0D0 and KHitChk_InitAreaFromStream @ 0x14030E3A0 do:
+//
+//           node[+0x08] = 1ULL << (streamByte[2] & 0x3F);
+//           node[+0x17] = streamByte[2];
+//
+//       So node+0x08 is a SINGLE-BIT value whose position is taken
+//       directly from the authored +0x17 slot index (0..63).
+//
+//   (2) At classify time, LuxBattle_ResolveAttackVsHurtboxMask22
+//       @ 0x14033C100 partitions the 64-slot mask space into two
+//       disjoint regions:
+//
+//           THROW / GRAB  — bits 31 and 55           (0x80000080000000)
+//           STRIKE        — every other bit          (0xFF7FFFFF7FFFFFFF)
+//
+// Combining the two: an Attack-list node authored with +0x17 == 31 or
+// 55 IS a throw; anything else IS a strike.  The classifier also does
+// a throw pre-scan (any throw bit present in the active-move mask ->
+// grab-transition logic fires before the per-hurtbox strike loop),
+// which is why we treat throw bits as taking priority in
+// ClassifyAttackRole below.  We expose the same split in the UI as
+// "Strike" and "Throw" toggles gating the AttackList only.
+//
+// The three lists therefore answer the user's three questions directly:
+//   * AttackList  → entries that DEAL damage (or initiate a grab if the
+//                   throw bits are set in the CategoryMask).
+//   * HurtboxList → entries that RECEIVE damage / reactions.
+//   * BodyList    → "other" — character-to-character pushing (physics).
+//                   Not involved in hit resolution.
 //
 // KHitBase common header (0xA0 = 160 bytes total per node):
 //     +0x00  void* Vtable
-//     +0x08  u64   BoneBitFlag
-//     +0x10  u32   Flags10                   (attack id / region id)
-//     +0x14  u16   IsAreaFlag = 1
+//     +0x08  u64   PerAttackerBit  = 1ULL << (authored_slot & 0x3F)
+//                                    (SlotByte is stream byte[2], mirrored
+//                                     into +0x17 as well)
+//     +0x10  u32   Node_Flags10              AUTHORED, WRITE-ONLY.
+//                                            Copied verbatim from the compiled
+//                                            stream (dword at byte offset 4)
+//                                            by all three init paths
+//                                            (InitSphereFromStream,
+//                                             InitAreaFromStream, inlined
+//                                             FixArea branch in
+//                                             Lux_KHitChk_DeserializeLinkedList).
+//                                            GHIDRA AUDIT (Apr 2026):
+//                                              no runtime reader in the hit
+//                                              pipeline — TickHitResolution,
+//                                              UpdateAllKHitWorldCenters,
+//                                              OverlapTest_vt10,
+//                                              Sphere/Area UpdateWorldCenter,
+//                                              ResolveAttackVsHurtboxMask22,
+//                                              and the net Write/Read
+//                                              serialisers all skip this
+//                                              field. Preserved Namco moveset-
+//                                              editor round-trip metadata;
+//                                              DO NOT classify or gate boxes
+//                                              on it. Classification lives in
+//                                              PerAttackerBit (+0x08) slot
+//                                              partitioning +
+//                                              ReactionCategoryByte
+//                                              (chara+0x1992).
+//     +0x14  u16   ActiveThisFrame           GeometryActiveGate — written
+//                                            per-frame by
+//                                            LuxBattle_TickHitResolutionAnd
+//                                            BodyCollision from the MoveVM
+//                                            hotMask:
+//                                              node[+0x14] =
+//                                                (hotMask >> node[+0x17]) & 1
+//                                            hotMask has a permanent floor
+//                                            of 0x3FFFD (slots {0, 2..17}
+//                                            always on). UpdateAllKHitWorld
+//                                            Centers short-circuits the
+//                                            overlap loop on both attacker
+//                                            and defender when this is 0.
 //     +0x16  u8    StreamTypeTag             (0=Sphere, 1=Area, 2=FixArea)
-//     +0x17  u8    StreamSubIdOrBoneId       (internal bone id — REMAP)
+//     +0x17  u8    SubIdOrBoneId             per-node slot byte 0..63. For
+//                                            attack nodes == slot index
+//                                            (drives the Strike/Throw
+//                                            partition in the 64-bit
+//                                            CategoryMask). For hurt/body
+//                                            nodes == defender bone slot,
+//                                            used directly as index into
+//                                            PerHurtboxBitmask[22] at
+//                                            chara+0x44078. Values 6/7
+//                                            additionally trigger the
+//                                            ground-clamp branch.
 //     +0x18  KHitBase* Next                  (list link, null-terminates)
 //
 // Subclass geometry:
@@ -74,6 +225,7 @@
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 
@@ -84,13 +236,69 @@ namespace Horse
     // ------------------------------------------------------------------
     namespace ChaOffsets
     {
-        constexpr uintptr_t CurrentActiveAttackCell = 0x44048;  // KHitBase*
-        constexpr uintptr_t AttackListHead          = 0x44478;  // KHitBase*
-        constexpr uintptr_t AttackListCount         = 0x44490;  // i32
-        constexpr uintptr_t HurtboxListHead         = 0x44498;  // KHitBase*
-        constexpr uintptr_t HurtboxListCount        = 0x444B0;  // i32
-        constexpr uintptr_t BodyListHead            = 0x444B8;  // KHitBase*
-        constexpr uintptr_t BodyListCount           = 0x444B4;  // i32
+        // Active-cell pointers for the classifier pipeline.  Relationship
+        // (verified in LuxBattle_TickHitResolutionAndBodyCollision
+        // @ 0x14033CCA0):
+        //
+        //   chara[+0x44058] = OwnActiveAttackCell
+        //     THIS chara's currently-active attack cell pointer, written
+        //     by the MoveVM from the current move's authored per-frame
+        //     timeline.  The pointee's first u64 is the 64-bit attacker
+        //     slot mask (which slots are "live for damage" this frame).
+        //
+        //   chara[+0x44048] = OpponentActiveAttackCellCopy
+        //     Copy of the OPPONENT's +0x44058, pulled each tick so
+        //     LuxBattle_ResolveAttackVsHurtboxMask22 can read a single
+        //     u64 mask from its own chara pointer without crossing
+        //     actors.  DO NOT pointer-compare this against nodes in
+        //     THIS chara's attack list — it belongs to the other chara's
+        //     list.
+        //
+        //   chara[+0x44060] / +0x44050 = counter-hit / alt-path mirror
+        //     of the above pair (same shape; drives throw-tier & CH
+        //     reseeding logic).
+        //
+        // The engine itself uses node+0x14 (see KHitOffsets::IsActiveThisFrame
+        // below) as the per-frame geometry/overlap gate; +0x44048 is the
+        // damage gate.  Both have to be set for a hit to fire.
+        constexpr uintptr_t OwnActiveAttackCell           = 0x44058;  // u64** -> u64 mask at [0]
+        constexpr uintptr_t OpponentActiveAttackCellCopy  = 0x44048;  // u64** -> u64 mask at [0]
+        constexpr uintptr_t CurrentActiveAttackCell       = 0x44048;  // legacy alias
+
+        // Body / pushbox list — pure physics, no damage.
+        // Written / iterated by LuxBattle_SolvePhysBodyCollision @ 0x14030CCF0
+        // via `chara + 0x44078 + 0x400 = chara + 0x44478`.
+        constexpr uintptr_t BodyListHead            = 0x44478;
+        constexpr uintptr_t BodyListCount           = 0x44470;  // head-0x8 (best-guess adjacency)
+
+        // Attack list — deals damage (or initiates a grab if throw bits set
+        // in the CategoryMask).  Iterated by UpdateAllKHitWorldCenters
+        // @ 0x14030D6A0 as the ATTACKER side; each node's +0x08
+        // CategoryMask is OR'd into opponent's PerHurtboxBitmask at the
+        // slot given by node+0x17.  Tick @ 0x14033CCA0 activates nodes
+        // here via `*(node+0x14) = (hotMask >> node[+0x17]) & 1`.
+        constexpr uintptr_t AttackListHead          = 0x44498;
+        constexpr uintptr_t AttackListCount         = 0x44490;          // head-0x8
+
+        // Hurtbox list — receives damage.  Iterated by
+        // UpdateAllKHitWorldCenters as the DEFENDER side;
+        // each node's +0x17 BoneId byte indexes PerHurtboxBitmask[i]
+        // and PerHurtboxReactionState[i].
+        constexpr uintptr_t HurtboxListHead         = 0x444B8;
+        constexpr uintptr_t HurtboxListCount        = 0x444B0;          // head-0x8
+
+        // Separate field: bound read by
+        // LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100 to iterate
+        // PerHurtboxBitmask[22] / PerHurtboxReactionState[22].  Equals 22
+        // in practice.  NOT adjacent to HurtboxListHead — it happens to
+        // live next to AttackListHead by coincidence of the Lux struct's
+        // layout, and is unrelated to the hurtbox list length field.
+        constexpr uintptr_t HurtboxSlotCount        = 0x44494;  // i32
+
+        // Defender-side aggregation mask — category bits of every ATTACK
+        // node currently touching hurtbox i.  Filled by the pre-scan in
+        // LuxBattle_ResolveAttackVsHurtboxMask22 before reaction classification.
+        constexpr uintptr_t PerHurtboxBitmask       = 0x44078;  // u64[22]
         constexpr uintptr_t PerHurtboxReactionState = 0x1C74;   // i32[22]
     }
 
@@ -100,11 +308,115 @@ namespace Horse
     namespace KHitOffsets
     {
         constexpr uintptr_t Vtable            = 0x00;
-        constexpr uintptr_t BoneBitFlag       = 0x08;
+        // +0x08 is a SINGLE-BIT u64 written by the deserialisers as
+        //     node[+0x08] = 1ULL << (node[+0x17] & 0x3F);
+        // — i.e. it is fully derived from the +0x17 slot byte.  Same
+        // value produced for every subclass; the interpretation is
+        // role-dependent:
+        //
+        //   * AttackList entries  → PerAttackerBit.  Tells the classifier
+        //                           which SLOT (bit position 0..63 in the
+        //                           current-move 64-bit mask) this box
+        //                           contributes to.  The bit's identity
+        //                           (via the strike/throw partition
+        //                           0x80000080000000 vs 0xFF7FFFFF7FFFFFFF)
+        //                           determines whether the box is a
+        //                           strike or a throw/grab.
+        //   * HurtboxList entries → PerHurtboxBit.  OR'd into the
+        //                           defender's PerHurtboxBitmask at
+        //                           slot (= +0x17) during the tick
+        //                           aggregation, so it's the receiving
+        //                           side's complement of PerAttackerBit.
+        //   * BodyList entries    → PerBodyBit.  Same shape; the body
+        //                           pipeline uses it for the physics
+        //                           pair de-dup table at +0x44278.
+        //
+        // We keep aliases for historical call sites that expected a
+        // "CategoryMask"-style u64; they all resolve to +0x08.
+        constexpr uintptr_t PerAttackerBit    = 0x08;   // Attack role  (1<<slotIdx)
+        constexpr uintptr_t PerHurtboxBit     = 0x08;   // Hurtbox role (1<<boneSlot)
+        constexpr uintptr_t BoneBitFlag       = 0x08;   // Hurtbox/Body (legacy alias)
+        constexpr uintptr_t CategoryMask      = 0x08;   // Attack       (legacy alias)
         constexpr uintptr_t Flags10           = 0x10;
-        constexpr uintptr_t IsAreaFlag        = 0x14;  // u16
-        constexpr uintptr_t StreamTypeTag     = 0x16;  // u8 (0/1/2)
-        constexpr uintptr_t BoneIdByte        = 0x17;  // u8 internal bone id
+        // +0x14 is the engine's per-frame "active" GEOMETRY gate — a
+        // i16 flag written every tick from the MoveVM hot bitmap via
+        //     *(int16_t*)(node + 0x14) = (hotMask >> node[+0x17]) & 1
+        // at LuxBattle_TickHitResolutionAndBodyCollision @ 0x14033CCA0.
+        //
+        // Crucial caveat (2026-04 walk of 0x14033CCA0): hotMask is NOT
+        // just the authored per-frame mask.  It's built as:
+        //
+        //     hotMask = 0x3FFFD                                 // FLOOR
+        //             | (animCellMask ? *animCellMask : 0)
+        //             | (ownActiveCell ? *ownActiveCell : 0);
+        //
+        // 0x3FFFD = 0b11_1111_1111_1111_1101 = slots {0, 2, 3, 4, ...,
+        // 17} forced on every frame.  So any attack-list node whose
+        // +0x17 is in that set ALWAYS has +0x14 = 1 regardless of what
+        // move is playing.  Only slot 1 and slots 18..63 actually
+        // respect the per-move timeline.
+        //
+        // Practical implication for mod authors and for the overlay:
+        // +0x14 is a "geometry is live" gate, not a "damage is live"
+        // gate.  A hit requires BOTH:
+        //   (a) node +0x14 != 0   (geometry/overlap pass)
+        //   (b) the node's +0x17 slot is also set in the classifier's
+        //       move-mask  *(u64*)(chara + 0x44048)[0]
+        // The screen crowding of "always-on" attack boxes (feet, hands,
+        // body points) comes from (a) passing via the 0x3FFFD floor
+        // while (b) is quietly empty during neutral frames.
+        //
+        // Ground-truth reader: the OR-aggregation loops at
+        // LuxBattleChara_UpdateAllKHitWorldCenters @ 0x14030D6A0
+        // short-circuit on `+0x14 != 0` for BOTH attacker and defender
+        // before running the overlap test:
+        //
+        //     for (atk  in AttackList ) if (atk [+0x14] != 0)
+        //       for (hurt in HurtboxList) if (hurt[+0x14] != 0)
+        //         if (overlap(atk, hurt))
+        //           defender.PerHurtboxBitmask[hurt[+0x17]] |= atk[+0x08];
+        //
+        // Earlier revisions called this field "IsAreaFlag" (it always
+        // read as 1 in the dumps we took, because we only ever dumped
+        // nodes that happened to be live at the time).  That was wrong.
+        constexpr uintptr_t IsActiveThisFrame = 0x14;  // i16 — live-this-frame (geometry)
+        constexpr uintptr_t IsAreaFlag        = 0x14;  // legacy alias
+
+        // Permanent hotMask floor.  Slots forced on every frame by
+        // LuxBattle_TickHitResolutionAndBodyCollision @ 0x14033CCA0
+        // before the per-move mask is OR'd in.  Slots in this mask
+        // always have +0x14 = 1 regardless of move state.
+        constexpr uint64_t kHotMaskAlwaysOn = 0x000000000003FFFDull;
+        constexpr uintptr_t StreamTypeTag     = 0x16;  // u8 (0/1/2) — see
+                                                       // KHitStreamType: the
+                                                       // ONLY values are
+                                                       // 0=Sphere, 1=Area,
+                                                       // 2=FixArea.
+        // +0x17 is authored as stream byte[2] and is SIMULTANEOUSLY:
+        //   - the per-slot bit index for +0x08 (1ULL << (+0x17 & 0x3F))
+        //   - a bone-like id used by LuxSkeletalBoneIndex_Remap for
+        //     world-centre updates and for indexing the defender
+        //     PerHurtboxBitmask array in UpdateAllKHitWorldCenters.
+        //
+        // Role-dependent interpretation:
+        //   * Attack list : SLOT INDEX (0..63).  31 and 55 are the
+        //                   throw/grab slots by engine convention; all
+        //                   others are strikes.  See ClassifyAttackRole.
+        //   * Hurtbox list: bone slot index (0..63) into defender
+        //                   PerHurtboxBitmask / PerHurtboxReactionState.
+        //   * Body list   : bone slot index, used for pushbox physics.
+        //
+        // Special values 6 and 7:
+        //   UpdateAllKHitWorldCenters switches on (+0x17 == 6) and
+        //   (+0x17 == 7) to trigger a ground-clamp pass (terrain sample
+        //   at XZ -> snap Y).  Gated further by per-chara frameCtx
+        //   flags so only the airborne foot clamps.  These are the
+        //   conventional "foot" bone slots on the SC6 skeleton.  Note
+        //   that "6/7 = ground-clamp" is an OVERLAY on top of the
+        //   normal slot interpretation: it is not a separate node
+        //   kind, just a bone-slot convention the engine recognises.
+        constexpr uintptr_t SubIdOrBoneId     = 0x17;  // u8 0..63 (role-dependent)
+        constexpr uintptr_t BoneIdByte        = 0x17;  // u8 (legacy alias)
         constexpr uintptr_t Next              = 0x18;
 
         // Each KHit node is 0x80 (128) bytes — verified empirically:
@@ -114,12 +426,21 @@ namespace Horse
         // 0x14030E1A0 and KHitArea_UpdateWorldCenters @ 0x14030E480):
         //
         //     +0x00  vtable
-        //     +0x08  BoneBitFlag   (u64, 1<<boneId)
-        //     +0x10  flags10       (u32)
-        //     +0x14  IsAreaFlag=1  (u16)
-        //     +0x16  StreamTypeTag (u8, 0=Sphere 1=Area 2=FixArea)
-        //     +0x17  BoneId        (u8, pre-remap)
-        //     +0x18  Next          (KHit*, null-terminates list)
+        //     +0x08  PerAttackerBit (u64, 1ULL << (slot & 0x3F))
+        //     +0x10  Node_Flags10   (u32)  AUTHORED, write-only — see the
+        //                                  block at ~line 138 above. DO NOT
+        //                                  use this for classification or
+        //                                  visibility gating.
+        //     +0x14  ActiveThisFrame(u16)  GeometryActiveGate — written per
+        //                                  frame from MoveVM hotMask; 0 = the
+        //                                  node is skipped by the overlap
+        //                                  loop on both attacker and
+        //                                  defender.
+        //     +0x16  StreamTypeTag  (u8, 0=Sphere 1=Area 2=FixArea)
+        //     +0x17  SubIdOrBoneId  (u8, slot 0..63, pre-remap bone id for
+        //                                defender nodes; attack slot for
+        //                                attack nodes)
+        //     +0x18  Next           (KHit*, null-terminates list)
         //     +0x20  nextDelta     (i64, 0x80 in practice)
         //     +0x30  LocalCenter   (vec3+1, bone-local)
         //     +0x40  Mirror/Extents(vec3+1, sphere mirrors or area half-extents)
@@ -221,16 +542,157 @@ namespace Horse
     enum class KHitKind : uint8_t { Box = 0, Sphere = 1 };
     enum class KHitList : uint8_t { Attack = 0, Hurtbox = 1, Body = 2 };
 
+    // ------------------------------------------------------------------
+    // Engine-derived role for an Attack-list entry.
+    //
+    // Source of truth: LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100.
+    // The classifier splits the 64-slot attacker-mask space into two
+    // disjoint regions:
+    //
+    //   Strike      — any bit in 0xFF7FFFFF7FFFFFFF  (all bits except 31, 55).
+    //                 Resolved per-hurtbox; produces Hit / Block / MH / etc.
+    //   Throw/Grab  — any bit in 0x80000080000000   (bits 31 and 55 only).
+    //                 Pre-scanned as an all-or-nothing gate before the
+    //                 strike loop runs.
+    //
+    // An Attack-list node's +0x08 is a SINGLE bit (1ULL << (+0x17 & 0x3F)),
+    // so a per-node classification is: "which side of the partition does
+    // my one bit fall on?".  Equivalently: does my +0x17 slot index equal
+    // 31 or 55?  Either question produces the same answer.
+    //
+    // `NotAttack` is used for Hurtbox / Body list entries so the UI code
+    // can gate by role without worrying about the list kind.
+    //
+    // An attack whose mask is zero (shouldn't happen on a live attack) is
+    // treated as Strike by default — it will fail every classifier branch
+    // and produce no reactions, but we still draw it as an attack box.
+    // ------------------------------------------------------------------
+    enum class KHitAttackRole : uint8_t
+    {
+        NotAttack = 0,  // hurtbox / body list entry
+        Strike    = 1,  // mask & 0xFF7FFFFF7FFFFFFF != 0
+        Throw     = 2,  // mask & 0x0080000080000000 != 0 (grab / throw)
+    };
+
+    // Bit masks for the attack-role partition.  See plate comment on
+    // LuxBattle_ResolveAttackVsHurtboxMask22 for how the classifier uses
+    // these.
+    constexpr uint64_t kAttackRoleThrowMask  = 0x0080000080000000ull;
+    constexpr uint64_t kAttackRoleStrikeMask = 0xFF7FFFFF7FFFFFFFull;
+
+    // Classify an attack node's CategoryMask into a role.  Throw bits
+    // take priority — if either grab bit is set, we call it a throw
+    // regardless of strike-region content (matches the classifier's
+    // pre-scan behaviour which bails out of the strike loop on any
+    // throw bit).
+    inline KHitAttackRole ClassifyAttackRole(uint64_t categoryMask)
+    {
+        if (categoryMask & kAttackRoleThrowMask)  return KHitAttackRole::Throw;
+        if (categoryMask & kAttackRoleStrikeMask) return KHitAttackRole::Strike;
+        // Mask is all zero — unusual but not fatal.  Default to Strike so
+        // the overlay still renders the box.
+        return KHitAttackRole::Strike;
+    }
+
     struct KHitDraw
     {
         KHitKind    kind;
         KHitList    list;
-        bool        is_current_attack;   // matches CurrentActiveAttackCell
+        // True when this attack node passes the engine's GEOMETRY gate
+        // at node+0x14 (set every tick by `(hotMask >> node[+0x17]) & 1`
+        // at 0x14033CCA0).  NB: hotMask has a permanent floor of
+        // 0x3FFFD so every attack with +0x17 in slots {0, 2..17} is
+        // "is_current_attack == true" every single frame, even during
+        // neutral.  This gate controls whether overlap testing runs;
+        // it does NOT mean the attack is currently causing damage.
+        // For the damage-live filter see `is_damage_active` below.
+        //
+        // Always false for hurtbox / body entries.
+        bool        is_current_attack;
+
+        // True when this attack node's +0x17 slot bit is ALSO set in
+        // this chara's own active-attack-cell mask
+        // (*(u64*)(chara+0x44058))[0].  That's the move-authored
+        // "this slot is dealing damage right now" mask.  Combined with
+        // +0x14, this is the full predicate the classifier uses to
+        // light up PerHurtboxBitmask and write reactions.  Use this
+        // field (not is_current_attack) if you want "only show the
+        // attack volume the current move is CURRENTLY trying to hit
+        // with".  Always false for hurtbox / body entries.
+        bool        is_damage_active;
+
+        // Raw `node[+0x14] != 0` for any list kind.  For ATTACK nodes
+        // this is the GeometryActiveGate rewritten every tick from the
+        // MoveVM hotMask by LuxBattle_TickHitResolutionAndBodyCollision
+        // (0x14033CCA0).  For HURTBOX / BODY nodes the per-frame update
+        // loop in that function does NOT iterate their lists at all —
+        // +0x14 keeps whatever KHitChk_InitSphereFromStream /
+        // InitAreaFromStream wrote at deserialize time (always 1).
+        // Accordingly, `geom_active` is a useful "is this attack live?"
+        // signal but CANNOT be used to tell whether a hurtbox is hittable
+        // — every hurtbox reports geom_active==true.  For the real
+        // "hittable by classifier?" predicate on the defender side,
+        // see `classifier_addressable` below.
+        bool        geom_active;
+
+        // True iff this hurtbox's SubIdOrBoneId (+0x17) is inside the
+        // classifier's iteration range — i.e. < HurtboxSlotCount
+        // (chara+0x44494, clamped to 22).  The classifier at
+        // LuxBattle_ResolveAttackVsHurtboxMask22 (0x14033C100) only
+        // iterates slots 0..count-1:
+        //
+        //     for (slotIndex = 0; slotIndex < hurtboxSlotCount; ++slotIndex)
+        //         if (PerHurtboxBitmask[slotIndex] & attackerMask & strikeMask)
+        //             ... write PerHurtboxReactionState[slotIndex] ...
+        //
+        // UpdateAllKHitWorldCenters still performs the overlap test and
+        // OR's `atk->PerAttackerBit` into
+        // `PerHurtboxBitmask[hurt->+0x17]`, but if that index is >=
+        // HurtboxSlotCount the classifier never reads it, so no
+        // reaction is produced and no damage is applied.  Visually
+        // this manifests as a hurtbox that looks geometrically alive
+        // (geom_active==true) yet never reacts to being struck — the
+        // tell-tale of a "meta" hurtbox authored at slot >= 22 or
+        // beyond the per-character slot count.
+        //
+        // Always true for attack and body nodes (the concept does not
+        // apply — only the hurtbox list participates in the
+        // slot-count-bounded classifier iteration).
+        bool        classifier_addressable = true;
+
         bool        reaction_hot;        // hurtbox: PerHurtboxReactionState != 0
-        uint32_t    flags10;             // +0x10 — attack/hurt id
+        uint32_t    flags10;             // +0x10 — Node_Flags10 (AUTHORED,
+                                         // write-only metadata; see KHitBase
+                                         // header doc block above. Captured
+                                         // here only for hex-dump / debug —
+                                         // runtime pipeline never reads it,
+                                         // so do not treat it as semantic.)
         uint8_t     stream_tag;          // 0=sphere, 1=area, 2=fixarea
         uint8_t     bone_id_internal;    // raw BoneId byte pre-remap
-        int         hurtbox_slot;        // 0..21 for hurtbox list, -1 otherwise
+        // Hurtbox classifier slot — the node's +0x17 (SubIdOrBoneId) when
+        // in range [0,22), else -1.  This is the index used to look up
+        // PerHurtboxReactionState / PerHurtboxBitmask in chara memory.
+        // NOT the position in the linked-list walk — see the walker
+        // assignment site for rationale.  -1 for non-hurtbox nodes.
+        int         hurtbox_slot;
+
+        // Raw u64 at node+0x08.  Meaning depends on `list`:
+        //   Attack  → CategoryMask (what bits trigger what reactions)
+        //   Hurt    → BoneBitFlag
+        //   Body    → BoneBitFlag
+        uint64_t    category_or_bone_mask = 0;
+
+        // Engine-derived role for Attack-list entries.  Always NotAttack
+        // for Hurtbox / Body so the UI can gate uniformly.
+        KHitAttackRole attack_role = KHitAttackRole::NotAttack;
+
+        // Defender-side reaction value for this hurtbox slot — the actual
+        // enum value written by the classifier (0=None, 1=Hit, 2=BlockedLow,
+        // 3=BlockedHigh, 4=MH_Loser, 6=Tech, 8=MH_Winner, 9=AirHit,
+        // 10=MH_Trade, 0xB=WallSplat, 0xC=Stagger).  0 for non-hurtbox
+        // entries.  `reaction_hot` is just (reaction_state != 0), extended
+        // by the sticky-flash window.
+        int32_t     reaction_state = 0;
 
         // Box geometry: 8 world-space corners in standard AABB ordering:
         //   0: -x -y -z    1: +x -y -z    2: +x +y -z    3: -x +y -z
@@ -273,6 +735,42 @@ namespace Horse
             if (!SafeReadPtr(reinterpret_cast<const void*>(slot_addr), &chara))
                 return nullptr;
             return chara;
+        }
+
+        // Read this chara's 64-bit "own active attack cell" mask — the
+        // per-frame damage gate written by the MoveVM.  Layout:
+        //
+        //   cell_ptr       = *(void**)(chara + 0x44058);   // may be null
+        //   attackerMask   = *(u64*)cell_ptr;              // 0 if ptr null
+        //
+        // This is the mask that `LuxBattle_ResolveAttackVsHurtboxMask22`
+        // ANDs against defender PerHurtboxBitmask entries to decide
+        // reactions.  Returns 0 if either dereference faults or the cell
+        // pointer is null — 0 means "no attack currently live for
+        // damage" and callers will then fail the per-bit test for any
+        // slot, which is the correct behaviour.
+        static uint64_t readOwnAttackMask(void* chara) noexcept
+        {
+            if (!chara) return 0;
+            auto* bytes = reinterpret_cast<uint8_t*>(chara);
+            void* cell = nullptr;
+            if (!SafeReadPtr(bytes + ChaOffsets::OwnActiveAttackCell, &cell))
+                return 0;
+            const auto c = reinterpret_cast<uintptr_t>(cell);
+            if (c < 0x10000ULL || c > 0x00007fffffffffffULL) return 0;
+            uint64_t mask = 0;
+            if (!SafeReadUInt64(cell, &mask)) return 0;
+            return mask;
+        }
+
+        // Per-node damage predicate.  Returns true iff the bit at the
+        // node's slot index (+0x17 & 0x3F) is set in the supplied own-
+        // attack mask.  Defined on every KHit node; only meaningful
+        // for attack-list entries.  Cheap enough to call for every
+        // node on every frame.
+        static bool slotBitInMask(uint8_t slotByte, uint64_t mask) noexcept
+        {
+            return (mask >> (slotByte & 0x3Fu)) & 1ull;
         }
 
         // Walk all three KHit lists on `chara` and yield draw primitives
@@ -344,7 +842,25 @@ namespace Horse
             void* active_cell = nullptr;
             SafeReadPtr(bytes + ChaOffsets::CurrentActiveAttackCell, &active_cell);
 
+            // Pre-read THIS chara's own attack-cell mask — the 64-bit
+            // per-move "slots dealing damage this frame" bitmap from
+            // *(u64*)(chara + 0x44058).  Used per-node to compute
+            // is_damage_active below.  Zero is a valid value (neutral
+            // frame, no attack authored as live); every slot bit test
+            // will then return false, which is what we want.
+            const uint64_t own_attack_mask = readOwnAttackMask(list_chara);
+
             // Pre-read the per-hurtbox reaction state table (22 × i32).
+            //
+            // IMPORTANT indexing convention: `reactions[N]` is the reaction
+            // written by the classifier for "hurtbox slot N", and slot N
+            // refers to the VALUE of the node's +0x17 (SubIdOrBoneId) — not
+            // to its position in the linked list.  See
+            // LuxBattle_ResolveAttackVsHurtboxMask22 (0x14033C100) and the
+            // paired write in LuxBattleChara_UpdateAllKHitWorldCenters
+            // (0x14030D6A0) which OR's bits into PerHurtboxBitmask[hurt->+0x17].
+            // When consuming this table, look up reactions[node->+0x17], NOT
+            // reactions[list_index] — the walker learned this the hard way.
             int32_t reactions[22] = {};
             for (int i = 0; i < 22; ++i)
             {
@@ -353,35 +869,107 @@ namespace Horse
                               &reactions[i]);
             }
 
+            // ------------------------------------------------------------
+            // Reaction-state diagnostic + sticky flash
+            // ------------------------------------------------------------
+            // Problem we're investigating: red "just-got-hit" flash never
+            // visibly fires in game.  Two concurrent interventions:
+            //
+            // (a) EDGE SCAN — read a wider window (0x1C00..0x1E00, 128 × i32)
+            //     and log ANY transition from 0 -> non-zero.  This both
+            //     validates the nominal 0x1C74 offset and surfaces the
+            //     actual storage location if our assumed offset is wrong.
+            //     Output is event-driven, not throttled by shouldLog() —
+            //     if the signal exists at all we'll see it.
+            //
+            // (b) STICKY FLASH — the raw reaction flag is almost certainly
+            //     a 1-frame pulse (~16ms at 60fps, hard to see).  Hold the
+            //     "hot" state for N frames after raw goes non-zero so the
+            //     colour change is actually visible.  walkList() now
+            //     consumes sticky_reactions[] in place of reactions[].
+            //
+            // Per-player state is keyed by poseSelector (0 = P1, 1 = P2).
+            const int pi_idx = (poseSelector < 2u)
+                             ? static_cast<int>(poseSelector) : 0;
+
+            // --- (a) Edge-scan diagnostic -------------------------------
+            constexpr uintptr_t kReactionScanBase  = 0x1C00;
+            constexpr int       kReactionScanCount = 128;   // 512 bytes
+            int32_t* scan_prev = s_react_scan_prev[pi_idx];
+
+            for (int i = 0; i < kReactionScanCount; ++i)
+            {
+                int32_t v = 0;
+                SafeReadInt32(bytes + kReactionScanBase + i * 4, &v);
+                if (v != 0 && scan_prev[i] == 0)
+                {
+                    const uintptr_t off = kReactionScanBase + i * 4;
+                    const int rel_to_nominal =
+                        i - static_cast<int>(
+                            (ChaOffsets::PerHurtboxReactionState
+                             - kReactionScanBase) / 4);
+                    RC::Output::send<RC::LogLevel::Verbose>(
+                        STR("[HorseMod.React] pi={} EDGE off=0x{:x} idx={} "
+                            "val=0x{:08x} (rel-to-0x1C74={})\n"),
+                        pi_idx, off, i,
+                        static_cast<uint32_t>(v), rel_to_nominal);
+                }
+                scan_prev[i] = v;
+            }
+
+            // --- (b) Sticky flash (used for rendering) -------------------
+            // Hold "hot" for `s_sticky_frames` frames after raw goes
+            // non-zero.  Driven by the dllmain UI slider; see
+            // setStickyFrames().  0 frames = no sticky (raw 1-frame
+            // pulse only).
+            const int kStickyFrames =
+                s_sticky_frames.load(std::memory_order_relaxed);
+            int32_t* sticky = s_sticky_reactions[pi_idx];
+            for (int i = 0; i < 22; ++i)
+            {
+                if (reactions[i] != 0)       sticky[i] = kStickyFrames;
+                else if (sticky[i] > 0)      --sticky[i];
+            }
+
+            // walkList consumes sticky values so `reaction_hot` stays true
+            // for the flash window, not just the 1-frame pulse.
+            int32_t reactions_hot[22];
+            for (int i = 0; i < 22; ++i) reactions_hot[i] = sticky[i];
+
             // Read list heads + counts up-front for diagnostics AND use.
+            void* body_head = nullptr;
             void* atk_head  = nullptr;
             void* hurt_head = nullptr;
-            void* body_head = nullptr;
+            int32_t body_count = 0;
             int32_t atk_count  = 0;
             int32_t hurt_count = 0;
-            int32_t body_count = 0;
-            SafeReadPtr  (bytes + ChaOffsets::AttackListHead,    &atk_head);
-            SafeReadPtr  (bytes + ChaOffsets::HurtboxListHead,   &hurt_head);
-            SafeReadPtr  (bytes + ChaOffsets::BodyListHead,      &body_head);
-            SafeReadInt32(bytes + ChaOffsets::AttackListCount,   &atk_count);
-            SafeReadInt32(bytes + ChaOffsets::HurtboxListCount,  &hurt_count);
-            SafeReadInt32(bytes + ChaOffsets::BodyListCount,     &body_count);
+            int32_t hurt_slot_count = 0;  // classifier bound @ +0x44494
+            SafeReadPtr  (bytes + ChaOffsets::BodyListHead,       &body_head);
+            SafeReadPtr  (bytes + ChaOffsets::AttackListHead,     &atk_head);
+            SafeReadPtr  (bytes + ChaOffsets::HurtboxListHead,    &hurt_head);
+            SafeReadInt32(bytes + ChaOffsets::BodyListCount,      &body_count);
+            SafeReadInt32(bytes + ChaOffsets::AttackListCount,    &atk_count);
+            SafeReadInt32(bytes + ChaOffsets::HurtboxListCount,   &hurt_count);
+            SafeReadInt32(bytes + ChaOffsets::HurtboxSlotCount,   &hurt_slot_count);
 
             const bool verbose = shouldLog();
+            // Per-chara header + hex dump — DISABLED (noisy).  Re-enable
+            // by flipping #if 0 -> #if 1 when re-investigating layout.
+#if 0
             if (verbose)
             {
                 RC::Output::send<RC::LogLevel::Verbose>(
                     STR("[HorseMod.KHit] pi={} ue_chara=0x{:x} slot=0x{:x} "
-                        "using_slot={} atk=0x{:x} hurt=0x{:x} body=0x{:x} "
-                        "atkN={} hurtN={} bodyN={}\n"),
+                        "using_slot={} body=0x{:x} atk=0x{:x} hurt=0x{:x} "
+                        "bodyN={} atkN={} hurtN={} hurtSlots={}\n"),
                     poseSelector,
                     reinterpret_cast<uintptr_t>(ue_chara),
                     reinterpret_cast<uintptr_t>(slot_chara),
                     used_slot ? 1 : 0,
+                    reinterpret_cast<uintptr_t>(body_head),
                     reinterpret_cast<uintptr_t>(atk_head),
                     reinterpret_cast<uintptr_t>(hurt_head),
-                    reinterpret_cast<uintptr_t>(body_head),
-                    atk_count, hurt_count, body_count);
+                    body_count, atk_count, hurt_count, hurt_slot_count);
 
                 // Hex-dump the 80-byte region bracketing the KHit fields
                 // so we can eyeball what the struct really looks like.
@@ -399,16 +987,20 @@ namespace Horse
                         off, a, b);
                 }
             }
+#endif
 
             // --- Attack list -------------------------------------------------
             walkList(ue_chara, poseSelector, atk_head,
-                     KHitList::Attack, active_cell, reactions, verbose, visit);
+                     KHitList::Attack, active_cell, own_attack_mask,
+                     reactions_hot, hurt_slot_count, verbose, visit);
             // --- Hurtbox list ------------------------------------------------
             walkList(ue_chara, poseSelector, hurt_head,
-                     KHitList::Hurtbox, active_cell, reactions, verbose, visit);
+                     KHitList::Hurtbox, active_cell, own_attack_mask,
+                     reactions_hot, hurt_slot_count, verbose, visit);
             // --- Body / pushbox list -----------------------------------------
             walkList(ue_chara, poseSelector, body_head,
-                     KHitList::Body, active_cell, reactions, verbose, visit);
+                     KHitList::Body, active_cell, own_attack_mask,
+                     reactions_hot, hurt_slot_count, verbose, visit);
         }
 
         // Throttle log output to ~twice per second at 60 FPS.
@@ -421,14 +1013,47 @@ namespace Horse
             return (s_ticks & 0x7F) == 1;
         }
 
+        // Configure the sticky-flash hold window, in frames.  Called from
+        // the dllmain UI (ms slider) at startup and whenever the user
+        // drags the duration knob.  Clamped to [0, 600] — 600 frames at
+        // 60fps is 10 seconds, well past the UI's 1s cap but cheap to
+        // enforce.
+        static void setStickyFrames(int frames)
+        {
+            if (frames < 0)   frames = 0;
+            if (frames > 600) frames = 600;
+            s_sticky_frames.store(frames, std::memory_order_relaxed);
+        }
+        static int stickyFrames()
+        {
+            return s_sticky_frames.load(std::memory_order_relaxed);
+        }
+
     private:
+        // Per-player sticky flash state — held for `s_sticky_frames`
+        // frames after raw PerHurtboxReactionState goes non-zero so the
+        // red flash lasts long enough to be visible at 60fps.
+        static inline int32_t s_sticky_reactions[2][22] = {};
+
+        // Per-player previous-frame snapshot of the 0x1C00..0x1E00 scan
+        // region — used by the edge-triggered diagnostic that verifies
+        // whether PerHurtboxReactionState really lives at 0x1C74.
+        static inline int32_t s_react_scan_prev[2][128] = {};
+
+        // Runtime-configurable sticky window length, in frames (60fps
+        // assumed).  Default 15 ≈ 250ms matches the old hardcoded value;
+        // dllmain overrides it on unreal-init + every slider drag.
+        static inline std::atomic<int> s_sticky_frames{15};
+
         template <class Visit>
         static void walkList(void* chara,
                              uint32_t poseSelector,
                              void* head,
                              KHitList listKind,
-                             void* activeAttackCell,
+                             void* /*activeAttackCell — cross-chara, unused*/,
+                             uint64_t ownAttackMask,
                              const int32_t (&reactions)[22],
+                             int32_t hurtSlotCount,
                              bool verbose,
                              Visit&& visit)
         {
@@ -451,34 +1076,107 @@ namespace Horse
                 // Read the common header.
                 uint8_t  streamTag = 0xFF;
                 uint8_t  boneId    = 0;
+                uint16_t activeGate= 0;   // +0x14, engine's per-frame live bit
                 uint32_t flags10   = 0;
+                uint64_t cat_mask  = 0;   // +0x08, CategoryMask or BoneBitFlag
                 void*    next      = nullptr;
                 if (!SafeReadUInt8(nbytes + KHitOffsets::StreamTypeTag, &streamTag))
                     break;
                 if (!SafeReadUInt8(nbytes + KHitOffsets::BoneIdByte, &boneId))
                     break;
+                SafeReadUInt16(nbytes + KHitOffsets::IsActiveThisFrame, &activeGate);
                 SafeReadUInt32(nbytes + KHitOffsets::Flags10, &flags10);
+                SafeReadUInt64(nbytes + KHitOffsets::CategoryMask, &cat_mask);
                 SafeReadPtr(nbytes + KHitOffsets::Next, &next);
                 ++walked;
 
                 // Build the common draw-prim fields.
                 KHitDraw d{};
-                d.list              = listKind;
-                d.is_current_attack = (listKind == KHitList::Attack &&
-                                       node == activeAttackCell);
-                d.stream_tag        = streamTag;
-                d.bone_id_internal  = boneId;
-                d.flags10           = flags10;
-                d.hurtbox_slot      = (listKind == KHitList::Hurtbox &&
-                                       list_index < 22) ? list_index : -1;
-                d.reaction_hot      = (d.hurtbox_slot >= 0) &&
-                                       reactions[d.hurtbox_slot] != 0;
+                d.list                  = listKind;
+                // Geometry gate — engine's own +0x14 flag.  True for
+                // ALL slots in the 0x3FFFD always-on floor every
+                // frame; see note on KHitDraw::is_current_attack and
+                // the doc for KHitOffsets::IsActiveThisFrame.
+                d.is_current_attack     = (listKind == KHitList::Attack &&
+                                           activeGate != 0);
+                // Raw +0x14 for diagnostic purposes.  Note this is a
+                // valid live/cold signal only for attack nodes — the
+                // per-frame update loop in TickHitResolution does not
+                // touch hurtbox / body lists, so their +0x14 stays at
+                // the deserialize-time default (always 1).  See
+                // KHitDraw::geom_active doc for the full story.
+                d.geom_active           = (activeGate != 0);
+
+                // Classifier addressability (hurtbox only).  True when
+                // `boneId < HurtboxSlotCount` AND `boneId < 22` — the
+                // exact predicate ResolveAttackVsHurtboxMask22 uses
+                // for its inner loop bound.  A hurtbox failing this
+                // test is geometrically live (overlaps tested, bits
+                // OR'd into PerHurtboxBitmask[boneId]) but its slot is
+                // outside the classifier's iteration range, so no
+                // reaction will ever be written and no damage will
+                // ever be dealt — the invisible "meta-hurtbox" trap.
+                //
+                // For non-hurtbox lists we leave the default (true) —
+                // the concept doesn't apply.
+                if (listKind == KHitList::Hurtbox)
+                {
+                    const int32_t cap = (hurtSlotCount > 22) ? 22
+                                      : (hurtSlotCount < 0) ?  0
+                                      :  hurtSlotCount;
+                    d.classifier_addressable =
+                        (static_cast<int32_t>(boneId) < cap);
+                }
+                // Damage gate — slot bit set in THIS chara's own
+                // active-attack-cell mask.  Narrower than +0x14: only
+                // true when the current move's authored timeline has
+                // lit this specific slot.  The UI can route "Live
+                // attacks only" through this for a much tighter
+                // filter; see dllmain m_hide_not_damage_active.
+                d.is_damage_active      = (listKind == KHitList::Attack &&
+                                           slotBitInMask(boneId,
+                                                         ownAttackMask));
+                d.stream_tag            = streamTag;
+                d.bone_id_internal      = boneId;
+                d.flags10               = flags10;
+                d.category_or_bone_mask = cat_mask;
+                // Hurtbox slot is the node's authored +0x17 (SubIdOrBoneId),
+                // NOT the linked-list position.  The engine's classifier at
+                // 0x14033C100 writes PerHurtboxReactionState[slotIndex] where
+                // slotIndex mirrors the index used in PerHurtboxBitmask, and
+                // UpdateAllKHitWorldCenters OR's attacker bits into
+                // PerHurtboxBitmask[hurt->+0x17].  So the reaction table is
+                // keyed by +0x17.  Using list_index here would cause visual
+                // cross-talk: a hurtbox whose own +0x17 is >= HurtboxSlotCount
+                // (never addressable by the classifier) would spuriously flash
+                // whenever some OTHER hurtbox with +0x17 == its list-position
+                // got hit.  Observed in-game with Grøh's whole-body meta sphere.
+                d.hurtbox_slot          = (listKind == KHitList::Hurtbox &&
+                                           boneId < 22)
+                                            ? static_cast<int32_t>(boneId)
+                                            : -1;
+
+                // Engine-derived role — only meaningful for attacks.
+                d.attack_role = (listKind == KHitList::Attack)
+                                ? ClassifyAttackRole(cat_mask)
+                                : KHitAttackRole::NotAttack;
+
+                // Defender-side reaction lookup.  `reactions[]` is the
+                // sticky-flash-extended view of PerHurtboxReactionState;
+                // we copy the raw enum value through so colourFor can
+                // shade by reaction type if it wants to.
+                if (d.hurtbox_slot >= 0)
+                {
+                    d.reaction_state = reactions[d.hurtbox_slot];
+                    d.reaction_hot   = (d.reaction_state != 0);
+                }
 
                 // Verbose diagnostic — dump the bone FMatrix we get back
-                // for the first bone-attached node of each list.  Prints
-                // all four rows (row 3 is the translation).  If row 3 is
-                // non-zero and matches the character's world position then
-                // the native call is healthy.
+                // for the first bone-attached node of each list.  DISABLED
+                // wholesale: the scaffolding here calls the native bone
+                // transform (side effect) just to feed a log, which we now
+                // skip.  Re-enable to validate GetBoneTransformForPose.
+#if 0
                 if (verbose && emitted == 0 && (streamTag == 0 || streamTag == 1))
                 {
                     // Read the correct bone-idx slot per subclass.
@@ -507,7 +1205,6 @@ namespace Horse
                         got = NativeBinding::getBoneTransform(
                             chara, poseSelector, ueBonePre, tx);
                     }
-
                     RC::Output::send<RC::LogLevel::Verbose>(
                         STR("[HorseMod.Bone] chara=0x{:x} pose={} tag={} "
                             "internalBone=0x{:02x} ueBone_pre=0x{:x} "
@@ -524,6 +1221,7 @@ namespace Horse
                             tx.M[r][0], tx.M[r][1], tx.M[r][2], tx.M[r][3]);
                     }
                 }
+#endif
 
                 // Build geometry per subclass.
                 //
@@ -628,8 +1326,9 @@ namespace Horse
                 }
 
                 // Raw node hex-dump for the first emitted node of each list.
-                // Prints 0xA0 bytes = 10 rows of 16 bytes.  Use this to
-                // reverse the real KHit struct layout.
+                // DISABLED (noisy: 10+ lines per list per chara per tick).
+                // Re-enable to reverse KHit subclass layouts.
+#if 0
                 if (verbose && emitted == 0)
                 {
                     RC::Output::send<RC::LogLevel::Verbose>(
@@ -660,9 +1359,76 @@ namespace Horse
                             off, a, b, f0, f1, f2, f3);
                     }
                 }
+#endif
 
                 if (ok)
                 {
+                    // Per-hurtbox and per-strike diagnostics — DISABLED
+                    // (fire per-node across both charas, up to ~40 lines
+                    // per ~2s).  Re-enable for deep-dive layout/role work.
+#if 0
+                    if (verbose && listKind == KHitList::Hurtbox)
+                    {
+                        RC::Output::send<RC::LogLevel::Verbose>(
+                            STR("[HorseMod.Hurt]  listIdx={:2} slot={:2} tag={} "
+                                "+0x17=0x{:02x}({}) slotCount={} addr={} "
+                                "flags10=0x{:08x} boneMask=0x{:016x} react={}\n"),
+                            list_index, d.hurtbox_slot, streamTag, boneId,
+                            static_cast<int>(boneId), hurtSlotCount,
+                            d.classifier_addressable ? STR("Y") : STR("N"),
+                            flags10, cat_mask, d.reaction_state);
+                    }
+
+                    if (verbose && listKind == KHitList::Attack)
+                    {
+                        const auto* role_str =
+                            (d.attack_role == KHitAttackRole::Throw)  ? STR("throw")  :
+                            (d.attack_role == KHitAttackRole::Strike) ? STR("strike") :
+                                                                        STR("-"     );
+                        RC::Output::send<RC::LogLevel::Verbose>(
+                            STR("[HorseMod.Atk]   idx={:2} tag={} bone=0x{:02x} "
+                                "flags10=0x{:08x} catMask=0x{:016x} role={} "
+                                "active(gate@+0x14)={} ({})\n"),
+                            list_index, streamTag, boneId, flags10,
+                            cat_mask, role_str,
+                            activeGate,
+                            d.is_current_attack ? STR("live") : STR("cold"));
+                    }
+#endif
+
+                    // ALWAYS-ON, but one-shot per unique slot: fire a
+                    // debug line the FIRST time we observe each Throw-role
+                    // attack node.  Confirms the bit-31/55 classification
+                    // actually identifies grabs/throws in-game.  See
+                    // LuxBattle_ResolveAttackVsHurtboxMask22 (0x14033C100)
+                    // for why these bits mean "throw" (they drive the
+                    // yarare-id copy that syncs paired throw animations).
+                    //
+                    // Dedup uses a 64-bit static "seen" mask keyed by the
+                    // node's +0x17 slot, so we log at most once per slot
+                    // index per mod lifetime.
+                    if (listKind == KHitList::Attack &&
+                        d.attack_role == KHitAttackRole::Throw)
+                    {
+                        static std::atomic<uint64_t> s_throw_seen{0};
+                        const uint64_t slotBit =
+                            1ull << (static_cast<uint32_t>(boneId) & 63u);
+                        const uint64_t prev =
+                            s_throw_seen.fetch_or(slotBit,
+                                                  std::memory_order_relaxed);
+                        if ((prev & slotBit) == 0)
+                        {
+                            RC::Output::send<RC::LogLevel::Verbose>(
+                                STR("[HorseMod.Throw] FIRST SEEN pi={} "
+                                    "listIdx={} slot={} catMask=0x{:016x} "
+                                    "active(gate@+0x14)={} ({})\n"),
+                                poseSelector, list_index,
+                                static_cast<int>(boneId),
+                                cat_mask, activeGate,
+                                d.is_current_attack ? STR("live") : STR("cold"));
+                        }
+                    }
+
                     visit(static_cast<const KHitDraw&>(d));
                     ++emitted;
                 }
@@ -670,6 +1436,9 @@ namespace Horse
                 node = next;
             }
 
+            // Per-list summary — DISABLED (6 lines per log tick across
+            // both charas × 3 lists).
+#if 0
             if (verbose)
             {
                 RC::Output::send<RC::LogLevel::Verbose>(
@@ -678,6 +1447,7 @@ namespace Horse
                     reinterpret_cast<uintptr_t>(head),
                     walked, emitted);
             }
+#endif
         }
 
         // ---- geometry builders ----
