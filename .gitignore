@@ -45,7 +45,8 @@ decomp.c
 .vs/
 .vscode/
 .idea/
-.claude/             # Claude Code runtime state (scheduled_tasks.lock etc.)
+# Claude Code runtime state (scheduled_tasks.lock etc.)
+.claude/
 *.suo
 *.user
 *.vcxproj.filters
