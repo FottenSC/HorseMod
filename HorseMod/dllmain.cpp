@@ -97,6 +97,19 @@
 #include "horselib/VFXOff.hpp"
 #include "horselib/CharaInvis.hpp"
 #include "horselib/SpeedControl.hpp"
+// Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
+// ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
+// swap detour on IDXGISwapChain::Present.  This keeps Steam overlay
+// working (the detour chains through Steam's pre-existing hook) and
+// eliminates the focus-stealing external "UE4SS Debugging Tools" window
+// that breaks Shift+Tab for the user.
+#include "horselib/GameImGui/GameImGui.hpp"
+
+// Persists toggle / slider state between game sessions.  Loaded once in
+// the ctor (before any atomic is first read for rendering), saved
+// periodically via on_update, and saved a final time in the dtor for
+// graceful shutdown.
+#include "horselib/ModSettings.hpp"
 // horselib/GamePause.hpp DEPRECATED — see "Freeze frame" UI block below
 // for the SpeedControl-driven replacement.  The old chara+0x394
 // trampoline targeted an audio-state bit, not the world-tick pause.
@@ -131,26 +144,19 @@ private:
     // ---- Overlay state ----
     std::atomic<bool> m_enabled{false};
 
-    // Per-player visibility toggles.  Hurtbox + Attack default ON, Body
-    // defaults OFF (it's visually noisy — spacing context only).  Each
-    // player indexed by PlayerIndex (0 = P1, 1 = P2).
-    std::atomic<bool> m_show_p1_hurt{true};
+    // Per-player visibility toggles.  Default on-launch layout is
+    // "only P2's hurtboxes visible" — the most common starting point
+    // for frame-data practice where P2 is the training dummy and you
+    // want to see their incoming-damage volumes without the visual
+    // noise of P1's own attacks / hurtboxes.  User flips the rest on
+    // per-session from the Hitboxes tab.  Each flag indexed by
+    // PlayerIndex (0 = P1, 1 = P2).
+    std::atomic<bool> m_show_p1_hurt{false};
     std::atomic<bool> m_show_p1_atk {true};
     std::atomic<bool> m_show_p1_body{false};
     std::atomic<bool> m_show_p2_hurt{true};
     std::atomic<bool> m_show_p2_atk {true};
     std::atomic<bool> m_show_p2_body{false};
-
-    // Attack-role filters — shared across P1 and P2 (same engine-defined
-    // partition on both sides).  Derived from the 64-bit CategoryMask at
-    // node+0x08, the same split the classifier at 0x14033C100 uses:
-    //
-    //   Strike  — mask bits in 0xFF7FFFFF7FFFFFFF  (all bits except 31, 55).
-    //   Throw   — mask bits in 0x0080000080000000 (bits 31, 55) = grabs.
-    //
-    // Both default ON — throws and strikes are equally useful to see.
-    std::atomic<bool> m_show_atk_strike{true};
-    std::atomic<bool> m_show_atk_throw {true};
 
     // ("Live attacks only" filter — tested node+0x14 — was removed
     //  2026-04.  Reason: the engine's hotMask always OR-s in a
@@ -179,24 +185,31 @@ private:
     // frame?".
     std::atomic<bool> m_hide_not_damage_active{false};
 
-    // "Per-frame damage-active only" filter — strictly tighter than
-    // m_hide_not_damage_active.  When ON, hide every attack node whose
-    // +0x17 slot bit is NOT set in the chara's PER-FRAME damage mask
-    // (computed by mirroring the engine's pMoveVMCell lookup at
-    // 0x14033cca0; see KHitWalker::readPerFrameDamageMask).
+    // "Show all Hitboxes" (UI name) / "per-frame damage filter"
+    // (engine meaning) — when this is FALSE (default), we apply the
+    // engine's per-frame damage-active filter to attack nodes: only
+    // nodes whose +0x17 slot bit is set in the chara's PER-FRAME
+    // damage mask are drawn.  That's the same test the engine's
+    // ResolveAttackVsHurtboxMask22 uses to decide whether overlap
+    // should fire a hit — so default-false gives the cleanest
+    // "hitboxes I care about during frame-data work" view: they
+    // turn OFF during startup, ON during damage frames, OFF during
+    // recovery.
     //
-    // Why this matters: m_hide_not_damage_active reads
-    // **(chara+0x44058), which is set ONCE PER MOVE-SLOT (in
-    // LuxMoveVM_SetActiveMoveSlot @ 0x140300c70) and stays constant
-    // through startup / active / recovery.  As a result hitboxes
-    // appear "damage-active" through the entire move duration even
-    // though damage is only dealt during the active-frame window.
+    // When the user ticks "Show all Hitboxes" (flag becomes TRUE),
+    // the filter is disabled — every attack node draws regardless
+    // of whether it's currently capable of damage.  Useful for
+    // inspecting body-attached / passive attack volumes that the
+    // frame filter would hide.
     //
-    // The per-frame mask follows the move's authored sub-frame
-    // timeline: it turns OFF during startup, ON during damage frames,
-    // OFF during recovery — exactly what hitbox-data analysis wants.
-    // Default OFF (additive over the existing toggles).
-    std::atomic<bool> m_hide_not_per_frame_active{false};
+    // Semantic-flip-from-legacy note: pre-rename this atomic was
+    // called m_hide_not_per_frame_active with the opposite polarity
+    // (true=filter-on).  We flipped both the name and the boolean
+    // polarity so the variable reads match the UI checkbox label —
+    // "show all" == true, "filter active" == false.  Everywhere
+    // that used to check `if (m_hide_not_per_frame_active.load())`
+    // now checks `if (!m_show_all_hitboxes.load())`.
+    std::atomic<bool> m_show_all_hitboxes{false};
 
     // "Addressable hurtboxes only" filter — hurtbox classifier gate.
     //
@@ -243,7 +256,29 @@ private:
     // unaddressable hurtboxes are still interesting data for modders,
     // and hiding them by default could mask legitimate per-move boxes
     // during dodge/movement moves (see gotcha above).
-    std::atomic<bool> m_hide_unaddressable_hurt{false};
+    // "Show unused hurtboxes" filter.  Controls whether we draw
+    // hurtboxes whose +0x17 slot is outside the engine's classifier
+    // iteration bound (chara+0x44494 capped at 22) — nodes that the
+    // classifier will never read reactions from, even if they
+    // physically overlap an attack.  See the old m_hide_unused_hurt
+    // commentary (rewritten below) for the full engine-truth
+    // derivation; the semantics here are:
+    //
+    //   false (default) = HIDE the unused hurtboxes (cleaner default
+    //                     for frame-data work; matches what the UI
+    //                     checkbox would show to a first-time user
+    //                     who hasn't ticked the toggle).
+    //   true            = SHOW them (useful for modders checking
+    //                     "is my new per-move hurtbox being flagged
+    //                     unaddressable?").
+    //
+    // This is polarity-flipped from the predecessor
+    // m_hide_unused_hurt, which had TRUE = hide.  The new name +
+    // polarity match the UI label "Show unused hurtboxes", and the
+    // default changed from "show all" to "hide unused" — a cleaner
+    // default for most users, who only want engine-readable
+    // hurtboxes in the overlay.
+    std::atomic<bool> m_show_unused_hurt{false};
 
     // ---- Weapon visibility override ----------------------------------------
     // When ON, force every ALuxBattleChara's weapon meshes hidden each
@@ -522,7 +557,7 @@ private:
     // the previous ms-based slider's 250ms default.
     std::atomic<int> m_flash_frames{15};
 
-    std::atomic<float> m_thickness{2.0f};
+    std::atomic<float> m_thickness{1.5f};
     std::atomic<Horse::LineBatcherSlot> m_slot{Horse::LineBatcherSlot::Foreground};
 
     // Look up the current show-flag for (player, list).  Inlined in the
@@ -542,19 +577,120 @@ private:
         return false;
     }
 
-    // Secondary gate for Attack-list entries: after the master Attacks
-    // toggle passes, consult the engine-derived role filter.  NotAttack
-    // always passes (used for Hurtbox / Body — handled at the outer
-    // switch, never reaches this gate in practice).
-    bool shouldShowAttackRole(Horse::KHitAttackRole r) const
+    // (Secondary attack-role filter / shouldShowAttackRole was removed
+    // 2026-04 along with the UI for it.  Strike vs Throw partitioning
+    // turned out to be more noise than signal for practical hitbox
+    // inspection — users just want "show all attack volumes" or
+    // "show none," which the master Attacks per-player checkbox
+    // already covers.  If you want them back, the engine split is
+    // documented at KHitAttackRole + the classifier at
+    // LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100.)
+
+    // ==================================================================
+    // Settings persistence — file-backed via Horse::ModSettings.
+    // ==================================================================
+    //
+    // Load: call once from the ctor BEFORE any render path reads an
+    // atomic.  Reads <mod_folder>/settings.cfg, populates each atomic
+    // from its persisted value, falls back to the compiled-in default
+    // argument when the key is missing (fresh install, or we added a
+    // new setting after the file was written).
+    //
+    // Save: sync every persisted atomic back into the ModSettings
+    // map, then ModSettings::save_if_dirty() does the actual disk
+    // write (only if something changed since the last save).  Called
+    // periodically from on_update (every ~120 frames ≈ 2s at 60 FPS)
+    // so slider drags don't spam the disk, and once more from the
+    // dtor so the final state lands on disk on graceful shutdown.
+    //
+    // What we DON'T persist: runtime state (m_update_calls, hook
+    // bookkeeping), transient toggles (m_freeze_frame, m_step_pending,
+    // overlay visibility — user wants overlay hidden on launch
+    // regardless), diagnostic-only flags.
+    //
+    // Key-naming convention: snake_case, descriptive over short, no
+    // prefix.  Old/renamed settings are safe to leave in the file —
+    // ModSettings preserves unknown keys across saves.
+    void load_persisted_settings()
     {
-        switch (r)
-        {
-            case Horse::KHitAttackRole::Strike: return m_show_atk_strike.load();
-            case Horse::KHitAttackRole::Throw:  return m_show_atk_throw .load();
-            case Horse::KHitAttackRole::NotAttack:
-            default:                             return true;
-        }
+        auto& S = Horse::ModSettings::instance();
+        S.load();
+
+        // --- Hitboxes tab -----------------------------------------
+        m_enabled                .store(S.get_bool ("master_overlay",        false));
+        m_show_p1_hurt           .store(S.get_bool ("show_p1_hurt",          false));
+        m_show_p1_atk            .store(S.get_bool ("show_p1_hitboxes",      true ));
+        m_show_p1_body           .store(S.get_bool ("show_p1_body",          false));
+        m_show_p2_hurt           .store(S.get_bool ("show_p2_hurt",          true ));
+        m_show_p2_atk            .store(S.get_bool ("show_p2_hitboxes",      true ));
+        m_show_p2_body           .store(S.get_bool ("show_p2_body",          false));
+        m_hide_not_damage_active .store(S.get_bool ("damage_active_only",    false));
+        m_show_all_hitboxes      .store(S.get_bool ("show_all_hitboxes",     false));
+        m_show_unused_hurt       .store(S.get_bool ("show_unused_hurtboxes", false));
+        m_flash_frames           .store(S.get_int  ("hit_flash_frames",      15   ));
+        m_thickness              .store(S.get_float("thickness",             1.5f ));
+        m_slot                   .store(static_cast<Horse::LineBatcherSlot>(
+            S.get_int("line_batcher_slot",
+                      static_cast<int>(Horse::LineBatcherSlot::Foreground))));
+
+        // --- Camera tab -------------------------------------------
+        m_ansel_always_allowed   .store(S.get_bool ("ansel_always_allowed",  false));
+        m_lock_camera            .store(S.get_bool ("lock_camera",           false));
+        m_free_camera.move_speed() = S.get_float("free_camera_move_speed", 20.0f);
+        m_free_camera.look_speed() = S.get_float("free_camera_look_speed",  1.5f);
+        m_free_camera.fov_deg()    = S.get_float("free_camera_fov",        70.0f);
+
+        // --- Time tab ---------------------------------------------
+        m_speed_enabled          .store(S.get_bool ("slow_motion_enabled",   false));
+        m_speed_value            .store(S.get_float("slow_motion_value",     1.0f ));
+
+        // --- General tab ------------------------------------------
+        m_hide_weapons           .store(S.get_bool ("hide_weapons",          false));
+        m_hide_chara             .store(S.get_bool ("hide_characters",       false));
+        m_suppress_vfx           .store(S.get_bool ("suppress_vfx",          false));
+    }
+
+    // Mirror every persisted atomic into the ModSettings map, then ask
+    // ModSettings to write the file if anything changed since the
+    // last save.  Set() calls diff internally, so idempotent calls on
+    // unchanged values are O(map-lookup) and don't touch the dirty
+    // flag — cheap to call every on_update tick.
+    void save_persisted_settings()
+    {
+        auto& S = Horse::ModSettings::instance();
+
+        // Hitboxes tab
+        S.set("master_overlay",        m_enabled.load());
+        S.set("show_p1_hurt",          m_show_p1_hurt.load());
+        S.set("show_p1_hitboxes",      m_show_p1_atk.load());
+        S.set("show_p1_body",          m_show_p1_body.load());
+        S.set("show_p2_hurt",          m_show_p2_hurt.load());
+        S.set("show_p2_hitboxes",      m_show_p2_atk.load());
+        S.set("show_p2_body",          m_show_p2_body.load());
+        S.set("damage_active_only",    m_hide_not_damage_active.load());
+        S.set("show_all_hitboxes",     m_show_all_hitboxes.load());
+        S.set("show_unused_hurtboxes", m_show_unused_hurt.load());
+        S.set("hit_flash_frames",      m_flash_frames.load());
+        S.set("thickness",             m_thickness.load());
+        S.set("line_batcher_slot",     static_cast<int>(m_slot.load()));
+
+        // Camera tab
+        S.set("ansel_always_allowed",  m_ansel_always_allowed.load());
+        S.set("lock_camera",           m_lock_camera.load());
+        S.set("free_camera_move_speed", m_free_camera.move_speed());
+        S.set("free_camera_look_speed", m_free_camera.look_speed());
+        S.set("free_camera_fov",       m_free_camera.fov_deg());
+
+        // Time tab
+        S.set("slow_motion_enabled",   m_speed_enabled.load());
+        S.set("slow_motion_value",     m_speed_value.load());
+
+        // General tab
+        S.set("hide_weapons",          m_hide_weapons.load());
+        S.set("hide_characters",       m_hide_chara.load());
+        S.set("suppress_vfx",          m_suppress_vfx.load());
+
+        S.save_if_dirty();
     }
 
     // ---- Hook / backend ----
@@ -565,8 +701,30 @@ private:
     int                          m_update_calls = 0;
     int                          m_diag_tick    = 0;
 
+    // Tick counter for throttled settings persistence.  on_update
+    // bumps this every frame and calls save_persisted_settings()
+    // every kSaveEveryNFrames — batching slider-drag updates into
+    // one disk write per ~2 seconds.  See ctor for constant value.
+    int                          m_save_tick    = 0;
+    static constexpr int         kSaveEveryNFrames = 120;
+
     Horse::Lux                 m_lux;
     Horse::LineBatcherBackend  m_backend;
+
+    // In-game ImGui overlay token (see on_unreal_init / dtor).  Non-zero
+    // after Horse::GameImGui::register_tab returns; passed to
+    // unregister_tab on teardown.
+    uint64_t m_gameimgui_tab_token = 0;
+
+    // Nav-bootstrap flag: set to true when the overlay transitions from
+    // hidden→shown, consumed by render_hitboxes_tab which then calls
+    // ImGui::SetKeyboardFocusHere() on the master F5 toggle.  Forces
+    // ImGui to assign a NavId and activate the nav highlight without
+    // the user having to press Square/X first.  Without this, ImGui
+    // shows the window focused but has no NavId to highlight, so the
+    // D-pad appears to do nothing until a "menu" key press kicks nav
+    // into gear by side effect.
+    bool m_nav_bootstrap_pending = false;
 
     // One-shot log flags so UE4SS.log doesn't fill with repeats.
     bool m_logged_native_missing = false;
@@ -585,6 +743,13 @@ public:
         ModVersion     = STR("0.10.0");
         ModDescription = STR("SC6 KHit hitbox / hurtbox / body visualiser.");
         ModAuthors     = STR("horse");
+
+        // Load persisted settings BEFORE any render path can observe
+        // an atomic.  If settings.cfg is missing (first-run) each
+        // get_* call returns its default argument, matching the
+        // compiled-in defaults — functionally identical to the
+        // pre-persistence behaviour on a clean install.
+        load_persisted_settings();
 
         Input::ModifierKeyArray no_mods{};
         no_mods.fill(Input::ModifierKey::MOD_KEY_START_OF_ENUM);
@@ -628,8 +793,32 @@ public:
             m_step_pending.fetch_add(1);
         });
 
-        register_tab(STR("HorseMod"), [](CppUserModBase* inst) {
-            static_cast<HorseMod*>(inst)->render_tab_impl();
+        // NOTE: the old UE4SS register_tab(...) call lived here.  We no
+        // longer register our tab with UE4SS's external GUI — the tab
+        // is now hosted in-game via Horse::GameImGui (see on_unreal_init
+        // below).  Removing the UE4SS registration means the HorseMod
+        // tab no longer appears in the separate "UE4SS Debugging Tools"
+        // window; it draws directly into the SC6 window instead.
+
+        // F2 toggles the in-game ImGui overlay visibility.
+        //
+        // Why UE4SS's register_keydown_event (and NOT a WndProc hook
+        // inside GameImGui): SC6 registers RawInput with the
+        // RIDEV_NOLEGACY flag, which suppresses WM_KEYDOWN on the
+        // game HWND at the OS level.  UE4SS's keydown_event uses a
+        // WH_KEYBOARD_LL low-level hook underneath, which is the
+        // only reliable way to catch keys past NOLEGACY — this is
+        // the same trick Horse::LowLevelKeyInput uses for F5/F6/F7.
+        //
+        // Back/Select on the gamepad also toggles the overlay; that
+        // half is wired inside horselib/GameImGui/GamepadInput.hpp's
+        // BACK-button edge detector.
+        register_keydown_event(Input::Key::F2, no_mods, []() {
+            const bool v = !Horse::GameImGui::visible();
+            Horse::GameImGui::set_visible(v);
+            Output::send<LogLevel::Default>(
+                STR("[HorseMod] F2 pressed — overlay {}\n"),
+                v ? STR("SHOWN") : STR("HIDDEN"));
         });
 
         s_instance.store(this);
@@ -641,8 +830,28 @@ public:
     {
         Output::send<LogLevel::Verbose>(STR("[HorseMod] dtor ENTER\n"));
 
+        // Final settings save — catches anything the periodic
+        // on_update save would have missed in the last sub-2s window
+        // before shutdown.  Crashes lose at most the most-recent
+        // ~2-second window of changes; graceful exits lose nothing.
+        save_persisted_settings();
+
         // Zero instance pointer FIRST so any in-flight hook sees null.
         s_instance.store(nullptr);
+
+        // Tear down the in-game ImGui overlay BEFORE unregistering the
+        // cockpit hook.  Order matters only loosely here, but calling
+        // shutdown() synchronises: it unHooks the DXGI vtable (Present
+        // calls immediately revert to whatever was installed before
+        // us — usually Steam's hook directly), restores the game's
+        // WndProc, and releases our D3D11 RTV.  After this returns no
+        // further render_tab_impl calls can happen from our hook.
+        if (m_gameimgui_tab_token)
+        {
+            Horse::GameImGui::unregister_tab(m_gameimgui_tab_token);
+            m_gameimgui_tab_token = 0;
+        }
+        Horse::GameImGui::shutdown();
 
         if (m_hook_registered && !m_hook_path.empty())
         {
@@ -656,10 +865,37 @@ public:
         Output::send<LogLevel::Verbose>(STR("[HorseMod] dtor EXIT\n"));
     }
 
-    auto on_ui_init() -> void override { UE4SS_ENABLE_IMGUI() }
+    // No on_ui_init() override — UE4SS_ENABLE_IMGUI() set up the shared
+    // ImGui context + allocator for the UE4SS external window.  We host
+    // our own ImGui context inside Horse::GameImGui (see on_unreal_init),
+    // so we skip UE4SS's wiring entirely.  The allocator remains the
+    // default (malloc/free via ImGui), which is fine for an isolated
+    // context.
 
     auto on_unreal_init() -> void override
     {
+        // -----------------------------------------------------------
+        // In-game ImGui overlay bring-up.
+        //
+        // Ordering rationale: on_unreal_init runs after UE has
+        // constructed its D3D device + swap chain and, importantly,
+        // after Steam's gameoverlayrenderer64.dll has installed its
+        // Present hook during the game's initial DLL loading.  Our
+        // PresentHook::install() reads the DXGI vtable and performs a
+        // PolyHook VFuncSwap — chaining ON TOP of Steam's hook rather
+        // than fighting it.  The actual per-frame rendering and
+        // WndProc attachment both kick in lazily on the first hooked
+        // Present() (see GameImGui.hpp for the bootstrap callback).
+        // -----------------------------------------------------------
+        if (!Horse::GameImGui::initialize())
+        {
+            Output::send<LogLevel::Error>(
+                STR("[HorseMod] Horse::GameImGui::initialize() failed; "
+                    "the in-game ImGui overlay will not appear.\n"));
+        }
+        m_gameimgui_tab_token = Horse::GameImGui::register_tab(
+            L"HorseMod", [this] { this->render_tab_impl(); });
+
         // Resolve SC6 native function RVAs now that the game image is loaded:
         //   ALuxBattleChara_GetBoneTransformForPose @ image + 0x462760
         //   LuxSkeletalBoneIndex_Remap              @ image + 0x898140
@@ -689,6 +925,20 @@ public:
 
     auto on_update() -> void override
     {
+        // Throttled settings persistence.  Runs every frame so we
+        // catch changes regardless of hook-registration state (the
+        // early-return below would otherwise skip it after the
+        // cockpit hook is registered).  save_persisted_settings
+        // fills the ModSettings map and asks it to save_if_dirty;
+        // unchanged values are an O(map-lookup) no-op inside set(),
+        // so the only actual disk I/O happens when a user toggled
+        // something since the last save.
+        if (++m_save_tick >= kSaveEveryNFrames)
+        {
+            m_save_tick = 0;
+            save_persisted_settings();
+        }
+
         if (m_hook_registered) return;
         if (++m_poll_counter < 60) return;
         m_poll_counter = 0;
@@ -1074,9 +1324,18 @@ private:
             const bool show_hurt       = shouldShow(pi, Horse::KHitList::Hurtbox);
             const bool show_atk        = shouldShow(pi, Horse::KHitList::Attack );
             const bool show_body       = shouldShow(pi, Horse::KHitList::Body   );
-            const bool hide_not_dmg    = m_hide_not_damage_active.load();
-            const bool hide_not_pf     = m_hide_not_per_frame_active.load();
-            const bool hide_unaddr_hurt = m_hide_unaddressable_hurt.load();
+            const bool hide_not_dmg     = m_hide_not_damage_active.load();
+            // "Show all Hitboxes" unchecked (default) means APPLY the
+            // per-frame damage-active filter; checked means skip it
+            // and show every attack node regardless.  The inverted
+            // polarity vs the old m_hide_not_per_frame_active lines
+            // up with the UI label.
+            const bool hide_not_pf      = !m_show_all_hitboxes.load();
+            // "Show unused hurtboxes" unchecked (default) means HIDE
+            // hurtboxes outside the classifier range; checked means
+            // show them.  Same inverted-polarity pattern as
+            // m_show_all_hitboxes.
+            const bool hide_unused_hurt = !m_show_unused_hurt.load();
             if (!show_hurt && !show_atk && !show_body) return;
 
             // KHit +0x60 values are already in absolute UE4 world space
@@ -1092,25 +1351,23 @@ private:
                     {
                         case Horse::KHitList::Hurtbox:
                             if (!show_hurt) return;
-                            // "Addressable only" — skip hurtboxes whose
-                            // +0x17 slot is outside ResolveAttackVs
-                            // HurtboxMask22's iteration range
-                            // (chara+0x44494 clamped to 22).  The engine
-                            // will happily OR attacker bits into the
-                            // PerHurtboxBitmask index corresponding to
-                            // these nodes, but the classifier never
-                            // reads those slots so no reaction is
-                            // written and no damage lands — they're
-                            // effectively engine-invisible.  See
-                            // m_hide_unaddressable_hurt comment for the
-                            // full derivation.
-                            if (hide_unaddr_hurt && !d.classifier_addressable)
+                            // "Hide unused hurtboxes" — skip hurtboxes
+                            // whose +0x17 slot is outside
+                            // ResolveAttackVsHurtboxMask22's iteration
+                            // range (chara+0x44494 clamped to 22).
+                            // The engine will happily OR attacker
+                            // bits into the PerHurtboxBitmask index
+                            // corresponding to these nodes, but the
+                            // classifier never reads those slots so
+                            // no reaction is written and no damage
+                            // lands — they're effectively engine-
+                            // invisible.  See m_hide_unused_hurt
+                            // comment for the full derivation.
+                            if (hide_unused_hurt && !d.classifier_addressable)
                                 return;
                             break;
                         case Horse::KHitList::Attack:
                             if (!show_atk) return;
-                            // Engine-derived sub-gate: strikes vs throws.
-                            if (!shouldShowAttackRole(d.attack_role)) return;
                             // (The "Live attacks only" filter that tested
                             // node+0x14 was removed 2026-04 after Ghidra
                             // verified the 0x3FFFD floor made it too
@@ -1245,72 +1502,203 @@ private:
     }
 
     // ------------------------------------------------------------------
-    // ImGui tab
+    // ImGui panel — single window split into four topical tabs.
+    //
+    //   Hitboxes  master F5, live move-frame, KHit lists, attack-role
+    //             / damage filters, hit-flash slider, render options
+    //   Camera    pose lock (pos + rot), Free-fly (F7), Ansel
+    //   Time      freeze frame, frame-step, slow-motion
+    //   General   catch-all: visibility overrides (weapons / chara
+    //             / VFX) and anything else not specific to the other
+    //             three tabs
+    //
+    // render_tab_impl() is just the dispatch shell; each tab's widgets
+    // live in its own render_*_tab() method so the monolithic 900-line
+    // panel is now four ~200-line focused ones.
     // ------------------------------------------------------------------
     void render_tab_impl()
     {
+        // -----------------------------------------------------------------
+        // Gamepad-first friendliness
+        // -----------------------------------------------------------------
+        // 1. Focus our window whenever the overlay (re-)appears OR
+        //    whenever it's visible but somehow lost focus.  We use
+        //    two signals:
+        //
+        //    a. g_overlay_just_shown — set by WndProcHook::set_visible
+        //       on the hidden→shown edge, no matter how it was
+        //       triggered (F2 or Back or any future hotkey).  This is
+        //       reliable even across hide/show cycles, which a local
+        //       static inside render_tab_impl can't observe because
+        //       render_tab_impl doesn't run while hidden.
+        //
+        //    b. A post-Begin IsWindowFocused check — if we're visible
+        //       but our window isn't focused (e.g. the user clicked
+        //       outside, a popup grabbed focus, something else
+        //       competed), ask for focus on the NEXT frame.
+        //
+        //    Both paths set m_nav_bootstrap_pending, which is
+        //    consumed inside render_hitboxes_tab by
+        //    ImGui::SetKeyboardFocusHere() on the F5 checkbox.
+        //    Focusing the WINDOW alone isn't enough to give ImGui's
+        //    nav system a NavId to highlight — SetKeyboardFocusHere
+        //    actively claims focus for a specific widget, which also
+        //    clears NavDisableHighlight so the D-pad responds
+        //    immediately (no "hold Square" workaround needed).
+        if (Horse::GameImGui::g_overlay_just_shown.exchange(
+                false, std::memory_order_relaxed))
+        {
+            ImGui::SetNextWindowFocus();
+            m_nav_bootstrap_pending = true;
+        }
+
+        if (!ImGui::Begin("HorseMod"))
+        {
+            ImGui::End();
+            return;
+        }
+
+        // Focus-loss detection.  If the overlay is visible but our
+        // window has lost nav focus for any reason, re-claim it.
+        // Uses the root-child hierarchy (_RootAndChildWindows) so an
+        // ImGui popup or child widget spawned by our own UI doesn't
+        // falsely register as "someone else is focused."
+        //
+        // The re-claim is deferred to the NEXT frame by setting
+        // m_nav_bootstrap_pending and using SetWindowFocus("HorseMod")
+        // at the top of the next render_tab_impl — in-place re-focus
+        // from inside the window we're currently rendering is
+        // technically allowed but has brought up odd edge cases in
+        // the past.  Deferring is safer and costs one frame of
+        // visually-lost highlight.
+        if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+        {
+            m_nav_bootstrap_pending = true;
+            ImGui::SetWindowFocus();
+        }
+
+        // 2. L1 / R1 (shoulder) cycle tabs.  Two pieces of state:
+        //    - s_current_tab mirrors whichever tab is ACTUALLY showing
+        //      (updated by whichever BeginTabItem returns true this
+        //      frame).
+        //    - s_requested_tab is the index to switch TO on this frame
+        //      only (-1 = no switch).  We compute it from s_current_tab
+        //      on an L1/R1 edge and clear it at the bottom.
+        //
+        //    This separation avoids a bug where the currently-visible
+        //    BeginTabItem's sync-back would clobber our requested-tab
+        //    value during the per-tab iteration, causing the
+        //    SetSelected flag to never be applied to the target tab.
+        //    Symptom was: R1 from any tab > 0 would "bounce back" to
+        //    the first tab on every press, because the target tab
+        //    never received the focus hand-off.
+        //
+        //    L1/R1 are suppressed while a widget is actively being
+        //    edited (dragging a slider) so they keep their stock
+        //    ImGui "tweak slower / faster" role in that context.
+        constexpr int kNumTabs = 4;
+        static int s_current_tab   = 0;
+        static int s_requested_tab = -1;
+        if (!ImGui::IsAnyItemActive())
+        {
+            if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, /*repeat=*/false))
+            {
+                s_requested_tab = (s_current_tab + kNumTabs - 1) % kNumTabs;
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, /*repeat=*/false))
+            {
+                s_requested_tab = (s_current_tab + 1) % kNumTabs;
+            }
+        }
+
+        if (ImGui::BeginTabBar("##horsemod_tabs"))
+        {
+            auto tab_item = [&](const char* label, int idx, auto&& body) {
+                ImGuiTabItemFlags flags = 0;
+                if (s_requested_tab == idx)
+                {
+                    flags |= ImGuiTabItemFlags_SetSelected;
+                }
+                if (ImGui::BeginTabItem(label, nullptr, flags))
+                {
+                    // Sync "what's actually visible" back to
+                    // s_current_tab.  Does NOT touch s_requested_tab,
+                    // so the SetSelected flag still gets applied to
+                    // the target tab later in the iteration.
+                    s_current_tab = idx;
+                    body();
+                    ImGui::EndTabItem();
+                }
+            };
+
+            tab_item("Hitboxes", 0, [this] { render_hitboxes_tab(); });
+            tab_item("Camera",   1, [this] { render_camera_tab(); });
+            tab_item("Time",     2, [this] { render_time_tab(); });
+            tab_item("General",  3, [this] { render_general_tab(); });
+
+            ImGui::EndTabBar();
+        }
+
+        // Clear the requested-tab marker AFTER the tab bar finishes so
+        // ImGui has processed the SetSelected flag for this frame.
+        // Leaving it set would re-apply SetSelected on the next frame
+        // too, which ImGui handles gracefully but wastes cycles.
+        s_requested_tab = -1;
+
+        ImGui::End();
+    }
+
+    // ==================================================================
+    // Hitboxes tab — the core feature.  Master F5 toggle with live
+    // status line, per-player move-frame display, KHit list checkboxes
+    // (hurt / attack / body for P1 + P2), attack-role filters
+    // (strike / throw) and the three engine-derived damage filters,
+    // hit-flash duration slider, LineBatcher render options.
+    // ==================================================================
+    void render_hitboxes_tab()
+    {
+        // Nav bootstrap — see m_nav_bootstrap_pending doc comment.
+        // Called BEFORE the checkbox so ImGui applies focus to it.
+        // Cleared immediately so subsequent frames don't keep
+        // stealing focus from wherever the user has navigated to.
+        if (m_nav_bootstrap_pending)
+        {
+            ImGui::SetKeyboardFocusHere();
+            m_nav_bootstrap_pending = false;
+        }
         bool enabled = m_enabled.load();
         if (ImGui::Checkbox("Overlay enabled (F5)", &enabled))
         {
             m_enabled.store(enabled);
             if (!enabled) m_backend.hideAll();
         }
+        // Belt-and-suspenders: SetItemDefaultFocus registers the F5
+        // checkbox as the fallback nav target when the tab bar
+        // switches between tabs (ImGui picks this widget when there
+        // are no previous-nav hints in the new tab).
+        ImGui::SetItemDefaultFocus();
         ImGui::SameLine();
-        ImGui::TextDisabled("ticks:%d  hook:%s  lbc:%s  native:%s",
-            m_update_calls,
-            m_hook_registered                ? "OK" : "pending",
-            m_backend.isReady()              ? "OK" : "idle",
-            Horse::NativeBinding::isReady()  ? "OK" : "miss");
-
-        // --- Live move-frame display -------------------------------------
-        // Deref chara+0x44068 ActiveLaneStateCursorPtr and show
-        // CurrentAnimFrame / AnimLengthFrames for each player.  Costs
-        // ~4 safe reads per frame per player — negligible.
+        // Friendly readiness summary.  If anything's still
+        // initialising, say which thing and (almost always) the user
+        // just needs to start a match for the rest to come online.
+        if (!Horse::NativeBinding::isReady())
         {
-            ImGui::Separator();
-            ImGui::TextUnformatted("Move frame");
-            auto row = [](const char* label, int pi) {
-                void* chara = Horse::KHitWalker::charaSlotFromGlobal(
-                    static_cast<uint32_t>(pi));
-                const auto s = Horse::KHitWalker::readLaneSnapshot(chara);
-                ImGui::TextUnformatted(label);
-                ImGui::SameLine(48.0f);
-                if (!s.has_move)
-                {
-                    ImGui::TextDisabled("idle");
-                    return;
-                }
-                const int curI = static_cast<int>(s.current_frame);
-                const int totI = static_cast<int>(s.length_frames);
-                ImGui::Text("%3d / %3d  move=0x%04X  lane=%d  speed=%.2fx%s%s",
-                            curI, totI,
-                            static_cast<uint16_t>(s.packed_move),
-                            static_cast<int>(s.lane_index),
-                            s.playback_speed,
-                            s.in_transition ? "  [T]" : "",
-                            s.finished      ? "  [done]" :
-                            s.at_end        ? "  [end]"  : "");
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "LuxMoveLaneState at *(chara+0x44068):\n"
-                    "  +0x02  PackedMoveAddr  = ((bank<<12)|slot)\n"
-                    "  +0x04  TickCounter\n"
-                    "  +0x08  CurrentAnimFrame (advanced each tick by\n"
-                    "         time_dilation * PlaybackSpeedCurrent)\n"
-                    "  +0x10  AnimLengthFrames (bank cell +0x34)\n"
-                    "  +0x1A  AtEndFlag        ([end])\n"
-                    "  +0x24  FrameStepFinished([done])\n"
-                    "  +0x26  InTransitionFlag ([T])\n"
-                    "  +0x30  PlaybackSpeedCurrent");
-            };
-            row("P1:", 0);
-            row("P2:", 1);
+            ImGui::TextDisabled("(setting up — check UE4SS.log if this persists)");
+        }
+        else if (!m_hook_registered)
+        {
+            ImGui::TextDisabled("(waiting for a match to start)");
+        }
+        else if (!m_backend.isReady())
+        {
+            ImGui::TextDisabled("(waiting for the battle scene)");
+        }
+        else
+        {
+            ImGui::TextDisabled("(ready)");
         }
 
         ImGui::Separator();
-        ImGui::TextUnformatted("KHit lists — per player");
-        ImGui::TextDisabled(
-            "Hurtboxes + Attacks default ON.  Body / pushbox default OFF "
-            "(noisy — spacing context only).");
 
         auto per_player_row = [](const char* label,
                                  std::atomic<bool>& hurt,
@@ -1327,28 +1715,25 @@ private:
                     "Hurtboxes##%s", id_suffix);
                 if (ImGui::Checkbox(tag, &h)) hurt.store(h);
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "KHit HurtboxListHead (chara+0x444B8).\n"
-                    "Volumes that RECEIVE damage.  Each node's BoneId byte\n"
-                    "at +0x17 indexes PerHurtboxBitmask[22] (+0x44078) and\n"
-                    "PerHurtboxReactionState[22] (+0x1C74).  Green; red\n"
-                    "flash on reaction-state non-zero (just got hit),\n"
-                    "sticky-extended per the 'Hit-flash duration' slider.");
+                    "Show this player's hurtboxes — the volumes that\n"
+                    "RECEIVE damage.\n\n"
+                    "Drawn green; flash red for a moment whenever the\n"
+                    "hurtbox just got hit (the flash length is the\n"
+                    "'Hit-flash duration' slider below).");
             }
             ImGui::SameLine();
             {
                 bool a = atk.load();
                 char tag[32]; std::snprintf(tag, sizeof(tag),
-                    "Attacks##%s", id_suffix);
+                    "Hitboxes##%s", id_suffix);
                 if (ImGui::Checkbox(tag, &a)) atk.store(a);
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "KHit AttackListHead (chara+0x44498).\n"
-                    "Volumes that DEAL damage (or initiate grabs).\n"
-                    "Strike: amber cold, yellow when active.\n"
-                    "Throw : magenta cold, pink when active.\n"
-                    "\"Active\" = engine's per-frame gate at node+0x14\n"
-                    "(set by the tick to (hotMask >> node[+0x17]) & 1).\n"
-                    "When active, the node's CategoryMask is OR'd into\n"
-                    "the opponent's PerHurtboxBitmask this tick.");
+                    "Show this player's hitboxes — the volumes that\n"
+                    "DEAL damage (or initiate grabs).\n\n"
+                    "Strikes: amber when idle, yellow when actually\n"
+                    "dealing damage this frame.\n"
+                    "Throws / grabs: magenta when idle, pink when\n"
+                    "actually active this frame.");
             }
             ImGui::SameLine();
             {
@@ -1357,10 +1742,11 @@ private:
                     "Body##%s", id_suffix);
                 if (ImGui::Checkbox(tag, &b)) body.store(b);
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "KHit BodyListHead (chara+0x44478).\n"
-                    "Character-to-character physical pushing only — used\n"
-                    "by LuxBattle_SolvePhysBodyCollision @ 0x14030CCF0.\n"
-                    "Not involved in damage resolution.  Dim blue.");
+                    "Show this player's body / push-box — the volume\n"
+                    "used for character-to-character physical pushing.\n"
+                    "Not involved in damage, only in spacing.\n\n"
+                    "Drawn dim blue.  Off by default because it clutters\n"
+                    "the view during most frame-data work.");
             }
             ImGui::PopID();
         };
@@ -1370,72 +1756,6 @@ private:
         per_player_row("P2",
                        m_show_p2_hurt, m_show_p2_atk, m_show_p2_body, "p2");
 
-        // Quick-action buttons for the common cases.
-        if (ImGui::SmallButton("All ON"))
-        {
-            m_show_p1_hurt.store(true); m_show_p1_atk.store(true); m_show_p1_body.store(true);
-            m_show_p2_hurt.store(true); m_show_p2_atk.store(true); m_show_p2_body.store(true);
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("All OFF"))
-        {
-            m_show_p1_hurt.store(false); m_show_p1_atk.store(false); m_show_p1_body.store(false);
-            m_show_p2_hurt.store(false); m_show_p2_atk.store(false); m_show_p2_body.store(false);
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Defaults (no Body)"))
-        {
-            m_show_p1_hurt.store(true); m_show_p1_atk.store(true); m_show_p1_body.store(false);
-            m_show_p2_hurt.store(true); m_show_p2_atk.store(true); m_show_p2_body.store(false);
-        }
-
-        // --- Attack role filters (engine-derived) -----------------------
-        // Source: LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100
-        // partitions the 64-bit CategoryMask at node+0x08 into two disjoint
-        // bit regions.  We expose the same partition here.
-        ImGui::Spacing();
-        ImGui::TextUnformatted("Attack roles (shared)");
-        ImGui::TextDisabled(
-            "Engine-derived from CategoryMask bits at node+0x08.\n"
-            "Strike = normal attacks (all category bits except 31, 55).\n"
-            "Throw  = grabs / throws (mask bits 31 or 55).");
-        {
-            bool s = m_show_atk_strike.load();
-            if (ImGui::Checkbox("Strike##atkrole", &s)) m_show_atk_strike.store(s);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Normal attacks that damage on contact with a hurtbox.\n"
-                "Mask bits in 0xFF7FFFFF7FFFFFFF (all except bit 31/55).\n"
-                "Drawn amber (cold) / yellow (currently active).");
-            ImGui::SameLine();
-            bool t = m_show_atk_throw.load();
-            if (ImGui::Checkbox("Throw / Grab##atkrole", &t)) m_show_atk_throw.store(t);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Grab attacks (throws, command grabs).  The classifier\n"
-                "pre-scans for bits 31 or 55 in the CategoryMask and\n"
-                "handles them as an all-or-nothing gate before the\n"
-                "per-hurtbox strike loop runs.\n"
-                "Mask: 0x0080000080000000.\n"
-                "Drawn magenta (cold) / pink (currently active).");
-        }
-        if (ImGui::SmallButton("Strikes only"))
-        {
-            m_show_atk_strike.store(true);
-            m_show_atk_throw .store(false);
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Throws only"))
-        {
-            m_show_atk_strike.store(false);
-            m_show_atk_throw .store(true);
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Both roles"))
-        {
-            m_show_atk_strike.store(true);
-            m_show_atk_throw .store(true);
-        }
-
-        // Spacer before the damage-gate filters.
         ImGui::Spacing();
 
         // --- Damage-active only (actor-level own-attack cell) -----------
@@ -1448,62 +1768,55 @@ private:
         // "is this box doing anything RIGHT NOW?" view.
         {
             bool dg = m_hide_not_damage_active.load();
-            if (ImGui::Checkbox("Damage-active only (chara+0x44058 bit)", &dg))
+            if (ImGui::Checkbox("Damage-active only", &dg))
                 m_hide_not_damage_active.store(dg);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "When on, hide attack-list nodes whose slot bit is not\n"
-                "set in the actor's own-attack-active cell at\n"
-                "*chara[+0x44058].  This is the mask that\n"
-                "ResolveAttackVsHurtboxMask22 AND-s against the opponent's\n"
-                "PerHurtboxBitmask — if the bit is clear, the node\n"
-                "physically cannot damage this tick, regardless of\n"
-                "geometry.\n\n"
-                "Distinction from the +0x14 filter above:\n"
-                " • +0x14 is the per-node GEOMETRY gate.  Subject to the\n"
-                "   MoveVM 0x3FFFD floor — slots {0, 2..17} force-on every\n"
-                "   frame, so ~20 cold boxes still pass it in neutral.\n"
-                " • +0x44058 is the ACTOR-level DAMAGE gate.  Empty\n"
-                "   during neutral; lights up only on real active frames.\n\n"
-                "On : strongest 'currently hitting' filter.\n"
-                "Off: show all geometry-live attacks (respects +0x14 if\n"
-                "     that filter is also on).");
+                "On : show only the hitboxes that can actually deal\n"
+                "     damage right now.  Everything else is hidden,\n"
+                "     even if it's drawn on the character mesh.\n"
+                "Off (default): show every hitbox the current move\n"
+                "     has, including ones that aren't dealing damage\n"
+                "     this frame.\n\n"
+                "Use this for a clean view of what's hitting right\n"
+                "now — pair with Freeze frame or slow-motion for\n"
+                "frame-data analysis.");
         }
 
-        // --- Per-frame damage-active only (classifier predicate) ---------
-        // Mirrors the engine's classifier at ResolveAttackVsHurtboxMask22
-        // (0x14033C100):
+        // --- Show all Hitboxes (disables the per-frame damage filter) ---
+        // When OFF (default), we apply the engine's classifier
+        // predicate at ResolveAttackVsHurtboxMask22 (0x14033C100):
+        //
         //   capable_of_damage = (+0x14 != 0) AND
         //                       ((node.CategoryMask & per_move_cell) != 0)
         //
-        // The category-mask intersection correctly handles body-
-        // attached attack boxes that live at floor slots (0, 2..17).
-        // Their +0x14 is always set by the engine's floor, so the
-        // earlier "+0x14 minus floor" version of this filter wrongly
-        // hid them.  The category check brings them back: hidden
-        // during neutral (cell==0), shown during moves whose
-        // authored category set overlaps the node's CategoryMask.
+        // …and hide any attack node that fails it.  The category-
+        // mask intersection correctly handles body-attached attack
+        // boxes at floor slots (0, 2..17) whose +0x14 is always set:
+        // they're hidden during neutral (cell==0) and shown only
+        // during moves whose authored category set overlaps the
+        // node's CategoryMask.
+        //
+        // When ON, the filter is bypassed entirely — every attack
+        // node draws regardless of whether the engine currently
+        // considers it capable of producing damage.  Useful when
+        // inspecting passive or static attack volumes the default
+        // frame-data view would hide.
         {
-            bool pf = m_hide_not_per_frame_active.load();
-            if (ImGui::Checkbox("Per-frame damage-active only", &pf))
-                m_hide_not_per_frame_active.store(pf);
+            bool show_all = m_show_all_hitboxes.load();
+            if (ImGui::Checkbox("Show all Hitboxes", &show_all))
+                m_show_all_hitboxes.store(show_all);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "When on, hide attack-list nodes that don't currently\n"
-                "satisfy the engine's damage-classifier predicate:\n"
-                "  capable iff (+0x14 != 0)\n"
-                "         AND (node.CategoryMask & per_move_cell != 0)\n"
-                "(the same test ResolveAttackVsHurtboxMask22 uses to\n"
-                "decide whether overlap should fire a hit).\n\n"
-                "Compared to 'Damage-active only' above:\n"
-                " • Damage-active uses a slot-bit check on the per-\n"
-                "   move cell — stays on through the whole move slot.\n"
-                " • This uses the category-mask intersection, which\n"
-                "   tracks active-frame transitions more closely AND\n"
-                "   correctly handles body-attached attack boxes (at\n"
-                "   floor slots 0/2-17 whose +0x14 is always set).\n\n"
-                "On  : show only attacks the engine considers capable\n"
-                "      of producing damage right now.  Pair with Freeze\n"
-                "      frame / F6 step for frame-data analysis.\n"
-                "Off : ignore this filter (other gates still run).");
+                "Off (default): hide hitboxes that aren't currently\n"
+                "capable of damaging the opponent.  Cleaner view\n"
+                "during startup and recovery frames — only the\n"
+                "\"live\" portion of each move shows up.\n\n"
+                "On : show every hitbox a move has, including\n"
+                "passive / body-attached ones that never deal\n"
+                "damage.  Useful if you want to inspect a move's\n"
+                "complete hitbox layout rather than just its\n"
+                "damaging frames.\n\n"
+                "Works alongside the 'Damage-active only' filter\n"
+                "above — both can be on at the same time.");
         }
 
         // --- Addressable hurtboxes only (classifier-range gate) ----------
@@ -1537,80 +1850,130 @@ private:
         // don't go through TickHitResolution's per-frame +0x14
         // update, so their +0x14 is pinned at 1 forever and such a
         // filter is a no-op.)
-        ImGui::Spacing();
         {
-            bool uh = m_hide_unaddressable_hurt.load();
-            if (ImGui::Checkbox("Classifier-addressable hurtboxes only", &uh))
-                m_hide_unaddressable_hurt.store(uh);
+            bool show_unused = m_show_unused_hurt.load();
+            if (ImGui::Checkbox("Show unused hurtboxes", &show_unused))
+                m_show_unused_hurt.store(show_unused);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "When on, hide hurtboxes whose per-node slot byte at\n"
-                "+0x17 is >= the classifier's iteration bound\n"
-                "(chara+0x44494, capped at 22).\n\n"
-                "Why this matters: LuxBattle_ResolveAttackVsHurtboxMask22\n"
-                "iterates only slots 0..bound-1 when reading\n"
-                "PerHurtboxBitmask.  A hurtbox authored at slot >= bound\n"
-                "will have attacker bits OR'd into its PerHurtboxBitmask\n"
-                "entry by UpdateAllKHitWorldCenters, but the classifier\n"
-                "never looks at that entry — no reaction is written, no\n"
-                "damage is applied.  Visually the hurtbox is alive but\n"
-                "functionally it's engine-invisible.\n\n"
-                "GOTCHA: the bound at 0x44494 is the ATTACK list's\n"
-                "max-slot (not the hurtbox list's).  During dodges,\n"
-                "movement, block, or throw-whiff moves that have few\n"
-                "attack slots, the bound can be small and real\n"
-                "per-move hurtboxes at high indices will disappear\n"
-                "from the overlay with this toggle on.  If your move\n"
-                "'added a new hurtbox' that isn't showing, try turning\n"
-                "this OFF first.\n\n"
-                "Off: show every hurtbox including unaddressable ones.\n"
-                "On : show only hurtboxes the classifier actually reads\n"
-                "     — the 'can this hurtbox ever produce a reaction?'\n"
-                "     view.");
+                "Off (default): hide hurtboxes that the game\n"
+                "considers \"unused\" — ones that are drawn on the\n"
+                "character mesh but can never actually produce a\n"
+                "reaction or take damage.  Keeps the overlay clean.\n\n"
+                "On : show those hurtboxes anyway.\n\n"
+                "Note for modders: some dodge / movement / block\n"
+                "moves can make legitimate hurtboxes look \"unused\"\n"
+                "here because of how the engine counts its slots.\n"
+                "If a hurtbox you expect to see is missing, turn this\n"
+                "ON to confirm it actually exists.");
         }
 
-        // --- Weapon visibility override ---------------------------------
-        // Force hide both charas' weapons so they stop occluding the
-        // hitbox overlay.  Calls SetWeaponVisibility(false) every frame
-        // while on (so the game's own show-triggers don't sneak weapons
-        // back in); calls SetWeaponVisibility(true) once on OFF to
-        // restore.  Applies only while the overlay is enabled — if F5
-        // turns the mod off, weapons stay in whatever state the engine
-        // last set (typically visible).
+        // --- Hit-flash duration -----------------------------------------
+        // The raw PerHurtboxReactionState signal is a ~1-frame pulse
+        // (~16ms at 60fps) — too short to see.  This slider extends the
+        // visible red flash by holding the "hot" state for N cockpit
+        // ticks before fading.  0 = disable the sticky entirely (raw
+        // 1-frame pulse only).
+        //
+        // Counted in COCKPIT TICKS, with the countdown gated on
+        // SpeedControl::current_value_static() > 0 — so when "Freeze
+        // frame" is on, the sticky pauses with the rest of the world
+        // and the flash stays visible until the user unfreezes or
+        // steps a frame.  Each F6 step decrements the counter by 1.
+        //
+        // 15 ticks ≈ 250ms at 60fps (the previous default).  60 ticks
+        // = ~1 second of normal-speed gameplay, which is the slider
+        // cap.  Slow-mo (speedval < 1) treats every cockpit tick as
+        // a "decrement" tick — so the visible duration in wall-clock
+        // seconds shrinks under slow-mo.  If you want a long-visible
+        // flash to inspect during slow-mo, just bump this slider.
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::TextUnformatted("Scene");
+        ImGui::TextUnformatted("Hit-flash duration");
         {
-            bool hw = m_hide_weapons.load();
-            if (ImGui::Checkbox("Hide weapons", &hw))
-                m_hide_weapons.store(hw);
+            int frames = m_flash_frames.load();
+            if (ImGui::SliderInt("frames##flashdur", &frames, 0, 60, "%d ticks"))
+            {
+                if (frames < 0)  frames = 0;
+                if (frames > 60) frames = 60;
+                m_flash_frames.store(frames);
+                Horse::KHitWalker::setStickyFrames(frames);
+            }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Hide both characters' weapon meshes while the overlay\n"
-                "is enabled.  Useful when a bulky weapon (Nightmare's\n"
-                "sword, Astaroth's axe) occludes the hitbox volumes you\n"
-                "want to inspect.\n\n"
-                "Uses ALuxBattleChara::SetWeaponVisibility(bool) — a\n"
-                "BlueprintCallable UFunction on the battle chara class.\n"
-                "Re-applied every frame while on, so any game-driven\n"
-                "visibility change (cinematic cues) is overridden.\n"
-                "Turning the toggle off calls SetWeaponVisibility(true)\n"
-                "once per chara and then leaves the state alone.");
+                "How long the red flash stays visible when a hurtbox\n"
+                "gets hit.  Measured in game frames (≈ 60 per second).\n\n"
+                "0 = no flash (the underlying signal lasts one frame\n"
+                "and is essentially invisible).\n"
+                "Default 15 = about a quarter-second of flash.\n"
+                "Cap 60 = a full second at normal speed.\n\n"
+                "While Freeze frame is on, the timer pauses so the\n"
+                "flash stays visible until you unfreeze or step a\n"
+                "frame — useful for inspecting who hit whom.");
+        }
 
-            // --- Always allow Ansel camera -----------------------------
-            bool aa = m_ansel_always_allowed.load();
-            if (ImGui::Checkbox("Always allow Ansel camera", &aa))
-                m_ansel_always_allowed.store(aa);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Force NVIDIA Ansel (the free-camera photo mode) to be\n"
-                "available at all times by calling\n"
-                "UAnselFunctionLibrary::SetIsPhotographyAllowed(true)\n"
-                "every frame.  SC6 normally blocks Ansel outside of\n"
-                "specific states (menus, cinematics, ring-out); with\n"
-                "this on you can trigger the Ansel hotkey any time.\n\n"
-                "Runs independent of the F5 overlay toggle.  Turning\n"
-                "this off calls SetIsPhotographyAllowed(false) exactly\n"
-                "once so the engine resumes managing the flag itself.");
+        ImGui::Separator();
+        ImGui::TextUnformatted("Render");
+        {
+            float t = m_thickness.load();
+            if (ImGui::SliderFloat("Thickness", &t, 0.5f, 8.0f, "%.1f"))
+                m_thickness.store(t);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Line thickness for the drawn hitbox / hurtbox /\n"
+                    "body wireframes.  Default 1.5 is a good balance;\n"
+                    "bump it up if you're recording or screenshotting\n"
+                    "and want the lines to read clearly at a distance.");
 
-            // --- Lock camera position -----------------------------------
+            const char* slot_names[3] = {
+                "Default (hidden behind walls)",
+                "Persistent",
+                "Foreground (always visible)",
+            };
+            int slot_idx = static_cast<int>(m_slot.load());
+            if (ImGui::Combo("Hurtbox renderer", &slot_idx, slot_names, 3))
+                m_slot.store(static_cast<Horse::LineBatcherSlot>(slot_idx));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "How the hitbox lines interact with the 3D scene.\n\n"
+                    "  Default: lines are occluded by walls, floors,\n"
+                    "  and the characters themselves — most realistic,\n"
+                    "  but parts of a hitbox inside a body won't show.\n\n"
+                    "  Persistent: same occlusion behaviour as Default;\n"
+                    "  kept separate for internal reasons.\n\n"
+                    "  Foreground (recommended): lines always draw on\n"
+                    "  top of everything else.  You can see the full\n"
+                    "  shape of every box regardless of what's in front\n"
+                    "  of it.");
+        }
+    }
+
+    // ==================================================================
+    // Camera tab — pose lock (position + rotation group), Free-fly
+    // camera (F7) with its sub-controls (move/look/FOV sliders, live
+    // pose readout, memory-verify line, input diagnostics), and Ansel
+    // always-allowed.  All independent of the F5 hitbox overlay.
+    // ==================================================================
+    void render_camera_tab()
+    {
+        // --- Always allow Ansel camera -----------------------------------
+        // Runs independent of the F5 hitbox overlay.  Kept at the top of
+        // the Camera tab (rather than buried under Free-fly's sub-controls)
+        // because it's a single checkbox with no state to inspect — the
+        // user either wants Ansel always available or not.
+        bool aa = m_ansel_always_allowed.load();
+        if (ImGui::Checkbox("Always allow Ansel camera", &aa))
+            m_ansel_always_allowed.store(aa);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Force NVIDIA Ansel (the built-in free-camera photo\n"
+            "mode) to be available at all times.\n\n"
+            "Normally SC6 only allows Ansel in specific situations\n"
+            "(menus, cinematics, ring-out).  With this on you can\n"
+            "trigger the Ansel hotkey any time, even mid-match.\n\n"
+            "Independent of the F5 overlay — you can use Ansel with\n"
+            "or without the hitbox overlay enabled.");
+
+        ImGui::Separator();
+
+        // --- Lock camera position -----------------------------------
             // Bytepatch-based: NOPs the engine's per-frame stores into
             // the camera struct, so whatever pose the camera is in at
             // toggle-ON time stays put until OFF.  See
@@ -1629,8 +1992,7 @@ private:
             // state machine — letting the user poke the checkbox then
             // would cause a fight between the two owners.
             const bool fc_on = m_free_camera_enabled.load();
-            bool lc     = m_cam_lock.is_enabled();
-            bool lc_rot = m_cam_lock.is_rotation_enabled();
+            bool lc = m_cam_lock.is_enabled();
             if (fc_on) ImGui::BeginDisabled(true);
             if (ImGui::Checkbox("Lock camera position", &lc))
             {
@@ -1641,77 +2003,45 @@ private:
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                 fc_on
                     ? "Disabled while Free-fly camera is on — free-fly\n"
-                      "owns the camera lock while it's active.  Turn\n"
-                      "free-fly off first to toggle this manually."
-                    : "Freeze the camera at its current pose (location,\n"
-                      "rotation, and FOV).  Patches SC6's per-frame\n"
-                      "camera-commit instructions (TickAndCommitPOV\n"
-                      "store row at ALuxBattleCamera +0x410..+0x428)\n"
-                      "to NOPs while held; turning OFF restores the\n"
-                      "originals.\n\n"
-                      "To re-frame: toggle off, move the camera to where\n"
-                      "you want it, toggle back on.\n\n"
-                      "Runs independent of the F5 overlay toggle.\n"
-                      "Ported from somberness's CE table (the 'Cam'\n"
-                      "cheat) — 10 NOPs across 2 sites (primary group).\n"
-                      "See 'Lock camera rotation' below for additional\n"
-                      "writers outside this primary commit row.");
+                      "takes over the camera lock while it's active.\n"
+                      "Turn free-fly off first to toggle this manually."
+                    : "Freeze the camera at its current position, angle,\n"
+                      "and zoom level.  The game's own camera system\n"
+                      "stops moving it until you turn this off.\n\n"
+                      "Useful for framing a specific moment: turn this\n"
+                      "OFF, let the game move the camera where you\n"
+                      "want it, then turn ON to hold that shot.\n\n"
+                      "Independent of the F5 overlay.");
 
-            // Companion checkbox for the rotation-group patches — the
-            // three extra writer functions found via Ghidra that write
-            // to the same pose fields outside the primary commit row.
-            // Splitting them lets the user engage/disengage rotation
-            // lock independently from position lock, and makes it easy
-            // to diagnose a regression where rotation patches interact
-            // badly with some other game path (just turn rot lock off).
-            if (fc_on) ImGui::BeginDisabled(true);
-            if (ImGui::Checkbox("Lock camera rotation (experimental)",
-                                &lc_rot))
-            {
-                m_cam_lock.set_rotation_patches(lc_rot);
-            }
-            if (fc_on) ImGui::EndDisabled();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                fc_on
-                    ? "Disabled while Free-fly camera is on — free-fly\n"
-                      "owns the rotation-lock group while it's active."
-                    : "Additionally NOPs three external writer functions\n"
-                      "that re-stomp camera pose outside the primary\n"
-                      "commit row:\n"
-                      "  rotSite1 (FUN_1420520f0) — per-tick whole-pose\n"
-                      "    writer.  NOPing it is required for arrow-key\n"
-                      "    look in Free-fly to take effect.  Ghidra\n"
-                      "    verified this function writes LocXY+LocZ\n"
-                      "    along with rotation, so we NOP all 29 bytes\n"
-                      "    of its store block to avoid position stomps.\n"
-                      "  rotSite2 (FUN_141f935b0) — target-follow rot\n"
-                      "    writer.  Rotation-only.\n"
-                      "  rotSite3 (FUN_141d27c80) — SetPOV rotation\n"
-                      "    component.  Rotation-only; leaves the\n"
-                      "    location path in SetPOV intact so game\n"
-                      "    scripts that set camera position still work.\n\n"
-                      "Opt-in because enabling these without also having\n"
-                      "'Lock camera position' on can make the camera\n"
-                      "appear to behave unpredictably.  Free-fly enables\n"
-                      "this automatically when it turns on.");
+            // Lock camera rotation has been removed from the UI.
+            // It's still useful internally — Free-fly camera enables
+            // it automatically while it's active so arrow-key look
+            // works — but exposing it as a separate user toggle was
+            // confusing.  Free-fly now owns the rotation lock entirely.
 
-            // Combined status line.
-            if (!m_cam_lock.is_resolved() && (lc || lc_rot))
+            // Status line — friendly summary of whether the camera
+            // is currently locked.  Free-fly turning on the lock
+            // counts as "active" here so the user sees feedback when
+            // free-cam mode is engaged.
+            if (!m_cam_lock.is_resolved() && lc)
             {
                 ImGui::TextDisabled(
-                    "(camera-lock AOB did not resolve — check log)");
+                    "(camera lock couldn't find its hook points — "
+                    "see UE4SS.log for details)");
             }
-            else if (m_cam_lock.is_enabled() ||
+            else if (m_cam_lock.is_enabled() &&
                      m_cam_lock.is_rotation_enabled())
             {
-                const int n_prim = m_cam_lock.is_enabled()          ? 10 : 0;
-                const int n_rot  = m_cam_lock.is_rotation_enabled() ?  7 : 0;
                 ImGui::TextDisabled(
-                    "(camera lock active — %d/%d stores NOPed: "
-                    "primary=%s rotation=%s)",
-                    n_prim + n_rot, 17,
-                    m_cam_lock.is_enabled()          ? "on"  : "off",
-                    m_cam_lock.is_rotation_enabled() ? "on"  : "off");
+                    "(camera fully locked — position + rotation)");
+            }
+            else if (m_cam_lock.is_enabled())
+            {
+                ImGui::TextDisabled("(camera position locked)");
+            }
+            else if (m_cam_lock.is_rotation_enabled())
+            {
+                ImGui::TextDisabled("(camera rotation locked)");
             }
 
             // --- Free-fly camera (Ansel replacement) --------------------
@@ -1726,51 +2056,64 @@ private:
                 if (ImGui::Checkbox("Free-fly camera (F7)", &fc))
                     m_free_camera_enabled.store(fc);
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Alternative to Nvidia Ansel for free-camera movement.\n"
-                    "Writes the pose directly on ALuxBattleCamera's\n"
-                    "+0x410..+0x428 fields while CamLock holds off the\n"
-                    "engine.  No Ansel session, no r.Photography.In\n"
-                    "Session CVar, no overlay disable.\n\n"
+                    "Take manual control of the camera and fly it\n"
+                    "around freely.  Unlike Ansel this keeps the\n"
+                    "hitbox overlay visible and the match running.\n\n"
                     "Keyboard (game window must be focused):\n"
-                    "  W / S     forward / back along view\n"
-                    "  A / D     strafe left / right\n"
-                    "  E / Q     up / down (world Z)\n"
-                    "  ↑ ↓ ← →   or IJKL — pitch / yaw\n"
-                    "  Shift     5× speed   |   Ctrl   0.2× speed\n"
-                    "(arrows may be dead if SC6 claims them via\n"
-                    " RawInput NOLEGACY — fall back to IJKL in that case)\n\n"
-                    "Controller (XInput-0):\n"
-                    "  Left stick   translate\n"
-                    "  Right stick  look\n"
-                    "  LT / RT      down / up\n"
-                    "  LB / RB      0.2× / 5× speed\n\n"
-                    "Enabling implicitly turns on 'Lock camera position'\n"
-                    "(and turning free-camera OFF releases it).  You can\n"
-                    "still re-frame by toggling off → moving the engine\n"
-                    "camera → toggling back on.");
+                    "  W / S       move forward / back\n"
+                    "  A / D       strafe left / right\n"
+                    "  E / Q       move up / down\n"
+                    "  Arrows or IJKL   look around\n"
+                    "  Shift       5× faster  |  Ctrl  0.2× slower\n"
+                    "(If the arrow keys don't respond, use IJKL\n"
+                    " instead — the game grabs arrows on some\n"
+                    " screens.)\n\n"
+                    "Controller (player 1):\n"
+                    "  Left stick    move\n"
+                    "  Right stick   look\n"
+                    "  LT / RT       move down / up\n"
+                    "  LB / RB       0.2× / 5× speed\n\n"
+                    "Turning this on also locks the camera\n"
+                    "automatically; turning it off releases the\n"
+                    "lock.  To re-frame a shot, toggle OFF, let\n"
+                    "the game move the camera where you want,\n"
+                    "then toggle back ON.");
 
                 // Sub-controls, only visible when free-cam is on to
-                // avoid cluttering the Scene section.
+                // avoid cluttering the Camera tab.
                 if (fc)
                 {
                     float mv = m_free_camera.move_speed();
-                    if (ImGui::SliderFloat("move (cm/frame)", &mv,
+                    if (ImGui::SliderFloat("Move speed", &mv,
                                            2.0f, 100.0f, "%.1f"))
                         m_free_camera.move_speed() = mv;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                        "How fast WASD / left-stick moves the camera.\n"
+                        "Hold Shift (or RB) for 5× this speed, Ctrl\n"
+                        "(or LB) for 0.2×.");
 
                     float lk = m_free_camera.look_speed();
-                    if (ImGui::SliderFloat("look (deg/frame)", &lk,
+                    if (ImGui::SliderFloat("Look speed", &lk,
                                            0.2f, 6.0f, "%.2f"))
                         m_free_camera.look_speed() = lk;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                        "How fast the arrow keys / IJKL / right-stick\n"
+                        "rotate the camera view.  Same Shift / Ctrl\n"
+                        "multipliers as Move speed.");
 
                     float fv = m_free_camera.fov_deg();
-                    if (ImGui::SliderFloat("FOV (deg)", &fv,
+                    if (ImGui::SliderFloat("Field of view", &fv,
                                            20.0f, 120.0f, "%.0f"))
                         m_free_camera.fov_deg() = fv;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                        "Camera field of view in degrees.  Lower =\n"
+                        "zoomed-in / telephoto look, higher = wide-\n"
+                        "angle / fisheye look.  70 is the game's\n"
+                        "default.");
 
                     // Live pose readout — handy for reproducing shots.
                     ImGui::TextDisabled(
-                        "pos=(%.1f, %.1f, %.1f)  rot=(%.1f, %.1f, %.1f)",
+                        "position (%.1f, %.1f, %.1f)  rotation (%.1f, %.1f, %.1f)",
                         m_free_camera.loc_x(),
                         m_free_camera.loc_y(),
                         m_free_camera.loc_z(),
@@ -1783,140 +2126,112 @@ private:
                     // expected pose.  Makes "is our write actually
                     // reaching memory?" debuggable without reading log
                     // files.
-                    if (m_cached_player_camera_manager)
-                    {
-                        auto* A = reinterpret_cast<uint8_t*>(
-                            m_cached_player_camera_manager);
-                        auto readF = [A](std::ptrdiff_t off) {
-                            float v = 0.0f;
-                            std::memcpy(&v, A + off, sizeof(v));
-                            return v;
-                        };
-                        const float mem_lx = readF(0x410);
-                        const float mem_ly = readF(0x414);
-                        const float mem_lz = readF(0x418);
-                        const float mem_p  = readF(0x41C);
-                        const float mem_y  = readF(0x420);
-                        const float mem_r  = readF(0x424);
-                        const float want_lx = m_free_camera.loc_x();
-                        const float want_ly = m_free_camera.loc_y();
-                        const float want_lz = m_free_camera.loc_z();
-                        const float want_p  = m_free_camera.pitch();
-                        const float want_y  = m_free_camera.yaw();
-                        const float want_r  = m_free_camera.roll();
-                        const bool loc_match =
-                            mem_lx == want_lx && mem_ly == want_ly &&
-                            mem_lz == want_lz;
-                        const bool rot_match =
-                            mem_p == want_p && mem_y == want_y &&
-                            mem_r == want_r;
-                        ImGui::TextDisabled(
-                            "mem: pcm=0x%p  loc%s=(%.1f, %.1f, %.1f)  "
-                            "rot%s=(%.1f, %.1f, %.1f)",
-                            m_cached_player_camera_manager,
-                            loc_match ? " ==" : " !=",
-                            mem_lx, mem_ly, mem_lz,
-                            rot_match ? " ==" : " !=",
-                            mem_p, mem_y, mem_r);
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                            "Live read of APlayerCameraManager+0x410..+0x424.\n"
-                            "'==' means memory matches what free-fly wrote\n"
-                            "last tick.  '!=' means some writer stomped us\n"
-                            "between ticks — tells us there's still an\n"
-                            "unpatched writer.  If the memory-read MATCHES\n"
-                            "but the camera still doesn't move visually,\n"
-                            "the render path has moved — retrace in Ghidra.\n"
-                            "(Historical: an earlier revision wrote to the\n"
-                            "ALuxBattleCamera actor instead of the PCM and\n"
-                            "got persisted=1 / camera=locked forever.)");
-                    }
-                    else
-                    {
-                        ImGui::TextDisabled(
-                            "mem: <no PlayerCameraManager resolved>");
-                    }
-                    // Controller-present indicator.  Helpful for "is
-                    // XInput actually seeing my pad?"  Updates live as
-                    // you plug/unplug.
+                    // Connection status: keeping these (they're genuinely
+                    // useful when input suddenly stops working) but
+                    // rewriting the labels in plain English.
                     ImGui::TextDisabled(
-                        "pad: %s",
+                        "Controller: %s",
                         Horse::FreeCamera::controllerConnected()
-                            ? "connected (XInput-0)"
+                            ? "connected"
                             : "not detected");
-                    // Input-source status: two sources OR-merged.
-                    // If both read DOWN/init, keys won't register and
-                    // the camera can't be driven from the keyboard —
-                    // check the log for install failures.
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                        "Whether a controller is currently reporting\n"
+                        "input to the game.  If 'not detected' but\n"
+                        "you ARE pressing buttons, Steam Input or the\n"
+                        "controller driver may not be passing the\n"
+                        "input to SC6.");
+
                     ImGui::TextDisabled(
-                        "kbd: LL=%s  RawInput=%s",
-                        Horse::LowLevelKeyInput::instance().hook_installed()
-                            ? "up" : "DOWN",
-                        Horse::RawInputSource::instance().ready()
-                            ? "up" : "init");
-
-                    // Input diagnostic — dump raw arrow-key state from
-                    // both paths every ~2s.  Used to tell WHY arrows
-                    // might not register (LL hook not seeing them vs
-                    // GetAsyncKeyState not seeing them vs both fine
-                    // but something downstream is eating the move).
-                    bool diag = m_free_camera.m_diagnostic.load();
-                    if (ImGui::Checkbox("Diagnostic log (arrow keys)", &diag))
-                        m_free_camera.m_diagnostic.store(diag);
+                        "Keyboard: %s",
+                        (Horse::LowLevelKeyInput::instance().hook_installed() ||
+                         Horse::RawInputSource::instance().ready())
+                            ? "responding"
+                            : "not responding");
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                        "Print raw keyboard-state values every ~2s to the\n"
-                        "UE4SS log.  Each line shows (LL hook / RawInput)\n"
-                        "for the arrow cluster plus W (as a known-working\n"
-                        "control).\n\n"
-                        "Expected while holding VK_UP:\n"
-                        "  UP: ll=1 ri=1  W: ll=0 ri=0  (arrows working)\n"
-                        "  UP: ll=0 ri=1  (RawInput seeing them; LL missed)\n"
-                        "  UP: ll=0 ri=0  (nothing visible — event isn't\n"
-                        "                  reaching our process at all;\n"
-                        "                  Steam Input mapping is the likely\n"
-                        "                  culprit — remap arrows to None in\n"
-                        "                  your SC6 Steam-Input profile)\n\n"
-                        "Leave off during normal use.");
+                        "Whether the keyboard-input paths the free-\n"
+                        "camera uses are currently alive.  If 'not\n"
+                        "responding', movement / look keys won't\n"
+                        "register.");
 
-                    // Memory-persistence diagnostic — tells us whether
-                    // our pose writes actually stay resident in the
-                    // camera actor between ticks.  Critical for
-                    // diagnosing the "UI updates but camera locked in
-                    // game" symptom: if `persisted=0` we have an
-                    // unpatched writer somewhere; if `persisted=1` the
-                    // renderer consumes pose from a different cache
-                    // and CamLock patches can't fix it.
-                    bool memdiag = m_free_camera.m_mem_diagnostic.load();
-                    if (ImGui::Checkbox("Diagnostic log (memory verify)",
-                                        &memdiag))
-                        m_free_camera.m_mem_diagnostic.store(memdiag);
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                        "Print camera-memory verification every ~2s: what\n"
-                        "we wrote last tick vs what's in memory NOW.\n\n"
-                        "Reads:\n"
-                        "  persisted=1  Our writes stayed resident; any\n"
-                        "               visual freeze is NOT from a writer\n"
-                        "               stomping us — the renderer probably\n"
-                        "               consumes pose from a different\n"
-                        "               cache (e.g. PlayerCameraManager\n"
-                        "               CameraCache.POV).\n"
-                        "  persisted=0  Some code wrote the camera fields\n"
-                        "               between our ticks.  The 'deltas='\n"
-                        "               line shows WHICH field was stomped\n"
-                        "               — if only rot fields changed the\n"
-                        "               culprit is a rotation writer we\n"
-                        "               haven't found; if pos fields too,\n"
-                        "               there's an additional pose writer.\n\n"
-                        "Check the UE4SS log (bottom-left panel or file).\n"
-                        "Leave off during normal use.");
+                    // Developer-mode "Log key input" and
+                    // "Log camera pose" checkboxes have been removed
+                    // from the UI.  The underlying atomics still
+                    // exist on Horse::FreeCamera, so the diagnostics
+                    // can still be flipped from C++ if anyone is
+                    // chasing a bug, but the panel stays clean of
+                    // debug-only checkboxes for typical users.
                 }
 
-                // Status line for missing PlayerCameraManager (idle menu etc.).
+                // Friendly status when free-cam is on but we don't
+                // have a camera to drive (menus, idle, loading).
                 if (fc && !m_cached_player_camera_manager)
                 {
                     ImGui::TextDisabled(
-                        "(no APlayerCameraManager — outside a match?)");
+                        "(waiting for a match — free-cam needs an "
+                        "active camera)");
                 }
             }
+    }
+
+    // ==================================================================
+    // Time tab — Freeze frame (drives SpeedControl speedval=0 for a
+    // hard world-tick stop), Step 1 / Step N buttons for deterministic
+    // frame-stepping under freeze, and the Slow-motion slider + preset
+    // buttons (0.001x..1.0x).  Both toggles are independent; Freeze
+    // wins while held and releases back to Slow-mo's value.
+    // ==================================================================
+    void render_time_tab()
+    {
+        // --- Live move-frame display -------------------------------------
+        // Deref chara+0x44068 ActiveLaneStateCursorPtr and show
+        // CurrentAnimFrame / AnimLengthFrames for each player.  Costs
+        // ~4 safe reads per frame per player — negligible.
+        //
+        // Lives on the Time tab because it's the frame-data readout you
+        // watch while driving Freeze frame / Slow-mo: "I paused at frame
+        // 7 of 30 of move 0x1234, lane 2, playback 0.5x."
+        {
+            ImGui::TextUnformatted("Move frame");
+            auto row = [](const char* label, int pi) {
+                void* chara = Horse::KHitWalker::charaSlotFromGlobal(
+                    static_cast<uint32_t>(pi));
+                const auto s = Horse::KHitWalker::readLaneSnapshot(chara);
+                ImGui::TextUnformatted(label);
+                ImGui::SameLine(48.0f);
+                if (!s.has_move)
+                {
+                    ImGui::TextDisabled("idle");
+                    return;
+                }
+                const int curI = static_cast<int>(s.current_frame);
+                const int totI = static_cast<int>(s.length_frames);
+                ImGui::Text("%3d / %3d  move=0x%04X  lane=%d  speed=%.2fx%s%s",
+                            curI, totI,
+                            static_cast<uint16_t>(s.packed_move),
+                            static_cast<int>(s.lane_index),
+                            s.playback_speed,
+                            s.in_transition ? "  [T]" : "",
+                            s.finished      ? "  [done]" :
+                            s.at_end        ? "  [end]"  : "");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Live readout of which move this player is in:\n"
+                    "  current-frame / total-frames\n"
+                    "  move ID (internal hex value)\n"
+                    "  lane (which attack slot is active)\n"
+                    "  speed (playback multiplier — 1.00x = normal)\n"
+                    "  [T] = mid-transition between moves\n"
+                    "  [done] / [end] = move has finished playing\n"
+                    "\n"
+                    "Useful alongside Freeze frame and Slow-motion:\n"
+                    "pause the world, read the frame number off this\n"
+                    "line, then step to inspect exactly what's active\n"
+                    "on that frame.");
+            };
+            row("P1:", 0);
+            row("P2:", 1);
+        }
+
+        ImGui::Separator();
 
             // --- Freeze frame (REWORKED — drives Horse::SpeedControl) --
             // Sets the SpeedControl speedval to 0 to freeze the world,
@@ -1934,16 +2249,16 @@ private:
                 // it sees freeze=true.
             }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Freeze the battle simulation in place.  World stops\n"
-                "ticking; UMG/render keeps going so you can rotate the\n"
-                "free-camera (with Ansel) or step through frames.\n\n"
-                "Mechanism: forces SpeedControl's speedval to 0.  This\n"
-                "is the same byte the engine itself uses for hitstop —\n"
-                "every per-frame integrator (animation, opcode-stream,\n"
-                "hit timing) reads dt=0 and halts.\n\n"
-                "Stacks with Slow-mo (Freeze wins while held; releases\n"
-                "back to the slider value).  Frame-step (button or F6)\n"
-                "temporarily runs the world at 1x for one tick.");
+                "Pause the battle — animations, hitboxes, everything\n"
+                "stops moving.  The game itself keeps running (menus\n"
+                "still work, you can rotate the free-camera) but no\n"
+                "frames advance.\n\n"
+                "Use the Step buttons below, or the F6 hotkey, to\n"
+                "advance one frame at a time.  Holding F6 gives you\n"
+                "slow-motion via auto-repeat.\n\n"
+                "Works together with Slow-motion: Freeze always wins\n"
+                "while it's on, and when you turn it off the game\n"
+                "resumes at whatever Slow-motion speed was set.");
 
             // Step-frame controls.  m_step_pending++ queues frames so
             // mashing the button (or holding F6) is lossless.  No
@@ -1973,26 +2288,28 @@ private:
 
             if (!ff && ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Enable Freeze frame first.");
+                ImGui::SetTooltip(
+                    "Turn on Freeze frame first — stepping only\n"
+                    "makes sense when the world is paused.");
             }
 
-            // Status / debug line.
+            // Status line — "paused" / "stepping" / unresolved.
             if (m_speed_control.is_resolved())
             {
                 if (const int q = m_step_pending.load(); q > 0)
                 {
-                    ImGui::TextDisabled("(stepping… %d frame%s queued)",
+                    ImGui::TextDisabled("(advancing %d more frame%s…)",
                                         q, q == 1 ? "" : "s");
                 }
                 else if (ff)
                 {
-                    ImGui::TextDisabled("(paused — F6 to step)");
+                    ImGui::TextDisabled("(paused — press F6 to advance one frame)");
                 }
             }
             else if (ff)
             {
                 ImGui::TextDisabled(
-                    "(speed-control AOB did not resolve — check log)");
+                    "(couldn't hook the game's timing — see UE4SS.log)");
             }
 
             // --- Speed control (slow-motion / freeze) ------------------
@@ -2027,11 +2344,19 @@ private:
                     }
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Scale the simulation rate.  Hijacks 5 engine reads of\n"
-                    "the master delta-time / time-dilation float and\n"
-                    "redirects them to the slider value below.\n\n"
-                    "Independent of Freeze frame — both stack cleanly.\n\n"
-                    "Ported from somberness's CE 'Speed control v2' cheat.");
+                    "Run the battle at a slower (or faster) speed.\n"
+                    "Use the slider to the right, or the preset\n"
+                    "buttons below for common analysis speeds:\n"
+                    "\n"
+                    "  Freeze = effectively paused (0x).\n"
+                    "  0.1x   = very slow-motion, good for\n"
+                    "           frame-by-frame inspection.\n"
+                    "  0.5x   = half speed — readable without\n"
+                    "           stepping.\n"
+                    "  1x     = normal speed.\n"
+                    "\n"
+                    "Independent of Freeze frame — both can be on at\n"
+                    "the same time; Freeze just wins while it's held.");
 
                 // Slider only meaningful when the patches are live; we
                 // still allow drag while off so the user can pre-set
@@ -2075,14 +2400,45 @@ private:
                 if (!m_speed_control.is_resolved() && sc_on)
                 {
                     ImGui::TextDisabled(
-                        "(speed-control AOBs did not resolve — check log)");
+                        "(couldn't hook the game's timing — see UE4SS.log)");
                 }
                 else if (m_speed_control.is_enabled())
                 {
-                    ImGui::TextDisabled("(active — speedval = %.3fx)",
+                    ImGui::TextDisabled("(running at %.3fx speed)",
                                         m_speed_value.load());
                 }
             }
+
+    }
+
+    // ==================================================================
+    // General tab — catch-all for visibility overrides and other
+    // toggles that don't fit the Hitboxes / Camera / Time split.
+    // Hide weapons (per-frame
+    // SetWeaponVisibility call), Hide characters (bytepatch on
+    // SyncMoveStateVisibility), Suppress VFX (per-slot VFX writer
+    // bytepatch).  All runtime-independent of the F5 overlay toggle.
+    // ==================================================================
+    void render_general_tab()
+    {
+            // --- Hide weapons -------------------------------------------
+            // Force hide both charas' weapons so they stop occluding the
+            // hitbox overlay.  Calls SetWeaponVisibility(false) every frame
+            // while on (so the game's own show-triggers don't sneak weapons
+            // back in); calls SetWeaponVisibility(true) once on OFF to
+            // restore.  Applies only while the overlay is enabled — if F5
+            // turns the mod off, weapons stay in whatever state the engine
+            // last set (typically visible).
+            bool hw = m_hide_weapons.load();
+            if (ImGui::Checkbox("Hide weapons", &hw))
+                m_hide_weapons.store(hw);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Hide both characters' weapons.  Handy for inspecting\n"
+                "hitboxes on characters with bulky weapons (Nightmare's\n"
+                "sword, Astaroth's axe) that would otherwise block the\n"
+                "view of the volumes you're trying to see.\n\n"
+                "Only applies while the F5 hitbox overlay is enabled.\n"
+                "Turning this off restores the weapons.");
 
             // --- Hide characters (bytepatch, no flicker) ---------------
             // Inverts the engine's own visibility-compare instructions
@@ -2097,23 +2453,21 @@ private:
                 m_chara_invis.set(hc);
             }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Hide both characters' meshes (and attached components —\n"
-                "hair tassels, skirts, accessories) while leaving\n"
-                "simulation fully active.  Hitboxes are part of the\n"
-                "gameplay skeleton, not the mesh, so they keep updating\n"
-                "fine while the model is invisible.\n\n"
-                "Implemented as two single-byte patches inside\n"
-                "ALuxBattleChara_SyncMoveStateVisibility — flips the\n"
-                "engine's own visibility-compare instructions so the\n"
-                "renderer reads 'hidden' regardless of move-state\n"
-                "writes.  No flicker on critical edges, supers, or\n"
-                "transformations.\n\n"
-                "Ported from somberness's CE 'Invisible' cheat.");
+                "Hide both characters' models entirely — body, hair,\n"
+                "clothing, all accessories.  The match still runs\n"
+                "normally (hitboxes keep updating, damage still\n"
+                "applies), you just can't see the fighters.\n\n"
+                "Useful for isolating the hitbox overlay from the\n"
+                "visual noise of animation / costume detail when\n"
+                "recording or taking reference screenshots.\n\n"
+                "No flicker during supers, critical edges, or\n"
+                "transformations — the characters stay hidden the\n"
+                "whole time.");
 
             if (!m_chara_invis.is_resolved() && hc)
             {
                 ImGui::TextDisabled(
-                    "(chara-invis AOB did not resolve — check log)");
+                    "(couldn't hook character visibility — see UE4SS.log)");
             }
 
             // --- Suppress VFX ------------------------------------------
@@ -2128,84 +2482,19 @@ private:
                 m_vfx_off.set(sv);
             }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Disable hit-effect / spark / particle VFX by patching\n"
-                "the engine's per-frame VFX-slot writer to plant a\n"
-                "sentinel value the renderer treats as culled.\n\n"
-                "Strictly stronger than the previous DestroyAllVFx\n"
-                "polling approach: effects don't get a 1-frame flash on\n"
-                "first spawn, and there's no per-tick UFunction call.\n\n"
-                "Toggle OFF to restore.  Runs independent of the F5\n"
-                "overlay toggle.  Ported from somberness's CE table.");
+                "Suppress hit-effect flashes, sparks, and particle\n"
+                "VFX.  Good for a cleaner view of the hitbox overlay\n"
+                "during fast exchanges where spark effects would\n"
+                "otherwise fill the screen.\n\n"
+                "Effects don't even appear for a single frame when\n"
+                "this is on.  Turn off to restore them.  Independent\n"
+                "of the F5 overlay.");
 
             if (!m_vfx_off.is_resolved() && sv)
             {
                 ImGui::TextDisabled(
-                    "(VFX-off AOB did not resolve — check log)");
+                    "(couldn't hook the VFX system — see UE4SS.log)");
             }
-        }
-
-        // --- Hit-flash duration -----------------------------------------
-        // The raw PerHurtboxReactionState signal is a ~1-frame pulse
-        // (~16ms at 60fps) — too short to see.  This slider extends the
-        // visible red flash by holding the "hot" state for N cockpit
-        // ticks before fading.  0 = disable the sticky entirely (raw
-        // 1-frame pulse only).
-        //
-        // Counted in COCKPIT TICKS, with the countdown gated on
-        // SpeedControl::current_value_static() > 0 — so when "Freeze
-        // frame" is on, the sticky pauses with the rest of the world
-        // and the flash stays visible until the user unfreezes or
-        // steps a frame.  Each F6 step decrements the counter by 1.
-        //
-        // 15 ticks ≈ 250ms at 60fps (the previous default).  60 ticks
-        // = ~1 second of normal-speed gameplay, which is the slider
-        // cap.  Slow-mo (speedval < 1) treats every cockpit tick as
-        // a "decrement" tick — so the visible duration in wall-clock
-        // seconds shrinks under slow-mo.  If you want a long-visible
-        // flash to inspect during slow-mo, just bump this slider.
-        ImGui::Spacing();
-        ImGui::TextUnformatted("Hit-flash duration");
-        {
-            int frames = m_flash_frames.load();
-            if (ImGui::SliderInt("frames##flashdur", &frames, 0, 60, "%d ticks"))
-            {
-                if (frames < 0)  frames = 0;
-                if (frames > 60) frames = 60;
-                m_flash_frames.store(frames);
-                Horse::KHitWalker::setStickyFrames(frames);
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "How long to hold the red 'just got hit' flash after\n"
-                "the engine's PerHurtboxReactionState signal fires.\n"
-                "0 = no sticky (1-frame pulse, usually invisible).\n\n"
-                "Counted in cockpit ticks (≈ frames at 60fps).  The\n"
-                "countdown PAUSES while Freeze frame is on, so the\n"
-                "flash stays visible during inspection.  Each F6 step\n"
-                "decrements the counter by 1 game frame's worth.");
-        }
-
-        ImGui::Separator();
-        ImGui::TextUnformatted("Render");
-        {
-            float t = m_thickness.load();
-            if (ImGui::SliderFloat("Thickness", &t, 0.5f, 8.0f, "%.1f"))
-                m_thickness.store(t);
-
-            const char* slot_names[3] = {
-                "Default (depth-tested)",
-                "Persistent",
-                "Foreground (on top)",
-            };
-            int slot_idx = static_cast<int>(m_slot.load());
-            if (ImGui::Combo("LineBatcher slot", &slot_idx, slot_names, 3))
-                m_slot.store(static_cast<Horse::LineBatcherSlot>(slot_idx));
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Which of UWorld's three ULineBatchComponents to append to.\n"
-                    "  Default     — depth-tested, occluded by world geometry\n"
-                    "  Persistent  — depth-tested, identical behaviour per-frame\n"
-                    "  Foreground  — NO depth test, always on top (recommended)");
-        }
     }
 };
 
