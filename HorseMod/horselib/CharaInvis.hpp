@@ -88,18 +88,30 @@ namespace Horse
             m_resolved = true;
             m_resolved_ok = false;
 
-            // Both AOBs are 7-byte cmp-imm8 instructions; only the last
-            // byte (the immediate operand) gets flipped.  We sig-scan
-            // for the full 7 bytes including the trailing 0 immediate
-            // so the AOB doesn't accidentally match an already-patched
-            // site (defensive against double-load).
+            // Both AOBs target a `cmp byte [rcx+0x5??], 0` (7 bytes:
+            // 80 B9 ?? 05 00 00 00).  Only the last byte (the imm8)
+            // gets flipped.
             //
-            // Disambiguation: chara/weapon both share the `80 B9 ?? 05`
-            // shape (cmp byte [rcx+0x5??], 0), so a 7-byte AOB is
-            // already specific enough.  The 8th byte differs across
-            // sites and would over-constrain.
+            // The 7-byte form `80 B9 33 05 00 00 00` (chara visibility
+            // check) is AMBIGUOUS in the current SC6 build — it matches
+            // 3 sites:
+            //   * 0x1403d4a7b in UpdateMaegamiVisibility (hair tassels)
+            //   * 0x1403d5040 in SyncMoveStateVisibility   (the target)
+            //   * 0x14090f293 in another reader
+            // We need site 2.  The bytes immediately following each cmp
+            // disambiguate — the SyncMoveStateVisibility site is
+            // followed by `48 8B F9` (mov rdi, rcx), so widening the
+            // chara AOB to 10 bytes uniquely matches it.
+            //
+            // Note: the original CE script's AOB ended with `48 89 CF`
+            // (the SAME instruction `mov rdi, rcx` but a different
+            // encoding).  The current build chose `48 8B F9`, so the
+            // CE script's exact AOB no longer matches in this build.
+            //
+            // The weapon AOB `80 B9 34 05 00 00 00` is unambiguous —
+            // only one match — so the 7-byte form stays.
             void* siteChara = sig_scan_sc6(
-                "80 B9 33 05 00 00 00", "CharaInvis siteChara");
+                "80 B9 33 05 00 00 00 48 8B F9", "CharaInvis siteChara");
             void* siteWeapon = sig_scan_sc6(
                 "80 B9 34 05 00 00 00", "CharaInvis siteWeapon");
             if (!siteChara || !siteWeapon) return false;

@@ -75,16 +75,46 @@
 
 namespace Horse
 {
+    // ================================================================
+    // CamLock is split into TWO independently-controllable patch groups:
+    //
+    //   * m_primary_patches (10) — the two TickAndCommitPOV store rows
+    //     at rdi/rbx +0x410..+0x428.  These are safe, well-understood,
+    //     and let us freeze the camera with no known side effects.
+    //     `enable()` / `disable()` control this group only.
+    //
+    //   * m_rotation_patches (7) — three extra writer functions:
+    //       rotSite1: FUN_1420520f0  PerTickPOVUpdater — per Ghidra
+    //                 decomp it's a *whole-pose* committer (Loc + Rot
+    //                 + Roll written as one block), not a rotation-
+    //                 only writer as its name suggests.  We NOP the
+    //                 entire 29-byte store block, because leaving the
+    //                 location writes alive stomps our Free-Fly
+    //                 position writes every tick (the function reads
+    //                 scratch at entry and writes back unconditionally).
+    //       rotSite2: FUN_141f935b0  TargetFollowRotationWriter
+    //                 (verified rotation-only by Ghidra decomp).
+    //       rotSite3: FUN_141d27c80  SetPOV combined setter — ALSO a
+    //                 whole-pose writer after further investigation.
+    //                 Called per-tick by a camera-follow updater
+    //                 (FUN_141d5bb90) that computes target-relative
+    //                 Loc+Rot, so both location and rotation stores
+    //                 stomp us if left alive.  NOPing all 4 stores.
+    //
+    //     `enable_rotation_patches()` / `disable_rotation_patches()`
+    //     control this group.  OFF by default; Free-Fly opts in when
+    //     enabled so both location AND rotation survive end-to-end.
+    // ================================================================
     class CamLock
     {
     public:
         // ----------------------------------------------------------------
-        // Sig-scan both injection sites and prepare() each store-NOP
-        // patch.  Idempotent.  Returns true iff every site resolved AND
-        // every patch prepared (we treat a partial resolve as failure
-        // because a half-applied lock is a worse user experience than
-        // a missing one — they'd see drifting rotation with frozen
-        // location and not know why).
+        // Sig-scan both groups' injection sites and prepare() each
+        // store-NOP patch.  Idempotent.  Returns true iff every site
+        // resolved AND every patch prepared (we treat a partial resolve
+        // as failure because a half-applied lock is a worse user
+        // experience than a missing one — they'd see drifting rotation
+        // with frozen location and not know why).
         //
         // Safe to call before SC6 has a battle loaded; the AOBs live in
         // .text which is always present.
@@ -95,6 +125,15 @@ namespace Horse
             m_resolved = true;
             m_resolved_ok = false;
 
+            // Build a 16-byte NOP buffer once; the largest store we patch
+            // is 8 bytes so 16 is always enough.  Using a single static
+            // buffer keeps prepare() trivially copyable.
+            static constexpr uint8_t kNop16[16] = {
+                0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+                0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+            };
+
+            // ----- Primary store rows (the TickAndCommitPOV commit path) -----
             // Site A — primary store row at +rdi+0x410..+0x428.
             void* siteA = sig_scan_sc6(
                 "F2 0F 11 87 10 04 00 00 F2", "CamLock siteA");
@@ -117,26 +156,177 @@ namespace Horse
                 {0x2F, 7}, // movups [base+0x428], xmm0
             }};
 
-            // Build a 16-byte NOP buffer once; the largest store we patch
-            // is 8 bytes so 16 is always enough.  Using a single static
-            // buffer keeps prepare() trivially copyable.
-            static constexpr uint8_t kNop16[16] = {
-                0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-                0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
-            };
-
-            size_t patch_idx = 0;
+            size_t primary_idx = 0;
             for (void* site : { siteA, siteB })
             {
                 auto* base = static_cast<uint8_t*>(site);
                 for (auto [off, n] : kStores)
                 {
-                    if (!m_patches[patch_idx++].prepare(base + off, kNop16, n))
+                    if (!m_primary_patches[primary_idx++].prepare(
+                            base + off, kNop16, n))
                     {
                         RC::Output::send<RC::LogLevel::Error>(
                             STR("[Horse.CamLock] prepare() failed at "
-                                "0x{:x}+0x{:x}\n"),
+                                "primary 0x{:x}+0x{:x}\n"),
                             reinterpret_cast<uintptr_t>(base), off);
+                        return false;
+                    }
+                }
+            }
+
+            // ----- Additional writers discovered in 2026-04 -----------------
+            // Three extra functions write into the camera pose fields outside
+            // the main TickAndCommitPOV commit row.  Before these were
+            // patched, Free-Fly camera rotation appeared to update in our
+            // state but the rendered view didn't change — because these
+            // writers re-stomped the rotation every tick even while
+            // CamLock was "on".
+            //
+            //   rotSite1 @ FUN_1420520f0 (PerTickPOVUpdater / look-input)
+            //     Ghidra decomp (2026-04) revealed this function is NOT
+            //     rotation-only — it's a *whole-pose* committer that
+            //     writes Loc, Rot AND Roll as one block from registers
+            //     loaded at the function entry:
+            //
+            //       0x142052271  F2 44 0F 11 83 10 04 00 00
+            //                    MOVSD [rbx+0x410], XMM8        (LocXY, 9B)
+            //       0x14205227A  F2 0F 11 B3 1C 04 00 00
+            //                    MOVSD [rbx+0x41C], XMM6        (pitch+yaw, 8B)
+            //       0x142052282  89 B3 18 04 00 00
+            //                    MOV   [rbx+0x418], ESI          (LocZ, 6B)
+            //       0x142052288  89 BB 24 04 00 00
+            //                    MOV   [rbx+0x424], EDI          (roll, 6B)
+            //
+            //     29 bytes of consecutive stores.  We NOP the whole block
+            //     so neither rotation NOR position can be stomped by this
+            //     function.  This is what makes Free-Fly work end-to-end
+            //     with rotation lock on.
+            //
+            //   rotSite2 @ FUN_141f935b0 (TargetFollowRotationWriter)
+            //       0x00 + 8  movsd [rbx+0x41C], xmm0   ← NOP (pitch+yaw)
+            //       0x0B + 6  mov   [rbx+0x424], eax    ← NOP (roll)
+            //     Verified rotation-only; no +0x410/+0x418 writes.
+            //
+            //   rotSite3 @ FUN_141d27c80 (SetPOV combined setter)
+            //       0x00 + 8  movsd [rcx+0x41C], xmm0   ← NOP (pitch+yaw)
+            //       0x0C + 6  mov   [rcx+0x424], eax    ← NOP (roll)
+            //     Leaf function; also writes +0x410/+0x418 but from a
+            //     different parameter, so NOPing rotation-only here is
+            //     safe (SetPOV's caller supplies target pose from game
+            //     script, which we override downstream via our per-tick
+            //     writes).
+            //
+            // These patches are PREPARED here but NOT applied by enable().
+            // Callers that need rotation lock call
+            // enable_rotation_patches() explicitly.  See class comment.
+            //
+            // Each AOB below is widened far enough to be unique in the
+            // .text segment so sig_scan_sc6 returns a single match.
+
+            // -- rotSite1: 29-byte whole-pose commit in FUN_1420520f0.  AOB
+            //    is the full 29-byte store sequence starting at LocXY.
+            //    One patch, 29 NOPs.
+            void* rotSite1 = sig_scan_sc6(
+                "F2 44 0F 11 83 10 04 00 00 "  // movsd [rbx+0x410], xmm8
+                "F2 0F 11 B3 1C 04 00 00 "     // movsd [rbx+0x41C], xmm6
+                "89 B3 18 04 00 00 "           // mov   [rbx+0x418], esi
+                "89 BB 24 04",                 // mov   [rbx+0x424], edi (trunc)
+                "CamLock rotSite1 (PerTickPOVUpdater)");
+            if (!rotSite1) return false;
+            // 29 NOPs — larger than our static kNop16 buffer, so use a
+            // local 32-byte buffer populated at resolve time.
+            static constexpr uint8_t kNop32[32] = {
+                0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+                0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+                0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+                0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+            };
+            if (!m_rotation_patches[0].prepare(rotSite1, kNop32, 29))
+            {
+                RC::Output::send<RC::LogLevel::Error>(
+                    STR("[Horse.CamLock] prepare() failed at "
+                        "rotSite1 0x{:x} (full pose commit)\n"),
+                    reinterpret_cast<uintptr_t>(rotSite1));
+                return false;
+            }
+
+            // -- rotSite2: rotation-only (2 stores).
+            void* rotSite2 = sig_scan_sc6(
+                "F2 0F 11 83 1C 04 00 00 8B 40 08 89 83 24 04",
+                "CamLock rotSite2 (TargetFollowRot)");
+            if (!rotSite2) return false;
+            {
+                auto* base = static_cast<uint8_t*>(rotSite2);
+                // Pitch+yaw at offset 0 (8 bytes).
+                if (!m_rotation_patches[1].prepare(base, kNop16, 8))
+                {
+                    RC::Output::send<RC::LogLevel::Error>(
+                        STR("[Horse.CamLock] prepare() failed at "
+                            "rot-site 0x{:x} (pitch+yaw)\n"),
+                        reinterpret_cast<uintptr_t>(base));
+                    return false;
+                }
+                // Roll at offset 0x0B (6 bytes).
+                if (!m_rotation_patches[2].prepare(base + 0x0B, kNop16, 6))
+                {
+                    RC::Output::send<RC::LogLevel::Error>(
+                        STR("[Horse.CamLock] prepare() failed at "
+                            "rot-site 0x{:x}+0xB (roll)\n"),
+                        reinterpret_cast<uintptr_t>(base));
+                    return false;
+                }
+            }
+
+            // -- rotSite3: FULL POSE in LuxBattleCamera_SetPOV_LocRotCombined
+            //    (0x141d27c80).  Ghidra decomp revealed this setter is called
+            //    from FUN_141d5bb90 every tick (a per-tick camera-follow
+            //    updater), passing target-derived Loc + Rot as params.
+            //    Since SetPOV writes both Loc AND Rot from its params,
+            //    leaving ONLY the rotation writes NOPed lets its location
+            //    writes stomp our Free-Fly position every tick — which
+            //    manifests as "UI position updates but camera stays
+            //    frozen in game".  NOPing all 4 stores fixes it.
+            //
+            //    Function layout (function start at 0x141d27c80):
+            //      +0x07  F2 0F 11 81 10 04 00 00   MOVSD [rcx+0x410], XMM0  LocXY (8B)
+            //      +0x0F  89 81 18 04 00 00          MOV   [rcx+0x418], EAX   LocZ  (6B)
+            //      +0x1A  F2 0F 11 81 1C 04 00 00   MOVSD [rcx+0x41C], XMM0  P+Y   (8B)
+            //      +0x26  89 81 24 04 00 00          MOV   [rcx+0x424], EAX   Roll  (6B)
+            //
+            //    Non-contiguous: xmm0/eax loads sit between the stores and
+            //    MUST run (otherwise the subsequent stores write garbage
+            //    registers).  So we NOP each store individually.  The AOB
+            //    anchors on the pitch+yaw movsd for uniqueness; we compute
+            //    the 3 other store offsets relative to it.
+            void* rotSite3_anchor = sig_scan_sc6(
+                "F2 0F 11 81 1C 04 00 00 41 8B 40 08 89 81 24 04",
+                "CamLock rotSite3 (SetPOV anchor @ pitch+yaw)");
+            if (!rotSite3_anchor) return false;
+            {
+                auto* anchor = static_cast<uint8_t*>(rotSite3_anchor);
+                // The anchor IS the pitch+yaw store (offset 0x1A in the
+                // function).  The other stores live at known offsets
+                // *relative to the anchor*:
+                //   -0x13  LocXY store (8B)
+                //   -0x0B  LocZ  store (6B)
+                //   +0x00  pitch+yaw store (8B)  <-- anchor
+                //   +0x0C  roll store (6B)
+                struct Store { std::ptrdiff_t off; size_t n; const char* tag; };
+                const Store kSetPOVStores[4] = {
+                    { -0x13, 8, "SetPOV LocXY"    },
+                    { -0x0B, 6, "SetPOV LocZ"     },
+                    {  0x00, 8, "SetPOV pitch+yaw"},
+                    {  0x0C, 6, "SetPOV roll"     },
+                };
+                for (size_t i = 0; i < 4; ++i)
+                {
+                    const auto& s = kSetPOVStores[i];
+                    if (!m_rotation_patches[3 + i].prepare(
+                            anchor + s.off, kNop16, s.n))
+                    {
+                        RC::Output::send<RC::LogLevel::Error>(
+                            STR("[Horse.CamLock] prepare() failed at "
+                                "rotSite3 store (i={})\n"), i);
                         return false;
                     }
                 }
@@ -144,16 +334,22 @@ namespace Horse
 
             m_resolved_ok = true;
             RC::Output::send<RC::LogLevel::Verbose>(
-                STR("[Horse.CamLock] resolved 10 store-NOP patches across "
-                    "2 sites\n"));
+                STR("[Horse.CamLock] resolved 17 store-NOP patches across "
+                    "5 sites (10 primary + 7 extra: 1 whole-pose at "
+                    "FUN_1420520f0, 2 rotation-only at rotSite2, 4 full-"
+                    "pose stores at rotSite3/SetPOV).  Rotation group is "
+                    "opt-in and not applied by enable()\n"));
             return true;
         }
 
         // ----------------------------------------------------------------
-        // Apply every prepared patch.  Rolls back already-applied
+        // Apply the 10 primary patches.  Rolls back already-applied
         // patches on the first failure so we don't leave the camera
         // half-locked (which would look like jittering rotation with
         // frozen position — extra-confusing).
+        //
+        // Does NOT enable the 3 rotation-only sites; call
+        // enable_rotation_patches() separately for that.
         // ----------------------------------------------------------------
         bool enable()
         {
@@ -166,38 +362,89 @@ namespace Horse
             }
             if (m_enabled) return true;
 
-            for (size_t i = 0; i < m_patches.size(); ++i)
+            for (size_t i = 0; i < m_primary_patches.size(); ++i)
             {
-                if (!m_patches[i].enable())
+                if (!m_primary_patches[i].enable())
                 {
                     // Roll back any patches already enabled this call.
-                    for (size_t j = 0; j < i; ++j) m_patches[j].disable();
+                    for (size_t j = 0; j < i; ++j)
+                        m_primary_patches[j].disable();
                     RC::Output::send<RC::LogLevel::Error>(
-                        STR("[Horse.CamLock] enable() failed at patch {} "
-                            "— rolled back\n"), i);
+                        STR("[Horse.CamLock] enable() failed at primary "
+                            "patch {} — rolled back\n"), i);
                     return false;
                 }
             }
             m_enabled = true;
             RC::Output::send<RC::LogLevel::Verbose>(
-                STR("[Horse.CamLock] camera frozen\n"));
+                STR("[Horse.CamLock] camera position frozen "
+                    "(rotation={})\n"),
+                m_rotation_enabled ? 1 : 0);
             return true;
         }
 
-        // Restore every patch.  Best-effort: keeps going even if one
-        // fails so we maximise the chance of leaving the image in a
-        // recoverable state.
+        // Restore every primary patch.  Best-effort: keeps going even
+        // if one fails so we maximise the chance of leaving the image
+        // in a recoverable state.  Does NOT touch the rotation group;
+        // callers that own a rotation enable() must call
+        // disable_rotation_patches() themselves.
         void disable()
         {
             if (!m_enabled) return;
-            for (auto& p : m_patches) p.disable();
+            for (auto& p : m_primary_patches) p.disable();
             m_enabled = false;
             RC::Output::send<RC::LogLevel::Verbose>(
-                STR("[Horse.CamLock] camera released\n"));
+                STR("[Horse.CamLock] camera position released\n"));
         }
 
-        // Convenience for ImGui callbacks: "make state match this bool".
-        // Resolves on first ON if not already resolved.
+        // ----------------------------------------------------------------
+        // Rotation-group enable/disable.  Opt-in because this group
+        // has been observed to freeze position writes too on some
+        // installs (see class comment).  Safe to call independently of
+        // enable()/disable(): the groups don't share state.
+        // ----------------------------------------------------------------
+        bool enable_rotation_patches()
+        {
+            if (!m_resolved_ok)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(
+                    STR("[Horse.CamLock] enable_rotation_patches() before "
+                        "successful resolve() — ignoring\n"));
+                return false;
+            }
+            if (m_rotation_enabled) return true;
+
+            for (size_t i = 0; i < m_rotation_patches.size(); ++i)
+            {
+                if (!m_rotation_patches[i].enable())
+                {
+                    for (size_t j = 0; j < i; ++j)
+                        m_rotation_patches[j].disable();
+                    RC::Output::send<RC::LogLevel::Error>(
+                        STR("[Horse.CamLock] enable_rotation_patches() "
+                            "failed at rot patch {} — rolled back\n"), i);
+                    return false;
+                }
+            }
+            m_rotation_enabled = true;
+            RC::Output::send<RC::LogLevel::Verbose>(
+                STR("[Horse.CamLock] rotation writers NOPed\n"));
+            return true;
+        }
+
+        void disable_rotation_patches()
+        {
+            if (!m_rotation_enabled) return;
+            for (auto& p : m_rotation_patches) p.disable();
+            m_rotation_enabled = false;
+            RC::Output::send<RC::LogLevel::Verbose>(
+                STR("[Horse.CamLock] rotation writers restored\n"));
+        }
+
+        // Convenience for ImGui callbacks: "make primary-group state
+        // match this bool".  Resolves on first ON if not already
+        // resolved.  Does NOT toggle the rotation group — that's a
+        // separate UI checkbox.
         void set(bool on)
         {
             if (on)
@@ -211,14 +458,46 @@ namespace Horse
             }
         }
 
-        bool is_enabled()  const { return m_enabled; }
-        bool is_resolved() const { return m_resolved_ok; }
+        // Parallel convenience for the rotation group.
+        void set_rotation_patches(bool on)
+        {
+            if (on)
+            {
+                if (!m_resolved) resolve();
+                enable_rotation_patches();
+            }
+            else
+            {
+                disable_rotation_patches();
+            }
+        }
+
+        bool is_enabled()           const { return m_enabled; }
+        bool is_rotation_enabled()  const { return m_rotation_enabled; }
+        bool is_resolved()          const { return m_resolved_ok; }
 
     private:
-        std::array<BytePatch, 10> m_patches{};
-        bool m_resolved    = false; // resolve() has been attempted
-        bool m_resolved_ok = false; // resolve() succeeded
-        bool m_enabled     = false;
+        // 10 patches for the two primary TickAndCommitPOV rows (5 per
+        // site × 2 sites).  Enabled by enable() / disable().
+        std::array<BytePatch, 10> m_primary_patches{};
+        // 7 patches for the three extra writer sites:
+        //   [0]     rotSite1 — 29-byte whole-pose commit in FUN_1420520f0
+        //                     (LuxBattleCamera_TickAndCommitFullPose)
+        //   [1, 2]  rotSite2 — pitch+yaw and roll in FUN_141f935b0
+        //                     (LuxBattleCamera_WriteTargetFollowRotation)
+        //   [3..6]  rotSite3 — full pose (LocXY, LocZ, pitch+yaw, roll)
+        //                     in FUN_141d27c80 (LuxBattleCamera_SetPOV_*)
+        //                     Needed because SetPOV is called every
+        //                     tick from a camera-follow updater that
+        //                     otherwise stomps our Free-Fly position.
+        // Enabled separately by enable_rotation_patches() /
+        // disable_rotation_patches().
+        std::array<BytePatch, 7>  m_rotation_patches{};
+
+        bool m_resolved         = false; // resolve() has been attempted
+        bool m_resolved_ok      = false; // resolve() succeeded
+        bool m_enabled          = false; // primary group active
+        bool m_rotation_enabled = false; // rotation group active
     };
 
 } // namespace Horse

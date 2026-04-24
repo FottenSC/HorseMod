@@ -1,4 +1,33 @@
 // ============================================================================
+// !!! DEPRECATED — DO NOT INCLUDE !!!
+//
+// This helper targets bit 0 of `chara+0x394`, which empirical user
+// testing (and a re-read of LuxBattleChara_SyncAudioActiveState_From
+// BattleFlags) confirmed is the chara's AUDIO-PLAY gate, not a world-
+// tick pause.  Toggling it mutes audio without freezing the chara
+// state machine — characters keep moving.
+//
+// The CE script's "Game Pause" cheat the original port was based on
+// has the same bug.
+//
+// The CORRECT pause mechanism is the master VM-freeze byte at
+// 0x1448462D0 (g_LuxBattle_VMFreezeByte).  Setting it to non-zero
+// makes LuxMoveVM_GetTimeDilationScalar return 0.0, which propagates
+// into every per-frame integrator and halts the simulation.
+//
+// HorseMod's "Freeze frame" UI now drives Horse::SpeedControl with
+// speedval=0 instead — same effect (SpeedControl's site-3 patch
+// overrides the time-dilation getter directly), no race conditions,
+// no chara-pointer-dangling caveats.
+//
+// This file is kept on disk for historical reference and in case the
+// chara+0x394 trampoline machinery becomes useful for some other
+// chara-state manipulation later.  Its disassembly walk and bit
+// semantics are still correct — only the "this is how to pause"
+// claim was wrong.
+//
+// ============================================================================
+//
 // Horse::GamePause — freeze the SC6 battle simulation on a single frame,
 // with optional one-shot frame-step.
 //

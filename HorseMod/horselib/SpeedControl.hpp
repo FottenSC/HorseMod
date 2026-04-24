@@ -137,6 +137,13 @@ namespace Horse
                 CodeCave::allocate(sizeof(float), alignof(float)));
             if (!m_speedval) return false;
             *m_speedval = 1.0f;
+            // Publish to the static accessor so other helpers (e.g.
+            // KHitWalker's hit-flash sticky countdown) can query the
+            // live speedval without a direct dependency on this class.
+            // Using a plain raw pointer is safe because the cave page
+            // never gets freed (see CodeCave.hpp design note) and only
+            // one SpeedControl instance ever exists in HorseMod.
+            s_speedval_global = m_speedval;
 
             // Trampoline sizes:
             //   xmm14 load (REX.R + opcode) = 9 bytes for the movss + 5 jmp = 14
@@ -235,6 +242,25 @@ namespace Horse
             m_patch3.disable();
             m_patch1.disable();
             m_enabled = false;
+            // IMPORTANT: reset the shared speedval slot back to 1.0f
+            // BEFORE returning.  The slot is exposed to the rest of
+            // HorseMod via current_value_static() / s_speedval_global,
+            // and callers (notably KHitWalker's sticky-flash gate)
+            // use it as a "is the world advancing?" signal:
+            //
+            //     world_advancing = current_value_static() > 0.0f;
+            //
+            // If we leave *m_speedval at whatever the user last set
+            // (e.g. 0 for freeze, 0.25 for slow-mo), the static
+            // accessor will keep reporting that value even after the
+            // patches are reverted — so KHitWalker will believe the
+            // world is still paused / slowed and the red hit-flash
+            // sticky countdown will never drain.  Concrete symptom:
+            // "I pressed freeze once, disabled it, and now every
+            // hurtbox stays red forever."  Priming the slot to 1.0f
+            // on disable() matches the semantic "no speed override
+            // active" for anyone who reads it downstream.
+            if (m_speedval) *m_speedval = 1.0f;
             RC::Output::send<RC::LogLevel::Verbose>(
                 STR("[Horse.SpeedControl] disabled\n"));
         }
@@ -261,6 +287,25 @@ namespace Horse
         void set_value(float v)  { if (m_speedval) *m_speedval = v; }
         float get_value() const  { return m_speedval ? *m_speedval : 1.0f; }
         float* value_ptr() const { return m_speedval; }
+
+        // ----------------------------------------------------------------
+        // Static "current speedval" probe — for callers that need to
+        // know the live game-tick rate without taking a direct
+        // dependency on this class.  Returns 1.0f if no SpeedControl
+        // instance has resolve()'d yet (treated as "engine running at
+        // native rate").  Safe to call from any thread; the cave-
+        // resident slot lives for the process lifetime and writes/reads
+        // are 4-byte atomic on x86_64.
+        //
+        // Used by KHitWalker to gate the hit-flash sticky countdown:
+        // when the world is frozen (speedval = 0), the countdown
+        // pauses so the red flash stays visible until the user
+        // unfreezes or steps a frame.
+        static float current_value_static() noexcept
+        {
+            float* p = s_speedval_global;
+            return p ? *p : 1.0f;
+        }
 
         bool is_enabled()  const { return m_enabled; }
         bool is_resolved() const { return m_resolved_ok; }
@@ -340,6 +385,11 @@ namespace Horse
         bool       m_resolved     = false;
         bool       m_resolved_ok  = false;
         bool       m_enabled      = false;
+
+        // Process-wide pointer to the live speedval slot.  Set in
+        // resolve() once allocation succeeds; persists thereafter.
+        // See current_value_static() for the rationale.
+        static inline float* s_speedval_global = nullptr;
     };
 
 } // namespace Horse

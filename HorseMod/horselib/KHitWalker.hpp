@@ -55,15 +55,23 @@
 //                                                iterates this list as the
 //                                                DEFENDER side, using node
 //                                                +0x17 as the slot index.)
-//     +0x44494  int32      HurtboxSlotCount     (bound read by classifier at
+//     +0x44494  int32      ClassifierHurtboxBound (a.k.a. AttackMaxSlot —
+//                                                written by the ATTACK
+//                                                stream's deserialiser as
+//                                                pOutMaxSlot.  The engine
+//                                                reuses this field as the
+//                                                loop bound in
 //                                                LuxBattle_ResolveAttackVsHurtbox
-//                                                Mask22 @ 0x14033C100 to
-//                                                iterate PerHurtboxBitmask[22].
-//                                                NOT positionally adjacent to
-//                                                the hurtbox list head — the
-//                                                Lux engine happens to store
-//                                                it next to the attack list
-//                                                head.  Equals 22 in practice.)
+//                                                Mask22 @ 0x14033C100 when
+//                                                iterating PerHurtboxBitmask[i]
+//                                                and PerHurtboxReactionState[i].
+//                                                So the same u32 serves two
+//                                                roles: max attack slot for
+//                                                THIS chara, AND hurtbox
+//                                                iteration bound.  Hurtbox-
+//                                                list own max-slot lives at
+//                                                chara+0x444B4 and is not
+//                                                read by the classifier.)
 //     +0x44048  KHitBase*  CurrentActiveAttackCell  (CROSS-CHARA: copied
 //                                                from OPPONENT chara's
 //                                                +0x44058 each tick, so
@@ -222,6 +230,9 @@
 #include "HorseLib.hpp"
 #include "NativeBinding.hpp"
 #include "SafeMemoryRead.hpp"
+#include "SpeedControl.hpp"   // for current_value_static() — gates the
+                              // hit-flash sticky countdown on whether
+                              // the world is currently advancing
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
@@ -264,6 +275,68 @@ namespace Horse
         constexpr uintptr_t OwnActiveAttackCell           = 0x44058;  // u64** -> u64 mask at [0]
         constexpr uintptr_t OpponentActiveAttackCellCopy  = 0x44048;  // u64** -> u64 mask at [0]
         constexpr uintptr_t CurrentActiveAttackCell       = 0x44048;  // legacy alias
+
+        // --- Adjacent hit/move state pointers in the 0x44040..0x44070 cluster ---
+        // Mapped 2026-04 (Ghidra pass).  Each is an 8-byte pointer into
+        // the MoveVM bank, not a u64 mask.  See plate comments on the
+        // respective setters/readers for the full story.
+        //
+        //   +0x44040  PrimaryAttackCellPtr
+        //     Frozen snapshot of the attack cell at move START (same value
+        //     as +0x44058 at transition, never updated per-sub-slot).
+        //     Read by LuxBattle_ApplyDamageFromPendingHit and
+        //     TickHitResolution as a "damage-window-expired" predicate
+        //     (`cell==NULL || cell[+0x3a]==0`).  Cleared by
+        //     LuxBattle_InitializeMatchRoundState.
+        //
+        //   +0x44050  OpponentNonAttackMoveDescrCopy  (short[3]*)
+        //     Per-tick MIRROR of opponent's +0x44060, written by
+        //     TickHitResolution (0x14033da11/da51/daa5).  Consumed only
+        //     by downstream reaction/classifier code — the damage path
+        //     at ApplyDamageFromPendingHit re-reads the authoritative
+        //     attacker-side +0x44060 instead.
+        //
+        //   +0x44060  NonAttackMoveDescrPtr  (short[3]*)
+        //     (NB earlier tentatively named "CounterHitDescr" — that's
+        //     a misnomer.)  Set by LuxMoveVM_TransitionToMove's ALT
+        //     branch when the move is flagged non-attack (bit 0x1000 in
+        //     cell shortAddr).  Points into
+        //     `bankBase + bank[+0x14] + (subIdx & 0xffffefff)*6`.
+        //     Record layout (decoded 2026-04 from ApplyDamageFromPendingHit
+        //     at 0x1402ffba5):
+        //         [0]  i16  DamageMultiplier   — cast to float,
+        //                                       multiplied into
+        //                                       PlayerExtraSkill damage-
+        //                                       reduction factor.
+        //         [1]  i16  PassthroughTag     — copied to defender
+        //                                       chara+0x210c (paired
+        //                                       with +0x20f6/+0x210a
+        //                                       tags from TransitionToMove).
+        //         [2]  i16  DurationTicks      — `(float)i16/60.0f` secs,
+        //                                       stored into attacker+0x414
+        //                                       (the trailing damage bucket
+        //                                       that feeds +0x3f8 each tick).
+        //     Triggers: non-damaging supers/SC finishers, stance transitions,
+        //     GI/parry transitions, movement moves with a scripted
+        //     damage kicker.  NOT counter-hit-specific.
+        //
+        //   +0x44068  ActiveLaneStateCursorPtr  (LuxMoveLaneState*)
+        //     Points at `chara + laneIdx*0x468 + 0x444f0` (running lane
+        //     block).  `cursor[+8]` is the current animation-frame
+        //     float counter.  Written by TransitionToMove, read by
+        //     CaptureHitAreaState, ProcessHit (copies cursor[+8] into
+        //     chara+0x1360), and EvaluateAndTriggerSlowMotion.
+        //
+        //   +0x44070  LastHitSourceCellLo48  (48-bit packed)
+        //     6-byte snapshot (dword + word) written by
+        //     LuxBattleChara_ProcessHit from the defender's +0x44048
+        //     (= attacker's cell copy).  Companion at +0x43da8/+0x43dac.
+        //     Opaque hit-id — only 48 bits stored; NOT a derefable ptr.
+        constexpr uintptr_t PrimaryAttackCellPtr          = 0x44040;  // void*
+        constexpr uintptr_t OpponentNonAttackMoveDescrCopy = 0x44050; // short(*)[3]
+        constexpr uintptr_t NonAttackMoveDescrPtr         = 0x44060;  // short(*)[3]
+        constexpr uintptr_t ActiveLaneStateCursorPtr      = 0x44068;  // LuxMoveLaneState*
+        constexpr uintptr_t LastHitSourceCellLo48         = 0x44070;  // u8[6]
 
         // --- Per-frame damage-mask lookup inputs ----------------------------
         // The mask at **(chara+0x44058) is set ONCE PER MOVE-SLOT (inside
@@ -317,12 +390,47 @@ namespace Horse
         constexpr uintptr_t HurtboxListHead         = 0x444B8;
         constexpr uintptr_t HurtboxListCount        = 0x444B0;          // head-0x8
 
-        // Separate field: bound read by
-        // LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100 to iterate
-        // PerHurtboxBitmask[22] / PerHurtboxReactionState[22].  Equals 22
-        // in practice.  NOT adjacent to HurtboxListHead — it happens to
-        // live next to AttackListHead by coincidence of the Lux struct's
-        // layout, and is unrelated to the hurtbox list length field.
+        // Hurtbox-list own max-slot — populated by
+        // Lux_KHitChk_DeserializeLinkedList's pOutMaxSlot output when
+        // the HURTBOX stream (move->+0x40) is parsed.  Holds
+        // max(hurt->+0x17 + 1) across the current move's hurtbox set.
+        // Read by nothing in the hit pipeline — the classifier uses
+        // ClassifierHurtboxBound (below) instead.  We expose it so the
+        // overlay can present an honest "this move has N hurtbox slots"
+        // number distinct from the classifier's (possibly smaller) bound.
+        constexpr uintptr_t HurtboxMaxSlot          = 0x444B4;  // i32
+
+        // Classifier-side hurtbox iteration bound — read by
+        // LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100 as the
+        // loop-count for its per-slot PerHurtboxBitmask[] walk.
+        //
+        // HISTORICAL NAME: we previously called this "HurtboxSlotCount"
+        // on the assumption the hurtbox deserializer wrote it.  It does
+        // NOT.  Verification of LuxBattle_InitCharaSlotForMove_FirstRound
+        // (0x1402D4070) shows the three Lux_KHitChk_DeserializeLinkedList
+        // calls write pOutMaxSlot to:
+        //    BODY    → chara+0x44484
+        //    HURTBOX → chara+0x444B4   (HurtboxMaxSlot above)
+        //    ATTACK  → chara+0x44494   (THIS FIELD)
+        // So this field is literally the ATTACK list's max kind-tag + 1,
+        // which the engine also reuses as the hurtbox-iteration bound
+        // in the classifier.  Design rationale: attack and hurtbox
+        // +0x17 bytes both index the SAME 22-entry kind enumeration
+        // (PerHurtboxBitmask u64[22]), so the max-attack-kind gives
+        // a natural upper bound for the classifier's per-kind walk of
+        // the defender's reaction table.
+        //
+        // PRACTICAL CONSEQUENCE for the overlay: during moves with few
+        // attack slots but many hurtbox slots (dodges, movement,
+        // block, throw-whiff) this bound can be SMALLER than
+        // HurtboxMaxSlot.  Hurtboxes whose +0x17 >= this bound will
+        // have their overlap bits OR'd into PerHurtboxBitmask by
+        // UpdateAllKHitWorldCenters but never read back by the
+        // classifier — they're "engine-invisible" for damage.  The
+        // "Hide unaddressable hurtboxes" UI toggle tests
+        // (boneId < ClassifierHurtboxBound) to match this.
+        constexpr uintptr_t ClassifierHurtboxBound  = 0x44494;  // i32
+        // Back-compat alias — legacy code reads HurtboxSlotCount.
         constexpr uintptr_t HurtboxSlotCount        = 0x44494;  // i32
 
         // Defender-side aggregation mask — category bits of every ATTACK
@@ -330,6 +438,65 @@ namespace Horse
         // LuxBattle_ResolveAttackVsHurtboxMask22 before reaction classification.
         constexpr uintptr_t PerHurtboxBitmask       = 0x44078;  // u64[22]
         constexpr uintptr_t PerHurtboxReactionState = 0x1C74;   // i32[22]
+
+        // --- MoveVM lane bases --------------------------------------------
+        // Three 0x468-byte LuxMoveLaneState blocks live inline in the
+        // chara struct at these offsets.  ActiveLaneStateCursorPtr at
+        // +0x44068 points at whichever is currently driving the move.
+        //   Lane 0 — primary active move (most strikes live here)
+        //   Lane 1 — secondary lane (mirror / queued script)
+        //   Lane 2 — stance / yarare / hit-reaction lane
+        // See LuxMoveLaneOffsets below for fields within each lane.
+        constexpr uintptr_t Lane0Base              = 0x444F0;  // LuxMoveLaneState
+        constexpr uintptr_t Lane1Base              = 0x44958;  // LuxMoveLaneState
+        constexpr uintptr_t Lane2Base              = 0x44DC0;  // LuxMoveLaneState
+
+        // MoveStartCounter bumped once each time TransitionToMove fires
+        // for any lane — useful for detecting move changes without
+        // diffing PackedMoveAddr.  Written at 0x1402fe... in transition.
+        constexpr uintptr_t MoveStartCounter       = 0x1350;   // u32
+        // Live anim-frame float mirror written by ProcessHit from the
+        // active lane's cursor+0x08 (so HUD code can read it without
+        // chasing the cursor pointer).  Kept per-chara.
+        constexpr uintptr_t LastHitAnimFrame       = 0x1360;   // float
+    }
+
+    // ------------------------------------------------------------------
+    // LuxMoveLaneState — 0x468 bytes per lane, 3 lanes per chara.
+    // Decoded 2026-04 via Ghidra pass on
+    //   LuxMoveVM_TransitionToMove        (0x1402FEC50)
+    //   LuxMoveVM_AdvanceLaneFrameStep    (0x1402FFEB0)
+    //   LuxMoveVM_CommitMoveEnd           (0x1402FCFB0)
+    //   LuxBattleChara_ProcessHit         (0x140342780)
+    //   LuxEffectCamera_EvaluateAndTrigger
+    //       SlowMotion                    (0x14031D8F0)
+    //
+    // The most interesting field for HorseMod is +0x08 CurrentAnimFrame
+    // — a live float counter advanced each tick by
+    //   +0x08 += time_dilation * +0x30
+    // Integer truncation gives "current move frame N".  Combined with
+    // +0x10 AnimLengthFrames this lets the overlay display "frame N/M"
+    // in real time without any custom hook — a plain pointer read per
+    // tick.
+    // ------------------------------------------------------------------
+    namespace LuxMoveLaneOffsets
+    {
+        constexpr uintptr_t LaneIndex              = 0x00;  // i16 (0/1/2)
+        constexpr uintptr_t PackedMoveAddr         = 0x02;  // i16 ((bank<<12)|slot; -1 = idle)
+        constexpr uintptr_t TickCounter            = 0x04;  // i32 raw ticks since move start
+        constexpr uintptr_t CurrentAnimFrame       = 0x08;  // float (THE frame counter)
+        constexpr uintptr_t PrevAnimFrame          = 0x0C;  // float (tick-start snapshot)
+        constexpr uintptr_t AnimLengthFrames       = 0x10;  // float (from bank cell +0x34)
+        constexpr uintptr_t AtEndFlag              = 0x1A;  // u16 (1 at final frame)
+        constexpr uintptr_t FrameDeltaThisTick     = 0x1C;  // i16 (frames advanced this tick)
+        constexpr uintptr_t FrameStepFinished      = 0x24;  // u16 (1 once end reached)
+        constexpr uintptr_t InTransitionFlag       = 0x26;  // u16 (1 during TransitionToMove)
+        constexpr uintptr_t PlaybackSpeedCurrent   = 0x30;  // float (ramps to target)
+        constexpr uintptr_t PlaybackSpeedTarget    = 0x34;  // float
+        constexpr uintptr_t TotalTickCounter       = 0x458; // i32 (monotonic across advances)
+        constexpr uintptr_t AnimVariantIndex       = 0x460; // u32 (0..5 bank variant)
+        // Stride between lanes:
+        constexpr uintptr_t Stride                 = 0x468;
     }
 
     // ------------------------------------------------------------------
@@ -440,14 +607,133 @@ namespace Horse
         //   UpdateAllKHitWorldCenters switches on (+0x17 == 6) and
         //   (+0x17 == 7) to trigger a ground-clamp pass (terrain sample
         //   at XZ -> snap Y).  Gated further by per-chara frameCtx
-        //   flags so only the airborne foot clamps.  These are the
-        //   conventional "foot" bone slots on the SC6 skeleton.  Note
-        //   that "6/7 = ground-clamp" is an OVERLAY on top of the
-        //   normal slot interpretation: it is not a separate node
-        //   kind, just a bone-slot convention the engine recognises.
-        constexpr uintptr_t SubIdOrBoneId     = 0x17;  // u8 0..63 (role-dependent)
-        constexpr uintptr_t BoneIdByte        = 0x17;  // u8 (legacy alias)
+        //   flags so only the airborne foot clamps.
+        //
+        // *** MAJOR SEMANTIC CORRECTION (2026-04 Ghidra pass) ***
+        // +0x17 is NOT a skeletal bone id.  It's a KHit-KIND/CATEGORY
+        // tag in [0, ~22).  Every site that uses it (hotMask shift,
+        // PerHurtboxBitmask index, +0x08 mask computation, special-
+        // case 0x16=VFX-trigger in LuxMoveVM_TransitionToMove, 0x17
+        // in terrain-contact-blend) treats it as a small enum, not a
+        // bone index.  The 0x3FFFD "always-on floor" selects the
+        // structural kinds (pushbox + standing hurtbox + passive
+        // hitbox variants); bit 1 is deliberately excluded because
+        // kind-1 is the move-driven active-attack category.  That's
+        // also why PerHurtboxBitmask is exactly 22 wide — one slot
+        // per kind.  Historical names "SubIdOrBoneId", "bone slot",
+        // "BoneIdByte" are retained for back-compat but READ them
+        // as "kind tag" semantically.  LuxSkeletalBoneIndex_Remap
+        // (0x140898140) is the separate, unrelated function that
+        // maps kind → skeletal bone id for rendering — hence the
+        // earlier confusion.
+        //
+        // Known-kind inventory (partial, from xref walk):
+        //   0    : passive structural (in floor)
+        //   1    : MOVE-DRIVEN ACTIVE ATTACK (NOT in floor)
+        //   2..5 : passive hurtbox tiers (in floor)
+        //   6,7  : foot-anchored hit volumes (ground-clamp)
+        //   8..17: other always-on structural volumes (in floor)
+        //   18..21: move-specific extensions
+        //   0x16=22: VFX-trigger marker (LuxMoveVM_TransitionToMove)
+        //   0x17=23: terrain-contact-blend marker (Tick...Terrain...)
+        constexpr uintptr_t KindTag           = 0x17;  // u8 0..~23 (KHit kind)
+        constexpr uintptr_t SubIdOrBoneId     = 0x17;  // u8 (legacy alias — actually a kind tag)
+        constexpr uintptr_t BoneIdByte        = 0x17;  // u8 (legacy alias — actually a kind tag)
         constexpr uintptr_t Next              = 0x18;
+
+        // --- KHit subclass extension fields (verified 2026-04 via Ghidra
+        //     vtable map: KHitBase_vftable @ 0x143E87838,
+        //     KHitSphere @ 0x143E877F0, KHitArea @ 0x143E877A8,
+        //     KHitFixArea @ 0x143E87760).
+        //
+        // KHitSphere (stream tag 0):
+        //     +0x30  FVector  BoneLocalCenter      (mirrored at +0x40)
+        //     +0x50  FVector  WorldCenterCurrent   (written each frame by
+        //                                          KHitSphere_UpdateWorldCenter
+        //                                          @ 0x14030E1A0 using bone
+        //                                          matrix at BoneIndexUe4)
+        //     +0x60  FVector  WorldCenterPrev      (previous-frame copy;
+        //                                          used by sweep tests)
+        //     +0x70  float    Radius               (may be scaled by anim cell)
+        //     +0x74  float    RadiusAuthored       (original authored radius)
+        //     +0x78  float    ContactImpulseScale  (pushbox contact force)
+        //     +0x7C  uint32   BoneIndexUe4         (post-Remap index into
+        //                                          the chara bone matrix)
+        //     +0x7F  uint8    ActiveByte           (secondary active flag)
+        //
+        // KHitArea (stream tag 1) — SWEPT CAPSULE, uses double-buffer for
+        // continuous-collision-detection across frames:
+        //     +0x30  FVector  BoneLocalP1
+        //     +0x40  FVector  BoneLocalP2
+        //     +0x50..+0x6F    WorldSpaceBufA (P1, P2)
+        //     +0x70..+0x8F    WorldSpaceBufB (P1, P2)
+        //                     g_LuxKHitArea_DoubleBufferToggle selects
+        //                     which half is cur vs prev each tick.  The
+        //                     OverlapTest does 4-way segment/segment CCD
+        //                     across both halves.
+        //     +0x90  float    ContactImpulseScale
+        //     +0x94  uint32   BoneIndexUe4_P2
+        //     (BoneIndexUe4_P1 is written post-init by the deserializer.)
+        //
+        // KHitFixArea (stream tag 2) — STATIC OBB (no CCD):
+        //   *** 2026-04 correction: these are NOT a 3×3 basis ***
+        //   The deserializer writes each row as (vec3, 1.0f) — homogeneous
+        //   POINTS, not direction vectors.  KHitFixArea_UpdateWorldCenter
+        //   applies the full affine bone transform (including translation)
+        //   to each, confirming point semantics.  The OBB is derived at
+        //   overlap-test time in LuxBattle_BuildHitboxLocalMatrix by
+        //   Gram-Schmidting `(P2-P1)` and `(P3-P1)` — i.e. P1/P2/P3 are
+        //   three reference points describing the hitbox shape.
+        //
+        //     +0x30  FVector  BoneLocalPoint1   (P1 = origin / near corner)
+        //     +0x40  FVector  BoneLocalPoint2   (P2 = far end along primary axis)
+        //     +0x50  FVector  BoneLocalPoint3   (P3 = side reference for
+        //                                        orthogonal axis)
+        //     (+0x3C, +0x4C, +0x5C are all 1.0f homogeneous w)
+        //     +0x60  FVector  WorldPoint1       (transformed P1)
+        //     +0x70  FVector  WorldPoint2       (transformed P2)
+        //     +0x80  FVector  WorldPoint3       (transformed P3)
+        //     +0x90  uint32   BoneIndexUe4      (single bone idx)
+        //     +0x94  float    ContactImpulseScale
+        //
+        // To render a correct OBB:
+        //   X = normalize(WP2 - WP1)                    // primary axis
+        //   sideRaw = WP3 - WP1
+        //   Y = normalize(sideRaw - dot(sideRaw,X)*X)   // orthogonalised
+        //   Z = cross(X, Y)
+        //   lenX = |WP2 - WP1|
+        //   lenY = lenZ = |sideRaw - dot(sideRaw,X)*X|  // game uses square
+        //                                               // cross-section
+        // Quicker alternative: draw two lines — WP1→WP2 (spine) and
+        // WP1→WP3 (side).  Matches authored intent.
+        //
+        // HorseMod rendering uses these offsets to draw the authored
+        // shapes — sphere at +0x50/r=+0x70, capsule endpoints at
+        // +0x50/+0x58 (cur P1/P2), OBB basis at +0x60/+0x70/+0x80.
+        constexpr uintptr_t SphereBoneLocalCenter   = 0x30;  // FVector
+        constexpr uintptr_t SphereWorldCenterCur    = 0x50;  // FVector
+        constexpr uintptr_t SphereWorldCenterPrev   = 0x60;  // FVector
+        constexpr uintptr_t SphereRadius            = 0x70;  // float
+        constexpr uintptr_t SphereRadiusAuthored    = 0x74;  // float
+        constexpr uintptr_t SphereBoneIndexUe4      = 0x7C;  // uint32
+
+        constexpr uintptr_t AreaBoneLocalP1         = 0x30;  // FVector
+        constexpr uintptr_t AreaBoneLocalP2         = 0x40;  // FVector
+        constexpr uintptr_t AreaWorldBufA           = 0x50;  // FVector[2]
+        constexpr uintptr_t AreaWorldBufB           = 0x70;  // FVector[2]
+        constexpr uintptr_t AreaBoneIndexUe4_P2     = 0x94;  // uint32
+
+        // FixArea offsets — three reference POINTS in bone-local space
+        // (each with 1.0f homogeneous w at +Nc), then their world-space
+        // transforms, a bone idx, and a contact impulse scale.  See the
+        // OBB derivation formula in the comment block above.
+        constexpr uintptr_t FixAreaBoneLocalP1      = 0x30;  // FVector
+        constexpr uintptr_t FixAreaBoneLocalP2      = 0x40;  // FVector
+        constexpr uintptr_t FixAreaBoneLocalP3      = 0x50;  // FVector
+        constexpr uintptr_t FixAreaWorldP1          = 0x60;  // FVector
+        constexpr uintptr_t FixAreaWorldP2          = 0x70;  // FVector
+        constexpr uintptr_t FixAreaWorldP3          = 0x80;  // FVector
+        constexpr uintptr_t FixAreaBoneIndexUe4     = 0x90;  // uint32
 
         // Each KHit node is 0x80 (128) bytes — verified empirically:
         //   node->next - node == 0x80 exactly in the scratch pool.
@@ -484,11 +770,24 @@ namespace Horse
         // they look like UE4 world values in the hex dump only by coincidence
         // (Y-up, metres).  We don't read them; we build UE4 world positions
         // ourselves via GetBoneTransformForPose (Option B below).
-        constexpr uintptr_t LocalCenter       = 0x30;  // vec3 bone-local
-        constexpr uintptr_t MirrorOrExtents   = 0x40;  // vec3
-        constexpr uintptr_t WorldCenterCur    = 0x50;  // vec3 Namco-world current
-        constexpr uintptr_t WorldCenterPrev   = 0x60;  // vec3 Namco-world previous
-        constexpr uintptr_t Radius            = 0x70;  // float (Lux units)
+        //
+        // *** WARNING: these offsets are SPHERE-ONLY. ***
+        // For KHitArea  (tag 1): +0x30/+0x40 are bone-local P1/P2 (OBB
+        //     diagonal corners in bone frame); +0x50..+0x8F is the
+        //     double-buffered world P1/P2 pair for swept CCD.
+        // For KHitFixArea (tag 2): +0x30/+0x40/+0x50 are THREE bone-local
+        //     REFERENCE POINTS (each with w=1.0f homogeneous padding);
+        //     +0x60/+0x70/+0x80 are their world-space transforms.  The
+        //     OBB is derived at overlap time by Gram-Schmidt over
+        //     (P2-P1) and (P3-P1) — there is no stored centre/extents
+        //     on a FixArea.  Reading +0x40 as "MirrorOrExtents" on a
+        //     FixArea produces garbage.  Use the subclass-specific
+        //     offsets below.
+        constexpr uintptr_t LocalCenter       = 0x30;  // vec3 bone-local (SPHERE)
+        constexpr uintptr_t MirrorOrExtents   = 0x40;  // vec3 (SPHERE mirror only)
+        constexpr uintptr_t WorldCenterCur    = 0x50;  // vec3 Namco-world current (SPHERE)
+        constexpr uintptr_t WorldCenterPrev   = 0x60;  // vec3 Namco-world previous (SPHERE)
+        constexpr uintptr_t Radius            = 0x70;  // float Lux units (SPHERE)
 
         // KHitSphere layout (stream_tag == 0):
         //   +0x30  bone-local center   (vec3 + pad)
@@ -569,7 +868,15 @@ namespace Horse
     // ------------------------------------------------------------------
     constexpr float kLuxCmToUE = 100.0f;
 
-    enum class KHitKind : uint8_t { Box = 0, Sphere = 1 };
+    // Box         — 8 corners (KHitArea — bone-local AABB rotated by bone).
+    // Sphere      — centre + radius (KHitSphere).
+    // FixAreaTri  — KHitFixArea's 3 reference points (P1/P2/P3 world).
+    //               Drawn as two lines (spine P1→P2, side P1→P3) to
+    //               show the authored spine + side-reference directly,
+    //               matching the game's own BuildHitboxLocalMatrix
+    //               construction.  See buildFixAreaWorld() + the
+    //               KHitOffsets::FixAreaWorldP1/2/3 doc block.
+    enum class KHitKind : uint8_t { Box = 0, Sphere = 1, FixAreaTri = 2 };
     enum class KHitList : uint8_t { Attack = 0, Hurtbox = 1, Body = 2 };
 
     // ------------------------------------------------------------------
@@ -654,26 +961,42 @@ namespace Horse
         // signal, use `is_per_frame_active` below instead.
         bool        is_damage_active;
 
-        // True when this attack node's +0x17 slot bit is set in the
-        // PER-FRAME damage mask (MoveVM sub-frame cell), which IS
-        // tied to the current animation frame and DOES advance through
-        // startup / active / recovery.  Computed by mirroring the
-        // pMoveVMCell lookup that LuxBattle_TickHitResolutionAndBody
-        // Collision (0x14033cca0) does each frame.  See
-        // KHitWalker::readPerFrameDamageMask for the full pointer
-        // chain.
+        // True when the engine considers this attack node currently
+        // capable of producing damage — exactly the predicate the
+        // classifier (ResolveAttackVsHurtboxMask22 @ 0x14033C100)
+        // uses to decide whether overlap should fire a hit:
         //
-        // This is the strictest "the engine considers this slot live
-        // for damage on THIS frame" predicate available without
-        // hooking the move-state machine.  The user-visible difference
-        // vs. is_damage_active: this turns OFF during startup frames
-        // (move announced but no damage yet), the active-frame window
-        // only, and turns OFF during recovery — exactly what hitbox
-        // researchers want for frame-data analysis.
+        //   is_per_frame_active = (node[+0x14] != 0)             // geom-hot
+        //                      && ((node.CategoryMask & per_move_cell) != 0)
         //
-        // Always false for hurtbox / body entries.  Returns false (no
-        // bits set) if the chara isn't currently in any move, which
-        // is the correct neutral-state behaviour.
+        // The per-move cell at **chara+0x44058 has TWO simultaneous
+        // interpretations in the engine:
+        //   * For the +0x14 hot gate: bit S = "slot S is hot this
+        //     frame" — added on top of the 0x3FFFD floor and any
+        //     per-frame sub-cell.
+        //   * For the damage classifier: bit C = "category C is
+        //     active this frame" — ANDed with the attack node's
+        //     authored CategoryMask at node[+0x08] to decide if
+        //     overlap → damage.
+        //
+        // Same 64 bits, different semantic.  This filter intersects
+        // the attack's CategoryMask with the cell, mirroring the
+        // classifier path.  That correctly handles both:
+        //   * Floor-slot attacks (slots 0, 2..17 — body-attached
+        //     hitboxes whose +0x14 is always set by the floor).
+        //     Hidden during neutral (cell == 0); shown during moves
+        //     whose categories overlap this node's authored CategoryMask.
+        //   * Non-floor attacks (slot >= 18).  +0x14 already requires
+        //     the slot bit in the cell, so the category intersection
+        //     is the additional "and our move's flavor matches" check.
+        //
+        // Earlier versions of this filter mistakenly used:
+        //   v1: only *sub_frame_cell — empty for simple moves, hid
+        //       every attack.
+        //   v2: +0x14 minus 0x3FFFD floor — hid the floor-slot
+        //       attacks (body-attached hitboxes).
+        //
+        // Always false for hurtbox / body entries.
         bool        is_per_frame_active;
 
         // Raw `node[+0x14] != 0` for any list kind.  For ATTACK nodes
@@ -691,24 +1014,38 @@ namespace Horse
         bool        geom_active;
 
         // True iff this hurtbox's SubIdOrBoneId (+0x17) is inside the
-        // classifier's iteration range — i.e. < HurtboxSlotCount
+        // classifier's iteration range — i.e. < ClassifierHurtboxBound
         // (chara+0x44494, clamped to 22).  The classifier at
         // LuxBattle_ResolveAttackVsHurtboxMask22 (0x14033C100) only
-        // iterates slots 0..count-1:
+        // iterates slots 0..bound-1:
         //
-        //     for (slotIndex = 0; slotIndex < hurtboxSlotCount; ++slotIndex)
+        //     for (slotIndex = 0; slotIndex < bound; ++slotIndex)
         //         if (PerHurtboxBitmask[slotIndex] & attackerMask & strikeMask)
         //             ... write PerHurtboxReactionState[slotIndex] ...
         //
         // UpdateAllKHitWorldCenters still performs the overlap test and
         // OR's `atk->PerAttackerBit` into
         // `PerHurtboxBitmask[hurt->+0x17]`, but if that index is >=
-        // HurtboxSlotCount the classifier never reads it, so no
-        // reaction is produced and no damage is applied.  Visually
-        // this manifests as a hurtbox that looks geometrically alive
+        // bound the classifier never reads it, so no reaction is
+        // produced and no damage is applied.  Visually this manifests
+        // as a hurtbox that looks geometrically alive
         // (geom_active==true) yet never reacts to being struck — the
         // tell-tale of a "meta" hurtbox authored at slot >= 22 or
-        // beyond the per-character slot count.
+        // beyond the per-character bound.
+        //
+        // *** IMPORTANT gotcha: the "bound" at chara+0x44494 is the
+        // defender's own *attack* list max-slot (ATTACK stream's
+        // pOutMaxSlot), not the hurtbox list's max-slot.  See
+        // ChaOffsets::ClassifierHurtboxBound for the full derivation.
+        // Consequence: during moves with few attack slots but many
+        // hurtbox slots (dodges, pure-movement, block, throw-whiff)
+        // the bound can be smaller than the hurtbox list actually
+        // needs, and hurtboxes at the tail get flagged unaddressable.
+        // That's an honest reflection of engine behavior — those
+        // hurtboxes really won't be rolled into a reaction — but it
+        // means this flag is NOT "is this hurtbox geometrically live?"
+        // (use geom_active for that).  It's strictly "will the
+        // classifier ever read this slot?".
         //
         // Always true for attack and body nodes (the concept does not
         // apply — only the hurtbox list participates in the
@@ -816,6 +1153,72 @@ namespace Horse
             uint64_t mask = 0;
             if (!SafeReadUInt64(cell, &mask)) return 0;
             return mask;
+        }
+
+        // Snapshot of the currently-active move-lane state.  Reads the
+        // three most-interesting floats + move id + terminal flag from
+        // the LuxMoveLaneState block the MoveVM is currently driving
+        // (via chara+0x44068 ActiveLaneStateCursorPtr).  All fields
+        // default to 0 / sentinel if any chase fails.
+        //
+        // Usage: call once per chara per frame for HUD display.
+        // `has_move` is the only thing you need to gate visibility on —
+        // it's false when no move is active (idle stance), so don't
+        // show "frame 0/0".
+        struct LaneSnapshot
+        {
+            bool     has_move       = false;  // false iff no active move
+            int16_t  packed_move    = -1;     // PackedMoveAddr at +0x02
+            int16_t  lane_index     = -1;     // LaneIndex at +0x00
+            float    current_frame  = 0.0f;   // +0x08 (live advancing counter)
+            float    length_frames  = 0.0f;   // +0x10 (move total length)
+            float    playback_speed = 1.0f;   // +0x30 (current)
+            int32_t  tick_counter   = 0;      // +0x04 (ticks since move start)
+            bool     at_end         = false;  // +0x1A
+            bool     finished       = false;  // +0x24
+            bool     in_transition  = false;  // +0x26
+        };
+
+        static LaneSnapshot readLaneSnapshot(void* chara) noexcept
+        {
+            LaneSnapshot s{};
+            if (!chara) return s;
+            auto* bytes = reinterpret_cast<uint8_t*>(chara);
+
+            void* cursor = nullptr;
+            if (!SafeReadPtr(bytes + ChaOffsets::ActiveLaneStateCursorPtr,
+                             &cursor)) return s;
+            const auto c = reinterpret_cast<uintptr_t>(cursor);
+            if (c < 0x10000ULL || c > 0x00007fffffffffffULL) return s;
+            auto* L = reinterpret_cast<uint8_t*>(cursor);
+
+            uint16_t packedU = 0;
+            if (!SafeReadUInt16(L + LuxMoveLaneOffsets::PackedMoveAddr,
+                                &packedU)) return s;
+            const int16_t packed = static_cast<int16_t>(packedU);
+            if (packed == -1) return s;   // lane is idle — no active move
+
+            s.has_move     = true;
+            s.packed_move  = packed;
+            uint16_t laneU = 0;
+            SafeReadUInt16(L + LuxMoveLaneOffsets::LaneIndex, &laneU);
+            s.lane_index = static_cast<int16_t>(laneU);
+            SafeReadFloat(L + LuxMoveLaneOffsets::CurrentAnimFrame,
+                          &s.current_frame);
+            SafeReadFloat(L + LuxMoveLaneOffsets::AnimLengthFrames,
+                          &s.length_frames);
+            SafeReadFloat(L + LuxMoveLaneOffsets::PlaybackSpeedCurrent,
+                          &s.playback_speed);
+            SafeReadInt32(L + LuxMoveLaneOffsets::TickCounter,
+                          &s.tick_counter);
+            uint16_t atEnd = 0, fin = 0, inTr = 0;
+            SafeReadUInt16(L + LuxMoveLaneOffsets::AtEndFlag,         &atEnd);
+            SafeReadUInt16(L + LuxMoveLaneOffsets::FrameStepFinished, &fin);
+            SafeReadUInt16(L + LuxMoveLaneOffsets::InTransitionFlag,  &inTr);
+            s.at_end        = (atEnd != 0);
+            s.finished      = (fin   != 0);
+            s.in_transition = (inTr  != 0);
+            return s;
         }
 
         // Per-node damage predicate.  Returns true iff the bit at the
@@ -997,14 +1400,15 @@ namespace Horse
             // will then return false, which is what we want.
             const uint64_t own_attack_mask = readOwnAttackMask(list_chara);
 
-            // Pre-read THIS chara's PER-FRAME damage mask — strictly
-            // tighter than own_attack_mask.  Reflects the current
-            // sub-frame of the active move; turns off during startup
-            // and recovery within the same move-slot.  Same neutral
-            // behaviour as own_attack_mask: zero = nothing live this
-            // frame.  See KHitWalker::readPerFrameDamageMask for the
-            // pointer-chase rationale.
-            const uint64_t per_frame_mask = readPerFrameDamageMask(list_chara);
+            // (Was: const uint64_t per_frame_mask = readPerFrameDamage
+            // Mask(list_chara). Removed because the engine's per-frame
+            // sub-frame cell turns out to be empty for most SC6 moves —
+            // the engine reads it OR'd with the per-move cell, and
+            // simple moves set bits only on the per-move cell.  The
+            // is_per_frame_active filter now uses +0x14 minus the
+            // 0x3FFFD floor instead.  readPerFrameDamageMask() helper
+            // is kept on the class for diagnostic value but no longer
+            // called from the hot path.)
 
             // Pre-read the per-hurtbox reaction state table (22 × i32).
             //
@@ -1074,17 +1478,111 @@ namespace Horse
             }
 
             // --- (b) Sticky flash (used for rendering) -------------------
-            // Hold "hot" for `s_sticky_frames` frames after raw goes
+            // Hold "hot" for `s_sticky_frames` GAME TICKS after raw goes
             // non-zero.  Driven by the dllmain UI slider; see
             // setStickyFrames().  0 frames = no sticky (raw 1-frame
             // pulse only).
+            //
+            // Time-source rationale: this function is called from the
+            // cockpit (Slate UI) hook, which fires ONCE PER RENDER
+            // FRAME — not once per game tick.  The game tick rate is
+            // fixed at 60 Hz, but render frame rate is whatever the
+            // player's display runs at (60 / 120 / 144 / …).  Before
+            // 2026-04 we decremented the sticky counter once per call,
+            // which meant:
+            //   - At 60 Hz render: 15 ticks of sticky ≈ 250 ms ✓
+            //   - At 120 Hz render: drains twice as fast (~125 ms) ✗
+            //   - At 144 Hz render: drains 2.4× too fast (~104 ms)  ✗
+            // We also used `SpeedControl::current_value_static() > 0`
+            // as a "world advancing?" gate so freeze-frame wouldn't
+            // drain the flash.  But SpeedControl::disable() didn't
+            // reset the shared speedval back to 1.0f, so once the
+            // user had ever enabled freeze, the gate would stick at
+            // "frozen" and the flash would NEVER drain, even during
+            // normal gameplay.  That was the 2026-04 "hit-flash never
+            // clears" bug.
+            //
+            // Fix: drain by the chara's own GAME-TICK advance, read
+            // from LuxMoveLaneState::TotalTickCounter (lane cursor
+            // +0x458).  The MoveVM bumps that counter once per tick
+            // the lane advances, and naturally stays constant under
+            // freeze-frame (no tick = no advance = no drain).
+            // Slow-motion still drains at wall-clock rate because
+            // game ticks still fire, just less often — so at 0.25×
+            // speed, 15 ticks of sticky ≈ 1 second of wall clock,
+            // which matches the slower animation and lets the user
+            // actually see the flash during slow-mo replays.
+            //
+            // The `speed_check_disabled` note that used to live here
+            // about SpeedControl gating is obsolete.
             const int kStickyFrames =
                 s_sticky_frames.load(std::memory_order_relaxed);
+
+            // Read this chara's current game-tick counter.  Falls
+            // back to "always advance" if the lane cursor is missing
+            // (e.g. training-mode paused outside an active move).
+            int32_t cur_tick = 0;
+            bool    have_tick = false;
+            {
+                void* cursor = nullptr;
+                if (SafeReadPtr(bytes + ChaOffsets::ActiveLaneStateCursorPtr,
+                                &cursor))
+                {
+                    const auto cA = reinterpret_cast<uintptr_t>(cursor);
+                    if (cA >= 0x10000ULL && cA <= 0x00007fffffffffffULL)
+                    {
+                        if (SafeReadInt32(
+                                reinterpret_cast<uint8_t*>(cursor)
+                                + LuxMoveLaneOffsets::TotalTickCounter,
+                                &cur_tick))
+                        {
+                            have_tick = true;
+                        }
+                    }
+                }
+            }
+
+            // Compute how many game ticks have elapsed since the
+            // previous call.  Clamp: negative = counter reset (new
+            // match), treat as 0; huge positive = treat as 1 to
+            // avoid blowing past the sticky window on a single call.
+            int tick_delta = 0;
+            if (have_tick)
+            {
+                const int32_t prev = s_prev_lane_tick[pi_idx];
+                if (prev >= 0)
+                {
+                    const int raw = cur_tick - prev;
+                    tick_delta = (raw < 0)      ? 0
+                               : (raw > 8)      ? 1   // counter jumped weirdly
+                               :                 raw;
+                }
+                s_prev_lane_tick[pi_idx] = cur_tick;
+            }
+            // If we can't read the tick counter (no active move), fall
+            // back to a per-cockpit-tick drain but gate on SpeedControl
+            // just like the old path — this is the training-mode-idle
+            // case where no move is active, so nothing can be hitting
+            // anyway; sticky will still drain at render rate.
+            else
+            {
+                tick_delta = (SpeedControl::current_value_static() > 0.0f)
+                             ? 1 : 0;
+            }
+
             int32_t* sticky = s_sticky_reactions[pi_idx];
             for (int i = 0; i < 22; ++i)
             {
-                if (reactions[i] != 0)       sticky[i] = kStickyFrames;
-                else if (sticky[i] > 0)      --sticky[i];
+                if (reactions[i] != 0)
+                {
+                    sticky[i] = kStickyFrames;
+                }
+                else if (sticky[i] > 0 && tick_delta > 0)
+                {
+                    sticky[i] = (sticky[i] > tick_delta)
+                              ? sticky[i] - tick_delta
+                              : 0;
+                }
             }
 
             // walkList consumes sticky values so `reaction_hot` stays true
@@ -1148,18 +1646,15 @@ namespace Horse
             // --- Attack list -------------------------------------------------
             walkList(ue_chara, poseSelector, atk_head,
                      KHitList::Attack, active_cell, own_attack_mask,
-                     per_frame_mask, reactions_hot, hurt_slot_count,
-                     verbose, visit);
+                     reactions_hot, hurt_slot_count, verbose, visit);
             // --- Hurtbox list ------------------------------------------------
             walkList(ue_chara, poseSelector, hurt_head,
                      KHitList::Hurtbox, active_cell, own_attack_mask,
-                     per_frame_mask, reactions_hot, hurt_slot_count,
-                     verbose, visit);
+                     reactions_hot, hurt_slot_count, verbose, visit);
             // --- Body / pushbox list -----------------------------------------
             walkList(ue_chara, poseSelector, body_head,
                      KHitList::Body, active_cell, own_attack_mask,
-                     per_frame_mask, reactions_hot, hurt_slot_count,
-                     verbose, visit);
+                     reactions_hot, hurt_slot_count, verbose, visit);
         }
 
         // Throttle log output to ~twice per second at 60 FPS.
@@ -1199,9 +1694,20 @@ namespace Horse
         // whether PerHurtboxReactionState really lives at 0x1C74.
         static inline int32_t s_react_scan_prev[2][128] = {};
 
-        // Runtime-configurable sticky window length, in frames (60fps
-        // assumed).  Default 15 ≈ 250ms matches the old hardcoded value;
-        // dllmain overrides it on unreal-init + every slider drag.
+        // Per-player previous-tick snapshot of chara+0x44068→+0x458
+        // (LuxMoveLaneState::TotalTickCounter) — a monotonic i32 that
+        // the MoveVM bumps every game-tick the lane advances.  Used
+        // to drive the sticky-flash drain on GAME ticks instead of
+        // cockpit ticks, so the visible flash duration is consistent
+        // regardless of the user's render refresh rate (60/120/144
+        // Hz all produce the same "N game-frames visible" result) and
+        // naturally pauses under freeze-frame without any SpeedControl
+        // coupling.  -1 sentinel = no prior sample yet (first frame).
+        static inline int32_t s_prev_lane_tick[2] = { -1, -1 };
+
+        // Runtime-configurable sticky window length, in GAME ticks
+        // (60fps assumed).  Default 15 ≈ 250ms; dllmain overrides it
+        // on unreal-init + every slider drag.
         static inline std::atomic<int> s_sticky_frames{15};
 
         template <class Visit>
@@ -1211,7 +1717,6 @@ namespace Horse
                              KHitList listKind,
                              void* /*activeAttackCell — cross-chara, unused*/,
                              uint64_t ownAttackMask,
-                             uint64_t perFrameMask,
                              const int32_t (&reactions)[22],
                              int32_t hurtSlotCount,
                              bool verbose,
@@ -1268,14 +1773,23 @@ namespace Horse
                 d.geom_active           = (activeGate != 0);
 
                 // Classifier addressability (hurtbox only).  True when
-                // `boneId < HurtboxSlotCount` AND `boneId < 22` — the
-                // exact predicate ResolveAttackVsHurtboxMask22 uses
+                // `boneId < ClassifierHurtboxBound` AND `boneId < 22` —
+                // the exact predicate ResolveAttackVsHurtboxMask22 uses
                 // for its inner loop bound.  A hurtbox failing this
                 // test is geometrically live (overlaps tested, bits
                 // OR'd into PerHurtboxBitmask[boneId]) but its slot is
                 // outside the classifier's iteration range, so no
                 // reaction will ever be written and no damage will
                 // ever be dealt — the invisible "meta-hurtbox" trap.
+                //
+                // Note: `hurtSlotCount` here is read from
+                // chara+0x44494 (ClassifierHurtboxBound), which in
+                // this build is actually the ATTACK list's max-slot
+                // reused as the hurtbox iteration bound.  See the
+                // ChaOffsets::ClassifierHurtboxBound doc block for
+                // why — short version: moves with small attack lists
+                // can cause legitimate per-move hurtboxes at high
+                // slot indices to be flagged unaddressable.
                 //
                 // For non-hurtbox lists we leave the default (true) —
                 // the concept doesn't apply.
@@ -1296,14 +1810,29 @@ namespace Horse
                 d.is_damage_active      = (listKind == KHitList::Attack &&
                                            slotBitInMask(boneId,
                                                          ownAttackMask));
-                // Per-frame damage gate — strictly tighter than
-                // is_damage_active.  Off during startup/recovery within
-                // the same move; on only during the engine's "live for
-                // damage THIS frame" window.  See KHitDraw doc for the
-                // analysis-vs-runtime distinction.
-                d.is_per_frame_active   = (listKind == KHitList::Attack &&
-                                           slotBitInMask(boneId,
-                                                         perFrameMask));
+                // Per-frame damage gate — mirrors the classifier
+                // predicate at ResolveAttackVsHurtboxMask22 (0x14033C100):
+                //   capable_of_damage iff (+0x14 != 0)
+                //                       && ((node.CategoryMask & per_move_cell) != 0)
+                //
+                // This handles BOTH cases correctly:
+                //   * Floor-slot attacks (slots 0, 2..17, body-attached
+                //     hitboxes whose +0x14 is always set by the floor)
+                //     get the category-intersection check, which hides
+                //     them during neutral and during moves whose
+                //     authored category set doesn't overlap.
+                //   * Non-floor attacks already passed through +0x14's
+                //     slot-bit gate, so the category intersection is
+                //     just an extra "and our move is doing this kind
+                //     of damage" filter.
+                //
+                // See KHitDraw::is_per_frame_active for the dual-
+                // interpretation explanation (same 64 bits used as
+                // either slot mask or category mask depending on the
+                // engine site).
+                d.is_per_frame_active = (listKind == KHitList::Attack &&
+                                         activeGate != 0 &&
+                                         (cat_mask & ownAttackMask) != 0);
                 d.stream_tag            = streamTag;
                 d.bone_id_internal      = boneId;
                 d.flags10               = flags10;
@@ -1315,7 +1844,7 @@ namespace Horse
                 // UpdateAllKHitWorldCenters OR's attacker bits into
                 // PerHurtboxBitmask[hurt->+0x17].  So the reaction table is
                 // keyed by +0x17.  Using list_index here would cause visual
-                // cross-talk: a hurtbox whose own +0x17 is >= HurtboxSlotCount
+                // cross-talk: a hurtbox whose own +0x17 is >= ClassifierHurtboxBound
                 // (never addressable by the classifier) would spuriously flash
                 // whenever some OTHER hurtbox with +0x17 == its list-position
                 // got hit.  Observed in-game with Grøh's whole-body meta sphere.
@@ -1813,17 +2342,33 @@ namespace Horse
             return true;
         }
 
-        // KHitFixArea: static world-space stage volumes, no bone attachment.
-        // The Namco-world centre at +0x50 is valid for these (no chara pose
-        // baked in, since the FMatrix for fixed areas is identity in the
-        // local→world slot).  We still need the g_LuxCmToUEScale lift and
-        // the Namco→UE axis swap to reach UE world cm.
+        // KHitFixArea: authored as THREE reference points in bone-local
+        // space, transformed each tick to world space by
+        // KHitFixArea_UpdateWorldCenter @ 0x14030E690.  The engine does:
+        //
+        //     WP1 = bone * BLP1 + bone.translation   (+0x60)
+        //     WP2 = bone * BLP2 + bone.translation   (+0x70)
+        //     WP3 = bone * BLP3 + bone.translation   (+0x80)
+        //
+        // We just pick up the world-space triplet, convert Namco → UE,
+        // and hand it to the draw helper as a FixAreaTri kind.  The
+        // draw helper emits a spine (P1→P2) + side-reference (P1→P3)
+        // pair, which is the authored data directly.  For a true OBB
+        // hull draw, see the commented formula in the KHitOffsets
+        // FixArea block — the spine/side visualisation is simpler and
+        // more faithful to the author's intent.
+        //
+        // Earlier revisions of this function incorrectly read +0x40
+        // as "extents" and +0x50 as "centre", producing a wildly-
+        // mispositioned AABB.  See the 2026-04 investigation notes.
         static bool buildFixAreaWorld(const uint8_t* node, KHitDraw& out)
         {
-            FVec3 namcoCentre, namcoExtents;
-            if (!readVec3(node + KHitOffsets::WorldCenterCur, namcoCentre))
+            FVec3 namcoP1, namcoP2, namcoP3;
+            if (!readVec3(node + KHitOffsets::FixAreaWorldP1, namcoP1))
                 return false;
-            if (!readVec3(node + KHitOffsets::MirrorOrExtents, namcoExtents))
+            if (!readVec3(node + KHitOffsets::FixAreaWorldP2, namcoP2))
+                return false;
+            if (!readVec3(node + KHitOffsets::FixAreaWorldP3, namcoP3))
                 return false;
 
             // Axis swap: Namco (X=right, Y=up, Z=fwd) → UE (X=fwd, Y=right, Z=up).
@@ -1832,22 +2377,13 @@ namespace Horse
                               n.X * kLuxCmToUE,
                               n.Y * kLuxCmToUE };
             };
-            const FVec3 c = toUE(namcoCentre);
-            const FVec3 eRaw = toUE(namcoExtents);
-            const FVec3 e = { std::fabs(eRaw.X),
-                              std::fabs(eRaw.Y),
-                              std::fabs(eRaw.Z) };
-
-            for (int i = 0; i < 8; ++i)
-            {
-                const float sx = (i & 1) ? +1.0f : -1.0f;
-                const float sy = (i & 2) ? +1.0f : -1.0f;
-                const float sz = (i & 4) ? +1.0f : -1.0f;
-                out.corners[i] = FVec3{ c.X + e.X * sx,
-                                        c.Y + e.Y * sy,
-                                        c.Z + e.Z * sz };
-            }
-            out.kind = KHitKind::Box;
+            // Stash into corners[0..2] so we don't bloat the KHitDraw
+            // struct for every node.  The draw helper reads three
+            // specific slots based on the kind tag.
+            out.corners[0] = toUE(namcoP1);
+            out.corners[1] = toUE(namcoP2);
+            out.corners[2] = toUE(namcoP3);
+            out.kind = KHitKind::FixAreaTri;
             return true;
         }
     };
@@ -1879,6 +2415,24 @@ namespace Horse
             overlay.drawLine(v[1], v[5], color, thickness);
             overlay.drawLine(v[2], v[6], color, thickness);
             overlay.drawLine(v[3], v[7], color, thickness);
+            return;
+        }
+
+        if (d.kind == KHitKind::FixAreaTri)
+        {
+            // KHitFixArea — draw the two authored axes:
+            //   corners[0] = WP1 (spine origin / near corner)
+            //   corners[1] = WP2 (far end along primary axis)
+            //   corners[2] = WP3 (side reference)
+            //
+            // This reflects the data the game itself stores.  The
+            // OBB the engine uses for overlap is derived at test
+            // time via Gram-Schmidt of (WP2-WP1) and (WP3-WP1);
+            // drawing the two lines is faithful to the authored
+            // intent without having to reconstruct the hull.
+            const auto& v = d.corners;
+            overlay.drawLine(v[0], v[1], color, thickness);  // spine
+            overlay.drawLine(v[0], v[2], color, thickness);  // side
             return;
         }
 
