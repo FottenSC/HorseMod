@@ -15,9 +15,12 @@ if %ERRORLEVEL% EQU 0 (
 )
 echo.
 
-rem Run the build and move script
-echo Running build script...
-call "%~dp0build_horse_mod.bat"
+rem Build HorseMod and deploy the DLL into the game's mods directory.
+rem build_horse_mod.bat is now pure-build only (no copy); the deploy step
+rem moved into build_and_deploy.bat so the release scripts can call the
+rem pure build without producing redundant deploy noise.
+echo Running build + deploy script...
+call "%~dp0build_and_deploy.bat"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

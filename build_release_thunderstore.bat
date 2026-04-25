@@ -66,7 +66,7 @@ rem ---- Build the mod -------------------------------------------------------
 echo [release.thunderstore] building HorseMod (Shipping / Win64) ...
 call "%REPO_ROOT%build_horse_mod.bat"
 if !ERRORLEVEL! NEQ 0 (
-    echo [release.thunderstore] build failed (exit %ERRORLEVEL%^)
+    echo [release.thunderstore] build failed (exit !ERRORLEVEL!^)
     exit /b !ERRORLEVEL!
 )
 if not exist "%BUILT_DLL%" (

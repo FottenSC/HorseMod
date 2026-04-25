@@ -1,4 +1,30 @@
 @echo off
+rem ============================================================================
+rem build_horse_mod.bat
+rem
+rem Pure build script — produces HorseMod.dll and exits.  Does NOT copy the
+rem DLL anywhere.  For a build-and-deploy-to-game workflow run
+rem build_and_deploy.bat instead.
+rem
+rem Output:  build_cmake_LessEqual421__Shipping__Win64\HorseMod\HorseMod.dll
+rem
+rem Why split build from deploy?
+rem ---------------------------
+rem * The release scripts (build_release_github.bat / build_release_thunder-
+rem   store.bat) only need the artefact in the build dir.  The previous
+rem   combined script tried to copy into the game dir as a side effect of
+rem   every build, which spammed "file in use" warnings whenever the game
+rem   was running and added a redundant copy to the release pipeline.
+rem * Tooling (CI, scheduled rebuilds, sanity-only "does it still compile?"
+rem   runs) wants the build but not the deploy.
+rem
+rem Callers:
+rem   build_and_deploy.bat        (interactive dev: build + copy to game)
+rem   run_game.bat                (relaunch helper: build + copy + relaunch)
+rem   build_release_github.bat    (release: build + zip into dist/)
+rem   build_release_thunderstore.bat   (release: build + zip into dist/)
+rem ============================================================================
+
 setlocal
 
 rem Set the build directory
@@ -30,20 +56,7 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo Build completed successfully!
 echo.
-
-rem ===== CONFIGURE YOUR GAME PATH HERE =====
-set GAME_DIR=E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64
-set MOD_NAME=HorseLab
-
-if defined GAME_DIR (
-    echo Copying main.dll to game directory...
-    if not exist "%GAME_DIR%\ue4ss\Mods\%MOD_NAME%\dlls" mkdir "%GAME_DIR%\ue4ss\Mods\%MOD_NAME%\dlls"
-    copy /Y "%CD%\%BUILD_DIR%\HorseMod\HorseMod.dll" "%GAME_DIR%\ue4ss\Mods\%MOD_NAME%\dlls\main.dll"
-    echo Copied successfully to %GAME_DIR%\ue4ss\Mods\%MOD_NAME%\dlls\main.dll
-)
-
-echo.
-echo Your mod DLLs are located in:
-echo %CD%\%BUILD_DIR%\HorseMod
+echo Your mod DLL is located at:
+echo %CD%\%BUILD_DIR%\HorseMod\HorseMod.dll
 echo.
 exit /b 0
