@@ -60,3 +60,9 @@ Thumbs.db
 # --- Logs / temp ------------------------------------------------------------
 *.log
 tmp/
+
+# --- Release artifacts ------------------------------------------------------
+# Output of build_release_github.bat / build_release_thunderstore.bat —
+# the zips are uploaded to GitHub Releases / Thunderstore, not committed
+# back to the repo.
+dist/
