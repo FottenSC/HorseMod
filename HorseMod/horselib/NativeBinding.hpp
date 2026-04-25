@@ -106,13 +106,41 @@ namespace Horse
     using LuxSkeletalBoneIndex_RemapFn =
         int32_t(__fastcall*)(uint8_t internalBoneId);
 
+    // void LuxBattleChara_SetStartPosition(void* chara, float x, float y,
+    //                                      float z);
+    //
+    // Verified calling convention (Ghidra disasm @ 140301e60):
+    //   RCX  = chara*       (1st arg slot, integer/pointer)
+    //   XMM1 = x            (2nd arg slot, float)
+    //   XMM2 = y            (3rd arg slot, float)
+    //   XMM3 = z            (4th arg slot, float)
+    //
+    // Writes the supplied (x, y, z) into all THREE redundant copies of
+    // the chara's position in the chara struct:
+    //   +0xa0 / +0xc0 / +0x2090   X
+    //   +0xa4 / +0xc4 / +0x2094   Y  (render-Y additionally adds the
+    //                                  per-stage offset DAT_143e8a33c)
+    //   +0xa8 / +0xc8 / +0x2098   Z
+    // Also clears post-impulse bookkeeping fields and walks the chara's
+    // sub-component linked list at +0x29130, zeroing per-node state.
+    //
+    // This is the canonical "teleport this chara" call and the same one
+    // every engine-internal reset path uses (RoundIntroSetup,
+    // PositionCharasSymmetrically, ResetBothCharaPositionsAndFacing,
+    // AllocAndInitCharaSlot, ...).  By calling it ourselves we get the
+    // EXACT side-effects the engine expects — no missing fields, no
+    // half-updated state machines.
+    using LuxBattleChara_SetStartPositionFn =
+        void(__fastcall*)(void* chara, float x, float y, float z);
+
     class NativeBinding
     {
     public:
         // RVAs verified against the current Steam build (Ghidra image base
         // 0x140000000).  Re-verify after any SC6 patch.
-        static constexpr uintptr_t kGetBoneTransformForPoseRVA = 0x462760;
-        static constexpr uintptr_t kLuxSkeletalBoneIndexRemapRVA = 0x898140;
+        static constexpr uintptr_t kGetBoneTransformForPoseRVA       = 0x462760;
+        static constexpr uintptr_t kLuxSkeletalBoneIndexRemapRVA     = 0x898140;
+        static constexpr uintptr_t kLuxBattleCharaSetStartPositionRVA = 0x301E60;
 
         // Resolve once.  Idempotent; subsequent calls are no-ops.
         static void resolve()
@@ -139,13 +167,19 @@ namespace Horse
                 reinterpret_cast<LuxSkeletalBoneIndex_RemapFn>(
                     s_image_base + kLuxSkeletalBoneIndexRemapRVA);
 
+            s_set_start_position =
+                reinterpret_cast<LuxBattleChara_SetStartPositionFn>(
+                    s_image_base + kLuxBattleCharaSetStartPositionRVA);
+
             RC::Output::send<RC::LogLevel::Verbose>(
                 STR("[HorseMod.NativeBinding] image base 0x{:x}  "
                     "GetBoneTransformForPose -> 0x{:x}  "
-                    "LuxSkeletalBoneIndex_Remap -> 0x{:x}\n"),
+                    "LuxSkeletalBoneIndex_Remap -> 0x{:x}  "
+                    "LuxBattleChara_SetStartPosition -> 0x{:x}\n"),
                 s_image_base,
                 reinterpret_cast<uintptr_t>(s_get_bone_transform),
-                reinterpret_cast<uintptr_t>(s_bone_index_remap));
+                reinterpret_cast<uintptr_t>(s_bone_index_remap),
+                reinterpret_cast<uintptr_t>(s_set_start_position));
         }
 
         // Typed wrappers — safer than raw fn ptr calls at the use site.
@@ -165,15 +199,35 @@ namespace Horse
             return s_bone_index_remap(internalBoneId);
         }
 
+        // Calls the engine's own teleport helper.  This is the canonical
+        // reset-position path used by RoundIntroSetup,
+        // PositionCharasSymmetrically, ResetBothCharaPositionsAndFacing,
+        // AllocAndInitCharaSlot, etc. — writing all three position triples
+        // (+0xA0 / +0xC0 / +0x2090), zeroing post-impulse bookkeeping, and
+        // walking the chara's sub-component list at +0x29130.
+        //
+        // Returns false if either the function pointer or the chara is null.
+        // Does NOT set the side-flag at +0x23C — that's a separate write
+        // (the engine maintains it via PositionCharasSymmetrically, not
+        // SetStartPosition).
+        static bool setCharaStartPosition(void* chara, float x, float y, float z)
+        {
+            if (!s_set_start_position || !chara) return false;
+            s_set_start_position(chara, x, y, z);
+            return true;
+        }
+
         static bool isReady()      { return s_get_bone_transform != nullptr
                                          && s_bone_index_remap   != nullptr; }
+        static bool hasSetStartPosition() { return s_set_start_position != nullptr; }
         static uintptr_t imageBase() { return s_image_base; }
 
     private:
-        static inline bool                        s_resolved           = false;
-        static inline uintptr_t                   s_image_base         = 0;
-        static inline GetBoneTransformForPoseFn   s_get_bone_transform = nullptr;
-        static inline LuxSkeletalBoneIndex_RemapFn s_bone_index_remap  = nullptr;
+        static inline bool                          s_resolved           = false;
+        static inline uintptr_t                     s_image_base         = 0;
+        static inline GetBoneTransformForPoseFn     s_get_bone_transform = nullptr;
+        static inline LuxSkeletalBoneIndex_RemapFn  s_bone_index_remap   = nullptr;
+        static inline LuxBattleChara_SetStartPositionFn s_set_start_position = nullptr;
     };
 
     // ------------------------------------------------------------------

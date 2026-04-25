@@ -110,6 +110,21 @@
 // periodically via on_update, and saved a final time in the dtor for
 // graceful shutdown.
 #include "horselib/ModSettings.hpp"
+
+// Captures + replays a custom (X, Y, Z + side) chara pose on training-
+// mode position reset.  Wired via a UFunction post-hook on
+// /Script/LuxorGame.LuxBattleManager:TrainingModePositionReset (see
+// hookup further down in HorseMod's ctor / on_update).
+#include "horselib/ResetOverride.hpp"
+
+// PolyHook x64Detour on LuxBattleChara_SetStartPosition.  This is the
+// canonical chokepoint for every chara-teleport path the engine takes,
+// so we install it here and let the captured pose override fire
+// regardless of which UFunction (or non-UFunction) chain triggered the
+// reset.  Empirically required because the user's training-mode reset
+// bind goes through a path that does NOT touch any of the
+// BlueprintCallable UFunctions we hooked first.
+#include "horselib/SetStartPositionHook.hpp"
 // horselib/GamePause.hpp DEPRECATED — see "Freeze frame" UI block below
 // for the SpeedControl-driven replacement.  The old chara+0x394
 // trampoline targeted an audio-state bit, not the world-tick pause.
@@ -126,12 +141,61 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <vector>
 
 using namespace RC;
 using namespace RC::Unreal;
+
+// ----------------------------------------------------------------------------
+// Build-date formatter used in the ImGui window title.
+//
+// __DATE__ is the C preprocessor's compile-time date string, format
+// "Mmm DD YYYY" — month is the abbreviated English name (Jan/Feb/...
+// /Dec), DD is the day of the month (space-padded to 2 columns for
+// single-digit days, e.g. "Apr  3 2026"), YYYY is the year.
+//
+// We reformat to "DD-Mmm-YYYY" so the date is unambiguously day-first
+// — avoids the perennial US-vs-rest-of-world confusion between e.g.
+// "04/05" meaning April 5th vs May 4th.  Using the abbreviated month
+// name (Apr, May, Jun, ...) instead of a numeric month makes the
+// ordering self-evident regardless of the reader's locale.
+//
+// One-shot init: compiled once into HorseMod.dll, never changes for
+// the life of the process.  Cached in a static char buffer so we can
+// hand back a stable const char* to ImGui::Begin (which uses the
+// pointer's value as the window-identity hash).
+static const char* horsemod_window_title()
+{
+    static char buf[64];
+    static bool init = false;
+    if (!init)
+    {
+        // __DATE__ guarantees:
+        //   d[0..2]  = month abbreviation (3 letters)
+        //   d[3]     = ' '
+        //   d[4..5]  = day-of-month, space-padded
+        //   d[6]     = ' '
+        //   d[7..10] = 4-digit year
+        const char* d = __DATE__;
+
+        // Day: replace leading space with '0' so the output is always
+        // zero-padded to 2 digits ("03-Apr-2026", not " 3-Apr-2026").
+        const char d1 = (d[4] == ' ') ? '0' : d[4];
+        const char d2 = d[5];
+
+        std::snprintf(buf, sizeof(buf),
+                      "HorseMod (Beta %c%c-%c%c%c-%c%c%c%c)",
+                      d1, d2,                  // day
+                      d[0], d[1], d[2],        // month abbreviation
+                      d[7], d[8], d[9], d[10]); // year
+        init = true;
+    }
+    return buf;
+}
 
 // ----------------------------------------------------------------------------
 class HorseMod final : public CppUserModBase
@@ -558,7 +622,15 @@ private:
     std::atomic<int> m_flash_frames{15};
 
     std::atomic<float> m_thickness{1.5f};
-    std::atomic<Horse::LineBatcherSlot> m_slot{Horse::LineBatcherSlot::Foreground};
+
+    // Per-feature line-batcher slot.  Hitboxes (Attack list) draw via
+    // m_backend_hit; hurtboxes + body (Hurtbox + Body lists) draw via
+    // m_backend_hurt.  Splitting them lets the user trail hurtboxes
+    // (Persistent) while keeping hitboxes always-on-top (Foreground).
+    // Both default to Foreground; Persistent is unsuitable for hitboxes
+    // because the trail accumulates faster than the eye can disambiguate.
+    std::atomic<Horse::LineBatcherSlot> m_slot_hit {Horse::LineBatcherSlot::Foreground};
+    std::atomic<Horse::LineBatcherSlot> m_slot_hurt{Horse::LineBatcherSlot::Foreground};
 
     // Look up the current show-flag for (player, list).  Inlined in the
     // hot path; pi outside [0,1] falls through to P1's settings.
@@ -629,8 +701,19 @@ private:
         m_show_unused_hurt       .store(S.get_bool ("show_unused_hurtboxes", false));
         m_flash_frames           .store(S.get_int  ("hit_flash_frames",      15   ));
         m_thickness              .store(S.get_float("thickness",             1.5f ));
-        m_slot                   .store(static_cast<Horse::LineBatcherSlot>(
-            S.get_int("line_batcher_slot",
+        // Per-feature line-batcher slot.  Hitboxes default to Foreground
+        // (always-on-top, the only sensible choice — Persistent would
+        // pile up unreadable trails).  Hurtboxes also default to
+        // Foreground but the user can flip them to Persistent to trace
+        // a chara's hurtbox path through a move.  The legacy single
+        // key "line_batcher_slot" from before the split is silently
+        // ignored — old enum values aren't valid in the new 2-entry
+        // enum and the user has to pick again from the new combos.
+        m_slot_hit .store(static_cast<Horse::LineBatcherSlot>(
+            S.get_int("line_batcher_slot_hit",
+                      static_cast<int>(Horse::LineBatcherSlot::Foreground))));
+        m_slot_hurt.store(static_cast<Horse::LineBatcherSlot>(
+            S.get_int("line_batcher_slot_hurt",
                       static_cast<int>(Horse::LineBatcherSlot::Foreground))));
 
         // --- Camera tab -------------------------------------------
@@ -648,6 +731,33 @@ private:
         m_hide_weapons           .store(S.get_bool ("hide_weapons",          false));
         m_hide_chara             .store(S.get_bool ("hide_characters",       false));
         m_suppress_vfx           .store(S.get_bool ("suppress_vfx",          false));
+
+        // --- Reset override -----------------------------------------
+        // Captured pose persists across reboots so the user can resume
+        // training from the same custom starting position.  The toggle
+        // itself does NOT persist — it's deliberately reset to OFF on
+        // every game start so a stale capture from a previous session
+        // can't surprise the user with an unexpected teleport on the
+        // first reset bind they press.  The user has to consciously
+        // re-enable it to opt in.
+        {
+            auto& ro = Horse::ResetOverride::instance();
+            ro.set_enabled(false);
+            for (int pi = 0; pi < 2; ++pi)
+            {
+                Horse::ResetOverride::FCharaPose p{};
+                std::string base = "reset_override_p";
+                base += static_cast<char>('1' + pi);
+                p.has = S.get_bool((base + "_has").c_str(), false);
+                if (!p.has) continue;
+                p.pos_x     = S.get_float((base + "_x").c_str(),    0.0f);
+                p.pos_y     = S.get_float((base + "_y").c_str(),    0.0f);
+                p.pos_z     = S.get_float((base + "_z").c_str(),    0.0f);
+                p.side_flag = static_cast<uint8_t>(
+                    S.get_int((base + "_side").c_str(),    0));
+                ro.set_pose(pi, p);
+            }
+        }
     }
 
     // Mirror every persisted atomic into the ModSettings map, then ask
@@ -672,7 +782,8 @@ private:
         S.set("show_unused_hurtboxes", m_show_unused_hurt.load());
         S.set("hit_flash_frames",      m_flash_frames.load());
         S.set("thickness",             m_thickness.load());
-        S.set("line_batcher_slot",     static_cast<int>(m_slot.load()));
+        S.set("line_batcher_slot_hit",  static_cast<int>(m_slot_hit.load()));
+        S.set("line_batcher_slot_hurt", static_cast<int>(m_slot_hurt.load()));
 
         // Camera tab
         S.set("ansel_always_allowed",  m_ansel_always_allowed.load());
@@ -690,6 +801,27 @@ private:
         S.set("hide_characters",       m_hide_chara.load());
         S.set("suppress_vfx",          m_suppress_vfx.load());
 
+        // --- Reset override ----------------------------------------
+        // The toggle is deliberately NOT persisted — see the matching
+        // load_persisted_settings block for the rationale (start each
+        // session with the override OFF; user must opt in).  We still
+        // persist the captured pose so a previously-set custom spawn
+        // is one click away.
+        {
+            auto& ro = Horse::ResetOverride::instance();
+            for (int pi = 0; pi < 2; ++pi)
+            {
+                const auto p = ro.get_pose(pi);
+                std::string base = "reset_override_p";
+                base += static_cast<char>('1' + pi);
+                S.set((base + "_has").c_str(),  p.has);
+                S.set((base + "_x").c_str(),    p.pos_x);
+                S.set((base + "_y").c_str(),    p.pos_y);
+                S.set((base + "_z").c_str(),    p.pos_z);
+                S.set((base + "_side").c_str(), static_cast<int>(p.side_flag));
+            }
+        }
+
         S.save_if_dirty();
     }
 
@@ -701,6 +833,37 @@ private:
     int                          m_update_calls = 0;
     int                          m_diag_tick    = 0;
 
+    // Reset-override UFunction hook bookkeeping.
+    //
+    // We don't actually know which UFunction the user's reset bind invokes —
+    // SC6 has at least four candidate paths that all eventually run the
+    // training-mode position-reset chain:
+    //
+    //   /Script/LuxorGame.LuxBattleManager:TrainingModePositionReset
+    //   /Script/LuxorGame.LuxBattleManager:RestartBattle
+    //   /Script/LuxorGame.LuxBattleManager:RestartBattleImmediately
+    //   /Script/LuxorGame.LuxBattleFunctionLibrary:RequestTrainingModeBattleReset
+    //
+    // The previous attempt hooked only TrainingModePositionReset and the
+    // post-hook never fired — the user's bind takes a different path.
+    // Rather than guess, we register hooks on ALL of them and let the one
+    // that fires identify itself in the log via the custom_data ptr.
+    // Multiple firings are harmless: apply_to_charas() is idempotent
+    // (writes the same captured pose to the same chara struct).
+    //
+    // Each slot is registered independently as soon as its containing class
+    // is loaded; on_update polls until all slots are registered.  Failed
+    // class lookups (class not yet loaded into UObject array) just retry
+    // next tick, same way try_register_cockpit_hook works.
+    struct ResetHookSlot
+    {
+        StringType class_path;          // gate: StaticFindObject of this UClass must succeed
+        StringType func_path;           // RegisterHook key + custom_data tag + UnregisterHook key
+        bool       registered = false;
+        std::pair<int32_t, int32_t> ids{};
+    };
+    std::vector<ResetHookSlot>   m_reset_slots;
+
     // Tick counter for throttled settings persistence.  on_update
     // bumps this every frame and calls save_persisted_settings()
     // every kSaveEveryNFrames — batching slider-drag updates into
@@ -709,7 +872,14 @@ private:
     static constexpr int         kSaveEveryNFrames = 120;
 
     Horse::Lux                 m_lux;
-    Horse::LineBatcherBackend  m_backend;
+
+    // Two backends so the hitbox slot and the hurtbox/body slot can
+    // independently target different UWorld batchers.  Each owns its
+    // own UWorld+LBC pointer caches; both prime each frame from the
+    // same pivot (the cockpit) but resolve to different LBC offsets
+    // (UWorld+0x48 vs UWorld+0x50) per their slot setting.
+    Horse::LineBatcherBackend  m_backend_hit;
+    Horse::LineBatcherBackend  m_backend_hurt;
 
     // In-game ImGui overlay token (see on_unreal_init / dtor).  Non-zero
     // after Horse::GameImGui::register_tab returns; passed to
@@ -751,6 +921,31 @@ public:
         // pre-persistence behaviour on a clean install.
         load_persisted_settings();
 
+        // Populate reset-hook candidate list.  Registration is attempted
+        // (and retried) from on_update once each slot's containing class
+        // is loaded.  See the ResetHookSlot doc-comment for why we hook
+        // multiple paths instead of just one.
+        //
+        // Class-path verification (cross-checked against UHTHeaderDump):
+        //   LuxBattleManager : TrainingModePositionReset, RestartBattle,
+        //                      RestartBattleImmediately
+        //   LuxBattleGameMode: RequestTrainingModeBattleReset(side)
+        // Earlier builds put RequestTrainingModeBattleReset on
+        // LuxBattleFunctionLibrary — that's wrong and crashed startup
+        // because UE4SS's RegisterHook(StringType) dereferences the
+        // result of StaticFindObject<UFunction*> without a null check
+        // when the path doesn't resolve.
+        m_reset_slots = {
+            { STR("/Script/LuxorGame.LuxBattleManager"),
+              STR("/Script/LuxorGame.LuxBattleManager:TrainingModePositionReset") },
+            { STR("/Script/LuxorGame.LuxBattleManager"),
+              STR("/Script/LuxorGame.LuxBattleManager:RestartBattle") },
+            { STR("/Script/LuxorGame.LuxBattleManager"),
+              STR("/Script/LuxorGame.LuxBattleManager:RestartBattleImmediately") },
+            { STR("/Script/LuxorGame.LuxBattleGameMode"),
+              STR("/Script/LuxorGame.LuxBattleGameMode:RequestTrainingModeBattleReset") },
+        };
+
         Input::ModifierKeyArray no_mods{};
         no_mods.fill(Input::ModifierKey::MOD_KEY_START_OF_ENUM);
 
@@ -759,7 +954,13 @@ public:
             m_enabled.store(s);
             Output::send<LogLevel::Verbose>(STR("[HorseMod] overlay {}\n"),
                 s ? STR("ON") : STR("OFF"));
-            if (!s) m_backend.hideAll();
+            if (!s)
+            {
+                // Hide on both backends so neither leaves stray lines
+                // when the user toggles the overlay off.
+                m_backend_hit.hideAll();
+                m_backend_hurt.hideAll();
+            }
         });
 
         // F6 — single-frame step.  Lazily turns on Freeze-frame on first
@@ -860,6 +1061,20 @@ public:
                 STR("[HorseMod] dtor unregistered cockpit hook pre={} post={}\n"),
                 m_hook_ids.first, m_hook_ids.second);
         }
+        for (auto& slot : m_reset_slots)
+        {
+            if (!slot.registered) continue;
+            UObjectGlobals::UnregisterHook(slot.func_path, slot.ids);
+            Output::send<LogLevel::Verbose>(
+                STR("[HorseMod] dtor unregistered reset hook {} pre={} post={}\n"),
+                slot.func_path, slot.ids.first, slot.ids.second);
+            slot.registered = false;
+        }
+
+        // Tear down the C++-level SetStartPosition detour cleanly so the
+        // reloaded mod (e.g. dev iteration) doesn't double-hook on its
+        // next install.  Idempotent if install never succeeded.
+        Horse::SetStartPositionHook::instance().uninstall();
         // m_cam_lock will restore any active patches via its own dtor
         // when our member destruction runs after this body returns.
         Output::send<LogLevel::Verbose>(STR("[HorseMod] dtor EXIT\n"));
@@ -899,9 +1114,22 @@ public:
         // Resolve SC6 native function RVAs now that the game image is loaded:
         //   ALuxBattleChara_GetBoneTransformForPose @ image + 0x462760
         //   LuxSkeletalBoneIndex_Remap              @ image + 0x898140
+        //   LuxBattleChara_SetStartPosition         @ image + 0x301E60
         // These are used by KHitWalker to transform KHitArea OBBs into
-        // world space via the owning chara's bone pose.
+        // world space via the owning chara's bone pose, and by
+        // SetStartPositionHook to override the chara teleport target.
         Horse::NativeBinding::resolve();
+
+        // Install the C++-level chara-teleport hook.  This is the
+        // workhorse for the "Override reset position" feature: every
+        // engine reset path (round intro, training-mode reset bind,
+        // RestartBattle, ResetBothCharaPositionsAndFacing, ...) funnels
+        // through LuxBattleChara_SetStartPosition, so a single PolyHook
+        // x64Detour there catches every trigger including the user's
+        // raw-input training-reset bind that bypasses the BlueprintCallable
+        // UFunction layer.  See horselib/SetStartPositionHook.hpp for
+        // the full design rationale.
+        Horse::SetStartPositionHook::instance().install();
 
         // Push the default hit-flash duration into the walker so it's
         // correct on frame 0 without the user having to touch the
@@ -939,10 +1167,14 @@ public:
             save_persisted_settings();
         }
 
-        if (m_hook_registered) return;
+        const bool all_reset_registered = std::all_of(
+            m_reset_slots.begin(), m_reset_slots.end(),
+            [](const ResetHookSlot& s) { return s.registered; });
+        if (m_hook_registered && all_reset_registered) return;
         if (++m_poll_counter < 60) return;
         m_poll_counter = 0;
-        try_register_cockpit_hook();
+        if (!m_hook_registered)        try_register_cockpit_hook();
+        if (!all_reset_registered)     try_register_reset_hooks();
     }
 
 private:
@@ -969,6 +1201,92 @@ private:
         m_hook_registered = true;
         Output::send<LogLevel::Verbose>(STR("[HorseMod] hook pre={} post={}\n"),
             m_hook_ids.first, m_hook_ids.second);
+    }
+
+    // Register a post-hook on each reset-related UFunction in m_reset_slots.
+    //
+    // Each post-hook fires AFTER the engine has run the round-intro position
+    // chain (PositionCharasByRoundConfig -> PositionCharasSymmetrically ->
+    // LuxBattleChara_SetStartPosition) for that path — the right spot to
+    // overwrite the chara pose with the user's captured override.
+    //
+    // Multi-path rationale: the user's reset bind goes through a UFunction
+    // we can't determine statically (they may have rebound it; SC6's
+    // training-mode UI may dispatch via a different entry point depending
+    // on context).  We register on every plausible candidate and the one
+    // that fires logs its identity via the custom_data tag — both for our
+    // diagnosis here and for the user to see in UE4SS.log.
+    //
+    // Each slot's class lookup gates that slot independently — failed
+    // lookups (class not yet loaded) just retry next poll tick, same way
+    // try_register_cockpit_hook does.
+    void try_register_reset_hooks()
+    {
+        UnrealScriptFunctionCallable pre_cb =
+            [](UnrealScriptFunctionCallableContext&, void*) {};
+        UnrealScriptFunctionCallable post_cb =
+            [](UnrealScriptFunctionCallableContext&, void* custom_data) {
+                // Identify which path fired via the tag we passed at
+                // registration time (the slot's func_path c_str()).
+                const wchar_t* path = static_cast<const wchar_t*>(custom_data);
+                Output::send<LogLevel::Default>(
+                    STR("[HorseMod] reset hook fired: {}\n"),
+                    path ? path : STR("(unknown path)"));
+
+                // Apply the captured pose.  Idempotent if multiple hooks
+                // fire on the same reset (engine may chain through more
+                // than one of these UFunctions for a single user press).
+                Horse::ResetOverride::instance().apply_to_charas();
+            };
+
+        for (auto& slot : m_reset_slots)
+        {
+            if (slot.registered) continue;
+
+            UClass* klass = UObjectGlobals::StaticFindObject<UClass*>(
+                nullptr, nullptr, slot.class_path);
+            if (!klass)
+            {
+                // Class not yet registered — try again next poll tick.
+                continue;
+            }
+
+            // CRITICAL: also verify the UFunction exists before calling
+            // RegisterHook(path).  UE4SS's path-overload of RegisterHook
+            // (UObjectGlobals.cpp:859) calls StaticFindObject<UFunction*>
+            // and then immediately dereferences the result via
+            // Function->GetFunc() — so a null-result (function-not-found)
+            // crashes the game with a null deref.
+            //
+            // Pre-checking here means a wrong/typo'd path just logs a
+            // warning and skips that slot; the rest of the mod loads
+            // unscathed.  We only log once (slot stays unregistered but
+            // we mark it so we don't retry a known-bad path forever).
+            UFunction* fn = UObjectGlobals::StaticFindObject<UFunction*>(
+                nullptr, nullptr, slot.func_path);
+            if (!fn)
+            {
+                Output::send<LogLevel::Warning>(
+                    STR("[HorseMod] Reset-override hook SKIPPED: UFunction "
+                        "'{}' not found on class '{}' — typo or wrong class? "
+                        "Will retry on next poll tick.\n"),
+                    slot.func_path, slot.class_path);
+                continue;
+            }
+
+            // c_str() is stable for the lifetime of the wstring, which
+            // outlives the hook (m_reset_slots vector is never reassigned
+            // after ctor population).  Pass it as custom_data so the
+            // post-hook can identify which path triggered it.
+            void* tag = const_cast<wchar_t*>(slot.func_path.c_str());
+
+            slot.ids = UObjectGlobals::RegisterHook(
+                slot.func_path, pre_cb, post_cb, tag);
+            slot.registered = true;
+            Output::send<LogLevel::Default>(
+                STR("[HorseMod] Reset-override hook registered: {} (pre={} post={})\n"),
+                slot.func_path, slot.ids.first, slot.ids.second);
+        }
     }
 
     // ---- Ansel "always allow photography" apply-per-frame helper -------
@@ -1249,7 +1567,7 @@ private:
                 m_update_calls,
                 m_enabled.load() ? 1 : 0,
                 reinterpret_cast<uintptr_t>(raw_cockpit),
-                m_backend.isReady() ? 1 : 0,
+                (m_backend_hit.isReady() && m_backend_hurt.isReady()) ? 1 : 0,
                 Horse::NativeBinding::isReady() ? 1 : 0);
         }
 #endif
@@ -1268,13 +1586,25 @@ private:
 
         Horse::Obj pivot{raw_cockpit};
 
-        // Sync LineBatcher slot with the ImGui toggle.
-        if (m_backend.slot() != m_slot.load())
-            m_backend.setSlot(m_slot.load());
-        m_backend.primeFrom(pivot);
-        if (!m_backend.isReady()) return;
+        // Sync each backend's slot with the per-feature ImGui toggles
+        // and prime both this frame.  setSlot() invalidates the cached
+        // LBC pointer when the slot changes; primeFrom() re-resolves it
+        // from the (current) UWorld.  Idempotent when nothing changed.
+        if (m_backend_hit.slot()  != m_slot_hit.load())
+            m_backend_hit.setSlot(m_slot_hit.load());
+        if (m_backend_hurt.slot() != m_slot_hurt.load())
+            m_backend_hurt.setSlot(m_slot_hurt.load());
+        m_backend_hit.primeFrom(pivot);
+        m_backend_hurt.primeFrom(pivot);
 
-        m_backend.beginFrame();
+        // Both must be ready to proceed — partial readiness would let
+        // (e.g.) hitboxes draw without their hurtbox counterparts on
+        // the same frame, which would visually misrepresent the state
+        // of a move and confuse a viewer.
+        if (!m_backend_hit.isReady() || !m_backend_hurt.isReady()) return;
+
+        m_backend_hit.beginFrame();
+        m_backend_hurt.beginFrame();
 
         const float T = m_thickness.load();
 
@@ -1284,12 +1614,44 @@ private:
         // ---- Weapon visibility snapshot ---------------------------------
         // Compute once per frame.  `apply_weapons` is true when we need to
         // actively push SetWeaponVisibility into the game this frame:
-        //   * when the toggle is ON — re-apply every frame to overwrite
-        //     any game-driven re-show (the engine can flip visibility as
-        //     part of cinematic cues; we fight it back to hidden).
-        //   * on the ON->OFF transition — call once with true to restore
-        //     visibility, then stop touching it.
-        const bool hide_weapons_now = m_hide_weapons.load();
+        //   * when the EFFECTIVE toggle is ON — re-apply every frame to
+        //     overwrite any game-driven re-show (the engine can flip
+        //     visibility as part of cinematic cues; we fight it back).
+        //   * on the EFFECTIVE ON -> OFF transition — call once with
+        //     true to restore visibility, then stop touching it.
+        //
+        // CONFLICT WITH "Hide characters"
+        // -------------------------------
+        // CharaInvis (m_hide_chara) bytepatches the engine's read of
+        // chara+0x534 inside SyncMoveStateVisibility from `cmp [..],0`
+        // to `cmp [..],1`.  That inverts the boolean: with the patch
+        // active, flag=1 (engine "visible") reads as invisible, and
+        // flag=0 (engine "invisible") reads as visible.
+        //
+        // SetWeaponVisibility(false) writes 0 to +0x534.  When both
+        // toggles are on, the patched compare reads `0 == 1 -> visible`
+        // and the weapons stay VISIBLE — opposite of what the user
+        // asked for.
+        //
+        // Fix: when hide_chara is on, the patch ALREADY hides weapons
+        // (CharaInvis patches both +0x533 chara-mesh and +0x534
+        // weapon-mesh comparators).  So we suppress our own writes
+        // entirely — let the engine's per-move-state writes settle the
+        // flag back to 1 (its normal "visible" default) and let the
+        // patch invert that to "invisible" the way it's designed to.
+        //
+        // The transition tracking (last_applied) still runs against
+        // the EFFECTIVE state so that toggling hide_chara ON while
+        // hide_weapons was previously hiding gets correctly accounted
+        // for — we write `true` once on that edge to flip +0x534 back
+        // to 1, which the patch then reads as invisible.  Without that
+        // restore step, +0x534 would stay at 0 (our last write) and
+        // the patch's "0 -> visible" inversion would briefly show the
+        // weapon for the few frames before the engine's own state
+        // machine writes 1 again.
+        const bool hide_weapons_raw = m_hide_weapons.load();
+        const bool hide_chara_now   = m_hide_chara.load();
+        const bool hide_weapons_now = hide_weapons_raw && !hide_chara_now;
         const bool was_hiding       = m_last_applied_hide_weapons.load();
         const bool apply_weapons    = hide_weapons_now || was_hiding;
         // Cache the UFunction resolution once.  ALuxBattleChara's
@@ -1397,7 +1759,16 @@ private:
                     }
 
                     const Horse::FLinColor col = colourFor(d, pi);
-                    Horse::DrawKHitDraw(m_backend, d, col, T);
+                    // Route by list kind so the user can have hitboxes
+                    // and hurtboxes drawn into different UWorld batchers
+                    // (e.g. hurtboxes Persistent for trail, hitboxes
+                    // Foreground for clarity).  Body shares the hurt
+                    // backend because it's logically a defensive volume.
+                    Horse::LineBatcherBackend& b =
+                        (d.list == Horse::KHitList::Attack)
+                            ? m_backend_hit
+                            : m_backend_hurt;
+                    Horse::DrawKHitDraw(b, d, col, T);
                     ++nodes_drawn;
                 });
         });
@@ -1419,7 +1790,8 @@ private:
             m_last_applied_hide_weapons.store(hide_weapons_now);
         }
 
-        m_backend.endFrame();
+        m_backend_hit.endFrame();
+        m_backend_hurt.endFrame();
 
         // Once per ~2s: dump a summary so we can tell whether each stage
         // fired.  Parallel to the KHitWalker's shouldLog() throttle.
@@ -1430,7 +1802,7 @@ private:
             Output::send<LogLevel::Verbose>(
                 STR("[HorseMod] frame pivot=0x{:x} backend_ready={} charas={} drawn={}\n"),
                 reinterpret_cast<uintptr_t>(raw_cockpit),
-                m_backend.isReady() ? 1 : 0,
+                (m_backend_hit.isReady() && m_backend_hurt.isReady()) ? 1 : 0,
                 charas_seen,
                 nodes_drawn);
         }
@@ -1552,7 +1924,12 @@ private:
             m_nav_bootstrap_pending = true;
         }
 
-        if (!ImGui::Begin("HorseMod"))
+        // Window title carries the build date (DD-Mmm-YYYY) so users
+        // running the dev mod can tell which build they're on — useful
+        // when triaging bug reports on Discord ("which date is your
+        // overlay window showing?").  Computed once from __DATE__ —
+        // see horsemod_window_title() at the top of this TU.
+        if (!ImGui::Begin(horsemod_window_title()))
         {
             ImGui::End();
             return;
@@ -1670,7 +2047,11 @@ private:
         if (ImGui::Checkbox("Overlay enabled (F5)", &enabled))
         {
             m_enabled.store(enabled);
-            if (!enabled) m_backend.hideAll();
+            if (!enabled)
+            {
+                m_backend_hit.hideAll();
+                m_backend_hurt.hideAll();
+            }
         }
         // Belt-and-suspenders: SetItemDefaultFocus registers the F5
         // checkbox as the fallback nav target when the tab bar
@@ -1689,7 +2070,7 @@ private:
         {
             ImGui::TextDisabled("(waiting for a match to start)");
         }
-        else if (!m_backend.isReady())
+        else if (!m_backend_hit.isReady() || !m_backend_hurt.isReady())
         {
             ImGui::TextDisabled("(waiting for the battle scene)");
         }
@@ -1923,26 +2304,48 @@ private:
                     "bump it up if you're recording or screenshotting\n"
                     "and want the lines to read clearly at a distance.");
 
-            const char* slot_names[3] = {
-                "Default (hidden behind walls)",
-                "Persistent",
+            // Per-feature renderer combos.  Two entries each: Persistent
+            // (depth-tested, lines accumulate over time — useful for
+            // tracing a chara's path through a move) and Foreground
+            // (always-on-top, lines clear each frame — clean read of
+            // the current state).  The third historical entry "Default"
+            // (UWorld+0x40, depth-tested per-frame) was removed because
+            // its lines disappeared behind characters, which defeats
+            // the purpose of an overlay.
+            const char* slot_names[2] = {
+                "Persistent (trail)",
                 "Foreground (always visible)",
             };
-            int slot_idx = static_cast<int>(m_slot.load());
-            if (ImGui::Combo("Hurtbox renderer", &slot_idx, slot_names, 3))
-                m_slot.store(static_cast<Horse::LineBatcherSlot>(slot_idx));
+
+            int hit_idx = static_cast<int>(m_slot_hit.load());
+            if (ImGui::Combo("Hitbox renderer", &hit_idx, slot_names, 2))
+                m_slot_hit.store(static_cast<Horse::LineBatcherSlot>(hit_idx));
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "How the hitbox lines interact with the 3D scene.\n\n"
-                    "  Default: lines are occluded by walls, floors,\n"
-                    "  and the characters themselves — most realistic,\n"
-                    "  but parts of a hitbox inside a body won't show.\n\n"
-                    "  Persistent: same occlusion behaviour as Default;\n"
-                    "  kept separate for internal reasons.\n\n"
-                    "  Foreground (recommended): lines always draw on\n"
-                    "  top of everything else.  You can see the full\n"
-                    "  shape of every box regardless of what's in front\n"
-                    "  of it.");
+                    "How hitboxes are rendered against the 3D scene.\n\n"
+                    "  Foreground (recommended): hitbox lines always\n"
+                    "  draw on top of everything else.  Best for\n"
+                    "  reading the exact shape of a move's strike\n"
+                    "  volume frame by frame.\n\n"
+                    "  Persistent: hitbox lines accumulate over time\n"
+                    "  rather than refreshing each frame.  Rarely\n"
+                    "  useful for hitboxes — the trail piles up faster\n"
+                    "  than the eye can disambiguate.");
+
+            int hurt_idx = static_cast<int>(m_slot_hurt.load());
+            if (ImGui::Combo("Hurtbox renderer", &hurt_idx, slot_names, 2))
+                m_slot_hurt.store(static_cast<Horse::LineBatcherSlot>(hurt_idx));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "How hurtboxes (and the body box) are rendered\n"
+                    "against the 3D scene.\n\n"
+                    "  Foreground (recommended): hurtbox lines always\n"
+                    "  draw on top of everything else.  Clean read of\n"
+                    "  the chara's current defensive volumes.\n\n"
+                    "  Persistent: hurtbox lines accumulate over time.\n"
+                    "  Useful for tracing how a chara's hurtbox sweeps\n"
+                    "  through space across the duration of a move —\n"
+                    "  the trail visualises the full path.");
         }
     }
 
@@ -2429,16 +2832,43 @@ private:
             // restore.  Applies only while the overlay is enabled — if F5
             // turns the mod off, weapons stay in whatever state the engine
             // last set (typically visible).
+            //
+            // When "Hide characters" is also on, this control is greyed
+            // out: CharaInvis already hides both chara mesh AND weapons
+            // via a bytepatch that's incompatible with our per-frame
+            // SetWeaponVisibility writes (the patch inverts the meaning
+            // of the +0x534 weapon-flag, so writing 0 produces "visible"
+            // — opposite of what we want).  See the apply-loop comment
+            // in render_tab_impl for the full breakdown.
+            const bool hide_chara_active = m_hide_chara.load();
             bool hw = m_hide_weapons.load();
+            ImGui::BeginDisabled(hide_chara_active);
             if (ImGui::Checkbox("Hide weapons", &hw))
                 m_hide_weapons.store(hw);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Hide both characters' weapons.  Handy for inspecting\n"
-                "hitboxes on characters with bulky weapons (Nightmare's\n"
-                "sword, Astaroth's axe) that would otherwise block the\n"
-                "view of the volumes you're trying to see.\n\n"
-                "Only applies while the F5 hitbox overlay is enabled.\n"
-                "Turning this off restores the weapons.");
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered())
+            {
+                if (hide_chara_active)
+                {
+                    ImGui::SetTooltip(
+                        "Already covered by \"Hide characters\" — that\n"
+                        "toggle hides weapons along with the body mesh\n"
+                        "via the same engine-level visibility patch.\n\n"
+                        "Disable \"Hide characters\" first if you want\n"
+                        "to use this independently (e.g. show the body\n"
+                        "but hide the weapon).");
+                }
+                else
+                {
+                    ImGui::SetTooltip(
+                        "Hide both characters' weapons.  Handy for inspecting\n"
+                        "hitboxes on characters with bulky weapons (Nightmare's\n"
+                        "sword, Astaroth's axe) that would otherwise block the\n"
+                        "view of the volumes you're trying to see.\n\n"
+                        "Only applies while the F5 hitbox overlay is enabled.\n"
+                        "Turning this off restores the weapons.");
+                }
+            }
 
             // --- Hide characters (bytepatch, no flicker) ---------------
             // Inverts the engine's own visibility-compare instructions
@@ -2494,6 +2924,92 @@ private:
             {
                 ImGui::TextDisabled(
                     "(couldn't hook the VFX system — see UE4SS.log)");
+            }
+
+            // --- Reset position override -----------------------------
+            // When enabled and the user has captured a pose, our post-
+            // hook on TrainingModePositionReset replays the captured
+            // (X, Y, Z + side) for both players after the engine's
+            // own reset has run.  Press the in-game training-reset
+            // bind (default Select on a pad) to trigger.
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextUnformatted("Reset position override");
+            {
+                auto& ro = Horse::ResetOverride::instance();
+                bool ro_on = ro.enabled();
+                if (ImGui::Checkbox("Override reset position", &ro_on))
+                {
+                    ro.set_enabled(ro_on);
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "When on, the next time you press the in-game\n"
+                    "training-mode position-reset bind, both players\n"
+                    "are sent to the position you captured below\n"
+                    "instead of the default round-spawn pose.\n\n"
+                    "Off : the game's default reset behaviour applies.\n"
+                    "Capture a pose first (button below) before turning\n"
+                    "this on, otherwise it does nothing.");
+
+                if (ImGui::Button("Capture current position"))
+                {
+                    const bool ok = ro.capture_both();
+                    if (ok)
+                    {
+                        Output::send<LogLevel::Default>(
+                            STR("[HorseMod] reset-override pose captured\n"));
+                    }
+                    else
+                    {
+                        Output::send<LogLevel::Warning>(
+                            STR("[HorseMod] reset-override capture failed "
+                                "(no active match?)\n"));
+                    }
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Snapshot both characters' current world position\n"
+                    "and which side they're facing.  This becomes the\n"
+                    "pose used by the override on the next reset.\n\n"
+                    "Move each character to the position / side you\n"
+                    "want (using normal movement), then press this.\n"
+                    "The capture is persistent — it survives game\n"
+                    "restarts via the mod's settings.cfg.");
+
+                ImGui::SameLine();
+                if (ImGui::Button("Clear captured pose"))
+                {
+                    ro.clear_captured();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Forget the captured pose for both players, so\n"
+                    "the override checkbox above falls back to a\n"
+                    "no-op until you capture again.");
+
+                // Per-player readout of what's currently captured.
+                for (int pi = 0; pi < 2; ++pi)
+                {
+                    const auto p = ro.get_pose(pi);
+                    if (p.has)
+                    {
+                        ImGui::TextDisabled(
+                            "P%d  pos=(%.1f, %.1f, %.1f)  side=%s",
+                            pi + 1, p.pos_x, p.pos_y, p.pos_z,
+                            p.side_flag ? "right" : "left");
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("P%d  not captured yet", pi + 1);
+                    }
+                }
+
+                const bool any_reset_registered = std::any_of(
+                    m_reset_slots.begin(), m_reset_slots.end(),
+                    [](const ResetHookSlot& s) { return s.registered; });
+                if (!any_reset_registered)
+                {
+                    ImGui::TextDisabled(
+                        "(waiting for training-reset hook — start a match)");
+                }
             }
     }
 };

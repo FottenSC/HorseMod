@@ -70,16 +70,30 @@ namespace Horse
     };
     static_assert(sizeof(FBatchedLine) == 0x34, "FBatchedLine must match UE4 layout");
 
-    // Which of UWorld's three line batchers to append to.
+    // Which of UWorld's two USEFUL line batchers to append to.  UWorld
+    // exposes three batcher slots; the third (LineBatcher @ +0x40) is
+    // depth-tested per-frame and was historically exposed as
+    // LineBatcherSlot::Default but is now hidden — it produced occluded
+    // hitbox / hurtbox lines that disappeared behind characters and
+    // stage geometry, which defeats the entire purpose of an overlay.
+    //
     // Confirmed in Ghidra at Z_Construct_UClass_UWorld:
-    //   LineBatcher            @ +0x40   depth-tested, per-frame
+    //   LineBatcher            @ +0x40   depth-tested, per-frame  (REMOVED)
     //   PersistentLineBatcher  @ +0x48   depth-tested, persist until flush
     //   ForegroundLineBatcher  @ +0x50   NO depth test, always-on-top
+    //
+    // Persistent vs Foreground:
+    //   Foreground — always-on-top.  Best general default.  Hitbox /
+    //                hurtbox shapes read cleanly at any camera angle.
+    //   Persistent — depth-tested + lines remain alive past the kLifetime
+    //                expiry.  Useful for tracing a chara's hurtbox path
+    //                across a move (set hurtboxes to Persistent and the
+    //                trail accumulates).  Unsuitable for hitboxes — the
+    //                accumulation would be unreadable noise.
     enum class LineBatcherSlot : uint8_t
     {
-        Default    = 0,   // UWorld+0x40
-        Persistent = 1,   // UWorld+0x48
-        Foreground = 2,   // UWorld+0x50 — lines always drawn on top
+        Persistent = 0,   // UWorld+0x48
+        Foreground = 1,   // UWorld+0x50 — lines always drawn on top
     };
 
     class LineBatcherBackend final : public ILineOverlay
@@ -119,10 +133,13 @@ namespace Horse
             if (!world) return;
             m_world = world;
 
-            // Pick the batcher slot per m_slot.  All three are plain
-            // UObject* members on UWorld; offsets from Ghidra.
-            uint32_t off = Horse::WorldOffsets::LineBatcher;
-            const wchar_t* slot_label = L"LineBatcher";
+            // Pick the batcher slot per m_slot.  Both are plain
+            // UObject* members on UWorld; offsets from Ghidra.  Default
+            // case (unknown enum value from a stale settings.cfg load)
+            // falls through to Foreground — the safer of the two for
+            // first-time visibility.
+            uint32_t off = Horse::WorldOffsets::ForegroundLineBatcher;
+            const wchar_t* slot_label = L"ForegroundLineBatcher (on top)";
             switch (m_slot)
             {
                 case LineBatcherSlot::Persistent:
@@ -133,7 +150,6 @@ namespace Horse
                     off = Horse::WorldOffsets::ForegroundLineBatcher;
                     slot_label = L"ForegroundLineBatcher (on top)";
                     break;
-                default: break;
             }
             auto** p = reinterpret_cast<RC::Unreal::UObject**>(
                 reinterpret_cast<uint8_t*>(world) + off);

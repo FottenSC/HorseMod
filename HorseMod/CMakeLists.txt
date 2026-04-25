@@ -25,6 +25,8 @@ set(HORSELIB_GAMEIMGUI_HEADERS
 # a click away in VS Solution Explorer.
 set(HORSELIB_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ModSettings.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ResetOverride.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/SetStartPositionHook.hpp
 )
 
 add_library(${TARGET} SHARED
