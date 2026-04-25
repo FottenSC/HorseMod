@@ -123,6 +123,7 @@
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 
@@ -666,8 +667,16 @@ namespace Horse
             // -- Controller state (player-0 gamepad).  ERROR_SUCCESS == 0.
             // If the pad isn't present xpState is left zeroed so all
             // stick/trigger/button reads are inert.
+            //
+            // Perf gate (2026-04): wrap the actual XInputGetState behind
+            // controllerConnected()'s 1-second cache so we don't pay the
+            // empty-slot stutter (1-10 ms per call) on every tick when
+            // the user has free-fly on but no pad attached.  When a pad
+            // IS connected the inner XInputGetState is fast (~µs), so
+            // we still call it every tick to keep stick / trigger
+            // responsiveness — only the no-pad path is throttled.
             XINPUT_STATE xpState{};
-            const bool padOK =
+            const bool padOK = controllerConnected() &&
                 (XInputGetState(0, &xpState) == ERROR_SUCCESS);
             const auto& g = xpState.Gamepad;
 
@@ -848,10 +857,39 @@ namespace Horse
 
         // Returns true iff the XInput pad at slot 0 is currently
         // connected.  Useful for a "controller detected" status line.
+        //
+        // Cached probe (perf audit, 2026-04).  XInputGetState on an
+        // EMPTY slot is famously slow on Windows — 1-10 ms per call as
+        // it spins the device-arrival query.  This getter is hit from
+        // two hot paths:
+        //   * The Camera HUD tab (every ImGui render frame while open).
+        //   * tick() below (every cockpit tick while free-fly is on).
+        // A user with no controller attached therefore eats per-render
+        // stutter from the empty-slot poll, even if they never touch
+        // free-fly.  We cache the answer for ~1 s so subsequent calls
+        // are a single time_point compare + bool read (~ns).  Hot-plug
+        // detection lag is up to ~1 s, which is fine for a status
+        // indicator and an opt-in feature like free-fly.
+        //
+        // Threading: caller invariant is "game thread only" — both
+        // ImGui rendering (inside the cockpit hook callback) and
+        // FreeCamera::tick() execute on the game thread.  The plain
+        // statics below carry no atomics; benign even under a race
+        // (worst case: one extra empty-slot probe).
         static bool controllerConnected()
         {
+            using clock = std::chrono::steady_clock;
+            static clock::time_point s_last_probe{};
+            static bool              s_connected = false;
+
+            const auto now = clock::now();
+            if (now - s_last_probe < std::chrono::milliseconds(1000))
+                return s_connected;
+
+            s_last_probe = now;
             XINPUT_STATE s{};
-            return XInputGetState(0, &s) == ERROR_SUCCESS;
+            s_connected = (XInputGetState(0, &s) == ERROR_SUCCESS);
+            return s_connected;
         }
 
     private:

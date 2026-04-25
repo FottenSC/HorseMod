@@ -145,6 +145,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <vector>
 
 using namespace RC;
@@ -549,6 +550,15 @@ private:
     Horse::SpeedControl m_speed_control{};
     std::atomic<bool>   m_speed_enabled{false};
     std::atomic<float>  m_speed_value{1.0f};
+    // Last `target` value pushed into m_speed_control.set_value() by
+    // frame_step_apply().  Used to dedupe redundant writes when the
+    // requested speedval doesn't change (perf audit, 2026-04).  Init
+    // and reset-on-disable to NaN so the first write of any active
+    // span is always forced (NaN != anything is always true).  Read
+    // and written exclusively from the cockpit-tick caller — no
+    // atomic needed.
+    float m_last_speed_target =
+        std::numeric_limits<float>::quiet_NaN();
 
     // ---- Suppress VFX -------------------------------------------------------
     // Bytepatch port of somberness's CE "VFX off" cheat — see
@@ -1409,12 +1419,28 @@ private:
                     m_speed_control.resolve();
                 m_speed_control.enable();
             }
-            m_speed_control.set_value(target);
+            // Skip the codecave write when the requested speedval is
+            // unchanged from last tick (perf audit, 2026-04).  Steady-
+            // state freeze (target=0) and steady-state slow-mo at a
+            // fixed slider value would otherwise re-write the same
+            // float ~60×/s.  Cheap individually but cumulative noise.
+            // First tick after enable() carries m_last_speed_target =
+            // NaN, and `NaN != target` is always true, so the first
+            // write is forced.
+            if (target != m_last_speed_target)
+            {
+                m_speed_control.set_value(target);
+                m_last_speed_target = target;
+            }
         }
         else
         {
             if (m_speed_control.is_enabled())
                 m_speed_control.disable();
+            // Reset to NaN so the next entry into need_active forces
+            // a fresh push, even if `target` happens to match the last
+            // value we wrote before disabling.
+            m_last_speed_target = std::numeric_limits<float>::quiet_NaN();
         }
     }
 
@@ -1439,6 +1465,29 @@ private:
     // ------------------------------------------------------------------
     void free_camera_apply()
     {
+        // ---------------- Performance gate (perf audit, 2026-04) ----------
+        // Skip the per-tick PlayerCameraManager reflection chain when
+        // free-fly is neither user-requested nor currently engaged.
+        // The chain (FindFirstOf<APlayerController> + PlayerCameraManager
+        // FName-indexed property-chain walk on each tick) is amortised
+        // cheap once cached, but it's still wasted work for the common
+        // case of a user that never presses F7.  We drop straight to
+        // ~0 ns on those frames and only revive the resolution chain
+        // once the user actually engages free-fly.
+        //
+        // Correctness: when both gates are false, m_free_camera.tick()
+        // would early-return anyway (FreeCamera.hpp:537), and there's
+        // no UI consumer of m_cached_player_camera_manager that needs
+        // a value here (the HUD memory-verify panel is only meaningful
+        // while free-fly is on, and in the OFF state we want it to
+        // read "no PCM resolved" rather than a stale pointer).
+        const bool want_on = m_free_camera_enabled.load();
+        if (!want_on && !m_free_camera.is_enabled())
+        {
+            m_cached_player_camera_manager = nullptr;
+            return;
+        }
+
         // Resolve the APlayerCameraManager every tick — this is the
         // write target for Free-Fly pose data (see the long comment
         // on m_cached_player_camera_manager for why it is NOT the
@@ -1501,8 +1550,11 @@ private:
         }
         m_cached_player_camera_manager = pcm;
 
-        // Handle UI-toggle edge transitions.
-        const bool want_on = m_free_camera_enabled.load();
+        // Handle UI-toggle edge transitions.  `want_on` was captured at
+        // the top of the function for the perf gate; reuse it here so
+        // we observe a single consistent snapshot of the toggle on this
+        // tick (avoids any chance of a TOCTOU split between the gate
+        // check and the edge handler).
         if (want_on != m_free_camera.is_enabled())
         {
             m_free_camera.set(want_on, m_cam_lock, pcm);
