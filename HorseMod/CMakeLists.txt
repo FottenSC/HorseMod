@@ -27,6 +27,8 @@ set(HORSELIB_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ModSettings.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ResetOverride.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/SetStartPositionHook.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/OnlineRules.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/LuxBattleLauncherStartHook.hpp
 )
 
 add_library(${TARGET} SHARED

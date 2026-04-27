@@ -43,8 +43,16 @@ FetchContent_Declare(
 FetchContent_Declare(
     IconFontCppHeaders
     GIT_REPOSITORY https://github.com/juliettef/IconFontCppHeaders.git
-    GIT_TAG main
-    GIT_SHALLOW TRUE
+    # Pinned to a SHA (was `main` — a moving branch) so different fresh
+    # clones can't drift onto different upstream commits, and so the
+    # FETCHCONTENT_UPDATES_DISCONNECTED setting in the root CMakeLists has a
+    # stable target.  Bump the SHA when you intentionally want newer fonts.
+    #
+    # GIT_SHALLOW intentionally OFF: a depth-1 clone fetches only the tip of
+    # the default branch, and `git checkout <older-sha>` errors with
+    # `fatal: unable to read tree` once upstream advances past this SHA.
+    # Repo is ~950 KiB with history, so the cost is negligible.
+    GIT_TAG 3ee7f3d295ae773c0046db8d7b89b886eb2526de
     GIT_PROGRESS ON
 )
 add_subdirectory("imgui")
@@ -60,6 +68,12 @@ FetchContent_Declare(
 add_subdirectory("zydis")
 
 # PolyHook
+# NOTE: GIT_SHALLOW TRUE does NOT work here — the pinned commit
+# (298d56210b...) isn't reachable from the default-branch tip with a depth-1
+# clone, so `git fetch --depth 1` + `git checkout <sha>` errors with
+# `fatal: unable to read tree`.  We pay the full-history clone cost the first
+# time.  After that, FETCHCONTENT_UPDATES_DISCONNECTED in the root CMakeLists
+# keeps the populated dir and skips the network entirely on subsequent builds.
 FetchContent_Declare(
     PolyHook2
     GIT_REPOSITORY https://github.com/stevemk14ebr/PolyHook_2_0.git
@@ -68,7 +82,7 @@ FetchContent_Declare(
 )
 add_subdirectory("PolyHook_2_0")
 
-# raw_pdb
+# raw_pdb — same SHA-pin caveat as PolyHook2 above; keep non-shallow.
 FetchContent_Declare(
     raw_pdb
     GIT_REPOSITORY https://github.com/MolecularMatters/raw_pdb.git

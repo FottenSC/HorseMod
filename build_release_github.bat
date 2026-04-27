@@ -46,7 +46,11 @@ if "%VERSION%"=="" (
 echo [release.github] version: %VERSION%
 
 rem ---- Build the mod (delegates to the existing build script) --------------
-echo [release.github] building HorseMod (Shipping / Win64) ...
+rem build_horse_mod.bat defaults to LTO ON (the only safe state without also
+rem deploying our locally-built UE4SS.dll), so we don't need to set anything
+rem extra here.  Just be sure MYMODS_FAST_DEV_UNSAFE isn't lingering.
+set MYMODS_FAST_DEV_UNSAFE=
+echo [release.github] building HorseMod (Shipping / Win64, LTO on) ...
 call "%REPO_ROOT%build_horse_mod.bat"
 if !ERRORLEVEL! NEQ 0 (
     echo [release.github] build failed (exit !ERRORLEVEL!^)

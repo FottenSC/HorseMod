@@ -97,6 +97,11 @@
 #include "horselib/VFXOff.hpp"
 #include "horselib/CharaInvis.hpp"
 #include "horselib/SpeedControl.hpp"
+#include "horselib/ReplayWatchpoints.hpp"
+#include "horselib/WorldPause.hpp"
+#include "horselib/ReplayPlayerGate.hpp"
+#include "horselib/BattleTimeFreeze.hpp"
+#include "horselib/BattlePauseRequest.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
 // swap detour on IDXGISwapChain::Present.  This keeps Steam overlay
@@ -125,6 +130,23 @@
 // bind goes through a path that does NOT touch any of the
 // BlueprintCallable UFunctions we hooked first.
 #include "horselib/SetStartPositionHook.hpp"
+
+// Modded-lobby battle-rule overrides (SlipOut + stubs).  See the
+// file-header doc comment for the full rationale and the requirement
+// that BOTH peers run HorseMod for any selected policy to work
+// without desync.  Hooks the relevant runtime rule-gate UFunctions
+// and overrides their return values when the user has selected the
+// matching HorsePolicy.
+#include "horselib/OnlineRules.hpp"
+
+// PolyHook x64Detour on ULuxUIBattleLauncher::Start (image+0x5EEB50).
+// This is the chokepoint for ALL 5 BattleRule overrides — the detour
+// calls the appropriate Set<X>Mode setter on the launcher BEFORE the
+// original Start runs, writing our values into the launcher's data-
+// table cache.  The original then reads our values when it builds the
+// per-match rule set.  Works for every rule regardless of whether the
+// lobby Blueprint itself called the corresponding Set*Mode UFunction.
+#include "horselib/LuxBattleLauncherStartHook.hpp"
 // horselib/GamePause.hpp DEPRECATED — see "Freeze frame" UI block below
 // for the SpeedControl-driven replacement.  The old chara+0x394
 // trampoline targeted an audio-state bit, not the world-tick pause.
@@ -560,6 +582,106 @@ private:
     float m_last_speed_target =
         std::numeric_limits<float>::quiet_NaN();
 
+    // ---- Replay-state watchpoints (diagnostic) ------------------------------
+    // Hardware-data-breakpoint logger that records every write to the
+    // replay-state cursor fields, with the writer's RIP.  Built to find
+    // the residual freeze-drift leak after sites 1-16 didn't fully
+    // freeze replay watching.  See horselib/ReplayWatchpoints.hpp.
+    //
+    // OFF by default — incurs CPU exception per cursor write when ON.
+    // User toggles via the ImGui debug surface; stays off across sessions.
+    Horse::ReplayWatchpoints m_replay_watchpoints{};
+    std::atomic<bool>        m_replay_watch_enabled{false};
+
+    // ---- SC6 NATIVE VM-FREEZE BYTE driver state ----------------------------
+    // Tracks whether HorseMod has currently SET the native freeze byte at
+    // imageBase + 0x4862D0 (g_LuxBattle_VMFreezeRecord.bVMFreezeByte).
+    //
+    // Used by frame_step_apply() to:
+    //   * Skip touching the byte entirely on the steady-state "freeze
+    //     never requested" path (= byte should stay 0, no need to
+    //     re-check the page each frame).
+    //   * Avoid stomping on SC6's OWN hit-stop / cinematic freeze writes
+    //     (when bVMFreezeByte is non-zero because SC6 set it, we don't
+    //     want to clear it).
+    //   * Recover gracefully from a SEH fault on the byte access by
+    //     resetting the flag and falling back to the per-function bare-
+    //     RET sites (sites 1..16).
+    std::atomic<bool>        m_vm_freeze_byte_we_set{false};
+
+    // ---- UE4 WORLD-PAUSE driver state (2026-04-27, this session) -----------
+    // Engages UE4's STANDARD pause flag (AWorldSettings::Pauser) during
+    // HorseMod freeze.  This is the ONLY way to halt UDemoNetDriver — the
+    // UE4 standard match-replay system that SC6 uses (confirmed via 142
+    // DemoNetDriver source-path strings in the binary).
+    //
+    // Sites 1-22 catch SC6's chara/BM Actor::Tick chains, but UDemoNetDriver
+    // runs BEFORE actor ticks in UWorld::Tick — its TickFlush replays
+    // packets and writes replicated state directly onto actors.  Setting
+    // bGamePaused via UGameplayStatics::SetGamePaused makes
+    // UDemoNetDriver::TickFlush early-return at the standard UE4 hook
+    // point.  See horselib/WorldPause.hpp for full architecture rationale.
+    //
+    // Composes with VMFreezeByte: VMFreezeByte halts MoveVM math (positions,
+    // animations); WorldPause halts the demo driver (input replay).  Both
+    // engage on freeze, both release on unfreeze.  The two layers cover
+    // the actor-tick-driven AND world-tick-driven systems respectively.
+    Horse::WorldPause        m_world_pause{};
+
+    // ---- BM->BattleReplayPlayer TICK GATE (2026-04-27, this session) ----
+    // Disables the BM->BattleReplayPlayer actor's tick during HorseMod
+    // freeze.  This is the MATCH-REPLAY playback driver actor — stored
+    // at BM+0x488 as a reflected ObjectProperty (verified via Ghidra
+    // analysis of Z_Construct_UClass_ALuxBattleManager_Statics).
+    //
+    // Why a separate gate: WorldPause sets bGamePaused, which UE4
+    // standard actors honour.  But SC6's BattleReplayPlayer may have
+    // bTickEvenWhenPaused == true (legacy SC6 actor flag), making it
+    // continue to tick during world pause.  This gate calls
+    // SetActorTickEnabled(false) directly on the actor instance —
+    // bypassing the pause-flag check entirely.
+    //
+    // Composes with sites 1-22 + VMFreezeByte + WorldPause.  Each
+    // layer catches a different leak path:
+    //   - Sites 1-22:    chara/BM internal Tick chains
+    //   - VMFreezeByte:  MoveVM math
+    //   - WorldPause:    UE4-pause-respecting subsystems (e.g. demo driver)
+    //   - ReplayPlayerGate: the specific BattleReplayPlayer actor that
+    //                       drives match-replay playback regardless of
+    //                       pause flags.
+    Horse::ReplayPlayerGate  m_replay_player_gate{};
+
+    // ---- BATTLE-TIME (round timer) FREEZE (2026-04-27, this session) ----
+    // Sets BM->bForciblyStopBattleTime = true during HorseMod freeze.
+    // SC6's OWN flag for halting the round-timer countdown — engine
+    // already has logic respecting this flag (literally named "Forcibly
+    // Stop Battle Time").
+    //
+    // ROOT CAUSE (user clarification 2026-04-27):
+    //   "If I pause the game for long enough both characters just stand
+    //    still until the time runs out"
+    //
+    // Sites 1-16 + VMFreezeByte correctly halt chara state.  But the
+    // BattleTimeManager (BM+0x4F8) keeps ticking the round timer.  When
+    // it hits 0 the round ends — terminating the replay.  Earlier
+    // "inputs don't match" symptom was downstream of this — the replay
+    // was being CUT SHORT before its recorded inputs could finish.
+    Horse::BattleTimeFreeze  m_battle_time_freeze{};
+
+    // ---- BATTLE PAUSE REQUEST (THE BREAKTHROUGH) ---------------------------
+    // Calls ULuxBattleFunctionLibrary::SetBattlePause via UE4SS reflection.
+    // This is the EXACT UFunction SC6's in-game pause menu uses to pause
+    // a replay (verified via Ghidra: registered at FUN_140936190, signature
+    // SetBattlePause(bool bPause, byte inType, UObject* WorldContext)).
+    //
+    // User report 2026-04-27: "the pause menu can pause [the replay], it
+    // also changes the playback icon to paused".  The engine's NATIVE
+    // pause mechanism works correctly; HorseMod just needs to invoke it
+    // via the same UFunction the menu does.
+    //
+    // See horselib/BattlePauseRequest.hpp for full architecture rationale.
+    Horse::BattlePauseRequest m_battle_pause_request{};
+
     // ---- Suppress VFX -------------------------------------------------------
     // Bytepatch port of somberness's CE "VFX off" cheat — see
     // horselib/VFXOff.hpp for the full disassembly walk.  Replaces the
@@ -768,6 +890,15 @@ private:
                 ro.set_pose(pi, p);
             }
         }
+
+        // Persisted HorseMod online policy.  Defaults to Vanilla so a
+        // first-launch user with the mod installed gets vanilla
+        // multiplayer behaviour; they have to consciously pick a
+        // policy from the Online section in the General tab.
+        Horse::OnlineRules::instance().set_policy(
+            static_cast<Horse::HorsePolicy>(
+                S.get_int("online_policy",
+                    static_cast<int>(Horse::HorsePolicy::Vanilla))));
     }
 
     // Mirror every persisted atomic into the ModSettings map, then ask
@@ -831,6 +962,14 @@ private:
                 S.set((base + "_side").c_str(), static_cast<int>(p.side_flag));
             }
         }
+
+        // HorseMod online policy persists across reboots so the user's
+        // chosen modded-lobby ruleset survives a restart.  Unlike the
+        // reset-override toggle, this one IS persistent — it's a
+        // long-lived "what kind of online matches do I want" pref,
+        // not a session-scoped behaviour.
+        S.set("online_policy",
+              static_cast<int>(Horse::OnlineRules::instance().current_policy()));
 
         S.save_if_dirty();
     }
@@ -1085,6 +1224,56 @@ public:
         // reloaded mod (e.g. dev iteration) doesn't double-hook on its
         // next install.  Idempotent if install never succeeded.
         Horse::SetStartPositionHook::instance().uninstall();
+
+        // Tear down all online-rules UFunction hooks (SlipOut + any
+        // future implemented rules).  Idempotent.
+        Horse::OnlineRules::instance().uninstall_hooks();
+
+        // Tear down the launcher-Start PolyHook detour cleanly so a
+        // hot-reload of the mod doesn't double-hook on its next install.
+        // Idempotent if install never succeeded.
+        Horse::LuxBattleLauncherStartHook::instance().uninstall();
+
+        // Release the world pause if HorseMod engaged it.  Defensive
+        // cleanup even though frame_step_apply no longer engages it —
+        // earlier session might have, and leaving the world paused
+        // forever after hot-unload is the worst possible UX.
+        if (m_world_pause.we_engaged())
+        {
+            (void)m_world_pause.release();
+            Output::send<LogLevel::Verbose>(
+                STR("[HorseMod] dtor released world-pause flag\n"));
+        }
+
+        // Release the replay-player tick gate (defensive — same rationale).
+        if (m_replay_player_gate.we_engaged())
+        {
+            (void)m_replay_player_gate.release();
+            Output::send<LogLevel::Verbose>(
+                STR("[HorseMod] dtor released BattleReplayPlayer tick gate\n"));
+        }
+
+        // CRITICAL: release the bForciblyStopBattleTime flag if engaged.
+        // Leaving this stuck at true would freeze the round timer for
+        // EVERY subsequent battle until SC6 is restarted — worse than
+        // the bug we're fixing.  Idempotent: no-op if not engaged.
+        if (m_battle_time_freeze.we_engaged())
+        {
+            (void)m_battle_time_freeze.release();
+            Output::send<LogLevel::Verbose>(
+                STR("[HorseMod] dtor released bForciblyStopBattleTime flag\n"));
+        }
+
+        // CRITICAL: release the battle pause if engaged.  Leaving the
+        // game in a paused state on hot-unload would force the user to
+        // open the in-game pause menu themselves to recover.
+        if (m_battle_pause_request.we_engaged())
+        {
+            (void)m_battle_pause_request.release();
+            Output::send<LogLevel::Verbose>(
+                STR("[HorseMod] dtor released SetBattlePause request\n"));
+        }
+
         // m_cam_lock will restore any active patches via its own dtor
         // when our member destruction runs after this body returns.
         Output::send<LogLevel::Verbose>(STR("[HorseMod] dtor EXIT\n"));
@@ -1141,6 +1330,16 @@ public:
         // the full design rationale.
         Horse::SetStartPositionHook::instance().install();
 
+        // Install the C++-level launcher-Start hook.  This is the
+        // chokepoint for the Online Rules feature: the launcher's Start
+        // method reads the data-table cache and applies all per-match
+        // rules; we hook it to write our desired BattleRule.<X> values
+        // into that cache right before the original runs.  Works for
+        // SlipOut / NoRingOut / EndlessMode / DamageUp / BlowUp uniformly
+        // and doesn't depend on whether the lobby Blueprint calls the
+        // corresponding Set*Mode UFunctions.
+        Horse::LuxBattleLauncherStartHook::instance().install();
+
         // Push the default hit-flash duration into the walker so it's
         // correct on frame 0 without the user having to touch the
         // slider.  Now in cockpit ticks (was ms / 60Hz before).
@@ -1180,11 +1379,16 @@ public:
         const bool all_reset_registered = std::all_of(
             m_reset_slots.begin(), m_reset_slots.end(),
             [](const ResetHookSlot& s) { return s.registered; });
-        if (m_hook_registered && all_reset_registered) return;
+        const bool online_rules_installed =
+            Horse::OnlineRules::instance().hooks_installed();
+        if (m_hook_registered && all_reset_registered && online_rules_installed)
+            return;
         if (++m_poll_counter < 60) return;
         m_poll_counter = 0;
         if (!m_hook_registered)        try_register_cockpit_hook();
         if (!all_reset_registered)     try_register_reset_hooks();
+        if (!online_rules_installed)
+            Horse::OnlineRules::instance().try_install_hooks();
     }
 
 private:
@@ -1442,6 +1646,171 @@ private:
             // value we wrote before disabling.
             m_last_speed_target = std::numeric_limits<float>::quiet_NaN();
         }
+
+        // ---- SC6 NATIVE VM-FREEZE BYTE driver (2026-04, this session) -----
+        // Engages SC6's INTERNAL VM freeze (the same mechanism hit-stop
+        // and round-end cinematics use).  See Ghidra plate on
+        // LuxBattle_TickHitStopSchedulerAndInputMirror for the full
+        // architecture: setting g_LuxBattle_VMFreezeRecord.bVMFreezeByte
+        // (at imageBase + 0x4862D0) to non-zero makes
+        // LuxMoveVM_GetTimeDilationScalar return 0 for ALL callers,
+        // halting every per-frame integrator (VM, opcodes, physics,
+        // anims, FX dispatchers).
+        //
+        // SAFETY (post crash-on-load fix):
+        //   1. Only TOUCH the byte when our state implies we WANT to
+        //      change SC6's native freeze.  Steady-state "no freeze
+        //      ever requested" path skips entirely.  Avoids stomping
+        //      on SC6's own hit-stop/cinematic freeze writes during
+        //      load/transitions.
+        //   2. State-change-only — only emit a write when the desired
+        //      state DIFFERS from our last write.
+        //   3. SEH-wrapped via the static helper (try_write_vm_freeze_byte);
+        //      __try/__except can't live in this function because of
+        //      C++ destructors in scope.
+        {
+            const bool want_freeze = (target == 0.0f);
+            const bool currently_owned = m_vm_freeze_byte_we_set.load();
+            if ((want_freeze || currently_owned) &&
+                want_freeze != currently_owned)
+            {
+                const uintptr_t base = Horse::NativeBinding::imageBase();
+                if (base)
+                {
+                    if (try_write_vm_freeze_byte(
+                            reinterpret_cast<volatile uint8_t*>(base + 0x4862D0),
+                            want_freeze ? 1u : 0u))
+                    {
+                        m_vm_freeze_byte_we_set.store(want_freeze);
+                    }
+                    else
+                    {
+                        // Fault on access — disable our ownership flag
+                        // and fall back to the per-function bare-RET
+                        // sites (1..16).  Don't keep retrying.
+                        m_vm_freeze_byte_we_set.store(false);
+                    }
+                }
+            }
+        }
+
+        // ---- UE4 WORLD-PAUSE driver (2026-04-27, this session) -----------
+        // Engages UE4's STANDARD AWorldSettings::Pauser flag whenever
+        // HorseMod is freezing.  This is the ONLY mechanism that halts
+        // UE4's UDemoNetDriver (the match-replay net driver that SC6 uses
+        // — confirmed via 142 DemoNetDriver source-path strings in the
+        // binary).
+        //
+        // WHY THIS IS NEEDED:
+        // Sites 1-22 + VMFreezeByte catch SC6-specific Lux code in the
+        // chara/BM Actor::Tick chains.  But UDemoNetDriver runs in
+        // UWorld::Tick BEFORE any actor tick — it reads packets from the
+        // .replay file and writes replicated state directly onto actors
+        // via standard UE4 replication.  No actor-tick gate can stop it;
+        // by the time TickActor fires, the chara's input has already
+        // been mutated by the demo replication.
+        //
+        // SYMPTOM CAUGHT (user 2026-04-27):
+        //   "the inputs of both characters doesnt match whats supposed
+        //    to happen in the replay" — timer fine, position fine, but
+        //    inputs played after a freeze cycle differ from no-freeze
+        //    reference.  This is exactly UDemoNetDriver continuing to
+        //    play recorded packets during the freeze window.
+        //
+        // FIX:
+        // UE4's UDemoNetDriver::TickFlush early-returns when the world
+        // is paused (standard UE4 source).  Setting AWorldSettings::Pauser
+        // via UGameplayStatics::SetGamePaused(true) halts it at the
+        // standard UE4 hook point.  When unfrozen, we set
+        // SetGamePaused(false) and the demo driver resumes from where
+        // it left off — no skip, no desync.
+        //
+        // SAFETY:
+        //   * WorldPause::set() dedupes by atomic flag — no redundant
+        //     ProcessEvent calls when state hasn't changed.
+        //   * Returns false silently if PlayerController/UFunction not
+        //     yet resolved (e.g. during loading screen or title menu);
+        //     caller retries next frame.
+        //   * No SEH wrapper: ProcessEvent on a validated UFunction with
+        //     a correctly-laid-out params struct is safe.  IsReal is
+        //     checked on the cached UObjects each call.
+        // WORLD PAUSE + REPLAY PLAYER GATE — DISABLED 2026-04-27 ----------
+        //
+        // Both helpers were added to address the "input mismatch after
+        // freeze" symptom.  After deploying BattleTimeFreeze, user tested
+        // and reported: "I freeze for long enough, unpause, the game timer
+        // ticks down but both players arent moving" — meaning the chars
+        // were correctly frozen during freeze (good!) but couldn't resume
+        // after unfreeze.
+        //
+        // Most likely cause: SetGamePaused(true) and/or SetActorTickEnabled
+        // (false) on BattleReplayPlayer corrupted the demo driver's resume
+        // path.  SC6's standard freeze (sites 1-16 + VMFreezeByte) ALONE
+        // already correctly freezes chara/replay state — the user's earlier
+        // "input mismatch" was a downstream symptom of the round-timer
+        // leak, NOT actual chara state advancement.
+        //
+        // Reverting to: sites 1-16 + VMFreezeByte + BattleTimeFreeze.
+        // The members stay declared so we can re-enable surgically if a
+        // future symptom shows we need them again.
+        //
+        //   const bool want_pause = (target == 0.0f);
+        //   (void)m_world_pause.set(want_pause);
+        //   if (want_pause) (void)m_replay_player_gate.engage();
+        //   else            (void)m_replay_player_gate.release();
+
+        // ---- BATTLE-TIME (round timer) FREEZE — DISABLED 2026-04-27 ------
+        // Setting bForciblyStopBattleTime + disabling BattleTimeManager
+        // tick was empirically insufficient (user tested: timer still
+        // ticked down).  Replaced with BattlePauseRequest below which
+        // uses the engine's own pause UFunction.  Member kept for future
+        // use; calls commented out.
+        //   if (target == 0.0f) (void)m_battle_time_freeze.engage();
+        //   else                (void)m_battle_time_freeze.release();
+
+        // ---- BATTLE PAUSE REQUEST (THE FIX) ---------------------------
+        // Invokes ULuxBattleFunctionLibrary::SetBattlePause via UE4SS
+        // reflection — the EXACT mechanism SC6's in-game pause menu uses
+        // to pause a replay.  User confirmed the in-game pause menu
+        // correctly halts replay playback and changes the playback icon
+        // to "paused" — meaning the engine's native pause works.  This
+        // helper just calls that same pause function from HorseMod's
+        // freeze hook so we get the SAME behaviour as the menu pause.
+        //
+        // Verified via Ghidra:
+        //   SetBattlePause UFunction registered at FUN_140936190
+        //   on ULuxBattleFunctionLibrary (BlueprintFunctionLibrary).
+        //   Sibling UFunctions on the same library that we may use later:
+        //     IsBattlePaused()       — query pause state
+        //     StepInBattlePause()    — single-frame-step a paused battle
+        //                              (could replace HorseMod's frame-step
+        //                              once stable)
+        //
+        // See horselib/BattlePauseRequest.hpp for full rationale.
+        {
+            const bool want_pause = (target == 0.0f);
+            if (want_pause)
+                (void)m_battle_pause_request.engage();
+            else
+                (void)m_battle_pause_request.release();
+        }
+    }
+
+    // SEH-wrapped single-byte write to g_LuxBattle_VMFreezeRecord.bVMFreezeByte.
+    // Lifted to a static helper because __try/__except can't share a
+    // function body with C++ destructors (frame_step_apply has plenty).
+    // Returns true on successful write; false if the access faulted.
+    static bool try_write_vm_freeze_byte(volatile uint8_t* p, uint8_t value) noexcept
+    {
+        __try
+        {
+            *p = value;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -1605,6 +1974,13 @@ private:
         // this unconditionally (not gated by m_enabled) matches the other
         // "always on while toggled" features above.
         free_camera_apply();
+
+        // Replay-state watchpoints maintenance.  Re-arms DR0..DR3 (per-
+        // thread, can be cleared by OS) and drains the captured-write
+        // ring buffer to UE4SS.log.  No-op if the user hasn't enabled
+        // the debug toggle.  Must run from this hook (not the ImGui
+        // tab) so log output happens even when the menu is closed.
+        m_replay_watchpoints.tick();
 
         // Always-on heartbeat: once every ~2s print a single line so we can
         // confirm the hook is ticking even while the overlay is off.  This
@@ -2864,6 +3240,127 @@ private:
                 }
             }
 
+            // --- Replay-state watchpoints (debug) -----------------------
+            // Diagnostic: install hardware data breakpoints on the four
+            // replay-cursor fields (chara+0x39C, chara+0x3A4, chara+0x4410,
+            // BM+0x148C) and log every write with the writing
+            // instruction's RIP.  Use to identify the residual leak path
+            // that causes replay drift through HorseMod's freeze.
+            //
+            // ENABLE only briefly during a test run — every cursor write
+            // costs an exception round-trip (~few hundred ns).  Disable
+            // before normal play.
+            ImGui::Separator();
+            ImGui::TextUnformatted("Replay-state watchpoints (DEBUG)");
+            {
+                bool wp = m_replay_watch_enabled.load();
+                if (ImGui::Checkbox("Watch replay cursors##rwp", &wp))
+                {
+                    m_replay_watch_enabled.store(wp);
+                    if (wp)
+                    {
+                        // Resolve BM via UE4SS reflection — the static-image
+                        // chara global (g_LuxBattle_CharaSlotP1) doesn't have
+                        // an initialized embedded UE4 sub-object at +0x388,
+                        // so the canonical chara→ResolveBM path returns
+                        // null.  Horse::Lux uses FindFirstOf("LuxBattleManager")
+                        // which works regardless of the chara state.
+                        Horse::Obj bm_obj = m_lux.battleManager();
+                        void* bm_raw = bm_obj ? static_cast<void*>(bm_obj.raw())
+                                              : nullptr;
+                        if (!m_replay_watchpoints.enable(bm_raw))
+                            m_replay_watch_enabled.store(false);
+                    }
+                    else
+                    {
+                        m_replay_watchpoints.disable();
+                    }
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Install x86 hardware breakpoints (DR0..DR3) on the\n"
+                    "four replay-cursor fields and log every write to\n"
+                    "the in-mod ring buffer below.\n\n"
+                    "Use to identify what's still mutating replay state\n"
+                    "while HorseMod's freeze is engaged:\n"
+                    "  1. Enter a replay\n"
+                    "  2. Enable this checkbox\n"
+                    "  3. Press F6 to freeze\n"
+                    "  4. Wait 5 seconds\n"
+                    "  5. Press F6 to unfreeze\n"
+                    "  6. Inspect the log: any entries with\n"
+                    "     'speedval=0.000' indicate the leak.\n\n"
+                    "Costs a CPU exception per cursor write (~few\n"
+                    "hundred ns).  Turn OFF before normal play.");
+
+                if (m_replay_watchpoints.is_enabled())
+                {
+                    // Drain new ring entries to UE4SS.log every frame the
+                    // ImGui surface renders.  Game-thread context, no UE4
+                    // locks held — safe place to do the I/O the VEH must
+                    // not.  See ReplayWatchpoints::drain_to_log() comment.
+                    m_replay_watchpoints.drain_to_log();
+
+                    const auto& tg = m_replay_watchpoints.targets();
+                    ImGui::TextDisabled(
+                        "Watching: 0x%llX (cursor)  0x%llX (clock)\n"
+                        "          0x%llX (chara+0x4410)  0x%llX (BM mirror)",
+                        static_cast<unsigned long long>(tg[0]),
+                        static_cast<unsigned long long>(tg[1]),
+                        static_cast<unsigned long long>(tg[2]),
+                        static_cast<unsigned long long>(tg[3]));
+
+                    if (ImGui::SmallButton("Clear log##rwp"))
+                        m_replay_watchpoints.clear_log();
+
+                    // Show most-recent N entries.  Newest first.
+                    static constexpr size_t kShowMax = 32;
+                    Horse::ReplayWatchpoints::Entry buf[kShowMax];
+                    const size_t n =
+                        m_replay_watchpoints.snapshot_recent(buf, kShowMax);
+
+                    if (n == 0)
+                    {
+                        ImGui::TextDisabled("(no writes recorded yet)");
+                    }
+                    else
+                    {
+                        ImGui::Text("Recent writes (%zu shown):", n);
+                        const uintptr_t mod_base =
+                            Horse::NativeBinding::imageBase();
+                        for (size_t i = 0; i < n; ++i)
+                        {
+                            const auto& e = buf[i];
+                            // Map RIP back to a module-relative offset
+                            // for easy Ghidra paste.
+                            const long long rva =
+                                mod_base
+                                    ? static_cast<long long>(e.writer_rip)
+                                          - static_cast<long long>(mod_base)
+                                    : -1;
+                            // Slot index for display (0..3) based on
+                            // matching watched_addr.
+                            int slot = -1;
+                            for (int k = 0; k < 4; ++k)
+                                if (tg[k] == e.watched_addr) { slot = k; break; }
+                            ImGui::Text(
+                                "[%2zu] slot=%d  addr=0x%llX  val=0x%X  "
+                                "speedval=%.3f  RIP=0x%llX  (RVA 0x%llX)",
+                                i, slot,
+                                static_cast<unsigned long long>(e.watched_addr),
+                                e.value_after,
+                                e.speedval_at_hit,
+                                static_cast<unsigned long long>(e.writer_rip),
+                                static_cast<unsigned long long>(rva));
+                        }
+                    }
+                }
+                else
+                {
+                    ImGui::TextDisabled(
+                        "(disabled — enable above, then start a replay)");
+                }
+            }
+
     }
 
     // ==================================================================
@@ -3063,6 +3560,103 @@ private:
                         "(waiting for training-reset hook — start a match)");
                 }
             }
+
+            // ---- Online (modded lobbies) ---------------------------------
+            // The HorseMod custom Room policy.  Controls which (if any)
+            // online battle-rule override is active.  See
+            // horselib/OnlineRules.hpp for the architecture and the
+            // hard requirement that BOTH peers run HorseMod with the
+            // same policy selected — no out-of-band sync is implemented
+            // in v1, so the user is responsible for coordinating with
+            // their opponent over Discord / voice / etc.
+            ImGui::Separator();
+            ImGui::TextUnformatted("Online (modded lobbies)");
+
+            {
+                auto& rules = Horse::OnlineRules::instance();
+                const auto current = rules.current_policy();
+
+                // Build the dropdown items each frame.  Order: Vanilla
+                // first as the safe default, then SlipOut (the v1
+                // working policy), then the stub policies marked with
+                // "(coming soon)" suffix.  Order matches the
+                // HorsePolicy enum value sequence so an index lookup
+                // round-trips cleanly.
+                static const Horse::HorsePolicy kOrder[] = {
+                    Horse::HorsePolicy::Vanilla,
+                    Horse::HorsePolicy::SlipOut,
+                    Horse::HorsePolicy::NoRingOut,
+                    Horse::HorsePolicy::EndlessMode,
+                    Horse::HorsePolicy::DamageUp,
+                    Horse::HorsePolicy::BlowUp,
+                };
+                static_assert(
+                    sizeof(kOrder) / sizeof(kOrder[0])
+                        == Horse::kHorsePolicyCount,
+                    "kOrder must list every HorsePolicy enum value");
+
+                // Find the current selection's index in our display order.
+                int current_idx = 0;
+                for (int i = 0; i < Horse::kHorsePolicyCount; ++i)
+                {
+                    if (kOrder[i] == current) { current_idx = i; break; }
+                }
+
+                if (ImGui::BeginCombo("HorseMod policy",
+                                       Horse::OnlineRules::policy_name(
+                                           kOrder[current_idx])))
+                {
+                    for (int i = 0; i < Horse::kHorsePolicyCount; ++i)
+                    {
+                        const auto p = kOrder[i];
+                        const bool selected = (i == current_idx);
+                        // Stub policies are still selectable (so the
+                        // user can see them in the menu) but typing a
+                        // disabled marker into the label keeps the
+                        // user from expecting a working effect.
+                        if (ImGui::Selectable(
+                                Horse::OnlineRules::policy_name(p),
+                                selected))
+                        {
+                            rules.set_policy(p);
+                        }
+                        if (selected) ImGui::SetItemDefaultFocus();
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "%s",
+                                Horse::OnlineRules::policy_tooltip(p));
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "%s",
+                        Horse::OnlineRules::policy_tooltip(current));
+
+                // Status line — three states:
+                //   * Hooks not yet installed (UE class not loaded).
+                //   * Hooks installed but Vanilla policy → no override.
+                //   * Hooks installed and a non-Vanilla policy active.
+                if (!rules.hooks_installed())
+                {
+                    ImGui::TextDisabled(
+                        "(installing hooks — start a match scene)");
+                }
+                else if (current == Horse::HorsePolicy::Vanilla)
+                {
+                    ImGui::TextDisabled(
+                        "Vanilla mode — no rule overrides active.");
+                }
+                else
+                {
+                    ImGui::TextColored(
+                        ImVec4(0.3f, 0.9f, 0.3f, 1.0f),
+                        "Active: %s — both peers MUST have HorseMod\n"
+                        "with this policy or the connection will drop.",
+                        Horse::OnlineRules::policy_name(current));
+                }
+            }
+
     }
 };
 

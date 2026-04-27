@@ -10,6 +10,11 @@ target/              # Rust (RE-UE4SS has patternsleuth crate)
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
+# Persistent FetchContent cache (glaze/glfw/imgui/zydis/polyhook2/fmt/...).
+# Set as FETCHCONTENT_BASE_DIR in the root CMakeLists so deps survive a
+# nuked build dir.  Pure cache — regenerable from the GIT_REPOSITORY/GIT_TAG
+# pairs in RE-UE4SS/deps/third/CMakeLists.txt.
+.fetched_deps/
 
 # --- Intermediate / object files -------------------------------------------
 *.o

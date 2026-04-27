@@ -133,6 +133,18 @@ namespace Horse
     using LuxBattleChara_SetStartPositionFn =
         void(__fastcall*)(void* chara, float x, float y, float z);
 
+    // Generic "void(launcher, bool)" signature shared by all 5 BattleRule
+    // setters on ULuxUIBattleLauncher.  Each writes the bool to
+    // BattleRule.<RuleName> in the launcher's data-table cache.
+    using LuxUIBattleLauncher_SetBoolModeFn =
+        void(__fastcall*)(void* launcher, bool bEnable);
+
+    // ULuxUIBattleLauncher::Start signature.  param2 is a struct holding
+    // the start parameters (FUIBattleLauncherStartParam — opaque to us;
+    // we just pass it through unchanged when forwarding the call).
+    using LuxUIBattleLauncher_StartFn =
+        void(__fastcall*)(void* launcher, void* InStartParam);
+
     class NativeBinding
     {
     public:
@@ -141,6 +153,26 @@ namespace Horse
         static constexpr uintptr_t kGetBoneTransformForPoseRVA       = 0x462760;
         static constexpr uintptr_t kLuxSkeletalBoneIndexRemapRVA     = 0x898140;
         static constexpr uintptr_t kLuxBattleCharaSetStartPositionRVA = 0x301E60;
+
+        // ULuxUIBattleLauncher::Start (the "kick off the configured match"
+        // chokepoint) and the 5 BattleRule setters it reads from.  All
+        // verified via Ghidra registrar-table walk + decompile of each
+        // setter's body.  See horselib/LuxBattleLauncherStartHook.hpp
+        // for the hook design that uses these.
+        //
+        // Each setter writes a bool to BattleRule.<X> in the launcher's
+        // data-table cache (this+0x50); Start later reads that cache
+        // and converts each row into pushed mission skills via the
+        // registrar at 0x5F6D20.  Call signature for all 5 setters:
+        //   void __fastcall(void* launcher, bool bEnable)
+        // Start signature:
+        //   void __fastcall(void* launcher, void* InStartParam)
+        static constexpr uintptr_t kLuxUIBattleLauncher_StartRVA              = 0x5EEB50;
+        static constexpr uintptr_t kLuxUIBattleLauncher_SetSlipOutModeRVA     = 0x5ED550;
+        static constexpr uintptr_t kLuxUIBattleLauncher_SetEndlessModeRVA     = 0x5EC390;
+        static constexpr uintptr_t kLuxUIBattleLauncher_SetDamageUpModeRVA    = 0x5EC190;
+        static constexpr uintptr_t kLuxUIBattleLauncher_SetNoRingOutModeRVA   = 0x5ECC70;
+        static constexpr uintptr_t kLuxUIBattleLauncher_SetBlowUpModeRVA      = 0x5EB7F0;
 
         // Resolve once.  Idempotent; subsequent calls are no-ops.
         static void resolve()
@@ -171,15 +203,45 @@ namespace Horse
                 reinterpret_cast<LuxBattleChara_SetStartPositionFn>(
                     s_image_base + kLuxBattleCharaSetStartPositionRVA);
 
+            // Online-rules infrastructure — Start chokepoint + 5 setters.
+            s_launcher_start =
+                reinterpret_cast<LuxUIBattleLauncher_StartFn>(
+                    s_image_base + kLuxUIBattleLauncher_StartRVA);
+            s_set_slipout_mode =
+                reinterpret_cast<LuxUIBattleLauncher_SetBoolModeFn>(
+                    s_image_base + kLuxUIBattleLauncher_SetSlipOutModeRVA);
+            s_set_endless_mode =
+                reinterpret_cast<LuxUIBattleLauncher_SetBoolModeFn>(
+                    s_image_base + kLuxUIBattleLauncher_SetEndlessModeRVA);
+            s_set_damage_up_mode =
+                reinterpret_cast<LuxUIBattleLauncher_SetBoolModeFn>(
+                    s_image_base + kLuxUIBattleLauncher_SetDamageUpModeRVA);
+            s_set_no_ringout_mode =
+                reinterpret_cast<LuxUIBattleLauncher_SetBoolModeFn>(
+                    s_image_base + kLuxUIBattleLauncher_SetNoRingOutModeRVA);
+            s_set_blowup_mode =
+                reinterpret_cast<LuxUIBattleLauncher_SetBoolModeFn>(
+                    s_image_base + kLuxUIBattleLauncher_SetBlowUpModeRVA);
+
             RC::Output::send<RC::LogLevel::Verbose>(
                 STR("[HorseMod.NativeBinding] image base 0x{:x}  "
                     "GetBoneTransformForPose -> 0x{:x}  "
                     "LuxSkeletalBoneIndex_Remap -> 0x{:x}  "
-                    "LuxBattleChara_SetStartPosition -> 0x{:x}\n"),
+                    "LuxBattleChara_SetStartPosition -> 0x{:x}  "
+                    "Launcher::Start -> 0x{:x}  "
+                    "SetSlipOutMode -> 0x{:x}  SetEndlessMode -> 0x{:x}  "
+                    "SetDamageUpMode -> 0x{:x}  SetNoRingOutMode -> 0x{:x}  "
+                    "SetBlowUpMode -> 0x{:x}\n"),
                 s_image_base,
                 reinterpret_cast<uintptr_t>(s_get_bone_transform),
                 reinterpret_cast<uintptr_t>(s_bone_index_remap),
-                reinterpret_cast<uintptr_t>(s_set_start_position));
+                reinterpret_cast<uintptr_t>(s_set_start_position),
+                reinterpret_cast<uintptr_t>(s_launcher_start),
+                reinterpret_cast<uintptr_t>(s_set_slipout_mode),
+                reinterpret_cast<uintptr_t>(s_set_endless_mode),
+                reinterpret_cast<uintptr_t>(s_set_damage_up_mode),
+                reinterpret_cast<uintptr_t>(s_set_no_ringout_mode),
+                reinterpret_cast<uintptr_t>(s_set_blowup_mode));
         }
 
         // Typed wrappers — safer than raw fn ptr calls at the use site.
@@ -217,6 +279,44 @@ namespace Horse
             return true;
         }
 
+        // ---- Online rules: launcher + setter wrappers --------------------
+        // Each Set*Mode setter writes into the launcher's data-table cache;
+        // when the launcher's Start() runs later, those values drive which
+        // mission skills get pushed.  We call the setters from inside our
+        // PolyHook detour on Start (see LuxBattleLauncherStartHook) right
+        // before the original runs, so the data table contains our chosen
+        // values when Start reads them.
+        static void setSlipOutMode(void* launcher, bool bEnable)
+        {
+            if (s_set_slipout_mode && launcher)
+                s_set_slipout_mode(launcher, bEnable);
+        }
+        static void setEndlessMode(void* launcher, bool bEnable)
+        {
+            if (s_set_endless_mode && launcher)
+                s_set_endless_mode(launcher, bEnable);
+        }
+        static void setDamageUpMode(void* launcher, bool bEnable)
+        {
+            if (s_set_damage_up_mode && launcher)
+                s_set_damage_up_mode(launcher, bEnable);
+        }
+        static void setNoRingOutMode(void* launcher, bool bEnable)
+        {
+            if (s_set_no_ringout_mode && launcher)
+                s_set_no_ringout_mode(launcher, bEnable);
+        }
+        static void setBlowUpMode(void* launcher, bool bEnable)
+        {
+            if (s_set_blowup_mode && launcher)
+                s_set_blowup_mode(launcher, bEnable);
+        }
+        static uintptr_t launcherStartAddress()
+        {
+            return reinterpret_cast<uintptr_t>(s_launcher_start);
+        }
+        static bool hasLauncherStart() { return s_launcher_start != nullptr; }
+
         static bool isReady()      { return s_get_bone_transform != nullptr
                                          && s_bone_index_remap   != nullptr; }
         static bool hasSetStartPosition() { return s_set_start_position != nullptr; }
@@ -228,6 +328,14 @@ namespace Horse
         static inline GetBoneTransformForPoseFn     s_get_bone_transform = nullptr;
         static inline LuxSkeletalBoneIndex_RemapFn  s_bone_index_remap   = nullptr;
         static inline LuxBattleChara_SetStartPositionFn s_set_start_position = nullptr;
+
+        // Online-rules infrastructure.
+        static inline LuxUIBattleLauncher_StartFn        s_launcher_start       = nullptr;
+        static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_slipout_mode     = nullptr;
+        static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_endless_mode     = nullptr;
+        static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_damage_up_mode   = nullptr;
+        static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_no_ringout_mode  = nullptr;
+        static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_blowup_mode      = nullptr;
     };
 
     // ------------------------------------------------------------------
