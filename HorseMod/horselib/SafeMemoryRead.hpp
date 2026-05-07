@@ -106,6 +106,23 @@ namespace Horse
         }
     }
 
+    // Read a 2-byte signed int at `addr`.  Used for fields the engine
+    // authors as i16 (master-window frames, phase tag, etc.); reading
+    // them as u16 and then casting works but loses the "this is signed"
+    // intent at the call site.
+    static inline bool SafeReadInt16(const void* addr, int16_t* out) noexcept
+    {
+        __try
+        {
+            *out = *reinterpret_cast<const int16_t*>(addr);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     // Read a 4-byte uint at `addr`.
     static inline bool SafeReadUInt32(const void* addr, uint32_t* out) noexcept
     {

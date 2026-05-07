@@ -304,12 +304,55 @@ namespace Horse::GameImGui
         return true;
     }
 
+    // SEH-wrapped unHook — must be a free function (no C++ unwinding
+    // frames in scope) because __try/__except can't sit alongside
+    // C++ destructors.  Returns true if unHook ran cleanly, false if
+    // it faulted (which we eat — we're shutting down anyway).
+    //
+    // Why this is wrapped at all:
+    //   PLH::VFuncSwapHook::unHook iterates an std::map and writes
+    //   restored function pointers back into a DXGI swap-chain
+    //   vtable.  During UNCLEAN shutdown (e.g. the game crashed and
+    //   DXGI was already torn down by its crash handler), that
+    //   vtable's memory has been decommitted by the OS.  Without
+    //   this guard, writing to it raises a second-chance AV that
+    //   replaces the ORIGINAL crash in the minidump — making the
+    //   real bug invisible.  Empirical: a 2026-04-29 crash ate the
+    //   original cause and surfaced this path's `MOV RAX, [RAX]`
+    //   on a freed std::map head pointer (val=0x1) at HorseMod
+    //   image-offset 0x987d6.
+    static bool try_unhook_seh(PLH::VFuncSwapHook* h) noexcept
+    {
+        __try
+        {
+            h->unHook();
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     inline void PresentHook::uninstall()
     {
         if (!m_installed.exchange(false)) return;
         if (m_vfunc_hook)
         {
-            m_vfunc_hook->unHook();
+            // unHook() can fault during process-shutdown teardown if
+            // DXGI / D3D11 / their heap pages were already released
+            // by the OS.  Catch the AV so we don't replace the
+            // original crash with our cleanup's secondary fault.
+            // The OS is going to reclaim everything in a moment
+            // anyway — leaving the vtable un-restored is harmless.
+            const bool clean = try_unhook_seh(m_vfunc_hook.get());
+            if (!clean)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(
+                    STR("[GameImGui] VFuncSwapHook::unHook faulted "
+                        "during teardown (DXGI already torn down?) "
+                        "— swallowed; OS will reclaim the vtable.\n"));
+            }
             m_vfunc_hook.reset();
         }
         m_original_present        = nullptr;

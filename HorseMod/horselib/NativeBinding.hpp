@@ -145,6 +145,47 @@ namespace Horse
     using LuxUIBattleLauncher_StartFn =
         void(__fastcall*)(void* launcher, void* InStartParam);
 
+    // void UActorComponent::MarkRenderStateDirty(this)
+    //
+    // Sets bRenderStateDirty on the component (ComponentFlags @ +0x188,
+    // bit 0x20) and queues an end-of-frame render-state recreate.  The
+    // scene proxy is destroyed and rebuilt from the component's current
+    // state before the next frame draws.
+    //
+    // Why HorseMod calls this directly: SC6's Shipping build stripped
+    // ULineBatchComponent's TickComponent override, so the stock-UE4
+    // lifetime sweep that normally fires this on entry expiry doesn't
+    // run.  PersistentLineBatcher (UWorld+0x48) is also never auto-
+    // Flushed, so without an explicit MarkRenderStateDirty after we
+    // append, the proxy stays frozen at whatever snapshot was last
+    // built — visible as a delay between when a hit lands and when its
+    // wireframe first shows.  Calling this once per frame after our
+    // appends forces the rebuild.
+    using UActorComponent_MarkRenderStateDirtyFn =
+        void(__fastcall*)(void* component);
+
+    // void ULuxUIGamePresenceUtil::SetPresence(ELuxGamePresence InPresence) [static]
+    //
+    // Single-byte parameter — the ELuxGamePresence enum value for the
+    // current scene.  Microsoft x64 ABI: the byte is passed in CL (low
+    // byte of RCX), zero-extended.  Used by Horse::GameMode for the
+    // "Auto disable online" gate to track the user's current scene.
+    //
+    // We hook this with a PolyHook x64Detour rather than a UE4SS
+    // RegisterHook because:
+    //   - LuxUpdateGamePresenceFromSceneData (the scene-transition
+    //     driver) calls this DIRECTLY in C++ at 0x14064a191 — never
+    //     going through ProcessEvent — so a UFunction-level hook
+    //     (which only intercepts ProcessEvent-routed dispatch) would
+    //     never fire for the actual user-facing scene changes.
+    //   - The exec_ wrapper at 0x140cb8e9c does route through the
+    //     ProcessEvent path, but it's only used when Blueprint code
+    //     explicitly calls `SetPresence`, which doesn't happen in
+    //     practice during normal play.
+    // A PolyHook detour on the C++ symbol catches both call paths.
+    using LuxUIGamePresenceUtil_SetPresenceFn =
+        void(__fastcall*)(uint8_t InPresence);
+
     class NativeBinding
     {
     public:
@@ -173,6 +214,15 @@ namespace Horse
         static constexpr uintptr_t kLuxUIBattleLauncher_SetDamageUpModeRVA    = 0x5EC190;
         static constexpr uintptr_t kLuxUIBattleLauncher_SetNoRingOutModeRVA   = 0x5ECC70;
         static constexpr uintptr_t kLuxUIBattleLauncher_SetBlowUpModeRVA      = 0x5EB7F0;
+
+        // ULuxUIGamePresenceUtil::SetPresence — hook target for the
+        // scene-presence tracker (Horse::GameMode).
+        static constexpr uintptr_t kLuxUIGamePresenceUtil_SetPresenceRVA      = 0x64F590;
+
+        // UActorComponent::MarkRenderStateDirty — called by the line-
+        // batcher backend after appending so the proxy rebuilds in time
+        // for the next frame.
+        static constexpr uintptr_t kUActorComponent_MarkRenderStateDirtyRVA   = 0x1D4E910;
 
         // Resolve once.  Idempotent; subsequent calls are no-ops.
         static void resolve()
@@ -223,6 +273,15 @@ namespace Horse
                 reinterpret_cast<LuxUIBattleLauncher_SetBoolModeFn>(
                     s_image_base + kLuxUIBattleLauncher_SetBlowUpModeRVA);
 
+            // GameMode infrastructure — scene-presence hook target.
+            s_set_presence =
+                reinterpret_cast<LuxUIGamePresenceUtil_SetPresenceFn>(
+                    s_image_base + kLuxUIGamePresenceUtil_SetPresenceRVA);
+
+            s_mark_render_state_dirty =
+                reinterpret_cast<UActorComponent_MarkRenderStateDirtyFn>(
+                    s_image_base + kUActorComponent_MarkRenderStateDirtyRVA);
+
             RC::Output::send<RC::LogLevel::Verbose>(
                 STR("[HorseMod.NativeBinding] image base 0x{:x}  "
                     "GetBoneTransformForPose -> 0x{:x}  "
@@ -231,7 +290,8 @@ namespace Horse
                     "Launcher::Start -> 0x{:x}  "
                     "SetSlipOutMode -> 0x{:x}  SetEndlessMode -> 0x{:x}  "
                     "SetDamageUpMode -> 0x{:x}  SetNoRingOutMode -> 0x{:x}  "
-                    "SetBlowUpMode -> 0x{:x}\n"),
+                    "SetBlowUpMode -> 0x{:x}  "
+                    "SetPresence -> 0x{:x}\n"),
                 s_image_base,
                 reinterpret_cast<uintptr_t>(s_get_bone_transform),
                 reinterpret_cast<uintptr_t>(s_bone_index_remap),
@@ -241,7 +301,8 @@ namespace Horse
                 reinterpret_cast<uintptr_t>(s_set_endless_mode),
                 reinterpret_cast<uintptr_t>(s_set_damage_up_mode),
                 reinterpret_cast<uintptr_t>(s_set_no_ringout_mode),
-                reinterpret_cast<uintptr_t>(s_set_blowup_mode));
+                reinterpret_cast<uintptr_t>(s_set_blowup_mode),
+                reinterpret_cast<uintptr_t>(s_set_presence));
         }
 
         // Typed wrappers — safer than raw fn ptr calls at the use site.
@@ -317,6 +378,25 @@ namespace Horse
         }
         static bool hasLauncherStart() { return s_launcher_start != nullptr; }
 
+        // ULuxUIGamePresenceUtil::SetPresence — accessor for the
+        // GameMode tracker's PolyHook detour.  The function pointer
+        // itself is exposed both as a callable (s_set_presence) and
+        // as a raw address (setPresenceAddress) since PolyHook needs
+        // the latter as its hook target.
+        static uintptr_t setPresenceAddress()
+        {
+            return reinterpret_cast<uintptr_t>(s_set_presence);
+        }
+        static bool hasSetPresence() { return s_set_presence != nullptr; }
+
+        // Force a scene-proxy rebuild on the given component.  No-op
+        // if the binding hasn't resolved or the pointer is null.
+        static void markRenderStateDirty(void* component)
+        {
+            if (s_mark_render_state_dirty && component)
+                s_mark_render_state_dirty(component);
+        }
+
         static bool isReady()      { return s_get_bone_transform != nullptr
                                          && s_bone_index_remap   != nullptr; }
         static bool hasSetStartPosition() { return s_set_start_position != nullptr; }
@@ -336,6 +416,13 @@ namespace Horse
         static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_damage_up_mode   = nullptr;
         static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_no_ringout_mode  = nullptr;
         static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_blowup_mode      = nullptr;
+
+        // GameMode infrastructure — only the address is used (PolyHook's
+        // hook target).  Storing as a typed pointer mostly for symmetry
+        // with the other natives.
+        static inline LuxUIGamePresenceUtil_SetPresenceFn s_set_presence        = nullptr;
+
+        static inline UActorComponent_MarkRenderStateDirtyFn s_mark_render_state_dirty = nullptr;
     };
 
     // ------------------------------------------------------------------

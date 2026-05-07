@@ -175,8 +175,28 @@ namespace Horse
                 return false;
             }
             std::memcpy(m_addr, src, n);
+            // Restore the original page protection.  A failure here
+            // leaves the page PAGE_EXECUTE_READWRITE — the patch IS
+            // applied, but the page is now writable when the engine
+            // expects it not to be.  That's mostly harmless (no engine
+            // code writes to .text on its own) but defeats one layer
+            // of anti-tamper / Windows DEP intent and can show up to
+            // anti-cheat scanners as "unexpected RWX in .text".  We
+            // log loudly so the issue is visible if it ever happens
+            // (in practice: requires the address to have been
+            // unmapped between VirtualProtect calls, vanishingly rare).
             DWORD junk = 0;
-            ::VirtualProtect(m_addr, n, old_prot, &junk);  // best-effort
+            if (!::VirtualProtect(m_addr, n, old_prot, &junk))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(
+                    STR("[Horse.BytePatch] VirtualProtect(restore prot=0x{:x}) "
+                        "failed at 0x{:x} (n={}) — GLE={}; page left RWX. "
+                        "Patch IS applied but the page protection is wrong.\n"),
+                    static_cast<uint32_t>(old_prot),
+                    reinterpret_cast<uintptr_t>(m_addr), n,
+                    static_cast<uint64_t>(::GetLastError()));
+                // Continue anyway — the patch itself worked.
+            }
             ::FlushInstructionCache(::GetCurrentProcess(), m_addr, n);
             return true;
         }

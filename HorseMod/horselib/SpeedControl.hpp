@@ -81,6 +81,33 @@
 //                                                   keep ticking under
 //                                                   freeze" bug)
 //
+//                                                   MOVED 2026-05-05 to
+//                                                   Horse::WorldTickGate.
+//                                                   The PerFrameTick gate
+//                                                   is now driven by an
+//                                                   int32_t step-credit
+//                                                   slot independent of
+//                                                   speedval; freeze and
+//                                                   step are the gate's
+//                                                   sole responsibility,
+//                                                   speedval stays at 1.0
+//                                                   (so dt-multiply sites
+//                                                   1/3/4/5/6/8 become
+//                                                   no-ops in step mode,
+//                                                   eliminating the dt=0
+//                                                   contamination that
+//                                                   broke multi-hit moves
+//                                                   under frame-step).
+//                                                   See WorldTickGate.hpp
+//                                                   for the new trampoline.
+//
+//                                                   Historical detail
+//                                                   below (kept for the
+//                                                   freeze-coverage
+//                                                   description, which
+//                                                   carries over to the
+//                                                   new gate):
+//
 //                                                   Sites 1/3/4/5/6/7/8 are
 //                                                   surgical — each fixes a
 //                                                   specific subsystem.  But
@@ -244,11 +271,47 @@
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 
 namespace Horse
 {
+    // ---------------------------------------------------------------------
+    // Atomic-ref helpers for the shared `speedval` float slot.
+    //
+    // The slot's storage must remain a *plain* float in memory because
+    // hand-written x86-64 trampolines do RIP-relative `movss xmm, [rip+disp32]`
+    // reads of it directly from the SoulcaliburVI.exe binary — they don't
+    // know about C++ atomic types.  4-byte aligned float load/store is
+    // already atomic at the hardware level on x86-64, so the only thing
+    // missing is the C++-memory-model side: without atomic accessors the
+    // compiler is free to reorder our reads/writes around other operations
+    // and KHitWalker (game thread) racing SpeedControl::set_value (UI
+    // thread) is technically UB.
+    //
+    // std::atomic_ref<float> (C++20) gives us atomic semantics on a plain
+    // float without changing its layout, so trampolines and C++ callers
+    // continue to share one piece of memory.  The helpers below wrap the
+    // boilerplate so callers don't have to remember to construct the ref.
+    // ---------------------------------------------------------------------
+    static_assert(sizeof(float) == 4, "speedval atomic helpers assume 4-byte float");
+
+    inline void speedval_store(float* slot, float v) noexcept
+    {
+        if (!slot) return;
+        std::atomic_ref<float>(*slot).store(v, std::memory_order_release);
+    }
+
+    inline float speedval_load(const float* slot) noexcept
+    {
+        if (!slot) return 1.0f;
+        // atomic_ref needs a non-const lvalue; const_cast is safe because
+        // we only call .load() through it.
+        return std::atomic_ref<float>(*const_cast<float*>(slot))
+                   .load(std::memory_order_acquire);
+    }
+
     class SpeedControl
     {
     public:
@@ -309,14 +372,13 @@ namespace Horse
             void* site8 = sig_scan_sc6(
                 "0F 28 C1 F3 0F 58 41 28 0F 5B D2",
                 "SpeedControl site8 (CameraAction_AdvancePlayback dt scale)");
-            // Site 9 — LuxBattle_PerFrameTick entry, blanket freeze hook.
-            // Anchors on the function's full prologue down to & including
-            // the SUB RSP, 0x80 imm32 byte (the second LuxBattle_*
-            // function in the binary has the same first 19 bytes but
-            // SUB RSP, 0xC0 — including the imm32 disambiguates).
-            void* site9 = sig_scan_sc6(
-                "4C 8B DC 49 89 5B 10 49 89 6B 18 56 57 41 54 41 56 41 57 48 81 EC 80 00 00 00",
-                "SpeedControl site9 (LuxBattle_PerFrameTick blanket-freeze entry-hook)");
+            // Site 9 — moved to Horse::WorldTickGate (2026-05-05).  See
+            // the WorldTickGate plate for rationale.  Short version: the
+            // PerFrameTick gate is the single source of truth for "skip
+            // this frame", driven by an int32_t step-credit slot; the
+            // dt-multiply sites (1/3/4/5/6/8) become no-ops because
+            // speedval stays at 1.0 in step/freeze mode, eliminating
+            // the dt=0 contamination that broke multi-hit moves.
             // ---- Replay-side actor-tick freeze hooks ----
             //
             // The SC6 replay system runs a parallel set of UE4 Actor::Tick
@@ -763,7 +825,7 @@ namespace Horse
             // freeze-entry-hook helper still supports orig_len up to 24
             // for any future entry-hook with a long prologue.)
             if (!site1 || !site3 || !site4 || !site5 || !site6 || !site7
-                || !site8 || !site9 || !site10 || !site11 || !site12
+                || !site8 || !site10 || !site11 || !site12
                 || !site13 || !site14 || !site15 || !site16 || !site19
                 || !site20 || !site21 || !site22)
                 return false;
@@ -777,14 +839,18 @@ namespace Horse
             m_speedval = static_cast<float*>(
                 CodeCave::allocate(sizeof(float), alignof(float)));
             if (!m_speedval) return false;
-            *m_speedval = 1.0f;
-            // Publish to the static accessor so other helpers (e.g.
-            // KHitWalker's hit-flash sticky countdown) can query the
-            // live speedval without a direct dependency on this class.
-            // Using a plain raw pointer is safe because the cave page
-            // never gets freed (see CodeCave.hpp design note) and only
-            // one SpeedControl instance ever exists in HorseMod.
-            s_speedval_global = m_speedval;
+            speedval_store(m_speedval, 1.0f);
+            // Publish to the static accessor so other helpers can
+            // query the live speedval without a direct dependency on
+            // this class.
+            // The cave page never gets freed (see CodeCave.hpp design
+            // note) and only one SpeedControl instance ever exists,
+            // but we still publish through std::atomic<float*> so
+            // readers see the pointer with proper acquire semantics
+            // (avoids a torn-pointer / publish-before-init race on
+            // weakly-ordered architectures and shuts the compiler up
+            // about reordering around the resolve() barrier).
+            s_speedval_global.store(m_speedval, std::memory_order_release);
 
             // Trampoline sizes:
             //   xmm14 load (REX.R + opcode) = 9 bytes for the movss + 5 jmp = 14
@@ -803,10 +869,7 @@ namespace Horse
             // Site 8 mulss-insert trampoline: 8B mulss + 3B movaps + 5B addss
             // + 5B jmp = 21B.
             void* tramp8 = CodeCave::allocate(21);
-            // Site 9 entry-hook trampoline: 7B cmp + 2B jne + 1B ret + 7B
-            // replicated prologue (mov r11,rsp + mov [r11+0x10],rbx) + 5B
-            // jmp = 22B.
-            void* tramp9 = CodeCave::allocate(22);
+            // (Site 9 trampoline moved to Horse::WorldTickGate.)
             // Sites 10..13 use the freeze_entry_hook_size() helper.
             //   site10: orig_len = 5  -> 20B trampoline
             //   site11: orig_len = 6  -> 21B trampoline
@@ -872,7 +935,7 @@ namespace Horse
             void* tramp16 = CodeCave::allocate(25);
             // (tramp17 disabled — see "Site 17 DISABLED" comment above)
             if (!tramp1 || !tramp3 || !tramp4 || !tramp5 || !tramp7
-                || !tramp8 || !tramp9 || !tramp10 || !tramp11 || !tramp12
+                || !tramp8 || !tramp10 || !tramp11 || !tramp12
                 || !tramp13 || !tramp14 || !tramp15 || !tramp16 || !tramp19
                 || !tramp20 || !tramp21 || !tramp22)
                 return false;
@@ -1087,91 +1150,10 @@ namespace Horse
             if (!prepare_jmp_patch(m_patch8, site8, tramp8, /*orig_len=*/8))
                 return false;
 
-            // ---- Site 9: LuxBattle_PerFrameTick blanket-freeze entry-hook ----
-            // Trampoline layout (22 bytes):
-            //   [0x00] 83 3D <disp32> 00     cmp dword [rip+disp32_speedval], 0
-            //   [0x07] 75 01                 jne +1   -> [0x0A] (skip the ret)
-            //   [0x09] C3                    ret      ; speedval==0: bail
-            //   [0x0A] 4C 8B DC               mov r11, rsp        (replicate)
-            //   [0x0D] 49 89 5B 10            mov [r11+0x10], rbx (replicate)
-            //   [0x11] E9 <rel32>             jmp back to site9 + 7
-            //
-            // Why bare RET (no stack adjustment): the hook fires BEFORE the
-            // function's first prologue instruction, so RSP is still
-            // whatever the caller passed in.  The function is `void` and
-            // declared in PerFrameTick's calling convention (Microsoft
-            // x64) so no return value setup is needed either.  Bare RET
-            // is correct.
-            //
-            // What gets replicated: the FIRST two of the function's
-            // prologue instructions:
-            //   mov r11, rsp                  (3 bytes, sets up frame-base)
-            //   mov [r11+0x10], rbx           (4 bytes, saves callee-saved RBX)
-            // The jump-back lands at site9+7 (=PerFrameTick+7), which is
-            // `mov [r11+0x18], rbp` and the rest of the original prologue.
-            // From there execution proceeds normally.
-            //
-            // CAUTION on changing this: PerFrameTick's prologue is
-            // hand-written by the compiler with specific stack-frame
-            // expectations.  If the patch ever falsely allows the function
-            // to enter with a partially-set-up frame and then ret early,
-            // the stack would be corrupted.  The current "ret-before-any-
-            // prologue-runs" placement is the only safe early-exit point.
-            {
-                uint8_t buf9[22] = {0};
-                size_t off = 0;
-
-                // [0x00..0x06] cmp dword [rip+disp32], 0
-                buf9[off++] = 0x83;
-                buf9[off++] = 0x3D;
-                {
-                    const int64_t disp =
-                          reinterpret_cast<int64_t>(m_speedval)
-                        - (reinterpret_cast<int64_t>(tramp9) + off + 4 + 1);
-                    if (disp < INT32_MIN || disp > INT32_MAX) return false;
-                    const int32_t d32 = static_cast<int32_t>(disp);
-                    std::memcpy(&buf9[off], &d32, sizeof(d32));
-                    off += 4;
-                }
-                buf9[off++] = 0x00;          // imm8 (compare against 0)
-
-                // [0x07..0x08] jne +1   (skip the ret if speedval != 0)
-                buf9[off++] = 0x75;
-                buf9[off++] = 0x01;
-
-                // [0x09] ret  (return early; void func, no value to set)
-                buf9[off++] = 0xC3;
-
-                // [0x0A..0x0C] mov r11, rsp   (replicate)
-                buf9[off++] = 0x4C;
-                buf9[off++] = 0x8B;
-                buf9[off++] = 0xDC;
-
-                // [0x0D..0x10] mov [r11+0x10], rbx   (replicate)
-                buf9[off++] = 0x49;
-                buf9[off++] = 0x89;
-                buf9[off++] = 0x5B;
-                buf9[off++] = 0x10;
-
-                // [0x11..0x15] jmp rel32 -> site9 + 7
-                {
-                    uint8_t jmp_back[5];
-                    void* jmp_at      = static_cast<uint8_t*>(tramp9) + off;
-                    void* back_target = static_cast<uint8_t*>(site9)  + 7;
-                    if (!encode_jmp_rel32(jmp_at, back_target, jmp_back))
-                        return false;
-                    std::memcpy(&buf9[off], jmp_back, sizeof(jmp_back));
-                    off += 5;
-                }
-
-                std::memcpy(tramp9, buf9, off);
-                ::FlushInstructionCache(::GetCurrentProcess(), tramp9, off);
-            }
-
-            // Site 9 patch: JMP rel32 (5 bytes) + 2 NOPs over the displaced
-            // 7 bytes (mov r11,rsp + mov [r11+0x10],rbx).
-            if (!prepare_jmp_patch(m_patch9, site9, tramp9, /*orig_len=*/7))
-                return false;
+            // ---- Site 9 (PerFrameTick) — moved to Horse::WorldTickGate ----
+            // The PerFrameTick gate is now driven by an int32_t step-credit
+            // slot independent of speedval.  See WorldTickGate.hpp for the
+            // trampoline body and rationale.
 
             // ---- Sites 10/11/12: replay-side actor-tick freeze hooks ----
             // Each uses the prepare_freeze_entry_hook helper with the
@@ -1485,7 +1467,6 @@ namespace Horse
                 STR("[Horse.SpeedControl] resolved 18 patch sites (1/3/4/5/6 "
                     "+ 7=PostATKDelayGate "
                     "+ 8=CameraAction_AdvancePlayback "
-                    "+ 9=PerFrameTick blanket-freeze "
                     "+ 10/11/12=replay actor-tick freezes "
                     "+ 13=BattleManager SimulationLoop catch-up freeze "
                     "+ 14/15=replay-clock INC freezers (chara+0x3A4) "
@@ -1497,8 +1478,9 @@ namespace Horse
                     "blocks AActor_TickActor fan-out, fixes background-replay leak) "
                     "+ 22=chara Actor::Tick root (ALuxBattleChara::TickActor — "
                     "nuclear gate over ALL chara-side sub-handlers including "
-                    "the ~20 ungated by sites 9-12)) "
-                    "+ speedval slot @ 0x{:x}\n"),
+                    "the ~20 ungated by sites 10-12)) "
+                    "+ speedval slot @ 0x{:x} "
+                    "[Site 9 = PerFrameTick gate moved to Horse::WorldTickGate]\n"),
                 reinterpret_cast<uintptr_t>(m_speedval));
             return true;
         }
@@ -1514,28 +1496,71 @@ namespace Horse
                         "ignoring\n"));
                 return false;
             }
-            if (m_enabled) return true;
-            // 2026-04-27: Sites 19, 20, 21, 22 temporarily REMOVED from
-            // patches[] for binary-search debugging.  User reports input
-            // desync after freeze cycles persists through all four;
-            // removing them tests whether they were causing or fixing
-            // the issue.  If desync persists → the leak is elsewhere
-            // entirely.  If desync is gone → one of these was the
-            // actual cause and was breaking the input pipeline.
-            // Patches still RESOLVE in resolve() so we can re-enable
-            // them quickly by editing this list.
+            if (m_enabled.load(std::memory_order_acquire)) return true;
+            // 2026-05-02: Sites 19/20/21/22 RE-ENABLED.
+            //
+            // These were rolled back in the 2026-04-27 build with comments
+            // about a ranked→training transition black-screen and the
+            // "preferable trade-off" of leaving the SC mid-move bug in.
+            // BUT the user-visible regression with sites 19-22 disabled is
+            // worse than originally understood:
+            //
+            //   1. Replay watching: chara state diverges from the recorded
+            //      replay within seconds of freeze + step ("the moves the
+            //      character were doing wasnt matching up with the replay i
+            //      watched and it quickly stopped making sense as soulcalibur
+            //      gameplay").  Caused by sites 19/20/21 being inactive —
+            //      the FrameInputLog actor (BM+0x478) ticks via
+            //      AActor_TickActor's component fan-out, which sites 9-16
+            //      don't reach.  Its sub-tick chain copies snapshots and
+            //      mutates replay state every UE4 frame regardless of
+            //      HorseMod freeze.  Sites 14/15 patch only the trailing
+            //      INC of +0x3A4, leaving the three prior vtable[0x650]/
+            //      [0x640]/[0x648] sub-tick calls firing un-gated.
+            //
+            //   2. Training-mode multi-hit miss: certain multi-hit moves
+            //      drop hits when frame-stepped.  Caused by site 22 being
+            //      inactive — the ~20 ungated LuxBattleChara_Tick_*
+            //      sub-handlers and ALuxCharaActor_TickActor / hair anim /
+            //      SetActorTransform / SyncMoveStateVisibility paths
+            //      mutate hitbox/cell state during freeze, so the
+            //      TickHitResolutionAndBodyCollision pass on the next
+            //      step sees stale hot-mask / bone-transform state and
+            //      misses the cell at the integer anim frame the user
+            //      stepped to.
+            //
+            // Black-screen mitigation: the dllmain.cpp presence-transition
+            // safety clear (see m_last_seen_presence and
+            // clear_time_features_on_transition) force-clears freeze on
+            // ANY scene-presence transition (training↔ranked↔menu) so the
+            // freeze cannot persist into a chara-construction frame in a
+            // new mode.  This was added AFTER sites 19-22 were rolled
+            // back and is precisely the fix that makes them safe to re-
+            // enable.  If the user's reports of black-screen on map
+            // transition recur, the next-step fix is a more surgical
+            // chara+0x53c (SC gauge timer) INC patch instead of nuking
+            // the whole TickActor — but the broad-gate is correct first.
+            //
+            // (m_patch17 stays disabled — wrong target, was the training-
+            //  mode KeyRecorder which broke the in-replay input HUD.)
+            // (m_patch18 stays disabled — both v1 and v2 didn't fix the
+            //  duplicated-inputs symptom; rolled back to baseline.)
+            // 2026-05-03: Site 22 RE-ENABLED.  The disabling was an
+            // unconfirmed experiment for the multi-hit-miss bug; the
+            // natural multi-hit clearing path is LuxMoveVM_TransitionToMove
+            // (clears chara+0x16EB unconditionally when called with an
+            // active cell) which is reached from CheckMoveTransitionTiming
+            // INSIDE PerFrameTick — gated by Site 9, not by Site 22's
+            // chara TickActor outer ring.  So Site 22 isn't responsible
+            // for multi-hit and should stay enabled for replay-input
+            // freeze correctness (its original purpose).
             BytePatch* patches[] = { &m_patch1, &m_patch3, &m_patch4,
                                      &m_patch5, &m_patch6, &m_patch7,
-                                     &m_patch8, &m_patch9, &m_patch10,
+                                     &m_patch8, &m_patch10,
                                      &m_patch11, &m_patch12, &m_patch13,
-                                     &m_patch14, &m_patch15, &m_patch16 };
-            // (m_patch17 disabled — see comment in resolve())
-            // (m_patch18 disabled — both v1 and v2 didn't fix the
-            //  "duplicated inputs" symptom; rolled back to baseline)
-            // (m_patch19 = match-replay input pusher freeze, stage 3)
-            // (m_patch20 = match-replay cache filler freeze, stage 2 —
-            //  fixes "many duplicates after step forward" by stopping
-            //  ring accumulation during freeze)
+                                     &m_patch14, &m_patch15, &m_patch16,
+                                     &m_patch19, &m_patch20, &m_patch21,
+                                     &m_patch22 };
             constexpr size_t kPatchCount = sizeof(patches)/sizeof(patches[0]);
             for (size_t i = 0; i < kPatchCount; ++i)
             {
@@ -1548,22 +1573,26 @@ namespace Horse
                     return false;
                 }
             }
-            m_enabled = true;
+            m_enabled.store(true, std::memory_order_release);
             RC::Output::send<RC::LogLevel::Verbose>(
                 STR("[Horse.SpeedControl] enabled (speedval = {:.4f})\n"),
-                *m_speedval);
+                speedval_load(m_speedval));
             return true;
         }
 
         void disable()
         {
-            if (!m_enabled) return;
+            if (!m_enabled.load(std::memory_order_acquire)) return;
             // Reverse-order disable, matching the enable() install order.
-            // Sites 7..16 first because their trampolines read speedval;
-            // safer to revert the read sites before zeroing the slot below.
-            // (m_patch17 disabled — see comment in resolve())
-            // (m_patch19/20/21/22 temporarily removed from patches[] for
-            //  binary-search debugging — see comment in enable())
+            // Sites 22..1 are reverted; the speedval slot is reset to 1.0f
+            // below so any cave-resident reads still see a sane value
+            // during the brief unhooking window.
+            // (m_patch17/18 still disabled — see comments in resolve() and
+            //  enable() patches[] block for individual rationales.)
+            m_patch22.disable();
+            m_patch21.disable();
+            m_patch20.disable();
+            m_patch19.disable();
             m_patch16.disable();
             m_patch15.disable();
             m_patch14.disable();
@@ -1571,7 +1600,6 @@ namespace Horse
             m_patch12.disable();
             m_patch11.disable();
             m_patch10.disable();
-            m_patch9.disable();
             m_patch8.disable();
             m_patch7.disable();
             m_patch6.disable();
@@ -1579,26 +1607,17 @@ namespace Horse
             m_patch4.disable();
             m_patch3.disable();
             m_patch1.disable();
-            m_enabled = false;
-            // IMPORTANT: reset the shared speedval slot back to 1.0f
-            // BEFORE returning.  The slot is exposed to the rest of
-            // HorseMod via current_value_static() / s_speedval_global,
-            // and callers (notably KHitWalker's sticky-flash gate)
-            // use it as a "is the world advancing?" signal:
-            //
-            //     world_advancing = current_value_static() > 0.0f;
-            //
-            // If we leave *m_speedval at whatever the user last set
-            // (e.g. 0 for freeze, 0.25 for slow-mo), the static
-            // accessor will keep reporting that value even after the
-            // patches are reverted — so KHitWalker will believe the
-            // world is still paused / slowed and the red hit-flash
-            // sticky countdown will never drain.  Concrete symptom:
-            // "I pressed freeze once, disabled it, and now every
-            // hurtbox stays red forever."  Priming the slot to 1.0f
-            // on disable() matches the semantic "no speed override
-            // active" for anyone who reads it downstream.
-            if (m_speedval) *m_speedval = 1.0f;
+            m_enabled.store(false, std::memory_order_release);
+            // Reset the shared speedval slot back to 1.0f BEFORE
+            // returning.  The slot is exposed to the rest of HorseMod
+            // via current_value_static() / s_speedval_global, and any
+            // future caller that reads it as a "speed override factor"
+            // should see 1.0 (= no override) when the patches are off.
+            // If we left it at whatever the user last set (e.g. 0 for
+            // freeze, 0.25 for slow-mo), the static accessor would
+            // keep reporting that value even after the patches were
+            // reverted.
+            speedval_store(m_speedval, 1.0f);
             RC::Output::send<RC::LogLevel::Verbose>(
                 STR("[Horse.SpeedControl] disabled\n"));
         }
@@ -1622,8 +1641,16 @@ namespace Horse
         // the storage slot exists from resolve() onward, regardless of
         // whether patches are enabled.  When patches are off, writes
         // are inert (no engine code reads the slot).
-        void set_value(float v)  { if (m_speedval) *m_speedval = v; }
-        float get_value() const  { return m_speedval ? *m_speedval : 1.0f; }
+        //
+        // Memory model: the slot is shared with hand-written asm
+        // trampolines that do raw `movss [rip+disp32]` reads, so the
+        // storage must stay a plain float — but our C++ accessors go
+        // through speedval_load/store which use std::atomic_ref<float>
+        // for proper happens-before semantics.  The trampolines see
+        // exactly what the C++ side wrote thanks to x86-64 hardware
+        // ordering on aligned 4-byte loads/stores.
+        void set_value(float v)  { speedval_store(m_speedval, v); }
+        float get_value() const  { return speedval_load(m_speedval); }
         float* value_ptr() const { return m_speedval; }
 
         // ----------------------------------------------------------------
@@ -1634,18 +1661,12 @@ namespace Horse
         // native rate").  Safe to call from any thread; the cave-
         // resident slot lives for the process lifetime and writes/reads
         // are 4-byte atomic on x86_64.
-        //
-        // Used by KHitWalker to gate the hit-flash sticky countdown:
-        // when the world is frozen (speedval = 0), the countdown
-        // pauses so the red flash stays visible until the user
-        // unfreezes or steps a frame.
         static float current_value_static() noexcept
         {
-            float* p = s_speedval_global;
-            return p ? *p : 1.0f;
+            return speedval_load(s_speedval_global.load(std::memory_order_acquire));
         }
 
-        bool is_enabled()  const { return m_enabled; }
+        bool is_enabled()  const { return m_enabled.load(std::memory_order_acquire); }
         bool is_resolved() const { return m_resolved_ok; }
 
     private:
@@ -1827,7 +1848,7 @@ namespace Horse
         BytePatch  m_patch6{};   // AdvanceLaneFrameStep (single-byte ModRM)
         BytePatch  m_patch7{};   // PostATKDelayGate entry-hook (freeze fix)
         BytePatch  m_patch8{};   // CameraAction_AdvancePlayback dt-scale (replay-camera fix)
-        BytePatch  m_patch9{};   // PerFrameTick blanket-freeze (replay-timer / replay-input fix)
+        // m_patch9 (PerFrameTick blanket-freeze) — moved to Horse::WorldTickGate.
         BytePatch  m_patch10{};  // LuxReplayChara::Tick (replay frame-buffer copy)
         BytePatch  m_patch11{};  // LuxBattleChara::Tick AdvanceReplayFrame
         BytePatch  m_patch12{};  // LuxBattleChara::Tick CheckFlagsAndNotifyMoveEnded
@@ -1890,12 +1911,21 @@ namespace Horse
         float*     m_speedval     = nullptr;
         bool       m_resolved     = false;
         bool       m_resolved_ok  = false;
-        bool       m_enabled      = false;
+        // Read by ImGui callbacks (UI thread) via is_enabled() and
+        // written by enable()/disable() called from the cockpit pre-hook
+        // (game thread).  std::atomic<bool> + acquire/release ordering
+        // matches the speedval atomic_ref pattern above so cross-thread
+        // observers always see a consistent (m_enabled, *m_speedval) pair.
+        std::atomic<bool> m_enabled {false};
 
-        // Process-wide pointer to the live speedval slot.  Set in
+        // Process-wide pointer to the live speedval slot.  Published in
         // resolve() once allocation succeeds; persists thereafter.
-        // See current_value_static() for the rationale.
-        static inline float* s_speedval_global = nullptr;
+        // std::atomic so that current_value_static() readers from any
+        // thread observe a consistent pointer (matters during the brief
+        // window between resolve() being called and the cave allocation
+        // completing — without atomics a partially-published pointer
+        // would be UB).  See current_value_static() for the rationale.
+        static inline std::atomic<float*> s_speedval_global{nullptr};
     };
 
 } // namespace Horse

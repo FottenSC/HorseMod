@@ -69,13 +69,27 @@ rem ---- Optional: sccache compile-output cache ------------------------------
 rem  CMake picks up CMAKE_<LANG>_COMPILER_LAUNCHER from the environment at
 rem  configure time.  We set it via -D so it sticks in the cache instead of
 rem  silently dropping when CMake is re-run without the env var.
+rem
+rem  Currently OPT-IN ONLY (set MYMODS_USE_SCCACHE=1) because the upstream
+rem  msvc-compatible.cmake bakes /Zi into Shipping_FLAGS (separate PDB file).
+rem  Sccache wrapping cl.exe breaks the /FS mspdbsrv coordination protocol —
+rem  result is fatal C1041 "cannot open program database" errors during
+rem  parallel compiles.  To enable sccache, /Zi must be replaced with /Z7
+rem  (embedded debug info, no shared PDB).  Until that conversion is in
+rem  place, leave MYMODS_USE_SCCACHE unset.
 set SCCACHE_ARGS=
-where sccache >nul 2>nul
-if !ERRORLEVEL! EQU 0 (
-    echo [build] sccache detected — enabling compiler-cache launcher
-    set SCCACHE_ARGS=-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+if defined MYMODS_USE_SCCACHE (
+    where sccache >nul 2>nul
+    if !ERRORLEVEL! EQU 0 (
+        echo [build] MYMODS_USE_SCCACHE set + sccache on PATH — enabling launcher
+        echo [build]   WARNING: requires /Z7 instead of /Zi; will fail with C1041 otherwise
+        set SCCACHE_ARGS=-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+    ) else (
+        echo [build] MYMODS_USE_SCCACHE set but sccache not on PATH — skipping
+    )
 ) else (
-    echo [build] sccache not on PATH — skipping compile-output cache
+    rem sccache disabled by default — see comment above
+    rem set MYMODS_USE_SCCACHE=1 to enable (after /Zi -^> /Z7 conversion)
 )
 
 rem ---- LTO control ---------------------------------------------------------

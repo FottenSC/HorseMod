@@ -145,34 +145,22 @@ namespace Horse
             switch (p)
             {
                 case HorsePolicy::Vanilla:
-                    return "No HorseMod intervention.  Online lobbies behave\n"
-                           "exactly as vanilla SC6 would.  Pick this when you\n"
-                           "want to play against unmodded opponents normally.";
+                    return "No HorseMod intervention; play vanilla online.";
                 case HorsePolicy::SlipOut:
-                    return "Allow SlipOut in casual lobbies.  Both you AND\n"
-                           "your opponent need HorseMod with this policy\n"
-                           "selected, otherwise the simulations will diverge\n"
-                           "and the connection drops the moment a slip\n"
-                           "input fires.\n\n"
-                           "Coordinate with your friend over Discord / voice\n"
-                           "before starting the lobby.";
+                    return "Allow SlipOut in casual lobbies. Both peers "
+                           "need this policy or the connection drops.";
                 case HorsePolicy::NoRingOut:
-                    return "Disable ring-outs.  Players cannot lose by being\n"
-                           "knocked off the stage.  Both peers must have\n"
-                           "HorseMod with this policy or matches desync.";
+                    return "Disable ring-outs. Both peers need this "
+                           "policy or matches desync.";
                 case HorsePolicy::EndlessMode:
-                    return "Endless match — the round counter doesn't end\n"
-                           "the match.  Both peers must have HorseMod with\n"
-                           "this policy or matches desync.";
+                    return "Endless match (round counter doesn't end). "
+                           "Both peers need this policy or matches desync.";
                 case HorsePolicy::DamageUp:
-                    return "Global damage scaling — every hit deals more\n"
-                           "damage.  Both peers must have HorseMod with\n"
-                           "this policy or matches desync.";
+                    return "Global damage scaling. Both peers need this "
+                           "policy or matches desync.";
                 case HorsePolicy::BlowUp:
-                    return "Always trigger blow-up state — every counterhit\n"
-                           "produces the maximum-launch reaction.  Both\n"
-                           "peers must have HorseMod with this policy or\n"
-                           "matches desync.";
+                    return "Every counterhit triggers max-launch blow-up. "
+                           "Both peers need this policy or matches desync.";
             }
             return "";
         }
@@ -286,8 +274,40 @@ namespace Horse
                     }
                 };
 
-            m_slipout_runtime_hook_ids = UObjectGlobals::RegisterHook(
-                m_slipout_runtime_hook_path, pre_cb, post_cb, nullptr);
+            // RegisterHook can throw std::runtime_error if the resolved
+            // UFunction isn't a hookable shape (UObjectGlobals.cpp:855
+            // throws on FUNC_Native + non-ProcessInternal mismatch).
+            // Pre-validation above only guards the not-loaded-yet case;
+            // the throw path needs explicit handling so an unexpected
+            // engine-version skew doesn't tear down the mod via an
+            // uncaught DLL-boundary exception.
+            try
+            {
+                m_slipout_runtime_hook_ids = UObjectGlobals::RegisterHook(
+                    m_slipout_runtime_hook_path, pre_cb, post_cb, nullptr);
+            }
+            catch (const std::exception& e)
+            {
+                Output::send<LogLevel::Error>(
+                    STR("[OnlineRules] IsSlipEnabled RegisterHook threw: {}\n"),
+                    RC::to_generic_string(e.what()));
+                // Mark registered=true to stop the retry loop — if it
+                // threw once it's structurally going to keep throwing,
+                // and spinning every poll-tick logs nothing useful.
+                m_slipout_runtime_hook_registered = true;
+                return;
+            }
+            // (0,0) is the only sentinel UE4SS uses to signal a
+            // silent-no-op in the global-script-hook path; treat as
+            // failure and don't mark registered so we can retry later.
+            if (m_slipout_runtime_hook_ids.first == 0
+                && m_slipout_runtime_hook_ids.second == 0)
+            {
+                Output::send<LogLevel::Warning>(
+                    STR("[OnlineRules] IsSlipEnabled RegisterHook returned "
+                        "(0,0) — treating as failure.\n"));
+                return;
+            }
             m_slipout_runtime_hook_registered = true;
 
             Output::send<LogLevel::Default>(

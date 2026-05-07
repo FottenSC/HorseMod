@@ -149,16 +149,32 @@ namespace Horse::GameImGui
         }
 
         // Uninstall on mod teardown.  Safe if install never succeeded.
+        // SEH-wrapped unHook for the same reason as PresentHook —
+        // see the long comment above try_unhook_seh in PresentHook.hpp.
         void uninstall()
         {
             if (!m_installed.exchange(false)) return;
             if (m_detour)
             {
-                m_detour->unHook();
+                if (!try_unhook_seh(m_detour.get()))
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(
+                        STR("[GameImGui.XInputHook] x64Detour::unHook "
+                            "faulted during teardown — swallowed.\n"));
+                }
                 m_detour.reset();
             }
             m_trampoline = 0;
         }
+
+    private:
+        // Free function so __try/__except has no C++ destructors in scope.
+        static bool try_unhook_seh(PLH::x64Detour* h) noexcept
+        {
+            __try { h->unHook(); return true; }
+            __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+        }
+    public:
 
         // Called by GamepadInput to read the REAL controller state,
         // bypassing our zero-out gate.  Falls back to the unhooked

@@ -182,25 +182,44 @@ namespace Horse::GameImGui
             // See horselib/FreeCamera.hpp's LowLevelKeyInput comment
             // for the full explanation.
 
-            // 1. Always feed to ImGui first so its state tracks
-            //    everything (hover highlights, cursor position, etc.)
-            //    — safe no-op until DX11State is ready.  Bind OUR
-            //    context before calling the Win32 backend; UE4SS's
-            //    own ImGui context may be the current one if UE4SS
-            //    also set one up.
+            // 1. If the overlay is hidden, pass through unconditionally
+            //    WITHOUT feeding the message to ImGui.  Earlier versions
+            //    of this code fed every WM_* into ImGui's Win32 backend
+            //    even when the overlay was invisible — the rationale
+            //    being "keep ImGui's IO state warm so hover/cursor work
+            //    on first show".  In practice
+            //      (a) ImGui_ImplWin32_NewFrame() re-polls GetCursorPos
+            //          on every frame, so the warm-IO assumption is
+            //          unnecessary — the very first NewFrame after a
+            //          show already fixes mouse position.
+            //      (b) The per-message ImGui-context swap (3× SetCurrent-
+            //          Context calls per WM_*) was hot-path overhead on
+            //          mouse-move flooding the message pump.
+            //    Skipping the feed when hidden eliminates that overhead
+            //    and the only observable cost is a sub-frame "no hover
+            //    highlight on widget right under cursor on first show",
+            //    which is invisible to humans (the next mouse move, ~ms
+            //    later, fixes it).
             auto& state = DX11State::instance();
+            const bool overlay_visible =
+                g_overlay_visible.load(std::memory_order_relaxed);
+            if (!overlay_visible)
+            {
+                return forward(hwnd, msg, wparam, lparam);
+            }
+
+            // 2. Feed to ImGui — overlay is visible so its IO state matters
+            //    for hover highlights, click handling, cursor position,
+            //    etc.  Bind OUR context before calling the Win32 backend
+            //    because UE4SS may have its own ImGui context bound when
+            //    the message arrives (if UE4SS's external GUI window
+            //    grabbed focus).
             if (state.ready() && state.imgui_context())
             {
                 ImGuiContext* prev = ImGui::GetCurrentContext();
                 state.bind_imgui_context();
                 ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam);
                 ImGui::SetCurrentContext(prev);
-            }
-
-            // 2. If the overlay is hidden, pass through unconditionally.
-            if (!g_overlay_visible.load(std::memory_order_relaxed))
-            {
-                return forward(hwnd, msg, wparam, lparam);
             }
 
             // 3. ALWAYS forward Shift+Tab so Steam overlay can toggle.

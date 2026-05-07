@@ -26,27 +26,46 @@
 // Scene-proxy dirty trigger
 // -------------------------
 // Appending to BatchedLines is cheap; the tricky part is getting the
-// renderer to notice.  `ULineBatchComponent::MarkRenderStateDirty` is not
-// exposed as a UFunction in Shipping and the C++ method symbol isn't
-// exported (and may be inlined).  We rely on the component's own Tick:
+// renderer to notice.  ULineBatchComponent::MarkRenderStateDirty is the
+// one and only thing that recreates the scene proxy from the current
+// array contents.
 //
-//   1. Our mod runs each frame in the CockpitBase_C::Update pre-hook.
-//   2. It appends each line with RemainingLifeTime = kLifetime (~0.1 s).
-//   3. A few frames later TickComponent's lifetime sweep marks an entry
-//      as expired, removes it, and calls MarkRenderStateDirty as a side
-//      effect.  The scene proxy then rebuilds from the current array,
-//      which includes all our newly-appended lines.
+// SC6 reality (Ghidra-verified, NOT stock UE4)
+// --------------------------------------------
+// SC6's Shipping build has NO lifetime sweep in ULineBatchComponent.
+// The class inherits UActorComponent's no-op TickComponent — the
+// stock-UE4 path that decrements FBatchedLine::RemainingLifeTime and
+// calls MarkRenderStateDirty when entries expire was stripped along
+// with the ENABLE_DRAW_DEBUG-gated DrawDebug* UFunction bodies.  The
+// +0x2C RemainingLifeTime field is allocated but never read or written
+// by the engine; setting it has no effect.
 //
-// Steady state: every frame we append, every frame some tail entries
-// expire, so the proxy is constantly being refreshed — exactly what we
-// want for a per-frame debug overlay.  Visible lag is ~kLifetime seconds
-// on toggle-off (lines finish their lifetime and fade out naturally
-// instead of needing an explicit clear).
+// What actually drives proxy rebuilds:
+//   * UWorld+0x40 (legacy LineBatcher) and UWorld+0x50 (Foreground) get
+//     ULineBatchComponent_Flush called on them every frame from inside
+//     the engine's per-frame draw fns (FUN_1417e2360 / FUN_141e4a300).
+//     Flush zeros all three batch arrays AND calls MarkRenderStateDirty
+//     as the last step, so the proxy is always up to date one frame
+//     later.
+//   * UWorld+0x48 (Persistent) is NEVER auto-flushed.  No lifetime
+//     sweep, no Flush — nothing makes its proxy rebuild on its own.
+//
+// Implication
+// -----------
+//   * Foreground slot: just append, it shows up — the engine's own
+//     end-of-frame Flush takes care of the dirty trigger.  Lifetime is
+//     effectively per-frame regardless of what we set on the line.
+//   * Persistent slot: appends silently pile up in the BatchedLines
+//     array but the proxy never rebuilds.  We have to call
+//     MarkRenderStateDirty ourselves, and we have to manage line
+//     expiry ourselves (RemainingLifeTime is dead — the engine won't
+//     remove anything for us).
 // ============================================================================
 
 #pragma once
 
 #include "HorseLib.hpp"
+#include "NativeBinding.hpp"
 
 #include <Unreal/FMemory.hpp>
 #include <Unreal/World.hpp>
@@ -99,11 +118,13 @@ namespace Horse
     class LineBatcherBackend final : public ILineOverlay
     {
     public:
-        // RemainingLifeTime for every appended line.  A few frames is enough
-        // for a tail entry to expire and trigger the scene-proxy rebuild.
-        // Too short and we flicker (proxy rebuilds faster than we re-append);
-        // too long and toggle-off takes visibly longer to clear.
-        static constexpr float kLifetime = 0.10f;   // seconds
+        // Default RemainingLifeTime for every appended line.  A few render
+        // frames is enough for a tail entry to expire and trigger the scene-
+        // proxy rebuild — short enough that the per-frame overlay doesn't
+        // smear, long enough not to flicker.  This is the value Normal-slot
+        // backends use; Persistent-slot backends override it via setLifetime
+        // to control the visible trail length.
+        static constexpr float kDefaultLifetime = 0.10f;   // seconds
 
         // Initial reservation so we don't call (*GMalloc)->Realloc every
         // frame just to grow.  64 lines = 2 charas × ~32 segments — plenty
@@ -115,6 +136,19 @@ namespace Horse
         // pointer hasn't moved — simplest: call invalidate() after).
         void setSlot(LineBatcherSlot slot) { m_slot = slot; invalidate(); }
         LineBatcherSlot slot() const       { return m_slot; }
+
+        // Override the per-line RemainingLifeTime (seconds).  Used to
+        // extend the visible trail in the Persistent slot — the dllmain
+        // UI exposes a "Trail frames" slider that converts N game frames
+        // to N/60 seconds and pushes here.  Clamped >= 1ms so the engine
+        // tick-sweep can still expire entries (a 0-lifetime line would
+        // get freed before the proxy rebuild and never display).
+        void setLifetime(float seconds)
+        {
+            if (seconds < 0.001f) seconds = 0.001f;
+            m_lifetime = seconds;
+        }
+        float lifetime() const { return m_lifetime; }
 
         void invalidate()
         {
@@ -187,7 +221,7 @@ namespace Horse
             slot->End               = b;
             slot->Color             = color;
             slot->Thickness         = (thickness > 0.0f) ? thickness : 1.0f;
-            slot->RemainingLifeTime = kLifetime;
+            slot->RemainingLifeTime = m_lifetime;
             slot->DepthPriority     = 0;   // SDPG_World — depth-tested
             slot->_pad[0] = slot->_pad[1] = slot->_pad[2] = 0;
             arr->Num += 1;
@@ -195,14 +229,18 @@ namespace Horse
 
         void endFrame() override
         {
-            // Nothing — the component's own TickComponent picks up the
-            // appends and will mark its render state dirty on the next
-            // lifetime sweep (see plate comment).
+            // SC6 stripped the lifetime sweep that would normally call
+            // MarkRenderStateDirty on entry expiry, so we have to do it
+            // ourselves — otherwise the proxy stays frozen at its last
+            // snapshot and our newly-appended lines don't render until
+            // some unrelated event happens to dirty it.  Cheap: just
+            // sets a flag and queues an end-of-frame proxy recreate.
+            if (m_lbc) Horse::NativeBinding::markRenderStateDirty(m_lbc);
         }
 
         void hideAll() override
         {
-            // Appended lines expire naturally after kLifetime seconds.
+            // Appended lines expire naturally after m_lifetime seconds.
             // If you want an immediate clear, zero Num here — but you'd
             // also need to trip the dirty flag somehow, which we don't
             // have a clean handle on yet.  For a debug overlay, fade-out
@@ -242,6 +280,9 @@ namespace Horse
         // mesh — the natural choice for a debug overlay.  Flip via
         // setSlot() / the ImGui tab.
         LineBatcherSlot      m_slot  = LineBatcherSlot::Foreground;
+        // Per-line RemainingLifeTime in seconds.  Persistent-slot users
+        // override via setLifetime() to control trail length.
+        float                m_lifetime = kDefaultLifetime;
     };
 
 } // namespace Horse

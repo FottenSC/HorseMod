@@ -230,9 +230,6 @@
 #include "HorseLib.hpp"
 #include "NativeBinding.hpp"
 #include "SafeMemoryRead.hpp"
-#include "SpeedControl.hpp"   // for current_value_static() — gates the
-                              // hit-flash sticky countdown on whether
-                              // the world is currently advancing
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
@@ -459,6 +456,235 @@ namespace Horse
         // active lane's cursor+0x08 (so HUD code can read it without
         // chasing the cursor pointer).  Kept per-chara.
         constexpr uintptr_t LastHitAnimFrame       = 0x1360;   // float
+
+        // ----------------------------------------------------------------
+        // Engine "this chara can react this frame" gates
+        // ----------------------------------------------------------------
+        // LuxBattle_ResolveAttackVsHurtboxMask22 (@ 0x14033C100) early-
+        // returns when any of these chara-wide gates fail.  When the
+        // resolver early-returns, the entire defender hurtbox list is
+        // INERT for this frame regardless of geometry / +0x14 / slot
+        // index — overlap bits may still be OR'd into PerHurtboxBitmask
+        // by the geometry pass at 0x14030D6A0, but no reaction is ever
+        // produced and no damage is applied.
+        //
+        // For the visualiser, that means "render box is real geometry
+        // but engine cannot fire a reaction" — same observable as the
+        // classifier_addressable failure mode, just driven from the
+        // chara-state side instead of the slot-index side.
+
+        // chara+0x19B0 — NoReactStateFlag (i16).  When this equals 6,
+        // the resolver writes 0 to chara+0x43d9c and returns without
+        // running ANY classification.  Verified site:
+        //
+        //   if (*(short *)(pDefenderChara + 0x19b0) == 6) {
+        //       *(undefined4 *)(pDefenderChara + 0x43d9c) = 0;
+        //       return;
+        //   }
+        //
+        // The exact semantic of state 6 is opaque (likely "match-end /
+        // round-transition / cinematic" — chara is held in pose but
+        // not battle-active).  We treat any non-engine-runnable value
+        // as a uniform "inert" signal.
+        constexpr uintptr_t NoReactStateFlag       = 0x19B0;   // i16
+
+        // chara+0x20B8 — IncapacitatedFlag (i16).  Resolver early-
+        // return:
+        //
+        //   if (*(short *)(pDefenderChara + 0x20b8) != 0) return;
+        //
+        // Set during KO / round-loss / cinematic playback when the
+        // chara should not classify hits.  Non-zero = inert.
+        constexpr uintptr_t IncapacitatedFlag      = 0x20B8;   // i16
+
+        // ----------------------------------------------------------------
+        // Attack-phase / frame-window state (2026-05 Ghidra walk)
+        // ----------------------------------------------------------------
+        // SoulCalibur 6 moves don't deal damage every frame they're playing.
+        // Like every fighting game, each move is partitioned into:
+        //
+        //     STARTUP   — pre-active animation frames (no hit volumes live
+        //                 even though attack-list nodes geometrically exist)
+        //     ACTIVE    — the frame window during which a successful overlap
+        //                 actually fires a reaction
+        //     RECOVERY  — post-active frames where you're locked in animation
+        //                 but can no longer hit
+        //
+        // The engine partitions this via cell+0x36 / cell+0x38
+        // (MasterWindowStart / MasterWindowEnd, both i16, in units of
+        // animation frames, 60 Hz) on the currently-active LuxBattleAttackCell
+        // (chara+0x44058).  LuxMoveVM_ClassifyHitboxFrameState (0x140300620)
+        // — called every tick from
+        // LuxBattle_PreTickStateSnapshotAndRoundDecision (0x14034FCE0) —
+        // compares lane->CurrentAnimFrame (lane+0x08, float) against this
+        // window and writes a 1/2/3 phase tag into chara+0x1980 (i16).
+        //
+        // PHASE TAG VALUES (chara+0x1980):
+        //     0  = no active cell / classifier disabled (chara+0x16e5 == 0)
+        //     1  = STARTUP   (curFrame < MasterWindowStart)
+        //     2  = ACTIVE    (curFrame in [WindowStart, WindowEnd])
+        //     3  = RECOVERY  (curFrame > MasterWindowEnd)
+        //
+        // PHASE TAG VS NODE +0x14 — important distinction for visualisers:
+        //   Earlier KHitWalker docs treated node+0x14 as the per-frame
+        //   active gate and node[+0x14] AND ownAttackMask as the per-frame
+        //   damage predicate.  THIS IS WRONG for distinguishing startup vs
+        //   active vs recovery.  TickHitResolutionAndBodyCollision
+        //   (0x14033CCA0) writes node+0x14 from:
+        //
+        //     hotMask = 0x3FFFD                                    // floor
+        //             | (animCellMask ? *animCellMask : 0)         // sub-frame
+        //             | (ownActiveCell ? **ownActiveCell : 0);     // sub-slot
+        //
+        //   The animCellMask (per-sub-FRAME) is mostly empty for SC6 moves —
+        //   Namco's pipeline carries the slot mask on the per-sub-SLOT
+        //   cell instead (set by LuxMoveVM_SetActiveMoveSlot).  That slot
+        //   mask doesn't change across the move's startup/active/recovery
+        //   frames, so node+0x14 stays = 1 across the entire move once the
+        //   slot is set.  For TRUE per-frame active timing, read the phase
+        //   tag at chara+0x1980 instead.
+        //
+        // OUTPUT FLAGS (auxiliary, written by ClassifyHitboxFrameState):
+        //     chara+0x16ea  bInMasterWindowFlag   : 1 iff phase == 2
+        //                                           (cleared if either
+        //                                            sub-window inhibitor
+        //                                            at +0x16eb or +0x16fe
+        //                                            is non-zero)
+        //     chara+0x16ec  bPastMasterWindowFlag : 1 iff phase == 3 with
+        //                                           reverse-direction
+        //                                           sub-condition (used
+        //                                           for counter-hit wind
+        //                                           effect spawn)
+        //
+        // SUB-WINDOW BANK OUTPUT (per-bank "is the current frame in this
+        // bank's authored sub-window right now"):
+        //     chara+0x20CC  wSubWinActiveBank0  GroupId (0..15) when in sub-window
+        //     chara+0x20CE  wSubWinActiveBank1  GroupId (16..31) when in sub-window
+        //     chara+0x20D0  wSubWinActiveBank2  GroupId (32..47) when in sub-window
+        //     chara+0x20D2  wSubWinActiveBank3  GroupId (48..63) when in sub-window
+        //   These are 0xFFFF when the bank's sub-window is NOT active.  The
+        //   bank corresponding to the current cell's HitboxGroupBitfield
+        //   (cell+0x5e bits 0..10, mirrored to chara+0x20F6) is the one
+        //   whose ID drives the cell's TYPE-of-hit (used by GetImpactCategory
+        //   for trade arbitration).  For HorseMod the bank slot field is
+        //   useful as a finer "is this exact sub-window's hitboxes live"
+        //   check, complementing the master window.
+        constexpr uintptr_t ClassifyEnableGate     = 0x16E5;   // u8 — gate
+                                                                // (0 ⇒ phase=0)
+        constexpr uintptr_t InMasterWindowFlag     = 0x16EA;   // u8 — phase==2
+        constexpr uintptr_t SubWindowInhibitorA    = 0x16EB;   // u8
+        constexpr uintptr_t PastMasterWindowFlag   = 0x16EC;   // u8 — phase==3
+                                                                // with re-enter
+        constexpr uintptr_t SubWindowInhibitorB    = 0x16FE;   // u8
+        constexpr uintptr_t FrameWindowPhaseTag    = 0x1980;   // i16 (0/1/2/3)
+        constexpr uintptr_t SubWinActiveBank0      = 0x20CC;   // u16
+        constexpr uintptr_t SubWinActiveBank1      = 0x20CE;   // u16
+        constexpr uintptr_t SubWinActiveBank2      = 0x20D0;   // u16
+        constexpr uintptr_t SubWinActiveBank3      = 0x20D2;   // u16
+        constexpr uintptr_t HitboxGroupBitfield    = 0x20F6;   // u16
+                                                                // (cell+0x5e
+                                                                //  mirror)
+    }
+
+    // ------------------------------------------------------------------
+    // LuxBattleAttackCell — 0x70 bytes per cell, lives in the MoveBank.
+    // chara+0x44058 points at the currently-active cell.  Decoded
+    // 2026-05 via Ghidra pass on
+    //   LuxMoveVM_SetActiveMoveSlot         (0x140300C70)
+    //   LuxMoveVM_ClassifyHitboxFrameState  (0x140300620)
+    //   LuxBattle_TickHitResolutionAndBodyCollision (0x14033CCA0)
+    //
+    // Only the fields HorseMod cares about are listed here — see the Ghidra
+    // struct LuxBattleAttackCell for the complete 0x70-byte layout.
+    // ------------------------------------------------------------------
+    namespace LuxAttackCellOffsets
+    {
+        // u64 SlotMask (+0x00) — bitmask of authored hitbox slots that
+        // are LIVE while this cell is the chara's currently-active cell.
+        // OR'd into hotMask once per move-slot change in
+        // LuxMoveVM_SetActiveMoveSlot, so it's the per-MOVE-SLOT layer
+        // of the active gate (NOT per-frame — see ChaOffsets phase docs).
+        constexpr uintptr_t SlotMask               = 0x00;   // u64
+
+        // i16 MasterWindowStart (+0x36) and MasterWindowEnd (+0x38) —
+        // the FIRST and LAST animation-frame indices for which this
+        // cell's hitboxes are considered "active" by the engine.  Read
+        // by ClassifyHitboxFrameState (0x140300620) and compared
+        // against lane->CurrentAnimFrame to produce the phase tag at
+        // chara+0x1980.
+        //
+        // *** THIS IS THE FRAME-DATA "active window" ***
+        // For a move whose active frames are 14-16, MasterWindowStart=14
+        // and MasterWindowEnd=16.  Outside this range the hitbox boxes
+        // are still rendered (they're geometrically live at +0x14) but
+        // overlap_test → reaction will fail because the chara's phase
+        // tag is 1 (startup) or 3 (recovery).
+        constexpr uintptr_t MasterWindowStart      = 0x36;   // i16
+        constexpr uintptr_t MasterWindowEnd        = 0x38;   // i16
+
+        // i16 BaseDamage (+0x3A) — damage figure used by ProcessHit.
+        constexpr uintptr_t BaseDamage             = 0x3A;   // i16
+
+        // u16 AttackFlags (+0x32) — high/mid/low/throw + blockability
+        // bits; consumed by ResolveAttackVsHurtboxMask22.
+        constexpr uintptr_t AttackFlags            = 0x32;   // u16
+
+        // u16 HitboxGroupBitfield (+0x5E) — bits 0..10 select sub-window
+        // GroupId 0..63 (4 banks of 16).  Mirrored to chara+0x20F6
+        // by SetActiveMoveSlot.
+        constexpr uintptr_t HitboxGroupBitfield    = 0x5E;   // u16
+    }
+
+    // Engine-truth attack-phase enum.  Strictly mirrors the i16 written
+    // to chara+0x1980 by LuxMoveVM_ClassifyHitboxFrameState.
+    //
+    // SC6 fighting-game frame-data semantics:
+    //   None     — not currently in a move that has an active cell, or
+    //              the classifier is disabled (chara+0x16E5 == 0).  No
+    //              phase information available; treat as "neutral".
+    //   Startup  — animation has begun but the hit window has not yet
+    //              opened.  Hitboxes geometrically exist (overlap_test
+    //              still walks them) but cannot fire reactions.
+    //   Active   — the frame range during which an overlap will fire
+    //              a reaction.  This is THE "hitbox is live" window.
+    //   Recovery — animation continues but the hit window has closed.
+    //              No further reactions can fire from this cell.
+    enum class KHitAttackPhase : uint8_t
+    {
+        None     = 0,
+        Startup  = 1,
+        Active   = 2,
+        Recovery = 3,
+    };
+
+    inline const char* KHitAttackPhaseName(KHitAttackPhase p) noexcept
+    {
+        switch (p)
+        {
+            case KHitAttackPhase::None:     return "None";
+            case KHitAttackPhase::Startup:  return "Startup";
+            case KHitAttackPhase::Active:   return "Active";
+            case KHitAttackPhase::Recovery: return "Recovery";
+        }
+        return "?";
+    }
+
+    // ------------------------------------------------------------------
+    // Global battle-state gate
+    // ------------------------------------------------------------------
+    // Byte/dword at 0x144846410 (RVA 0x4846410) — checked at the very
+    // top of LuxBattle_ResolveAttackVsHurtboxMask22:
+    //
+    //   if (DAT_144846410 == 0) return;
+    //
+    // Set non-zero by LuxBattle_BeginBattle / cleared during pause/
+    // load.  When zero, the resolver doesn't run at all on either
+    // chara, so EVERY hurtbox is inert globally.  Used by the
+    // visualiser as one of three engine-truth gates that compose
+    // KHitDraw::defender_can_react_engine.
+    namespace BattleGlobalRVAs
+    {
+        constexpr uintptr_t BattleRunningGate      = 0x4846410; // u32
     }
 
     // ------------------------------------------------------------------
@@ -962,12 +1188,30 @@ namespace Horse
         bool        is_damage_active;
 
         // True when the engine considers this attack node currently
-        // capable of producing damage — exactly the predicate the
-        // classifier (ResolveAttackVsHurtboxMask22 @ 0x14033C100)
-        // uses to decide whether overlap should fire a hit:
+        // capable of producing damage — the predicate the classifier
+        // (ResolveAttackVsHurtboxMask22 @ 0x14033C100) uses to decide
+        // whether overlap should fire a hit, AND'd with the engine's
+        // own per-tick frame-window phase tag at chara+0x1980:
         //
-        //   is_per_frame_active = (node[+0x14] != 0)             // geom-hot
+        //   is_per_frame_active = (node[+0x14] != 0)                  // geom-hot
         //                      && ((node.CategoryMask & per_move_cell) != 0)
+        //                      && (chara->FrameWindowPhase == Active)  // 2026-05
+        //
+        // *** PHASE TAG ADDITION (2026-05) ***
+        // Earlier versions of this filter combined only the +0x14
+        // geom-hot gate and the slot-mask intersection.  Both of those
+        // are set PER-MOVE-SLOT, not per-game-frame, so the filter
+        // showed hitboxes as "active" through the entire move
+        // including STARTUP and RECOVERY frames.  That doesn't match
+        // the fighting-game frame-data sense of "active frames" that
+        // every move's hit window has.
+        //
+        // The engine itself partitions the move into 1=Startup /
+        // 2=Active / 3=Recovery via cell+0x36 / cell+0x38 (Master
+        // WindowStart / End), and writes the result into
+        // chara+0x1980 every tick.  AND'ing in (phase == Active)
+        // narrows the filter to ONLY the authored hit-window frames —
+        // i.e. exactly when an overlap would fire a reaction.
         //
         // The per-move cell at **chara+0x44058 has TWO simultaneous
         // interpretations in the engine:
@@ -985,19 +1229,63 @@ namespace Horse
         //   * Floor-slot attacks (slots 0, 2..17 — body-attached
         //     hitboxes whose +0x14 is always set by the floor).
         //     Hidden during neutral (cell == 0); shown during moves
-        //     whose categories overlap this node's authored CategoryMask.
+        //     whose categories overlap this node's authored CategoryMask
+        //     AND only during the Active frames of those moves.
         //   * Non-floor attacks (slot >= 18).  +0x14 already requires
         //     the slot bit in the cell, so the category intersection
-        //     is the additional "and our move's flavor matches" check.
+        //     is the additional "and our move's flavor matches" check;
+        //     the phase tag is the additional "and we're in active
+        //     frames" check.
         //
-        // Earlier versions of this filter mistakenly used:
+        // History of this filter (chronological):
         //   v1: only *sub_frame_cell — empty for simple moves, hid
         //       every attack.
         //   v2: +0x14 minus 0x3FFFD floor — hid the floor-slot
         //       attacks (body-attached hitboxes).
+        //   v3: +0x14 != 0 AND (cat_mask & ownAttackMask) != 0 —
+        //       worked, but spanned all three phases (the "active
+        //       through entire move" bug).
+        //   v4 (current): v3 AND (phase == Active) — narrows to
+        //       authored hit-window frames only.
         //
         // Always false for hurtbox / body entries.
         bool        is_per_frame_active;
+
+        // ==== Engine frame-window state (chara-side, NOT per-node) ====
+        // The next four fields are stamped onto every KHitDraw produced
+        // for a given chara on a given tick (they're constant across
+        // every node on that chara that frame).  They mirror what
+        // LuxMoveVM_ClassifyHitboxFrameState wrote into chara+0x1980,
+        // chara+0x16EA, and the active cell's +0x36 / +0x38.
+
+        // Engine-truth attack phase.  None when the chara has no active
+        // cell to classify against; otherwise Startup / Active / Recovery
+        // per the cell's MasterWindow vs lane->CurrentAnimFrame.  Use
+        // this to render hitboxes differently per phase (e.g. dim during
+        // startup, bright during active, fade during recovery), or to
+        // gate visibility uniformly on `phase == Active`.
+        //
+        // Stamped on EVERY KHitDraw including hurtboxes / body — same
+        // value for every node on the same chara this tick.  Useful for
+        // the HUD's "ACTIVE" / "STARTUP" / "RECOVERY" text indicator.
+        KHitAttackPhase engine_phase = KHitAttackPhase::None;
+
+        // Boolean mirror of (engine_phase == Active) AND the engine's
+        // sub-window inhibitors are quiet (chara+0x16EB == 0 &&
+        // chara+0x16FE == 0).  Read from chara+0x16EA.  Strictly
+        // identical to phase==Active in normal play; differs only
+        // when the chara is hit-cancelled mid-move (inhibitors set,
+        // phase still says Active because curFrame is still in
+        // window).  HUD active indicators should prefer this for
+        // exact engine-truth fidelity.
+        bool        in_master_window = false;
+
+        // MasterWindow start/end frames from the active cell (+0x36/+0x38).
+        // 0/0 when no cell is active.  These are i16 in animation-frame
+        // units (60 Hz).  Useful for HUD displays like
+        // "frame N (active 14-16)".
+        int16_t     master_window_start = 0;
+        int16_t     master_window_end   = 0;
 
         // Raw `node[+0x14] != 0` for any list kind.  For ATTACK nodes
         // this is the GeometryActiveGate rewritten every tick from the
@@ -1051,6 +1339,135 @@ namespace Horse
         // apply — only the hurtbox list participates in the
         // slot-count-bounded classifier iteration).
         bool        classifier_addressable = true;
+
+        // Engine-side overlap gate.  True iff the OVERLAP TEST in
+        // LuxBattleChara_UpdateAllKHitWorldCenters (0x14030D6A0)
+        // will actually consider this node when iterating
+        // attacker x defender pairs:
+        //
+        //     for (atk in AttackList)
+        //       if (*(short*)(atk+0x14) != 0)             ← attacker gate
+        //         for (hurt in HurtList)
+        //           if (*(short*)(hurt+0x14) != 0)        ← defender gate (THIS)
+        //             if (overlap_test(...))
+        //               PerHurtboxBitmask[hurt+0x17] |= atk[+0x08];
+        //
+        // For ATTACK nodes this is the per-frame "hot" flag the
+        // engine writes every tick from `(hotMask >> +0x17) & 1`.
+        //
+        // For HURTBOX / BODY nodes this is the VM-controlled gate.
+        // The hurt's +0x14 starts at whatever the move's hurtbox
+        // stream deserializer wrote at load time, and is REWRITTEN
+        // by the move-script VM via opcode 0x13AC dispatched in
+        // LuxMoveVM_DispatchEffectOp (0x14037A160), which calls
+        // LuxMoveVM_SetHurtboxSlotsActiveMask (0x140308D70) with a
+        // 23-bit mask:
+        //     for slot 0..22:
+        //         if (slot < chara+0x444B4 / HurtboxMaxSlot)
+        //             for (n = HurtList; n; n = n->next)
+        //                 if (n[+0x17] == slot)
+        //                     n[+0x14] = ~(mask & 1) & 1;
+        //         mask >>= 1;
+        //
+        // Hurtboxes with +0x14 = 0 are NOT vestigial — they are
+        // CONDITIONALLY-ACTIVE, slot-gated extended-reach hurtboxes
+        // authored as default-off.  The per-move VM script flips
+        // them on for specific frames (lunging stabs, parry
+        // windows, soul-charge cancels, etc.) and back off after.
+        // Their slot index +0x17 typically lies BEYOND the dual-
+        // role bound at chara+0x44494 (the AttackMaxSlot the
+        // classifier reuses as its hurtbox iteration ceiling), so
+        // they only contribute to damage when both
+        //   (a) +0x14 has been flipped on by the VM, AND
+        //   (b) chara+0x44494 has been bumped wide enough to cover
+        //       their slot — usually by the same per-move data
+        //       that armed them.
+        //
+        // EMPIRICAL (2026-04-30): Geralt has two large rectangle
+        // hurtboxes authored with +0x14 = 0.  They are off during
+        // neutral / standing / blocking — invisible to the damage
+        // classifier — and the per-move VM enables them for
+        // specific Geralt moves where the extended reach is needed.
+        // HorseMod renders them in CYAN to flag the VM-gated state.
+        //
+        // Identical to `geom_active` for the underlying value, but
+        // semantically tagged for the hurtbox-list use case.  Kept
+        // as a separate field so callers don't have to remember
+        // that geom_active doubles as a hittability gate for hurts.
+        bool        overlap_active = true;
+
+        // True iff this is a HURTBOX node whose slot has been
+        // explicitly DISABLED by the move-script's VM opcode 0x13AC
+        // (LuxMoveVM_SetHurtboxSlotsActiveMask @ 0x140308D70).
+        // i.e.:
+        //   list == Hurtbox
+        //   AND classifier_addressable == true (slot < AttackMaxSlot)
+        //   AND overlap_active == false        (node+0x14 == 0)
+        //
+        // This is the structural marker for "this hurtbox slot is in
+        // an i-frame / armor / parry window THIS TICK".  Distinct from
+        // the cyan default-OFF case because that requires
+        // !classifier_addressable; this requires the slot to be in
+        // classifier range AND turned off.
+        //
+        // Always false for attack and body nodes (VM opcode 0x13AC
+        // only affects the hurtbox list; the BODY-list sister opcode
+        // 0x27 would touch body nodes but we don't currently expose
+        // that as a separate field — body pushboxes are a physics
+        // concern, not damage).
+        //
+        // For a chara-wide "this entire chara is in i-frames right now"
+        // signal, see KHitWalker::HurtboxInvulState (call
+        // readHurtboxInvulState(chara) once per tick).
+        bool        is_invul_slot = false;
+
+        // Chara-wide "the engine can fire reactions on this chara
+        // this frame" gate.  Composed from three early-return
+        // sites in LuxBattle_ResolveAttackVsHurtboxMask22:
+        //   * Battle running          (DAT_144846410 != 0)
+        //   * Not incapacitated/dead  (chara+0x20B8 == 0)
+        //   * Not in no-react state   (chara+0x19B0 != 6)
+        //
+        // When false, the resolver early-returns BEFORE iterating
+        // ANY hurtbox slot, so every hurtbox on this chara is
+        // engine-inert regardless of its own +0x14 / slot index /
+        // category mask.  Stamped once per chara walk; identical
+        // value across every KHitDraw produced for this chara on
+        // this tick.
+        //
+        // Examples of when this is false:
+        //   * Round-end "round X! WIN!" cinematic — chara is
+        //     visible but engine doesn't pump hits.
+        //   * KO — defender sails through reaction frames; hurtbox
+        //     list still rendered but won't take a fresh hit.
+        //   * Pause / load / battle-not-yet-ready — global gate.
+        //
+        // The composite Geralt-style "is this hurtbox actually
+        // hittable this frame" predicate becomes:
+        //
+        //   hittable = classifier_addressable
+        //           && overlap_active
+        //           && defender_can_react_engine;
+        //
+        // Used by the dllmain "Only show active boxes" filter as
+        // an additional clause OR'd with the existing two — see
+        // the toggle composition table in dllmain.cpp.
+        bool        defender_can_react_engine = true;
+
+        // Per-chara "this chara's attack-list is engine-actionable"
+        // gate.  Same chara-wide gates as defender_can_react_engine
+        // but applied to ATTACK boxes — an incapacitated / round-
+        // ended chara can't deal damage either, so attack boxes
+        // that LOOK live (their +0x14 is set, their slot bit is
+        // active) are also engine-inert.  Stored as the same
+        // boolean source for both lists; the filter uses it to
+        // gate attack rendering via is_per_frame_active.
+        //
+        // Pragmatically equal to defender_can_react_engine — both
+        // mean "the chara is in a frame where the engine pumps
+        // hits on it" — but kept as a separately-named field for
+        // self-documenting filter code.
+        bool        attacker_can_strike_engine = true;
 
         bool        reaction_hot;        // hurtbox: PerHurtboxReactionState != 0
         uint32_t    flags10;             // +0x10 — Node_Flags10 (AUTHORED,
@@ -1155,6 +1572,60 @@ namespace Horse
             return mask;
         }
 
+        // Read the global "battle is running" gate (DAT_144846410).
+        // True iff non-zero.  Returns true on read failure (open
+        // policy — false-positive shows extra boxes, false-negative
+        // hides legitimate ones; we prefer the former for debug
+        // overlay UX).
+        //
+        // Used by readDefenderEngineActive below.  Memoised within
+        // a single call to forEachKHit since both charas read the
+        // same global.
+        static bool readBattleRunningGate() noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return true;
+            uint32_t value = 0;
+            if (!SafeReadUInt32(reinterpret_cast<const void*>(
+                    base + BattleGlobalRVAs::BattleRunningGate), &value))
+                return true;
+            return value != 0;
+        }
+
+        // Engine-truth predicate: "this chara's hurtbox list is
+        // currently capable of producing a reaction if struck".
+        // Composed from three early-return gates inside
+        // LuxBattle_ResolveAttackVsHurtboxMask22 (@ 0x14033C100):
+        //
+        //   1. Battle is running       (DAT_144846410 != 0)
+        //   2. chara+0x20B8 == 0       (NOT incapacitated)
+        //   3. chara+0x19B0 != 6       (NOT in no-react state)
+        //
+        // If ANY gate fails the resolver returns without classifying,
+        // so EVERY hurtbox on this chara is inert this frame.  The
+        // visualiser uses this as a per-chara "wholesale inert"
+        // signal that's stamped onto every KHitDraw produced for
+        // the chara.
+        //
+        // Open-policy on read failure: treats unreadable state as
+        // active.  We'd rather show a few extra boxes than hide
+        // legitimate ones during a transient bad read.
+        static bool readDefenderEngineActive(void* chara) noexcept
+        {
+            if (!readBattleRunningGate()) return false;
+            if (!chara) return true;
+            auto* bytes = reinterpret_cast<uint8_t*>(chara);
+            uint16_t incap = 0;
+            if (SafeReadUInt16(bytes + ChaOffsets::IncapacitatedFlag,
+                               &incap) && incap != 0)
+                return false;
+            uint16_t noreact = 0;
+            if (SafeReadUInt16(bytes + ChaOffsets::NoReactStateFlag,
+                               &noreact) && noreact == 6)
+                return false;
+            return true;
+        }
+
         // Snapshot of the currently-active move-lane state.  Reads the
         // three most-interesting floats + move id + terminal flag from
         // the LuxMoveLaneState block the MoveVM is currently driving
@@ -1177,6 +1648,47 @@ namespace Horse
             bool     at_end         = false;  // +0x1A
             bool     finished       = false;  // +0x24
             bool     in_transition  = false;  // +0x26
+
+            // ---- Attack-phase / frame-window state (chara-side, not lane) ----
+            // Sourced from chara+0x1980 (FrameWindowPhaseTag) + cell+0x36/+0x38
+            // (MasterWindowStart/End).  Computed per chara per tick by
+            // LuxMoveVM_ClassifyHitboxFrameState.  Snapshotted here so HUD code
+            // doesn't have to re-resolve the cell pointer.
+
+            // Engine-truth attack phase: what the engine itself thinks the
+            // currently-active move is doing this frame.
+            KHitAttackPhase phase = KHitAttackPhase::None;
+
+            // Master hit-window in animation frames (signed because cells
+            // can author windows starting before frame 0 for chained moves
+            // that share a parent timeline).  Both fields = 0 when phase
+            // is None (no active cell to read from).
+            int16_t  master_window_start = 0;  // cell+0x36
+            int16_t  master_window_end   = 0;  // cell+0x38
+
+            // True iff the current_frame integer is in
+            // [master_window_start, master_window_end] AND the chara's
+            // sub-window inhibitors are quiet (chara+0x16EB == 0 &&
+            // chara+0x16FE == 0).  Strict mirror of the byte at
+            // chara+0x16EA (bInMasterWindowFlag).  This is the boolean
+            // form of "phase == Active" with the engine's exact gate
+            // sequence applied.  Useful for the HUD's "ACTIVE" indicator.
+            bool     in_master_window    = false;
+
+            // Per-bank "current frame is in this bank's authored sub-window
+            // right now" output (4 banks × 16 sub-windows each, indexed
+            // by HitboxGroupBitfield bits 0..10).  -1 means the bank is
+            // not currently active; otherwise the value is the GroupId
+            // (0..15 within the bank).
+            //   bank0_active_group = chara+0x20CC  (bank 0: GroupId  0..15)
+            //   bank1_active_group = chara+0x20CE  (bank 1: GroupId 16..31)
+            //   bank2_active_group = chara+0x20D0  (bank 2: GroupId 32..47)
+            //   bank3_active_group = chara+0x20D2  (bank 3: GroupId 48..63)
+            // Most moves only use bank 0; HUDs can ignore the rest.
+            int16_t  bank0_active_group  = -1;
+            int16_t  bank1_active_group  = -1;
+            int16_t  bank2_active_group  = -1;
+            int16_t  bank3_active_group  = -1;
         };
 
         static LaneSnapshot readLaneSnapshot(void* chara) noexcept
@@ -1218,6 +1730,277 @@ namespace Horse
             s.at_end        = (atEnd != 0);
             s.finished      = (fin   != 0);
             s.in_transition = (inTr  != 0);
+
+            // --- Attack-phase / frame-window snapshot ----------------
+            // Read the engine's per-tick phase classifier output at
+            // chara+0x1980 (i16, written by LuxMoveVM_Classify
+            // HitboxFrameState).  Possible values are 0/1/2/3 mapping
+            // to KHitAttackPhase {None, Startup, Active, Recovery}.
+            // Anything outside that range falls through to None — the
+            // engine never writes other values, but defensive coding
+            // preserves overlay sanity if a torn read returns garbage.
+            int16_t phaseRaw = 0;
+            if (SafeReadInt16(bytes + ChaOffsets::FrameWindowPhaseTag,
+                              &phaseRaw))
+            {
+                switch (phaseRaw)
+                {
+                    case 1:  s.phase = KHitAttackPhase::Startup;  break;
+                    case 2:  s.phase = KHitAttackPhase::Active;   break;
+                    case 3:  s.phase = KHitAttackPhase::Recovery; break;
+                    default: s.phase = KHitAttackPhase::None;     break;
+                }
+            }
+
+            // Read the boolean InMasterWindowFlag at chara+0x16EA.
+            // Strict mirror of (phase == Active) with sub-window
+            // inhibitors AND'd in — so this is the strictly-tighter
+            // "engine considers attack live AND the inhibitors aren't
+            // suppressing it" gate.  HUD active indicators should
+            // prefer this over phase==Active for fidelity.
+            uint8_t inWin = 0;
+            if (SafeReadUInt8(bytes + ChaOffsets::InMasterWindowFlag,
+                              &inWin))
+                s.in_master_window = (inWin != 0);
+
+            // Read MasterWindow start/end from the currently-active
+            // attack cell (chara+0x44058 → cell).  When no cell is
+            // active (idle / non-attacking move), both stay 0.
+            void* cell = nullptr;
+            if (SafeReadPtr(bytes + ChaOffsets::OwnActiveAttackCell,
+                            &cell))
+            {
+                const auto cAddr = reinterpret_cast<uintptr_t>(cell);
+                if (cAddr >= 0x10000ULL && cAddr <= 0x00007fffffffffffULL)
+                {
+                    auto* pCell = reinterpret_cast<uint8_t*>(cell);
+                    int16_t winS = 0, winE = 0;
+                    SafeReadInt16(pCell + LuxAttackCellOffsets::MasterWindowStart,
+                                  &winS);
+                    SafeReadInt16(pCell + LuxAttackCellOffsets::MasterWindowEnd,
+                                  &winE);
+                    s.master_window_start = winS;
+                    s.master_window_end   = winE;
+                }
+            }
+
+            // Per-bank sub-window outputs.  Each is u16 with sentinel
+            // 0xFFFF meaning "this bank's sub-window is NOT live this
+            // frame".  Otherwise the value is the GroupId within the
+            // bank (0..15).  -1 in the snapshot mirrors the sentinel.
+            auto readBank = [&](uintptr_t off, int16_t& out) {
+                uint16_t raw = 0xFFFFu;
+                if (!SafeReadUInt16(bytes + off, &raw))
+                    raw = 0xFFFFu;
+                out = (raw == 0xFFFFu) ? int16_t(-1)
+                                       : static_cast<int16_t>(raw);
+            };
+            readBank(ChaOffsets::SubWinActiveBank0, s.bank0_active_group);
+            readBank(ChaOffsets::SubWinActiveBank1, s.bank1_active_group);
+            readBank(ChaOffsets::SubWinActiveBank2, s.bank2_active_group);
+            readBank(ChaOffsets::SubWinActiveBank3, s.bank3_active_group);
+
+            return s;
+        }
+
+        // ----------------------------------------------------------------
+        // Standalone phase reader — when the caller already has a chara
+        // pointer and just wants the engine's phase tag without paying
+        // for a full LaneSnapshot.  Returns KHitAttackPhase::None on any
+        // read failure (open policy: "treat as not in active frames").
+        //
+        // This is a 1-pointer-arithmetic + 1-SafeRead path — cheap enough
+        // to call inside hot loops.  Used by the per-node attack-active
+        // gate inside walkList().
+        // ----------------------------------------------------------------
+        static KHitAttackPhase readAttackPhase(void* chara) noexcept
+        {
+            if (!chara) return KHitAttackPhase::None;
+            auto* bytes = reinterpret_cast<uint8_t*>(chara);
+            int16_t raw = 0;
+            if (!SafeReadInt16(bytes + ChaOffsets::FrameWindowPhaseTag,
+                               &raw))
+                return KHitAttackPhase::None;
+            switch (raw)
+            {
+                case 1: return KHitAttackPhase::Startup;
+                case 2: return KHitAttackPhase::Active;
+                case 3: return KHitAttackPhase::Recovery;
+                default: return KHitAttackPhase::None;
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // Read MasterWindowStart / MasterWindowEnd from the currently-
+        // active attack cell.  Returns false if no cell is active or any
+        // read fails; out parameters are left untouched in that case.
+        // Both values are i16 in animation-frame units (60 Hz).
+        // ----------------------------------------------------------------
+        static bool readActiveCellMasterWindow(void* chara,
+                                               int16_t* outStart,
+                                               int16_t* outEnd) noexcept
+        {
+            if (!chara || !outStart || !outEnd) return false;
+            auto* bytes = reinterpret_cast<uint8_t*>(chara);
+            void* cell = nullptr;
+            if (!SafeReadPtr(bytes + ChaOffsets::OwnActiveAttackCell,
+                             &cell))
+                return false;
+            const auto cAddr = reinterpret_cast<uintptr_t>(cell);
+            if (cAddr < 0x10000ULL || cAddr > 0x00007fffffffffffULL)
+                return false;
+            auto* pCell = reinterpret_cast<uint8_t*>(cell);
+            int16_t winS = 0, winE = 0;
+            const bool a = SafeReadInt16(
+                pCell + LuxAttackCellOffsets::MasterWindowStart, &winS);
+            const bool b = SafeReadInt16(
+                pCell + LuxAttackCellOffsets::MasterWindowEnd,   &winE);
+            if (!a || !b) return false;
+            *outStart = winS;
+            *outEnd   = winE;
+            return true;
+        }
+
+        // ----------------------------------------------------------------
+        // Hurtbox-slot invulnerability state.
+        //
+        // SC6's i-frames / armor / parry windows are implemented through
+        // VM opcode 0x13AC (LuxMoveVM_DispatchEffectOp @ 0x140376B20)
+        // which calls LuxMoveVM_SetHurtboxSlotsActiveMask @ 0x140308D70
+        // with a 23-bit DISABLE mask.  POLARITY IS INVERTED:
+        //   mask bit S = 1  ⇒  DISABLE every hurtbox node whose +0x17 == S
+        //                      (clear node+0x14)
+        //   mask bit S = 0  ⇒  ENABLE  every hurtbox node whose +0x17 == S
+        //
+        // The deserialiser sets node+0x14 = 1 by default, so opcode 0x13AC
+        // is the mechanism that creates i-frames (full invul: mask =
+        // 0x7FFFFF) or limb-armor windows (mask = single slot bit).
+        //
+        // The result of every 0x13AC firing in the move so far is
+        // OBSERVABLE DIRECTLY from each hurtbox node's +0x14 field —
+        // the engine has already applied the masks.  So invul detection
+        // is a one-pass walk over the hurtbox list checking which slots
+        // are currently disabled.
+        //
+        // We distinguish two structurally-different reasons a hurtbox
+        // can have +0x14 == 0:
+        //   (a) The hurtbox was authored as default-OFF (slot >=
+        //       AttackMaxSlot bound).  These are character-specific
+        //       "extended-reach" volumes that only turn ON during
+        //       specific moves — the cyan rendering case in HorseMod.
+        //       NOT i-frames.
+        //   (b) The hurtbox is in classifier-addressable range AND
+        //       has been disabled by VM opcode 0x13AC.  These ARE
+        //       i-frame / armor windows.
+        //
+        // The HurtboxInvulState struct returns the (b) interpretation:
+        // a per-slot bitmask of which classifier-addressable slots are
+        // currently disabled, plus convenience predicates.
+        // ----------------------------------------------------------------
+        struct HurtboxInvulState
+        {
+            // Bitmask of slots in [0, classifier_bound) that are
+            // currently disabled (node+0x14 == 0).  Each slot index
+            // S corresponds to bit S in this mask.  Up to 23 bits.
+            uint32_t disabled_slot_mask = 0;
+
+            // Bitmask of slots that the chara has hurtbox nodes for,
+            // regardless of whether they're enabled.  Lets the caller
+            // distinguish "slot S is disabled because the move masked
+            // it" from "no node exists at slot S in the first place".
+            uint32_t present_slot_mask  = 0;
+
+            // The classifier bound at chara+0x44494 (= AttackMaxSlot,
+            // reused as the hurtbox iteration ceiling).  Slots >= this
+            // are NOT considered for invul classification because the
+            // engine itself never reads them in the resolver loop.
+            int32_t  classifier_bound   = 0;
+
+            // True iff at least one classifier-addressable hurtbox slot
+            // is currently disabled.  This is the "the chara has SOME
+            // armor / partial invul this frame" predicate.
+            bool     any_invul_slot     = false;
+
+            // True iff EVERY classifier-addressable hurtbox slot that
+            // has a node at all is currently disabled.  This is the
+            // "full-body i-frames" predicate (e.g. wakeup invul,
+            // post-hit invul, super-flash).
+            //
+            // NB: false when the chara has no hurtbox nodes at all
+            // (no move active / corrupt state) — we don't infer
+            // invul from absence of data.
+            bool     full_body_invul    = false;
+        };
+
+        // Walk the chara's hurtbox list once and compute the invul state.
+        // Cheap: ~30 dependent loads typical (one per node), all SafeRead-
+        // wrapped.  Call once per chara per tick from the cockpit hook.
+        //
+        // Returns a default-zeroed state on null chara or read failure —
+        // both `any_invul_slot` and `full_body_invul` are false in that
+        // case, which is the open-policy "treat as not invul" default
+        // (consistent with the rest of the readers in this class).
+        static HurtboxInvulState readHurtboxInvulState(void* chara) noexcept
+        {
+            HurtboxInvulState s{};
+            if (!chara) return s;
+            auto* bytes = reinterpret_cast<uint8_t*>(chara);
+
+            // Load classifier bound, clamped to [0, 23] to match the
+            // engine's slot-range cap.
+            int32_t bound = 0;
+            SafeReadInt32(bytes + ChaOffsets::ClassifierHurtboxBound,
+                          &bound);
+            if (bound < 0)  bound = 0;
+            if (bound > 23) bound = 23;
+            s.classifier_bound = bound;
+
+            // Walk the hurtbox list head.
+            void* head = nullptr;
+            if (!SafeReadPtr(bytes + ChaOffsets::HurtboxListHead, &head))
+                return s;
+
+            // Hard cap on iteration length (defensive — mirrors the
+            // walkList cap below).  Real hurtbox lists are <30 nodes.
+            constexpr int kHurtListCap = 256;
+            void* node = head;
+            for (int i = 0; node != nullptr && i < kHurtListCap; ++i)
+            {
+                const auto nAddr = reinterpret_cast<uintptr_t>(node);
+                if (nAddr < 0x10000ULL || nAddr > 0x00007fffffffffffULL)
+                    break;
+                auto* nbytes = reinterpret_cast<uint8_t*>(node);
+
+                uint8_t  slot  = 0;
+                uint16_t gate  = 0;
+                if (!SafeReadUInt8 (nbytes + KHitOffsets::SubIdOrBoneId,
+                                    &slot)) break;
+                if (!SafeReadUInt16(nbytes + KHitOffsets::IsActiveThisFrame,
+                                    &gate)) break;
+
+                // Only count slots inside the classifier's iteration
+                // range — slots >= bound are "engine-invisible" and
+                // can't fire reactions whether they're enabled or not.
+                if (slot < bound)
+                {
+                    const uint32_t bit = uint32_t(1) << (slot & 0x1F);
+                    s.present_slot_mask |= bit;
+                    if (gate == 0)
+                        s.disabled_slot_mask |= bit;
+                }
+
+                void* next = nullptr;
+                if (!SafeReadPtr(nbytes + KHitOffsets::Next, &next))
+                    break;
+                node = next;
+            }
+
+            s.any_invul_slot  = (s.disabled_slot_mask != 0);
+            // full_body_invul: every present slot is disabled, AND
+            // we have at least one present slot (avoid declaring
+            // invul on an empty list).
+            s.full_body_invul = (s.present_slot_mask != 0)
+                             && (s.disabled_slot_mask == s.present_slot_mask);
             return s;
         }
 
@@ -1400,6 +2183,25 @@ namespace Horse
             // will then return false, which is what we want.
             const uint64_t own_attack_mask = readOwnAttackMask(list_chara);
 
+            // Pre-compute the chara-wide "engine can fire reactions
+            // on this chara this frame" gate.  Composed from three
+            // early-return sites in
+            // LuxBattle_ResolveAttackVsHurtboxMask22 (@ 0x14033C100):
+            //   * Battle running          (DAT_144846410 != 0)
+            //   * Not incapacitated       (chara+0x20B8 == 0)
+            //   * Not in no-react state   (chara+0x19B0 != 6)
+            //
+            // When any fails, the entire defender hurtbox list is
+            // wholesale inert this frame regardless of geometry,
+            // +0x14, or slot index.  See KHitDraw::defender_can_react_engine
+            // for the rationale.
+            //
+            // Reading once here amortises the cost across every
+            // KHitDraw produced for this chara — three SafeRead's
+            // total instead of three per node.
+            const bool defender_can_react =
+                readDefenderEngineActive(list_chara);
+
             // (Was: const uint64_t per_frame_mask = readPerFrameDamage
             // Mask(list_chara). Removed because the engine's per-frame
             // sub-frame cell turns out to be empty for most SC6 moves —
@@ -1432,142 +2234,122 @@ namespace Horse
             // ------------------------------------------------------------
             // Reaction-state diagnostic + sticky flash
             // ------------------------------------------------------------
-            // Problem we're investigating: red "just-got-hit" flash never
-            // visibly fires in game.  Two concurrent interventions:
+            // STICKY FLASH design: the raw reaction flag is a 1-frame pulse
+            // (~16ms at 60fps, hard to see).  Hold the "hot" state for N
+            // frames after raw goes non-zero so the colour change is
+            // actually visible.  walkList() consumes sticky_reactions[] in
+            // place of raw reactions[].
             //
-            // (a) EDGE SCAN — read a wider window (0x1C00..0x1E00, 128 × i32)
-            //     and log ANY transition from 0 -> non-zero.  This both
-            //     validates the nominal 0x1C74 offset and surfaces the
-            //     actual storage location if our assumed offset is wrong.
-            //     Output is event-driven, not throttled by shouldLog() —
-            //     if the signal exists at all we'll see it.
-            //
-            // (b) STICKY FLASH — the raw reaction flag is almost certainly
-            //     a 1-frame pulse (~16ms at 60fps, hard to see).  Hold the
-            //     "hot" state for N frames after raw goes non-zero so the
-            //     colour change is actually visible.  walkList() now
-            //     consumes sticky_reactions[] in place of reactions[].
+            // Diagnostic edge-scan: previously we scanned the 512-byte
+            // window 0x1C00..0x1E00 to validate the 0x1C74 offset and
+            // surface alternative storage locations.  Cross-validation
+            // against the SC6 binary (Ghidra: LuxBattle_ResolveAttackVs-
+            // HurtboxMask22 @ 0x14033C100) confirms PerHurtboxReactionState
+            // is exactly i32[22] @ chara+0x1C74 (88 bytes).  The wide scan
+            // is now restricted to those 22 slots:
+            //   - read cost drops 6×
+            //   - false matches in surrounding fields (e.g. unrelated
+            //     i32s in the 0x1C00..0x1E00 range that happen to flip
+            //     between frames) no longer pollute the [HorseMod.React]
+            //     log
             //
             // Per-player state is keyed by poseSelector (0 = P1, 1 = P2).
             const int pi_idx = (poseSelector < 2u)
                              ? static_cast<int>(poseSelector) : 0;
 
-            // --- (a) Edge-scan diagnostic -------------------------------
-            constexpr uintptr_t kReactionScanBase  = 0x1C00;
-            constexpr int       kReactionScanCount = 128;   // 512 bytes
+            // --- Edge-scan diagnostic over the actual reaction array -----
+            // Engine bound is dynamic (chara+0x44494, clamped to [0,22]
+            // by the classifier loop), so we walk up to the kReactSlotMax
+            // ceiling and ignore the rest.
+            constexpr uintptr_t kReactionScanBase = ChaOffsets::PerHurtboxReactionState;
+            constexpr int       kReactSlotMax     = 22;  // engine clamp
             int32_t* scan_prev = s_react_scan_prev[pi_idx];
 
-            for (int i = 0; i < kReactionScanCount; ++i)
+            for (int i = 0; i < kReactSlotMax; ++i)
             {
                 int32_t v = 0;
                 SafeReadInt32(bytes + kReactionScanBase + i * 4, &v);
                 if (v != 0 && scan_prev[i] == 0)
                 {
                     const uintptr_t off = kReactionScanBase + i * 4;
-                    const int rel_to_nominal =
-                        i - static_cast<int>(
-                            (ChaOffsets::PerHurtboxReactionState
-                             - kReactionScanBase) / 4);
                     RC::Output::send<RC::LogLevel::Verbose>(
-                        STR("[HorseMod.React] pi={} EDGE off=0x{:x} idx={} "
-                            "val=0x{:08x} (rel-to-0x1C74={})\n"),
-                        pi_idx, off, i,
-                        static_cast<uint32_t>(v), rel_to_nominal);
+                        STR("[HorseMod.React] pi={} EDGE off=0x{:x} slot={} "
+                            "val=0x{:08x}\n"),
+                        pi_idx, off, i, static_cast<uint32_t>(v));
                 }
                 scan_prev[i] = v;
             }
 
             // --- (b) Sticky flash (used for rendering) -------------------
-            // Hold "hot" for `s_sticky_frames` GAME TICKS after raw goes
+            // Hold "hot" for `s_sticky_frames` GAME FRAMES after raw goes
             // non-zero.  Driven by the dllmain UI slider; see
             // setStickyFrames().  0 frames = no sticky (raw 1-frame
             // pulse only).
             //
-            // Time-source rationale: this function is called from the
-            // cockpit (Slate UI) hook, which fires ONCE PER RENDER
-            // FRAME — not once per game tick.  The game tick rate is
-            // fixed at 60 Hz, but render frame rate is whatever the
-            // player's display runs at (60 / 120 / 144 / …).  Before
-            // 2026-04 we decremented the sticky counter once per call,
-            // which meant:
-            //   - At 60 Hz render: 15 ticks of sticky ≈ 250 ms ✓
-            //   - At 120 Hz render: drains twice as fast (~125 ms) ✗
-            //   - At 144 Hz render: drains 2.4× too fast (~104 ms)  ✗
-            // We also used `SpeedControl::current_value_static() > 0`
-            // as a "world advancing?" gate so freeze-frame wouldn't
-            // drain the flash.  But SpeedControl::disable() didn't
-            // reset the shared speedval back to 1.0f, so once the
-            // user had ever enabled freeze, the gate would stick at
-            // "frozen" and the flash would NEVER drain, even during
-            // normal gameplay.  That was the 2026-04 "hit-flash never
-            // clears" bug.
+            // Time source: g_LuxBattle_FrameCounter @ imageBase+0x470D0C4
+            // (absolute 0x14470D0C4).  Incremented at the very end of
+            // LuxBattle_PerFrameTick, which is the same function
+            // Horse::WorldTickGate gates at the entry — so freeze and
+            // slow-mo, frame-step, and native play all share a single
+            // truth: "did the world tick this cockpit frame?".  Robust
+            // properties:
+            //   - Freeze (gate policy=0): PerFrameTick bails before the
+            //     increment → counter unchanged → delta=0 → flash held.
+            //   - Step / slow-mo: counter advances exactly once per
+            //     game frame the gate releases → delta=1 per game frame
+            //     observed by cockpit.
+            //   - Native play: counter advances at game-tick rate
+            //     (60 Hz) regardless of render rate (60/120/144 Hz).
             //
-            // Fix: drain by the chara's own GAME-TICK advance, read
-            // from LuxMoveLaneState::TotalTickCounter (lane cursor
-            // +0x458).  The MoveVM bumps that counter once per tick
-            // the lane advances, and naturally stays constant under
-            // freeze-frame (no tick = no advance = no drain).
-            // Slow-motion still drains at wall-clock rate because
-            // game ticks still fire, just less often — so at 0.25×
-            // speed, 15 ticks of sticky ≈ 1 second of wall clock,
-            // which matches the slower animation and lets the user
-            // actually see the flash during slow-mo replays.
-            //
-            // The `speed_check_disabled` note that used to live here
-            // about SpeedControl gating is obsolete.
+            // History: a previous version drained on
+            // LuxMoveLaneState::TotalTickCounter (chara+0x44068→+0x458).
+            // That counter is bumped INSIDE the inner advance loop
+            // (LuxMoveVM_AdvanceLaneFrameStep — decompile via Ghidra MCP),
+            // and LuxMoveVM_ExecuteOpStream re-enters the step routine
+            // every time a move-cell transition completes — so during
+            // hit reactions (which transition through several cells in
+            // one game frame) the lane counter could bump 5–8 per game
+            // frame, draining a 15-tick sticky in 2 frame-step presses.
+            // The global frame counter has no such loop and increments
+            // EXACTLY ONCE per PerFrameTick.
             const int kStickyFrames =
                 s_sticky_frames.load(std::memory_order_relaxed);
 
-            // Read this chara's current game-tick counter.  Falls
-            // back to "always advance" if the lane cursor is missing
-            // (e.g. training-mode paused outside an active move).
-            int32_t cur_tick = 0;
-            bool    have_tick = false;
+            // Read the global game-frame counter.  Falls back to
+            // tick_delta=0 (no drain) if NativeBinding isn't resolved
+            // or the read faults — keeping the flash visible is
+            // strictly better than draining at the wrong rate.
+            constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
+            uint32_t cur_frame = 0;
+            bool     have_frame = false;
             {
-                void* cursor = nullptr;
-                if (SafeReadPtr(bytes + ChaOffsets::ActiveLaneStateCursorPtr,
-                                &cursor))
+                const uintptr_t base = NativeBinding::imageBase();
+                if (base)
                 {
-                    const auto cA = reinterpret_cast<uintptr_t>(cursor);
-                    if (cA >= 0x10000ULL && cA <= 0x00007fffffffffffULL)
-                    {
-                        if (SafeReadInt32(
-                                reinterpret_cast<uint8_t*>(cursor)
-                                + LuxMoveLaneOffsets::TotalTickCounter,
-                                &cur_tick))
-                        {
-                            have_tick = true;
-                        }
-                    }
+                    have_frame = SafeReadUInt32(
+                        reinterpret_cast<const void*>(base + kFrameCounterRVA),
+                        &cur_frame);
                 }
             }
 
-            // Compute how many game ticks have elapsed since the
-            // previous call.  Clamp: negative = counter reset (new
-            // match), treat as 0; huge positive = treat as 1 to
-            // avoid blowing past the sticky window on a single call.
+            // Compute how many game frames have elapsed since the
+            // previous call.  Clamps: negative = counter reset (new
+            // match / round restart) → 0; > 8 = treat as 1 to avoid
+            // blowing past the sticky window on a single call.
             int tick_delta = 0;
-            if (have_tick)
+            if (have_frame)
             {
-                const int32_t prev = s_prev_lane_tick[pi_idx];
+                const int64_t prev = s_prev_frame_counter[pi_idx];
                 if (prev >= 0)
                 {
-                    const int raw = cur_tick - prev;
-                    tick_delta = (raw < 0)      ? 0
-                               : (raw > 8)      ? 1   // counter jumped weirdly
-                               :                 raw;
+                    const int64_t raw =
+                        static_cast<int64_t>(cur_frame) - prev;
+                    tick_delta = (raw < 0)  ? 0
+                               : (raw > 8)  ? 1
+                               :              static_cast<int>(raw);
                 }
-                s_prev_lane_tick[pi_idx] = cur_tick;
-            }
-            // If we can't read the tick counter (no active move), fall
-            // back to a per-cockpit-tick drain but gate on SpeedControl
-            // just like the old path — this is the training-mode-idle
-            // case where no move is active, so nothing can be hitting
-            // anyway; sticky will still drain at render rate.
-            else
-            {
-                tick_delta = (SpeedControl::current_value_static() > 0.0f)
-                             ? 1 : 0;
+                s_prev_frame_counter[pi_idx] =
+                    static_cast<int64_t>(cur_frame);
             }
 
             int32_t* sticky = s_sticky_reactions[pi_idx];
@@ -1643,18 +2425,56 @@ namespace Horse
             }
 #endif
 
+            // ----------------------------------------------------------------
+            // Engine frame-window state — pre-read once per chara per tick.
+            // ----------------------------------------------------------------
+            // chara+0x1980 is the engine's per-tick attack-phase classifier
+            // output (1=Startup, 2=Active, 3=Recovery, 0=no active cell).
+            // Updated every tick by LuxBattle_PreTickStateSnapshot...
+            // (0x14034FCE0) via LuxMoveVM_ClassifyHitboxFrameState
+            // (0x140300620) before TickHitResolution runs, so by the time
+            // we read it from the cockpit / Slate hook the value is the
+            // latest engine-truth.
+            //
+            // Reading once here amortises the read cost across all three
+            // list walks (attack / hurtbox / body) for this chara.  The
+            // phase value is constant across every node on this chara
+            // for this tick, so the pre-read is the right shape.
+            const KHitAttackPhase chara_phase = readAttackPhase(list_chara);
+
+            // Active cell's MasterWindow start/end (cell+0x36/+0x38).  Used
+            // for HUD frame-data display.  Both = 0 when no cell is active
+            // (e.g. neutral / non-attacking move).
+            int16_t mwin_start = 0, mwin_end = 0;
+            readActiveCellMasterWindow(list_chara, &mwin_start, &mwin_end);
+
+            // Boolean from chara+0x16EA — same as (phase == Active) AND
+            // sub-window inhibitors quiet.  HUD active indicators should
+            // prefer this for exact engine-truth fidelity (it folds in
+            // the inhibitor short-circuits the phase tag alone doesn't).
+            uint8_t in_master_window_byte = 0;
+            SafeReadUInt8(bytes + ChaOffsets::InMasterWindowFlag,
+                          &in_master_window_byte);
+            const bool in_master_window = (in_master_window_byte != 0);
+
             // --- Attack list -------------------------------------------------
             walkList(ue_chara, poseSelector, atk_head,
                      KHitList::Attack, active_cell, own_attack_mask,
-                     reactions_hot, hurt_slot_count, verbose, visit);
+                     reactions_hot, hurt_slot_count, defender_can_react,
+                     chara_phase, mwin_start, mwin_end, in_master_window,
+                     verbose, visit);
             // --- Hurtbox list ------------------------------------------------
             walkList(ue_chara, poseSelector, hurt_head,
                      KHitList::Hurtbox, active_cell, own_attack_mask,
-                     reactions_hot, hurt_slot_count, verbose, visit);
+                     reactions_hot, hurt_slot_count, defender_can_react,
+                     chara_phase, mwin_start, mwin_end, in_master_window,
+                     verbose, visit);
             // --- Body / pushbox list -----------------------------------------
             walkList(ue_chara, poseSelector, body_head,
                      KHitList::Body, active_cell, own_attack_mask,
-                     reactions_hot, hurt_slot_count, verbose, visit);
+                     reactions_hot, hurt_slot_count, defender_can_react,
+                     chara_phase, mwin_start, mwin_end, in_master_window,
+                     verbose, visit);
         }
 
         // Throttle log output to ~twice per second at 60 FPS.
@@ -1689,21 +2509,26 @@ namespace Horse
         // red flash lasts long enough to be visible at 60fps.
         static inline int32_t s_sticky_reactions[2][22] = {};
 
-        // Per-player previous-frame snapshot of the 0x1C00..0x1E00 scan
-        // region — used by the edge-triggered diagnostic that verifies
-        // whether PerHurtboxReactionState really lives at 0x1C74.
-        static inline int32_t s_react_scan_prev[2][128] = {};
+        // Per-player previous-frame snapshot of the PerHurtboxReactionState
+        // i32[22] array (chara+0x1C74).  Drives the edge-triggered
+        // diagnostic that surfaces 0->non-zero transitions.  Sized to the
+        // engine's hard cap of 22 slots (matches kReactSlotMax in tick()).
+        // Was 128 historically when we were probing for the storage
+        // location; now that it's confirmed via Ghidra cross-reference,
+        // sized to fit exactly.
+        static inline int32_t s_react_scan_prev[2][22] = {};
 
-        // Per-player previous-tick snapshot of chara+0x44068→+0x458
-        // (LuxMoveLaneState::TotalTickCounter) — a monotonic i32 that
-        // the MoveVM bumps every game-tick the lane advances.  Used
-        // to drive the sticky-flash drain on GAME ticks instead of
-        // cockpit ticks, so the visible flash duration is consistent
-        // regardless of the user's render refresh rate (60/120/144
-        // Hz all produce the same "N game-frames visible" result) and
-        // naturally pauses under freeze-frame without any SpeedControl
-        // coupling.  -1 sentinel = no prior sample yet (first frame).
-        static inline int32_t s_prev_lane_tick[2] = { -1, -1 };
+        // Per-player previous-cockpit snapshot of g_LuxBattle_FrameCounter
+        // (imageBase+0x470D0C4).  The global is incremented exactly once
+        // per LuxBattle_PerFrameTick, which Horse::WorldTickGate gates
+        // at the entry — so this counter halts under freeze, advances
+        // one-per-game-frame under step, and advances at the gate's
+        // slowed cadence under slow-mo.  Per-player only because each
+        // chara's sticky array is per-player and we want each pi to
+        // converge from its own history (drains stay synced across
+        // ticks because both pi values read the same global).
+        // -1 sentinel = no prior sample yet (first frame).
+        static inline int64_t s_prev_frame_counter[2] = { -1, -1 };
 
         // Runtime-configurable sticky window length, in GAME ticks
         // (60fps assumed).  Default 15 ≈ 250ms; dllmain overrides it
@@ -1719,6 +2544,22 @@ namespace Horse
                              uint64_t ownAttackMask,
                              const int32_t (&reactions)[22],
                              int32_t hurtSlotCount,
+                             bool charaEngineCanReact,
+                             // Engine attack-phase tag (chara+0x1980)
+                             // pre-read once per chara per tick.  Stamped
+                             // onto every KHitDraw and AND'd into the
+                             // is_per_frame_active filter.  See
+                             // KHitDraw::engine_phase for the rationale.
+                             KHitAttackPhase charaPhase,
+                             // Active cell's MasterWindow start/end (cell+
+                             // 0x36/+0x38) pre-read once per chara per tick.
+                             // 0/0 if no active cell.  Stamped onto every
+                             // KHitDraw for HUD use.
+                             int16_t  charaMasterWindowStart,
+                             int16_t  charaMasterWindowEnd,
+                             // Boolean from chara+0x16EA — same as
+                             // (phase == Active) AND inhibitors quiet.
+                             bool     charaInMasterWindow,
                              bool verbose,
                              Visit&& visit)
         {
@@ -1764,13 +2605,75 @@ namespace Horse
                 // the doc for KHitOffsets::IsActiveThisFrame.
                 d.is_current_attack     = (listKind == KHitList::Attack &&
                                            activeGate != 0);
-                // Raw +0x14 for diagnostic purposes.  Note this is a
-                // valid live/cold signal only for attack nodes — the
-                // per-frame update loop in TickHitResolution does not
-                // touch hurtbox / body lists, so their +0x14 stays at
-                // the deserialize-time default (always 1).  See
-                // KHitDraw::geom_active doc for the full story.
+                // Raw +0x14 for diagnostic purposes.
+                //
+                // ATTACK nodes: this is the engine's per-frame "hot"
+                // flag, updated each tick by
+                //   *(node+0x14) = (hotMask >> node[+0x17]) & 1
+                // in LuxBattle_TickHitResolutionAndBodyCollision
+                // @ 0x14033CCA0.  hotMask = 0x3FFFD | animCellMask |
+                // ownActiveCellMask, so the floor pins slots {0, 2..17}
+                // hot every frame.
+                //
+                // HURTBOX / BODY nodes: NOT touched per-frame.  The
+                // value persists from whatever the move's hurtbox-
+                // stream deserialiser wrote at load time.  Most
+                // characters use 1 (overlap considered every frame),
+                // but SOME hurtboxes are authored with +0x14 = 0 —
+                // typically character-specific "decoy" boxes that
+                // exist as visual reference but are engine-DISABLED.
+                //
+                // Per the overlap loop in
+                // LuxBattleChara_UpdateAllKHitWorldCenters
+                // @ 0x14030D6A0, the defender-side `if (hurt[+0x14]
+                // != 0)` is a HARD GATE — a hurtbox with +0x14 = 0
+                // is skipped entirely from the overlap test, so its
+                // PerHurtboxBitmask slot never gets attacker bits
+                // OR'd in, and the classifier never fires a reaction
+                // for it.  Verified 2026-04-30 with Geralt's two
+                // large rectangle hurtboxes.
                 d.geom_active           = (activeGate != 0);
+
+                // For hurtbox nodes specifically: the same +0x14
+                // doubles as the OVERLAP-TEST GATE.  See the
+                // overlap_active doc on KHitDraw for the engine
+                // truth.  Stored as a separate field so the filter
+                // logic in dllmain doesn't have to remember the
+                // geom_active dual-purpose.
+                d.overlap_active        = (activeGate != 0);
+
+                // is_invul_slot — true iff this is a HURTBOX node whose
+                // slot has been disabled by the move-script's VM opcode
+                // 0x13AC (LuxMoveVM_SetHurtboxSlotsActiveMask).  This is
+                // the per-node marker for "this slot is in an i-frame /
+                // armor / parry window THIS TICK".  See KHitDraw::is_
+                // invul_slot doc and the readHurtboxInvulState helper
+                // for the chara-wide companion predicate.
+                //
+                // Composition (set later, after classifier_addressable
+                // is computed for hurtbox nodes — see the hurtbox
+                // branch below):
+                //   list == Hurtbox AND
+                //   classifier_addressable AND
+                //   activeGate == 0
+                // For attack / body nodes the field stays false (the
+                // VM opcode that drives this only operates on the
+                // hurtbox list; body has its own sister opcode that
+                // we don't currently surface).
+
+                // Chara-wide engine gate (per-call, same for every
+                // node on this chara this tick).  Composed from
+                // the three early-return sites in the resolver —
+                // see KHitDraw::defender_can_react_engine doc and
+                // the readDefenderEngineActive() helper.  Stored
+                // on every list kind because the same gate also
+                // disables ATTACK boxes (an incapacitated chara
+                // doesn't deal damage either) and BODY pushboxes
+                // (still resolved by the physics solver, but the
+                // overlay's "show only engine-active" toggle
+                // applies uniformly).
+                d.defender_can_react_engine  = charaEngineCanReact;
+                d.attacker_can_strike_engine = charaEngineCanReact;
 
                 // Classifier addressability (hurtbox only).  True when
                 // `boneId < ClassifierHurtboxBound` AND `boneId < 22` —
@@ -1800,13 +2703,30 @@ namespace Horse
                                       :  hurtSlotCount;
                     d.classifier_addressable =
                         (static_cast<int32_t>(boneId) < cap);
+
+                    // is_invul_slot: this hurtbox slot is in classifier
+                    // range AND has been disabled by VM opcode 0x13AC.
+                    // The deserialiser sets +0x14 = 1 by default, so
+                    // a hurtbox in addressable range with +0x14 == 0
+                    // is necessarily in an i-frame / armor / parry
+                    // window — the move-script VM has explicitly
+                    // turned this slot off.
+                    d.is_invul_slot = d.classifier_addressable
+                                   && (activeGate == 0);
                 }
                 // Damage gate — slot bit set in THIS chara's own
-                // active-attack-cell mask.  Narrower than +0x14: only
-                // true when the current move's authored timeline has
-                // lit this specific slot.  The UI can route "Live
-                // attacks only" through this for a much tighter
-                // filter; see dllmain m_hide_not_damage_active.
+                // active-attack-cell mask.  Treats chara[+0x44058] as
+                // a slot bitmap (one of its two engine interpretations)
+                // and tests bit (boneId & 0x3F).  Carried as a separate
+                // field so consumers that want a "slot is in the
+                // current move's plan" predicate can use it directly;
+                // is_per_frame_active below adds the +0x14 hot gate
+                // and category-mask intersection on top for the
+                // strictly tighter "engine will fire damage" gate.
+                // (The legacy "Damage-active only" UI toggle that
+                // routed this flag was removed 2026-05 in favour of
+                // the unified "Only show active boxes" filter, which
+                // uses is_per_frame_active.)
                 d.is_damage_active      = (listKind == KHitList::Attack &&
                                            slotBitInMask(boneId,
                                                          ownAttackMask));
@@ -1830,9 +2750,26 @@ namespace Horse
                 // interpretation explanation (same 64 bits used as
                 // either slot mask or category mask depending on the
                 // engine site).
+                // Stamp the chara-wide engine phase + master-window
+                // info onto every KHitDraw produced this tick.  These
+                // fields are constant across every node on this chara
+                // for this tick — see KHitDraw doc for rationale.
+                d.engine_phase          = charaPhase;
+                d.in_master_window      = charaInMasterWindow;
+                d.master_window_start   = charaMasterWindowStart;
+                d.master_window_end     = charaMasterWindowEnd;
+
+                // is_per_frame_active — narrowed (2026-05) to the engine's
+                // own per-tick "active frames" predicate by AND'ing in
+                // (charaPhase == Active).  Without this, the existing
+                // gates (+0x14 hot AND slot-mask intersect) span the
+                // entire move because both sources are per-MOVE-SLOT,
+                // not per-game-frame.  See KHitDraw::is_per_frame_active
+                // doc above for the full reasoning + history.
                 d.is_per_frame_active = (listKind == KHitList::Attack &&
                                          activeGate != 0 &&
-                                         (cat_mask & ownAttackMask) != 0);
+                                         (cat_mask & ownAttackMask) != 0 &&
+                                         charaPhase == KHitAttackPhase::Active);
                 d.stream_tag            = streamTag;
                 d.bone_id_internal      = boneId;
                 d.flags10               = flags10;

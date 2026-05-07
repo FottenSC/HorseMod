@@ -188,21 +188,21 @@ namespace Horse
             // function's doc-comment for the full rationale.
             apply_policy_to_launcher(launcher, policy);
 
-            // Log first fire per policy — diagnostic so the user can
-            // confirm in UE4SS.log that the override actually ran for
-            // the policy they selected.  Vanilla also gets logged so
-            // the user can see the reset is happening.
-            static std::atomic<int> s_seen[kHorsePolicyCount] = {};
-            const int idx = static_cast<int>(policy);
-            if (idx >= 0 && idx < kHorsePolicyCount &&
-                s_seen[idx].fetch_add(1) == 0)
-            {
-                RC::Output::send<RC::LogLevel::Default>(
-                    STR("[LuxBattleLauncherStartHook] applied policy "
-                        "{} on launcher=0x{:X}\n"),
-                    static_cast<int>(policy),
-                    reinterpret_cast<uintptr_t>(launcher));
-            }
+            // Log EVERY fire (with a per-process counter for triage).
+            // The 2026-04-28 desync investigation needs to know:
+            //  * how many times Start fires per match (1? several?)
+            //  * whether host AND joiner both fire it, or just host
+            //  * if launcher pointer differs between host/joiner runs
+            // Without per-fire logging we can't answer those questions
+            // from a post-test log.
+            static std::atomic<int> s_total_fires{0};
+            const int n = s_total_fires.fetch_add(1) + 1;
+            RC::Output::send<RC::LogLevel::Default>(
+                STR("[LuxBattleLauncherStartHook] fire #{} policy={} "
+                    "launcher=0x{:X}\n"),
+                n,
+                static_cast<int>(policy),
+                reinterpret_cast<uintptr_t>(launcher));
 
             if (orig) orig(launcher, InStartParam);
         }

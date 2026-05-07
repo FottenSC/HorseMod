@@ -58,4 +58,5 @@ if !ERRORLEVEL! NEQ 0 (
 
 echo Copied successfully to %DEPLOY_DIR%\main.dll
 echo.
+echo [build_and_deploy] finished at %DATE% %TIME%
 exit /b 0

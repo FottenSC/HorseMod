@@ -71,3 +71,10 @@ tmp/
 # the zips are uploaded to GitHub Releases / Thunderstore, not committed
 # back to the repo.
 dist/
+
+# --- Game data dump (research only, not redistributable) -------------------
+# Local copy of SC6 character data (chr*.mot, atkhit*.dat, hdr*.khd,
+# CP_*.uasset, cpuai*.dtp) used to reverse-engineer move bytecode for the
+# multi-hit-step bug investigation.  Do NOT commit — licensed game assets.
+# Regenerable from a local UnrealPak dump.
+dump/
