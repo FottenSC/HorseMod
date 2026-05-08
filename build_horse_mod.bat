@@ -35,7 +35,7 @@ rem
 rem !! IMPORTANT — MYMODS_FAST_DEV / LTO-off is unsafe with this deploy flow !!
 rem
 rem We DO NOT deploy our locally-built UE4SS.dll to the game.  build_and_
-rem deploy.bat copies only HorseMod.dll -> <game>\...\HorseLab\dlls\main.dll.
+rem deploy.bat copies only HorseMod.dll -> <game>\...\HorseMod\dlls\main.dll.
 rem The game keeps using its installed UE4SS.dll from the official release
 rem (LTO ON).  HorseMod.dll, however, was just LINKED against our build-tree
 rem UE4SS.lib.

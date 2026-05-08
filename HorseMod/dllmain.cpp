@@ -3098,6 +3098,14 @@ private:
     {
         ++m_update_calls;
 
+        // Drain the ResetOverride deferred-apply queue.  Cheap no-op
+        // when no reset is pending.  Must run BEFORE any other tick
+        // logic so the user's captured pose is visible to camera /
+        // rendering this frame.  See ResetOverride.hpp's "Deferred-
+        // apply" plate for why we don't write directly from the
+        // reset post-hook.
+        Horse::ResetOverride::instance().tick();
+
         // ----------------------------------------------------------------
         // PRESENCE-TRANSITION SAFETY CLEAR
         // ----------------------------------------------------------------
@@ -5295,6 +5303,12 @@ private:
                     "(couldn't hook the VFX system — see UE4SS.log)");
             }
 
+            // Modded-lobby UI temporarily disabled — the v1 SlipOut path
+            // didn't work in the latest test (see UE4SS.log session
+            // 2026-05-08).  Hooks remain installed in the background;
+            // policy stays at whatever's persisted in settings.cfg
+            // (Vanilla by default).  Re-enable by removing the #if 0.
+#if 0
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::TextUnformatted("Online (modded lobbies)");
@@ -5383,6 +5397,7 @@ private:
                         Horse::OnlineRules::policy_name(current));
                 }
             }
+#endif
 
     }
 };

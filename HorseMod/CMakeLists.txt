@@ -67,7 +67,7 @@ target_link_libraries(${TARGET} PRIVATE dxgi d3d11 delayimp)
 #
 # Why this matters
 # ----------------
-# When the user disables HorseLab via enabled.txt-rename (UE4SS skips
+# When the user disables HorseMod via enabled.txt-rename (UE4SS skips
 # start_mod()), or sets the disable_gameimgui.txt kill switch, no HorseMod
 # code runs — but the DLL is still mapped into SC6's process.  Windows'
 # normal loader reads HorseMod.dll's import table and pulls in every DLL

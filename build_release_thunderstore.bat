@@ -65,7 +65,7 @@ rem manually in v0.25.1 — the layout above is what actually works.
 rem
 rem (Manual / GitHub-release users get a different zip — see
 rem build_release_github.bat — that drops files directly under
-rem ue4ss\Mods\HorseLab\ since they don't go through shimloader.)
+rem ue4ss\Mods\HorseMod\ since they don't go through shimloader.)
 rem
 rem Zipping note
 rem ------------

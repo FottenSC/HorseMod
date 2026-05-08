@@ -23,8 +23,8 @@
 //   * File location is derived from our own DLL's module path via
 //     GetModuleHandleExW(FROM_ADDRESS) + GetModuleFileNameW, then
 //     backing up one directory from dlls/.  This works regardless of
-//     the user's mod-folder name (we observed "HorseLab" in the wild,
-//     but that's just the folder name under ue4ss/Mods/).
+//     the user's mod-folder name (e.g. "HorseMod" under ue4ss/Mods/, or
+//     "<author>-HorseMod" under shimloader/mod/ via Thunderstore).
 //
 //   * Values are stored internally as std::string for simplicity;
 //     typed get_bool / get_int / get_float do the parse, with a

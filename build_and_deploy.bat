@@ -28,7 +28,7 @@ set BUILD_DIR=build_cmake_LessEqual421__Shipping__Win64
 set BUILT_DLL=%REPO_ROOT%%BUILD_DIR%\HorseMod\HorseMod.dll
 
 set GAME_DIR=E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64
-set MOD_NAME=HorseLab
+set MOD_NAME=HorseMod
 set DEPLOY_DIR=%GAME_DIR%\ue4ss\Mods\%MOD_NAME%\dlls
 
 rem ---- Build (delegate to the pure build script) ---------------------------

@@ -69,6 +69,22 @@
 // (called from game thread inside the UFunction post-hook) can race.
 // The two operations are short and the contention is negligible.
 //
+// Deferred-apply
+// --------------
+// apply_to_charas() does NOT write directly — it queues a "pending
+// apply" counter that's drained by tick() from the cockpit pre-hook
+// one frame later.  Why: when the reset is the first one after a
+// character swap, the LuxBattleChara at the static slot has been
+// torn down and is mid-rebuild.  Calling the engine's SetStartPosition
+// helper on a half-built chara walks a not-yet-populated sub-component
+// list at +0x29130 and raises an unhandled C++ exception
+// (0xe06d7363) that brings down the process — see UE4SS.log
+// 2026-05-08 20:25:04 incident.  By the next cockpit tick the
+// world tick has finished rebuilding the chara, so the apply is
+// safe.  As a belt-and-suspenders, tick() also validates that
+// chara+0x29130 holds a non-null pointer before invoking the engine
+// helper, and skips the slot otherwise.
+//
 // Note on facing override
 // -----------------------
 // SC6 represents per-chara facing as a single byte (P1 side vs P2 side)
@@ -185,12 +201,12 @@ namespace Horse
         // ---- Apply ------------------------------------------------------
 
         // Called from the BattleManager:TrainingModePositionReset post-
-        // hook.  Walks both chara slots and overwrites their pose with
-        // our captured values.  Per-player no-op if pose.has is false
-        // (so partial captures don't clobber the un-captured player).
+        // hook.  Does NOT write directly — queues a deferred apply that
+        // tick() drains from the cockpit pre-hook one frame later.  See
+        // the "Deferred-apply" plate at the top of the file for why.
         //
-        // Safe to call when no match is active — charaSlotFromGlobal
-        // returns null in that case and we early-out.
+        // Safe to call when no match is active or no pose is captured;
+        // tick() checks both before doing anything.
         void apply_to_charas()
         {
             // Log unconditionally so we can see in UE4SS.log whether
@@ -201,10 +217,46 @@ namespace Horse
             const bool en = enabled();
             RC::Output::send<RC::LogLevel::Default>(
                 STR("[ResetOverride] post-hook fired (enabled={}, "
-                    "p1.has={}, p2.has={})\n"),
+                    "p1.has={}, p2.has={}) — queuing apply for next "
+                    "cockpit tick\n"),
                 en ? 1 : 0,
                 m_pose[0].has ? 1 : 0,
                 m_pose[1].has ? 1 : 0);
+
+            if (!en) return;
+
+            // Counter semantics: 0 = no pending apply, >0 = ticks left
+            // before the queued write fires.  We arm with 2 so the
+            // very first cockpit pre-hook on the same frame as the
+            // post-hook decrements to 1 (no apply), and the cockpit
+            // pre-hook of the FOLLOWING frame decrements to 0 (apply).
+            // That gives the engine one full frame to finish any
+            // chara reconstruction triggered by a character swap.
+            //
+            // Multiple post-hook fires in the same chain just rearm
+            // the counter; the apply still runs once.
+            m_apply_delay.store(2, std::memory_order_release);
+        }
+
+        // Called once per cockpit pre-hook (game thread, UMG tick —
+        // AFTER the world tick has run).  Drains the deferred-apply
+        // counter set by apply_to_charas() and, when it elapses, runs
+        // the actual chara writes with a per-slot validation gate
+        // that skips half-built charas.
+        //
+        // Cheap fast path: if no apply is pending the counter is 0
+        // and we return after a single relaxed load.
+        void tick()
+        {
+            int d = m_apply_delay.load(std::memory_order_acquire);
+            if (d == 0) return;
+            if (d > 1)
+            {
+                m_apply_delay.store(d - 1, std::memory_order_release);
+                return;
+            }
+            // d == 1: time to apply.
+            m_apply_delay.store(0, std::memory_order_release);
 
             if (!enabled()) return;
 
@@ -214,6 +266,30 @@ namespace Horse
                 if (!m_pose[pi].has) continue;
                 void* chara = KHitWalker::charaSlotFromGlobal(pi);
                 if (!chara) continue;
+
+                // Validate: the chara's sub-component list head at
+                // +0x29130 must be readable AND non-null.  The engine
+                // helper SetStartPosition walks that list and fails
+                // an internal invariant (raises 0xe06d7363) if it's
+                // null or unmapped — which is exactly the post-swap
+                // mid-rebuild state.  Skip rather than crash; the
+                // user's next reset bind will retry once the chara
+                // has finished initialising.
+                void* subcomp = nullptr;
+                const auto* subcomp_addr =
+                    reinterpret_cast<const uint8_t*>(chara) + kSubcomp;
+                if (!SafeReadPtr(subcomp_addr, &subcomp) || !subcomp)
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(
+                        STR("[ResetOverride] skip P{} apply: chara=0x{:X} "
+                            "sub-component list at +0x{:X} is null or "
+                            "unreadable (mid-init from character swap?)\n"),
+                        pi + 1,
+                        reinterpret_cast<uintptr_t>(chara),
+                        static_cast<uint64_t>(kSubcomp));
+                    continue;
+                }
+
                 RC::Output::send<RC::LogLevel::Default>(
                     STR("[ResetOverride] writing P{} pose ({:.2f}, {:.2f}, "
                         "{:.2f}) side={} to chara at 0x{:X}\n"),
@@ -254,6 +330,12 @@ namespace Horse
         static constexpr std::ptrdiff_t kRender_Z = 0x2098;
 
         static constexpr std::ptrdiff_t kSideFlag = 0x23C;
+
+        // Sub-component linked-list head walked by the engine's
+        // SetStartPosition helper.  Used as a "is this chara fully
+        // constructed?" sentinel by tick().  Sourced from the plate
+        // comment on LuxBattleChara_SetStartPosition (0x140301e60).
+        static constexpr std::ptrdiff_t kSubcomp  = 0x29130;
 
         // ---- Read / write helpers ---------------------------------------
 
@@ -327,5 +409,13 @@ namespace Horse
         std::atomic<bool>  m_enabled{false};
         mutable std::mutex m_mutex;
         FCharaPose         m_pose[2]{};
+
+        // Deferred-apply counter.  See apply_to_charas() / tick() and the
+        // "Deferred-apply" plate at the top of the file.  0 = no pending
+        // apply; >0 = cockpit ticks remaining before the queued write
+        // fires.  Atomic because apply_to_charas() runs on the world-tick
+        // game thread (UFunction post-hook) and tick() runs on the
+        // UMG-tick game thread (cockpit pre-hook).
+        std::atomic<int>   m_apply_delay{0};
     };
 }

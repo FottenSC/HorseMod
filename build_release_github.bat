@@ -8,7 +8,7 @@ rem Output: dist\HorseMod-v<VERSION>.zip
 rem
 rem The zip layout is "drop into ue4ss\Mods\":
 rem
-rem   HorseLab\
+rem   HorseMod\
 rem     enabled.txt
 rem     dlls\
 rem       main.dll
@@ -64,9 +64,9 @@ if not exist "%BUILT_DLL%" (
 
 rem ---- Stage release contents ----------------------------------------------
 if exist "%STAGE_DIR%" rmdir /S /Q "%STAGE_DIR%"
-mkdir "%STAGE_DIR%\HorseLab\dlls"
+mkdir "%STAGE_DIR%\HorseMod\dlls"
 
-copy /Y "%BUILT_DLL%" "%STAGE_DIR%\HorseLab\dlls\main.dll" >nul
+copy /Y "%BUILT_DLL%" "%STAGE_DIR%\HorseMod\dlls\main.dll" >nul
 if !ERRORLEVEL! NEQ 0 (
     echo [release.github] failed to copy DLL into stage
     exit /b 1
@@ -75,7 +75,7 @@ if !ERRORLEVEL! NEQ 0 (
 rem enabled.txt — UE4SS reads it to decide whether to load the mod.  Empty
 rem file is fine; the rename to "enabled.txt.DISABLED" is the documented
 rem off-switch.
-type nul > "%STAGE_DIR%\HorseLab\enabled.txt"
+type nul > "%STAGE_DIR%\HorseMod\enabled.txt"
 
 rem README.md (release-facing instructions)
 copy /Y "%REPO_ROOT%release_resources\README.md" "%STAGE_DIR%\README.md" >nul

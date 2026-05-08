@@ -46,22 +46,21 @@ game at launch — no manual file copying required.
 
 1. Install [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) into the game's
    `Binaries/Win64` directory.
-2. Extract the zip so that the `HorseLab` folder lands inside
+2. Extract the zip so that the `HorseMod` folder lands inside
    `<Steam>/steamapps/common/SoulcaliburVI/SoulcaliburVI/Binaries/Win64/ue4ss/Mods/`.
    The final layout should be:
 
    ```
-   <game>/Binaries/Win64/ue4ss/Mods/HorseLab/
+   <game>/Binaries/Win64/ue4ss/Mods/HorseMod/
      ├── enabled.txt
      └── dlls/
          └── main.dll
    ```
 
-   (Note: the Thunderstore zip ships its payload under `shimloader/mod/HorseLab/`
-   so unreal-shimloader can redirect it.  If you're installing manually
-   without shimloader, grab the GitHub release zip instead, or copy the
-   contents of `shimloader/mod/HorseLab/` from the Thunderstore zip into
-   the path above.)
+   (Note: the Thunderstore zip ships its payload under `mod/` so the SC6
+   community's mod managers can route it through unreal-shimloader.  If
+   you're installing manually without shimloader, grab the GitHub release
+   zip instead — its layout already matches the path above.)
 
 3. Launch SoulCalibur VI.  The mod loads automatically when UE4SS starts.
 4. Press **F2** (keyboard) or **Back / Select** (gamepad) to open the
@@ -77,7 +76,7 @@ game at launch — no manual file copying required.
 ## Disabling the mod
 
 Rename `enabled.txt` to `enabled.txt.DISABLED` (or delete it) inside the
-`HorseLab` folder.  UE4SS will skip loading the mod on the next launch.
+`HorseMod` folder.  UE4SS will skip loading the mod on the next launch.
 
 ## Credits
 
