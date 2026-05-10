@@ -30,8 +30,10 @@
 // Policy state (cave-resident int32_t)
 // ------------------------------------
 //     0  : frozen — every PerFrameTick call bails (bare RET).
-//   > 0  : step credits — each PerFrameTick call atomically dec's the
-//          slot by 1 and runs the displaced prologue normally.
+//   > 0  : step credits remaining — PerFrameTick (and sibling gates)
+//          run.  Caller drains the count by calling
+//          consume_one_credit() once per OBSERVED PerFrameTick run;
+//          the trampoline itself does NOT modify the slot.
 //   < 0  : unused (treated as "always run" — defensive equivalent of
 //          Native for any path that accidentally writes negative).
 //
@@ -39,15 +41,25 @@
 // engine's original PerFrameTick prologue runs unconditionally, no
 // policy slot consulted.
 //
+// Why C++ owns the decrement
+// --------------------------
+// Earlier the trampoline did `lock dec` on entry.  Cleaner-looking but
+// it created an off-by-one bug whenever a sibling gate (e.g.
+// ActorTickGate Site 11) fired LATER in the same UE4 tick frame than
+// PerFrameTick: on the last credit of a burst, Site 9 would dec policy
+// 1→0 and run, then the sibling would see 0 and bail.  Net visible
+// effect: 10-step request advanced 9 replay frames.  Moving the
+// decrement to the post-tick hook makes every gate observe the same
+// slot value for the entire UE4 frame, so the credit count drains in
+// lockstep with frames advanced.
+//
 // Race notes
 // ----------
-// The cockpit pre-hook (game thread) is sequenced with PerFrameTick (also
-// game thread) — they cannot race.  The F6 hotkey runs on a UE4SS keyboard
-// thread and can race with PerFrameTick: the trampoline does a non-atomic
-// load-test-dec sequence, so a hotkey-issued add_step concurrent with a
-// trampoline run can lose at most one credit.  Operationally that means
-// the user has to press F6 again — acceptable.  If we ever care, swap the
-// trampoline to a `lock cmpxchg` retry loop (~6 more bytes).
+// All hot-path access is on the game thread.  The F6 hotkey runs on a
+// UE4SS keyboard thread; add_step uses atomic fetch_add and
+// consume_one_post_tick uses CAS, so a hotkey press concurrent with a
+// post-tick decrement composes correctly — both contribute their full
+// effect.
 // ============================================================================
 
 #pragma once
@@ -93,29 +105,38 @@ namespace Horse
             // pre-hook will overwrite this on its first call.
             policy_store_relaxed(0);
 
-            // Trampoline layout (30 bytes):
+            // Trampoline layout (23 bytes):
             //   [0x00] 8B 05 <disp32>           mov eax, [rip+policy]
             //   [0x06] 85 C0                    test eax, eax
-            //   [0x08] 74 13                    je +0x13   (-> ret at 0x1D)
-            //   [0x0A] F0 FF 0D <disp32>        lock dec dword [rip+policy]
-            //   [0x11] 4C 8B DC                 mov r11, rsp        (replicated)
-            //   [0x14] 49 89 5B 10              mov [r11+0x10], rbx (replicated)
-            //   [0x18] E9 <rel32>               jmp site9+7
-            //   [0x1D] C3                       ret
+            //   [0x08] 74 0C                    je +0x0C   (-> ret at 0x16)
+            //   [0x0A] 4C 8B DC                 mov r11, rsp        (replicated)
+            //   [0x0D] 49 89 5B 10              mov [r11+0x10], rbx (replicated)
+            //   [0x11] E9 <rel32>               jmp site9+7
+            //   [0x16] C3                       ret
             //
-            // Why the je-then-dec ordering: we want a slot value of 0 to
-            // mean "bail without modifying state" (frozen — no credits to
-            // burn).  test+je on the original load short-circuits cleanly.
-            // Any positive value falls through to the lock-dec, which
-            // commits the consumption atomically on the same memory the
-            // C++ side reads/writes via std::atomic_ref<int32_t>.
+            // The trampoline ONLY checks the policy slot — it does NOT
+            // decrement.  The decrement is owned by C++-side code that
+            // calls consume_one_post_tick() once per UE4 frame from the
+            // cockpit post-hook.  This guarantees every sibling gate
+            // (ActorTickGate's Site 11/20/21/21b/22/22b/22c) reads the
+            // SAME policy value for the entire UE4 frame, regardless of
+            // tick order.  Earlier the trampoline did `lock dec` on
+            // entry, which had a subtle off-by-one: on the LAST tick of
+            // an N-step burst, Site 9 would dec policy 1→0 and run, but
+            // any sibling gate firing later in the same UE4 frame would
+            // see policy=0 and bail.  ActorTickGate Site 11 (chara
+            // replay-frame advance / vtable[0x6C8]) bailing on the last
+            // tick meant the per-chara replay state writer didn't fire,
+            // so MoveVM advanced its frame counter using the previous
+            // step's stale buffered input — net visible effect: 10
+            // step credits produced 9 forward replay frames.
             //
             // Why bare RET is safe at this hook point: site9 is the very
             // top of LuxBattle_PerFrameTick, BEFORE its first prologue
             // instruction (mov r11, rsp).  RSP is exactly as the caller
             // passed it; the function is `void`; bare RET returns straight
             // back to the caller with the stack untouched.
-            constexpr size_t kTrampSize = 30;
+            constexpr size_t kTrampSize = 23;
             void* tramp = CodeCave::allocate(kTrampSize);
             if (!tramp) return false;
 
@@ -139,36 +160,22 @@ namespace Horse
             buf[off++] = 0x85;
             buf[off++] = 0xC0;
 
-            // [0x08] je +0x13 -> ret at offset 0x1D
+            // [0x08] je +0x0C -> ret at offset 0x16
             buf[off++] = 0x74;
-            buf[off++] = 0x13;
+            buf[off++] = 0x0C;
 
-            // [0x0A] lock dec dword [rip+disp32_policy]
-            buf[off++] = 0xF0;
-            buf[off++] = 0xFF;
-            buf[off++] = 0x0D;
-            {
-                const int64_t disp =
-                      reinterpret_cast<int64_t>(m_policy)
-                    - (reinterpret_cast<int64_t>(tramp) + off + 4);
-                if (disp < INT32_MIN || disp > INT32_MAX) return false;
-                const int32_t d32 = static_cast<int32_t>(disp);
-                std::memcpy(&buf[off], &d32, sizeof(d32));
-                off += 4;
-            }
-
-            // [0x11] mov r11, rsp   (replicated original prologue byte 0..2)
+            // [0x0A] mov r11, rsp   (replicated original prologue byte 0..2)
             buf[off++] = 0x4C;
             buf[off++] = 0x8B;
             buf[off++] = 0xDC;
 
-            // [0x14] mov [r11+0x10], rbx   (replicated original prologue byte 3..6)
+            // [0x0D] mov [r11+0x10], rbx   (replicated original prologue byte 3..6)
             buf[off++] = 0x49;
             buf[off++] = 0x89;
             buf[off++] = 0x5B;
             buf[off++] = 0x10;
 
-            // [0x18] jmp rel32 -> site9 + 7
+            // [0x11] jmp rel32 -> site9 + 7
             {
                 uint8_t jmp_back[5];
                 void* jmp_at      = static_cast<uint8_t*>(tramp) + off;
@@ -179,7 +186,7 @@ namespace Horse
                 off += 5;
             }
 
-            // [0x1D] ret
+            // [0x16] ret
             buf[off++] = 0xC3;
 
             std::memcpy(tramp, buf, off);
@@ -248,23 +255,52 @@ namespace Horse
         // is disabled.
         void set_frozen() noexcept { policy_store(0); }
 
-        // Add `n` step credits.  Each PerFrameTick call atomically
-        // decrements the slot by 1 and runs the displaced prologue.
-        // After all credits are consumed the slot is 0 = frozen again.
+        // Add `n` step credits.  While the slot holds a positive value,
+        // every PerFrameTick call (and every sibling gate) sees policy>0
+        // and runs.  The slot is decremented once per UE4 frame by
+        // consume_one_post_tick() called from a cockpit-post hook, so
+        // a credit count of N drains over exactly N UE4 frames.
         //
         // Composes correctly with concurrent F6 presses: fetch_add is
-        // atomic on x86-64 aligned int32, so two presses interleaved
-        // with a trampoline tick will end up with one credit consumed
-        // and one credit pending (or both pending if neither tick fired
-        // between them).  No credits are silently dropped at the C++
-        // side; the only loss path is the inherent trampoline-vs-hotkey
-        // race (see plate at top), which costs at most one credit per
-        // collision.
+        // atomic on x86-64 aligned int32, so two presses arriving on
+        // different ticks just stack up in the slot.  No credits are
+        // silently dropped on the C++ side.
         void add_step(int32_t n = 1) noexcept
         {
             if (n <= 0 || !m_policy) return;
             std::atomic_ref<int32_t>(*m_policy)
                 .fetch_add(n, std::memory_order_acq_rel);
+        }
+
+        // Decrement the policy slot by one IFF positive.  The caller
+        // should invoke this exactly once per game-frame OBSERVED to
+        // have ticked — typically by watching for a change in
+        // g_LuxBattle_FrameCounter (incremented at the end of
+        // LuxBattle_PerFrameTick) since the last cockpit pre-hook.
+        // Tying drain to that counter (rather than cockpit hook
+        // timing) keeps the credit count perfectly aligned with
+        // PerFrameTick runs regardless of UE4 actor tick ordering.
+        //
+        // No-op when policy is already 0 (steady-state freeze) or when
+        // the gate hasn't been resolved yet.  Atomic w.r.t. add_step()
+        // and the trampoline's load.
+        void consume_one_credit() noexcept
+        {
+            if (!m_policy) return;
+            std::atomic_ref<int32_t> ref(*m_policy);
+            // Compare-exchange loop so we never wrap below 0 if a
+            // concurrent set_frozen() lands between the load and the
+            // store.
+            int32_t cur = ref.load(std::memory_order_acquire);
+            while (cur > 0)
+            {
+                if (ref.compare_exchange_weak(cur, cur - 1,
+                        std::memory_order_acq_rel,
+                        std::memory_order_acquire))
+                    return;
+                // cur was reloaded by compare_exchange_weak on failure;
+                // loop until either cur <= 0 or the CAS succeeds.
+            }
         }
 
         int32_t policy() const noexcept
@@ -273,6 +309,18 @@ namespace Horse
             return std::atomic_ref<int32_t>(*m_policy)
                 .load(std::memory_order_acquire);
         }
+
+        // Raw pointer to the cave-resident int32_t policy slot.  Exposed
+        // so sibling gates (e.g. ReplayClockGate) can build trampolines
+        // that read the same atomic without owning their own slot — they
+        // observe the freeze/step state set here and gate themselves
+        // accordingly.  Returns nullptr until resolve() succeeds.
+        //
+        // Sibling gates should ONLY READ the slot, never decrement —
+        // step-credit consumption is the sole responsibility of this gate
+        // (sites that share-decrement risk consuming credits faster than
+        // intended when the same UE4 frame fires multiple gated paths).
+        int32_t* policy_slot_address() const noexcept { return m_policy; }
 
         bool is_enabled()  const { return m_enabled.load(std::memory_order_acquire); }
         bool is_resolved() const { return m_resolved_ok; }

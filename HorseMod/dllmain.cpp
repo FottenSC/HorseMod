@@ -98,6 +98,9 @@
 #include "horselib/CharaInvis.hpp"
 #include "horselib/SpeedControl.hpp"
 #include "horselib/WorldTickGate.hpp"
+#include "horselib/ReplayClockGate.hpp"
+#include "horselib/ActorTickGate.hpp"
+#include "horselib/TimeDilationGate.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
 // swap detour on IDXGISwapChain::Present.  This keeps Steam overlay
@@ -554,6 +557,48 @@ private:
     //   policy = 0       -> bail every PerFrameTick call (frozen)
     //   policy = N > 0   -> next N PerFrameTick calls atomic-dec and run
     Horse::WorldTickGate m_world_tick_gate{};
+    // Sibling gate for the replay master-clock INC instructions
+    // (LuxBattleChara_VTable648_TickAndAdvanceReplayClock at 0x1403E1FC0
+    // and the GatedBy4404 variant at 0x1403E2000).  Reads from the
+    // WorldTickGate policy slot — when frozen, both INCs are skipped so
+    // the master clock at ALuxBattleFrameInputLog+0x3A4 stays pinned.
+    // Without this gate, match-replay viewing leaks: SimulationLoop's
+    // catch-up loop keeps draining recorded inputs into BM input data,
+    // round state machine advances, and on unfreeze Stage 3 fast-forwards
+    // through the buffered inputs in one tick.  See
+    // horselib/ReplayClockGate.hpp for the full plate.
+    Horse::ReplayClockGate m_replay_clock_gate{};
+    // Sibling gate for the surrounding Actor::Tick prologues that
+    // WorldTickGate's single Site-9 hook misses:
+    //   * ALuxBattleChara::TickActor (UE4 anim, hair, weapon mesh, SC
+    //     gauge counter)
+    //   * ALuxBattleManager::Tick / MainStateMachine_At1461 (round state
+    //     machine, SimulationLoop catch-up)
+    // Both bare-RET when WorldTickGate's policy slot is 0.  Without these,
+    // long match-replay freezes settle the chara to the idle pose because
+    // the BM round-over check trips on a wallclock-driven timer and the
+    // chara mesh's anim montage plays out via the UE4-side actor tick.
+    // See horselib/ActorTickGate.hpp for the full plate.
+    Horse::ActorTickGate m_actor_tick_gate{};
+    // Sibling gate that forces LuxMoveVM_GetTimeDilationScalar
+    // (0x14030A8C0) to return 0.0 when WorldTickGate's policy slot is 0.
+    // The function's normal-play fall-through path bypasses VMFreezeByte
+    // entirely (returns chara+0x3500 directly), so VMFreezeByte=1 alone
+    // doesn't halt P1 in match-replay watching.  This gate's entry-patch
+    // returns 0 unconditionally during freeze, which forces every dt-
+    // multiply integrator (MoveVM, physics, anim, FX) to produce 0
+    // deltas — including UE4 anim instances that scale by the engine's
+    // tick dilation.  See horselib/TimeDilationGate.hpp for the full
+    // plate.
+    Horse::TimeDilationGate m_time_dilation_gate{};
+    // Previous-cockpit-tick snapshot of g_LuxBattle_FrameCounter.  Read
+    // at the top of frame_step_apply() to detect whether PerFrameTick
+    // ran since our last call — drives WorldTickGate's step-credit
+    // drain on a real "did the world tick" signal instead of cockpit
+    // hook timing.  Read/written exclusively from the cockpit pre-
+    // tick (game thread); no atomic needed.
+    uint32_t m_prev_frame_counter_value = 0;
+    bool     m_prev_frame_counter_seen  = false;
     // Last `target` value pushed into m_speed_control.set_value() by
     // frame_step_apply().  Used to dedupe redundant writes when the
     // requested speedval doesn't change (perf audit, 2026-04).  Init
@@ -1227,6 +1272,12 @@ private:
     };
     std::vector<ResetHookSlot>   m_reset_slots;
 
+    // Last status for the Labbing tab's Copy/Paste pose JSON buttons.
+    // ImGui-only state; UI thread reads + writes the same fields, no
+    // atomics needed.  Empty string means "no message yet".
+    std::string                  m_reset_pose_io_status;
+    bool                         m_reset_pose_io_ok = false;
+
     // Tick counter for throttled settings persistence.  on_update
     // bumps this every frame and calls save_persisted_settings()
     // every kSaveEveryNFrames — batching slider-drag updates into
@@ -1899,6 +1950,15 @@ private:
         // the new mode's first tick (= black screen).  Disable so the
         // engine runs at native rate during the transition; user re-
         // engages freeze/step manually after the new mode loads.
+        // Disable the sibling gates first (they READ the WorldTickGate
+        // policy slot, so leaving them enabled past the gate's disable
+        // would be harmless but pointless).
+        if (m_replay_clock_gate.is_enabled())
+            m_replay_clock_gate.disable();
+        if (m_actor_tick_gate.is_enabled())
+            m_actor_tick_gate.disable();
+        if (m_time_dilation_gate.is_enabled())
+            m_time_dilation_gate.disable();
         if (m_world_tick_gate.is_enabled())
             m_world_tick_gate.disable();
     }
@@ -1970,6 +2030,12 @@ private:
             m_step_witness.valid = false;
             m_step_dwell = 0;
         }
+        if (m_replay_clock_gate.is_enabled())
+            m_replay_clock_gate.disable();
+        if (m_actor_tick_gate.is_enabled())
+            m_actor_tick_gate.disable();
+        if (m_time_dilation_gate.is_enabled())
+            m_time_dilation_gate.disable();
         if (m_world_tick_gate.is_enabled())
         {
             // Don't double-log if the freeze-frame branch above already
@@ -2135,6 +2201,41 @@ private:
 
     void frame_step_apply()
     {
+        // Drain step credits off PerFrameTick's own end-of-function counter,
+        // not off cockpit hook timing.  g_LuxBattle_FrameCounter @
+        // imageBase+0x470D0C4 is incremented at the very end of
+        // LuxBattle_PerFrameTick — so by the time the NEXT cockpit pre-tick
+        // fires we know unambiguously whether PerFrameTick ran on the
+        // previous UE4 frame, regardless of where in the tick scheduler
+        // each actor's tick landed.  Tying credit drain to this counter
+        // makes step counts exact: an add_step(N) advances exactly N
+        // forward replay frames.  Driving it off the cockpit pre/post
+        // hook had a subtle bug — cockpit Update can fire BEFORE
+        // PerFrameTick in the same frame, so a pre-/post-hook decrement
+        // landed before Site 9 saw the new policy and we'd miss the
+        // last credit of a burst (visible to the user as 10-step
+        // requesting 10 forward frames but advancing only 9).
+        {
+            constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
+            const uintptr_t base = Horse::NativeBinding::imageBase();
+            uint32_t cur_frame = 0;
+            const bool ok = base != 0 && Horse::SafeReadUInt32(
+                reinterpret_cast<const void*>(base + kFrameCounterRVA),
+                &cur_frame);
+            if (ok && m_prev_frame_counter_seen)
+            {
+                // PerFrameTick ran (counter advanced) → drain one credit.
+                // Wraparound at uint32 max takes years at 60Hz; ignore it.
+                if (cur_frame != m_prev_frame_counter_value)
+                    m_world_tick_gate.consume_one_credit();
+            }
+            if (ok)
+            {
+                m_prev_frame_counter_value = cur_frame;
+                m_prev_frame_counter_seen  = true;
+            }
+        }
+
         const bool freeze     = m_freeze_frame.load();
         const bool slow_mo    = m_speed_enabled.load();
         const int  pending    = m_step_pending.load();
@@ -2201,6 +2302,35 @@ private:
             if (m_world_tick_gate.is_resolved() &&
                 !m_world_tick_gate.is_enabled())
                 m_world_tick_gate.enable();
+
+            // Sibling: replay master-clock gate.  Resolves once on first
+            // use (sig-scans both INC sites).  Enables in lockstep with
+            // WorldTickGate so during match-replay viewing the master
+            // clock is pinned while frozen — without it, SimulationLoop's
+            // catch-up loop keeps walking the replay timeline forward
+            // and fast-forwards on unfreeze.  Resolution failure is
+            // non-fatal: WorldTickGate alone still works for live and
+            // training, so we just log and proceed.
+            if (!m_replay_clock_gate.is_resolved())
+                m_replay_clock_gate.resolve(
+                    m_world_tick_gate.policy_slot_address());
+            if (m_replay_clock_gate.is_resolved() &&
+                !m_replay_clock_gate.is_enabled())
+                m_replay_clock_gate.enable();
+
+            if (!m_actor_tick_gate.is_resolved())
+                m_actor_tick_gate.resolve(
+                    m_world_tick_gate.policy_slot_address());
+            if (m_actor_tick_gate.is_resolved() &&
+                !m_actor_tick_gate.is_enabled())
+                m_actor_tick_gate.enable();
+
+            if (!m_time_dilation_gate.is_resolved())
+                m_time_dilation_gate.resolve(
+                    m_world_tick_gate.policy_slot_address());
+            if (m_time_dilation_gate.is_resolved() &&
+                !m_time_dilation_gate.is_enabled())
+                m_time_dilation_gate.enable();
 
             if (pending > 0)
             {
@@ -2284,6 +2414,27 @@ private:
                     !m_world_tick_gate.is_enabled())
                     m_world_tick_gate.enable();
 
+                if (!m_replay_clock_gate.is_resolved())
+                    m_replay_clock_gate.resolve(
+                        m_world_tick_gate.policy_slot_address());
+                if (m_replay_clock_gate.is_resolved() &&
+                    !m_replay_clock_gate.is_enabled())
+                    m_replay_clock_gate.enable();
+
+                if (!m_actor_tick_gate.is_resolved())
+                    m_actor_tick_gate.resolve(
+                        m_world_tick_gate.policy_slot_address());
+                if (m_actor_tick_gate.is_resolved() &&
+                    !m_actor_tick_gate.is_enabled())
+                    m_actor_tick_gate.enable();
+
+                if (!m_time_dilation_gate.is_resolved())
+                    m_time_dilation_gate.resolve(
+                        m_world_tick_gate.policy_slot_address());
+                if (m_time_dilation_gate.is_resolved() &&
+                    !m_time_dilation_gate.is_enabled())
+                    m_time_dilation_gate.enable();
+
                 bool go_this_tick;
                 if (S <= 0.0f)
                 {
@@ -2334,6 +2485,15 @@ private:
         // gate must be disabled so the engine's PerFrameTick prologue runs
         // unconditionally.  Idempotent — disable() is a no-op when already
         // disabled, no per-tick patch flipping in the steady state.
+        // The sibling gates are disabled FIRST so they can't observe a
+        // stale policy slot value during the brief window between
+        // disable() calls.
+        if (!gate_drives_this_tick && m_replay_clock_gate.is_enabled())
+            m_replay_clock_gate.disable();
+        if (!gate_drives_this_tick && m_actor_tick_gate.is_enabled())
+            m_actor_tick_gate.disable();
+        if (!gate_drives_this_tick && m_time_dilation_gate.is_enabled())
+            m_time_dilation_gate.disable();
         if (!gate_drives_this_tick && m_world_tick_gate.is_enabled())
             m_world_tick_gate.disable();
 
@@ -2394,7 +2554,7 @@ private:
             m_last_speed_target = std::numeric_limits<float>::quiet_NaN();
         }
 
-        // ---- SC6 NATIVE VM-FREEZE BYTE driver (2026-04, this session) -----
+        // ---- SC6 NATIVE VM-FREEZE BYTE driver (2026-04 / 2026-05) -----
         // Engages SC6's INTERNAL VM freeze (the same mechanism hit-stop
         // and round-end cinematics use).  See Ghidra plate on
         // LuxBattle_TickHitStopSchedulerAndInputMirror for the full
@@ -2402,7 +2562,35 @@ private:
         // (at imageBase + 0x4862D0) to non-zero makes
         // LuxMoveVM_GetTimeDilationScalar return 0 for ALL callers,
         // halting every per-frame integrator (VM, opcodes, physics,
-        // anims, FX dispatchers).
+        // ANIMS, FX dispatchers).  CRUCIALLY this includes UE4-side
+        // anim instance ticks driven by USkeletalMeshComponent::Tick-
+        // Component, which run independently of LuxBattle_PerFrameTick
+        // and aren't catchable via WorldTickGate's Site-9 RET alone.
+        //
+        // 2026-05 update: re-engage VMFreezeByte during pure-freeze
+        // (WorldTickGate policy == 0).  The earlier blanket disable
+        // (gate_drives_this_tick -> want_freeze=false) was too aggressive
+        // — without it, holding HorseMod freeze in match-replay watching
+        // for longer than a round duration let UE4 anim play out the
+        // current chara montage and the BM round timer wallclock down to
+        // zero, transitioning into the next round.  The user-visible
+        // symptom: charas finish their current action then settle to
+        // standing-still until next-round auto-start.  Engaging
+        // VMFreezeByte during true-freeze halts those independent paths
+        // at the SC6-native source.
+        //
+        // We only re-engage it when WorldTickGate is in pure-freeze
+        // (policy slot == 0); when the gate is armed with step credits
+        // (policy > 0) we still leave VMFreezeByte clear so the gated
+        // PerFrameTick run advances at native dt instead of dt=0 (the
+        // "dt=0 contamination" the gate-only model was built to avoid).
+        // The cadence:
+        //   * F6 press -> add_step on gate -> policy=N (>0)
+        //                 -> next cockpit tick reads policy>0 -> VMFreezeByte=0
+        //                 -> PerFrameTick at native dt advances 1 frame
+        //   * After all credits drain, policy lands at 0
+        //                 -> next cockpit tick reads policy==0 -> VMFreezeByte=1
+        //                 -> UE4 anim, BM tick, round timer all halt
         //
         // SAFETY (post crash-on-load fix):
         //   1. Only TOUCH the byte when our state implies we WANT to
@@ -2416,15 +2604,15 @@ private:
         //      __try/__except can't live in this function because of
         //      C++ destructors in scope.
         {
-            // The gate-driven path NEVER engages SC6's internal VM freeze:
-            // setting bVMFreezeByte=1 makes LuxMoveVM_GetTimeDilationScalar
-            // return 0 for ALL callers, which is exactly the "dt=0
-            // contamination" the new gate is meant to eliminate.  When the
-            // gate drives this tick, force want_freeze=false so we'll
-            // actively clear the byte if we previously owned it (e.g. a
-            // prior slow-mo session that engaged it).
+            // Gate-driven freeze: engage VMFreezeByte iff policy slot is
+            // currently 0 (no step credits pending).  Step-credit-armed
+            // ticks leave the byte clear so PerFrameTick can advance at
+            // native dt.  Non-gate-driven path keeps the historical
+            // target==0 check.
             const bool want_freeze =
-                gate_drives_this_tick ? false : (target == 0.0f);
+                gate_drives_this_tick
+                    ? (m_world_tick_gate.policy() == 0)
+                    : (target == 0.0f);
             const bool currently_owned = m_vm_freeze_byte_we_set.load();
             if ((want_freeze || currently_owned) &&
                 want_freeze != currently_owned)
@@ -5115,6 +5303,72 @@ private:
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                     "Forget the captured pose.");
+
+                // ---- Copy / Paste captured-pose JSON --------------------
+                // Compact one-line JSON of the captured pose so users can
+                // share setups (Discord, notes) without re-capturing.
+                // Format documented in ResetOverride::poses_to_json /
+                // poses_from_json.  Only "expected numbers in expected
+                // places" validation — does NOT verify the position is
+                // legal on the current stage.
+                if (ImGui::Button("Copy position"))
+                {
+                    const std::string js =
+                        Horse::ResetOverride::poses_to_json();
+                    ImGui::SetClipboardText(js.c_str());
+                    m_reset_pose_io_status = "copied to clipboard";
+                    m_reset_pose_io_ok     = true;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Copy both captured poses to the clipboard as JSON.");
+
+                ImGui::SameLine();
+                if (ImGui::Button("Paste position"))
+                {
+                    const char* clip = ImGui::GetClipboardText();
+                    if (!clip || !*clip)
+                    {
+                        m_reset_pose_io_status = "clipboard empty";
+                        m_reset_pose_io_ok     = false;
+                    }
+                    else
+                    {
+                        std::string err;
+                        const bool ok =
+                            Horse::ResetOverride::poses_from_json(
+                                std::string_view{clip}, err);
+                        if (ok)
+                        {
+                            m_reset_pose_io_status = "pasted OK";
+                            m_reset_pose_io_ok     = true;
+                            Output::send<LogLevel::Default>(
+                                STR("[HorseMod] reset-override pose "
+                                    "pasted from clipboard\n"));
+                        }
+                        else
+                        {
+                            m_reset_pose_io_status = "paste failed: " + err;
+                            m_reset_pose_io_ok     = false;
+                            Output::send<LogLevel::Warning>(
+                                STR("[HorseMod] reset-override paste "
+                                    "rejected: {}\n"),
+                                RC::to_generic_string(err));
+                        }
+                    }
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Replace captured poses from JSON in the clipboard. "
+                    "P1 / P2 are independent — pasting a P1-only payload "
+                    "leaves the existing P2 capture untouched.");
+
+                if (!m_reset_pose_io_status.empty())
+                {
+                    const ImVec4 colour = m_reset_pose_io_ok
+                        ? ImVec4{0.55f, 0.85f, 0.55f, 1.0f}
+                        : ImVec4{0.95f, 0.55f, 0.35f, 1.0f};
+                    ImGui::TextColored(colour, "%s",
+                                       m_reset_pose_io_status.c_str());
+                }
 
                 // Per-player readout of what's currently captured.
                 for (int pi = 0; pi < 2; ++pi)

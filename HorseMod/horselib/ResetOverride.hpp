@@ -69,6 +69,22 @@
 // (called from game thread inside the UFunction post-hook) can race.
 // The two operations are short and the contention is negligible.
 //
+// CRITICAL: tick() must NOT hold m_mutex across the call into the
+// engine's SetStartPosition.  That path is hot-patched by
+// SetStartPositionHook, whose helper re-enters this singleton via
+// get_pose() to look up the captured pose for the chara it just
+// matched against the player slot.  If tick() held the lock during
+// the engine call, get_pose() would attempt a second acquisition of
+// the same non-recursive std::mutex on the same thread — UB on the
+// C++ standard, deadlock in practice on Win10+/MSVC where std::mutex
+// is backed by SRWLock.  The symptom in UE4SS.log: a single
+// "writing P1 pose ..." line followed by silence as the thread hangs
+// inside helper -> get_pose's lock acquire (and the game freezes
+// until the user kills the process).  tick() therefore snapshots
+// m_pose[] under the lock, releases, then runs the per-slot writes
+// against the snapshot — get_pose() inside the hooked engine call
+// then locks fresh with no contention.
+//
 // Deferred-apply
 // --------------
 // apply_to_charas() does NOT write directly — it queues a "pending
@@ -107,9 +123,13 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 
 #include <atomic>
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <string>
+#include <string_view>
 
 namespace Horse
 {
@@ -260,10 +280,22 @@ namespace Horse
 
             if (!enabled()) return;
 
-            std::lock_guard g(m_mutex);
+            // Snapshot the captured poses under the lock, then drop it.
+            // See the "Threading" plate at the top of this file: holding
+            // m_mutex across write_chara_pose() would re-enter this same
+            // mutex through SetStartPositionHook::helper -> get_pose()
+            // (recursive lock on a non-recursive std::mutex = deadlock
+            // on Win10+/MSVC SRWLock-backed std::mutex).
+            FCharaPose snap[2];
+            {
+                std::lock_guard g(m_mutex);
+                snap[0] = m_pose[0];
+                snap[1] = m_pose[1];
+            }
+
             for (uint32_t pi = 0; pi < 2; ++pi)
             {
-                if (!m_pose[pi].has) continue;
+                if (!snap[pi].has) continue;
                 void* chara = KHitWalker::charaSlotFromGlobal(pi);
                 if (!chara) continue;
 
@@ -294,11 +326,71 @@ namespace Horse
                     STR("[ResetOverride] writing P{} pose ({:.2f}, {:.2f}, "
                         "{:.2f}) side={} to chara at 0x{:X}\n"),
                     pi + 1,
-                    m_pose[pi].pos_x, m_pose[pi].pos_y, m_pose[pi].pos_z,
-                    static_cast<uint32_t>(m_pose[pi].side_flag),
+                    snap[pi].pos_x, snap[pi].pos_y, snap[pi].pos_z,
+                    static_cast<uint32_t>(snap[pi].side_flag),
                     reinterpret_cast<uintptr_t>(chara));
-                write_chara_pose(chara, m_pose[pi]);
+                write_chara_pose(chara, snap[pi]);
+                RC::Output::send<RC::LogLevel::Default>(
+                    STR("[ResetOverride] P{} write OK\n"), pi + 1);
             }
+        }
+
+        // ---- Clipboard JSON serialisation (Labbing tab Copy/Paste) ------
+        //
+        // Compact one-line JSON, e.g.
+        //   {"v":1,"p1":{"x":1.95,"y":0.93,"z":-5.09,"side":0},
+        //          "p2":{"x":3.08,"y":1.09,"z":-3.98,"side":1}}
+        //
+        // Slots whose has-flag is false are omitted from the output and
+        // accepted as "absent" on input (paste of a P1-only snapshot
+        // leaves the existing P2 capture untouched).  The version field
+        // is mandatory on input — bumping it lets us break the shape
+        // later without silently mis-importing old payloads.
+        //
+        // Validation on parse:
+        //   - well-formed shape (the keys we look for are present)
+        //   - "v" == 1
+        //   - every present player has x / y / z (finite floats)
+        //     and side (0 or 1)
+        //   - at least one of p1 / p2 is present
+        // Out-of-bounds / NaN / Inf values are rejected.  Position
+        // legality (inside the stage, on the ground, etc.) is NOT
+        // checked — pasted poses are trusted to be sane.
+
+        static std::string poses_to_json()
+        {
+            FCharaPose snap[2];
+            {
+                std::lock_guard g(instance().m_mutex);
+                snap[0] = instance().m_pose[0];
+                snap[1] = instance().m_pose[1];
+            }
+            return build_json(snap[0], snap[1]);
+        }
+
+        // Replace m_pose[] from a JSON string.  Returns true on success.
+        // On failure, fills `error_out` with a short reason and leaves
+        // captured poses untouched.  An empty/missing player block is
+        // not a failure — it just means "don't change that slot".
+        static bool poses_from_json(std::string_view json,
+                                    std::string& error_out)
+        {
+            FCharaPose p1{}, p2{};
+            bool any_present = false;
+            if (!parse_json(json, p1, p2, any_present, error_out))
+                return false;
+            if (!any_present)
+            {
+                error_out = "no p1/p2 block present";
+                return false;
+            }
+            // Apply atomically — nothing else holds m_mutex during a
+            // paste (UI thread only), so the lock is just for memory
+            // ordering against the apply path.
+            std::lock_guard g(instance().m_mutex);
+            if (p1.has) instance().m_pose[0] = p1;
+            if (p2.has) instance().m_pose[1] = p2;
+            return true;
         }
 
     private:
@@ -404,6 +496,171 @@ namespace Horse
             // do this ourselves regardless of which path wrote position.
             auto* base = reinterpret_cast<uint8_t*>(chara_void);
             *(base + kSideFlag) = p.side_flag;
+        }
+
+        // ---- JSON build helpers (called from poses_to_json) ----
+
+        static std::string format_float(float v)
+        {
+            char buf[32];
+            int n = std::snprintf(buf, sizeof(buf), "%.6g",
+                                  static_cast<double>(v));
+            if (n <= 0) return "0";
+            return std::string(buf, static_cast<size_t>(n));
+        }
+
+        static void append_player(std::string& out,
+                                  const char* key,
+                                  const FCharaPose& p)
+        {
+            if (!p.has) return;
+            out += ",\"";
+            out += key;
+            out += "\":{\"x\":";
+            out += format_float(p.pos_x);
+            out += ",\"y\":";
+            out += format_float(p.pos_y);
+            out += ",\"z\":";
+            out += format_float(p.pos_z);
+            out += ",\"side\":";
+            out += (p.side_flag ? '1' : '0');
+            out += '}';
+        }
+
+        static std::string build_json(const FCharaPose& p1,
+                                      const FCharaPose& p2)
+        {
+            std::string out = "{\"v\":1";
+            append_player(out, "p1", p1);
+            append_player(out, "p2", p2);
+            out += '}';
+            return out;
+        }
+
+        // ---- JSON parse helpers (called from poses_from_json) ----
+
+        // Find "<key>":{ ... } and return the inner contents (no braces).
+        // Returns empty string_view if the block isn't present (not an
+        // error — caller decides what's mandatory).
+        static std::string_view find_object(std::string_view s,
+                                            const char* key)
+        {
+            std::string needle = "\"";
+            needle += key;
+            needle += "\"";
+            size_t pos = s.find(needle);
+            if (pos == std::string_view::npos) return {};
+            pos = s.find(':', pos + needle.size());
+            if (pos == std::string_view::npos) return {};
+            // Skip whitespace, find opening brace.
+            while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t'
+                                       || s[pos] == ':'))
+                ++pos;
+            if (pos >= s.size() || s[pos] != '{') return {};
+            const size_t open = pos;
+            int depth = 0;
+            for (size_t i = open; i < s.size(); ++i)
+            {
+                if (s[i] == '{') ++depth;
+                else if (s[i] == '}')
+                {
+                    if (--depth == 0)
+                        return s.substr(open + 1, i - open - 1);
+                }
+            }
+            return {};
+        }
+
+        // Find "<key>":<number> in `s`.  On success writes the parsed
+        // value to `out` and returns true.  Rejects NaN / Inf.
+        static bool find_number(std::string_view s,
+                                const char* key,
+                                float& out)
+        {
+            std::string needle = "\"";
+            needle += key;
+            needle += "\"";
+            size_t pos = s.find(needle);
+            if (pos == std::string_view::npos) return false;
+            pos = s.find(':', pos + needle.size());
+            if (pos == std::string_view::npos) return false;
+            ++pos;
+            while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t'))
+                ++pos;
+            // strtof needs a NUL-terminated buffer.
+            std::string num(s.substr(pos));
+            const char* begin = num.c_str();
+            char* endp = nullptr;
+            const float v = std::strtof(begin, &endp);
+            if (endp == begin) return false;       // no digits
+            if (!std::isfinite(v)) return false;
+            out = v;
+            return true;
+        }
+
+        static bool parse_player(std::string_view block, FCharaPose& out)
+        {
+            float x = 0.0f, y = 0.0f, z = 0.0f, side_f = 0.0f;
+            if (!find_number(block, "x",    x))    return false;
+            if (!find_number(block, "y",    y))    return false;
+            if (!find_number(block, "z",    z))    return false;
+            if (!find_number(block, "side", side_f)) return false;
+            const int side_i = static_cast<int>(side_f);
+            if (side_i != 0 && side_i != 1) return false;
+            out.pos_x     = x;
+            out.pos_y     = y;
+            out.pos_z     = z;
+            out.side_flag = static_cast<uint8_t>(side_i);
+            out.has       = true;
+            return true;
+        }
+
+        static bool parse_json(std::string_view json,
+                               FCharaPose& p1, FCharaPose& p2,
+                               bool& any_present_out,
+                               std::string& error_out)
+        {
+            // Trim leading whitespace; require '{' as first non-ws char.
+            size_t i = 0;
+            while (i < json.size() && (json[i] == ' ' || json[i] == '\t'
+                                        || json[i] == '\r' || json[i] == '\n'))
+                ++i;
+            if (i >= json.size() || json[i] != '{')
+            {
+                error_out = "expected '{' at start";
+                return false;
+            }
+            float ver_f = 0.0f;
+            if (!find_number(json, "v", ver_f))
+            {
+                error_out = "missing version field 'v'";
+                return false;
+            }
+            if (static_cast<int>(ver_f) != 1)
+            {
+                error_out = "unsupported version (expected 1)";
+                return false;
+            }
+            const auto p1_block = find_object(json, "p1");
+            const auto p2_block = find_object(json, "p2");
+            if (!p1_block.empty())
+            {
+                if (!parse_player(p1_block, p1))
+                {
+                    error_out = "p1 block invalid (missing/bad x/y/z/side)";
+                    return false;
+                }
+            }
+            if (!p2_block.empty())
+            {
+                if (!parse_player(p2_block, p2))
+                {
+                    error_out = "p2 block invalid (missing/bad x/y/z/side)";
+                    return false;
+                }
+            }
+            any_present_out = p1.has || p2.has;
+            return true;
         }
 
         std::atomic<bool>  m_enabled{false};
