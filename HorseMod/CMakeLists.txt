@@ -30,6 +30,8 @@ set(HORSELIB_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/OnlineRules.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/LuxBattleLauncherStartHook.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/HasSubProviderEntryHook.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ReplayScrub.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ReplayScrubDiag.hpp
 )
 
 add_library(${TARGET} SHARED

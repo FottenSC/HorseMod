@@ -170,4 +170,58 @@ namespace Horse
         }
     }
 
+    // Bulk write that returns false if any destination byte is unmapped
+    // or write-protected.  Mirror image of SafeReadBytes for the
+    // reverse direction; used by HorseMod's replay-scrub cache restore
+    // to put 16 KB back into pInputLog->ReplayInputCache after a
+    // backward seek without risking a crash if the InputLog actor was
+    // torn down between the lookup and the write (mode-transition
+    // race).
+    static inline bool SafeWriteBytes(void* dst, const void* src, size_t len) noexcept
+    {
+        __try
+        {
+            auto* s = reinterpret_cast<const uint8_t*>(src);
+            auto* d = reinterpret_cast<uint8_t*>(dst);
+            for (size_t i = 0; i < len; ++i) d[i] = s[i];
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    // Write a 4-byte uint at `addr` as a single aligned store.  Returns
+    // false if the destination is unmapped or write-protected.  Used by
+    // the replay-scrub frame-cap override to flip UEngine pacing fields
+    // (one aligned 4-byte store = no torn read for the game-thread
+    // consumer in UpdateTimeAndHandleMaxTickRate).
+    static inline bool SafeWriteUInt32(void* addr, uint32_t val) noexcept
+    {
+        __try
+        {
+            *reinterpret_cast<volatile uint32_t*>(addr) = val;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    // Write a 4-byte float at `addr` as a single aligned store.
+    static inline bool SafeWriteFloat(void* addr, float val) noexcept
+    {
+        __try
+        {
+            *reinterpret_cast<volatile float*>(addr) = val;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
 } // namespace Horse

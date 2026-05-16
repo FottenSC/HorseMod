@@ -64,6 +64,7 @@
 #include <Unreal/UFunctionStructs.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <limits>
 #include <string_view>
@@ -116,22 +117,89 @@ namespace Horse
     };
 
     // -----------------------------------------------------------------------
-    // Horse::GlobalPtr — FindFirstOf-backed cached singleton.  Revalidates
-    // with UObject::IsReal so we recover gracefully if the engine tears
-    // down and re-creates the object (e.g. level change).
+    // Horse::GlobalPtr — FindFirstOf-backed cached singleton.
+    //
+    // BOTH the cache-miss path (UObjectGlobals::FindFirstOf) AND the
+    // revalidation (UObject::IsReal) are O(total UObject count): each one
+    // walks the *entire* GUObjectArray — ~150k+ objects in an SC6 match —
+    // through a std::function-dispatched per-element callback, and
+    // FindFirstOf additionally walks each object's superclass chain.
+    // Calling get() once per frame therefore costs multiple milliseconds
+    // per frame, every frame.
+    //
+    // That was the cause of the ~43fps match-replay slowdown: ReplayScrub's
+    // tick_capture() resolves LuxBattleManager + LuxBattleReplayPlayer
+    // every cockpit tick, i.e. 3 full array scans/frame.  Training mode
+    // never builds the ReplayScrub ring, so those per-frame get() callers
+    // never run there — which is exactly why training stayed smooth while
+    // replay viewing did not.  (It also starved "Generate timeline": at a
+    // sub-60fps loop the engine frame cap is never the limiter, so
+    // removing it had no headroom to convert into speed.)
+    //
+    // Fix: throttle the scan.  A resolved global (LuxBattleManager,
+    // LuxBattleReplayPlayer, CockpitBase_C, …) is a long-lived level
+    // actor — its identity only changes on a level load, seconds apart.
+    // So get() runs the O(N) scan at most once per kRevalidateInterval and
+    // returns the cached pointer untouched in between.
+    //
+    // Why a longer stale window is safe.  UObject::IsReal does NOT
+    // dereference the candidate pointer — it only compares the pointer
+    // *value* against the live GUObjectArray.  So per-call revalidation
+    // never crash-protected anything by probing the pointer; it only
+    // *detected* staleness sooner and re-resolved within the same call.
+    // Throttling widens that detection lag from ~1 frame to ≤
+    // kRevalidateInterval, which is tolerable because:
+    //   * Most consumers read the resolved object through SafeRead*
+    //     (SEH-guarded) — a stale pointer there is a handled read
+    //     failure, not a crash.
+    //   * The few that deref via UE4SS reflection instead (Lux::for-
+    //     EachChara / battleCharaArray and Obj::getObj reach
+    //     UObject::GetClassPrivate() unguarded) only see a stale pointer
+    //     if the cached actor is torn down WHILE the cockpit hook keeps
+    //     ticking.  That actor (LuxBattleManager / PlayerController) is
+    //     torn down on a scene-presence transition, and HorseMod calls
+    //     invalidate() on exactly that transition (the dllmain presence
+    //     block + ReplayScrub::reset_for_new_replay), forcing an
+    //     immediate re-resolve.  A stale BM surviving into a cockpit
+    //     tick is additionally a pre-existing, codebase-known race (see
+    //     the forEachChara note in dllmain.cpp) — this fix widens it
+    //     quantitatively, it does not introduce it.
+    // invalidate() clears the cache AND resets the throttle so the next
+    // get() re-resolves immediately.
+    //
+    // Game-thread only — see the file-header threading note; m_ptr and the
+    // throttle fields are plain (non-atomic) by that contract.
     // -----------------------------------------------------------------------
     class GlobalPtr
     {
     public:
         RC::Unreal::UObject* get(const wchar_t* class_name)
         {
+            const auto now = std::chrono::steady_clock::now();
+            if (m_checked_once && (now - m_last_check) < kRevalidateInterval)
+                return m_ptr;          // inside throttle window — cached
+
+            m_last_check   = now;
+            m_checked_once = true;
             if (m_ptr && RC::Unreal::UObject::IsReal(m_ptr)) return m_ptr;
             m_ptr = RC::Unreal::UObjectGlobals::FindFirstOf(class_name);
             return m_ptr;
         }
-        void invalidate() { m_ptr = nullptr; }
+        void invalidate()
+        {
+            m_ptr          = nullptr;
+            m_checked_once = false;    // next get() re-resolves immediately
+        }
     private:
-        RC::Unreal::UObject* m_ptr = nullptr;
+        // A resolved global only changes identity on a level load (orders
+        // of magnitude rarer than this interval), so revalidating ~5x/sec
+        // catches every real teardown well within one frame's budget while
+        // keeping the amortised scan cost negligible.
+        static constexpr std::chrono::milliseconds kRevalidateInterval{200};
+
+        RC::Unreal::UObject*                  m_ptr          = nullptr;
+        std::chrono::steady_clock::time_point m_last_check   {};
+        bool                                  m_checked_once = false;
     };
 
     // -----------------------------------------------------------------------

@@ -1,0 +1,550 @@
+/* --- Reset / base ---------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: #0f1115;
+  color: #e6e8eb;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+a { color: #8ab4ff; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1 { font-size: 22px; font-weight: 600; margin: 0 0 0.5em; }
+h2 { font-size: 16px; font-weight: 600; margin: 1em 0 0.4em; color: #c8ccd1; }
+h3 { font-size: 13px; font-weight: 600; margin: 0.8em 0 0.3em; color: #98a0a8;
+     text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* --- Layout ---------------------------------------------------- */
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+.app-header {
+  background: #181b22;
+  border-bottom: 1px solid #262a33;
+  padding: 0.7em 1.4em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.app-header h1 {
+  font-size: 16px;
+  margin: 0;
+}
+.app-header .breadcrumbs {
+  font-size: 13px;
+  color: #98a0a8;
+}
+.app-header .breadcrumbs a { color: #b8bec7; }
+.app-main { padding: 1.5em 2em; max-width: 1400px; width: 100%; margin: 0 auto; }
+
+/* --- Character roster ------------------------------------------- */
+.roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.char-card {
+  background: #181b22;
+  border: 1px solid #262a33;
+  border-radius: 8px;
+  padding: 14px;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.char-card:hover {
+  border-color: #4f93ff;
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+.char-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.char-card-name { font-size: 17px; font-weight: 600; }
+.char-card-cid { font-size: 11px; color: #98a0a8; font-family: ui-monospace, monospace; }
+.char-card-kind {
+  display: inline-block; font-size: 10px; padding: 2px 6px;
+  border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.char-card-kind.base   { background: #1a3a2e; color: #4ec990; }
+.char-card-kind.dlc    { background: #3a2a1a; color: #c9904e; }
+.char-card-kind.boss   { background: #3a1a2e; color: #c94e6e; }
+.char-card-kind.shared { background: #2a2a3a; color: #8a8ac9; }
+.char-card-kind.unknown { background: #2a2a2a; color: #888; }
+.char-card-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  font-size: 12px;
+  margin-top: 6px;
+}
+.char-card-stat-label { color: #98a0a8; }
+.char-card-stat-value { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- Char layout (tabs) ----------------------------------------- */
+.char-page-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1em;
+  padding-bottom: 0.8em;
+  border-bottom: 1px solid #262a33;
+  margin-bottom: 1em;
+}
+.char-page-title h1 { font-size: 24px; }
+.char-page-subtitle { color: #98a0a8; font-size: 13px; margin-top: 4px; }
+.char-tabs { display: flex; gap: 4px; }
+.char-tab {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #98a0a8;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+}
+.char-tab:hover { color: #e6e8eb; background: #1a1d24; text-decoration: none; }
+.char-tab.active { color: #e6e8eb; background: #232733; border-color: #2f3441; }
+
+/* --- Class badges ----------------------------------------------- */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  min-width: 50px;
+}
+.badge-mid         { background: #1a3a2e; color: #4ec990; }
+.badge-high        { background: #1a2e3a; color: #4e9ec9; }
+.badge-low         { background: #3a2e1a; color: #c98a4e; }
+.badge-unblockable { background: #3a1a1a; color: #c94e4e; }
+.badge-throw       { background: #2a1a3a; color: #a06ec9; }
+.badge-inactive    { background: #2a2a2a; color: #888; }
+.badge-header      { background: #2a2a2a; color: #ee9444; }
+.badge-sentinel    { background: #1a1a1a; color: #555; }
+.badge-nondamaging { background: #2a2a3a; color: #8aa6c9; }
+.badge-other       { background: #1f1f1f; color: #777; }
+.badge-movement    { background: #1c2438; color: #8aabd6; }
+/* Throw-input hint pill — small companion to a class badge for moves
+   with +G input. The full-size `.badge-throw` (defined above) handles
+   the case where the move has no resolved cell at all. The hint signals
+   "this is a grab/throw input; shown stats may be the strike-phase
+   whiff, not the throw cinematic damage". */
+.badge-throw-hint  { background: #2a1a3a; color: #c39ad9; font-size: 10px;
+                     padding: 1px 5px; min-width: 0; }
+/* EffectTag pills — authoritative move-property icons from
+   DA_MoveListTable. Small, colour-coded by property family. */
+.badge-eff      { font-size: 10px; padding: 1px 5px; min-width: 0;
+                  margin-left: 3px; font-weight: 600; }
+.badge-eff-lh   { background: #3a2a10; color: #e8b84e; }  /* Lethal Hit */
+.badge-eff-ba   { background: #3a1a3a; color: #d472d4; }  /* Break Attack */
+.badge-eff-gi   { background: #10303a; color: #4ec3d4; }  /* Guard Impact */
+.badge-eff-ua   { background: #3a1212; color: #e85c5c; }  /* Unblockable */
+.badge-eff-re   { background: #2a1030; color: #b06ed4; }  /* Reversal Edge */
+.badge-eff-th   { background: #2a1a3a; color: #a06ec9; }  /* Throw */
+.badge-eff-sc   { background: #103a2a; color: #4ec990; }  /* Soul Charge */
+.badge-eff-ss   { background: #1c2438; color: #8aabd6; }  /* Stance Shift */
+.badge-eff-sg   { background: #2a2a18; color: #c9c44e; }  /* Soul Gauge req */
+/* "+N" marker on multi-input rows — tells the user this entry has
+   N candidate alternate cells reached via dispatcher siblings. */
+.variant-mark {
+  margin-left: 6px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #d4a47b;
+  background: #2a2018;
+  border-radius: 3px;
+  vertical-align: middle;
+  cursor: help;
+}
+/* Attack-flag modifier pills (BA / GIimm / GB). Smaller + lower
+   contrast than the class badge so they read as annotations next to
+   it, not as the primary signal. */
+.badge-ba      { background: #3a1a3a; color: #d472d4; font-size: 10px;
+                 padding: 1px 5px; min-width: 0; }
+.badge-giimm   { background: #3a2a1a; color: #d4a47b; font-size: 10px;
+                 padding: 1px 5px; min-width: 0; }
+.badge-gbypass { background: #2a3a1a; color: #b4d472; font-size: 10px;
+                 padding: 1px 5px; min-width: 0; }
+
+/* --- Filter chips ----------------------------------------------- */
+.filters {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 1em 0;
+  align-items: center;
+}
+.filter-label { color: #98a0a8; font-size: 12px; margin-right: 4px; }
+.chip {
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  background: #181b22;
+  border: 1px solid #262a33;
+  color: #c8ccd1;
+  cursor: pointer;
+  user-select: none;
+}
+.chip:hover { border-color: #4f93ff; }
+.chip.active { background: #2a3a5a; border-color: #4f93ff; color: #e6e8eb; }
+
+/* --- Moves table ------------------------------------------------ */
+.moves-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+/* Column widths — give the busy columns more room so badges don't
+   wrap and condition phrases stay readable. */
+.moves-table td.col-from  { color: #98a0a8; font-size: 12px; white-space: nowrap;
+                            max-width: 200px; }
+.moves-table td.col-input { font-size: 13px; font-weight: 500; white-space: nowrap; }
+.moves-table td.col-name  { padding-top: 6px; padding-bottom: 6px; }
+.moves-table td.col-class { white-space: nowrap; }
+.moves-table .move-name   { font-weight: 500; }
+/* The "Cancel with G" hint under the name. Italics + faded so it
+   doesn't compete with the move name. */
+.moves-table .move-note   { color: #6a7280; font-size: 11px; font-style: italic;
+                            margin-top: 2px; }
+/* Lethal Hit trigger condition under the move name. */
+.moves-table .move-lh     { color: #c79a4e; font-size: 11px; margin-top: 2px; }
+/* Zebra stripes — even rows get a subtle tint to help row scanning. */
+.moves-table tbody tr:nth-child(even) td { background: #15171c; }
+.moves-table tbody tr:nth-child(even):hover td,
+.moves-table tbody tr:nth-child(odd):hover td { background: #1c2028; }
+.moves-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11px;
+  color: #98a0a8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 8px 10px;
+  border-bottom: 1px solid #262a33;
+  background: #14171d;
+  cursor: pointer;
+  user-select: none;
+  position: sticky;
+  top: 0;
+}
+.moves-table th:hover { color: #e6e8eb; }
+.moves-table th.sort-asc::after { content: " ▲"; color: #4f93ff; }
+.moves-table th.sort-desc::after { content: " ▼"; color: #4f93ff; }
+.moves-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #1d2028;
+  font-size: 13px;
+}
+.moves-table tr {
+  cursor: pointer;
+}
+.moves-table tr:hover td { background: #1a1d24; }
+.moves-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.moves-table td.muted { color: #777; }
+
+/* --- Frame data ------------------------------------------------- */
+.framedata {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: #c8ccd1;
+}
+.framedata .neg { color: #d97777; }
+.framedata .pos { color: #77c977; }
+
+/* --- Move detail page ------------------------------------------- */
+/* Hero card: move name + canonical input + class badges + primary
+   stats. The visual anchor of the detail page; everything else flows
+   under it in cards. */
+.move-hero {
+  background: linear-gradient(180deg, #1a2030 0%, #181b22 100%);
+  border: 1px solid #2a3a5a;
+  border-radius: 10px;
+  padding: 22px 26px;
+  margin-bottom: 1.5em;
+}
+.move-hero-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 18px; flex-wrap: wrap;
+}
+.move-hero-title { min-width: 0; flex: 1 1 320px; }
+.move-hero-name {
+  font-size: 28px; line-height: 1.15; margin: 0;
+  letter-spacing: -0.01em;
+}
+.move-hero-input {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  margin-top: 8px;
+  font-size: 17px;
+}
+.move-hero-condition { color: #98a0a8; font-size: 14px; }
+.move-hero-buttons { color: #99c3ee; font-weight: 600; }
+.move-hero-badges {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  flex-shrink: 0; padding-top: 4px;
+}
+.move-hero-note {
+  margin: 12px 0 0;
+  font-size: 13px; color: #b0b6be; font-style: italic;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border-left: 3px solid #4a6390;
+  border-radius: 0 4px 4px 0;
+}
+/* DA_MoveListTable metadata block: hit-class sequence, tip, LH cond. */
+.move-hero-meta {
+  margin: 12px 0 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.move-meta-row { display: flex; gap: 10px; font-size: 13px; align-items: baseline; }
+.move-meta-label {
+  flex: 0 0 80px; text-align: right;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: #8a92a0;
+}
+.move-meta-lh { color: #c79a4e; }
+.move-meta-value { color: #d4d8de; }
+.move-summary-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #283044;
+}
+.stat-block { }
+.stat-label { font-size: 11px; color: #98a0a8; text-transform: uppercase;
+              letter-spacing: 0.05em; }
+.stat-value { font-size: 26px; font-weight: 600; line-height: 1.1;
+              font-variant-numeric: tabular-nums; margin-top: 2px; }
+.stat-value.bigword { font-size: 18px; font-weight: 500; }
+.stat-unit  { font-size: 16px; font-weight: 400; color: #98a0a8;
+              margin-left: 1px; }
+.stat-value .neg { color: #d97777; }
+.stat-value .pos { color: #77c977; }
+
+/* Detail cards: 3-up grid below the hero, holding hit-reactions,
+   range, and engine-fields. Collapses to 1 column on narrow viewports. */
+.detail-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin-bottom: 1.5em;
+}
+.detail-card {
+  background: #181b22;
+  border: 1px solid #262a33;
+  border-radius: 8px;
+  padding: 16px 18px 14px;
+}
+.detail-card .card-title {
+  font-size: 13px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: #c8ccd1;
+  margin: 0 0 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #262a33;
+}
+.detail-card .card-sub {
+  margin: 0 0 10px;
+  font-size: 11px; color: #6a7280;
+}
+.kv-table { width: 100%; border-collapse: collapse;
+            font-variant-numeric: tabular-nums; }
+.kv-table td { padding: 4px 0; font-size: 13px; }
+.kv-table td:first-child { color: #98a0a8; }
+.kv-table td.num { text-align: right; }
+.kv-table td.mono { font-family: ui-monospace, monospace; }
+
+/* "Variations" section on the move detail page — string-extension
+   siblings of a move (e.g. 214A vs 214A.A.A.A.A.A). */
+.variation-card { margin: 0 0 1.5em; }
+.variation-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.variation-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 7px 10px; border-radius: 6px;
+  background: #1f232b; border: 1px solid #2a2f3a;
+  text-decoration: none; color: inherit;
+}
+a.variation-row:hover { border-color: #3a6ea5; background: #232834; }
+.variation-input { color: #d9c477; font-size: 13px; min-width: 6em; }
+.variation-name { color: #c8ccd1; font-size: 13px; flex: 1 1 8em; }
+
+/* "Stance graph" view — the named-stance transition table below the
+   ReactFlow graph. Each row: in stance X, press Y, shift to stance Z. */
+.stance-tx-table {
+  width: 100%; border-collapse: collapse; margin: 14px 0 1.5em;
+  font-size: 13px;
+}
+.stance-tx-table th {
+  text-align: left; padding: 6px 10px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: #6a7280; border-bottom: 1px solid #262a33;
+}
+.stance-tx-table td {
+  padding: 6px 10px; border-bottom: 1px solid #1f232b; color: #c8ccd1;
+}
+.stance-tx-table tr.tx-clickable { cursor: pointer; }
+.stance-tx-table tr.tx-clickable:hover td { background: #1f232b; }
+.stance-tx-table .tx-input { color: #d9c477; }
+.stance-tx-table .tx-to { color: #99e3a3; }
+
+/* Stance-graph canvas — holds whichever of the 8 layouts is active. */
+.stance-canvas {
+  width: 100%; height: 62vh; margin-top: 4px;
+  background: #14171d; border: 1px solid #262a33; border-radius: 8px;
+  overflow: hidden;
+}
+/* Adjacency-matrix layout. */
+.stance-matrix-wrap { width: 100%; height: 100%; overflow: auto; padding: 14px; }
+.stance-matrix { border-collapse: collapse; font-size: 12px; }
+.stance-matrix th, .stance-matrix td {
+  border: 1px solid #262a33; padding: 5px 9px; text-align: center;
+  white-space: nowrap;
+}
+.stance-matrix thead th { color: #98a0a8; font-weight: 600; background: #181b22; }
+.stance-matrix th.mx-corner { color: #5a6270; font-weight: 400; font-style: italic; }
+.stance-matrix th.mx-row {
+  text-align: right; color: #c8ccd1; background: #181b22; cursor: pointer;
+}
+.stance-matrix th.mx-row:hover { color: #fff; }
+.stance-matrix th.mx-sel { background: #26344a; color: #6fa8e0; }
+.stance-matrix td.mx-diag { background: #101216; }
+.stance-matrix td.mx-cell { cursor: pointer; color: #e6e8eb; font-weight: 600; }
+.stance-matrix td.mx-cell:hover { outline: 2px solid #6fa8e0; outline-offset: -2px; }
+
+/* ZoomableSvg — pan / wheel-zoom wrapper + zoom controls for the
+   stance-graph layouts (restores the ReactFlow-style canvas UX). */
+.zsvg { position: relative; width: 100%; height: 100%; }
+.zsvg > svg { display: block; touch-action: none; }
+.zsvg-controls {
+  position: absolute; right: 10px; bottom: 10px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.zsvg-controls button {
+  width: 30px; height: 28px; padding: 0;
+  background: #1f232b; border: 1px solid #313742; color: #c8ccd1;
+  border-radius: 5px; cursor: pointer;
+  font-size: 16px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.zsvg-controls button:hover {
+  background: #2a3744; border-color: #3a6ea5; color: #fff;
+}
+.kv-table tr.kv-divider td { padding-top: 8px;
+                              border-top: 1px solid #1f2228; }
+
+/* Legacy class — still used by the variants/edge tables below the
+   primary cards. */
+.detail-section { margin-bottom: 1.5em; }
+.detail-section h2 {
+  font-size: 14px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: #c8ccd1;
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #262a33;
+}
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* --- Collapsible engine details --------------------------------- */
+details.engine-details {
+  background: #14171d;
+  border: 1px solid #262a33;
+  border-radius: 6px;
+  padding: 0;
+  margin-top: 1em;
+}
+details.engine-details > summary {
+  padding: 10px 14px;
+  cursor: pointer;
+  color: #98a0a8;
+  font-size: 13px;
+  user-select: none;
+}
+details.engine-details > summary:hover { color: #e6e8eb; }
+details.engine-details[open] > summary {
+  border-bottom: 1px solid #262a33;
+  color: #e6e8eb;
+}
+.engine-fields { padding: 12px 18px; }
+.engine-fields table {
+  width: 100%; border-collapse: collapse;
+  font-family: ui-monospace, monospace; font-size: 12px;
+}
+.engine-fields td { padding: 3px 8px; border-bottom: 1px solid #1d2028; }
+.engine-fields td:first-child { color: #98a0a8; }
+
+/* --- Input chips (move-tab path rendering) ---------------------- */
+.chip-small {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #2a2e38;
+  background: #1a1d24;
+  color: #c8ccd1;
+  white-space: nowrap;
+}
+/* Color-code by predicate kind so the user can scan paths fast. */
+.chip-small.kind-buttons   { background: #1b2a3a; border-color: #2a4a78; color: #99c3ee; }
+.chip-small.kind-direction { background: #1c2c1c; border-color: #2c5c2c; color: #99e3a3; }
+.chip-small.kind-command   { background: #2c1c2c; border-color: #5c2c5c; color: #d99ae3; }
+.chip-small.kind-auto      { background: #2a2418; border-color: #5a4a28; color: #d9c477; }
+.chip-small.kind-frame     { background: #2a2418; border-color: #5a4a28; color: #d9c477; }
+.chip-small.kind-stance    { background: #1c1c2c; border-color: #2c2c5c; color: #99a3d9; }
+.chip-small.kind-from-move { background: #1c1c2c; border-color: #2c2c5c; color: #99a3d9; }
+.chip-small.kind-other     { background: #251f1f; border-color: #4a3232; color: #d9a59a; }
+.chip-small.kind-indirect  { background: #25201f; border-color: #4a3a32; color: #d9b89a; }
+/* "unknown" = fallback move (no BFS-derived input). Show a dashed
+   border + desaturated palette so users see at a glance the input is
+   a guess, not canonical notation. */
+.chip-small.kind-unknown   {
+  background: #1e1e22;
+  border: 1px dashed #555;
+  color: #8c8c98;
+  font-style: italic;
+}
+
+/* --- Utility ---------------------------------------------------- */
+.muted { color: #98a0a8; }
+.mono { font-family: ui-monospace, monospace; }
+.notice {
+  background: #1a1f2a;
+  border: 1px solid #2a3a5a;
+  color: #c8ccd1;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin: 1em 0;
+}
+.notice strong { color: #e6e8eb; }
+.notice code.mono { color: #99c3ee; }
+.info {
+  background: #1a2030;
+  border: 1px solid #2a3a5a;
+  color: #b8c0d0;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin: 1em 0;
+}
+.loading { color: #98a0a8; text-align: center; padding: 4em 0; }

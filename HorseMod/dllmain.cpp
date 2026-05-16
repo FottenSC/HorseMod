@@ -171,6 +171,14 @@
 // approach for the SlipOut policy specifically).
 #include "horselib/HasSubProviderEntryHook.hpp"
 #include "horselib/EBTracer.hpp"
+
+// Replay scrubbing — per-frame full-state snapshot ring + ExecFinalize-
+// AndPost-driven seek.  Captures snapshots only during Replay presence;
+// otherwise idle.  See horselib/ReplayScrub.hpp's file-header doc for
+// the IBuffer contract and Strategy C rationale (~49 MB resident at the
+// default 5-second / 300-frame ring size).
+#include "horselib/ReplayScrub.hpp"
+
 // horselib/GamePause.hpp REMOVED — was a 5-site trampoline patching the
 // chara+0x394 audio-state bit instead of the world-tick pause we
 // thought.  Superseded by the SpeedControl freeze-frame mechanism (see
@@ -1526,6 +1534,11 @@ public:
         Horse::HasSubProviderEntryHook::instance().uninstall();
         Horse::EBTracer::instance().uninstall();
 
+        // Tear down the replay scrubber's snapshot ring.  Frees the
+        // ~49 MB / ~98 MB / ~590 MB (depending on ring size) of
+        // backing memory.  Idempotent if ensure_initialized never ran.
+        Horse::ReplayScrub::instance().shutdown();
+
         // Tear down the SetPresence post-hook so the lambda doesn't
         // fire on a freed cached path-string after dllmain unload.
         // Idempotent.
@@ -1617,6 +1630,13 @@ public:
         // per function.  Once the writer is identified, this can be
         // removed and the natural mechanism replicated in step mode.
         Horse::EBTracer::instance().install();
+
+        // Replay scrubbing: allocation is DEFERRED to first Replay-
+        // presence entry (see on_cockpit_update_pre below) so users who
+        // never watch replays don't pay the ~590 MB memory cost.  The
+        // engine entry-point pointers and frame-counter address ARE
+        // resolved at startup via NativeBinding, so the lazy alloc is
+        // just the ring backing memory plus its tag vector.
 
         // Push the default hit-flash duration into the walker so it's
         // correct on frame 0 without the user having to touch the
@@ -2236,7 +2256,16 @@ private:
             }
         }
 
-        const bool freeze     = m_freeze_frame.load();
+        // Replay-scrub overrides the freeze decision: any active scrub
+        // session implies freeze (so the engine doesn't immediately
+        // re-derive divergent state on top of the restored snapshot).
+        // Folded into m_freeze_frame's downstream effect via OR rather
+        // than as a separate priority tier so the existing
+        // WorldTickGate-driven path handles it transparently.
+        const bool scrub_freeze =
+            Horse::ReplayScrub::instance().is_scrub_active();
+
+        const bool freeze     = m_freeze_frame.load() || scrub_freeze;
         const bool slow_mo    = m_speed_enabled.load();
         const int  pending    = m_step_pending.load();
         // (m_step_expecting / m_step_witness / m_step_dwell are dormant —
@@ -3217,8 +3246,11 @@ private:
         //   direct-offset path still works.
         //
         // Both lookups are hashed FName-indexed / trivial pointer reads
-        // and cached across frames via GlobalPtr::get / Obj::getObj —
-        // GlobalPtr revalidates on level transitions automatically.
+        // and cached across frames via GlobalPtr::get / Obj::getObj.
+        // GlobalPtr::get throttles its O(N) revalidation scan (see
+        // HorseLib.hpp); the presence-transition block above
+        // invalidate()s m_player_controller so a torn-down PC is
+        // re-resolved promptly instead of at the next throttle tick.
         void* pcm = nullptr;
         UObject* pc_raw = m_player_controller.get(L"PlayerController");
         if (pc_raw)
@@ -3343,6 +3375,22 @@ private:
                         Horse::presence_name(to));
                 }
                 clear_time_features_on_transition();
+
+                // Replay scrubber: drop captured snapshots and cancel
+                // any pending seek.  Captures are relevant only to the
+                // match-in-progress; transitioning rooms means the
+                // ring's contents are no longer chronologically
+                // continuous with whatever the engine is doing now.
+                Horse::ReplayScrub::instance().on_presence_change();
+
+                // Drop the cached battle-level globals.  LuxBattle-
+                // Manager / CockpitBase / PlayerController are all torn
+                // down across this transition; invalidating forces the
+                // next GlobalPtr::get() to re-resolve immediately rather
+                // than serve a stale pointer until the throttled
+                // revalidation timer next fires.
+                m_lux.invalidate();
+                m_player_controller.invalidate();
             }
         }
 
@@ -3413,6 +3461,66 @@ private:
         // this unconditionally (not gated by m_enabled) matches the other
         // "always on while toggled" features above.
         free_camera_apply();
+
+        // Replay scrubber driver.  Two operations per cockpit tick:
+        //   1. tick_capture() — read g_LuxBattle_FrameCounter; if it
+        //      advanced AND we're in Replay presence AND capture is
+        //      enabled AND we aren't currently scrubbing, snapshot the
+        //      live state into the next ring slot via the engine's
+        //      ExecMoveChangeAndPost (against our HgCpuBufferShim).
+        //   2. service_seek_request() — if the UI posted a target
+        //      frame, ExecFinalizeAndPost the matching ring slot and
+        //      engage WorldTickGate freeze so the engine doesn't
+        //      immediately re-derive divergent state on top.
+        // Both no-op when ReplayScrub is uninitialised or idle, so
+        // calling them every cockpit tick costs ~2 atomic loads
+        // outside Replay presence.
+        //
+        // Lazy-init: allocate the snapshot ring on the first tick we
+        // observe Replay presence so users who never open the Replay
+        // viewer don't pay the ~590 MB memory cost.  Subsequent ticks
+        // find is_initialized()=true and skip.  The slider in the
+        // Replay tab calls ensure_initialized() with a different size
+        // when the user adjusts the capture-window setting.
+        {
+            const auto rs_presence =
+                Horse::GameMode::instance().current_presence();
+            if (rs_presence == Horse::GamePresence::Replay
+                && !Horse::ReplayScrub::instance().is_initialized())
+            {
+                Horse::ReplayScrub::instance().ensure_initialized();
+            }
+        }
+        Horse::ReplayScrub::instance().tick_capture();
+        Horse::ReplayScrub::instance().service_seek_request();
+        // 2026-05-16: "Generate timeline" driver.  Services the UI
+        // start/stop request and, while generating, watches for the
+        // end of the recording.  The fast-forward itself is done by
+        // FrameCapOverride removing the engine frame cap - this call
+        // just starts/stops it and auto-detects completion.
+        Horse::ReplayScrub::instance().tick_generate_timeline();
+
+        // During a "Generate timeline" fast-forward the user is not
+        // watching the screen, so skip the rest of this per-frame mod
+        // work — chiefly the hitbox visualiser (m_lux.forEachChara +
+        // line-batch draws), the dominant per-frame mod cost.  This
+        // leaves the fast-forward loop bound only by SC6's own
+        // simulation + the (sub-millisecond) snapshot capture, which
+        // tick_capture() above already did this frame.  Combined with
+        // the render-resolution drop (ScreenPercentageOverride) this is
+        // what actually lets generation run faster than 1x.
+        if (Horse::ReplayScrub::instance().timeline_gen_state()
+            == Horse::ReplayScrub::TimelineGenState::Generating)
+        {
+            // This early return skips the per-chara retrack-event
+            // detection that maintains m_prev_yaw.  Invalidate the yaw
+            // baseline so the first tick after generation ends re-seeds
+            // it, instead of firing a spurious "retrack event" banner
+            // off a stale pre-generation yaw.
+            m_have_prev_yaw[0] = false;
+            m_have_prev_yaw[1] = false;
+            return;
+        }
 
         // Always-on heartbeat: once every ~2s print a single line so we can
         // confirm the hook is ticking even while the overlay is off.  This
@@ -3917,22 +4025,95 @@ private:
                 const bool is_throw =
                     (d.attack_role == Horse::KHitAttackRole::Throw);
 
+                // Throws keep the pink/magenta scheme — tier doesn't
+                // apply to grabs.  Hot vs cold variants only.  When the
+                // engine's throw-height gate would reject this throw
+                // against the current defender (defender too tall and
+                // throw's yarareId not in the unconditional allow-set
+                // — see KHitDraw::throw_height_gate_ok), desaturate to
+                // grey-ish to signal "boxes overlap but throw will
+                // whiff" — the classic small-attacker-vs-tall-defender
+                // empirical bug visualised.
+                if (is_throw)
+                {
+                    const bool gate_fail = !d.throw_height_gate_ok;
+                    if (gate_fail)
+                    {
+                        return d.is_current_attack
+                            ? Horse::FLinColor{ 0.65f, 0.50f, 0.60f, 0.85f }
+                            : Horse::FLinColor{ 0.45f * player_tint,
+                                                0.35f,
+                                                0.40f * player_tint, 0.45f };
+                    }
+                    return d.is_current_attack
+                        ? Horse::FLinColor{ 1.0f, 0.30f, 0.85f, 1.0f }  // hot throw = pink
+                        : Horse::FLinColor{ 0.85f * player_tint,
+                                            0.15f,
+                                            0.70f * player_tint, 0.6f }; // cold throw = magenta
+                }
+
+                // Strikes — colour by AttackFlags tier (engine-truth
+                // classification of high/mid/low/unblockable from
+                // cell+0x32 read in EvaluateMoveTransition + ProcessHit).
+                // The data has been on every KHitDraw since the
+                // 2026-05-15 audit; this routes it into rendering.
+                //
+                //   High        — red-orange  (must block standing)
+                //   Mid         — amber       (blockable any stance)
+                //   Low         — sky-blue    (must block crouching)
+                //   Unblockable — magenta-red (must dodge — GI-immune
+                //                              when bit 0x200 is set)
+                //   Special     — light cyan  (special framing rule)
+                //   Unknown     — amber       (fallback to legacy)
+                //
+                // Hot (live this frame) variants are full saturation;
+                // cold variants are tinted by player_tint with 0.6 alpha.
+                const Horse::KHitAttackTier tier = d.attack_tier;
                 if (d.is_current_attack)
                 {
-                    // Hot (live this frame) — max-saturation colour so it
-                    // pops out of the other attack boxes on the same chara.
-                    return is_throw
-                        ? Horse::FLinColor{ 1.0f, 0.30f, 0.85f, 1.0f }  // hot throw = pink
-                        : Horse::FLinColor{ 1.0f, 1.0f, 0.25f, 1.0f }; // hot strike = yellow
+                    // Hot strike — pop out from other strikes.
+                    switch (tier)
+                    {
+                        case Horse::KHitAttackTier::High:
+                            return Horse::FLinColor{ 1.0f, 0.40f, 0.15f, 1.0f };
+                        case Horse::KHitAttackTier::Low:
+                            return Horse::FLinColor{ 0.35f, 0.75f, 1.0f, 1.0f };
+                        case Horse::KHitAttackTier::Unblockable:
+                            return Horse::FLinColor{ 1.0f, 0.10f, 0.55f, 1.0f };
+                        case Horse::KHitAttackTier::Special:
+                            return Horse::FLinColor{ 0.55f, 1.0f, 0.95f, 1.0f };
+                        case Horse::KHitAttackTier::Mid:
+                        case Horse::KHitAttackTier::Unknown:
+                        default:
+                            return Horse::FLinColor{ 1.0f, 1.0f, 0.25f, 1.0f };
+                    }
                 }
-                // Cold.
-                return is_throw
-                    ? Horse::FLinColor{ 0.85f * player_tint,
-                                        0.15f,
-                                        0.70f * player_tint, 0.6f }   // cold throw = magenta
-                    : Horse::FLinColor{ 1.0f * player_tint,
-                                        0.55f * player_tint,
-                                        0.10f, 0.6f };                // cold strike = amber
+                // Cold strike.
+                switch (tier)
+                {
+                    case Horse::KHitAttackTier::High:
+                        return Horse::FLinColor{ 0.95f * player_tint,
+                                                 0.30f,
+                                                 0.10f, 0.6f };
+                    case Horse::KHitAttackTier::Low:
+                        return Horse::FLinColor{ 0.20f * player_tint,
+                                                 0.55f * player_tint,
+                                                 0.85f, 0.6f };
+                    case Horse::KHitAttackTier::Unblockable:
+                        return Horse::FLinColor{ 0.85f * player_tint,
+                                                 0.10f,
+                                                 0.45f * player_tint, 0.6f };
+                    case Horse::KHitAttackTier::Special:
+                        return Horse::FLinColor{ 0.40f * player_tint,
+                                                 0.80f * player_tint,
+                                                 0.80f, 0.6f };
+                    case Horse::KHitAttackTier::Mid:
+                    case Horse::KHitAttackTier::Unknown:
+                    default:
+                        return Horse::FLinColor{ 1.0f * player_tint,
+                                                 0.55f * player_tint,
+                                                 0.10f, 0.6f };  // legacy amber
+                }
             }
 
             case Horse::KHitList::Body:
@@ -4261,7 +4442,7 @@ private:
         //    L1/R1 are suppressed while a widget is actively being
         //    edited (dragging a slider) so they keep their stock
         //    ImGui "tweak slower / faster" role in that context.
-        constexpr int kNumTabs = 5;
+        constexpr int kNumTabs = 6;
         static int s_current_tab   = 0;
         static int s_requested_tab = -1;
         if (!ImGui::IsAnyItemActive())
@@ -4300,7 +4481,8 @@ private:
             tab_item("Camera",   1, [this] { render_camera_tab(); });
             tab_item("Time",     2, [this] { render_time_tab(); });
             tab_item("Labbing",  3, [this] { render_labbing_tab(); });
-            tab_item("General",  4, [this] { render_general_tab(); });
+            tab_item("Replay",   4, [this] { render_replay_tab(); });
+            tab_item("General",  5, [this] { render_general_tab(); });
 
             ImGui::EndTabBar();
         }
@@ -5396,6 +5578,592 @@ private:
                         "(waiting for training-reset hook — start a match)");
                 }
             }
+    }
+
+    // ==================================================================
+    // Replay tab — video-style scrubbing for SC6 match replays.
+    //
+    // SC6's .replay file format only stores deterministic inputs +
+    // round-start checkpoints, so per-frame backward seek requires us
+    // to capture full simulation snapshots ourselves while the replay
+    // plays forward.  Horse::ReplayScrub does that via the engine's
+    // own LuxBattle_HgCpuDirect snapshot framework (the same one the
+    // post-KO cinematic uses for its 5-entry ring), backed by a
+    // HorseMod-allocated ring of N x 0x28018-byte slots.
+    //
+    // UI flow:
+    //   1. User enters Replay presence → captures begin auto-magically
+    //   2. User opens this tab → sees ring fill with frame tags
+    //   3. User drags scrub slider → seek to that frame; world freezes
+    //   4. User presses "Stop scrub" → world un-freezes (engine resumes
+    //      from the seeked frame; replay cursors are unmodified so
+    //      replay timeline continues from the scrubbed-to point)
+    // ==================================================================
+    void render_replay_tab()
+    {
+        auto& scrub = Horse::ReplayScrub::instance();
+
+        if (!scrub.is_initialized())
+        {
+            ImGui::TextDisabled(
+                "(replay scrubber not initialised — check UE4SS.log)");
+            return;
+        }
+
+        const auto presence = Horse::GameMode::instance().current_presence();
+        const bool in_replay = (presence == Horse::GamePresence::Replay);
+
+        const size_t  cnt    = scrub.ring_count();
+        const int32_t earl   = scrub.earliest_seq();
+        const int32_t latst  = scrub.latest_seq();
+        const int32_t live   = scrub.live_frame();
+        const bool    paused = scrub.is_paused();
+
+        // 2026-05-16 UX fix: don't early-return when not in replay /
+        // captures empty.  Show a status notice but keep the Settings /
+        // Debug toggles below editable anytime so the user can pre-
+        // configure before entering the replay viewer.
+        const bool show_timeline_ui = in_replay && cnt > 0;
+        if (!in_replay)
+        {
+            ImGui::TextDisabled(
+                "(idle — enter the Replay viewer to capture.  Settings "
+                "below are editable anytime.)");
+            ImGui::Spacing();
+        }
+        else if (cnt == 0)
+        {
+            ImGui::TextDisabled(
+                "(waiting for first Replay frame... live=%d)", live);
+            ImGui::Spacing();
+        }
+
+        if (show_timeline_ui)
+        {
+
+        // -----------------------------------------------------------------
+        // Time display row
+        // -----------------------------------------------------------------
+        // Playhead policy: ReplayScrub::current_play_position() returns
+        // a capture-sequence coordinate (monotonic across the whole
+        // match):
+        //     * Paused on a seeked snapshot: that snapshot's seq.
+        //     * Playing, or never seeked: the live capture edge.
+        // (See ReplayScrub::current_play_position for why post-seek
+        // playback follows the live edge rather than extrapolating a
+        // master-clock delta - the latter stalled across round
+        // boundaries.)
+        static int s_playhead = -1;
+        s_playhead = scrub.current_play_position();
+        if (s_playhead < earl)  s_playhead = earl;
+        if (s_playhead > latst) s_playhead = latst;
+
+        auto fmt_time = [](float seconds, char* out, size_t n) {
+            const int mm = static_cast<int>(seconds) / 60;
+            const float ss = seconds - mm * 60.0f;
+            std::snprintf(out, n, "%02d:%05.2f", mm, ss);
+        };
+        // s_playhead is a capture-sequence coordinate (monotonic across
+        // the whole match, including round boundaries).  Resolve it to
+        // (round, within-round frame) for a round-aware read-out; the
+        // "capture N / total" still gives the overall timeline position.
+        int32_t ph_round = -1, ph_wall = -1;
+        scrub.seq_tag_info(s_playhead, ph_round, ph_wall);
+        char cur_buf[16];
+        fmt_time(ph_wall >= 0 ? static_cast<float>(ph_wall) / 60.0f : 0.0f,
+                 cur_buf, sizeof(cur_buf));
+        if (ph_round >= 0)
+            ImGui::Text("Round %d  ·  %s  ·  capture %d / %d",
+                        ph_round + 1, cur_buf,
+                        s_playhead - earl + 1, latst - earl + 1);
+        else
+            ImGui::Text("capture %d / %d",
+                        s_playhead - earl + 1, latst - earl + 1);
+        ImGui::SameLine(0.0f, 30.0f);
+        if (paused)
+            ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.35f, 1.0f), "PAUSED");
+        else
+            ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "LIVE");
+
+        // -----------------------------------------------------------------
+        // Custom-drawn timeline (the "playhead" UI).
+        //
+        // Layout:
+        //   ┌───────────────────────────────────────────────┐
+        //   │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒|▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│   ← bar
+        //   │                       ●                      │   ← playhead
+        //   └───────────────────────────────────────────────┘
+        //
+        // The bar's mouse interaction:
+        //   * mouse-down on bar           → on_drag_start, seek to mouse X
+        //   * drag while held             → seek to mouse X each frame X moves
+        //   * mouse-up                    → on_drag_end (auto-resume if toggled)
+        //
+        // ImGui's InvisibleButton + IsItemActive() / IsItemDeactivated()
+        // gives us all four signals cleanly.  No need for separate
+        // is-clicked-vs-dragged logic — they're the same interaction.
+        // -----------------------------------------------------------------
+        const float bar_h = 28.0f;
+        const float bar_w = ImGui::GetContentRegionAvail().x;
+        const ImVec2 bar_pos  = ImGui::GetCursorScreenPos();
+        const ImVec2 bar_max  = ImVec2(bar_pos.x + bar_w, bar_pos.y + bar_h);
+        ImGui::InvisibleButton("##rs_timeline", ImVec2(bar_w, bar_h));
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+
+        // Background — full bar (dark grey).
+        dl->AddRectFilled(bar_pos, bar_max,
+                          IM_COL32( 35,  35,  40, 255), 4.0f);
+
+        // Captured-range overlay — the whole bar for now since the ring's
+        // earl..latst IS the viewable timeline.  Reserved for future
+        // "full replay extent" rendering when we read nTotalRecorded-
+        // Frames; in that mode this overlay would shade only the
+        // in-buffer subset of the bar.
+        dl->AddRectFilled(bar_pos, bar_max,
+                          IM_COL32( 80, 130, 180, 110), 4.0f);
+
+        // Round-boundary markers — a thin tick + "R<n>" label wherever
+        // the replay crossed into a new round.  collect_round_markers()
+        // returns one entry per round held in the ring, keyed by the
+        // capture seq of that round's first snapshot.
+        if (latst > earl)
+        {
+            const auto markers = scrub.collect_round_markers();
+            for (const auto& mk : markers)
+            {
+                const float mf = static_cast<float>(mk.seq - earl)
+                               / static_cast<float>(latst - earl);
+                if (mf < 0.0f || mf > 1.0f) continue;
+                const float mxr = bar_pos.x + mf * bar_w;
+                dl->AddLine(ImVec2(mxr, bar_pos.y),
+                            ImVec2(mxr, bar_pos.y + bar_h),
+                            IM_COL32(235, 205, 120, 200), 1.5f);
+                char rlbl[8];
+                std::snprintf(rlbl, sizeof(rlbl), "R%d", mk.round + 1);
+                dl->AddText(ImVec2(mxr + 3.0f, bar_pos.y + 1.0f),
+                            IM_COL32(235, 205, 120, 255), rlbl);
+            }
+        }
+
+        // Mouse interaction — must run before drawing the playhead so
+        // an in-flight drag updates s_playhead this frame.
+        const bool active   = ImGui::IsItemActive();
+        const bool hovered  = ImGui::IsItemHovered();
+
+        // Drag-edge detection.  Use ImGui's Active/Deactivated states
+        // rather than tracking ourselves — they're correctly shaped for
+        // click-and-hold-then-release semantics.
+        const bool drag_start = ImGui::IsItemActivated();
+        const bool drag_end   = ImGui::IsItemDeactivated();
+
+        if (drag_start) scrub.on_drag_start();
+        if (drag_end)   scrub.on_drag_end();
+
+        if (active)
+        {
+            const float mx    = ImGui::GetIO().MousePos.x;
+            const float frac  = (bar_w > 0.0f)
+                                ? (mx - bar_pos.x) / bar_w : 0.0f;
+            const float clmp  = (frac < 0.0f) ? 0.0f
+                              : (frac > 1.0f) ? 1.0f : frac;
+            const int   target = earl
+                              + static_cast<int>(clmp * (latst - earl) + 0.5f);
+            if (target != s_playhead)
+            {
+                s_playhead = target;
+                scrub.request_seek(target);
+            }
+        }
+
+        // Playhead glyph: vertical line + circle at center.
+        const float playhead_frac = (latst > earl)
+            ? static_cast<float>(s_playhead - earl)
+              / static_cast<float>(latst - earl)
+            : 0.0f;
+        const float px = bar_pos.x + playhead_frac * bar_w;
+        const float py_mid = bar_pos.y + bar_h * 0.5f;
+        dl->AddLine(ImVec2(px, bar_pos.y),
+                    ImVec2(px, bar_pos.y + bar_h),
+                    IM_COL32(255, 255, 255, 230), 2.0f);
+        dl->AddCircleFilled(ImVec2(px, py_mid), 6.5f,
+                            IM_COL32(255, 255, 255, 255));
+        dl->AddCircle      (ImVec2(px, py_mid), 6.5f,
+                            IM_COL32( 30,  30,  40, 255), 12, 1.5f);
+
+        // Hover preview tooltip.
+        if (hovered)
+        {
+            const float mx   = ImGui::GetIO().MousePos.x;
+            const float frac = (bar_w > 0.0f)
+                               ? (mx - bar_pos.x) / bar_w : 0.0f;
+            const float clmp = (frac < 0.0f) ? 0.0f
+                             : (frac > 1.0f) ? 1.0f : frac;
+            const int   hf   = earl
+                             + static_cast<int>(clmp * (latst - earl) + 0.5f);
+            const float hsec = static_cast<float>(hf - earl) / 60.0f;
+            char hbuf[32];
+            std::snprintf(hbuf, sizeof(hbuf),
+                          "frame %d  (%.2f s)", hf, hsec);
+            ImGui::SetTooltip("%s", hbuf);
+        }
+
+        ImGui::Spacing();
+
+        // -----------------------------------------------------------------
+        // Transport row — jump/step/play-pause.  Step buttons engage
+        // pause (frame-by-frame review UX); the timeline drag uses
+        // its own on_drag_start/on_drag_end pair instead.  Play/Pause
+        // toggles the freeze directly without going through the seek
+        // path so a Pause-then-Play round trip is a true no-op.
+        // -----------------------------------------------------------------
+        auto step_seek = [&](int target) {
+            if (target < earl)  target = earl;
+            if (target > latst) target = latst;
+            s_playhead = target;
+            // Step buttons explicitly engage pause - clicking +1 while
+            // playing is "advance one frame and stop", matching every
+            // video player's frame-step UX.
+            scrub.set_paused(true);
+            scrub.request_seek(target);
+        };
+        if (ImGui::Button("|<<##rs_first"))      step_seek(earl);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Jump to oldest captured frame (pauses)");
+        ImGui::SameLine();
+        if (ImGui::Button("<<-10##rs_b10"))      step_seek(s_playhead - 10);
+        ImGui::SameLine();
+        if (ImGui::Button("<-1##rs_b1"))         step_seek(s_playhead - 1);
+        ImGui::SameLine();
+
+        // Play / Pause toggle in the middle.  Pure pause flag flip -
+        // no seek needed.  When pausing while playing, the engine
+        // state IS the latest captured frame (capture and pause read
+        // the same global frame counter), so the cursors are already
+        // in sync; freezing here is a clean halt.
+        if (paused)
+        {
+            if (ImGui::Button(" Play ##rs_play"))
+                scrub.set_paused(false);
+        }
+        else
+        {
+            if (ImGui::Button("Pause ##rs_play"))
+                // Anchor the playhead at the live edge so the UI
+                // doesn't jump back to a stale prior-seek position
+                // (see ReplayScrub::mark_paused_at_live for the full
+                // race-free explanation).
+                scrub.mark_paused_at_live();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            paused
+              ? "Resume forward replay playback from the current playhead."
+              : "Pause replay playback at the current live edge.");
+        ImGui::SameLine();
+        if (ImGui::Button("+1>##rs_f1"))         step_seek(s_playhead + 1);
+        ImGui::SameLine();
+        if (ImGui::Button("+10>>##rs_f10"))      step_seek(s_playhead + 10);
+        ImGui::SameLine();
+        if (ImGui::Button(">>|##rs_last"))       step_seek(latst);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Jump to most recent captured frame (pauses at live edge)");
+
+        ImGui::Spacing();
+
+        }  // end of: if (show_timeline_ui)
+
+        // -----------------------------------------------------------------
+        // Generate timeline — fast-forward the replay to fill the ring.
+        //
+        // Removes SC6's engine frame-rate cap (UEngine FixedFrameRate)
+        // for the duration, so the replay plays back as fast as the
+        // machine can render + simulate.  Every frame is still captured
+        // into the ring exactly as in 1x playback — only sooner.  The
+        // cap is restored automatically when the replay ends.  See
+        // ReplayScrub::FrameCapOverride for the mechanism.
+        // -----------------------------------------------------------------
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::TextDisabled("Generate timeline");
+
+        {
+            using GS = Horse::ReplayScrub::TimelineGenState;
+            const GS gen_state = scrub.timeline_gen_state();
+
+            if (!in_replay)
+            {
+                ImGui::TextDisabled(
+                    "(enter the Replay viewer, then Generate to fast-"
+                    "forward through the replay and fill the timeline)");
+            }
+            else if (gen_state == GS::Generating)
+            {
+                if (ImGui::Button("Stop##rs_gen_stop"))
+                    scrub.request_stop_generate_timeline();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Stop fast-forwarding now and restore the 60 fps cap.\n"
+                    "The timeline keeps whatever has been captured so far.");
+                ImGui::SameLine(0.0f, 14.0f);
+                ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.35f, 1.0f),
+                    "Generating — replay at max speed…  ring %zu / %zu",
+                    cnt, scrub.ring_frames());
+            }
+            else
+            {
+                const bool done = (gen_state == GS::Done);
+                if (ImGui::Button(done ? "Re-generate timeline##rs_gen"
+                                       : "Generate timeline##rs_gen"))
+                    scrub.request_generate_timeline();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Fast-forwards the replay by removing SC6's 60 fps\n"
+                    "engine cap, filling the scrub timeline as it plays.\n"
+                    "Speed depends on your hardware — the replay still\n"
+                    "renders every frame.  The cap is restored\n"
+                    "automatically when the replay reaches its end.\n"
+                    "\n"
+                    "Tip: open a replay and Generate right away to\n"
+                    "capture it from the start.  The timeline keeps the\n"
+                    "most recent frames (Capture window setting below).");
+                if (done)
+                {
+                    ImGui::SameLine(0.0f, 14.0f);
+                    ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f),
+                        "Done — %zu frames captured", cnt);
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // Settings row — Auto-resume + Capture + Capture-window.
+        // ALL settings below are editable regardless of replay state.
+        // -----------------------------------------------------------------
+        bool ar = scrub.auto_resume_on_release();
+        if (ImGui::Checkbox("Auto-resume on release##rs_ar", &ar))
+            scrub.set_auto_resume_on_release(ar);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "When ON (default), releasing the playhead resumes\n"
+            "playback from the seeked frame.  When OFF, the world\n"
+            "stays paused on release; click Play to resume.");
+
+        ImGui::SameLine(0.0f, 20.0f);
+        bool cap_on = scrub.capture_enabled();
+        if (ImGui::Checkbox("Capture##rs_cap", &cap_on))
+            scrub.set_capture_enabled(cap_on);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Passive capture — OFF by default.  When ON, every Replay\n"
+            "frame is snapshotted into the ring during normal 1x\n"
+            "viewing, which has a per-frame cost.  Normally leave this\n"
+            "OFF and use \"Generate timeline\" to build the ring —\n"
+            "generation captures regardless of this toggle.");
+
+        // Capture-window slider — re-allocates the ring on release.
+        // 60 frames per second; range covers the typical SC6 round
+        // (60 s default) up to the absolute max (120 s).  Adjusting
+        // this discards any captured snapshots, since the ring's
+        // semantic content changes when its capacity does — make the
+        // tooltip explicit so the user isn't surprised.
+        ImGui::Spacing();
+        const int cur_seconds =
+            static_cast<int>(scrub.ring_frames() / 60);
+        constexpr int kMinSec = static_cast<int>(
+            Horse::ReplayScrub::kMinRingFrames / 60);
+        constexpr int kMaxSec = static_cast<int>(
+            Horse::ReplayScrub::kMaxRingFrames / 60);
+        static int s_capture_seconds = static_cast<int>(
+            Horse::ReplayScrub::kDefaultRingFrames / 60);
+        if (cur_seconds > 0 && s_capture_seconds != cur_seconds
+            && !ImGui::IsAnyItemActive())
+        {
+            // Sync our slider value with the actual ring size on
+            // first render after lazy-init / external resize.
+            s_capture_seconds = cur_seconds;
+        }
+        ImGui::SetNextItemWidth(220.0f);
+        char overlay[40];
+        std::snprintf(overlay, sizeof(overlay), "%d s  (~%d MB)",
+                      s_capture_seconds,
+                      static_cast<int>(
+                          (static_cast<size_t>(s_capture_seconds) * 60
+                           * Horse::ReplayScrub::kSnapshotStride)
+                          / (1024ull * 1024ull)));
+        // 2026-05-16: disable resize while auto-generating - reallocating
+        // the ring mid-gen would wipe in-progress captures and leave the
+        // bump running into stale ring metadata (subagent review caught
+        // this race).  service_resize_request would auto-cancel gen,
+        // but better to prevent the gesture entirely.
+        const bool generating_active =
+            scrub.timeline_gen_state()
+            == Horse::ReplayScrub::TimelineGenState::Generating;
+        if (generating_active) ImGui::BeginDisabled(true);
+        ImGui::SliderInt("Capture window##rs_window",
+                         &s_capture_seconds, kMinSec, kMaxSec, overlay);
+        if (generating_active) ImGui::EndDisabled();
+        const bool window_committed =
+            ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "How many seconds of replay state to keep available\n"
+            "for scrubbing.  Default 60 s covers a standard SC6\n"
+            "round.  Memory cost ~9.8 MB per second @ 60fps.\n"
+            "\n"
+            "Changing this re-allocates the ring and DISCARDS any\n"
+            "captured snapshots.  Apply takes effect on slider\n"
+            "release.");
+        if (window_committed)
+        {
+            // Render-thread → game-thread handoff: post the request,
+            // the cockpit pre-tick consumes it via service_resize_-
+            // request().  Calling ensure_initialized() directly from
+            // the render thread races tick_capture / do_seek_to_frame
+            // on the game thread and can dereference freed ring
+            // storage during the teardown window.
+            const size_t new_frames =
+                static_cast<size_t>(s_capture_seconds) * 60;
+            scrub.request_resize(new_frames);
+        }
+
+        ImGui::SameLine(0.0f, 20.0f);
+        ImGui::TextDisabled("Ring: %zu / %zu  (%.1f s)",
+                            cnt, scrub.ring_frames(),
+                            static_cast<float>(cnt) / 60.0f);
+
+        // -----------------------------------------------------------------
+        // Diagnostics row -- verbose mode toggle + one-shot dump button.
+        //
+        // Verbose mode wires up:
+        //   - BASELINE_FULL log every 60 wall frames (UDemoNetDriver
+        //     state + per-chara MoveVM state)
+        //   - PRE_SEEK / POST_SEEK extended dumps (already on by default)
+        //   - Per-tick POST_SEEK_TICK log for 60 frames after every seek
+        //     showing whether chara MoveVM state is advancing or frozen
+        //
+        // "Force dump" emits one full dump immediately regardless of
+        // verbose mode -- useful when the user is observing weird state
+        // and wants a snapshot without re-seeking.
+        // -----------------------------------------------------------------
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::TextDisabled("Diagnostics");
+        bool verbose = scrub.verbose_diag();
+        if (ImGui::Checkbox("Verbose log##rs_verbose", &verbose))
+            scrub.set_verbose_diag(verbose);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "When ON, dumps UDemoNetDriver + chara MoveVM state every\n"
+            "second during forward playback, and per-tick deltas for\n"
+            "60 frames after each seek.  Look for '[ReplayScrub.diag]'\n"
+            "lines in UE4SS.log.\n"
+            "\n"
+            "Use this to confirm whether UDemoNetDriver is driving the\n"
+            "replay (the actual driver per 2026-05-12 audit) and whether\n"
+            "our HgCpuDirect restore survives the next forward tick.");
+        ImGui::SameLine(0.0f, 20.0f);
+        if (ImGui::Button("Force diag dump##rs_force_diag"))
+            scrub.request_force_diag();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Emit a one-shot full diagnostic dump on the next cockpit\n"
+            "tick.  Works regardless of verbose mode -- useful for\n"
+            "capturing a snapshot of engine state at a precise moment.");
+
+        // EXPERIMENTAL: rewind ALuxBattleReplayPlayer.CurrentTime via
+        // UE4 reflection on each seek.  Working theory per 2026-05-12
+        // logs: HgCpuDirect restore puts chara state at T but the
+        // UE4-replicated playback head (.CurrentTime) stays at the
+        // live edge, so the active MoveVM animation completes then
+        // chara idles.  Writing CurrentTime SHOULD rewind it - the
+        // diag dumps after the seek will show whether the write held.
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::TextDisabled("Scrub bisection toggles (2026-05-15 ultrathink)");
+
+        bool en_chara_4400 = scrub.enable_chara_4400_restore();
+        if (ImGui::Checkbox("Restore chara+0x4400 fields on seek##rs_c4400",
+                            &en_chara_4400))
+            scrub.set_enable_chara_4400_restore(en_chara_4400);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "When ON, restores chara+0x43F4..+0x4428 (52 B per chara)\n"
+            "from the snapshot.  FLuxBattleChara struct labels these as\n"
+            "replay state cursors (dwReplayEnableFlag, dwReplayFrameTarget,\n"
+            "dwReplayConsumerCursor, bCharaMode etc) which Stage 2 of the\n"
+            "input pipeline reads for packet validation.\n"
+            "\n"
+            "Older Ghidra plate empirically observed VFX-byte values in\n"
+            "these fields during match-replay viewing.  If the OLDER plate\n"
+            "is correct (fields repurposed for VFX), restoring them is\n"
+            "harmless but useless.  If the STRUCT names are correct\n"
+            "(fields are cursors), restoring fixes the post-seek input\n"
+            "pipeline reject loop.  Toggle to bisect.");
+
+        bool force_fwd = scrub.force_pra_forward_bit_on_seek();
+        if (ImGui::Checkbox("Force PRA bit 9 (FORWARD) on seek##rs_force_fwd",
+                            &force_fwd))
+            scrub.set_force_pra_forward_bit_on_seek(force_fwd);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "When ON, after each seek, force-write PRA+0x398 bit 9 (0x200)\n"
+            "= 1 on both players.\n"
+            "\n"
+            "Per CopyNextFrameToManager_SetMoveState4 @ 0x140435C20 plate,\n"
+            "bit 9 = FORWARD play request.  The function early-returns if\n"
+            "the bit is 0.  Empirically the bit IS 0 even in BASELINE\n"
+            "forward play (2026-05-15 testing) - which means either:\n"
+            "  (a) CopyNextFrameToManager isn't the active driver, or\n"
+            "  (b) the bit is set transiently between the check and our\n"
+            "      diag reads.\n"
+            "\n"
+            "Toggle ON to test if force-setting the bit unblocks scrub.");
+
+        bool force_play = scrub.force_isplayingback_on_seek();
+        if (ImGui::Checkbox("Force bIsPlayingBack=1 on seek##rs_force_play",
+                            &force_play))
+            scrub.set_force_isplayingback_on_seek(force_play);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "When ON, after each seek, force-write ReplayPlayer+0x3D0\n"
+            "(bIsPlayingBack) = 1.  Tells the engine 'we're still playing\n"
+            "back, don't end replay'.\n"
+            "\n"
+            "Per ALuxBattleReplayPlayer_RegisterProperties @ 0x14097BEB0,\n"
+            "bIsPlayingBack is a replicated BoolProperty at +0x3D0.\n"
+            "Replay viewer typically has this=1.  Our seek MAY zero it\n"
+            "via HgCpuDirect range overlap or unrelated path.");
+
+        bool en_spec = scrub.enable_speculative_restore();
+        if (ImGui::Checkbox("MASTER: enable speculative writes (WorldModePump+PRA+RP)"
+                            "##rs_speculative", &en_spec))
+            scrub.set_enable_speculative_restore(en_spec);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "MASTER GATE for the 'risky' restore writes that previously\n"
+            "caused a crash (2026-05-15):\n"
+            "  - WorldModePump struct restore (pointer write)\n"
+            "  - PRA+0x394/+0x398 bits restore\n"
+            "  - ReplayPlayer cursor restore (CurrentTime/Round/bIsPlay)\n"
+            "\n"
+            "When OFF (default), do_seek_to_frame still does:\n"
+            "  - HgCpuDirect chara restore\n"
+            "  - IL window (FrameInputLog +0x394..+0x4414) restore\n"
+            "  - RDB cursor restore\n"
+            "  - BM cursor pair sync\n"
+            "  - 4 BM state byte writes (always applied)\n"
+            "  - chara+0x4400 restore (when its toggle is ON)\n"
+            "\n"
+            "Enable cautiously.  Crashes on un-pause-after-seek with no\n"
+            "diagnostic in the log indicate this caused the crash.");
+
+        ImGui::Spacing();
+        bool use_rp_seek = scrub.use_replay_player_seek();
+        if (ImGui::Checkbox(
+                "EXPERIMENTAL: seek via ReplayPlayer.CurrentTime"
+                "##rs_rp_seek", &use_rp_seek))
+            scrub.set_use_replay_player_seek(use_rp_seek);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "When ON, every seek ALSO writes ALuxBattleReplayPlayer.\n"
+            "CurrentTime via reflection (in addition to the\n"
+            "HgCpuDirect chara/global restore).  Hypothesis: the\n"
+            ".CurrentTime field is the actual playback head and the\n"
+            "HgCpuDirect-only restore can't drive the engine forward\n"
+            "from the seek target.\n"
+            "\n"
+            "Watch for '[ReplayScrub.diag] seek-via-reflection wrote\n"
+            "CurrentTime X->Y' lines in UE4SS.log to confirm the\n"
+            "write hit.  Subsequent POST_SEEK_TICK lines show the\n"
+            "CurrentTime value over time - if it sticks AND new moves\n"
+            "trigger, the fix works.");
     }
 
     // ==================================================================

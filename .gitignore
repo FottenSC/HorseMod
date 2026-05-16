@@ -43,8 +43,18 @@ __pycache__/
 # --- Ghidra scratch dumps (local investigation output) ---------------------
 _decomp_tmp.c
 _tmp_func.c
+_dispatch.c
 decomp.c
 *.ghidra_dump.c
+.tmp_*.c
+
+# --- Node / Python tooling caches (tools/moveset_parser + webui) -----------
+# webui carries its own .gitignore; these also cover the repo root and any
+# nesting it doesn't reach (a stray root node_modules/, pytest + TanStack
+# build caches).
+node_modules/
+.pytest_cache/
+.tanstack/
 
 # --- IDE / editor metadata --------------------------------------------------
 .vs/

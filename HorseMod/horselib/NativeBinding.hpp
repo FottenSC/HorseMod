@@ -164,6 +164,25 @@ namespace Horse
     using UActorComponent_MarkRenderStateDirtyFn =
         void(__fastcall*)(void* component);
 
+    // int LuxMoveVM_GetCharaEffectiveHeight(longlong pChara)
+    //
+    // Computes the chara's effective-height bucket used by the throw-height
+    // gate in LuxMoveVM_TickPickAndDispatchReaction @ 0x1402DEF50.  Reads
+    // chara+0x44968 (head bone Y), chara+0x44960 (foot bone Y), the per-
+    // charakind stature offset at g_LuxBattle_CharaKindStatureTable[bKind*0xF0],
+    // and several state bytes (+0x16DC, +0x198C, +0x16EB/EC/FE, +0x19A4,
+    // +0x1722, +0x19DC, +0x197E, +0x19DE).  Returns a small integer height
+    // bucket; the dispatch gate fires only when this is < 5 for the
+    // defender unless yarareId is in an unconditional-allow set.
+    //
+    // HorseMod uses this for the "would this throw land?" visualisation:
+    // when `defender_height >= 5` AND the throw's yarareId isn't in the
+    // allow-set, ResolveAttackVsHurtboxMask22 will register the geometric
+    // hit + yarareId stamp, but TickPickAndDispatchReaction will silently
+    // drop the dispatch — boxes appear to overlap but the throw whiffs.
+    using LuxMoveVM_GetCharaEffectiveHeightFn =
+        int(__fastcall*)(void* pChara);
+
     // void ULuxUIGamePresenceUtil::SetPresence(ELuxGamePresence InPresence) [static]
     //
     // Single-byte parameter — the ELuxGamePresence enum value for the
@@ -218,6 +237,11 @@ namespace Horse
         // ULuxUIGamePresenceUtil::SetPresence — hook target for the
         // scene-presence tracker (Horse::GameMode).
         static constexpr uintptr_t kLuxUIGamePresenceUtil_SetPresenceRVA      = 0x64F590;
+
+        // LuxMoveVM_GetCharaEffectiveHeight — height-bucket function used
+        // by the throw-dispatch gate.  Pure read-only computation; safe to
+        // call any tick from the cockpit hook.  RVA from Ghidra @ 0x140309470.
+        static constexpr uintptr_t kLuxMoveVM_GetCharaEffectiveHeightRVA      = 0x309470;
 
         // UActorComponent::MarkRenderStateDirty — called by the line-
         // batcher backend after appending so the proxy rebuilds in time
@@ -277,6 +301,10 @@ namespace Horse
             s_set_presence =
                 reinterpret_cast<LuxUIGamePresenceUtil_SetPresenceFn>(
                     s_image_base + kLuxUIGamePresenceUtil_SetPresenceRVA);
+
+            s_get_chara_effective_height =
+                reinterpret_cast<LuxMoveVM_GetCharaEffectiveHeightFn>(
+                    s_image_base + kLuxMoveVM_GetCharaEffectiveHeightRVA);
 
             s_mark_render_state_dirty =
                 reinterpret_cast<UActorComponent_MarkRenderStateDirtyFn>(
@@ -397,6 +425,22 @@ namespace Horse
                 s_mark_render_state_dirty(component);
         }
 
+        // Call LuxMoveVM_GetCharaEffectiveHeight on the given chara.
+        // Returns the engine's height bucket (an int — small values are
+        // short charas / grounded poses, large values are tall standing
+        // charas).  Returns 0 on null/unresolved.  See typedef doc for
+        // semantics; the throw-dispatch gate compares this against 5.
+        static int getCharaEffectiveHeight(void* chara)
+        {
+            if (!s_get_chara_effective_height || !chara) return 0;
+            return s_get_chara_effective_height(chara);
+        }
+
+        static bool hasGetCharaEffectiveHeight()
+        {
+            return s_get_chara_effective_height != nullptr;
+        }
+
         static bool isReady()      { return s_get_bone_transform != nullptr
                                          && s_bone_index_remap   != nullptr; }
         static bool hasSetStartPosition() { return s_set_start_position != nullptr; }
@@ -421,6 +465,9 @@ namespace Horse
         // hook target).  Storing as a typed pointer mostly for symmetry
         // with the other natives.
         static inline LuxUIGamePresenceUtil_SetPresenceFn s_set_presence        = nullptr;
+
+        // Effective-height function pointer for throw-dispatch gate prediction.
+        static inline LuxMoveVM_GetCharaEffectiveHeightFn s_get_chara_effective_height = nullptr;
 
         static inline UActorComponent_MarkRenderStateDirtyFn s_mark_render_state_dirty = nullptr;
     };

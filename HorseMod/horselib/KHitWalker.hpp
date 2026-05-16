@@ -448,6 +448,45 @@ namespace Horse
         constexpr uintptr_t Lane1Base              = 0x44958;  // LuxMoveLaneState
         constexpr uintptr_t Lane2Base              = 0x44DC0;  // LuxMoveLaneState
 
+        // ----------------------------------------------------------------
+        // Lane 2 alt-classify gates (the "counter-hit followup" channel).
+        // ----------------------------------------------------------------
+        // LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100 runs a
+        // SECOND classifier pass after the primary one when ALL of:
+        //   chara+0x1725  AltClassifyEnableGate       must be != 0
+        //   chara+0x1726  AltInMasterWindow           must be != 0
+        //   chara+0x1727  AltClassifyInhibitorA       must be == 0
+        //   chara+0x1728  AltClassifyInhibitorB       must be == 0
+        // are satisfied on the ATTACKER chara (i.e. THIS chara, when we're
+        // visualising THIS chara's attack boxes).
+        //
+        // The followup pass resolves the attacker's Lane 2 cell:
+        //   packedMove = i16  chara+0x44DC2  (Lane2.PackedMoveAddr)
+        //   variantIdx = u32  chara+0x45220  (Lane2.AnimVariantIndex)
+        //   bank       = ptr  chara+0x455C0  (MoveBank)
+        //   slotPtr    = LuxMoveVM_ResolveBankSlot(bank, packedMove)
+        //   cellBone   = i16 (variantIdx<6 ? slotPtr[+0x3C+variantIdx*2]
+        //                                   : slotPtr[+0x3C])
+        //   cellAddr   = bank + bank[+0x10] + cellBone*0x70
+        //   altMask    = *(u64*)cellAddr
+        // Then runs the classifier loop with attackerMask = altMask
+        // instead of the primary cell's u64SlotMask.
+        //
+        // Used during Soul Charge alt-attacks, Guard Impact counters,
+        // parry counters, stance-tech.  HorseMod's is_per_frame_active
+        // filter currently checks ONLY the primary mask, so alt-channel
+        // hits would visually appear "inactive" while the engine fires
+        // them.  Reader below produces an OR of primary + alt masks
+        // (gated on the four bytes above) that the filter can use.
+        constexpr uintptr_t AltClassifyEnableGate  = 0x1725;   // u8
+        constexpr uintptr_t AltInMasterWindow      = 0x1726;   // u8
+        constexpr uintptr_t AltClassifyInhibitorA  = 0x1727;   // u8
+        constexpr uintptr_t AltClassifyInhibitorB  = 0x1728;   // u8
+        // Lane 2's PackedMoveAddr (i16) — Lane2Base + 0x02.
+        constexpr uintptr_t Lane2_PackedMoveAddr   = 0x44DC2;
+        // Lane 2's AnimVariantIndex (u32) — Lane2Base + 0x460.
+        constexpr uintptr_t Lane2_AnimVariantIndex = 0x45220;
+
         // MoveStartCounter bumped once each time TransitionToMove fires
         // for any lane — useful for detecting move changes without
         // diffing PackedMoveAddr.  Written at 0x1402fe... in transition.
@@ -626,13 +665,100 @@ namespace Horse
         constexpr uintptr_t BaseDamage             = 0x3A;   // i16
 
         // u16 AttackFlags (+0x32) — high/mid/low/throw + blockability
-        // bits; consumed by ResolveAttackVsHurtboxMask22.
+        // bits; THE per-cell attack-attribute byte.  Consumed by
+        // LuxMoveVM_EvaluateMoveTransition @ 0x14033E140 to decide
+        // whether an overlap fires hit/block/whiff:
+        //
+        //   bit 0x001  HighBlockable   — standing block can block this
+        //   bit 0x002  LowBlockable    — crouch block can block this
+        //   bit 0x008  LowAttack       — must crouch-block; ducks under highs
+        //   bit 0x010  MidAttack       — any stance blocks; can't duck
+        //   bit 0x040  CrouchOnly      — move only valid if attacker crouched
+        //   bit 0x080  HighAttack      — must stand-block; ducks under crouched defender
+        //   bit 0x100  Special         — special framing rule
+        //   bit 0x200  Unblockable     — no GI / no guard (BlockBypass_GuardBreak)
+        //
+        // Mapping note: 0x001 / 0x002 are SEPARATELY tested as the
+        // "is this hit allowed to land while standing vs crouching"
+        // gate in EvaluateMoveTransition; 0x008 / 0x010 / 0x080 are
+        // the "what TIER is this attack" indicator for HUD overlays.
+        // Both bit families can co-exist (a low attack typically has
+        // 0x008 | 0x002 set so a crouch-block defender can block it).
         constexpr uintptr_t AttackFlags            = 0x32;   // u16
+
+        // u16 InputCond (+0x34) — input precondition mask fed to
+        // LuxMoveVM_EvaluateMoveInputCondition.  Controls move-state-
+        // dependent routing (e.g. "this attack ONLY connects when
+        // defender is in state X").  Most cells leave it zero; the
+        // non-zero cases drive yarare-id routing during throw resolution.
+        constexpr uintptr_t InputCond              = 0x34;   // u16
 
         // u16 HitboxGroupBitfield (+0x5E) — bits 0..10 select sub-window
         // GroupId 0..63 (4 banks of 16).  Mirrored to chara+0x20F6
         // by SetActiveMoveSlot.
         constexpr uintptr_t HitboxGroupBitfield    = 0x5E;   // u16
+    }
+
+    // ------------------------------------------------------------------
+    // ELuxBattleAttackFlags — bit set on LuxBattleAttackCell+0x32.
+    //
+    // Source of truth: LuxMoveVM_EvaluateMoveTransition @ 0x14033E140
+    // (see Ghidra plate).  Used during hit classification to decide
+    // block vs hit vs whiff vs unblockable.  HorseMod stamps the active
+    // cell's flags onto every attack KHitDraw so the renderer can
+    // colour or label hitboxes by tier.
+    // ------------------------------------------------------------------
+    enum KHitAttackFlagBits : uint16_t
+    {
+        AtkFlag_HighBlockable    = 0x001,
+        AtkFlag_LowBlockable     = 0x002,
+        AtkFlag_LowAttack        = 0x008,
+        AtkFlag_MidAttack        = 0x010,
+        AtkFlag_CrouchOnly       = 0x040,
+        AtkFlag_HighAttack       = 0x080,
+        AtkFlag_Special          = 0x100,
+        AtkFlag_Unblockable      = 0x200,
+    };
+
+    // High-level move-tier classification synthesised from AttackFlags.
+    // Drives the engine's "did this hit on a {standing,crouching} defender"
+    // decision in EvaluateMoveTransition + the throw pre-scan.
+    enum class KHitAttackTier : uint8_t
+    {
+        Unknown       = 0,   // No attack-flag bits set (or no active cell)
+        High          = 1,   // 0x080 HighAttack — ducks under crouched defender
+        Mid           = 2,   // 0x010 MidAttack — blockable in any stance
+        Low           = 3,   // 0x008 LowAttack — must crouch-block
+        Unblockable   = 4,   // 0x200 Unblockable — no GI / no guard
+        Special       = 5,   // 0x100 Special — special framing rule
+    };
+
+    // Map an AttackFlags u16 to its dominant tier.  Unblockable overrides
+    // every other bit (no useful sub-classification matters when the move
+    // can't be blocked).  Otherwise the explicit Low/Mid/High bits pick
+    // the tier; Special is a fallback for moves that set 0x100 alone.
+    inline KHitAttackTier ClassifyAttackTier(uint16_t flags) noexcept
+    {
+        if (flags & AtkFlag_Unblockable) return KHitAttackTier::Unblockable;
+        if (flags & AtkFlag_LowAttack)   return KHitAttackTier::Low;
+        if (flags & AtkFlag_MidAttack)   return KHitAttackTier::Mid;
+        if (flags & AtkFlag_HighAttack)  return KHitAttackTier::High;
+        if (flags & AtkFlag_Special)     return KHitAttackTier::Special;
+        return KHitAttackTier::Unknown;
+    }
+
+    inline const char* KHitAttackTierName(KHitAttackTier t) noexcept
+    {
+        switch (t)
+        {
+            case KHitAttackTier::Unknown:     return "?";
+            case KHitAttackTier::High:        return "High";
+            case KHitAttackTier::Mid:         return "Mid";
+            case KHitAttackTier::Low:         return "Low";
+            case KHitAttackTier::Unblockable: return "Unblockable";
+            case KHitAttackTier::Special:     return "Special";
+        }
+        return "?";
     }
 
     // Engine-truth attack-phase enum.  Strictly mirrors the i16 written
@@ -1503,14 +1629,237 @@ namespace Horse
         // by the sticky-flash window.
         int32_t     reaction_state = 0;
 
-        // Box geometry: 8 world-space corners in standard AABB ordering:
-        //   0: -x -y -z    1: +x -y -z    2: +x +y -z    3: -x +y -z
-        //   4: -x -y +z    5: +x -y +z    6: +x +y +z    7: -x +y +z
+        // Engine-truth Area geometry (kind == Box).
+        // ============================================
+        // The engine's KHitArea overlap test (KHitArea::OverlapTest @
+        // 0x14030E4E0 → LuxBattle_TestPointInHitboxShape @ 0x14030C660 /
+        // _TestSegmentHitsHitboxShape @ 0x14030C110) treats P1 and P2
+        // as the TWO ENDPOINTS OF A 1D SPINE, NOT diagonal corners of
+        // an OBB.  The shape it tests against is built at overlap time
+        // by LuxBattle_BuildHitboxLocalMatrix @ 0x14030BBA0 from THREE
+        // world-space points (P1, P2, P3) — primary axis from P1→P2,
+        // secondary axis = orthogonal component of P3-P1.  The CROSS-
+        // SECTION thickness comes from how far P3 sits off the spine,
+        // and for an Area attacker P3 is always taken from the OTHER
+        // FRAME's endpoint pair (cur uses prev_P2, prev uses cur_P1).
+        // So a stationary Area has near-zero cross-section, and a
+        // moving Area picks up cross-section thickness directly from
+        // its motion delta.
+        //
+        // PopulateOverlapScratch builds TWO of these OBBs per tick:
+        //     OBB-1 = (cur_P1,  cur_P2,  prev_P2)   — current spine, prev tip ref
+        //     OBB-2 = (prev_P1, prev_P2, cur_P1 )   — previous spine, cur hilt ref
+        // The defender shape is tested against both; an overlap with
+        // EITHER counts as a hit.  Together these two OBBs cover the
+        // swept quad spanning prev and cur spines.
+        //
+        // What HorseMod renders
+        // ---------------------
+        // We do NOT render the 8-corner OBB the engine constructs at
+        // test time — that's a derived shape with motion-dependent
+        // thickness; rendering it as a static box would mis-represent
+        // any frame where motion is non-uniform.  Instead, we render
+        // the SOURCE DATA the engine reads:
+        //
+        //   spine_p1_world, spine_p2_world   — cur-frame endpoints,
+        //                                       always populated.
+        //   prev_p1_world, prev_p2_world     — prev-frame endpoints,
+        //                                       populated iff has_prev_
+        //                                       spine == true (i.e. the
+        //                                       per-node cache had a
+        //                                       valid one-tick-old
+        //                                       snapshot for THIS node).
+        //
+        // The draw routine renders the cur spine as a line, the prev
+        // spine as a line in the same colour, and the two connecting
+        // edges (cur_P1→prev_P1, cur_P2→prev_P2) to form the swept
+        // quad outline.  Stationary: prev≈cur, the quad collapses to
+        // a single line (correct — engine's effective volume is just
+        // the spine extruded by the defender's radius).  Moving: the
+        // quad opens up, visually communicating the swept envelope
+        // the engine actually hit-tested this tick.
+        //
+        // Sphere and FixAreaTri kinds use the legacy corners[8] +
+        // centre/radius fields below; the spine fields are valid
+        // only for Box kind.
+        FVec3       spine_p1_world{};   // cur-frame P1 in UE world
+        FVec3       spine_p2_world{};   // cur-frame P2 in UE world
+        FVec3       prev_p1_world{};    // prev-frame P1 (valid iff has_prev_spine)
+        FVec3       prev_p2_world{};    // prev-frame P2 (valid iff has_prev_spine)
+        bool        has_prev_spine = false;
+
+        // Legacy 8-corner OBB slot — retained for FixAreaTri/Sphere
+        // paths and as scratch space.  No longer driven by buildArea
+        // World; the Box kind now uses spine_p?_world above.
         FVec3       corners[8];
 
         // Sphere geometry (kind == Sphere).
         FVec3       centre;
         float       radius;
+
+        // ==== Active attack cell metadata (chara+0x44058 -> cell) ====
+        // The currently-active LuxBattleAttackCell on THIS chara — the
+        // same cell pointer that LuxBattle_ResolveAttackVsHurtboxMask22
+        // (0x14033C100) reads (via the opponent's +0x44048 copy) and
+        // hands to LuxMoveVM_EvaluateMoveTransition (0x14033E140) to
+        // decide block/hit/whiff per slot.
+        //
+        // Both fields are stamped on EVERY KHitDraw produced for this
+        // chara this tick (same value across every node).  For hurtbox
+        // / body entries the values still reflect THIS chara's own
+        // active cell — i.e. "if THIS chara strikes someone right now,
+        // these are the flags they'd use".  Consumers that want the
+        // attack-tier overlay on attack boxes can simply gate on
+        // `list == Attack`.
+        //
+        // attack_flags = cell+0x32 (u16 bitfield, see KHitAttackFlagBits)
+        // attack_input_cond = cell+0x34 (u16, EvaluateMoveInputCondition mask)
+        // attack_tier = ClassifyAttackTier(attack_flags) for convenience
+        //
+        // 0 / Unknown when no cell is active (idle / non-attacking move).
+        uint16_t        attack_flags      = 0;
+        uint16_t        attack_input_cond = 0;
+        KHitAttackTier  attack_tier       = KHitAttackTier::Unknown;
+
+        // ==== Defender-side stance state (per-chara, per-tick) ====
+        // These mirror the chara-state bytes EvaluateMoveTransition
+        // (0x14033E140) reads when classifying an incoming hit.  Stamped
+        // onto every KHitDraw on this chara so the overlay can show
+        // "this chara is currently CROUCHING / BLOCKING / IN HITSTUN".
+        //
+        // defender_crouching    = chara+0x16D2 (base crouch state) OR
+        //                         chara+0x16FC (alt) depending on chara+0x1701.
+        //                         When set, EvaluateMoveTransition routes
+        //                         through the "crouching defender" branch
+        //                         (LowBlockable bit is the relevant gate).
+        // defender_in_blockstun = chara+0x16DC (i8 != 0)
+        // defender_in_hitstun   = chara+0x16DB (i8 != 0)
+        // defender_actively_blocking = chara+0x16FD (i8 != 0).  Combined
+        //                              with defender_blockable_this_frame
+        //                              to drive the block-vs-hit decision.
+        // defender_blockable_this_frame = chara+0x16F2 (u8, written by
+        //                                 ResolveAttackVsHurtboxMask22
+        //                                 from chara+0x16D1 / +0x16FD /
+        //                                 +0x15AC / opp+0x2110).
+        bool        defender_crouching             = false;
+        bool        defender_crouching_base        = false;
+        bool        defender_crouching_alt         = false;
+        bool        defender_alt_lock_gate         = false;
+        bool        defender_actively_blocking     = false;
+        bool        defender_blockable_this_frame  = false;
+        bool        defender_in_blockstun          = false;
+        bool        defender_in_hitstun            = false;
+        bool        defender_invul_a               = false;
+        bool        defender_invul_b               = false;
+        bool        defender_guard_broken          = false;
+        bool        defender_guard_disabled        = false;
+        bool        defender_force_allow           = false;
+
+        // ==== Throw-dispatch height gate (per chara, per tick) ====
+        // The engine's *geometric* hit pipeline (UpdateAllKHitWorldCenters +
+        // ResolveAttackVsHurtboxMask22 throw pre-scan) DOES register a
+        // throw when the cell's slot mask bit 31/55 is set and the cell's
+        // AttackFlags pass EvaluateMoveTransition.  But the reaction-
+        // DISPATCH layer (LuxMoveVM_TickPickAndDispatchReaction @
+        // 0x1402DEF50) has a separate height-bucket gate that can silently
+        // drop the post-effect yarare-id before any animation plays.
+        //
+        // Gate (verified in TickPickAndDispatchReaction):
+        //   iSelf = GetCharaEffectiveHeight(defenderChara)
+        //   iOpp  = GetCharaEffectiveHeight(attackerChara)
+        //   skip_weight_pick = ((iOpp > 2 || iOpp == 0) && iSelf > 4)
+        //   final_allow      = (iSelf < 5)
+        //                    OR yarareId in {0x1F, 0x21, 0x20, 0x2C, 0x2D,
+        //                                    0x2E..0x31, 0x3B, 0xE..0x10}
+        //                    OR (intensity > 1 && yarareId in 0x28..0x2B)
+        //                    OR (MoveStateId == 3 && chara+0x1982 != 0)
+        //
+        // For visualisation HorseMod surfaces:
+        //   defender_effective_height  — iSelf (this chara's height bucket)
+        //   attacker_effective_height  — iOpp (this chara's opponent height
+        //                                via chara+0x973E8)
+        //   throw_height_gate_ok       — `defender_effective_height < 5`,
+        //                                the simple "would a normal throw
+        //                                dispatch" predicate.  False when
+        //                                the defender is tall and the
+        //                                yarareId isn't in the allow-set —
+        //                                exactly the "boxes touch but
+        //                                throw whiffs" symptom.
+        //
+        // Same value stamped on every KHitDraw produced for this chara on
+        // this tick.  When the defender is THIS chara, `throw_height_gate_ok`
+        // tells you whether an incoming throw from the opponent would land.
+        int32_t     defender_effective_height  = 0;
+        int32_t     attacker_effective_height  = 0;
+        bool        throw_height_gate_ok       = true;
+
+        // ==== Final chara-wide hit-reaction result code (chara+0x43DA0) ====
+        // Written by LuxBattle_ResolveAttackVsHurtboxMask22 + mutual-hit
+        // arbitration each tick.  Single int that consolidates the per-slot
+        // reaction outcome.  Switch values verified 2026-05-16 against the
+        // ProcessHitReactionState @ 0x140342FF0 switch + ProcessHit's own
+        // code-1 handling:
+        //   0     no reaction this tick
+        //   1     BLOCKED HIT (guard).  NOT "KO" — an earlier table mislabel.
+        //         ProcessHitReactionState case 1 runs the per-hit stat
+        //         counter (LuxBattle_RecordRoundWinStats — a misnomer; it
+        //         is a 12-bucket hit-stat accumulator, not round-win logic)
+        //         and the air-block terminate path.  ProcessHit groups
+        //         code 1 with 0xB for TriggerActionState 100 (hit-response
+        //         state) and with 0x13 for the stun-delta damage calc.
+        //   4     standard hit (mutual-hit winner kicker)
+        //   5     hit + counter-hit kicker
+        //   6     standard hit (most common strike path; ProcessHitReactionState
+        //         case 6 = the heavy per-hit-flag writer)
+        //   7     counter-hit / tech special
+        //   8     mutual-hit — winner, 1 category over loser (arbitration)
+        //   9     mutual-hit — clash (cat 0) / winner dominates (arbitration)
+        //   10    mutual-hit — trade (arbitration)
+        //   0xB   Guard-Impact Crush
+        //   0xC   air / guard-cancel (engine plate marks UNCERTAIN — verify)
+        //   0xD,0xF  no-op pass-through cases in ProcessHitReactionState
+        //   0xE   chip-only damage (ProcessHit has an explicit `== 0xe`
+        //         branch; ProcessHitReactionState treats it as no-op)
+        //   0x12  Air hit
+        //   0x13  Wall splat
+        //   0x14  Stagger
+        //
+        // The per-slot `reaction_state` field captures the classifier's
+        // per-hurtbox-slot writes; this complementary field captures the
+        // chara-wide consolidated outcome that downstream code (camera
+        // shake, damage application, animation pick) reads.
+        //
+        // NOTE: this field is currently captured-but-unrendered — no code
+        // in dllmain.cpp surfaces it.  Kept for the planned hit-by tracker.
+        int32_t     final_hit_result_code      = 0;
+
+        // ==== Lane 2 alt-classify (counter-hit followup channel) ====
+        // ResolveAttackVsHurtboxMask22 runs a SECOND classifier pass
+        // against the chara's Lane 2 cell mask when the four alt-gate
+        // bytes (chara+0x1725..+0x1728) signal "open".  This is used
+        // during Soul Charge alt-attacks, Guard Impact counters, parry
+        // counters, and stance-tech moves.
+        //
+        // alt_classify_open: true iff
+        //   chara+0x1725 != 0   AND
+        //   chara+0x1726 != 0   AND
+        //   chara+0x1727 == 0   AND
+        //   chara+0x1728 == 0
+        // Stamped on every KHitDraw produced for this chara on this
+        // tick — identical for every node on the same chara.
+        //
+        // alt_attack_mask: the Lane 2 cell's u64 SlotMask, valid only
+        // when alt_classify_open AND Lane 2 has a non-null PackedMoveAddr
+        // AND the cell pointer resolves successfully.  Zero otherwise.
+        //
+        // The renderer uses this to extend is_per_frame_active: an
+        // attack node is per-frame-active when its category bit lives
+        // in (primary mask) OR (alt_classify_open AND alt_attack_mask).
+        //
+        // Always false / zero for hurtbox/body entries — alt-classify
+        // is an attacker-side gate only.
+        bool        alt_classify_open       = false;
+        uint64_t    alt_attack_mask         = 0;
     };
 
     class KHitWalker
@@ -1862,6 +2211,357 @@ namespace Horse
         }
 
         // ----------------------------------------------------------------
+        // Lane 2 alt-classify snapshot
+        // ----------------------------------------------------------------
+        // Returns the chara's Lane 2 ALT attacker mask AND whether the
+        // four alt-classify gate bytes (chara+0x1725..+0x1728) are open.
+        //
+        // When `is_open` is true, the engine's ResolveAttackVsHurtboxMask22
+        // will run a SECOND classifier pass against this chara's Lane 2
+        // cell SlotMask in addition to the primary cell.  Slots whose
+        // category bit lives in `lane2_mask` will fire reactions even
+        // if the primary `OwnActiveAttackCell` doesn't have the bit.
+        //
+        // When `is_open` is false: `lane2_mask` returns 0 — the engine
+        // doesn't read Lane 2 cells, so the alt path can't add active
+        // bits.
+        //
+        // Used to extend is_per_frame_active for ATTACK nodes during
+        // Soul Charge / GI / parry / stance-tech states.  See
+        // ChaOffsets::AltClassifyEnableGate block above for the engine
+        // path.
+        struct Lane2AltClassifySnapshot
+        {
+            uint64_t lane2_mask = 0;
+            bool     is_open    = false;
+        };
+
+        // Walk the four alt-classify gate bytes + (if open) resolve the
+        // Lane 2 cell pointer and read its u64SlotMask.  Mirrors the
+        // engine path in ResolveAttackVsHurtboxMask22 @ 0x14033C100.
+        // ~5 SafeReads when gated open; 4 when not.  Cheap enough to
+        // call once per chara per tick.
+        static Lane2AltClassifySnapshot readLane2AltClassifySnapshot(
+            void* chara) noexcept
+        {
+            Lane2AltClassifySnapshot s{};
+            if (!chara) return s;
+            auto* bytes = reinterpret_cast<uint8_t*>(chara);
+
+            // Gates first — bail early if not open.
+            uint8_t gateEnable = 0, gateMW = 0, inhibA = 0, inhibB = 0;
+            if (!SafeReadUInt8(bytes + ChaOffsets::AltClassifyEnableGate,
+                               &gateEnable)) return s;
+            if (gateEnable == 0) return s;
+            if (!SafeReadUInt8(bytes + ChaOffsets::AltInMasterWindow,
+                               &gateMW)) return s;
+            if (gateMW == 0) return s;
+            if (!SafeReadUInt8(bytes + ChaOffsets::AltClassifyInhibitorA,
+                               &inhibA)) return s;
+            if (inhibA != 0) return s;
+            if (!SafeReadUInt8(bytes + ChaOffsets::AltClassifyInhibitorB,
+                               &inhibB)) return s;
+            if (inhibB != 0) return s;
+
+            // Gates open — resolve Lane 2 cell.
+            int16_t packedMoveRaw = 0;
+            if (!SafeReadInt16(bytes + ChaOffsets::Lane2_PackedMoveAddr,
+                               &packedMoveRaw)) return s;
+            if (packedMoveRaw < 0)
+            {
+                s.is_open = true;     // alt gates are open but Lane 2 is idle
+                return s;
+            }
+            const uint32_t packedMove = static_cast<uint32_t>(
+                static_cast<uint16_t>(packedMoveRaw));
+
+            void* bankBase = nullptr;
+            if (!SafeReadPtr(bytes + ChaOffsets::MoveBankBasePtr, &bankBase))
+                return s;
+            const auto bbAddr = reinterpret_cast<uintptr_t>(bankBase);
+            if (bbAddr < 0x10000ULL || bbAddr > 0x00007fffffffffffULL)
+            {
+                s.is_open = true;
+                return s;
+            }
+            auto* bb = reinterpret_cast<uint8_t*>(bankBase);
+
+            // ResolveBankSlot: slot table starts at bank+0x30, stride 0x48.
+            //   bankIdx     = (packedMove >> 12) & 0xF      (0..3 valid)
+            //   slotInBank  = packedMove & 0x7FF             (11-bit)
+            //   startIdx    = bank.Bucket[bankIdx].StartIdx (u16 at
+            //                 bank+0x1C + bankIdx*4)
+            //   slotPtr     = bank + 0x30 + (startIdx + slotInBank)*0x48
+            // Engine rejects bankIdx >= 4 (LuxMoveVM_ResolveBankSlot
+            // early-out: `if (dwBankIdx < 4)`).
+            const uint32_t bankIdx    = (packedMove >> 12) & 0xFu;
+            const uint32_t slotInBank = packedMove & 0x7FFu;
+            if (bankIdx >= 4)
+            {
+                s.is_open = true;
+                return s;
+            }
+            uint16_t startIdx = 0;
+            if (!SafeReadUInt16(bb + 0x1C + bankIdx * 4, &startIdx))
+            {
+                s.is_open = true;
+                return s;
+            }
+            auto* slotPtr = bb + 0x30
+                          + (static_cast<size_t>(startIdx) + slotInBank)
+                          * 0x48;
+
+            // Pick the variant index — if < 6, use slotPtr+0x3C+variant*2,
+            // else fall back to slotPtr+0x3C.
+            uint32_t variantIdx = 0;
+            SafeReadUInt32(bytes + ChaOffsets::Lane2_AnimVariantIndex,
+                           &variantIdx);
+            int16_t cellBoneRaw = 0;
+            const uintptr_t cellBoneAddr =
+                reinterpret_cast<uintptr_t>(slotPtr) + 0x3C
+                + (variantIdx < 6 ? variantIdx * 2 : 0);
+            if (!SafeReadInt16(reinterpret_cast<const void*>(cellBoneAddr),
+                               &cellBoneRaw))
+            {
+                s.is_open = true;
+                return s;
+            }
+            if (cellBoneRaw < 0)
+            {
+                s.is_open = true;     // gates open but Lane 2 cell is null
+                return s;
+            }
+
+            // Resolve cell address: bank + bank[+0x10] + cellBone*0x70.
+            uint32_t cellTableOff = 0;
+            if (!SafeReadUInt32(bb + 0x10, &cellTableOff))
+            {
+                s.is_open = true;
+                return s;
+            }
+            auto* cellPtr = bb + cellTableOff
+                          + static_cast<size_t>(cellBoneRaw) * 0x70;
+            uint64_t mask = 0;
+            if (!SafeReadUInt64(cellPtr, &mask))
+            {
+                s.is_open = true;
+                return s;
+            }
+            s.is_open    = true;
+            s.lane2_mask = mask;
+            return s;
+        }
+
+        // ----------------------------------------------------------------
+        // Read AttackFlags (+0x32) and InputCond (+0x34) from the currently-
+        // active attack cell (chara+0x44058).  Both values default to 0
+        // when no cell is active or reads fail.
+        //
+        // AttackFlags is the engine's per-cell attack-attribute bitmask —
+        // see KHitAttackFlagBits.  It's the canonical "is this a high /
+        // mid / low / throw / unblockable attack" classifier, consumed
+        // by EvaluateMoveTransition @ 0x14033E140.  HorseMod stamps it
+        // onto every attack KHitDraw so callers can tint or label
+        // hitboxes by tier.
+        // ----------------------------------------------------------------
+        static void readActiveCellAttackFlags(void* chara,
+                                              uint16_t* outFlags,
+                                              uint16_t* outInputCond) noexcept
+        {
+            if (outFlags)     *outFlags     = 0;
+            if (outInputCond) *outInputCond = 0;
+            if (!chara) return;
+            auto* bytes = reinterpret_cast<uint8_t*>(chara);
+            void* cell = nullptr;
+            if (!SafeReadPtr(bytes + ChaOffsets::OwnActiveAttackCell,
+                             &cell))
+                return;
+            const auto cAddr = reinterpret_cast<uintptr_t>(cell);
+            if (cAddr < 0x10000ULL || cAddr > 0x00007fffffffffffULL)
+                return;
+            auto* pCell = reinterpret_cast<uint8_t*>(cell);
+            if (outFlags)
+                SafeReadUInt16(pCell + LuxAttackCellOffsets::AttackFlags,
+                               outFlags);
+            if (outInputCond)
+                SafeReadUInt16(pCell + LuxAttackCellOffsets::InputCond,
+                               outInputCond);
+        }
+
+        // ----------------------------------------------------------------
+        // Snapshot of defender-side stance/state bytes consumed by
+        // LuxMoveVM_EvaluateMoveTransition @ 0x14033E140 when classifying
+        // an incoming hit.  Read once per chara per tick; same value
+        // stamped onto every KHitDraw produced for the chara.
+        //
+        // EvaluateMoveTransition's stance selection rule (verified):
+        //   if (chara+0x3494 & 0x08 == 0) {           // guard not disabled
+        //     if (chara+0x16DC && (cell.AttackFlags & 0x03)) base   // blockstun + high/low attack
+        //     else if (chara+0x16DB && (cell.AttackFlags & 0x80)) base // hitstun + high attack
+        //     else use alt path below
+        //   }
+        //   if (chara+0x1701) use chara+0x16FC alt
+        //   else              use chara+0x16D2 base
+        //
+        // HorseMod surfaces BOTH base and alt separately so consumers can
+        // either render the "engine-committed" stance (base during stun)
+        // or the "live input-derived" stance (alt during free play).
+        // The convenience `crouching` field follows the engine's rule:
+        // it picks alt iff `alt_lock_gate` is set, else base.
+        // ----------------------------------------------------------------
+        struct DefenderStanceSnapshot
+        {
+            // === Stance selection ===
+            // Engine-resolved "is this chara crouching for the next incoming
+            // hit" — uses base/alt per the EvaluateMoveTransition rule.
+            // This is the boolean throws/highs/lows actually test against.
+            bool crouching                = false;
+            // Raw component bytes (for renderers that want both):
+            bool crouching_base           = false;  // chara+0x16D2
+            bool crouching_alt            = false;  // chara+0x16FC (live-input)
+            bool alt_lock_gate            = false;  // chara+0x1701 (use alt iff set)
+
+            // === Hit-react / block-state gates ===
+            bool actively_blocking        = false;  // chara+0x16FD
+            bool blockable_this_frame     = false;  // chara+0x16F2 (re-derived
+                                                    //  at top of resolver from
+                                                    //  +0x16D1, +0x16FD,
+                                                    //  +0x15AC, opp+0x2110)
+            bool in_blockstun             = false;  // chara+0x16DC
+            bool in_hitstun               = false;  // chara+0x16DB
+
+            // === Invul / no-react flags (EvaluateMoveTransition routes
+            // through return-code 6 = whiff when either is set) ===
+            bool invul_a                  = false;  // chara+0x16E9
+            bool invul_b                  = false;  // chara+0x16D4
+
+            // === Guard-broken state (routes return-code 7 / 0xB only) ===
+            bool guard_broken             = false;  // chara+0x16D3
+
+            // === Guard-disabled gate (chara+0x3494 bit 3) ===
+            // Forces the alt-path stance selection unconditionally.  Set
+            // by stance-locking moves (super-flash, certain transitions).
+            bool guard_disabled           = false;  // chara+0x3494 & 0x08
+
+            // === Force-allow flag — overrides AttackFlags level mismatch ===
+            // When non-zero, EvaluateMoveTransition's "stance/level match"
+            // check is bypassed and the attack always lands.  Used by
+            // invincibility-cancel paths and certain super-armor scripts.
+            bool force_allow              = false;  // chara+0x1724
+        };
+
+        static DefenderStanceSnapshot readDefenderStance(void* chara) noexcept
+        {
+            DefenderStanceSnapshot s{};
+            if (!chara) return s;
+            auto* b = reinterpret_cast<uint8_t*>(chara);
+            uint8_t v = 0;
+            uint16_t w = 0;
+
+            // Stance component reads.
+            if (SafeReadUInt8(b + 0x16D2, &v)) s.crouching_base    = (v != 0);
+            if (SafeReadUInt8(b + 0x16FC, &v)) s.crouching_alt     = (v != 0);
+            if (SafeReadUInt8(b + 0x1701, &v)) s.alt_lock_gate     = (v != 0);
+
+            // Guard-disabled gate (single bit out of a u16).
+            if (SafeReadUInt16(b + 0x3494, &w))
+                s.guard_disabled = ((w & 0x08) != 0);
+
+            // Engine's stance resolution: when alt_lock_gate is set AND the
+            // chara is NOT locked into base by stun (caller-side cell-flag
+            // checks decide the stun-lock; we mirror only the alt-vs-base
+            // selection here — the stun-lock arm is captured by the
+            // in_blockstun / in_hitstun fields below for the consumer's
+            // own classification).  The simple selection that matches
+            // EvaluateMoveTransition's terminal branch:
+            //   crouching = alt_lock_gate ? crouching_alt : crouching_base
+            // is adequate for "what's the chara's current commit stance"
+            // because guard_disabled forces the alt path anyway.
+            s.crouching = (s.alt_lock_gate || s.guard_disabled)
+                            ? s.crouching_alt
+                            : s.crouching_base;
+
+            // Block / stun gates.
+            if (SafeReadUInt8(b + 0x16FD, &v)) s.actively_blocking    = (v != 0);
+            if (SafeReadUInt8(b + 0x16F2, &v)) s.blockable_this_frame = (v != 0);
+            if (SafeReadUInt8(b + 0x16DC, &v)) s.in_blockstun         = (v != 0);
+            if (SafeReadUInt8(b + 0x16DB, &v)) s.in_hitstun           = (v != 0);
+
+            // Invul / guard-broken / force-allow.
+            if (SafeReadUInt8(b + 0x16E9, &v)) s.invul_a              = (v != 0);
+            if (SafeReadUInt8(b + 0x16D4, &v)) s.invul_b              = (v != 0);
+            if (SafeReadUInt8(b + 0x16D3, &v)) s.guard_broken         = (v != 0);
+            if (SafeReadUInt8(b + 0x1724, &v)) s.force_allow          = (v != 0);
+
+            return s;
+        }
+
+        // ----------------------------------------------------------------
+        // Throw-dispatch height gate snapshot.
+        //
+        // Calls LuxMoveVM_GetCharaEffectiveHeight on this chara (defender
+        // perspective) AND on its opponent (attacker perspective).  The
+        // opponent is reached via the cross-chara pointer at chara+0x973E8
+        // — same field every engine site uses when looking up the
+        // attacker from a defender VM context.
+        //
+        // `throw_height_gate_ok` is the simple "would a non-allow-listed
+        // yarareId dispatch right now" predicate: defender_height < 5.
+        // For throws specifically, the relevant yarareId is whatever the
+        // throw cell stamped via ResolveAttackVsHurtboxMask22's pre-scan
+        // (defender+0x212E) — most throw yarareIds are NOT in the
+        // unconditional allow-set, so they only dispatch when this is true.
+        //
+        // Returns all-zeros / true when the native helper isn't resolved
+        // (open-policy "engine permits it" default).
+        // ----------------------------------------------------------------
+        struct ThrowHeightSnapshot
+        {
+            int32_t defender_height  = 0;
+            int32_t attacker_height  = 0;
+            bool    gate_ok          = true;  // true iff defender_height < 5
+        };
+
+        static ThrowHeightSnapshot readThrowHeightSnapshot(void* chara) noexcept
+        {
+            ThrowHeightSnapshot s{};
+            if (!chara) return s;
+            if (!NativeBinding::hasGetCharaEffectiveHeight()) return s;
+            s.defender_height = NativeBinding::getCharaEffectiveHeight(chara);
+
+            // Resolve opponent via chara+0x973E8 (pointer-to-opp).  Use
+            // SafeReadPtr because cross-chara reads can race during
+            // initial chara-slot construction.
+            auto* b = reinterpret_cast<uint8_t*>(chara);
+            void* opp = nullptr;
+            if (SafeReadPtr(b + 0x973E8, &opp))
+            {
+                const auto oAddr = reinterpret_cast<uintptr_t>(opp);
+                if (oAddr >= 0x10000ULL && oAddr <= 0x00007fffffffffffULL)
+                    s.attacker_height =
+                        NativeBinding::getCharaEffectiveHeight(opp);
+            }
+
+            s.gate_ok = (s.defender_height < 5);
+            return s;
+        }
+
+        // ----------------------------------------------------------------
+        // Read chara+0x43DA0 — the chara-wide consolidated hit-reaction
+        // result code.  See KHitDraw::final_hit_result_code for the value
+        // table.  Returns 0 on read failure (correct default for "no
+        // reaction this tick").
+        // ----------------------------------------------------------------
+        static int32_t readFinalHitResultCode(void* chara) noexcept
+        {
+            if (!chara) return 0;
+            auto* b = reinterpret_cast<uint8_t*>(chara);
+            int32_t v = 0;
+            SafeReadInt32(b + 0x43DA0, &v);
+            return v;
+        }
+
+        // ----------------------------------------------------------------
         // Hurtbox-slot invulnerability state.
         //
         // SC6's i-frames / armor / parry windows are implemented through
@@ -2202,6 +2902,23 @@ namespace Horse
             const bool defender_can_react =
                 readDefenderEngineActive(list_chara);
 
+            // Pre-read THIS chara's Lane 2 alt-classify snapshot once
+            // per call.  When the alt-gate bytes (chara+0x1725..+0x1728)
+            // are all in the "open" configuration, the engine's
+            // ResolveAttackVsHurtboxMask22 will fire a SECOND classifier
+            // pass against this chara's Lane 2 cell SlotMask in addition
+            // to the primary cell.  Pre-reading here amortises the
+            // bank-resolution chain across all attack nodes in the walk.
+            //
+            // is_per_frame_active for ATTACK nodes uses this to extend
+            // the per-cell mask check: an attack is "engine will fire
+            // damage" if its category bit lives in EITHER the primary
+            // own_attack_mask OR (alt is open AND bit is in
+            // alt_snap.lane2_mask).  See KHitDraw::alt_classify_open
+            // / alt_attack_mask docs for engine background.
+            const Lane2AltClassifySnapshot alt_snap =
+                readLane2AltClassifySnapshot(list_chara);
+
             // (Was: const uint64_t per_frame_mask = readPerFrameDamage
             // Mask(list_chara). Removed because the engine's per-frame
             // sub-frame cell turns out to be empty for most SC6 moves —
@@ -2457,23 +3174,65 @@ namespace Horse
                           &in_master_window_byte);
             const bool in_master_window = (in_master_window_byte != 0);
 
+            // Active-cell attack flags (cell+0x32) and input cond (cell+0x34).
+            // Stamped onto every attack KHitDraw so callers can colour /
+            // label hitboxes by tier (High / Mid / Low / Unblockable).
+            // Both = 0 when no cell is active.
+            uint16_t cell_attack_flags = 0, cell_input_cond = 0;
+            readActiveCellAttackFlags(list_chara, &cell_attack_flags,
+                                      &cell_input_cond);
+            const KHitAttackTier cell_attack_tier =
+                ClassifyAttackTier(cell_attack_flags);
+
+            // Defender-side stance state.  Stamped onto every KHitDraw on
+            // this chara so the HUD can show the chara's current stance
+            // alongside the rendered hitbox/hurtbox geometry.  These are
+            // the bytes EvaluateMoveTransition reads when classifying an
+            // incoming hit — see the readDefenderStance() doc block.
+            const DefenderStanceSnapshot stance =
+                readDefenderStance(list_chara);
+
+            // Throw-dispatch height gate snapshot.  Surfaces the dispatch-
+            // layer gate that can silently drop throws even after geometry
+            // overlap + classifier register them.  See KHitDraw fields
+            // `throw_height_gate_ok` / `defender_effective_height` for
+            // the full doc.
+            const ThrowHeightSnapshot throw_height =
+                readThrowHeightSnapshot(list_chara);
+
+            // Chara-wide final hit-reaction result code (chara+0x43DA0).
+            // Complements the per-slot reaction_state by capturing the
+            // mutual-hit-arbitration consolidated outcome.  See KHitDraw
+            // `final_hit_result_code` doc for the value table.
+            const int32_t final_hit_result =
+                readFinalHitResultCode(list_chara);
+
             // --- Attack list -------------------------------------------------
             walkList(ue_chara, poseSelector, atk_head,
                      KHitList::Attack, active_cell, own_attack_mask,
                      reactions_hot, hurt_slot_count, defender_can_react,
                      chara_phase, mwin_start, mwin_end, in_master_window,
+                     cell_attack_flags, cell_input_cond, cell_attack_tier,
+                     stance, throw_height, final_hit_result,
+                     alt_snap,
                      verbose, visit);
             // --- Hurtbox list ------------------------------------------------
             walkList(ue_chara, poseSelector, hurt_head,
                      KHitList::Hurtbox, active_cell, own_attack_mask,
                      reactions_hot, hurt_slot_count, defender_can_react,
                      chara_phase, mwin_start, mwin_end, in_master_window,
+                     cell_attack_flags, cell_input_cond, cell_attack_tier,
+                     stance, throw_height, final_hit_result,
+                     alt_snap,
                      verbose, visit);
             // --- Body / pushbox list -----------------------------------------
             walkList(ue_chara, poseSelector, body_head,
                      KHitList::Body, active_cell, own_attack_mask,
                      reactions_hot, hurt_slot_count, defender_can_react,
                      chara_phase, mwin_start, mwin_end, in_master_window,
+                     cell_attack_flags, cell_input_cond, cell_attack_tier,
+                     stance, throw_height, final_hit_result,
+                     alt_snap,
                      verbose, visit);
         }
 
@@ -2535,6 +3294,114 @@ namespace Horse
         // on unreal-init + every slider drag.
         static inline std::atomic<int> s_sticky_frames{15};
 
+        // ----------------------------------------------------------------
+        // Per-node Area-SPINE cache for engine-truth swept rendering.
+        //
+        // Why: KHitArea::OverlapTest @ 0x14030E4E0 tests against a shape
+        // built from THREE world-space points (cur_P1, cur_P2, prev_P2
+        // for OBB-1; prev_P1, prev_P2, cur_P1 for OBB-2 — see plate on
+        // PopulateOverlapScratch @ 0x14030E610).  The visualiser needs
+        // the prev-frame endpoint pair to render the engine's swept
+        // hit volume faithfully.
+        //
+        // Cache structure: each entry stores BOTH the previous-game-tick
+        // endpoints AND the current-game-tick endpoints, plus the game
+        // tick we last updated at.  Shift logic:
+        //   * lastTick == curTick       → same game tick (multiple render
+        //                                  frames within one game tick).
+        //                                  DO NOT shift; serve existing
+        //                                  cur/prev and overwrite cur with
+        //                                  fresh sample (idempotent — the
+        //                                  bone is frozen so this is a
+        //                                  redundant write, but harmless).
+        //   * lastTick + 1 == curTick   → one game tick advanced.  Shift:
+        //                                  prev = cur, cur = fresh.
+        //                                  has_prev = true.
+        //   * gap > 1                   → multi-tick gap (round restart,
+        //                                  off-screen, walker disabled).
+        //                                  Reset: prev = cur = fresh.
+        //                                  has_prev = false.
+        //
+        // Why the shift-on-tick-advance design: the cockpit hook fires
+        // every render frame (60–144 Hz typical), but the game's tick
+        // counter only advances when LuxBattle_PerFrameTick runs (60 Hz,
+        // halted during pause / freeze).  An earlier "single-buffer"
+        // design overwrote prev on every cockpit fire, which meant:
+        //
+        //   * At >60 Hz render: swept quad flashed for one render frame
+        //     per tick, then collapsed to cur-only for the remaining
+        //     renders in that tick — visible flicker.
+        //   * Under frame-step: the first render after a step showed the
+        //     quad, then subsequent paused renders hid prev.  User
+        //     stepping and inspecting saw "no prev was drawn this tick"
+        //     even though the engine did sweep.
+        //
+        // The dual-buffer design here serves the SAME cached prev for
+        // every render frame within one game tick, so the swept quad
+        // persists until the game advances another tick.  Frame-step
+        // works correctly: step → tick advances → cache shifts → quad
+        // shows the engine's actual prev→cur sweep, and STAYS visible
+        // for as long as the user inspects that paused tick.
+        //
+        // Cache layout: linear-probe hash table, 256 slots per player,
+        // keyed by node pointer.  P1 and P2 KHit nodes live in disjoint
+        // per-player global scratch regions (DAT_14485ebd0 +
+        // pi*0x4000), so pointer collisions across players are impossible.
+        //
+        // Memory: 2 players × 256 slots × (8 byte ptr + 4 byte tick +
+        // 48 byte four-vec3 + 1 byte flag) = ~31 KB.
+        struct AreaSpineCacheEntry
+        {
+            void*    node      = nullptr;
+            uint32_t lastTick  = 0;
+            FVec3    cur_p1    = {};
+            FVec3    cur_p2    = {};
+            FVec3    prev_p1   = {};
+            FVec3    prev_p2   = {};
+            bool     has_prev  = false;
+        };
+        static constexpr int kAreaSpineCacheSize = 256;
+        static inline AreaSpineCacheEntry s_area_spine_cache[2][kAreaSpineCacheSize] = {};
+
+        // Hash a node pointer down to a cache-slot index.  Linear probe
+        // for collisions; returns the index of either an existing entry
+        // for `node` or the first empty/evictable slot.  Tries up to 8
+        // probes before giving up (returns -1) — far more than needed
+        // for our 40-ish-nodes-per-chara workload.
+        static int findAreaSpineCacheSlot(uint32_t pi, void* node)
+        {
+            if (pi >= 2) return -1;
+            auto& bucket = s_area_spine_cache[pi];
+            const uintptr_t h = reinterpret_cast<uintptr_t>(node);
+            // Mix the pointer bits — KHit nodes are 0x80-byte stride so
+            // raw masking would put consecutive nodes in adjacent slots.
+            const uint32_t mixed = static_cast<uint32_t>(
+                (h >> 7) ^ (h >> 15) ^ (h >> 23));
+            int idx = static_cast<int>(mixed % kAreaSpineCacheSize);
+            for (int i = 0; i < 8; ++i)
+            {
+                AreaSpineCacheEntry& e = bucket[idx];
+                if (e.node == node || e.node == nullptr) return idx;
+                idx = (idx + 1) % kAreaSpineCacheSize;
+            }
+            return -1; // give up — visualisation will just lack prev this tick
+        }
+
+        // Read the global game-frame counter once for the spine cache.
+        // Mirrors the read in forEachKHit but isolated so buildAreaWorld
+        // can call it without plumbing the value through every helper.
+        static uint32_t readGameFrameCounter() noexcept
+        {
+            constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return 0;
+            uint32_t cur = 0;
+            if (!SafeReadUInt32(reinterpret_cast<const void*>(
+                    base + kFrameCounterRVA), &cur))
+                return 0;
+            return cur;
+        }
+
         template <class Visit>
         static void walkList(void* chara,
                              uint32_t poseSelector,
@@ -2560,6 +3427,43 @@ namespace Horse
                              // Boolean from chara+0x16EA — same as
                              // (phase == Active) AND inhibitors quiet.
                              bool     charaInMasterWindow,
+                             // Active cell metadata (cell+0x32 AttackFlags
+                             // + cell+0x34 InputCond + derived tier).
+                             // Pre-read once per chara per tick.  Stamped
+                             // onto every KHitDraw on this chara so the
+                             // renderer can colour/label hitboxes by
+                             // tier (high/mid/low/unblockable).
+                             uint16_t        charaAttackFlags,
+                             uint16_t        charaInputCond,
+                             KHitAttackTier  charaAttackTier,
+                             // Defender stance/state snapshot.  Pre-read
+                             // once per chara per tick.  Stamped onto
+                             // every KHitDraw so the HUD can show the
+                             // defender's current stance and block-state
+                             // alongside the rendered geometry.
+                             const DefenderStanceSnapshot& charaStance,
+                             // Throw-dispatch height gate snapshot.  Same
+                             // pre-read-once pattern; stamped on every
+                             // KHitDraw.  See readThrowHeightSnapshot().
+                             const ThrowHeightSnapshot& charaThrowHeight,
+                             // Chara-wide final hit-result code from
+                             // chara+0x43DA0.  Pre-read; stamped on every
+                             // KHitDraw.  Value table in KHitDraw doc.
+                             int32_t         charaFinalHitResultCode,
+                             // Chara-wide Lane 2 alt-classify snapshot,
+                             // pre-read once per chara per tick.  When
+                             // `is_open` is true and an attack node's
+                             // category bit falls in `lane2_mask`, the
+                             // engine will fire damage via the alt
+                             // classifier pass even if the bit is NOT in
+                             // the primary cell's mask.  is_per_frame_active
+                             // for ATTACK nodes OR's this into the
+                             // per-cell check.  Stamped onto every
+                             // KHitDraw as `alt_classify_open` /
+                             // `alt_attack_mask` (always identical
+                             // across every node of this chara on this
+                             // tick — chara-wide state).
+                             const Lane2AltClassifySnapshot& charaAltSnap,
                              bool verbose,
                              Visit&& visit)
         {
@@ -2759,6 +3663,45 @@ namespace Horse
                 d.master_window_start   = charaMasterWindowStart;
                 d.master_window_end     = charaMasterWindowEnd;
 
+                // Active cell attack metadata — see KHitDraw doc block
+                // "Active attack cell metadata".  Same value on every
+                // node on this chara this tick.
+                d.attack_flags             = charaAttackFlags;
+                d.attack_input_cond        = charaInputCond;
+                d.attack_tier              = charaAttackTier;
+
+                // Defender stance / state — see KHitDraw doc block
+                // "Defender-side stance state".
+                d.defender_crouching             = charaStance.crouching;
+                d.defender_crouching_base        = charaStance.crouching_base;
+                d.defender_crouching_alt         = charaStance.crouching_alt;
+                d.defender_alt_lock_gate         = charaStance.alt_lock_gate;
+                d.defender_actively_blocking     = charaStance.actively_blocking;
+                d.defender_blockable_this_frame  = charaStance.blockable_this_frame;
+                d.defender_in_blockstun          = charaStance.in_blockstun;
+                d.defender_in_hitstun            = charaStance.in_hitstun;
+                d.defender_invul_a               = charaStance.invul_a;
+                d.defender_invul_b               = charaStance.invul_b;
+                d.defender_guard_broken          = charaStance.guard_broken;
+                d.defender_guard_disabled        = charaStance.guard_disabled;
+                d.defender_force_allow           = charaStance.force_allow;
+
+                // Throw-dispatch height gate (see KHitDraw doc block).
+                d.defender_effective_height = charaThrowHeight.defender_height;
+                d.attacker_effective_height = charaThrowHeight.attacker_height;
+                d.throw_height_gate_ok      = charaThrowHeight.gate_ok;
+
+                // Chara-wide final hit-reaction result code (chara+0x43DA0).
+                d.final_hit_result_code     = charaFinalHitResultCode;
+
+                // Chara-wide Lane 2 alt-classify state — stamp on every
+                // KHitDraw for both attack and hurt/body kinds (the
+                // value is constant across all nodes on this chara this
+                // tick). Hurtbox/body kinds won't use it for filtering
+                // but the renderer / HUD might display the open flag.
+                d.alt_classify_open  = charaAltSnap.is_open;
+                d.alt_attack_mask    = charaAltSnap.lane2_mask;
+
                 // is_per_frame_active — narrowed (2026-05) to the engine's
                 // own per-tick "active frames" predicate by AND'ing in
                 // (charaPhase == Active).  Without this, the existing
@@ -2766,9 +3709,24 @@ namespace Horse
                 // entire move because both sources are per-MOVE-SLOT,
                 // not per-game-frame.  See KHitDraw::is_per_frame_active
                 // doc above for the full reasoning + history.
+                //
+                // EXTENDED 2026-05-16: also accept the bit if the chara's
+                // Lane 2 alt-classify is gated open AND the attack's
+                // category bit lives in the Lane 2 cell mask.  This
+                // covers Soul Charge alt-attacks, Guard Impact counters,
+                // parry counters, and stance-tech where the engine
+                // fires damage via a second classifier pass against the
+                // Lane 2 cell — slots authored as live in Lane 2 but
+                // not in the primary cell would otherwise be incorrectly
+                // hidden by the "Only show active boxes" filter.
+                const bool primary_active =
+                    (cat_mask & ownAttackMask) != 0;
+                const bool alt_active =
+                    charaAltSnap.is_open &&
+                    (cat_mask & charaAltSnap.lane2_mask) != 0;
                 d.is_per_frame_active = (listKind == KHitList::Attack &&
                                          activeGate != 0 &&
-                                         (cat_mask & ownAttackMask) != 0 &&
+                                         (primary_active || alt_active) &&
                                          charaPhase == KHitAttackPhase::Active);
                 d.stream_tag            = streamTag;
                 d.bone_id_internal      = boneId;
@@ -2893,6 +3851,97 @@ namespace Horse
                     default:
                         skip_code = 9;
                         break;
+                }
+
+                // ------------------------------------------------------------
+                // BELOW-GROUND DIAGNOSTIC (2026-05-15)
+                // ------------------------------------------------------------
+                // When a sphere renders with its centre Z below the visible
+                // floor (treated as Z <= -5 UE cm to absorb terrain-pad noise),
+                // dump the identifying fields so the user can correlate the
+                // overlay to a specific bone/slot/move.  Captures:
+                //   - +0x17 KindTag (slot index, drives PerHurtboxBitmask /
+                //                    classifier addressability; 6/7 trigger
+                //                    ground-clamp branch)
+                //   - +0x7C UE4 bone index (which skeletal bone the sphere
+                //                            is attached to in UE-space)
+                //   - +0x70 live radius (post-anim-cell scale + post-ground-
+                //                        clamp inflation)
+                //   - +0x74 authored radius
+                //   - +0x50..+0x5B Namco world center (engine's authoritative
+                //                  position — includes ground-clamp pull on
+                //                  slot 6/7; the bone-matrix path we render
+                //                  from does NOT include this)
+                //   - rendered UE world centre (what the overlay drew)
+                //
+                // De-dups per (chara_id, list_kind, kind_tag, ue_bone_idx)
+                // tuple so log spam stays bounded.  Each unique tuple is
+                // logged exactly once per mod lifetime — a "first sighting"
+                // record.  The cap is generous: 256 unique tuples is more
+                // than the entire SC6 chara roster's combined slot inventory.
+                if (ok && streamTag == 0 && d.centre.Z <= -5.0f)
+                {
+                    // Read Namco-world center (+0x50..+0x5B) so we can compare
+                    // to the bone-matrix-derived UE position we just rendered.
+                    // If these differ significantly after Namco->UE conversion
+                    // (Z->X, X->Y, Y->Z, ×100), the ground-clamp branch has
+                    // fired for this node.
+                    float namco_x = 0.0f, namco_y = 0.0f, namco_z = 0.0f;
+                    SafeReadFloat(nbytes + KHitOffsets::SphereWorldCenterCur + 0,
+                                  &namco_x);
+                    SafeReadFloat(nbytes + KHitOffsets::SphereWorldCenterCur + 4,
+                                  &namco_y);
+                    SafeReadFloat(nbytes + KHitOffsets::SphereWorldCenterCur + 8,
+                                  &namco_z);
+                    // Namco (X, Y, Z) -> UE (Z, X, Y) ×100.  Matches the
+                    // axis-swap used in buildFixAreaWorld.
+                    const float engine_ue_x = namco_z * 100.0f;
+                    const float engine_ue_y = namco_x * 100.0f;
+                    const float engine_ue_z = namco_y * 100.0f;
+
+                    float authored_radius = 0.0f;
+                    SafeReadFloat(nbytes + KHitOffsets::SphereRadiusAuthored,
+                                  &authored_radius);
+
+                    // De-dup key: (pi, list, kind_tag, bone_idx).  Pack into
+                    // a single u32 for a small linear-probe seen-set.
+                    const uint32_t key =
+                          (static_cast<uint32_t>(poseSelector & 1) << 28)
+                        | (static_cast<uint32_t>(listKind) << 24)
+                        | (static_cast<uint32_t>(boneId) << 16)
+                        | (ueBoneDbg & 0xFFFFu);
+                    constexpr int kSeenCap = 256;
+                    static uint32_t s_below_seen[kSeenCap] = {};
+                    static int      s_below_count = 0;
+                    bool already = false;
+                    for (int i = 0; i < s_below_count && i < kSeenCap; ++i)
+                    {
+                        if (s_below_seen[i] == key) { already = true; break; }
+                    }
+                    if (!already && s_below_count < kSeenCap)
+                    {
+                        s_below_seen[s_below_count++] = key;
+                        const bool likely_ground_clamp =
+                            (boneId == 6 || boneId == 7);
+                        const float engine_vs_render_dz =
+                            engine_ue_z - d.centre.Z;
+                        RC::Output::send<RC::LogLevel::Verbose>(
+                            STR("[HorseMod.BelowGround] pi={} list={} kind=0x{:02x}"
+                                " ueBone=0x{:x} clamp_path={}"
+                                " r_live={:.2f} r_auth={:.2f}"
+                                " render_UE=({:.1f},{:.1f},{:.1f})"
+                                " engine_UE=({:.1f},{:.1f},{:.1f})"
+                                " dZ_engine_minus_render={:.2f}\n"),
+                            poseSelector,
+                            static_cast<int>(listKind),
+                            static_cast<int>(boneId),
+                            ueBoneDbg,
+                            likely_ground_clamp ? STR("YES") : STR("no"),
+                            d.radius, authored_radius * kLuxCmToUE,
+                            d.centre.X, d.centre.Y, d.centre.Z,
+                            engine_ue_x, engine_ue_y, engine_ue_z,
+                            engine_vs_render_dz);
+                    }
                 }
 
                 // Log the first 4 skipped nodes per list so we can see what
@@ -3209,29 +4258,54 @@ namespace Horse
             return true;
         }
 
-        // KHitArea: an OBB axis-aligned in BONE-LOCAL space.  P1 at +0x30
-        // and P2 at +0x40 are the two DIAGONAL CORNERS of this box — NOT
-        // two separate world-space endpoints.  The game stores two bone
-        // indices (+0x90 for P1, +0x94 for P2) because each corner can in
-        // principle live on a different bone, but the common case is
-        // bone A == bone B (a simple bone-local AABB).
+        // KHitArea: a 1D SPINE (P1 → P2) attached to a bone.  P1 at
+        // +0x30 and P2 at +0x40 are AUTHORED ENDPOINTS — not diagonal
+        // corners of an OBB.  The engine's overlap test
+        // (KHitArea::OverlapTest @ 0x14030E4E0) reads them as the
+        // endpoints of the attacker's spine, then builds the actual hit
+        // shape at test time from THREE points via Gram-Schmidt
+        // (cur_P1, cur_P2, prev_P2 for one OBB; prev_P1, prev_P2,
+        // cur_P1 for the other — see PopulateOverlapScratch @
+        // 0x14030E610 + BuildHitboxLocalMatrix @ 0x14030BBA0).  The
+        // cross-section thickness of those OBBs is derived from how
+        // far the bone moved between frames, so a stationary spine
+        // tests as zero-thickness and a moving spine picks up
+        // thickness equal to its motion delta.
         //
-        // To render: generate all 8 corners by permuting per-axis min/max
-        // of (P1, P2) in BONE-LOCAL SPACE, then transform each through
-        // bone A's FMatrix.  This produces a rotated OBB that follows the
-        // bone orientation — correct for same-bone case and a reasonable
-        // approximation when bone A != bone B (rare, for swept limb
-        // volumes).
+        // Historical note
+        // ---------------
+        // Earlier revisions of this function rendered an 8-corner OBB
+        // derived from min/max permutations of bone-local P1/P2 in
+        // bone-local space.  That interpretation was incorrect — it
+        // produced a thin AABB along the spine that VISUALLY resembled
+        // a weapon but did NOT match the engine's actual hit shape.
+        // 2026-05-14 audit traced this to a misreading of the
+        // deserializer; the engine's overlap test uses P1/P2 as spine
+        // endpoints (1D), not OBB diagonals.
         //
-        // Why this interpretation (vs. the world-AABB-of-two-points path
-        // we tried first): fighters have LOTS of bone-oriented hurtboxes
-        // (around arms/legs/torso).  A world-axis-aligned AABB wouldn't
-        // rotate with the bone — hurtboxes would "float" off the body
-        // when a bone twists.  An OBB in bone-local space is what visually
-        // hugs the body through animation.
+        // What we render now
+        // -------------------
+        // Just the engine's SOURCE DATA:
+        //   * Cur spine = cur_P1_world → cur_P2_world (always drawn)
+        //   * Prev spine = prev_P1_world → prev_P2_world (drawn iff the
+        //     per-node cache holds a one-tick-old snapshot for THIS node)
+        //   * Two connecting edges: cur_P1→prev_P1 and cur_P2→prev_P2
+        //     (drawn iff has_prev_spine — together with the two spines
+        //     they outline the swept quad the engine just hit-tested)
         //
-        // See KHitArea_UpdateWorldCenters @ 0x14030E480 for the
-        // two-bone-index storage and deserialization.
+        // Stationary attacks: prev ≈ cur, quad collapses to a near-
+        // single line.  Moving attacks: quad opens up, visually
+        // communicating the swept envelope.  This matches the engine's
+        // behavior: zero-motion ⇒ zero cross-section, motion ⇒
+        // cross-section proportional to motion delta.
+        //
+        // Two-bone caveat
+        // ----------------
+        // P1 and P2 can attach to DIFFERENT bones (+0x90 holds bone A
+        // for P1, +0x94 holds bone B for P2).  Common case is same
+        // bone, but for swept-limb volumes the two endpoints can be
+        // on different bones.  We resolve each endpoint through its
+        // own bone transform.
         static bool buildAreaWorld(void* chara, uint32_t pose,
                                    const uint8_t* node,
                                    uint8_t /*internalBoneId*/,
@@ -3247,35 +4321,95 @@ namespace Horse
             if (!readVec3(node + KHitOffsets::Area_LocalP2, localP2))
                 return false;
 
-            // Per-axis min/max in BONE-LOCAL space — this is what makes
-            // the OBB axis-aligned in the bone's frame.
-            const float minLX = std::fmin(localP1.X, localP2.X);
-            const float minLY = std::fmin(localP1.Y, localP2.Y);
-            const float minLZ = std::fmin(localP1.Z, localP2.Z);
-            const float maxLX = std::fmax(localP1.X, localP2.X);
-            const float maxLY = std::fmax(localP1.Y, localP2.Y);
-            const float maxLZ = std::fmax(localP1.Z, localP2.Z);
-
-            // 8 corners in standard ordering:
-            //   bit 0 = X (0:min, 1:max), bit 1 = Y, bit 2 = Z
-            // Transform each through bone A.  (boneB is unused in the
-            // same-bone case; if P1/P2 attach to different bones we'd
-            // need to pick or blend, but approximating with A is fine
-            // for visualisation.)
-            for (int i = 0; i < 8; ++i)
-            {
-                const float lx = (i & 1) ? maxLX : minLX;
-                const float ly = (i & 2) ? maxLY : minLY;
-                const float lz = (i & 4) ? maxLZ : minLZ;
-                out.corners[i] = LiftBoneLocalToWorld(
-                    boneA, FVec3{ lx, ly, lz });
-            }
-
-            // Silence unused warning (kept for future refinement where we
-            // might blend A/B per-corner based on bit mask).
-            (void)boneB;
-
+            // Cur spine endpoints in UE world.  P1 through bone A
+            // (read from +0x90), P2 through bone B (read from +0x94).
+            // Same-bone case (the common authoring) is a degenerate
+            // case of this — boneA == boneB and the spine sweeps
+            // through that single bone's orientation.
+            out.spine_p1_world = LiftBoneLocalToWorld(boneA, localP1);
+            out.spine_p2_world = LiftBoneLocalToWorld(boneB, localP2);
             out.kind = KHitKind::Box;
+
+            // Initialise prev fields to cur so any consumer that
+            // ignores has_prev_spine still gets sane data (a quad
+            // collapsed to a line).
+            out.prev_p1_world  = out.spine_p1_world;
+            out.prev_p2_world  = out.spine_p2_world;
+            out.has_prev_spine = false;
+
+            // -- Spine cache (per-node prev-frame retention) -------------
+            // See AreaSpineCacheEntry doc above for the three-state
+            // shift algorithm (same tick / +1 tick / multi-tick gap).
+            // Critical: the cockpit hook can fire many render frames
+            // within a single game tick (especially under pause /
+            // frame-step / >60 Hz monitors), so the shift must only
+            // happen when the GAME TICK actually advances, not on
+            // every cockpit fire.  Serving the same cached prev for
+            // every render frame within one tick is what makes the
+            // swept quad persist while the user inspects a paused
+            // frame.
+            const uint32_t curTick = readGameFrameCounter();
+            const int cacheIdx = findAreaSpineCacheSlot(
+                pose, const_cast<void*>(static_cast<const void*>(node)));
+            if (cacheIdx >= 0)
+            {
+                AreaSpineCacheEntry& entry = s_area_spine_cache[pose][cacheIdx];
+                if (entry.node != node)
+                {
+                    // Fresh slot — node not seen here before, or evicted.
+                    entry.node      = const_cast<void*>(static_cast<const void*>(node));
+                    entry.cur_p1    = out.spine_p1_world;
+                    entry.cur_p2    = out.spine_p2_world;
+                    entry.prev_p1   = out.spine_p1_world;
+                    entry.prev_p2   = out.spine_p2_world;
+                    entry.has_prev  = false;
+                    entry.lastTick  = curTick;
+                }
+                else if (entry.lastTick == curTick)
+                {
+                    // Same game tick — multiple cockpit fires within one
+                    // tick.  Do NOT shift prev.  The bone is frozen this
+                    // tick so refreshing cur with the same value is a
+                    // no-op; we still update it for paranoia in case the
+                    // bone matrix path returns a slightly-different
+                    // value (e.g. floating-point noise).
+                    entry.cur_p1    = out.spine_p1_world;
+                    entry.cur_p2    = out.spine_p2_world;
+                }
+                else if (entry.lastTick + 1 == curTick)
+                {
+                    // Game advanced exactly one tick — shift cur to
+                    // prev, take the fresh values as the new cur.
+                    // has_prev becomes true.
+                    entry.prev_p1   = entry.cur_p1;
+                    entry.prev_p2   = entry.cur_p2;
+                    entry.cur_p1    = out.spine_p1_world;
+                    entry.cur_p2    = out.spine_p2_world;
+                    entry.has_prev  = true;
+                    entry.lastTick  = curTick;
+                }
+                else
+                {
+                    // Multi-tick gap (round restart, off-screen, walker
+                    // disabled).  Reset — the cached values describe a
+                    // position that isn't the engine's actual previous
+                    // tick, so showing them would be misleading.
+                    entry.cur_p1    = out.spine_p1_world;
+                    entry.cur_p2    = out.spine_p2_world;
+                    entry.prev_p1   = out.spine_p1_world;
+                    entry.prev_p2   = out.spine_p2_world;
+                    entry.has_prev  = false;
+                    entry.lastTick  = curTick;
+                }
+
+                // Hand out the cached prev to the renderer regardless
+                // of which branch above we took.  When has_prev is
+                // false, prev fields equal cur and the renderer
+                // collapses the quad to a single spine line.
+                out.prev_p1_world  = entry.prev_p1;
+                out.prev_p2_world  = entry.prev_p2;
+                out.has_prev_spine = entry.has_prev;
+            }
             return true;
         }
 
@@ -3336,22 +4470,48 @@ namespace Horse
     {
         if (d.kind == KHitKind::Box)
         {
-            const auto& v = d.corners;
-            // Bottom face.
-            overlay.drawLine(v[0], v[1], color, thickness);
-            overlay.drawLine(v[1], v[3], color, thickness);
-            overlay.drawLine(v[3], v[2], color, thickness);
-            overlay.drawLine(v[2], v[0], color, thickness);
-            // Top face.
-            overlay.drawLine(v[4], v[5], color, thickness);
-            overlay.drawLine(v[5], v[7], color, thickness);
-            overlay.drawLine(v[7], v[6], color, thickness);
-            overlay.drawLine(v[6], v[4], color, thickness);
-            // Verticals.
-            overlay.drawLine(v[0], v[4], color, thickness);
-            overlay.drawLine(v[1], v[5], color, thickness);
-            overlay.drawLine(v[2], v[6], color, thickness);
-            overlay.drawLine(v[3], v[7], color, thickness);
+            // KHitArea — engine-truth spine + swept-quad outline.  The
+            // engine treats P1/P2 as 1D spine endpoints; the actual hit
+            // shape is built at overlap-test time from THREE points
+            // (the cur spine plus the OTHER frame's tip / hilt as the
+            // side reference, see KHitDraw::spine_p1_world docs).  We
+            // render the SOURCE DATA:
+            //
+            //   * Cur spine     : spine_p1_world → spine_p2_world
+            //                     (always drawn)
+            //   * Prev spine    : prev_p1_world  → prev_p2_world
+            //                     (drawn iff has_prev_spine, otherwise
+            //                      identical to cur and the line
+            //                      would overdraw)
+            //   * Two connectors: cur_P1→prev_P1 and cur_P2→prev_P2
+            //                     (close the swept quad; drawn iff
+            //                      has_prev_spine)
+            //
+            // Stationary attacks: prev ≈ cur, quad collapses to one
+            // line — engine-truth (zero-motion ⇒ zero cross-section).
+            // Moving attacks: quad opens up, visually communicating
+            // the swept envelope that the engine hit-tested this
+            // tick.
+            // All 4 quad edges use the caller's color uniformly.  3 of
+            // the 4 lines correspond to vectors the engine literally
+            // consumes (cur spine = OBB-1 primary axis, prev spine =
+            // OBB-2 primary axis, P1 connector = OBB-2 side reference);
+            // the 4th (P2 connector) is a "courtesy" closure that
+            // completes the quad outline without itself being an engine-
+            // computed vector.  All 4 share the same endpoints the
+            // engine reads, so together they outline the swept region
+            // the engine's two OBBs effectively cover.
+            overlay.drawLine(d.spine_p1_world, d.spine_p2_world,
+                             color, thickness);
+            if (d.has_prev_spine)
+            {
+                overlay.drawLine(d.prev_p1_world, d.prev_p2_world,
+                                 color, thickness);
+                overlay.drawLine(d.spine_p1_world, d.prev_p1_world,
+                                 color, thickness);
+                overlay.drawLine(d.spine_p2_world, d.prev_p2_world,
+                                 color, thickness);
+            }
             return;
         }
 
