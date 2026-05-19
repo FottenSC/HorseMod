@@ -27,6 +27,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>   // std::memcpy — the bulk-copy primitive below
 
 // Windows.h is a transitive include; pull it in directly so we don't
 // rely on NativeBinding.hpp being included first.
@@ -151,17 +152,20 @@ namespace Horse
         }
     }
 
-    // Bulk memcpy that returns false if any byte is unmapped. Slow path
-    // only — for hex dumps and raw struct copies.
+    // Bulk copy that returns false if any byte of the source range is
+    // unmapped — for hex dumps and raw struct snapshots.
+    //
+    // The copy is a single memcpy inside the SEH guard.  An access
+    // violation anywhere inside memcpy still unwinds to the __except
+    // here (memcpy installs no handler of its own), so the guard holds
+    // — and memcpy is ~10-30x faster than a scalar byte loop.  On a
+    // fault `dst` is left in an indeterminate partial state; every
+    // caller treats a false return as "discard", so it is never read.
     static inline bool SafeReadBytes(const void* src, void* dst, size_t len) noexcept
     {
         __try
         {
-            // Byte-by-byte so a partial fault still returns false without
-            // leaving a partial copy in dst (we overwrite all of dst with 0).
-            auto* s = reinterpret_cast<const uint8_t*>(src);
-            auto* d = reinterpret_cast<uint8_t*>(dst);
-            for (size_t i = 0; i < len; ++i) d[i] = s[i];
+            std::memcpy(dst, src, len);
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -181,9 +185,7 @@ namespace Horse
     {
         __try
         {
-            auto* s = reinterpret_cast<const uint8_t*>(src);
-            auto* d = reinterpret_cast<uint8_t*>(dst);
-            for (size_t i = 0; i < len; ++i) d[i] = s[i];
+            std::memcpy(dst, src, len);
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)

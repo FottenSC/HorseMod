@@ -137,8 +137,12 @@ function stanceKey(s: string): string {
 }
 
 /** Build the stance-transition graph for one character's movelist.
- * "When in stance X, input Y shifts you to stance Z" = a transition
- * edge X --Y--> Z. */
+ * "In stance X, input Y shifts you to stance Z" = an edge X --Y--> Z.
+ * Edges cover: Neutral->X (enter a stance from neutral), X->Y (stance to
+ * stance), X->X self-loops (a move that re-enters its own stance), and
+ * X->Neutral (a stance move with no " ~ Stance" suffix drops you back
+ * to neutral when it finishes). Plain neutral moves (from Neutral, no
+ * shift) are not transitions and produce no edge. */
 export function buildStanceGraph(moves: MovelistMove[]): StanceGraph {
   // Pass 1 — the stance vocabulary is the set of " ~ X" name suffixes.
   const displayByKey = new Map<string, string>();
@@ -191,18 +195,25 @@ export function buildStanceGraph(moves: MovelistMove[]): StanceGraph {
   for (const m of moves) {
     const from = fromStance(m.condition);
     node(from).movesFrom++;
-    const to = toStance(m.name);
-    if (to && to !== from) {
-      node(to).movesInto++;
-      transitions.push({
-        from, to,
-        input: m.fullCommand || m.input || m.condition,
-        moveName: m.name,
-        moveId: m.moveId,
-        order: m.order,
-        slot: m.commandSets[0]?.slotIdx ?? -1,
-      });
+    let to = toStance(m.name);
+    // A move performed inside a stance with no explicit " ~ Stance"
+    // shift ends the stance — it returns you to Neutral.
+    if (to === null && from !== NEUTRAL_STANCE) to = NEUTRAL_STANCE;
+    // Skip plain neutral moves (from Neutral, no shift) — not a
+    // transition. X->X self-loops (a move that re-enters its own
+    // stance) and X->Neutral (a stance exit) ARE kept.
+    if (to === null || (from === NEUTRAL_STANCE && to === NEUTRAL_STANCE)) {
+      continue;
     }
+    node(to).movesInto++;
+    transitions.push({
+      from, to,
+      input: m.fullCommand || m.input || m.condition,
+      moveName: m.name,
+      moveId: m.moveId,
+      order: m.order,
+      slot: m.commandSets[0]?.slotIdx ?? -1,
+    });
   }
   // Drop a lone Neutral node for characters with no stances at all.
   const stances = [...nodes.values()].filter(

@@ -196,6 +196,22 @@ namespace Horse::GameImGui
         Present_t        m_original_present        = nullptr;
         ResizeBuffers_t  m_original_resize_buffers = nullptr;
 
+        // The "originals" map VFuncSwapHook captures the pre-hook vtable
+        // pointers into.  CRITICAL: VFuncSwapHook stores a POINTER to
+        // this map (its m_userOrigMap) and dereferences it again in
+        // unHook() - which runs from ~VFuncSwapHook.  So the map MUST
+        // outlive m_vfunc_hook.  It is a member (not an install()-local)
+        // for exactly that reason, and is declared BEFORE m_vfunc_hook so
+        // it destructs AFTER it.
+        //
+        // A prior stack-local `originals` in install() was a use-after-
+        // scope: install() returned, the map was destroyed, and the
+        // later ~VFuncSwapHook -> unHook() did `for (auto& p : *m_userOrigMap)`
+        // over freed stack memory - faulting on a garbage std::map node
+        // (`MOV RAX,[RAX]`, value 0x1).  That is the long-standing crash
+        // seen in the seek/teardown minidumps.
+        PLH::VFuncMap m_vfunc_originals;
+
         // PolyHook owns the vtable-swap state.  We only need one
         // instance covering both Present and ResizeBuffers.
         std::unique_ptr<PLH::VFuncSwapHook> m_vfunc_hook;
@@ -269,12 +285,16 @@ namespace Horse::GameImGui
         redirects[kIDXGISwapChain_Present]       = reinterpret_cast<uint64_t>(&PresentHook::Present_detour);
         redirects[kIDXGISwapChain_ResizeBuffers] = reinterpret_cast<uint64_t>(&PresentHook::ResizeBuffers_detour);
 
-        PLH::VFuncMap originals;  // PolyHook writes the old function
-                                   // pointers here after hook.
+        // PolyHook writes the old function pointers into this map after
+        // hook(), and RETAINS the pointer - it iterates the map again in
+        // unHook() from ~VFuncSwapHook.  It must therefore be the member
+        // m_vfunc_originals (which outlives m_vfunc_hook), never an
+        // install()-local.  Cleared first in case of a re-install.
+        m_vfunc_originals.clear();
         m_vfunc_hook = std::make_unique<PLH::VFuncSwapHook>(
             reinterpret_cast<uint64_t>(m_probe_swap_chain.Get()),
             redirects,
-            &originals);
+            &m_vfunc_originals);
         if (!m_vfunc_hook->hook())
         {
             RC::Output::send<RC::LogLevel::Error>(
@@ -287,11 +307,13 @@ namespace Horse::GameImGui
         // Prefer PolyHook's captured originals over our pre-read copy
         // (defensive — in case the vtable was modified between the
         // read and the hook).
-        if (auto it = originals.find(kIDXGISwapChain_Present); it != originals.end() && it->second)
+        if (auto it = m_vfunc_originals.find(kIDXGISwapChain_Present);
+            it != m_vfunc_originals.end() && it->second)
         {
             m_original_present = reinterpret_cast<Present_t>(it->second);
         }
-        if (auto it = originals.find(kIDXGISwapChain_ResizeBuffers); it != originals.end() && it->second)
+        if (auto it = m_vfunc_originals.find(kIDXGISwapChain_ResizeBuffers);
+            it != m_vfunc_originals.end() && it->second)
         {
             m_original_resize_buffers = reinterpret_cast<ResizeBuffers_t>(it->second);
         }
@@ -304,32 +326,44 @@ namespace Horse::GameImGui
         return true;
     }
 
-    // SEH-wrapped unHook — must be a free function (no C++ unwinding
-    // frames in scope) because __try/__except can't sit alongside
-    // C++ destructors.  Returns true if unHook ran cleanly, false if
-    // it faulted (which we eat — we're shutting down anyway).
+    // SEH-wrapped VFuncSwapHook teardown — must be a free function (no
+    // C++ unwinding frames in scope) because __try/__except can't sit
+    // alongside C++ destructors.  Returns true on a clean teardown,
+    // false if it faulted (eaten — we're shutting down anyway).
     //
-    // Why this is wrapped at all:
-    //   PLH::VFuncSwapHook::unHook iterates an std::map and writes
-    //   restored function pointers back into a DXGI swap-chain
-    //   vtable.  During UNCLEAN shutdown (e.g. the game crashed and
-    //   DXGI was already torn down by its crash handler), that
-    //   vtable's memory has been decommitted by the OS.  Without
-    //   this guard, writing to it raises a second-chance AV that
-    //   replaces the ORIGINAL crash in the minidump — making the
-    //   real bug invisible.  Empirical: a 2026-04-29 crash ate the
-    //   original cause and surfaced this path's `MOV RAX, [RAX]`
-    //   on a freed std::map head pointer (val=0x1) at HorseMod
-    //   image-offset 0x987d6.
-    static bool try_unhook_seh(PLH::VFuncSwapHook* h) noexcept
+    // Why this is wrapped:
+    //   ~VFuncSwapHook -> unHook() writes the saved original pointers
+    //   back into the DXGI swap-chain vtable.  During an UNCLEAN
+    //   shutdown (the game crashed and DXGI was already torn down by
+    //   its crash handler) that vtable memory has been decommitted, so
+    //   the write faults.  Catch it: the OS reclaims everything in a
+    //   moment anyway and an un-restored vtable is harmless then.
+    //
+    //   On a fault the hook is RELEASED (deliberately leaked) rather
+    //   than destructed: if reset() faulted mid-unHook the object is
+    //   left with PolyHook's m_hooked still true, and letting its
+    //   destructor run again would re-invoke the faulting unHook()
+    //   UNGUARDED — a second-chance AV that replaces the ORIGINAL crash
+    //   in the minidump and hides the real bug.  Leaking it at process
+    //   teardown costs nothing.
+    //
+    //   The other historical fault here — unHook() iterating a freed
+    //   std::map (`MOV RAX,[RAX]`, value 0x1) — was a use-after-scope:
+    //   install() passed a stack-local `originals` map by address and
+    //   VFuncSwapHook kept the pointer.  Fixed by making it the
+    //   m_vfunc_originals member; this guard now only covers the
+    //   genuinely-decommitted-vtable case.
+    static bool seh_teardown_vfunc_hook(
+        std::unique_ptr<PLH::VFuncSwapHook>& hook) noexcept
     {
         __try
         {
-            h->unHook();
+            hook.reset();   // ~VFuncSwapHook runs unHook() if m_hooked
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
+            hook.release(); // abandon unfreed so the dtor can't re-fault
             return false;
         }
     }
@@ -339,21 +373,14 @@ namespace Horse::GameImGui
         if (!m_installed.exchange(false)) return;
         if (m_vfunc_hook)
         {
-            // unHook() can fault during process-shutdown teardown if
-            // DXGI / D3D11 / their heap pages were already released
-            // by the OS.  Catch the AV so we don't replace the
-            // original crash with our cleanup's secondary fault.
-            // The OS is going to reclaim everything in a moment
-            // anyway — leaving the vtable un-restored is harmless.
-            const bool clean = try_unhook_seh(m_vfunc_hook.get());
-            if (!clean)
+            if (!seh_teardown_vfunc_hook(m_vfunc_hook))
             {
                 RC::Output::send<RC::LogLevel::Warning>(
-                    STR("[GameImGui] VFuncSwapHook::unHook faulted "
-                        "during teardown (DXGI already torn down?) "
-                        "— swallowed; OS will reclaim the vtable.\n"));
+                    STR("[GameImGui] VFuncSwapHook teardown faulted "
+                        "(DXGI already torn down?) — swallowed; the "
+                        "hook was leaked so its destructor cannot "
+                        "re-fault.  OS will reclaim it.\n"));
             }
-            m_vfunc_hook.reset();
         }
         m_original_present        = nullptr;
         m_original_resize_buffers = nullptr;

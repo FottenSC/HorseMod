@@ -59,6 +59,7 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 
@@ -254,8 +255,9 @@ namespace Horse
                 s.active_attack_cell);
         }
 
-        // Resolve UDemoNetDriver via FindFirstOf and report its presence +
-        // key state fields.  UE4.21 layout (canonical UDemoNetDriver):
+        // Resolve UDemoNetDriver via UWorld->DemoNetDriver first, then
+        // object-array fallbacks, and report its key state fields.
+        // UE4.21 layout (canonical UDemoNetDriver):
         //   bIsPlaying:        BitField on UNetDriver - we read it as the
         //                      "NetDriverName == DemoNetDriver" identity test
         //   DemoCurrentTime:   float, often at +0x4F0..+0x510 region;
@@ -278,8 +280,272 @@ namespace Horse
             bool      bIsPlaying     {false};
             bool      bIsRecording   {false};
             bool      bIsSavingCheckpoint {false};
+            float     raw_demo_total_time {-1.0f}; // Ghidra: +0x414
+            float     raw_demo_cur_time   {-1.0f}; // Ghidra: +0x418
+            uint8_t   raw_busy_791        {0};
+            uint8_t   raw_loading_794     {0};
+            int32_t   raw_task_count_7b0  {0};
+            uintptr_t raw_current_task_7b8 {0};
             bool      readable       {false};
         };
+
+        // Ghidra: Z_Construct_UClass_UWorld @ 0x1428A5B90 registers
+        // UWorld.DemoNetDriver at +0xB8.  The UObject-array class search
+        // can miss the active driver, but the current world owns the
+        // authoritative pointer the engine itself uses for demo scrubbing.
+        static constexpr uintptr_t kRVA_GWorld = 0x43B4DB8;
+        static constexpr uintptr_t kUWorld_DemoNetDriver_Off = 0xB8;
+        static constexpr uintptr_t kUWorld_LevelCollections_Off = 0x120;
+        static constexpr size_t    kFLevelCollection_Stride = 0x80;
+        static constexpr uintptr_t kFLevelCollection_DemoNetDriver_Off = 0x18;
+
+        inline GlobalPtr& replay_player_ptr() noexcept;
+
+        inline bool demo_snap_task_state_is_sane(
+            const DemoNetDriverSnap& s) noexcept
+        {
+            return s.raw_task_count_7b0 >= 0
+                && s.raw_task_count_7b0 < 128;
+        }
+
+        inline bool demo_snap_time_is_sane(
+            const DemoNetDriverSnap& s) noexcept
+        {
+            return s.raw_demo_total_time == s.raw_demo_total_time
+                && s.raw_demo_cur_time == s.raw_demo_cur_time
+                && s.raw_demo_total_time >= 0.0f
+                && s.raw_demo_total_time < 86400.0f
+                && s.raw_demo_cur_time >= 0.0f
+                && s.raw_demo_cur_time <= s.raw_demo_total_time + 5.0f;
+        }
+
+        inline bool read_demo_driver_raw(
+            void* driver_raw,
+            DemoNetDriverSnap& s) noexcept
+        {
+            if (!driver_raw) return false;
+            const uintptr_t a = reinterpret_cast<uintptr_t>(driver_raw);
+            DemoNetDriverSnap t{};
+            t.driver_ptr = a;
+            bool ok = true;
+            ok = ok && SafeReadFloat(reinterpret_cast<const void*>(a + 0x414),
+                                     &t.raw_demo_total_time);
+            ok = ok && SafeReadFloat(reinterpret_cast<const void*>(a + 0x418),
+                                     &t.raw_demo_cur_time);
+            ok = ok && SafeReadUInt8(reinterpret_cast<const void*>(a + 0x791),
+                                     &t.raw_busy_791);
+            ok = ok && SafeReadUInt8(reinterpret_cast<const void*>(a + 0x794),
+                                     &t.raw_loading_794);
+            ok = ok && SafeReadInt32(reinterpret_cast<const void*>(a + 0x7B0),
+                                     &t.raw_task_count_7b0);
+            void* current_task = nullptr;
+            if (SafeReadPtr(reinterpret_cast<const void*>(a + 0x7B8),
+                            &current_task))
+            {
+                t.raw_current_task_7b8 =
+                    reinterpret_cast<uintptr_t>(current_task);
+            }
+            // Do not reject the UWorld-owned driver just because its
+            // timing fields are temporarily odd.  Ghidra shows
+            // UDemoNetDriver::GotoTimeInSeconds only needs the driver
+            // pointer and the task queue/busy fields; the time fields are
+            // diagnostic/capture data.  Treat them as optional so a stale
+            // or uninitialised DemoTotalTime cannot turn every seek into a
+            // visual-only fallback.
+            if (!ok || !demo_snap_task_state_is_sane(t))
+                return false;
+            t.readable = true;
+            s = t;
+            return true;
+        }
+
+        inline bool read_level_collection_demo_driver(
+            void* world_raw,
+            DemoNetDriverSnap& s) noexcept
+        {
+            if (!world_raw) return false;
+            uint8_t* world = static_cast<uint8_t*>(world_raw);
+            void* collections = nullptr;
+            int32_t num = 0;
+            if (!SafeReadPtr(world + kUWorld_LevelCollections_Off,
+                             &collections) || !collections)
+                return false;
+            if (!SafeReadInt32(world + kUWorld_LevelCollections_Off + 0x8,
+                               &num))
+                return false;
+            if (num <= 0 || num > 16)
+                return false;
+
+            auto* base = static_cast<uint8_t*>(collections);
+            for (int32_t i = 0; i < num; ++i)
+            {
+                void* driver_raw = nullptr;
+                const size_t off = static_cast<size_t>(i)
+                    * kFLevelCollection_Stride
+                    + kFLevelCollection_DemoNetDriver_Off;
+                if (SafeReadPtr(base + off, &driver_raw)
+                    && read_demo_driver_raw(driver_raw, s))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        inline bool read_world_demo_driver(
+            void* world_raw,
+            DemoNetDriverSnap& s) noexcept
+        {
+            if (!world_raw) return false;
+            void* driver_raw = nullptr;
+            if (SafeReadPtr(static_cast<uint8_t*>(world_raw)
+                                + kUWorld_DemoNetDriver_Off,
+                            &driver_raw)
+                && read_demo_driver_raw(driver_raw, s))
+            {
+                return true;
+            }
+            return read_level_collection_demo_driver(world_raw, s);
+        }
+
+        inline std::atomic<uintptr_t>& cached_demo_driver_ptr() noexcept
+        {
+            static std::atomic<uintptr_t> s_cached{0};
+            return s_cached;
+        }
+
+        inline void clear_cached_demo_driver() noexcept
+        {
+            cached_demo_driver_ptr().store(0, std::memory_order_release);
+        }
+
+        inline bool safe_get_world(RC::Unreal::UObject* obj,
+                                   void** world_raw) noexcept
+        {
+            if (!obj || !world_raw) return false;
+            __try
+            {
+                *world_raw = obj->GetWorld();
+                return *world_raw != nullptr;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                *world_raw = nullptr;
+                return false;
+            }
+        }
+
+        inline RC::Unreal::UObject*
+        find_demo_net_driver_from_world() noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return nullptr;
+
+            void* world_raw = nullptr;
+            if (RC::Unreal::UObject* rp = replay_player_ptr().get(
+                    L"LuxBattleReplayPlayer"))
+            {
+                (void)safe_get_world(rp, &world_raw);
+            }
+            if (!world_raw)
+            {
+                if (!SafeReadPtr(
+                        reinterpret_cast<const void*>(base + kRVA_GWorld),
+                        &world_raw) || !world_raw)
+                    return nullptr;
+            }
+
+            DemoNetDriverSnap snap{};
+            if (!read_world_demo_driver(world_raw, snap))
+                return nullptr;
+
+            auto* driver =
+                reinterpret_cast<RC::Unreal::UObject*>(snap.driver_ptr);
+            if (!RC::Unreal::UObject::IsReal(driver)) return nullptr;
+            cached_demo_driver_ptr().store(
+                reinterpret_cast<uintptr_t>(driver),
+                std::memory_order_release);
+
+            static std::atomic<bool> s_logged{false};
+            if (!s_logged.exchange(true, std::memory_order_relaxed))
+            {
+                RC::Output::send<RC::LogLevel::Default>(
+                    STR("[ReplayScrub.diag] resolved demo driver via "
+                        "UWorld demo-driver fields -> 0x{:X} "
+                        "(cur={:.3f}s total={:.3f}s time_sane={})\n"),
+                    snap.driver_ptr, snap.raw_demo_cur_time,
+                    snap.raw_demo_total_time,
+                    demo_snap_time_is_sane(snap) ? 1 : 0);
+            }
+            return driver;
+        }
+
+        inline bool read_gworld_ptr(void** world_raw) noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            return SafeReadPtr(reinterpret_cast<const void*>(
+                                   base + kRVA_GWorld),
+                               world_raw)
+                && *world_raw;
+        }
+
+        inline void cache_and_log_fast_demo_driver(
+            const DemoNetDriverSnap& s,
+            const char* source) noexcept
+        {
+            cached_demo_driver_ptr().store(s.driver_ptr,
+                                           std::memory_order_release);
+            static std::atomic<bool> s_logged{false};
+            if (!s_logged.exchange(true, std::memory_order_relaxed))
+            {
+                RC::Output::send<RC::LogLevel::Default>(
+                    STR("[ReplayScrub.diag] fast demo driver resolved via "
+                        "{} -> 0x{:X} (cur={:.3f}s total={:.3f}s "
+                        "time_sane={})\n"),
+                    RC::to_generic_string(source),
+                    s.driver_ptr, s.raw_demo_cur_time,
+                    s.raw_demo_total_time,
+                    demo_snap_time_is_sane(s) ? 1 : 0);
+            }
+        }
+
+        // Hot capture path helper.  This intentionally avoids UE4SS object
+        // reflection, UObject::IsReal(), and FindFirstOf(): those walk large
+        // engine object tables and are far too expensive to call once per
+        // replay capture tick.  The pointer and field reads are SEH-guarded;
+        // an absent/torn-down demo driver simply returns readable=false.
+        inline DemoNetDriverSnap read_demo_net_driver_fast() noexcept
+        {
+            DemoNetDriverSnap s{};
+            if (!NativeBinding::imageBase()) return s;
+
+            if (RC::Unreal::UObject* rp = replay_player_ptr().get(
+                    L"LuxBattleReplayPlayer"))
+            {
+                void* world_raw = nullptr;
+                if (safe_get_world(rp, &world_raw))
+                {
+                    if (read_world_demo_driver(world_raw, s))
+                    {
+                        cache_and_log_fast_demo_driver(
+                            s, "ReplayPlayer->GetWorld");
+                        return s;
+                    }
+                }
+            }
+
+            void* world_raw = nullptr;
+            if (!read_gworld_ptr(&world_raw))
+                return s;
+
+            if (read_world_demo_driver(world_raw, s))
+            {
+                cache_and_log_fast_demo_driver(s, "GWorld");
+                return s;
+            }
+            return s;
+        }
 
         // GlobalPtr cache for the demo net driver.  get() throttles its
         // O(N) UObject::IsReal/FindFirstOf revalidation scan (see
@@ -310,9 +576,23 @@ namespace Horse
             };
             static std::atomic<bool> s_probed{false};
             static RC::Unreal::UObject* s_resolved{nullptr};
-            if (s_resolved && RC::Unreal::UObject::IsReal(s_resolved))
-                return s_resolved;
-            // Re-probe each call once cached is stale.
+            static std::chrono::steady_clock::time_point s_last_probe{};
+            if (s_resolved)
+            {
+                if (RC::Unreal::UObject::IsReal(s_resolved))
+                    return s_resolved;
+                s_resolved = nullptr;
+            }
+
+            const auto now = std::chrono::steady_clock::now();
+            if (s_probed.load(std::memory_order_relaxed) && !s_resolved
+                && (now - s_last_probe) < std::chrono::seconds(1))
+                return nullptr;
+            s_last_probe = now;
+
+            // Re-probe at most once per second after a miss.  Each
+            // FindFirstOf walks the full UObject array, so retrying all
+            // candidates every capture tick is a frame-time killer.
             for (const auto& c : candidates)
             {
                 RC::Unreal::UObject* obj =
@@ -344,9 +624,11 @@ namespace Horse
         inline DemoNetDriverSnap read_demo_net_driver() noexcept
         {
             DemoNetDriverSnap s{};
-            // Try the cached canonical name first, fall back to the
-            // multi-name probe.
-            RC::Unreal::UObject* d = demo_net_driver_ptr().get(L"DemoNetDriver");
+            // Prefer the live UWorld-owned pointer Ghidra identified;
+            // fall back to UObject-array class probes for older logs /
+            // unexpected world states.
+            RC::Unreal::UObject* d = find_demo_net_driver_from_world();
+            if (!d) d = demo_net_driver_ptr().get(L"DemoNetDriver");
             if (!d) d = find_demo_net_driver_probed();
             if (!d) return s;
             s.driver_ptr = reinterpret_cast<uintptr_t>(d);
@@ -361,6 +643,22 @@ namespace Horse
             s.bIsRecording    = o.getValueOr<bool>(L"bIsRecording", false);
             s.bIsSavingCheckpoint =
                 o.getValueOr<bool>(L"bSavingCheckpoint", false);
+            const uintptr_t a = reinterpret_cast<uintptr_t>(d);
+            SafeReadFloat(reinterpret_cast<const void*>(a + 0x414),
+                          &s.raw_demo_total_time);
+            SafeReadFloat(reinterpret_cast<const void*>(a + 0x418),
+                          &s.raw_demo_cur_time);
+            SafeReadUInt8(reinterpret_cast<const void*>(a + 0x791),
+                          &s.raw_busy_791);
+            SafeReadUInt8(reinterpret_cast<const void*>(a + 0x794),
+                          &s.raw_loading_794);
+            SafeReadInt32(reinterpret_cast<const void*>(a + 0x7B0),
+                          &s.raw_task_count_7b0);
+            void* current_task = nullptr;
+            if (SafeReadPtr(reinterpret_cast<const void*>(a + 0x7B8),
+                            &current_task))
+                s.raw_current_task_7b8 =
+                    reinterpret_cast<uintptr_t>(current_task);
             s.readable = true;
             return s;
         }
@@ -372,9 +670,8 @@ namespace Horse
             {
                 RC::Output::send<RC::LogLevel::Default>(
                     STR("[ReplayScrub.diag] {} UDemoNetDriver=null "
-                        "(FindFirstOf(L\"DemoNetDriver\") returned nothing - "
-                        "either replay viewing isn't active, or the driver "
-                        "uses a different UClass name in this SC6 build)\n"),
+                        "(UWorld->DemoNetDriver and object-array fallback "
+                        "both failed; replay viewing may not be active)\n"),
                     RC::to_generic_string(label));
                 return;
             }
@@ -382,11 +679,17 @@ namespace Horse
                 STR("[ReplayScrub.diag] {} UDemoNetDriver=0x{:X} "
                     "DemoCurrentTime={:.3f}s DemoTotalTime={:.3f}s "
                     "DemoFrameNum={} bIsPlaying={} bIsRecording={} "
-                    "bSavingCheckpoint={}\n"),
+                    "bSavingCheckpoint={} raw[+414 total={:.3f}s "
+                    "+418 cur={:.3f}s +791=0x{:02X} +794=0x{:02X} "
+                    "+7B0 taskCount={} +7B8 curTask=0x{:X}]\n"),
                 RC::to_generic_string(label), s.driver_ptr,
                 s.demo_cur_time, s.demo_total_time, s.demo_frame_num,
                 s.bIsPlaying ? 1 : 0, s.bIsRecording ? 1 : 0,
-                s.bIsSavingCheckpoint ? 1 : 0);
+                s.bIsSavingCheckpoint ? 1 : 0,
+                s.raw_demo_total_time, s.raw_demo_cur_time,
+                static_cast<unsigned>(s.raw_busy_791),
+                static_cast<unsigned>(s.raw_loading_794),
+                s.raw_task_count_7b0, s.raw_current_task_7b8);
         }
 
         // -------------------------------------------------------------
@@ -553,10 +856,9 @@ namespace Horse
             *reinterpret_cast<float*>  (a + kRP_CurrentTime_Off)  = new_time;
             *reinterpret_cast<int32_t*>(a + kRP_CurrentRound_Off) = target_round;
 
-            // Force bIsPlayingBack = 1 so the engine knows we're not
-            // at end-of-replay even if it had decided we were.  This
-            // re-enables the per-frame CopyNextFrameToManager dispatch
-            // that pushes recorded inputs into BM->ReplayCharaSnapshot.
+            // Force bIsPlayingBack = 1 so the actor does not advertise
+            // end-of-replay.  This is cursor/UI repair only; movement
+            // resume comes from UDemoNetDriver::GotoTimeInSeconds.
             *reinterpret_cast<uint8_t*>(a + kRP_IsPlayingBack_Off) = 1;
 
             RC::Output::send<RC::LogLevel::Default>(
@@ -609,8 +911,8 @@ namespace Horse
         // reflection - reads raw bytes at known offsets verified against
         // the Ghidra struct.  This gives empirical visibility into the
         // SimulationLoop catch-up driver state:
-        //   - bEnable: gates CopyNextFrameToManager
-        //   - dwPlaybackCursor: the per-frame snapshot dispatcher cursor
+        //   - bEnable: input-log playback enable
+        //   - dwPlaybackCursor: input-log playback cursor
         //   - nLastFrameID: round-id; mismatch with BM cache triggers reset
         //   - nMasterClock: catch-up loop "advance to" counter
         //   - nTotalRecordedFrames: bound for the cursor

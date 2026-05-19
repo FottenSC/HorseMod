@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "pack:cf": "powershell -NoProfile -ExecutionPolicy Bypass -File build-cloudflare.ps1",
     "preview": "vite preview",
     "export-data": "python ../export_webui_data.py",
     "test": "vitest run",

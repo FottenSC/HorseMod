@@ -1,0 +1,104 @@
+{
+  "address": "0x1403e8840",
+  "completeness": {
+    "all_deductions_unfixable": false,
+    "classification": "worker",
+    "code_line_count": 36,
+    "comment_density": 2.5,
+    "completeness_score": 78.59823593692302,
+    "decompilation_available": true,
+    "deduction_count": 4,
+    "disasm_comment_count": 7,
+    "documentation_profile": "worker",
+    "effective_score": 83.33020908870895,
+    "fixable_deductions": 16.669790911291052,
+    "function_name": "ALuxHUD_BeginPlay_LoadReplayAndArcadeWidgets",
+    "globals_unrenamed": 0,
+    "has_calling_convention": true,
+    "has_custom_name": true,
+    "has_plate_comment": true,
+    "has_prototype": true,
+    "has_renameable_variables": true,
+    "hungarian_violations": 0,
+    "inline_comment_count": 2,
+    "is_compiler_helper": false,
+    "is_stub": false,
+    "is_thunk": false,
+    "labels_unrenamed": 0,
+    "magic_numbers_undocumented": 9,
+    "max_achievable_score": 95.26802684821406,
+    "ordinals_undocumented": 0,
+    "phantom_count": 0,
+    "plate_issues": 1,
+    "return_type": "void",
+    "return_type_resolved": true,
+    "struct_accesses_unresolved": 0,
+    "structural_deductions": 4.7319731517859305,
+    "type_quality_issues": 1,
+    "undefined_count": 1
+  },
+  "created_at": "2026-05-17T23:07:24+00:00",
+  "decompile": "\r\n/* BeginPlay loader for replay, arcade, tutorial, SEM, and spectator HUD widget classes.\r\n   \r\n   Algorithm:\r\n   1. Resolve UUserWidget::StaticClass for each widget load.\r\n   2. Load seven hard-coded UMG widget blueprint classes by path.\r\n   3. Store class pointers into ALuxHUD_Partial fields at +0x390..+0x3C0.\r\n   4. Tail-call AActor::BeginPlay dispatch after class pointers are cached.\r\n   \r\n   Parameters:\r\n     pHud: ALuxHUD_Partial * - HUD actor with the widget-class cache modeled through +0x3C0.\r\n   \r\n   Returns:\r\n     void.\r\n   \r\n   Structure Layout:\r\n     Offset | Size | Field | Type | Description\r\n     +0x390 | 8 | pReplayIconWidgetClass | void* | /Game/HUD/Replay/Widgets/RP_ReplayIcon\r\n     +0x398 | 8 | pReplayDamageInfoWidgetClass | void* | /Game/HUD/Replay/Widgets/RP_DamageInfo\r\n     +0x3A0 | 8 | pArcadeInfoWidgetClass | void* | /Game/HUD/Arcade/Widgets/ArcadeInfo\r\n     +0x3A8 | 8 | pTutorialExplanationWidgetClass | void* |\r\n   /Game/HUD/Tutorial/Widgets/TutorialExplanation\r\n     +0x3B0 | 8 | pSemBattleInfoWidgetClass | void* | /Game/HUD/SEM/Widgets/SemBtlInfo\r\n     +0x3B8 | 8 | pSemDamageIconWidgetClass | void* | /Game/HUD/SEM/Widgets/SemDamageIcon\r\n     +0x3C0 | 8 | pSpectatorIconWidgetClass | void* | /Game/HUD/Network/Widgets/PmSpectaterIcon\r\n   \r\n   Special Cases:\r\n     - This is a UI class loader, not a replay simulation tick or input history producer.\r\n     - local_res8/local_10/local_18 are decompiler stack phantoms from call setup. */\r\n\r\nvoid ALuxHUD_BeginPlay_LoadReplayAndArcadeWidgets(ALuxHUD_Partial *pHud)\r\n\r\n{\r\n  void *pWidgetClass;\r\n  void *pvVar1;\r\n  \r\n                    /* Load and cache widget classes. */\r\n  pWidgetClass = (void *)UUserWidget__StaticClass();\r\n  pvVar1 = StaticLoadClass(pWidgetClass,(void *)0x0,\r\n                           L\"/Game/HUD/Replay/Widgets/RP_ReplayIcon.RP_ReplayIcon_C\",(void *)0x0);\r\n  pHud->pReplayIconWidgetClass = pvVar1;\r\n  pvVar1 = (void *)UUserWidget__StaticClass();\r\n  pvVar1 = StaticLoadClass(pvVar1,(void *)0x0,\r\n                           L\"/Game/HUD/Replay/Widgets/RP_DamageInfo.RP_DamageInfo_C\",(void *)0x0);\r\n  pHud->pReplayDamageInfoWidgetClass = pvVar1;\r\n  pvVar1 = (void *)UUserWidget__StaticClass();\r\n  pvVar1 = StaticLoadClass(pvVar1,(void *)0x0,L\"/Game/HUD/Arcade/Widgets/ArcadeInfo.ArcadeInfo_C\",\r\n                           (void *)0x0);\r\n  pHud->pArcadeInfoWidgetClass = pvVar1;\r\n  pvVar1 = (void *)UUserWidget__StaticClass();\r\n  pvVar1 = StaticLoadClass(pvVar1,(void *)0x0,\r\n                           L\"/Game/HUD/Tutorial/Widgets/TutorialExplanation.TutorialExplanation_C\",\r\n                           (void *)0x0);\r\n  pHud->pTutorialExplanationWidgetClass = pvVar1;\r\n  pvVar1 = (void *)UUserWidget__StaticClass();\r\n  pvVar1 = StaticLoadClass(pvVar1,(void *)0x0,L\"/Game/HUD/SEM/Widgets/SemBtlInfo.SemBtlInfo_C\",\r\n                           (void *)0x0);\r\n  pHud->pSemBattleInfoWidgetClass = pvVar1;\r\n  pvVar1 = (void *)UUserWidget__StaticClass();\r\n  pvVar1 = StaticLoadClass(pvVar1,(void *)0x0,L\"/Game/HUD/SEM/Widgets/SemDamageIcon.SemDamageIcon_C\"\r\n                           ,(void *)0x0);\r\n  pHud->pSemDamageIconWidgetClass = pvVar1;\r\n  pvVar1 = (void *)UUserWidget__StaticClass();\r\n  pvVar1 = StaticLoadClass(pvVar1,(void *)0x0,\r\n                           L\"/Game/HUD/Network/Widgets/PmSpectaterIcon.PmSpectaterIcon_C\",\r\n                           (void *)0x0);\r\n                    /* Dispatch superclass BeginPlay. */\r\n  pHud->pSpectatorIconWidgetClass = pvVar1;\r\n  AActor_DispatchBeginPlay(pHud);\r\n  return;\r\n}\r\n\r\n",
+  "disassembly": "1403e8840: MOV qword ptr [RSP + 0x8],RBX \n1403e8845: PUSH RDI \n1403e8846: SUB RSP,0x30 \n1403e884a: MOV RBX,RCX \n1403e884d: CALL 0x14187b080 \n1403e8852: XOR EDI,EDI \n1403e8854: LEA R8,[0x1432791a0] \n1403e885b: MOV qword ptr [RSP + 0x28],RDI \n1403e8860: XOR R9D,R9D \n1403e8863: XOR EDX,EDX \n1403e8865: MOV dword ptr [RSP + 0x20],EDI \n1403e8869: MOV RCX,RAX \n1403e886c: CALL 0x140f8ee30 \n1403e8871: MOV qword ptr [RBX + 0x390],RAX ; +0x390 replay icon widget class\n1403e8878: CALL 0x14187b080 \n1403e887d: XOR R9D,R9D \n1403e8880: MOV qword ptr [RSP + 0x28],RDI \n1403e8885: LEA R8,[0x143279210] \n1403e888c: MOV dword ptr [RSP + 0x20],EDI \n1403e8890: XOR EDX,EDX \n1403e8892: MOV RCX,RAX \n1403e8895: CALL 0x140f8ee30 \n1403e889a: MOV qword ptr [RBX + 0x398],RAX ; +0x398 replay damage widget class\n1403e88a1: CALL 0x14187b080 \n1403e88a6: XOR R9D,R9D \n1403e88a9: MOV qword ptr [RSP + 0x28],RDI \n1403e88ae: LEA R8,[0x1432792b0] \n1403e88b5: MOV dword ptr [RSP + 0x20],EDI \n1403e88b9: XOR EDX,EDX \n1403e88bb: MOV RCX,RAX \n1403e88be: CALL 0x140f8ee30 \n1403e88c3: MOV qword ptr [RBX + 0x3a0],RAX ; +0x3A0 arcade info widget class\n1403e88ca: CALL 0x14187b080 \n1403e88cf: XOR R9D,R9D \n1403e88d2: MOV qword ptr [RSP + 0x28],RDI \n1403e88d7: LEA R8,[0x143279330] \n1403e88de: MOV dword ptr [RSP + 0x20],EDI \n1403e88e2: XOR EDX,EDX \n1403e88e4: MOV RCX,RAX \n1403e88e7: CALL 0x140f8ee30 \n1403e88ec: MOV qword ptr [RBX + 0x3a8],RAX ; +0x3A8 tutorial widget class\n1403e88f3: CALL 0x14187b080 \n1403e88f8: XOR R9D,R9D \n1403e88fb: MOV qword ptr [RSP + 0x28],RDI \n1403e8900: LEA R8,[0x143279420] \n1403e8907: MOV dword ptr [RSP + 0x20],EDI \n1403e890b: XOR EDX,EDX \n1403e890d: MOV RCX,RAX \n1403e8910: CALL 0x140f8ee30 \n1403e8915: MOV qword ptr [RBX + 0x3b0],RAX ; +0x3B0 SEM battle widget class\n1403e891c: CALL 0x14187b080 \n1403e8921: XOR R9D,R9D \n1403e8924: MOV qword ptr [RSP + 0x28],RDI \n1403e8929: LEA R8,[0x143279480] \n1403e8930: MOV dword ptr [RSP + 0x20],EDI \n1403e8934: XOR EDX,EDX \n1403e8936: MOV RCX,RAX \n1403e8939: CALL 0x140f8ee30 \n1403e893e: MOV qword ptr [RBX + 0x3b8],RAX ; +0x3B8 SEM damage widget class\n1403e8945: CALL 0x14187b080 \n1403e894a: XOR R9D,R9D \n1403e894d: MOV qword ptr [RSP + 0x28],RDI \n1403e8952: LEA R8,[0x143279500] \n1403e8959: MOV dword ptr [RSP + 0x20],EDI \n1403e895d: XOR EDX,EDX \n1403e895f: MOV RCX,RAX \n1403e8962: CALL 0x140f8ee30 \n1403e8967: MOV RCX,RBX \n1403e896a: MOV qword ptr [RBX + 0x3c0],RAX ; +0x3C0 spectator widget class\n1403e8971: MOV RBX,qword ptr [RSP + 0x40] \n1403e8976: ADD RSP,0x30 \n1403e897a: POP RDI \n1403e897b: JMP 0x1403b38d0 \n",
+  "function_info": "Function: ALuxHUD_BeginPlay_LoadReplayAndArcadeWidgets at 1403e8840\nSignature: void __fastcall ALuxHUD_BeginPlay_LoadReplayAndArcadeWidgets(ALuxHUD_Partial * pHud)\nEntry: 1403e8840\nBody: 1403e8840 - 1403e897f",
+  "plate": {
+    "address": "1403e8840",
+    "comment": "BeginPlay loader for replay, arcade, tutorial, SEM, and spectator HUD widget classes.\n\nAlgorithm:\n1. Resolve UUserWidget::StaticClass for each widget load.\n2. Load seven hard-coded UMG widget blueprint classes by path.\n3. Store class pointers into ALuxHUD_Partial fields at +0x390..+0x3C0.\n4. Tail-call AActor::BeginPlay dispatch after class pointers are cached.\n\nParameters:\n  pHud: ALuxHUD_Partial * - HUD actor with the widget-class cache modeled through +0x3C0.\n\nReturns:\n  void.\n\nStructure Layout:\n  Offset | Size | Field | Type | Description\n  +0x390 | 8 | pReplayIconWidgetClass | void* | /Game/HUD/Replay/Widgets/RP_ReplayIcon\n  +0x398 | 8 | pReplayDamageInfoWidgetClass | void* | /Game/HUD/Replay/Widgets/RP_DamageInfo\n  +0x3A0 | 8 | pArcadeInfoWidgetClass | void* | /Game/HUD/Arcade/Widgets/ArcadeInfo\n  +0x3A8 | 8 | pTutorialExplanationWidgetClass | void* | /Game/HUD/Tutorial/Widgets/TutorialExplanation\n  +0x3B0 | 8 | pSemBattleInfoWidgetClass | void* | /Game/HUD/SEM/Widgets/SemBtlInfo\n  +0x3B8 | 8 | pSemDamageIconWidgetClass | void* | /Game/HUD/SEM/Widgets/SemDamageIcon\n  +0x3C0 | 8 | pSpectatorIconWidgetClass | void* | /Game/HUD/Network/Widgets/PmSpectaterIcon\n\nSpecial Cases:\n  - This is a UI class loader, not a replay simulation tick or input history producer.\n  - local_res8/local_10/local_18 are decompiler stack phantoms from call setup.",
+    "function_name": "ALuxHUD_BeginPlay_LoadReplayAndArcadeWidgets"
+  },
+  "program": "SoulcaliburVI.exe",
+  "variables": {
+    "function_address": "1403e8840",
+    "function_name": "ALuxHUD_BeginPlay_LoadReplayAndArcadeWidgets",
+    "locals": [
+      {
+        "is_phantom": false,
+        "name": "pWidgetClass",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "RAX:8",
+        "suggested_prefix": "p",
+        "type": "void *"
+      },
+      {
+        "is_phantom": true,
+        "name": "local_res8",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[0x8]:8",
+        "type": "undefined8"
+      },
+      {
+        "is_phantom": true,
+        "name": "local_10",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[-0x10]:8",
+        "type": "undefined8"
+      },
+      {
+        "is_phantom": true,
+        "name": "local_18",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[-0x18]:4",
+        "type": "undefined4"
+      }
+    ],
+    "parameters": [
+      {
+        "name": "pHud",
+        "needs_rename": false,
+        "needs_type": false,
+        "ordinal": 0,
+        "storage": "RCX:8",
+        "suggested_prefix": "p",
+        "type": "ALuxHUD_Partial *"
+      }
+    ],
+    "total_locals": 4
+  },
+  "xrefs": {
+    "error": "Error getting function references: Either function_name or function_address must be provided"
+  }
+}

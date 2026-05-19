@@ -481,10 +481,21 @@ class LuxBattleAttackCell:
     nI16ReachExtraGate: int = 0         # +0x66 — extra-reach gate
     wU16RuntimePropagateField: int = 0  # +0x6A
 
+    MAX_REASONABLE_MASTER_WINDOW_FRAME = 499
+
     @property
     def is_cleared_sentinel(self) -> bool:
         """True if the cell is a sentinel/cleared slot (HitboxGroup == 0xFFFF)."""
         return self.wU16HitboxGroupBitfield == 0xFFFF
+
+    @property
+    def has_valid_active_window(self) -> bool:
+        """True when the master window bounds look like a usable attack window."""
+        return (
+            0 <= self.wI16MasterWindowStart <= self.MAX_REASONABLE_MASTER_WINDOW_FRAME
+            and 0 <= self.wI16MasterWindowEnd <= self.MAX_REASONABLE_MASTER_WINDOW_FRAME
+            and self.wI16MasterWindowEnd >= self.wI16MasterWindowStart
+        )
 
     @property
     def cell_role(self) -> str:

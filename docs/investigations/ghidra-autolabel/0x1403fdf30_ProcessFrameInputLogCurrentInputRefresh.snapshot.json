@@ -1,0 +1,93 @@
+{
+  "address": "0x1403fdf30",
+  "completeness": {
+    "all_deductions_unfixable": false,
+    "classification": "worker",
+    "code_line_count": 22,
+    "comment_density": 4.09,
+    "completeness_score": 80.24526914647151,
+    "decompilation_available": true,
+    "deduction_count": 3,
+    "disasm_comment_count": 4,
+    "documentation_profile": "worker",
+    "effective_score": 89.70921545004337,
+    "fixable_deductions": 10.290784549956632,
+    "function_name": "ProcessFrameInputLogCurrentInputRefresh",
+    "globals_unrenamed": 0,
+    "has_calling_convention": true,
+    "has_custom_name": true,
+    "has_plate_comment": true,
+    "has_prototype": true,
+    "has_renameable_variables": true,
+    "hungarian_violations": 0,
+    "inline_comment_count": 5,
+    "is_compiler_helper": false,
+    "is_stub": false,
+    "is_thunk": false,
+    "labels_unrenamed": 0,
+    "magic_numbers_undocumented": 2,
+    "max_achievable_score": 90.53605369642814,
+    "ordinals_undocumented": 0,
+    "phantom_count": 0,
+    "plate_issues": 1,
+    "return_type": "void",
+    "return_type_resolved": true,
+    "struct_accesses_unresolved": 0,
+    "structural_deductions": 9.463946303571861,
+    "type_quality_issues": 0,
+    "undefined_count": 3
+  },
+  "created_at": "2026-05-18T00:09:57+00:00",
+  "decompile": "\r\n/* Refreshes ALuxBattleFrameInputLog current-input mirror from the upstream BM+0x450 input\r\n   processor.\r\n   \r\n   Algorithm:\r\n   1. Clear pInputLog->pCurrentInputBySlot[0..1] at +0x3B8.\r\n   2. Iterate slot 0..nActiveSlotCount-1.\r\n   3. If bit slot is set in dwPlaybackCursor_at0x39C, fetch the current input for that slot.\r\n   4. Store the fetched u32 input into pCurrentInputBySlot[slot].\r\n   \r\n   Parameters:\r\n     pInputLog: ALuxBattleFrameInputLog * - input-log actor/cache object for replay input flow.\r\n   \r\n   Returns:\r\n     void.\r\n   \r\n   Structure Layout:\r\n     Offset | Size | Field | Type | Description\r\n     +0x398 | 4 | nActiveSlotCount | int | Number of slots to scan.\r\n     +0x39C | 4 | dwPlaybackCursor_at0x39C | uint | Used here as an active-slot bitmask; do not\r\n   assume cursor semantics in every function.\r\n     +0x3B8 | 8 | pCurrentInputBySlot | uint[2] | Per-slot current input mirror consumed by cache\r\n   update.\r\n   \r\n   Special Cases:\r\n     - The upstream source is resolved by GetCurrentInputForFrameInputLogSlot and ultimately reads\r\n   BM+0x450 per-slot records.\r\n     - This function mirrors current input state; it does not advance the recorded-frame cursor\r\n   itself. */\r\n\r\nvoid ProcessFrameInputLogCurrentInputRefresh(ALuxBattleFrameInputLog *pInputLog)\r\n\r\n{\r\n  uint uVar1;\r\n  uint uVar2;\r\n  int nSlot;\r\n  uint *puVar3;\r\n  \r\n  nSlot = 0;\r\n  puVar3 = pInputLog->pCurrentInputBySlot;\r\n                    /* Clear two-slot current input mirror. */\r\n                    /* Clear two-slot current input mirror. */\r\n  puVar3[0] = 0;\r\n  puVar3[1] = 0;\r\n  if (0 < pInputLog->nActiveSlotCount) {\r\n                    /* Only refresh slots enabled by mask. */\r\n    uVar2 = 1;\r\n    do {\r\n                    /* Only refresh slots enabled by mask. */\r\n      if ((pInputLog->dwPlaybackCursor_at0x39C & uVar2) != 0) {\r\n                    /* Fetch upstream current input. */\r\n        uVar1 = GetCurrentInputForFrameInputLogSlot(pInputLog,nSlot);\r\n        *puVar3 = uVar1;\r\n      }\r\n      nSlot = nSlot + 1;\r\n      uVar2 = uVar2 << 1 | (uint)((int)uVar2 < 0);\r\n      puVar3 = puVar3 + 1;\r\n    } while (nSlot < pInputLog->nActiveSlotCount);\r\n  }\r\n  return;\r\n}\r\n\r\n",
+  "disassembly": "1403fdf30: MOV qword ptr [RSP + 0x10],RSI \n1403fdf35: MOV qword ptr [RSP + 0x18],RDI \n1403fdf3a: PUSH R14 \n1403fdf3c: SUB RSP,0x20 \n1403fdf40: XOR EDI,EDI \n1403fdf42: LEA R14,[RCX + 0x3b8] ; +0x3B8 current input[2]\n1403fdf49: MOV qword ptr [R14],RDI \n1403fdf4c: MOV RSI,RCX \n1403fdf4f: CMP dword ptr [RCX + 0x398],EDI ; +0x398 active slot count\n1403fdf55: JLE 0x1403fdf8e \n1403fdf57: MOV qword ptr [RSP + 0x30],RBX \n1403fdf5c: MOV EBX,0x1 \n1403fdf61: ROL EBX,0x0 \n1403fdf64: TEST dword ptr [RSI + 0x39c],EBX ; +0x39C active-slot mask here\n1403fdf6a: JZ 0x1403fdf79 \n1403fdf6c: MOV EDX,EDI \n1403fdf6e: MOV RCX,RSI \n1403fdf71: CALL 0x1403f0680 ; GetCurrentInputForFrameInputLogSlot\n1403fdf76: MOV dword ptr [R14],EAX \n1403fdf79: INC EDI \n1403fdf7b: ROL EBX,0x1 \n1403fdf7d: ADD R14,0x4 \n1403fdf81: CMP EDI,dword ptr [RSI + 0x398] \n1403fdf87: JL 0x1403fdf64 \n1403fdf89: MOV RBX,qword ptr [RSP + 0x30] \n1403fdf8e: MOV RSI,qword ptr [RSP + 0x38] \n1403fdf93: MOV RDI,qword ptr [RSP + 0x40] \n1403fdf98: ADD RSP,0x20 \n1403fdf9c: POP R14 \n1403fdf9e: RET \n",
+  "function_info": "Function: ProcessFrameInputLogCurrentInputRefresh at 1403fdf30\nSignature: void __fastcall ProcessFrameInputLogCurrentInputRefresh(ALuxBattleFrameInputLog * pInputLog)\nEntry: 1403fdf30\nBody: 1403fdf30 - 1403fdf9e",
+  "plate": {
+    "address": "1403fdf30",
+    "comment": "Refreshes ALuxBattleFrameInputLog current-input mirror from the upstream BM+0x450 input processor.\n\nAlgorithm:\n1. Clear pInputLog->pCurrentInputBySlot[0..1] at +0x3B8.\n2. Iterate slot 0..nActiveSlotCount-1.\n3. If bit slot is set in dwPlaybackCursor_at0x39C, fetch the current input for that slot.\n4. Store the fetched u32 input into pCurrentInputBySlot[slot].\n\nParameters:\n  pInputLog: ALuxBattleFrameInputLog * - input-log actor/cache object for replay input flow.\n\nReturns:\n  void.\n\nStructure Layout:\n  Offset | Size | Field | Type | Description\n  +0x398 | 4 | nActiveSlotCount | int | Number of slots to scan.\n  +0x39C | 4 | dwPlaybackCursor_at0x39C | uint | Used here as an active-slot bitmask; do not assume cursor semantics in every function.\n  +0x3B8 | 8 | pCurrentInputBySlot | uint[2] | Per-slot current input mirror consumed by cache update.\n\nSpecial Cases:\n  - The upstream source is resolved by GetCurrentInputForFrameInputLogSlot and ultimately reads BM+0x450 per-slot records.\n  - This function mirrors current input state; it does not advance the recorded-frame cursor itself.",
+    "function_name": "ProcessFrameInputLogCurrentInputRefresh"
+  },
+  "program": "SoulcaliburVI.exe",
+  "variables": {
+    "function_address": "1403fdf30",
+    "function_name": "ProcessFrameInputLogCurrentInputRefresh",
+    "locals": [
+      {
+        "is_phantom": true,
+        "name": "local_res18",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[0x18]:8",
+        "type": "undefined8"
+      },
+      {
+        "is_phantom": true,
+        "name": "local_res10",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[0x10]:8",
+        "type": "undefined8"
+      },
+      {
+        "is_phantom": true,
+        "name": "local_res8",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[0x8]:8",
+        "type": "undefined8"
+      }
+    ],
+    "parameters": [
+      {
+        "name": "pInputLog",
+        "needs_rename": false,
+        "needs_type": false,
+        "ordinal": 0,
+        "storage": "RCX:8",
+        "suggested_prefix": "p",
+        "type": "ALuxBattleFrameInputLog *"
+      }
+    ],
+    "total_locals": 3
+  },
+  "xrefs": "From 1448b373c [DATA]\nFrom 143eb36e0 [DATA]\nFrom 143eb36f0 [DATA]\nFrom 143283550 [DATA]\nFrom 143283bb0 [DATA]"
+}

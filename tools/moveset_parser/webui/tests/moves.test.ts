@@ -252,10 +252,30 @@ describe("buildStanceGraph", () => {
     expect(g.transitions.find((t) => t.moveId === 2)?.from).toBe("facing away");
   });
 
-  it("skips a move that 'enters' the stance it is already in", () => {
+  it("keeps an X->X self-loop when a move re-enters its own stance", () => {
     const moves = [
       makeMovelistMove({ moveId: 1, order: 0, name: "A ~ Mist", input: "B", condition: "" }),
       makeMovelistMove({ moveId: 2, order: 1, name: "B ~ Mist", input: "K", condition: "During Mist" }),
+    ];
+    const g = buildStanceGraph(moves);
+    expect(g.transitions.find((t) => t.moveId === 2))
+      .toMatchObject({ from: "Mist", to: "Mist" });
+  });
+
+  it("routes a no-shift stance move back to Neutral", () => {
+    const moves = [
+      makeMovelistMove({ moveId: 1, order: 0, name: "A ~ Mist", input: "B", condition: "" }),
+      makeMovelistMove({ moveId: 2, order: 1, name: "Mist Slash", input: "B", condition: "During Mist" }),
+    ];
+    const g = buildStanceGraph(moves);
+    expect(g.transitions.find((t) => t.moveId === 2))
+      .toMatchObject({ from: "Mist", to: "Neutral" });
+  });
+
+  it("does not make a Neutral->Neutral self-loop from a plain move", () => {
+    const moves = [
+      makeMovelistMove({ moveId: 1, order: 0, name: "A ~ Mist", input: "B", condition: "" }),
+      makeMovelistMove({ moveId: 2, order: 1, name: "Heaven Cannon", input: "3B", condition: "" }),
     ];
     const g = buildStanceGraph(moves);
     expect(g.transitions.map((t) => t.moveId)).toEqual([1]);

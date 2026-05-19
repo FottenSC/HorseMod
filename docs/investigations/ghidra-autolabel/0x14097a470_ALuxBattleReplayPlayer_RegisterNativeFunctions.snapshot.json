@@ -1,0 +1,67 @@
+{
+  "address": "0x14097a470",
+  "completeness": {
+    "all_deductions_unfixable": false,
+    "classification": "worker",
+    "code_line_count": 6,
+    "comment_density": 6.67,
+    "completeness_score": 84.5,
+    "decompilation_available": true,
+    "deduction_count": 2,
+    "disasm_comment_count": 2,
+    "documentation_profile": "worker",
+    "effective_score": 92.0,
+    "fixable_deductions": 8.0,
+    "function_name": "ALuxBattleReplayPlayer_RegisterNativeFunctions",
+    "globals_unrenamed": 0,
+    "has_calling_convention": true,
+    "has_custom_name": true,
+    "has_plate_comment": true,
+    "has_prototype": true,
+    "has_renameable_variables": true,
+    "hungarian_violations": 0,
+    "inline_comment_count": 2,
+    "is_compiler_helper": false,
+    "is_stub": false,
+    "is_thunk": false,
+    "labels_unrenamed": 0,
+    "magic_numbers_undocumented": 2,
+    "max_achievable_score": 92.5,
+    "ordinals_undocumented": 0,
+    "phantom_count": 0,
+    "plate_issues": 1,
+    "return_type": "void",
+    "return_type_resolved": true,
+    "struct_accesses_unresolved": 0,
+    "structural_deductions": 7.499999999999999,
+    "type_quality_issues": 0,
+    "undefined_count": 2
+  },
+  "created_at": "2026-05-18T00:07:46+00:00",
+  "decompile": "\r\n/* Registers ALuxBattleReplayPlayer native Blueprint-callable functions.\r\n   \r\n   Algorithm:\r\n   1. Resolve ALuxBattleReplayPlayer UClass via ALuxBattleReplayPlayer_GetStaticClass.\r\n   2. Register the IsExistNextRound native function table entry with UClass_AddNativeFunction.\r\n   \r\n   Parameters:\r\n     None.\r\n   \r\n   Returns:\r\n     void.\r\n   \r\n   Special Cases:\r\n     - The table at 0x14339A7E8 binds the IsExistNextRound FName/string to\r\n   CheckReplayPlayerHasNextRoundExec @ 0x1409A5490.\r\n     - This is metadata registration only; it does not execute replay playback logic. */\r\n\r\nvoid ALuxBattleReplayPlayer_RegisterNativeFunctions(void)\r\n\r\n{\r\n  undefined8 uVar1;\r\n  \r\n                    /* Get replay-player UClass. */\r\n  uVar1 = ALuxBattleReplayPlayer_GetStaticClass();\r\n                    /* Register IsExistNextRound exec. */\r\n  UClass_AddNativeFunction(uVar1,&PTR_s_IsExistNextRound_14339a7e8,1);\r\n  return;\r\n}\r\n\r\n",
+  "disassembly": "14097a470: SUB RSP,0x38 \n14097a474: CALL 0x1409740a0 \n14097a479: MOV qword ptr [RSP + 0x20],RAX \n14097a47e: MOV R8D,0x1 \n14097a484: LEA RDX,[0x14339a7e8] ; native function table entry\n14097a48b: MOV RCX,qword ptr [RSP + 0x20] \n14097a490: CALL 0x140e79090 ; UClass_AddNativeFunction\n14097a495: ADD RSP,0x38 \n14097a499: RET \n",
+  "function_info": "Function: ALuxBattleReplayPlayer_RegisterNativeFunctions at 14097a470\nSignature: void __fastcall ALuxBattleReplayPlayer_RegisterNativeFunctions(void)\nEntry: 14097a470\nBody: 14097a470 - 14097a499",
+  "plate": {
+    "address": "14097a470",
+    "comment": "Registers ALuxBattleReplayPlayer native Blueprint-callable functions.\n\nAlgorithm:\n1. Resolve ALuxBattleReplayPlayer UClass via ALuxBattleReplayPlayer_GetStaticClass.\n2. Register the IsExistNextRound native function table entry with UClass_AddNativeFunction.\n\nParameters:\n  None.\n\nReturns:\n  void.\n\nSpecial Cases:\n  - The table at 0x14339A7E8 binds the IsExistNextRound FName/string to CheckReplayPlayerHasNextRoundExec @ 0x1409A5490.\n  - This is metadata registration only; it does not execute replay playback logic.",
+    "function_name": "ALuxBattleReplayPlayer_RegisterNativeFunctions"
+  },
+  "program": "SoulcaliburVI.exe",
+  "variables": {
+    "function_address": "14097a470",
+    "function_name": "ALuxBattleReplayPlayer_RegisterNativeFunctions",
+    "locals": [
+      {
+        "is_phantom": true,
+        "name": "local_18",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[-0x18]:8",
+        "type": "undefined8"
+      }
+    ],
+    "parameters": [],
+    "total_locals": 1
+  },
+  "xrefs": "From 1448e8ec0 [DATA]\nFrom 1409787c6 in ALuxBattleReplayPlayer_GetStaticClass [DATA]"
+}

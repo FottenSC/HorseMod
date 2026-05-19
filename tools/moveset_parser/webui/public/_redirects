@@ -1,0 +1,12 @@
+# SPA deep-link fallback for Cloudflare Pages.
+# Every deep route in this TanStack Router app lives under /c/ (e.g.
+# /c/024/moves/301). Rewrite those to the site root so a direct load /
+# refresh / shared link serves index.html and the client router takes
+# over. Real files (/assets/*, /data/*) are served before _redirects.
+#
+# The destination is "/" (NOT "/index.html"): Cloudflare's _redirects
+# validator (error 10021) rejects any rule whose destination is a path
+# it would clean-URL-strip — "/index.html" strips ".html" and "/index",
+# which trips the loop check. "/" is already canonical (nothing to
+# strip), so this rule passes. Add a line here for any non-/c/ route.
+/c/*  /  200

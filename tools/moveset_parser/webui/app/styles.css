@@ -1,4 +1,4 @@
-/* --- Reset / base ---------------------------------------------- */
+﻿/* --- Reset / base ---------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body {
@@ -141,14 +141,14 @@ h3 { font-size: 13px; font-weight: 600; margin: 0.8em 0 0.3em; color: #98a0a8;
 .badge-nondamaging { background: #2a2a3a; color: #8aa6c9; }
 .badge-other       { background: #1f1f1f; color: #777; }
 .badge-movement    { background: #1c2438; color: #8aabd6; }
-/* Throw-input hint pill — small companion to a class badge for moves
+/* Throw-input hint pill â€” small companion to a class badge for moves
    with +G input. The full-size `.badge-throw` (defined above) handles
    the case where the move has no resolved cell at all. The hint signals
    "this is a grab/throw input; shown stats may be the strike-phase
    whiff, not the throw cinematic damage". */
 .badge-throw-hint  { background: #2a1a3a; color: #c39ad9; font-size: 10px;
                      padding: 1px 5px; min-width: 0; }
-/* EffectTag pills — authoritative move-property icons from
+/* EffectTag pills â€” authoritative move-property icons from
    DA_MoveListTable. Small, colour-coded by property family. */
 .badge-eff      { font-size: 10px; padding: 1px 5px; min-width: 0;
                   margin-left: 3px; font-weight: 600; }
@@ -161,7 +161,7 @@ h3 { font-size: 13px; font-weight: 600; margin: 0.8em 0 0.3em; color: #98a0a8;
 .badge-eff-sc   { background: #103a2a; color: #4ec990; }  /* Soul Charge */
 .badge-eff-ss   { background: #1c2438; color: #8aabd6; }  /* Stance Shift */
 .badge-eff-sg   { background: #2a2a18; color: #c9c44e; }  /* Soul Gauge req */
-/* "+N" marker on multi-input rows — tells the user this entry has
+/* "+N" marker on multi-input rows â€” tells the user this entry has
    N candidate alternate cells reached via dispatcher siblings. */
 .variant-mark {
   margin-left: 6px;
@@ -183,6 +183,12 @@ h3 { font-size: 13px; font-weight: 600; margin: 0.8em 0 0.3em; color: #98a0a8;
                  padding: 1px 5px; min-width: 0; }
 .badge-gbypass { background: #2a3a1a; color: #b4d472; font-size: 10px;
                  padding: 1px 5px; min-width: 0; }
+/* Frame-advantage colouring usable anywhere (move-list cells + stat
+   blocks). `.fa-special` is for non-numeric state tokens â€” KND
+   (knockdown) / LNC (launch) / STN (stun) â€” which favour the attacker. */
+.neg { color: #d97777; }
+.pos { color: #77c977; }
+.fa-special { color: #c9a44e; font-weight: 600; }
 
 /* --- Filter chips ----------------------------------------------- */
 .filters {
@@ -210,7 +216,7 @@ h3 { font-size: 13px; font-weight: 600; margin: 0.8em 0 0.3em; color: #98a0a8;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
 }
-/* Column widths — give the busy columns more room so badges don't
+/* Column widths â€” give the busy columns more room so badges don't
    wrap and condition phrases stay readable. */
 .moves-table td.col-from  { color: #98a0a8; font-size: 12px; white-space: nowrap;
                             max-width: 200px; }
@@ -224,7 +230,7 @@ h3 { font-size: 13px; font-weight: 600; margin: 0.8em 0 0.3em; color: #98a0a8;
                             margin-top: 2px; }
 /* Lethal Hit trigger condition under the move name. */
 .moves-table .move-lh     { color: #c79a4e; font-size: 11px; margin-top: 2px; }
-/* Zebra stripes — even rows get a subtle tint to help row scanning. */
+/* Zebra stripes â€” even rows get a subtle tint to help row scanning. */
 .moves-table tbody tr:nth-child(even) td { background: #15171c; }
 .moves-table tbody tr:nth-child(even):hover td,
 .moves-table tbody tr:nth-child(odd):hover td { background: #1c2028; }
@@ -244,8 +250,8 @@ h3 { font-size: 13px; font-weight: 600; margin: 0.8em 0 0.3em; color: #98a0a8;
   top: 0;
 }
 .moves-table th:hover { color: #e6e8eb; }
-.moves-table th.sort-asc::after { content: " ▲"; color: #4f93ff; }
-.moves-table th.sort-desc::after { content: " ▼"; color: #4f93ff; }
+.moves-table th.sort-asc::after { content: " â–²"; color: #4f93ff; }
+.moves-table th.sort-desc::after { content: " â–¼"; color: #4f93ff; }
 .moves-table td {
   padding: 6px 10px;
   border-bottom: 1px solid #1d2028;
@@ -371,7 +377,7 @@ h3 { font-size: 13px; font-weight: 600; margin: 0.8em 0 0.3em; color: #98a0a8;
 .kv-table td.num { text-align: right; }
 .kv-table td.mono { font-family: ui-monospace, monospace; }
 
-/* "Variations" section on the move detail page — string-extension
+/* "Variations" section on the move detail page â€” string-extension
    siblings of a move (e.g. 214A vs 214A.A.A.A.A.A). */
 .variation-card { margin: 0 0 1.5em; }
 .variation-list {
@@ -388,7 +394,7 @@ a.variation-row:hover { border-color: #3a6ea5; background: #232834; }
 .variation-input { color: #d9c477; font-size: 13px; min-width: 6em; }
 .variation-name { color: #c8ccd1; font-size: 13px; flex: 1 1 8em; }
 
-/* "Stance graph" view — the named-stance transition table below the
+/* "Stance graph" view â€” the named-stance transition table below the
    ReactFlow graph. Each row: in stance X, press Y, shift to stance Z. */
 .stance-tx-table {
   width: 100%; border-collapse: collapse; margin: 14px 0 1.5em;
@@ -407,7 +413,7 @@ a.variation-row:hover { border-color: #3a6ea5; background: #232834; }
 .stance-tx-table .tx-input { color: #d9c477; }
 .stance-tx-table .tx-to { color: #99e3a3; }
 
-/* Stance-graph canvas — holds whichever of the 8 layouts is active. */
+/* Stance-graph canvas â€” holds whichever of the 8 layouts is active. */
 .stance-canvas {
   width: 100%; height: 62vh; margin-top: 4px;
   background: #14171d; border: 1px solid #262a33; border-radius: 8px;
@@ -431,7 +437,7 @@ a.variation-row:hover { border-color: #3a6ea5; background: #232834; }
 .stance-matrix td.mx-cell { cursor: pointer; color: #e6e8eb; font-weight: 600; }
 .stance-matrix td.mx-cell:hover { outline: 2px solid #6fa8e0; outline-offset: -2px; }
 
-/* ZoomableSvg — pan / wheel-zoom wrapper + zoom controls for the
+/* ZoomableSvg â€” pan / wheel-zoom wrapper + zoom controls for the
    stance-graph layouts (restores the ReactFlow-style canvas UX). */
 .zsvg { position: relative; width: 100%; height: 100%; }
 .zsvg > svg { display: block; touch-action: none; }
@@ -452,7 +458,7 @@ a.variation-row:hover { border-color: #3a6ea5; background: #232834; }
 .kv-table tr.kv-divider td { padding-top: 8px;
                               border-top: 1px solid #1f2228; }
 
-/* Legacy class — still used by the variants/edge tables below the
+/* Legacy class â€” still used by the variants/edge tables below the
    primary cards. */
 .detail-section { margin-bottom: 1.5em; }
 .detail-section h2 {
@@ -548,3 +554,5 @@ details.engine-details[open] > summary {
   margin: 1em 0;
 }
 .loading { color: #98a0a8; text-align: center; padding: 4em 0; }
+
+

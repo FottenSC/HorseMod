@@ -93,6 +93,10 @@ target_link_options(${TARGET} PRIVATE
     /DELAYLOAD:dxgi.dll
     /DELAYLOAD:d3dcompiler_47.dll
     /DELAYLOAD:xinput1_4.dll
+    # Emit HorseMod.map (symbol -> RVA) next to the DLL so crash-dump
+    # faulting addresses can be resolved to a function without a debugger
+    # (see tools/crash_dump_parse.py).
+    /MAP
 )
 
 # Copy the DLL to the game's mod directory after building (optional, adjust path as needed)

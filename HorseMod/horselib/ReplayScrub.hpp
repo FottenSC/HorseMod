@@ -52,14 +52,13 @@
 // Capturing only makes sense in Replay presence (the SC6 scene where the
 // .replay deterministic-input system drives PerFrameTick).  Outside Replay
 // the per-frame state isn't reproducible from a stored input stream so a
-// snapshot ring would just be a waste of memory + per-frame CPU.
+// snapshot store would just be a waste of memory + per-frame CPU.
 //
-// We allocate the ring lazily on first entry into Replay presence and
-// keep it allocated for the rest of the session (presence transitions
-// only RESET the ring; we don't free until module shutdown).  At
-// 600 frames (10s coverage at 60fps) the default footprint is
-// 600 * 0x28018 = ~98 MB of resident memory.  Tunable via the Replay
-// tab's "Capture seconds" slider.
+// We initialise the dedup store lazily on first entry into Replay
+// presence and keep it for the rest of the session (presence transitions
+// only RESET its contents; we don't tear it down until module shutdown).
+// Capture is unbounded - it spans the whole replay - and self-stops at a
+// 2 GB resident-memory ceiling; there is no user-set capture window.
 //
 // Threading
 // ---------
@@ -72,6 +71,8 @@
 
 #pragma once
 
+#include "BytePatch.hpp"   // vtable-slot patcher for RenderSkipOverride
+#include "CodeCave.hpp"    // direct PerFrameTick bypass trampoline
 #include "GameMode.hpp"
 #include "HorseLib.hpp"   // GlobalPtr for LuxBattleManager lookup
 #include "NativeBinding.hpp"
@@ -80,11 +81,14 @@
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cwchar>
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <unordered_map>
 #include <vector>
 
@@ -511,7 +515,6 @@ namespace Horse
                 "restored to {}\n"), m_saved);
         }
 
-    private:
         using FindCVarFn = void* (*)(void* mgr, const wchar_t* name);
         using CVarSetFn  = void  (*)(void* cvar, const wchar_t* val,
                                      uint32_t flags);
@@ -532,6 +535,19 @@ namespace Horse
                 return nullptr;
             return reinterpret_cast<FindCVarFn>(fn)(mgr, name);
         }
+
+        static bool cvar_set(void* cvar, const wchar_t* val) noexcept
+        {
+            void* vt = nullptr;
+            if (!SafeReadPtr(cvar, &vt) || !vt) return false;
+            void* fn = nullptr;
+            if (!SafeReadPtr(static_cast<uint8_t*>(vt) + 0x60, &fn) || !fn)
+                return false;
+            reinterpret_cast<CVarSetFn>(fn)(cvar, val, kSetByConsole);
+            return true;
+        }
+
+    private:
         static const float* cvar_value_ptr(void* cvar) noexcept
         {
             void* vt = nullptr;
@@ -548,19 +564,244 @@ namespace Horse
             return reinterpret_cast<const float*>(
                 reinterpret_cast<CVarValFn>(fn)(cvar));
         }
-        static bool cvar_set(void* cvar, const wchar_t* val) noexcept
+        bool  m_engaged = false;
+        float m_saved   = 100.0f;
+    };
+
+    // ------------------------------------------------------------------
+    // RenderSkipOverride - skips SC6's per-frame scene render during the
+    // EXPERIMENTAL "Generate timeline" pass, so the replay fast-forward
+    // is sim-bound instead of render-bound.
+    //
+    // Why this is the strongest fast-forward lever
+    // --------------------------------------------
+    // UGameEngine::Tick @ 0x141e38f70 first runs the world tick
+    // (UWorld::Tick - the frame-counted replay simulation) and then, in
+    // a SEPARATE block gated by a different condition, the scene redraw:
+    //     GEngine->vtable[0x410](GEngine, bShouldPresent)   // RedrawViewports
+    // Because the two are gated independently, the redraw can be
+    // suppressed while the simulation keeps advancing once per UE4 tick.
+    // SC6 replay viewing is render-bound well below 60fps, so removing
+    // the redraw (not merely shrinking it, as ScreenPercentageOverride
+    // does) is what lets the uncapped loop become sim-bound and actually
+    // fast-forward.  This is the in-process equivalent of "simulate
+    // headless": the whole engine still runs, but the dominant per-frame
+    // cost - building and submitting the scene - is cut.
+    //
+    // Why this is simulation-SAFE
+    // ---------------------------
+    // RedrawViewports is pure OUTPUT: it draws already-evaluated state.
+    // Animation/pose evaluation (which the hit detector samples bone
+    // positions from) is a COMPONENT tick inside UWorld::Tick, NOT part
+    // of RedrawViewports - so skipping the redraw does not skip anim
+    // eval and cannot desync the deterministic replay.  The HgCpuDirect
+    // snapshot (tick_capture) is a memory copy with no render dependency
+    // either.  Only the on-screen picture is affected.
+    //
+    // Mechanism
+    // ---------
+    // engage() resolves GEngine's *runtime* vtable (so a UGameEngine
+    // subclass vtable is handled correctly), verifies slot 0x410 still
+    // points at the known RedrawViewports (imageBase + kRVA_RedrawViewports)
+    // and, only then, patches that slot to vt_redraw_thunk via BytePatch.
+    // disengage() restores the original pointer.  The thunk skips the
+    // redraw for most frames but forwards to the real RedrawViewports 1
+    // frame in kKeepAliveEveryN, so the OS does not flag the window
+    // unresponsive and HorseMod's own ImGui overlay (drawn in the DXGI
+    // Present hook) still refreshes often enough for "Stop" to stay
+    // clickable.
+    //
+    // RedrawViewports @ 0x141e348f0 (verified decompile): reads
+    // GEngine+0x618 (GameViewport), calls GameViewport->vtable[0x2c8],
+    // then FViewport::Draw(GameViewport+0xa0, bShouldPresent).  It does
+    // NOT call back through vtable[0x410], so the thunk forwarding to the
+    // original cannot recurse.
+    //
+    // Threading: engage()/disengage() and the thunk all run on the game
+    // thread - UGameEngine::Tick calls the redraw, and start/stop_-
+    // generate_timeline run in the cockpit pre-tick, which is itself
+    // inside that same UGameEngine::Tick (before the redraw block).
+    // Single-threaded - the non-atomic m_engaged relies on that, matching
+    // FrameCapOverride.
+    // ------------------------------------------------------------------
+    class RenderSkipOverride
+    {
+    public:
+        // Non-copyable AND non-movable - and a de-facto SINGLETON.  The
+        // redraw thunk (vt_redraw_thunk) has to be a plain static
+        // function to live in a vtable slot, so it can reach the saved
+        // original pointer + keep-alive counter ONLY through the static
+        // members at the bottom of this class.  A second instance would
+        // share that process-global state and corrupt the first.  The
+        // one and only owner is ReplayScrub::m_render_skip.  (The sibling
+        // FrameCapOverride / ScreenPercentageOverride are plain-value and
+        // copyable; this class deliberately is not - it owns a BytePatch
+        // and patches process-global engine state.)
+        RenderSkipOverride()                                     = default;
+        RenderSkipOverride(const RenderSkipOverride&)            = delete;
+        RenderSkipOverride& operator=(const RenderSkipOverride&) = delete;
+
+        static constexpr uintptr_t kRVA_GEngine         = 0x43B3068;
+        static constexpr uintptr_t kVtOff_Redraw        = 0x410;
+        // UGameEngine::RedrawViewports - the function GEngine vtable[0x410]
+        // must still point at for engage() to patch.  Verified via the
+        // UGameEngine vtable in .rdata (slot 0x268 = UGameEngine::Tick @
+        // 0x141e38f70; slot 0x410 = 0x141e348f0).
+        static constexpr uintptr_t kRVA_RedrawViewports = 0x1E348F0;
+        // Render 1 frame in N during a skip pass: keeps the window
+        // responsive and gives coarse visual progress.  N=16 costs ~6%
+        // of the render it would otherwise save - negligible against the
+        // multi-x speedup, and worth it for a clickable "Stop".
+        static constexpr uint32_t  kKeepAliveEveryN     = 16;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        // Resolve + verify + patch GEngine's redraw vtable slot.  Returns
+        // false (changing nothing) if GEngine / its vtable / the slot
+        // can't be resolved, or the slot does not hold the expected
+        // RedrawViewports - a guard against a wrong offset or an SC6
+        // update silently corrupting the vtable.  Idempotent.
+        bool engage() noexcept
         {
-            void* vt = nullptr;
-            if (!SafeReadPtr(cvar, &vt) || !vt) return false;
-            void* fn = nullptr;
-            if (!SafeReadPtr(static_cast<uint8_t*>(vt) + 0x60, &fn) || !fn)
+            if (m_engaged) return true;
+
+            void** slot = resolve_redraw_slot();
+            if (!slot)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.RenderSkip] engage failed - GEngine / "
+                    "vtable unresolvable\n"));
                 return false;
-            reinterpret_cast<CVarSetFn>(fn)(cvar, val, kSetByConsole);
+            }
+
+            void* current = nullptr;
+            if (!SafeReadPtr(slot, &current) || !current)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.RenderSkip] engage failed - redraw slot "
+                    "unreadable\n"));
+                return false;
+            }
+
+            const uintptr_t base = NativeBinding::imageBase();
+            const uintptr_t want = base + kRVA_RedrawViewports;
+            if (reinterpret_cast<uintptr_t>(current) != want)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.RenderSkip] engage failed - GEngine "
+                    "vtable[0x410]=0x{:x} != expected RedrawViewports "
+                    "0x{:x}; refusing to patch (SC6 build changed?)\n"),
+                    reinterpret_cast<uintptr_t>(current), want);
+                return false;
+            }
+
+            s_original.store(current, std::memory_order_release);
+            s_call_count.store(0, std::memory_order_relaxed);
+
+            // Patch the 8-byte slot to point at vt_redraw_thunk.  BytePatch
+            // snapshots the original pointer (verified above to be the real
+            // RedrawViewports) so disengage() puts it back exactly.
+            const uintptr_t thunk =
+                reinterpret_cast<uintptr_t>(&vt_redraw_thunk);
+            uint8_t bytes[sizeof(uintptr_t)];
+            std::memcpy(bytes, &thunk, sizeof(bytes));
+            if (!m_patch.prepare(slot, bytes, sizeof(bytes))
+                || !m_patch.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.RenderSkip] engage failed - vtable slot "
+                    "patch did not apply\n"));
+                m_patch.disable();
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.RenderSkip] engaged - GEngine vtable[0x410] "
+                "redraw -> skip thunk (render 1 frame in {})\n"),
+                kKeepAliveEveryN);
             return true;
         }
 
-        bool  m_engaged = false;
-        float m_saved   = 100.0f;
+        // Restore the original redraw pointer.  Idempotent and safe to
+        // call when not engaged (no-op in that case).
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;   // clear first so a re-entrant call no-ops
+            // If BytePatch::disable() fails (a VirtualProtect error -
+            // near-impossible on a committed .rdata page, but reachable
+            // during teardown) the vtable slot stays pointing at
+            // vt_redraw_thunk and the game would render only 1 frame in
+            // kKeepAliveEveryN until restart.  Report that loudly rather
+            // than logging a false "restored".
+            if (m_patch.disable())
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub.RenderSkip] disengaged - redraw "
+                    "restored\n"));
+            else
+                RC::Output::send<RC::LogLevel::Error>(STR(
+                    "[ReplayScrub.RenderSkip] disengage FAILED - redraw "
+                    "vtable slot NOT restored; rendering may stay "
+                    "throttled until the game is restarted\n"));
+        }
+
+    private:
+        using RedrawFn = void(__fastcall*)(void* self, uint8_t present);
+
+        // Installed in GEngine's redraw vtable slot while a skip pass is
+        // running.  Skips the scene redraw, except 1 frame in
+        // kKeepAliveEveryN where it forwards to the real RedrawViewports.
+        //
+        // fetch_add returns the PRE-increment count, and engage() resets
+        // it to 0, so the FIRST call after engage has n==0 and DOES draw
+        // (frames 0, kN, 2*kN, ... render).  That first-frame draw is
+        // intentional - it puts one frame on screen immediately so
+        // engaging does not look like a hang.  Do NOT "fix" this into a
+        // pre-increment: that would skip the first kN-1 frames and the
+        // screen would visibly freeze the instant generation starts.
+        static void __fastcall vt_redraw_thunk(void* self,
+                                               uint8_t present) noexcept
+        {
+            const uint32_t n =
+                s_call_count.fetch_add(1, std::memory_order_relaxed);
+            if ((n % kKeepAliveEveryN) == 0)
+            {
+                void* orig = s_original.load(std::memory_order_acquire);
+                if (orig)
+                    reinterpret_cast<RedrawFn>(orig)(self, present);
+            }
+            // else: scene redraw skipped for this frame
+        }
+
+        // GEngine -> runtime vtable -> &vtable[0x410].  Reads the live
+        // vtable pointer off the GEngine instance, so a UGameEngine
+        // subclass with its own vtable is patched correctly.
+        static void** resolve_redraw_slot() noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return nullptr;
+            void* engine = nullptr;
+            if (!SafeReadPtr(
+                    reinterpret_cast<const void*>(base + kRVA_GEngine),
+                    &engine) || !engine)
+                return nullptr;
+            void* vtable = nullptr;
+            if (!SafeReadPtr(engine, &vtable) || !vtable)
+                return nullptr;
+            return reinterpret_cast<void**>(
+                reinterpret_cast<uint8_t*>(vtable) + kVtOff_Redraw);
+        }
+
+        bool      m_engaged = false;
+        BytePatch m_patch;
+        // Static, not per-instance: vt_redraw_thunk is a plain function
+        // (vtable-slot ABI) and can only reach these as statics - which
+        // is what makes the class a singleton (see the note at the top).
+        // Written/read on the game thread only (engage/disengage and the
+        // thunk all run there); atomic purely as cheap insurance.
+        static inline std::atomic<void*>    s_original  {nullptr};
+        static inline std::atomic<uint32_t> s_call_count{0};
     };
 
     // ========================================================================
@@ -734,11 +975,17 @@ namespace Horse
             size_t off = 0;
             for (size_t c = 0; c < m_chunks_per_tick; ++c)
             {
+                // Bounds-check the chunk id against the pool.  A valid
+                // store never holds an out-of-range id, but a mid-reset
+                // alloc failure (drop_ring) could in principle leave a
+                // stale id referencing a cleared pool - reject it rather
+                // than read out of bounds and hand back a garbage region.
+                const uint32_t id = m_ids[base + c];
+                if (id >= m_pool->unique_chunks()) return false;
                 const size_t n =
                     (m_region_len - off < ChunkPool::kChunkBytes)
                         ? (m_region_len - off) : ChunkPool::kChunkBytes;
-                std::memcpy(dst + off,
-                            m_pool->chunk_ptr(m_ids[base + c]), n);
+                std::memcpy(dst + off, m_pool->chunk_ptr(id), n);
                 off += n;
             }
             return true;
@@ -765,7 +1012,10 @@ namespace Horse
         }
 
     private:
-        static constexpr size_t kSelfTestTicks = 128;
+        // Keep this to the first tick only.  The old 128-tick window
+        // gathered and memcmp'd every region on every early capture,
+        // exactly when Generate/Capture needs maximum headroom.
+        static constexpr size_t kSelfTestTicks = 1;
 
         ChunkPool*            m_pool            {nullptr};
         size_t                m_region_len      {0};
@@ -775,12 +1025,182 @@ namespace Horse
         std::vector<uint8_t>  m_scratch;   // padded staging / gather buffer
     };
 
-    // ------------------------------------------------------------------
-    // ReplayScrub - the snapshot ring + UI driver.
+    // ========================================================================
+    // Horse::TagTimeline - append-only per-tick metadata, safe for the UI
+    // reader.
     //
-    // Allocates a ring of N x 0x28018-byte data slots (HgCpuDirect's
-    // per-snapshot stride) and a single buffer-shim object that we
-    // re-target onto each slot when capturing or restoring.
+    // Each captured tick carries four i32 tags: capture sequence (the
+    // canonical timeline coordinate), replay round, within-round wall frame,
+    // and replay master clock.  The capture path (game thread) appends one
+    // entry per committed snapshot; the UI thread reads committed entries to
+    // draw the timeline bar.
+    //
+    // Storage is a fixed array of fixed-size heap blocks, not a std::vector:
+    // a vector would reallocate its backing store as it grows, moving entries
+    // out from under a concurrent UI reader.  With blocks, a committed
+    // entry's address never moves, and the single published count is the
+    // only thing a reader has to synchronise on.  Blocks are never freed
+    // before destruction (a reader gated on a stale count could still be
+    // mid-access) - clear() only resets the count.  Worst case after a
+    // pathological 2 GB session is ~32 MB of retained blocks; a normal match
+    // is 3-4 blocks (~0.5 MB).
+    //
+    // kMaxBlocks x kBlockTicks caps the tick count, but ReplayScrub's 2 GB
+    // store ceiling is always reached first - this is a storage backstop,
+    // not a user-visible limit.
+    // ========================================================================
+    class TagTimeline
+    {
+    public:
+        static constexpr size_t kBlockTicks = 8192;
+        static constexpr size_t kMaxBlocks  = 256;     // ~2.1 M ticks backstop
+
+        // [game thread] Append one tick's tags.  The four values are written
+        // before the count is published with release ordering, so a UI
+        // reader that observes the bumped count (acquire) is guaranteed to
+        // see all four.
+        void append(int32_t seq, int32_t round,
+                    int32_t frame, int32_t master,
+                    int32_t demo_time_ms) noexcept
+        {
+            const size_t n = m_count.load(std::memory_order_relaxed);
+            const size_t b = n / kBlockTicks;
+            if (b >= kMaxBlocks) return;          // backstop; unreachable
+            Block* blk = m_blocks[b].load(std::memory_order_relaxed);
+            if (!blk)
+            {
+                blk = new (std::nothrow) Block;
+                if (!blk) return;                 // drop the tick on OOM
+                m_blocks[b].store(blk, std::memory_order_release);
+            }
+            Entry& e = blk->e[n % kBlockTicks];
+            e.seq   .store(seq,    std::memory_order_relaxed);
+            e.round .store(round,  std::memory_order_relaxed);
+            e.frame .store(frame,  std::memory_order_relaxed);
+            e.master.store(master, std::memory_order_relaxed);
+            e.demo_time_ms.store(demo_time_ms,
+                                 std::memory_order_relaxed);
+            m_count.store(n + 1, std::memory_order_release);   // publish
+        }
+
+        size_t count() const noexcept
+        {
+            return m_count.load(std::memory_order_acquire);
+        }
+
+        // Read tick `t`'s tags.  Returns false if `t` is not (yet) a
+        // committed tick.  Safe to call from the UI thread concurrently with
+        // append().
+        bool get(size_t t, int32_t& seq, int32_t& round,
+                 int32_t& frame, int32_t& master) const noexcept
+        {
+            if (t >= count()) return false;
+            Block* blk =
+                m_blocks[t / kBlockTicks].load(std::memory_order_acquire);
+            if (!blk) return false;
+            const Entry& e = blk->e[t % kBlockTicks];
+            seq    = e.seq   .load(std::memory_order_relaxed);
+            round  = e.round .load(std::memory_order_relaxed);
+            frame  = e.frame .load(std::memory_order_relaxed);
+            master = e.master.load(std::memory_order_relaxed);
+            return true;
+        }
+
+        // Read the absolute UE4 demo time captured for tick `t`.
+        // Stored as milliseconds so readers do not need atomic<float>.
+        // Returns a negative value when the driver was unavailable at
+        // capture time.
+        int32_t demo_time_ms(size_t t) const noexcept
+        {
+            if (t >= count()) return -1;
+            Block* blk =
+                m_blocks[t / kBlockTicks].load(std::memory_order_acquire);
+            if (!blk) return -1;
+            return blk->e[t % kBlockTicks].demo_time_ms.load(
+                std::memory_order_relaxed);
+        }
+
+        // [game thread] Logical clear: the published count drops to 0, so
+        // every entry becomes unreachable.  The block storage is kept and
+        // overwritten by later appends (see the class plate).
+        void clear() noexcept { m_count.store(0, std::memory_order_release); }
+
+        // Resident bytes of the allocated blocks, for the store ceiling.
+        // O(1): a block is allocated exactly when its first tick is
+        // appended, so block count == ceil(count / kBlockTicks).
+        size_t bytes() const noexcept
+        {
+            const size_t n = m_count.load(std::memory_order_acquire);
+            return ((n + kBlockTicks - 1) / kBlockTicks) * sizeof(Block);
+        }
+
+        ~TagTimeline()
+        {
+            for (auto& b : m_blocks)
+                delete b.load(std::memory_order_relaxed);
+        }
+
+    private:
+        struct Entry
+        {
+            std::atomic<int32_t> seq, round, frame, master, demo_time_ms;
+        };
+        struct Block { Entry e[kBlockTicks]; };
+
+        std::array<std::atomic<Block*>, kMaxBlocks> m_blocks {};
+        std::atomic<size_t>                         m_count  {0};
+    };
+
+    // ------------------------------------------------------------------
+    // SEH-guarded invoke of an engine snapshot Exec* function
+    // (ExecMoveChangeAndPost / ExecFinalizeAndPost), called through the
+    // buffer shim.  The restore direction writes deep into live engine
+    // chara / global state; if the captured snapshot and the live engine
+    // context have diverged - e.g. a seek issued just as the battle
+    // actors are being torn down - that write can fault.  Catching it
+    // here turns a hard process crash into a logged no-op.  Kept as a
+    // tiny standalone function because MSVC forbids __try/__except in a
+    // body that also needs C++ object unwinding (see SafeMemoryRead.hpp).
+    static inline bool SafeInvokeExec(
+        void* (__fastcall* fn)(HgCpuBufferShim*),
+        HgCpuBufferShim* shim) noexcept
+    {
+        if (!fn || !shim) return false;
+        __try
+        {
+            fn(shim);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static inline bool SafeInvokePerFrameTick(
+        void (__fastcall* fn)(uintptr_t*),
+        uintptr_t* args) noexcept
+    {
+        if (!fn || !args) return false;
+        __try
+        {
+            fn(args);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // ReplayScrub - the deduplicated snapshot store + UI driver.
+    //
+    // Captures every replay tick into a content-addressed dedup store
+    // (ChunkPool + four RegionStores) keyed by an append-only tick index,
+    // plus a single buffer-shim object re-targeted onto a staging /
+    // gather buffer when capturing or restoring.  Capture is unbounded -
+    // it covers the whole replay - up to a 2 GB resident-memory ceiling.
     // ------------------------------------------------------------------
     class ReplayScrub
     {
@@ -792,10 +1212,36 @@ namespace Horse
         // both accessor methods and external UI code can reference it.
         enum class TimelineGenState : int { Idle = 0, Generating = 1, Done = 2 };
 
+        enum class BattleStepMode : int
+        {
+            None = 0,
+            RenderSkip = 1,
+            DirectPerFrame = 2,
+        };
+
         // A round-boundary marker for the timeline UI: `seq` is the
         // capture sequence of the first snapshot of round `round`.
         // Returned by collect_round_markers().
         struct RoundMarker { int32_t seq; int32_t round; };
+
+        // Runtime profile for the current/last Generate Timeline pass.
+        // Values are accumulated on the game thread and read by the UI.
+        struct TimelineGenProfile
+        {
+            bool     active;
+            bool     experimental;
+            bool     battle_step;
+            bool     battle_step_probe;
+            uint64_t frames;
+            double   wall_seconds;
+            double   ticks_per_second;
+            double   avg_total_us;
+            double   avg_sim_us;
+            double   avg_inputlog_us;
+            double   avg_rdb_us;
+            double   avg_extras_us;
+            double   avg_commit_us;
+        };
 
         // Per-snapshot stride matches HgCpuDirect's allocator stride
         // (verified via post-KO cinematic ring at session+0xAA120+0x488).
@@ -804,7 +1250,11 @@ namespace Horse
         // RVAs for the engine entry points (verified via Ghidra).
         static constexpr uintptr_t kRVA_ExecMoveChangeAndPost = 0x3841E0;
         static constexpr uintptr_t kRVA_ExecFinalizeAndPost   = 0x384540;
+        static constexpr uintptr_t kRVA_LuxBattlePerFrameTick = 0x2DBC60;
         static constexpr uintptr_t kRVA_FrameCounter          = 0x470D0C4;
+        static constexpr uintptr_t kRVA_PerFrameCameraArgs    = 0x470D100;
+        static constexpr uintptr_t kRVA_LatestEngineInput     = 0x4855700;
+        static constexpr uintptr_t kRVA_DemoGotoTimeInSeconds = 0x1E0ECA0;
 
         // ROUND-END SEEK-BACK fix (2026-05-14): the HgCpuDirect global
         // snapshot covers g_LuxBattle_VMFreezeRecord, the 320-byte region
@@ -838,21 +1288,43 @@ namespace Horse
         static constexpr uintptr_t kRVA_ActiveSessionDataPtr = 0x4843F00;
         static constexpr uintptr_t kCinematic_State_Off      = 0xAA120;  // session offset
 
-        // Default ring size: 60 seconds @ 60fps - covers a typical SC6
-        // round (versus default round timer = 60s).  Tunable via UI;
-        // higher values trade memory for longer scrub-back range.
-        // Each snapshot is 0x28018 bytes (~164 KB), so:
-        //     300 frames =  ~49 MB (  5 s coverage)
-        //     600 frames =  ~98 MB ( 10 s coverage)
-        //    1800 frames = ~295 MB ( 30 s coverage)
-        //    3600 frames = ~590 MB ( 60 s coverage = default)
-        //    5400 frames = ~885 MB ( 90 s coverage)
-        //    7200 frames = ~1.13 GB (120 s coverage = max)
-        // Allocation is deferred until first Replay-presence entry so
-        // users who never watch replays don't pay the memory cost.
-        static constexpr size_t kDefaultRingFrames = 3600;
-        static constexpr size_t kMaxRingFrames     = 7200;
-        static constexpr size_t kMinRingFrames     = 60;     // 1 s minimum
+        // g_LuxBattle_LastRoundResultType @ 0x144846408 (i16).  0 while a
+        // round is live; set non-zero (KO=1, LethalHit=2, RingOut=3,
+        // TimeUp=4, ... 1..11) by LuxBattle_EvaluateRoundResult @
+        // 0x140385440 when a round ends, and reset to 0 by
+        // LuxBattle_ClearFrameFlags @ 0x140386464 at the next round's
+        // start.  tick_generate_timeline uses it to stop generation the
+        // moment the FINAL round ends - the real "match is decided" event.
+        static constexpr uintptr_t kRVA_LastRoundResultType  = 0x4846408;
+
+        // Per-chara match-progress fields, read via the kRVA_CharaSlotP1
+        // / P2 globals defined further down.  chara+0x1314 (u16) is the
+        // round-win count this match; chara+0x1318 (u32) the rounds
+        // needed to win.  LuxBattle_EvaluateRoundResult @ 0x140385440
+        // declares a match win when needed <= wins - the ReplayPlayer-
+        // independent "match decided" truth used by match_decided().
+        static constexpr uintptr_t kChara_RoundWins_Off      = 0x1314;
+        static constexpr uintptr_t kChara_RoundsToWin_Off    = 0x1318;
+        // PLAYER::vftable - the vtable LuxBattleChara_Ctor @ 0x140303810
+        // writes at chara offset 0 (LEA RAX,[0x143E87698]).  A live
+        // ALuxBattleChara has *(void**)chara == imageBase + this RVA; a
+        // freed-and-reused slot does not.  Used as a liveness fingerprint
+        // before the do_seek snapshot restore writes through the charas.
+        static constexpr uintptr_t kRVA_CharaVTable          = 0x3E87698;
+
+        // Capture is unbounded: the dedup store (ChunkPool + RegionStore)
+        // keeps only DISTINCT 512-byte chunks, and most of a 0x28018-byte
+        // snapshot is byte-identical tick-to-tick (stage geometry, configs,
+        // move-data), so a whole replay's snapshots fit in a small fraction
+        // of their raw size.  The only bound is a resident-memory ceiling:
+        // when the store (dedup pool arena + per-tick chunk-id lists + tag
+        // timeline) reaches kMaxStoreBytes, capture stops gracefully and the
+        // timeline keeps everything captured so far.  2 GB covers any
+        // realistic multi-round match with a wide margin - it exists only to
+        // bound a pathological run.  The store is created on first Replay-
+        // presence entry so users who never watch replays don't pay the
+        // memory cost.
+        static constexpr size_t kMaxStoreBytes = 2ull * 1024 * 1024 * 1024;
 
         static ReplayScrub& instance()
         {
@@ -860,14 +1332,12 @@ namespace Horse
             return s;
         }
 
-        // Allocate the ring on first call; subsequent calls are no-ops
-        // unless the requested size differs - in which case we free
-        // and re-allocate.  Should be called from on_unreal_init or
-        // first cockpit tick observing Replay presence.
-        bool ensure_initialized(size_t ring_frames = kDefaultRingFrames)
+        // Create the dedup store on first call; later calls are no-ops.
+        // Should be called from on_unreal_init or the first cockpit tick
+        // observing Replay presence.
+        bool ensure_initialized()
         {
-            if (m_initialized.load(std::memory_order_acquire)
-                && m_ring_frames == ring_frames)
+            if (m_initialized.load(std::memory_order_acquire))
                 return true;
 
             // Resolve native function pointers via image base.  Done
@@ -875,48 +1345,31 @@ namespace Horse
             // NativeBinding::resolve() being called from elsewhere.
             if (!resolve_natives()) return false;
 
-            // Drop the initialized flag BEFORE tearing down ring storage.
-            // The UI thread reads ring_count()/earliest_seq()/latest_-
-            // seq() unconditionally inside render_replay_tab and is
-            // only gated by is_initialized() at the outer scope; flipping
-            // the flag here closes the window where free_ring() has
-            // already cleared the atomic-vectors / nulled m_ring_frames
-            // but is_initialized() still reads true, which would crash
-            // earliest_seq() on an out-of-bounds vector subscript.
-            m_initialized.store(false, std::memory_order_release);
-
-            // (Re-)allocate.  Calling this with a different ring size
-            // discards captured snapshots; that's fine - sizing is a
-            // user-driven action, not steady-state.
-            free_ring();
-            if (!alloc_ring(ring_frames)) return false;
+            // Size the four RegionStores and clear the dedup pool + tag
+            // timeline.  drop_ring() does exactly this; ensure_initialized
+            // only additionally publishes m_initialized.
+            drop_ring();
+            m_have_last_counter = false;
 
             m_initialized.store(true, std::memory_order_release);
-            const size_t sim_mb =
-                (ring_frames * kSnapshotStride) / (1024ull * 1024ull);
-            const size_t il_mb =
-                (ring_frames * kIL_CaptureBytes) / (1024ull * 1024ull);
-            const size_t rdb_mb =
-                (ring_frames * kRDB_Bytes) / (1024ull * 1024ull);
-            const size_t extras_kb =
-                (ring_frames * kExtras_Bytes) / 1024ull;
             RC::Output::send<RC::LogLevel::Default>(
-                STR("[ReplayScrub] initialised; ring={} frames "
-                    "(sim ~{} MB + InputLog ~{} MB + RDB ~{} MB + "
-                    "extras ~{} KB = ~{} MB total)\n"),
-                ring_frames, sim_mb, il_mb, rdb_mb, extras_kb,
-                sim_mb + il_mb + rdb_mb);
+                STR("[ReplayScrub] initialised; deduplicating snapshot "
+                    "store ready (sim {} B + InputLog {} B + RDB {} B + "
+                    "extras {} B per tick, {} MB capture ceiling)\n"),
+                kSnapshotStride, kIL_CaptureBytes, kRDB_Bytes, kExtras_Bytes,
+                kMaxStoreBytes / (1024ull * 1024ull));
             return true;
         }
 
         // Tear down at module shutdown.
         void shutdown()
         {
-            // Restore the engine frame cap + screen percentage first -
-            // they must never outlive the module if generation was
-            // still running at unload.
+            // Restore the engine frame cap + screen percentage + redraw
+            // hook first - none of them must outlive the module if
+            // generation was still running at unload.
             m_frame_cap.disengage();
             m_screen_pct.disengage();
+            m_render_skip.disengage();
             free_ring();
             m_initialized.store(false, std::memory_order_release);
         }
@@ -943,15 +1396,14 @@ namespace Horse
         {
             if (!is_initialized()) return;
 
-            // Update the cached live master clock UNCONDITIONALLY each
-            // cockpit tick.  The UI thread reads this via current_play-
-            // _position() to extrapolate a smooth playhead during
-            // forward play post-seek.  Cheap (one SafeReadInt32 via
-            // BM->IL+0x3A4); no side effects.
-            {
-                const int32_t m = read_engine_master_clock();
-                m_live_master_cached.store(m, std::memory_order_release);
-            }
+            // One master-clock read per cockpit tick.  The engine does
+            // not advance between here and the end of this function (we
+            // run in the cockpit PRE-tick), so every consumer below
+            // reuses tick_master instead of re-resolving BM->IL+0x3A4.
+            // The UI thread reads the cached copy via current_play_-
+            // position() to extrapolate a smooth playhead post-seek.
+            const int32_t tick_master = read_engine_master_clock();
+            m_live_master_cached.store(tick_master, std::memory_order_release);
 
             // Post-seek tick logging runs UNCONDITIONALLY (even when
             // paused / capture disabled / outside Replay presence) so
@@ -968,7 +1420,7 @@ namespace Horse
                 uint32_t cur_top = 0;
                 read_frame_counter(cur_top);
                 tick_post_seek_dump(cd_top, static_cast<int32_t>(cur_top),
-                                    read_engine_master_clock());
+                                    tick_master);
                 m_post_seek_countdown.store(cd_top - 1,
                                             std::memory_order_release);
             }
@@ -986,6 +1438,17 @@ namespace Horse
             if (GameMode::instance().current_presence()
                 == GamePresence::Replay)
             {
+                int32_t native_guard_ticks =
+                    m_native_demo_seek_guard_ticks.load(
+                        std::memory_order_acquire);
+                if (native_guard_ticks > 0)
+                {
+                    m_native_demo_seek_guard_ticks.fetch_sub(
+                        1, std::memory_order_acq_rel);
+                }
+                const bool native_seek_may_rebuild_actors =
+                    native_guard_ticks > 0;
+
                 RC::Unreal::UObject* bm =
                     m_bm_ptr.get(L"LuxBattleManager");
                 RC::Unreal::UObject* rp =
@@ -1000,8 +1463,24 @@ namespace Horse
                     (rp && m_last_replay_player_obj
                      && rp != m_last_replay_player_obj);
                 if (bm_changed || rp_changed)
-                    reset_for_new_replay(bm_changed ? "new BattleManager"
-                                                    : "new ReplayPlayer");
+                {
+                    if (native_seek_may_rebuild_actors)
+                    {
+                        RC::Output::send<RC::LogLevel::Default>(STR(
+                            "[ReplayScrub] replay actor identity changed "
+                            "during native demo seek; preserving generated "
+                            "timeline (bm_changed={} rp_changed={} "
+                            "guard_ticks={})\n"),
+                            bm_changed ? 1 : 0, rp_changed ? 1 : 0,
+                            native_guard_ticks);
+                    }
+                    else
+                    {
+                        reset_for_new_replay(
+                            bm_changed ? "new BattleManager"
+                                       : "new ReplayPlayer");
+                    }
+                }
                 if (bm) m_last_bm_obj            = bm;
                 if (rp) m_last_replay_player_obj = rp;
             }
@@ -1012,8 +1491,10 @@ namespace Horse
             // the deliberate Generate pass is the normal way to fill
             // the ring.
             if (!m_capture_enabled.load(std::memory_order_acquire)
-                && m_timeline_gen_state.load(std::memory_order_acquire)
-                       != static_cast<int>(TimelineGenState::Generating))
+                && !(m_timeline_gen_state.load(std::memory_order_acquire)
+                     == static_cast<int>(TimelineGenState::Generating)
+                     && !m_gen_battle_step_generate.load(
+                         std::memory_order_acquire)))
                 return;
             // While paused (= world frozen via WorldTickGate), the
             // global frame counter doesn't advance, so the
@@ -1031,7 +1512,7 @@ namespace Horse
             if (!m_have_last_counter)
             {
                 m_last_counter      = cur;
-                m_last_master       = read_engine_master_clock();
+                m_last_master       = tick_master;
                 m_last_round        = read_current_round();
                 m_have_last_counter = true;
                 // Do NOT capture on the first tick - the simulation
@@ -1063,7 +1544,7 @@ namespace Horse
                     return;
                 }
                 m_last_counter = cur;
-                m_last_master  = read_engine_master_clock();
+                m_last_master  = tick_master;
                 if (round_now >= 0) m_last_round = round_now;
                 return;
             }
@@ -1077,7 +1558,7 @@ namespace Horse
             // moves), there's no useful frame state to snapshot - skip
             // capture and keep the existing ring intact so the user
             // can re-scrub through the still-good captures.
-            const int32_t cur_master = read_engine_master_clock();
+            const int32_t cur_master = tick_master;
             if (cur_master < 0)
             {
                 // Master unreadable (BM/IL torn down).  Track wall but
@@ -1100,7 +1581,7 @@ namespace Horse
 
             // Both wall AND master advanced - real forward play.
             // Capture exactly ONE snapshot per cockpit tick.
-            capture_snapshot(static_cast<int32_t>(cur));
+            (void)capture_snapshot(static_cast<int32_t>(cur), true);
             m_last_counter = cur;
             m_last_master  = cur_master;
 
@@ -1418,10 +1899,9 @@ namespace Horse
 
             // Demo netdriver state every 30 ticks (~0.5s) during the
             // post-seek window so we can see how DemoCurrentTime
-            // evolves IF it ever exists.  We expect this to stay null
-            // in SC6 (UDemoNetDriver hypothesis was disproven 2026-05-12
-            // testing); kept in for completeness in case it shows up
-            // in some other game mode.
+            // evolves after the native UDemoNetDriver seek request.  This
+            // is the engine-side replay cursor; if it does not move, the
+            // async checkpoint/packet task did not run.
             if ((countdown_now % 30) == 0)
             {
                 ReplayScrubDiag::DemoNetDriverSnap d =
@@ -1466,27 +1946,24 @@ namespace Horse
         // on the game thread between PerFrameTicks.
         void service_seek_request()
         {
-            // Resize first - if a resize lands this tick the ring's
-            // capacity changes and any seek target from before the
-            // resize is stale anyway, so process resize, then seek.
-            service_resize_request();
             if (!is_initialized()) return;
             const int32_t target = m_seek_request.exchange(
                 kSeekIdle, std::memory_order_acq_rel);
-            if (target == kSeekIdle) return;
+            if (target == kSeekIdle)
+            {
+                service_native_demo_seek_settle();
+                service_pending_demo_goto_time_seek(false);
+                return;
+            }
             do_seek_to_seq(target);
-        }
-
-        // Post a resize request from the UI (render thread).  The
-        // request is consumed on the next cockpit pre-tick (game
-        // thread) so the actual ring teardown / realloc happens on a
-        // single thread without racing capture / seek.
-        void request_resize(size_t ring_frames) noexcept
-        {
-            if (ring_frames < kMinRingFrames) ring_frames = kMinRingFrames;
-            if (ring_frames > kMaxRingFrames) ring_frames = kMaxRingFrames;
-            m_pending_resize_frames.store(
-                ring_frames, std::memory_order_release);
+            if (m_resume_after_seek.exchange(false, std::memory_order_acq_rel)
+                && m_auto_resume_on_release.load(std::memory_order_acquire))
+            {
+                m_paused.store(false, std::memory_order_release);
+                m_native_demo_seek_settle_ticks.store(
+                    0, std::memory_order_release);
+            }
+            service_native_demo_seek_settle();
         }
 
         // ---- Diagnostic UI accessors -------------------------------
@@ -1508,13 +1985,9 @@ namespace Horse
         }
 
         // Write ALuxBattleReplayPlayer.CurrentTime/CurrentRound/
-        // bIsPlayingBack on each seek via DIRECT BYTE WRITES at the
-        // verified Ghidra struct offsets.  Default ON (2026-05-14): the
-        // 21:47 session log confirmed this write is what actually
-        // rewinds the engine's replay playback head and makes recorded
-        // inputs route to the chara post-seek.  Without it, BM_input
-        // stays at 0 every tick post-seek and chars finish current
-        // move then idle.  Caveat: target_round is hardcoded to 0.
+        // bIsPlayingBack via DIRECT BYTE WRITES at the verified Ghidra
+        // struct offsets.  This is cursor/UI repair; the motion source
+        // for normal seeks is UDemoNetDriver::GotoTimeInSeconds.
         bool use_replay_player_seek() const noexcept
         {
             return m_use_replay_player_seek.load(std::memory_order_acquire);
@@ -1524,6 +1997,28 @@ namespace Horse
             m_use_replay_player_seek.store(v, std::memory_order_release);
         }
 
+        bool use_demo_goto_time_seek() const noexcept
+        {
+            return m_use_demo_goto_time_seek.load(std::memory_order_acquire);
+        }
+        void set_use_demo_goto_time_seek(bool v) noexcept
+        {
+            m_use_demo_goto_time_seek.store(v, std::memory_order_release);
+            if (!v)
+            {
+                m_pending_demo_seek_ms.store(-1, std::memory_order_release);
+                m_pending_demo_seek_master.store(-1,
+                                                 std::memory_order_release);
+                m_pending_demo_seek_seq.store(-1,
+                                              std::memory_order_release);
+                m_pending_demo_seek_round.store(-1,
+                                                std::memory_order_release);
+                m_native_demo_seek_guard_ticks.store(
+                    0, std::memory_order_release);
+                m_pending_demo_seek_retry_ticks = 0;
+            }
+        }
+
         // 2026-05-15 granular debug toggles (ultrathink session).
         bool enable_chara_4400_restore() const noexcept
         {
@@ -1531,7 +2026,10 @@ namespace Horse
         }
         void set_enable_chara_4400_restore(bool v) noexcept
         {
-            m_enable_chara_4400_restore.store(v, std::memory_order_release);
+            (void)v;
+            // Disabled after 2026-05-18 testing: these values looked like
+            // float/VFX data and restoring them preceded a crash.
+            m_enable_chara_4400_restore.store(false, std::memory_order_release);
         }
 
         bool force_pra_forward_bit_on_seek() const noexcept
@@ -1540,7 +2038,8 @@ namespace Horse
         }
         void set_force_pra_forward_bit_on_seek(bool v) noexcept
         {
-            m_force_pra_forward_bit_on_seek.store(v, std::memory_order_release);
+            (void)v;
+            m_force_pra_forward_bit_on_seek.store(false, std::memory_order_release);
         }
 
         bool force_isplayingback_on_seek() const noexcept
@@ -1549,7 +2048,8 @@ namespace Horse
         }
         void set_force_isplayingback_on_seek(bool v) noexcept
         {
-            m_force_isplayingback_on_seek.store(v, std::memory_order_release);
+            (void)v;
+            m_force_isplayingback_on_seek.store(false, std::memory_order_release);
         }
 
         bool enable_speculative_restore() const noexcept
@@ -1558,16 +2058,43 @@ namespace Horse
         }
         void set_enable_speculative_restore(bool v) noexcept
         {
-            m_enable_speculative_restore.store(v, std::memory_order_release);
+            (void)v;
+            // Keep the broad speculative restore locked out in normal builds:
+            // it writes WorldModePump/PRA/captured RP state and caused the
+            // 2026-05-18 post-generate crash when toggled manually.
+            m_enable_speculative_restore.store(false, std::memory_order_release);
         }
 
         // [render thread] "Generate timeline" UI requests.  The UI runs
         // on the render/present thread; these post an atomic request
         // that tick_generate_timeline() services on the game thread (the
-        // same request/handoff pattern as request_seek / request_resize).
+        // same request/handoff pattern as request_seek).
         void request_generate_timeline() noexcept
         {
             m_gen_request.store(kGenReqStart, std::memory_order_release);
+        }
+        // As request_generate_timeline(), but the pass also skips the
+        // scene redraw each frame (RenderSkipOverride) for a much faster
+        // fast-forward - drives the "Experimental" button.
+        void request_generate_timeline_experimental() noexcept
+        {
+            m_gen_request.store(kGenReqStartExperimental,
+                                std::memory_order_release);
+        }
+        // Launch a second experimental generation path that drives
+        // the timeline by calling LuxBattle_PerFrameTick directly
+        // (bypassing UE4 rendering) instead of replay fast-forward.
+        void request_generate_timeline_experimental_battle_step() noexcept
+        {
+            m_gen_request.store(kGenReqStartBattleStep,
+                                std::memory_order_release);
+        }
+        // Internal one-shot helper for diagnostics: save-state,
+        // run one direct PerFrameTick frame, then restore immediately.
+        void request_generate_timeline_experimental_battle_step_probe() noexcept
+        {
+            m_gen_request.store(kGenReqBattleStepProbe,
+                                std::memory_order_release);
         }
         void request_stop_generate_timeline() noexcept
         {
@@ -1582,13 +2109,77 @@ namespace Horse
                 m_timeline_gen_state.load(std::memory_order_acquire));
         }
 
+        // True while the current generation pass is the EXPERIMENTAL
+        // render-skipping one (only meaningful when timeline_gen_state()
+        // == Generating).  The UI uses it for the status label.
+        bool is_experimental_generation() const noexcept
+        {
+            return m_gen_mode.load(std::memory_order_acquire)
+                == static_cast<int>(BattleStepMode::RenderSkip);
+        }
+
+        bool is_battle_step_generation() const noexcept
+        {
+            return m_gen_mode.load(std::memory_order_acquire)
+                == static_cast<int>(BattleStepMode::DirectPerFrame);
+        }
+
+        TimelineGenProfile timeline_gen_profile() const noexcept
+        {
+            const bool active =
+                m_timeline_gen_state.load(std::memory_order_acquire)
+                == static_cast<int>(TimelineGenState::Generating);
+            const auto now = std::chrono::steady_clock::now();
+            double wall = std::chrono::duration<double>(
+                active ? (now - m_gen_started_at)
+                       : (m_gen_finished_at - m_gen_started_at)).count();
+            if (!(wall > 0.0)) wall = 0.0;
+
+            const uint64_t frames =
+                m_gen_profile_frames.load(std::memory_order_acquire);
+            const double denom = frames ? static_cast<double>(frames) : 1.0;
+            TimelineGenProfile p{};
+            p.active = active;
+            p.experimental =
+                m_gen_mode.load(std::memory_order_acquire)
+                    == static_cast<int>(BattleStepMode::RenderSkip);
+            p.battle_step =
+                m_gen_mode.load(std::memory_order_acquire)
+                    == static_cast<int>(BattleStepMode::DirectPerFrame);
+            p.battle_step_probe =
+                m_gen_battle_step_probe.load(std::memory_order_acquire);
+            p.frames = frames;
+            p.wall_seconds = wall;
+            p.ticks_per_second =
+                (wall > 0.0) ? static_cast<double>(frames) / wall : 0.0;
+            p.avg_total_us =
+                static_cast<double>(m_gen_profile_total_us.load(
+                    std::memory_order_acquire)) / denom;
+            p.avg_sim_us =
+                static_cast<double>(m_gen_profile_sim_us.load(
+                    std::memory_order_acquire)) / denom;
+            p.avg_inputlog_us =
+                static_cast<double>(m_gen_profile_il_us.load(
+                    std::memory_order_acquire)) / denom;
+            p.avg_rdb_us =
+                static_cast<double>(m_gen_profile_rdb_us.load(
+                    std::memory_order_acquire)) / denom;
+            p.avg_extras_us =
+                static_cast<double>(m_gen_profile_extras_us.load(
+                    std::memory_order_acquire)) / denom;
+            p.avg_commit_us =
+                static_cast<double>(m_gen_profile_commit_us.load(
+                    std::memory_order_acquire)) / denom;
+            return p;
+        }
+
         // [game thread] Begin "Generate timeline": remove SC6's engine
         // frame-rate cap so the replay fast-forwards, with tick_capture()
         // filling the snapshot ring as it plays.  Called only by
         // tick_generate_timeline() servicing a UI request - never from
         // the render thread directly.  No-op (with a log line) unless
         // we're in the Replay viewer with the ring ready and capture on.
-        void start_generate_timeline() noexcept
+        void start_generate_timeline(bool experimental) noexcept
         {
             if (m_timeline_gen_state.load(std::memory_order_acquire)
                 == static_cast<int>(TimelineGenState::Generating))
@@ -1622,42 +2213,181 @@ namespace Horse
                     "remove the engine frame cap\n"));
                 return;
             }
-            // Best-effort: drop the render resolution so the uncapped
-            // loop is sim-bound rather than render-bound (SC6 replay
-            // viewing is render-limited well below 60fps, so the frame
-            // cap alone does not fast-forward).  Generation still runs
-            // if this fails - just render-limited.
-            m_screen_pct.engage();
+            // Make the uncapped loop sim-bound rather than render-bound
+            // (SC6 replay viewing is render-limited well below 60fps, so
+            // the frame cap alone does not fast-forward):
+            //   experimental - skip the scene redraw entirely
+            //     (RenderSkipOverride), the strongest fast-forward lever.
+            //     If the redraw hook can't engage, fall back to the
+            //     screen-percentage cut so the button still does
+            //     something useful.
+            //   normal - just drop the render resolution.
+            // Either way generation still runs if this fails, just
+            // render-limited.
+            m_gen_mode.store(
+                experimental
+                    ? static_cast<int>(BattleStepMode::RenderSkip)
+                    : static_cast<int>(BattleStepMode::None),
+                std::memory_order_release);
+            m_gen_battle_step_probe.store(false,
+                                          std::memory_order_release);
+            m_gen_battle_step_generate.store(false,
+                                            std::memory_order_release);
+            if (experimental)
+            {
+                if (!m_render_skip.engage())
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub] experimental render-skip could not "
+                        "engage - falling back to the screen-percentage "
+                        "cut\n"));
+                    m_screen_pct.engage();
+                }
+            }
+            else
+            {
+                m_screen_pct.engage();
+            }
 
             // Re-generate support: discard any previous timeline so this
-            // pass starts from an EMPTY ring.  Without this, re-generating
-            // over an already-full ring would trip the ring-full auto-stop
-            // (tick_generate_timeline) on its very first tick and capture
-            // nothing.  Placed AFTER every early-return check above, so a
-            // generation that fails to start (not initialised / not in
-            // Replay / frame-cap engage failed) never destroys the
-            // existing timeline.  drop_ring() is the cheap logical-empty
-            // (no multi-hundred-MB memset); m_last_seek_target is cleared
-            // too so the playhead doesn't park on a stale seq carried over
-            // from the discarded timeline.
+            // pass starts EMPTY.  Without this, a re-generate would append
+            // the new pass onto the old timeline, producing a chrono-
+            // logically discontinuous coordinate space.  Placed AFTER every
+            // early-return check above, so a generation that fails to start
+            // (not initialised / not in Replay / frame-cap engage failed)
+            // never destroys the existing timeline.  m_last_seek_target is
+            // cleared too so the playhead doesn't park on a stale seq
+            // carried over from the discarded timeline.
             drop_ring();
             m_last_seek_target.store(-1, std::memory_order_release);
+            m_usable_latest_seq.store(-1, std::memory_order_release);
 
             const int32_t m = read_engine_master_clock();
             m_timeline_gen_start_master.store(m, std::memory_order_release);
             m_timeline_gen_last_master.store(m, std::memory_order_release);
             m_gen_last_round = read_current_round();
             m_gen_max_round  = m_gen_last_round;
+            m_gen_seen_progress       = false;
+            m_gen_final_round_played  = false;
+            m_gen_seen_playing_back   = false;
+            m_gen_playback_gone_ticks = 0;
+            m_gen_match_undecided_seen = false;
+            m_gen_total_rounds        = -1;
+            m_gen_final_round_first_safe_seq = -1;
+            m_gen_final_round_last_safe_seq  = -1;
             const auto now = std::chrono::steady_clock::now();
             m_gen_started_at   = now;
+            m_gen_finished_at  = now;
             m_gen_last_advance = now;
+            reset_generation_profile();
             m_timeline_gen_state.store(
                 static_cast<int>(TimelineGenState::Generating),
                 std::memory_order_release);
 
             RC::Output::send<RC::LogLevel::Default>(STR(
-                "[ReplayScrub] Generate timeline STARTED - frame cap "
-                "removed; replay fast-forwarding (master={})\n"), m);
+                "[ReplayScrub] Generate timeline STARTED ({}) - frame cap "
+                "removed; replay fast-forwarding (master={})\n"),
+                RC::to_generic_string(experimental
+                    ? "experimental: render skipped" : "normal"), m);
+        }
+
+        void start_generate_timeline_battle_step() noexcept
+        {
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                == static_cast<int>(TimelineGenState::Generating))
+                return;
+
+            if (!is_initialized())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline (battle-step) "
+                    "ignored - snapshot ring not initialised yet\n"));
+                return;
+            }
+            if (GameMode::instance().current_presence()
+                != GamePresence::Replay)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline (battle-step) "
+                    "ignored - not in the Replay viewer\n"));
+                return;
+            }
+            if (!m_exec_write || !m_exec_read)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline (battle-step) "
+                    "failed - required native entry points unresolved\n"));
+                return;
+            }
+            if (!m_per_frame_tick_bypass)
+            {
+                if (!resolve_per_frame_tick_bypass())
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub] Generate timeline (battle-step) "
+                        "failed - could not prepare direct-step bypass\n"));
+                        return;
+                }
+            }
+            if (!ensure_exp2_buffers())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline (battle-step) "
+                    "failed - EXP2 buffers unavailable\n"));
+                return;
+            }
+            if (!charas_alive())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline (battle-step) "
+                    "ignored - battle charas are not both alive\n"));
+                return;
+            }
+
+            m_paused.store(false, std::memory_order_release);
+            m_frame_cap.disengage();
+            m_screen_pct.disengage();
+            m_render_skip.disengage();
+
+            m_gen_mode.store(
+                static_cast<int>(BattleStepMode::DirectPerFrame),
+                std::memory_order_release);
+            m_gen_battle_step_probe.store(false,
+                                           std::memory_order_release);
+            m_gen_battle_step_generate.store(true,
+                                            std::memory_order_release);
+            m_exp2_transient_fail_count = 0;
+
+            drop_ring();
+            m_last_seek_target.store(-1, std::memory_order_release);
+            m_usable_latest_seq.store(-1, std::memory_order_release);
+
+            const int32_t m = read_engine_master_clock();
+            m_timeline_gen_start_master.store(m, std::memory_order_release);
+            m_timeline_gen_last_master.store(m, std::memory_order_release);
+            m_gen_last_round = read_current_round();
+            m_gen_max_round  = m_gen_last_round;
+            m_gen_seen_progress       = false;
+            m_gen_final_round_played  = false;
+            m_gen_seen_playing_back   = false;
+            m_gen_playback_gone_ticks = 0;
+            m_gen_match_undecided_seen = false;
+            m_gen_total_rounds        = -1;
+            m_gen_final_round_first_safe_seq = -1;
+            m_gen_final_round_last_safe_seq  = -1;
+            const auto now = std::chrono::steady_clock::now();
+            m_gen_started_at   = now;
+            m_gen_finished_at  = now;
+            m_gen_last_advance = now;
+            reset_generation_profile();
+            m_have_last_counter = false;
+            m_timeline_gen_state.store(
+                static_cast<int>(TimelineGenState::Generating),
+                std::memory_order_release);
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub] Generate timeline STARTED (experimental "
+                "battle-step path) - direct PerFrameTick stepping\n"));
         }
 
         // [game thread] End "Generate timeline": restore the frame cap
@@ -1666,16 +2396,69 @@ namespace Horse
         void stop_generate_timeline(const char* reason,
                                     bool reached_end) noexcept
         {
+            m_gen_battle_step_generate.store(false,
+                                             std::memory_order_release);
+            m_gen_battle_step_probe.store(false,
+                                          std::memory_order_release);
+            m_exp2_transient_fail_count = 0;
+            m_gen_mode.store(static_cast<int>(BattleStepMode::None),
+                             std::memory_order_release);
             const bool was_generating =
                 m_timeline_gen_state.load(std::memory_order_acquire)
                 == static_cast<int>(TimelineGenState::Generating);
 
             m_frame_cap.disengage();
             m_screen_pct.disengage();
+            m_render_skip.disengage();
+            m_gen_finished_at = std::chrono::steady_clock::now();
             m_timeline_gen_state.store(
                 static_cast<int>(reached_end ? TimelineGenState::Done
                                              : TimelineGenState::Idle),
                 std::memory_order_release);
+
+            // Freeze the replay on a COMPLETED generation pass.
+            // Generation ran the replay uncapped; if it just kept playing
+            // at 1x the replay would run on into the post-match cinematic
+            // and then exit to a menu - a presence change that wipes the
+            // freshly-built timeline before the user can scrub it.
+            // Pausing parks the world on the stop frame (the final KO for
+            // a completed match) so the timeline survives for scrubbing;
+            // the user resumes with Play whenever they want.  Only on
+            // reached_end: a user-requested Stop, or an abnormal safety-
+            // timeout / left-replay, must not silently freeze the game.
+            if (was_generating && reached_end)
+            {
+                m_paused.store(true, std::memory_order_release);
+
+                int32_t park_seq = -1;
+                if (m_gen_final_round_last_safe_seq >= 0)
+                {
+                    park_seq = m_gen_final_round_last_safe_seq
+                               - kPostResultParkBackoffFrames;
+                    if (park_seq < m_gen_final_round_first_safe_seq)
+                        park_seq = m_gen_final_round_first_safe_seq;
+                }
+
+                if (park_seq >= 0)
+                {
+                    m_usable_latest_seq.store(park_seq,
+                                              std::memory_order_release);
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub] Generate timeline parking on safe "
+                        "pre-result seq={} (first_safe={} last_safe={})\n"),
+                        park_seq, m_gen_final_round_first_safe_seq,
+                        m_gen_final_round_last_safe_seq);
+                    do_seek_to_seq(park_seq);
+                    write_last_round_result(0);
+                }
+                else
+                {
+                    const int32_t raw_latest = raw_latest_seq();
+                    if (raw_latest >= 0)
+                        m_usable_latest_seq.store(raw_latest,
+                                                  std::memory_order_release);
+                }
+            }
 
             if (was_generating)
             {
@@ -1691,6 +2474,7 @@ namespace Horse
                     RC::to_generic_string(reason ? reason : "?"),
                     (last >= start) ? (last - start) : 0,
                     ring_count());
+                log_generation_profile(reason);
             }
         }
 
@@ -1718,7 +2502,13 @@ namespace Horse
             const int req = m_gen_request.exchange(
                 kGenReqNone, std::memory_order_acq_rel);
             if (req == kGenReqStart)
-                start_generate_timeline();
+                start_generate_timeline(false);
+            else if (req == kGenReqStartExperimental)
+                start_generate_timeline(true);
+            else if (req == kGenReqStartBattleStep)
+                start_generate_timeline_battle_step();
+            else if (req == kGenReqBattleStepProbe)
+                run_battle_step_probe();
             else if (req == kGenReqStop)
                 stop_generate_timeline("user", false);
 
@@ -1732,13 +2522,15 @@ namespace Horse
                 // actively generating.  If any path cleared the gen
                 // state without disengaging, fix it here so a single
                 // cockpit tick always restores SC6's 60fps cap.
-                if (m_frame_cap.is_engaged() || m_screen_pct.is_engaged())
+                if (m_frame_cap.is_engaged() || m_screen_pct.is_engaged()
+                    || m_render_skip.is_engaged())
                 {
                     RC::Output::send<RC::LogLevel::Warning>(STR(
-                        "[ReplayScrub] frame cap / screen-pct engaged "
-                        "outside generation - restoring\n"));
+                        "[ReplayScrub] frame cap / screen-pct / render-skip "
+                        "engaged outside generation - restoring\n"));
                     m_frame_cap.disengage();
                     m_screen_pct.disengage();
+                    m_render_skip.disengage();
                 }
                 return;
             }
@@ -1766,18 +2558,15 @@ namespace Horse
                 return;
             }
 
-            // Ring full: generation's job is to FILL the snapshot ring.
-            // Once it holds ring_frames() snapshots every further capture
-            // just evicts an older one (the ring wraps), so a full ring
-            // already IS a complete timeline - stop here.  This is the
-            // primary stop for replays at least as long as the ring; the
-            // loop / end-of-recording checks below cover shorter replays
-            // whose content never fills it.  Without this the 2026-05-16
-            // test ran generation ~13.5 s (~2.2 ring-fills) past the end
-            // until the user stopped it by hand.
-            if (ring_count() >= ring_frames())
+            // Memory ceiling reached: capture_snapshot has stopped folding
+            // new snapshots into the dedup store (2 GB cap), so the
+            // timeline is as complete as it can get - stop generation.
+            // For a normal-length replay this never fires; the loop /
+            // end-of-recording checks below are what stop generation when
+            // the replay reaches its natural end.
+            if (m_capture_ceiling_hit.load(std::memory_order_acquire))
             {
-                stop_generate_timeline("ring-full", true);
+                stop_generate_timeline("memory-ceiling", true);
                 return;
             }
 
@@ -1794,6 +2583,106 @@ namespace Horse
             const int32_t last_master =
                 m_timeline_gen_last_master.load(std::memory_order_acquire);
             const int32_t last_round = m_gen_last_round;
+            const int32_t last_round_result = read_last_round_result();
+            const int32_t is_playing_back   = read_replay_is_playing_back();
+
+            // nTotalRounds, latched: read_total_rounds() returns -1 while
+            // the ReplayPlayer is briefly unresolvable (common right
+            // after a scene transition).  Latching the first sane reading
+            // keeps a transient -1 from dropping in_final_round mid-match
+            // and letting generation run on into the menu.
+            const int32_t tr_now = read_total_rounds();
+            if (tr_now > 0) m_gen_total_rounds = tr_now;
+
+            // In the FINAL round of the match?  CurrentRound is 0-based
+            // and nTotalRounds is the recorded round count, so the last
+            // round is CurrentRound + 1 >= nTotalRounds (matches the
+            // game's own execIsExistNextRound predicate).  Gated on
+            // m_gen_seen_progress so a generation started on a frozen
+            // intro doesn't act on a not-yet-valid round index.
+            const bool in_final_round =
+                (m_gen_seen_progress && m_gen_total_rounds > 0
+                 && round >= 0 && round + 1 >= m_gen_total_rounds);
+
+            // Match decided -> stop.  g_LuxBattle_LastRoundResultType is 0
+            // while a round is live and goes non-zero the instant
+            // LuxBattle_EvaluateRoundResult scores a round end.  Once the
+            // FINAL round has been seen live (m_gen_final_round_played),
+            // its result going non-zero IS the match being won - stop
+            // right there, before the post-KO cinematic and long before
+            // the replay viewer exits to a menu.  The
+            // m_gen_final_round_played latch keeps a stale result code
+            // carried in from the previous round's end from false-firing
+            // at the final round's very first ticks.
+            if (in_final_round && last_round_result == 0)
+            {
+                m_gen_final_round_played = true;
+                if (master >= kRoundBoundarySeekGuardMaster)
+                {
+                    const int32_t safe_seq = raw_latest_seq();
+                    if (safe_seq >= 0)
+                    {
+                        if (m_gen_final_round_first_safe_seq < 0)
+                            m_gen_final_round_first_safe_seq = safe_seq;
+                        m_gen_final_round_last_safe_seq = safe_seq;
+                    }
+                }
+            }
+            if (m_gen_final_round_played && last_round_result != 0)
+            {
+                stop_generate_timeline("match-ended", true);
+                return;
+            }
+
+            if (m_gen_battle_step_generate.load(std::memory_order_acquire))
+            {
+                run_battle_step_generate_slice();
+                return;
+            }
+
+            // Match decided (ReplayPlayer-independent cross-check): a
+            // player's round-win count reached the rounds-needed-to-win
+            // threshold.  Catches the match end even when the ReplayPlayer
+            // round-index signal above is unavailable.
+            //
+            // Latched against m_gen_match_undecided_seen: the win counts
+            // live in the chara objects, and if a replay reuses a chara
+            // slot a stale "already decided" count could be present at
+            // generation start.  Only a false -> true TRANSITION (the
+            // match observed undecided, then decided) is trusted.
+            {
+                const bool decided = match_decided();
+                if (m_gen_seen_progress && !decided)
+                    m_gen_match_undecided_seen = true;
+                if (m_gen_match_undecided_seen && decided)
+                {
+                    stop_generate_timeline("match-decided", true);
+                    return;
+                }
+            }
+
+            // Backstop: the engine ended replay playback - ALuxBattle-
+            // ReplayPlayer.bIsPlayingBack went 1 -> 0 and stayed 0 for
+            // kGenPlaybackGoneTicks ticks.  The debounce means a
+            // momentary mid-match dip can't false-stop; only a sustained
+            // 0 (the replay genuinely finished) trips it.  Catches
+            // replays that end without a normal final-round result.
+            // is_playing_back == -1 means the actor was momentarily
+            // unresolvable - hold the counter rather than count it.
+            if (is_playing_back == 1)
+            {
+                m_gen_seen_playing_back   = true;
+                m_gen_playback_gone_ticks = 0;
+            }
+            else if (is_playing_back == 0 && m_gen_seen_playing_back)
+            {
+                ++m_gen_playback_gone_ticks;
+            }
+            if (m_gen_playback_gone_ticks > kGenPlaybackGoneTicks)
+            {
+                stop_generate_timeline("playback-ended", true);
+                return;
+            }
 
             // Track the highest round reached this pass.  Rounds only
             // climb during forward play, so a later round below this max
@@ -1843,7 +2732,10 @@ namespace Horse
             // boundary the master clock rebases, so a round bump is
             // progress on its own).
             if (master_advanced || round_advanced)
-                m_gen_last_advance = now;
+            {
+                m_gen_last_advance  = now;
+                m_gen_seen_progress = true;
+            }
 
             if (master >= 0)
                 m_timeline_gen_last_master.store(
@@ -1851,15 +2743,26 @@ namespace Horse
             if (round >= 0)
                 m_gen_last_round = round;
 
-            // End-of-recording: neither clock advanced for
-            // kGenStuckSeconds (the replay stopped feeding frames).  A
-            // momentarily-unreadable tick (master/round = -1) just fails
-            // to refresh the timer rather than stopping outright, so one
-            // transient bad read can't trigger a false "Done".
+            // End-of-recording: neither clock advanced for the stall
+            // window (the replay stopped feeding frames).  A momentarily-
+            // unreadable tick (master/round = -1) just fails to refresh
+            // the timer rather than stopping outright, so one transient
+            // bad read can't trigger a false "Done".
+            //
+            // This is a BACKSTOP to the match-ended / playback-ended
+            // checks above (which fire on a state change, not a stall).
+            // In the final round a shorter window is used - a stall there
+            // can only be the match ending - while outside the final
+            // round the long window stands so a legitimate round-
+            // transition stall never false-stops.
+            const double stuck_limit = in_final_round
+                ? kGenFinalRoundStuckSeconds : kGenStuckSeconds;
             if (std::chrono::duration<double>(now - m_gen_last_advance)
-                    .count() > kGenStuckSeconds)
+                    .count() > stuck_limit)
             {
-                stop_generate_timeline("end-of-recording", true);
+                stop_generate_timeline(
+                    in_final_round ? "match-ended" : "end-of-recording",
+                    true);
                 return;
             }
         }
@@ -1879,11 +2782,14 @@ namespace Horse
         }
 
         // Request a seek to timeline position `target_seq` (a capture
-        // sequence - see m_seq_tags).  Doesn't actually seek until the
+        // sequence - see the m_tags doc).  Doesn't actually seek until the
         // next cockpit tick (see service_seek_request); the UI thread
         // just posts the request via this atomic.
         void request_seek(int32_t target_seq) noexcept
         {
+            const int32_t latest = latest_seq();
+            if (latest >= 0 && target_seq > latest)
+                target_seq = latest;
             m_seek_request.store(target_seq, std::memory_order_release);
         }
 
@@ -1891,6 +2797,9 @@ namespace Horse
         // cockpit tick.  Equivalent to clicking Play.
         void cancel_scrub() noexcept
         {
+            m_resume_after_seek.store(false, std::memory_order_release);
+            m_native_demo_seek_settle_ticks.store(
+                0, std::memory_order_release);
             m_paused.store(false, std::memory_order_release);
         }
 
@@ -1913,6 +2822,11 @@ namespace Horse
         }
         void set_paused(bool v) noexcept
         {
+            if (!v)
+            {
+                m_native_demo_seek_settle_ticks.store(
+                    0, std::memory_order_release);
+            }
             m_paused.store(v, std::memory_order_release);
         }
 
@@ -1933,9 +2847,19 @@ namespace Horse
         }
 
         // Back-compat alias - dllmain's frame_step_apply still calls
-        // is_scrub_active() to decide whether to engage freeze.
-        // Equivalent to is_paused() under the simplified model.
-        bool is_scrub_active() const noexcept { return is_paused(); }
+        // is_scrub_active() to decide whether to engage freeze.  Native
+        // UDemoNetDriver seek is async, so after queueing a seek we may
+        // keep the UI logically paused while temporarily releasing the
+        // tick gates.  That gives UE4's checkpoint task a few frames to
+        // rebuild/replay to the requested time; once the settle window
+        // completes, this returns true again and the world re-freezes on
+        // the selected tick.
+        bool is_scrub_active() const noexcept
+        {
+            return is_paused()
+                && m_native_demo_seek_settle_ticks.load(
+                       std::memory_order_acquire) <= 0;
+        }
 
         bool auto_resume_on_release() const noexcept
         {
@@ -1944,6 +2868,8 @@ namespace Horse
         void set_auto_resume_on_release(bool v) noexcept
         {
             m_auto_resume_on_release.store(v, std::memory_order_release);
+            if (!v)
+                m_resume_after_seek.store(false, std::memory_order_release);
         }
 
         // Called by the UI when the user grabs the timeline playhead.
@@ -1951,19 +2877,28 @@ namespace Horse
         // the drag regardless of any other state.
         void on_drag_start() noexcept
         {
+            m_resume_after_seek.store(false, std::memory_order_release);
             m_paused.store(true, std::memory_order_release);
         }
 
-        // Called by the UI when the user releases the playhead.  When
-        // auto-resume is on (default), the world un-freezes and replay
-        // playback continues from the seeked frame (the cursor sync
-        // we wrote in write_replay_cursors makes the resume clean).
-        // When auto-resume is off, the world stays frozen and the user
-        // must click Play to resume.
+        // Called by the UI when the user releases the playhead.  Default
+        // behavior is review-safe: stay paused on the target frame and
+        // require the user to click Play.  If auto-resume is explicitly
+        // enabled, do not unpause while a UI-thread seek is still queued;
+        // resume only after service_seek_request() applies that seek on
+        // the game thread.
         void on_drag_end() noexcept
         {
-            if (m_auto_resume_on_release.load(std::memory_order_acquire))
-                m_paused.store(false, std::memory_order_release);
+            if (!m_auto_resume_on_release.load(std::memory_order_acquire))
+                return;
+
+            if (m_seek_request.load(std::memory_order_acquire) != kSeekIdle)
+            {
+                m_resume_after_seek.store(true, std::memory_order_release);
+                return;
+            }
+
+            m_paused.store(false, std::memory_order_release);
         }
 
         // ---- Current playhead position --------------------------------
@@ -1984,18 +2919,29 @@ namespace Horse
         // position estimate we have, so the playhead parks where the
         // user left it instead of jumping.
         //
-        // (An earlier design extrapolated "seek_seq + master-clock delta"
-        // during post-seek playback; that stalled the playhead for a
-        // whole round whenever playback crossed a round boundary - the
-        // master clock rebases toward 0 there - so it was removed.  A
-        // capture-free playhead that ADVANCES during post-seek playback
-        // would need a round-immune frame counter; deferred.)
+        // After Generate Timeline, capture is usually OFF, so latest_seq()
+        // is frozen.  While playback is running, map the live replay
+        // (CurrentRound, master clock) back onto the generated tags instead
+        // of pinning the UI to m_last_seek_target.  This avoids the old
+        // broken "seek_seq + master delta" extrapolation, which failed at
+        // round boundaries because master clocks rebase each round.
         //
         // Returns -1 if no useful position is available (no captures).
         int32_t current_play_position() const noexcept
         {
-            const int32_t seeked =
+            int32_t seeked =
                 m_last_seek_target.load(std::memory_order_acquire);
+
+            // Clamp a stale seek target to the current timeline: a
+            // re-generate can shrink the timeline below a seq seeked
+            // against the previous one, which would park the playhead
+            // glyph off the end of the bar.
+            const int32_t latest = latest_seq();
+            if (seeked >= 0)
+            {
+                if (latest < 0)           seeked = -1;
+                else if (seeked > latest) seeked = latest;
+            }
 
             // Paused on a seeked snapshot: park the playhead there.
             if (is_paused() && seeked >= 0) return seeked;
@@ -2008,8 +2954,18 @@ namespace Horse
                  == static_cast<int>(TimelineGenState::Generating));
             if (capturing) return latest_seq();
 
-            // Reviewing a finished timeline: latest_seq() is frozen and
-            // unrelated to playback, so park at the last seek target.
+            if (!is_paused())
+            {
+                const int32_t live_round = read_current_round();
+                const int32_t live_master =
+                    m_live_master_cached.load(std::memory_order_acquire);
+                const int32_t live_seq =
+                    find_slot_for_round_master(live_round, live_master);
+                if (live_seq >= 0) return live_seq;
+            }
+
+            // Reviewing a finished timeline while paused, or while live
+            // clocks are unreadable: park at the last seek target.
             if (seeked >= 0) return seeked;
             return latest_seq();
         }
@@ -2036,7 +2992,7 @@ namespace Horse
         //     never fires for a replay->replay swap.
         void reset_for_new_replay(const char* reason) noexcept
         {
-            const size_t  cnt_before = m_count.load(std::memory_order_relaxed);
+            const size_t  cnt_before = m_tags.count();
             const int32_t last_seek  =
                 m_last_seek_target.load(std::memory_order_relaxed);
             drop_ring();
@@ -2051,22 +3007,45 @@ namespace Horse
             // revalidation timer next fires.
             m_bm_ptr.invalidate();
             ReplayScrubDiag::replay_player_ptr().invalidate();
+            ReplayScrubDiag::clear_cached_demo_driver();
             m_paused.store(false, std::memory_order_release);
             m_seek_request.store(kSeekIdle, std::memory_order_release);
+            m_resume_after_seek.store(false, std::memory_order_release);
+            m_pending_demo_seek_ms.store(-1, std::memory_order_release);
+            m_pending_demo_seek_master.store(-1,
+                                             std::memory_order_release);
+            m_pending_demo_seek_seq.store(-1, std::memory_order_release);
+            m_pending_demo_seek_round.store(-1, std::memory_order_release);
+            m_native_demo_seek_guard_ticks.store(0,
+                                                 std::memory_order_release);
+            m_native_demo_seek_settle_ticks.store(0,
+                                                  std::memory_order_release);
+            m_native_demo_seek_settle_ms.store(-1,
+                                               std::memory_order_release);
+            m_pending_demo_seek_retry_ticks = 0;
             m_last_seek_target.store(-1, std::memory_order_release);
+            m_usable_latest_seq.store(-1, std::memory_order_release);
             m_last_seek_master_tag.store(-1, std::memory_order_release);
             m_live_master_cached.store(-1, std::memory_order_release);
             m_post_seek_countdown.store(0, std::memory_order_release);
             // Cancel any in-progress timeline generation - restore the
-            // engine frame cap + screen percentage and reset the gen
-            // state so the button shows "Generate timeline" again for
-            // the next replay.
+            // engine frame cap + screen percentage + redraw hook and
+            // reset the gen state so the button shows "Generate timeline"
+            // again for the next replay.
             m_frame_cap.disengage();
             m_screen_pct.disengage();
+            m_render_skip.disengage();
             m_timeline_gen_state.store(
                 static_cast<int>(TimelineGenState::Idle),
                 std::memory_order_release);
             m_gen_request.store(kGenReqNone, std::memory_order_release);
+            m_gen_mode.store(static_cast<int>(BattleStepMode::None),
+                             std::memory_order_release);
+            m_gen_battle_step_generate.store(false,
+                                             std::memory_order_release);
+            m_gen_battle_step_probe.store(false,
+                                          std::memory_order_release);
+            m_exp2_transient_fail_count = 0;
             RC::Output::send<RC::LogLevel::Default>(
                 STR("[ReplayScrub] reset_for_new_replay ({}): dropped {} "
                     "captures, cleared paused/seek/gen state "
@@ -2086,11 +3065,7 @@ namespace Horse
 
         // ---- UI accessors --------------------------------------------
 
-        size_t ring_frames() const noexcept { return m_ring_frames; }
-        size_t ring_count()  const noexcept
-        {
-            return m_count.load(std::memory_order_relaxed);
-        }
+        size_t ring_count()  const noexcept { return m_tags.count(); }
         int32_t live_frame() const noexcept
         {
             uint32_t c = 0;
@@ -2098,77 +3073,81 @@ namespace Horse
             return -1;
         }
 
-        // Timeline coordinate accessors.  The canonical timeline coord
-        // is the per-snapshot monotonic capture sequence (m_seq_tags) -
-        // unique, gap-free, monotonic across the WHOLE match including
-        // round boundaries.  earliest/latest return the seq of the
-        // oldest / newest snapshot still in the ring, or -1 if empty.
-        //
-        // Race-protection check (unified 2026-05-13 audit):
-        //   free_ring() runs on the game thread and tears down the ring
-        //   in this order: m_count=0 (release) -> m_head=0 ->
-        //   m_ring_frames=0 (non-atomic) -> tag vectors cleared.  The UI
-        //   thread can observe these out of order, so the
-        //   `cap > m_seq_tags.size()` check catches the window where
-        //   m_ring_frames still reads N but the vector is already empty.
+        // Approximate resident bytes of the dedup snapshot store: pool
+        // arena + every region's per-tick chunk-id list + tag timeline.
+        // Drives the 2 GB capture ceiling and the UI memory readout.
+        size_t store_bytes() const noexcept
+        {
+            return m_pool.bytes()
+                 + m_sim_store.idlist_bytes()
+                 + m_il_store.idlist_bytes()
+                 + m_rdb_store.idlist_bytes()
+                 + m_extras_store.idlist_bytes()
+                 + m_tags.bytes();
+        }
+
+        // True once capture has stopped because the store reached the
+        // 2 GB ceiling.  Cleared on the next replay / re-generate.
+        bool capture_ceiling_hit() const noexcept
+        {
+            return m_capture_ceiling_hit.load(std::memory_order_acquire);
+        }
+
+        // Timeline coordinate accessors.  The canonical timeline coord is
+        // the per-snapshot monotonic capture sequence - unique, gap-free,
+        // monotonic across the WHOLE match including round boundaries.
+        // Capture is append-only, so seq IS the tick index: the timeline
+        // always spans seq 0 .. count-1.  earliest/latest return -1 when
+        // empty.
         int32_t earliest_seq() const noexcept
         {
-            const size_t cap  = m_ring_frames;
-            const size_t cnt  = ring_count();
-            if (cap == 0 || cnt == 0 || cap > m_seq_tags.size()) return -1;
-            const size_t head = m_head.load(std::memory_order_relaxed);
-            const size_t idx  = (head + cap - cnt) % cap;
-            return m_seq_tags[idx].load(std::memory_order_relaxed);
+            return m_tags.count() ? 0 : -1;
         }
         int32_t latest_seq() const noexcept
         {
-            const size_t cap  = m_ring_frames;
-            const size_t cnt  = ring_count();
-            if (cap == 0 || cnt == 0 || cap > m_seq_tags.size()) return -1;
-            const size_t head = m_head.load(std::memory_order_relaxed);
-            const size_t idx  = (head + cap - 1) % cap;
-            return m_seq_tags[idx].load(std::memory_order_relaxed);
+            const int32_t raw = raw_latest_seq();
+            if (raw < 0) return -1;
+            const int32_t usable =
+                m_usable_latest_seq.load(std::memory_order_acquire);
+            if (usable >= 0 && usable < raw) return usable;
+            return raw;
+        }
+
+        int32_t raw_latest_seq() const noexcept
+        {
+            const size_t cnt = m_tags.count();
+            return cnt ? static_cast<int32_t>(cnt - 1) : -1;
         }
 
         // Resolve a timeline seq to its captured (round, within-round
         // wall frame) for the UI's round-aware time display.  Returns
-        // false if the seq isn't held in the ring.
+        // false if the seq isn't a captured tick.
         bool seq_tag_info(int32_t seq, int32_t& out_round,
                           int32_t& out_wall) const noexcept
         {
-            const int32_t slot = find_slot_for_seq(seq);
-            if (slot < 0) return false;
-            out_round = m_round_tags[static_cast<size_t>(slot)]
-                          .load(std::memory_order_acquire);
-            out_wall  = m_frame_tags[static_cast<size_t>(slot)]
-                          .load(std::memory_order_acquire);
-            return true;
+            const int32_t tick = find_slot_for_seq(seq);
+            if (tick < 0) return false;
+            int32_t s, m;
+            return m_tags.get(static_cast<size_t>(tick),
+                              s, out_round, out_wall, m);
         }
 
         // Collect the round-boundary markers for the timeline bar: one
-        // entry per round present in the ring, each giving the seq of
-        // that round's first captured snapshot.  The ring is FIFO and
-        // seq is monotonic-by-capture, so a FIFO walk is already
-        // seq-ascending - no sort needed.  Cheap; called once per UI
-        // render.
+        // entry per round present, each giving the seq of that round's
+        // first captured snapshot.  The timeline is append-only and seq
+        // is monotonic-by-capture, so a forward walk is already seq-
+        // ascending - no sort needed.  Cheap; called once per UI render.
         std::vector<RoundMarker> collect_round_markers() const
         {
             std::vector<RoundMarker> out;
-            const size_t cap = m_ring_frames;
-            const size_t cnt = ring_count();
-            if (cap == 0 || cnt == 0 || cap > m_seq_tags.size()
-                || cap > m_round_tags.size())
-                return out;
-            const size_t head = m_head.load(std::memory_order_relaxed);
+            const int32_t latest = latest_seq();
+            if (latest < 0) return out;
             int32_t prev_round = -0x7fffffff;
-            for (size_t k = 0; k < cnt; ++k)
+            for (size_t k = 0; k <= static_cast<size_t>(latest); ++k)
             {
-                const size_t idx = (head + cap - cnt + k) % cap;
-                const int32_t s =
-                    m_seq_tags[idx].load(std::memory_order_acquire);
+                int32_t s, r, f, m;
+                if (!m_tags.get(k, s, r, f, m)) break;
                 if (s < 0) continue;
-                const int32_t r =
-                    m_round_tags[idx].load(std::memory_order_acquire);
                 if (r != prev_round)
                 {
                     out.push_back(RoundMarker{ s, r });
@@ -2189,13 +3168,27 @@ namespace Horse
 
         // Sentinel for "no seek pending".
         static constexpr int32_t kSeekIdle = -1;
+        // Round-boundary snapshots are captured while SC6 is rebasing
+        // per-round state (master clock, BM state bytes, replay actors).
+        // Restoring the exact first frames of a new round has crashed in
+        // the Generate-timeline path; seek a little into the round instead.
+        static constexpr int32_t kRoundBoundarySeekGuardFrames = 30;
+        // The 30 captured-tick guard was too narrow for a real R2 test:
+        // the failing seek landed at round-local master_clock=53 and
+        // crashed in the next main-sim pass.  For non-first rounds, keep
+        // seeks out of the low replay-clock setup window as well.
+        static constexpr int32_t kRoundBoundarySeekGuardMaster = 120;
 
         // Engine entry points.  Resolved via image base + RVA.
         using ExecWriteFn = void* (__fastcall*)(HgCpuBufferShim*);
         using ExecReadFn  = void* (__fastcall*)(HgCpuBufferShim*);
+        using DemoGotoTimeFn = void (__fastcall*)(void*, float, void*);
+        using PerFrameTickFn = void (__fastcall*)(uintptr_t*);
 
         ExecWriteFn m_exec_write {nullptr};
         ExecReadFn  m_exec_read  {nullptr};
+        DemoGotoTimeFn m_demo_goto_time {nullptr};
+        PerFrameTickFn m_per_frame_tick_bypass {nullptr};
         const void* m_frame_counter_addr {nullptr};
 
         // Single shim, re-targeted onto each ring slot in turn.  The
@@ -2360,15 +3353,12 @@ namespace Horse
         // bMoveStateByte_Off already declared above as 0x1463
         static constexpr uintptr_t kBM_bStatusByte_Off            = 0x1480;
 
-        // PlayerRecordArray gate bits (replay-resume fix, 2026-05-14):
-        // LuxReplayChara_Tick_CopyNextFrameToManager_SetMoveState4 reads
-        // PRA+(playerIndex*0xA8)+0x398 and early-returns if neither
-        // rewind bit (8) nor forward bit (9) is set.  HorseMod's scrub
-        // un-pause doesn't touch these bits, so post-seek the function
-        // returns without ever incrementing dwPlaybackCursor.  Capture
-        // both players' +0x394 and +0x398 fields per-snapshot so the
-        // restore preserves whatever bit pattern was natural at the
-        // captured frame (typically bit 9 = 1 during forward play).
+        // PlayerRecordArray replay-menu bits.  Earlier notes treated
+        // bit 9 as a per-frame movement gate, but Ghidra recheck on
+        // 2026-05-18 showed the reader at 0x140435C20 is actually
+        // ALuxBattleReplayPlayer round-reset navigation:
+        // CurrentRound/StateResetData/TotalRounds, not frame motion.
+        // Keep direct PRA writes under the disabled speculative gate.
         static constexpr uintptr_t kBM_PlayerRecordArray_Off  = 0x440;
         static constexpr uintptr_t kPRA_FieldAt394_Off        = 0x394;
         static constexpr uintptr_t kPRA_FieldAt398_Off        = 0x398;
@@ -2495,102 +3485,89 @@ namespace Horse
         // ALuxBattleReplayPlayer_RegisterProperties @ 0x14097beb0).
         static constexpr uintptr_t kRP_CurrentRound_Off    = 0x39C;
         static constexpr uintptr_t kRP_CurrentTime_Off     = 0x3A0;
+        // nTotalRounds: number of rounds in the recorded match.  Verified
+        // via execIsExistNextRound @ 0x1409a5490, whose body is
+        // RetVal = (CurrentRound + 1) < nTotalRounds - so the final round
+        // is the one with CurrentRound == nTotalRounds - 1.
+        static constexpr uintptr_t kRP_TotalRounds_Off     = 0x3B0;
         static constexpr uintptr_t kRP_IsPlayingBack_Off   = 0x3D0;
 
-        // Backing storage: one large allocation, sliced into N x
-        // kSnapshotStride byte slots.  Single allocation simplifies
-        // the malloc story and keeps slots contiguous in memory for
-        // cache locality.
-        std::unique_ptr<uint8_t[]> m_data {};
-        size_t m_ring_frames {0};
+        // ----------------------------------------------------------------
+        // Deduplicated snapshot store.
+        //
+        // Capture is append-only and unbounded (to a 2 GB ceiling): each
+        // replay tick folds four fixed-length regions into RegionStores
+        // backed by a shared ChunkPool.  The pool keeps every DISTINCT
+        // 512-byte chunk once, so the redundant bulk of each snapshot
+        // (stage geometry, configs, move-data - byte-identical tick to
+        // tick) costs nothing after its first occurrence.  The tick index
+        // is the canonical timeline coordinate and equals the capture seq.
+        //
+        // m_pool MUST out-live the RegionStores (they hold a back-pointer
+        // to it) - declared first so it destructs last.
+        ChunkPool m_pool;
 
-        // PARALLEL ring of InputLog-state snapshots.  One ~16 KB blob
-        // per ring slot covering pInputLog+0x394..+0x4414 (= the full
-        // replay-related state range, including the input cache, drain
-        // cursor, and any hidden bookkeeping in between).  Restored on
-        // seek alongside the HgCpuDirect simulation snapshot so the
-        // engine's whole replay-playback machinery thinks it's at the
-        // captured frame.
-        //
-        // Previously this was a narrower 16 KB capture of just the
-        // input cache at +0x3C0..+0x43C0; that proved insufficient
-        // (see kIL_CaptureStart_Off plate above).
-        //
-        // Memory cost: kIL_CaptureBytes x ring_frames = ~57 MB at the
-        // default 3600 frames.
-        std::unique_ptr<uint8_t[]> m_input_log_ring {};
+        // Sim region: HgCpuDirect's 0x28018-byte per-snapshot blob (chara,
+        // globals, terrain, camera, timer, motion, physics, VFX).
+        RegionStore m_sim_store;
 
-        // PARALLEL ring of FLuxReplayDataBlock snapshots - the Stage
-        // 1 decoder's full 1021-byte state struct (at *pBM+0x460).
-        // Capturing this brings along the DECODER cursors -
-        // llFileReadCursor, llDecodedBufferReadCursor, llDecodedBuffer-
-        // WriteCursor, working frame ID, etc. - so a backward seek
-        // can rewind the decoder to the captured frame's position
-        // and the engine's per-frame input consumer reads the right
-        // packets afterwards.
-        //
-        // 2026-05-11 finding: without this, the engine's decoder
-        // stays at the live-edge file position; post-seek the engine
-        // applies "inputs from later in the round" to the just-
-        // restored state-at-T, producing the "characters do moves
-        // from frame F onwards on top of state at T" symptom.
-        //
-        // Memory cost: 1021 x ring_frames = ~3.6 MB at 3600 frames.
-        // Negligible compared to the simulation snapshot ring.
-        std::unique_ptr<uint8_t[]> m_rdb_ring {};
+        // InputLog-state region: pInputLog+0x394..+0x4414, the full
+        // replay-related state range (input cache, drain cursor, playback
+        // cursor, master clock, and any hidden bookkeeping between).
+        // Restored on seek alongside the sim snapshot so the engine's
+        // whole replay-playback machinery thinks it is at the captured
+        // frame.  (An earlier narrower +0x3C0..+0x43C0 capture proved
+        // insufficient - see the kIL_CaptureStart_Off plate above.)
+        RegionStore m_il_store;
 
-        // PARALLEL ring of "extras" - the round-end-fix state (2026-05-14):
-        // WorldModePump struct + BlockInteractiveOps + cinematic head +
-        // BM internal state bytes.  See kExtras_* constants above for the
-        // exact layout.  Capture/restore in lockstep with the HgCpuDirect
-        // snapshot so a backward seek from post-round into mid-round
-        // restores the world-mode state machine to the in-round mode
-        // pointer, clears the cinematic-block flag, and resets BM bytes -
-        // un-gating LuxBattle_PerFrameTick's chara input tick which is
-        // otherwise blocked when WorldModePump's GetModeType still
+        // Decoder-state region: the Stage 1 decoder's FLuxReplayDataBlock
+        // (1021 bytes at *pBM+0x460) - file/decoded-buffer cursors,
+        // working frame ID, running flag.  2026-05-11 finding: without
+        // rewinding these on a backward seek the decoder stays at the
+        // live-edge file position and feeds "inputs from later in the
+        // round" onto the just-restored state-at-T.
+        RegionStore m_rdb_store;
+
+        // Extras region (round-end seek-back fix, 2026-05-14):
+        // BlockInteractiveOps + cinematic head + BM internal state bytes +
+        // FrameInput per-slot records + per-chara replay-state fields.
+        // See the kExtras_* constants above for the exact layout.
+        // Restored in lockstep so a backward seek from post-round into
+        // mid-round un-gates LuxBattle_PerFrameTick's chara input tick,
+        // otherwise blocked while WorldModePump's GetModeType still
         // returns 3 (round-end) post-restore.
-        //
-        // Memory cost: kExtras_Bytes x ring_frames = ~700 KB at 7200
-        // frames.  Negligible.
-        std::unique_ptr<uint8_t[]> m_extras_ring {};
+        RegionStore m_extras_store;
 
-        // Per-slot tags.  Atomic because the UI thread reads the
-        // timeline accessors while the cockpit thread updates them on
-        // capture.  FOUR tags per slot:
+        // Per-tick metadata, one entry per committed snapshot, appended
+        // by the capture path and read locklessly by the UI thread (see
+        // the TagTimeline plate).  ring_count() == m_tags.count().  Four
+        // tags per tick:
         //
-        //   m_seq_tags    -- monotonic capture sequence (a HorseMod-side
-        //                    counter, +1 per capture).  THE canonical
-        //                    timeline coordinate: unique, gap-free and
-        //                    monotonic across the WHOLE match including
-        //                    round boundaries.  The UI bar, playhead and
-        //                    seek all key off this.
-        //   m_round_tags  -- ALuxBattleReplayPlayer.CurrentRound at
-        //                    capture time.  Drives the timeline's
-        //                    round-boundary markers + round-aware time
-        //                    display.
-        //   m_frame_tags  -- g_LuxBattle_FrameCounter (wall clock).
-        //                    NOTE: this RESETS TO 0 at every round
-        //                    boundary (LuxBattle_InitializeMatchRoundState
-        //                    @ 0x1402DBA92 zeroes it), so it is NOT a
-        //                    valid match-wide coordinate - it is kept
-        //                    only as the within-round frame number for
-        //                    display + the PRE_SEEK diagnostic.
-        //   m_master_tags -- pInputLog->nMasterClock (replay clock) at
-        //                    capture time.  Used by write_replay_cursors
-        //                    to sync the engine's InputLog cursors after
-        //                    a snapshot restore, and by the post-seek
-        //                    playhead extrapolation.  The engine reads
-        //                    recorded inputs indexed by master clock, so
-        //                    the restore MUST use this, not wall clock.
-        std::vector<std::atomic<int32_t>> m_seq_tags    {};
-        std::vector<std::atomic<int32_t>> m_round_tags  {};
-        std::vector<std::atomic<int32_t>> m_frame_tags  {};
-        std::vector<std::atomic<int32_t>> m_master_tags {};
+        //   seq    -- monotonic capture sequence (a HorseMod-side counter,
+        //             +1 per capture).  THE canonical timeline coordinate:
+        //             unique, gap-free and monotonic across the WHOLE
+        //             match including round boundaries.  Equals the tick
+        //             index.  The UI bar, playhead and seek all key off it.
+        //   round  -- ALuxBattleReplayPlayer.CurrentRound at capture time.
+        //             Drives the timeline's round-boundary markers +
+        //             round-aware time display.
+        //   frame  -- g_LuxBattle_FrameCounter (wall clock).  NOTE: this
+        //             RESETS TO 0 at every round boundary (LuxBattle_-
+        //             InitializeMatchRoundState @ 0x1402DBA92 zeroes it),
+        //             so it is NOT a valid match-wide coordinate - kept
+        //             only as the within-round frame number for display +
+        //             the PRE_SEEK diagnostic.
+        //   master -- pInputLog->nMasterClock (replay clock) at capture
+        //             time.  Used by write_replay_cursors to sync the
+        //             engine's InputLog cursors after a snapshot restore,
+        //             and by the post-seek playhead extrapolation.  The
+        //             engine reads recorded inputs indexed by master
+        //             clock, so the restore MUST use this, not wall clock.
+        TagTimeline m_tags;
 
-        // Ring head: index of the slot the NEXT capture will write
-        // into.  Atomic for the same reason as the tag arrays.
-        std::atomic<size_t>  m_head  {0};
-        std::atomic<size_t>  m_count {0};
+        // Set true (once) when capture stops at the 2 GB store ceiling.
+        // Cleared by drop_ring() on the next replay / re-generate.
+        std::atomic<bool> m_capture_ceiling_hit {false};
 
         // Capture-loop state (cockpit thread only).
         uint32_t m_last_counter      {0};
@@ -2610,11 +3587,6 @@ namespace Horse
         RC::Unreal::UObject* m_last_bm_obj            {nullptr};
         RC::Unreal::UObject* m_last_replay_player_obj {nullptr};
 
-        // Monotonic capture-sequence counter.  Stamped into m_seq_tags
-        // on each capture; reset to 0 only when the ring is dropped
-        // (new replay / presence change).  Cockpit thread only.
-        int32_t  m_next_seq          {0};
-
         // Toggles + flags.
         std::atomic<bool> m_initialized              {false};
         // Passive per-frame capture.  OFF by default: the per-frame
@@ -2626,15 +3598,9 @@ namespace Horse
         // ordinary 1x viewing (accepting the per-frame cost).
         std::atomic<bool> m_capture_enabled          {false};
         std::atomic<bool> m_paused                   {false};
-        std::atomic<bool> m_auto_resume_on_release   {true};
+        std::atomic<bool> m_auto_resume_on_release   {false};
+        std::atomic<bool> m_resume_after_seek        {false};
         std::atomic<int32_t> m_seek_request          {kSeekIdle};
-        // Deferred resize request from the UI (render thread) -- picked
-        // up by the cockpit pre-tick (game thread) so ring teardown +
-        // realloc runs on a single thread.  0 = no request pending.
-        // Without this, dragging the capture-window slider could race
-        // ensure_initialized() against tick_capture()/do_seek_to_seq
-        // and dereference a freed m_data / cleared vector.
-        std::atomic<size_t>  m_pending_resize_frames  {0};
 
         // Verbose diagnostics toggle (UI checkbox).  When ON:
         //   - every BASELINE dump also calls ReplayScrubDiag::dump_full
@@ -2660,21 +3626,30 @@ namespace Horse
         //   pInputLog->dwPlaybackCursor @ +0x39C
         // PLUS BM+0x148C/+0x1488 cursor pair sync.
         //
-        // But the BP-level replay menu dispatches recorded frames using
-        // ALuxBattleReplayPlayer.CurrentTime (replicated UE4 property
-        // 0x20080000020815 at actor+0x3A0).  If we don't rewind THAT,
-        // the BP keeps dispatching live-edge frames into the restored
-        // chara state - which manifests as "chara finishes current
-        // move and idles" (no useful new dispatch lands).
-        //
-        // Earlier sessions where CurrentTime got reset (via UE4SS
-        // reflection that happened to work) showed playback resuming
-        // post-seek.  Sessions where it didn't reset showed chars idle.
-        // The strongest empirical signal we have.
-        //
-        // Caveat: target_round is hardcoded to 0 in the caller; multi-
-        // round replays may need per-snapshot round capture.  TODO.
-        std::atomic<bool>    m_use_replay_player_seek {true};
+        // ReplayPlayer cursor repair.  OFF by default: writing these
+        // replicated-looking fields is shallow and can make the UI appear
+        // to move even when the native demo driver did not accept a seek.
+        // Character motion is driven by the native DemoNetDriver seek below.
+        std::atomic<bool>    m_use_replay_player_seek {false};
+
+        // 2026-05-18: engine-native seek.  Direct ReplayPlayer byte
+        // writes only move replicated UI/cursor fields; they do not
+        // rebuild the DemoNetDriver packet stream that actually drives
+        // match-replay actors.  Capture stores absolute
+        // UDemoNetDriver.DemoCurrentTime per timeline tick, then seek
+        // calls UDemoNetDriver::GotoTimeInSeconds with that time.
+        std::atomic<bool>    m_use_demo_goto_time_seek {true};
+        std::atomic<int32_t> m_pending_demo_seek_ms     {-1};
+        std::atomic<int32_t> m_pending_demo_seek_master {-1};
+        std::atomic<int32_t> m_pending_demo_seek_seq    {-1};
+        std::atomic<int32_t> m_pending_demo_seek_round  {-1};
+        std::atomic<int32_t> m_native_demo_seek_guard_ticks {0};
+        std::atomic<int32_t> m_native_demo_seek_settle_ticks {0};
+        std::atomic<int32_t> m_native_demo_seek_settle_ms    {-1};
+        int32_t              m_pending_demo_seek_retry_ticks {0};
+        static constexpr int32_t kNativeDemoSeekGuardTicks = 600;
+        static constexpr int32_t kNativeDemoSeekRetryTicks = 5;
+        static constexpr int32_t kNativeDemoSeekSettleTicks = 120;
 
         // Set to N (default 600 = 10 seconds @ 60fps) right after a
         // seek; decremented every cockpit tick.  Per-tick detail
@@ -2714,6 +3689,10 @@ namespace Horse
         // the ring slot we restored from).  Used by current_play_-
         // position() to drive the playhead while paused.
         std::atomic<int32_t> m_last_seek_target      {-1};
+        // Normal UI/seeks clamp to this after Generate Timeline parks on
+        // a pre-result frame, leaving any captured post-KO tail as
+        // diagnostics-only data.
+        std::atomic<int32_t> m_usable_latest_seq     {-1};
 
         // 2026-05-14 UI-playhead fix: track the master clock at last
         // seek + the LIVE engine master clock so the UI can extrapolate
@@ -2761,24 +3740,23 @@ namespace Horse
         //   ConsumerCursor/bCharaMode).  An older Ghidra plate empirically
         //   observed VFX-byte values in these fields during match-replay
         //   viewing (bCharaMode=14/197/63 not 5/2) and concluded they are
-        //   "repurposed for VFX".  Default ON - restoring captured bytes is
-        //   correct if the snapshot's values were the right state at that
-        //   moment, regardless of whether semantically "cursors" or "VFX".
-        //   Toggle off to test if restoring them is harmful.
+        //   "repurposed for VFX".  Default OFF: the 2026-05-18 Generate-
+        //   timeline crash happened immediately after this restore logged
+        //   float-looking "frame target" values (0x3Fxxxxxx), so normal
+        //   playback should not write this range unless explicitly enabled
+        //   for bisection.
         //
-        // - m_force_pra_forward_bit_on_seek: write PRA+0x398 bit 9 (0x200) = 1
-        //   immediately after seek.  Bit 9 = FORWARD play request.  Per
-        //   CopyNextFrameToManager_SetMoveState4 plate, this bit gates the
-        //   ReplayPlayer's per-frame snapshot dispatcher.  Default OFF.
-        //   Toggle ON if you suspect post-seek the engine needs the bit set
-        //   to resume forward play.
+        // - m_force_pra_forward_bit_on_seek: retained only as a locked-off
+        //   historical bisection toggle.  Ghidra recheck on 2026-05-18
+        //   showed the function behind the old theory is ReplayPlayer's
+        //   round-reset tick, not per-frame motion dispatch.
         //
         // - m_force_isplayingback_on_seek: write ReplayPlayer+0x3D0 = 1
         //   immediately after seek.  Forces bIsPlayingBack = true so the
         //   engine doesn't think replay has ended.  Default OFF.
         //
         // Each toggle is exposed in HorseMod's Replay tab UI for bisection.
-        std::atomic<bool>    m_enable_chara_4400_restore     {true};
+        std::atomic<bool>    m_enable_chara_4400_restore     {false};
         std::atomic<bool>    m_force_pra_forward_bit_on_seek {false};
         std::atomic<bool>    m_force_isplayingback_on_seek   {false};
 
@@ -2801,15 +3779,31 @@ namespace Horse
         // consumes it on the game thread.
         FrameCapOverride         m_frame_cap;
         ScreenPercentageOverride m_screen_pct;
+        RenderSkipOverride       m_render_skip;
         std::atomic<int>     m_gen_request               {0};
         std::atomic<int>     m_timeline_gen_state        {0};
         std::atomic<int32_t> m_timeline_gen_start_master {0};
         std::atomic<int32_t> m_timeline_gen_last_master  {0};
+        // Which generation mode is active while state==Generating:
+        // 0=None, 1=RenderSkip, 2=DirectPerFrame.
+        // Drives UI status text + profile flags.
+        std::atomic<int>     m_gen_mode                  {0};
+        // Experimental battle-step generation: direct PerFrameTick stepping.
+        std::atomic<bool>    m_gen_battle_step_generate  {false};
+        std::atomic<bool>    m_gen_battle_step_probe     {false};
 
         // m_gen_request values.
-        static constexpr int kGenReqNone  = 0;
-        static constexpr int kGenReqStart = 1;
-        static constexpr int kGenReqStop  = 2;
+        static constexpr int kGenReqNone              = 0;
+        static constexpr int kGenReqStart             = 1;
+        static constexpr int kGenReqStop              = 2;
+        static constexpr int kGenReqStartExperimental = 3;
+        static constexpr int kGenReqStartBattleStep   = 4;
+        static constexpr int kGenReqBattleStepProbe   = 5;
+
+        // Keep direct-step loops responsive by capping work per game tick.
+        static constexpr int32_t kExp2MaxFramesPerSlice = 32;
+        static constexpr int64_t kExp2SliceBudgetUs     = 2400;
+        static constexpr int32_t kExp2TransientFailureBudget = 4;
 
         // Auto-stop tuning.  Wall-clock based so it is independent of
         // the (now uncapped, hardware-dependent) frame rate.
@@ -2820,15 +3814,48 @@ namespace Horse
         //     The prompt end signals are presence-change / loop /
         //     teardown; this stall timer is only the backstop for a
         //     replay that halts on a held end screen.
+        //   kGenFinalRoundStuckSeconds: the shorter stall window applied
+        //     once the replay is in its FINAL round (CurrentRound ==
+        //     nTotalRounds-1).  In the last round a master-clock stall
+        //     can only be the match ending - there is no next round to
+        //     wait for - so generation stops promptly instead of idling
+        //     the full kGenStuckSeconds on the post-KO cinematic / held
+        //     end screen.  This is what makes "Generate timeline" stop
+        //     when the match is won.
         //   kGenMaxSeconds: hard safety ceiling on a generation run.
-        static constexpr double kGenStuckSeconds = 8.0;
-        static constexpr double kGenMaxSeconds   = 120.0;
+        //     Sized to outlast a full multi-round match replayed at ~1x
+        //     (a 3-round match is ~5 min) on slow hardware where
+        //     generation barely beats real time - kGenStuckSeconds is
+        //     the real end-of-recording detector, this is only the
+        //     backstop for a true hang.  120 s used to truncate long
+        //     replays mid-generation and falsely report "safety-timeout".
+        static constexpr double kGenStuckSeconds           = 8.0;
+        static constexpr double kGenFinalRoundStuckSeconds = 3.0;
+        static constexpr double kGenMaxSeconds             = 600.0;
+        static constexpr int32_t kPostResultParkBackoffFrames = 30;
+        // Cockpit ticks bIsPlayingBack must stay 0 before the playback-
+        // ended backstop trips - far beyond any momentary flicker.
+        static constexpr int32_t kGenPlaybackGoneTicks     = 30;
 
         // Wall-clock marks for the auto-stop logic.  Touched only by the
         // game thread (start_generate_timeline / tick_generate_timeline),
         // so plain members - no atomics needed.
         std::chrono::steady_clock::time_point m_gen_started_at  {};
+        std::chrono::steady_clock::time_point m_gen_finished_at {};
         std::chrono::steady_clock::time_point m_gen_last_advance{};
+        std::atomic<uint64_t> m_gen_profile_frames    {0};
+        std::atomic<uint64_t> m_gen_profile_total_us  {0};
+        std::atomic<uint64_t> m_gen_profile_sim_us    {0};
+        std::atomic<uint64_t> m_gen_profile_il_us     {0};
+        std::atomic<uint64_t> m_gen_profile_rdb_us    {0};
+        std::atomic<uint64_t> m_gen_profile_extras_us {0};
+        std::atomic<uint64_t> m_gen_profile_commit_us {0};
+        std::vector<uint8_t> m_exp2_sim_before;
+        std::vector<uint8_t> m_exp2_sim_after;
+        std::vector<uint8_t> m_exp2_il_before;
+        std::vector<uint8_t> m_exp2_rdb_before;
+        std::vector<uint8_t> m_exp2_extras_before;
+        int32_t m_exp2_transient_fail_count {0};
         // CurrentRound observed on the previous generation tick - drives
         // multi-round loop detection (a backward jump = replay looped).
         int32_t m_gen_last_round {-1};
@@ -2840,6 +3867,38 @@ namespace Horse
         // CurrentRound read -1 on the loop frame, so generation ran on
         // past the end until the user stopped it manually).
         int32_t m_gen_max_round {-1};
+        // Set true once the replay has actually advanced (master clock or
+        // round) during THIS generation pass.  Gates the short final-round
+        // stall window so a generation started while the replay is still
+        // on a frozen intro can't immediately false-stop.
+        bool m_gen_seen_progress {false};
+        // Set true once the FINAL round has been observed live (in the
+        // last round with no round-result code yet).  Gates the
+        // match-ended stop so a stale result code carried in from the
+        // previous round's end can't false-trigger at the final round's
+        // start.  See tick_generate_timeline.
+        bool m_gen_final_round_played {false};
+        // Set true once ALuxBattleReplayPlayer.bIsPlayingBack has been
+        // observed == 1 this pass; a sustained 0 afterwards signals the
+        // engine ended replay playback (backstop match-end detector).
+        bool m_gen_seen_playing_back {false};
+        // Consecutive cockpit ticks bIsPlayingBack has read 0 (after
+        // having been seen 1).  Debounces the playback-ended backstop so
+        // a momentary mid-match dip can't false-stop generation.
+        int32_t m_gen_playback_gone_ticks {0};
+        // Set true once the match has been observed UNDECIDED this pass
+        // (match_decided() == false while progressing).  Gates the
+        // match-decided stop so a stale win-count left in a reused chara
+        // slot can't false-fire before the replay has been seen live.
+        bool m_gen_match_undecided_seen {false};
+        // ALuxBattleReplayPlayer.nTotalRounds, latched the first time it
+        // reads as a sane positive value this pass.  read_total_rounds()
+        // returns -1 while the actor is briefly unresolvable (common just
+        // after a scene transition); caching keeps a later -1 from
+        // dropping in_final_round / the match-ended detector.
+        int32_t m_gen_total_rounds {-1};
+        int32_t m_gen_final_round_first_safe_seq {-1};
+        int32_t m_gen_final_round_last_safe_seq  {-1};
 
         // ---- Internals ------------------------------------------------
 
@@ -2851,137 +3910,114 @@ namespace Horse
                 base + kRVA_ExecMoveChangeAndPost);
             m_exec_read  = reinterpret_cast<ExecReadFn>(
                 base + kRVA_ExecFinalizeAndPost);
+            m_demo_goto_time = reinterpret_cast<DemoGotoTimeFn>(
+                base + kRVA_DemoGotoTimeInSeconds);
             m_frame_counter_addr =
                 reinterpret_cast<const void*>(base + kRVA_FrameCounter);
             return m_exec_write != nullptr
                 && m_exec_read  != nullptr
+                && m_demo_goto_time != nullptr
                 && m_frame_counter_addr != nullptr;
         }
 
-        bool alloc_ring(size_t ring_frames) noexcept
+        bool resolve_per_frame_tick_bypass() noexcept
         {
-            if (ring_frames == 0) return false;
-            if (ring_frames > kMaxRingFrames) ring_frames = kMaxRingFrames;
-            // Allocate both rings before exposing either - on
-            // mid-allocation OOM we want to leave the tracker fully
-            // uninitialised rather than half-allocated.
+            if (m_per_frame_tick_bypass) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            void* site = reinterpret_cast<void*>(
+                base + kRVA_LuxBattlePerFrameTick);
+
+            constexpr size_t kTrampSize = 12;
+            uint8_t* tramp = static_cast<uint8_t*>(
+                CodeCave::allocate(kTrampSize));
+            if (!tramp) return false;
+
+            size_t off = 0;
+            const uint8_t prologue[7] =
+                {0x4C, 0x8B, 0xDC, 0x49, 0x89, 0x5B, 0x10};
+            std::memcpy(tramp + off, prologue, sizeof(prologue));
+            off += sizeof(prologue);
+
+            uint8_t jmp[5] = {};
+            if (!encode_jmp_rel32(tramp + off,
+                                  static_cast<uint8_t*>(site) + 7, jmp))
+                return false;
+            std::memcpy(tramp + off, jmp, sizeof(jmp));
+            off += sizeof(jmp);
+
+            ::FlushInstructionCache(::GetCurrentProcess(), tramp, off);
+            m_per_frame_tick_bypass =
+                reinterpret_cast<PerFrameTickFn>(tramp);
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EXP2] direct PerFrameTick bypass ready "
+                "(tramp=0x{:x}, target=0x{:x})\n"),
+                reinterpret_cast<uintptr_t>(tramp),
+                base + kRVA_LuxBattlePerFrameTick);
+            return true;
+        }
+
+        // Reset the dedup store to empty: re-size the four RegionStores,
+        // clear the shared ChunkPool and the tag timeline, and reset the
+        // ceiling flag.  Used for first-time init (ensure_initialized) and
+        // to discard a timeline that became chronologically discontinuous
+        // - a new replay (on_presence_change), a replay restart inside the
+        // viewer (CurrentRound jumps backward), or a re-generate.  Round-
+        // to-round transitions do NOT drop the store - the timeline spans
+        // the whole match.
+        //
+        // RegionStore::init() frees the previous chunk-id list, so after a
+        // 2 GB session this genuinely returns the memory.  Game-thread
+        // only; the UI thread only ever touches m_tags, and m_tags.clear()
+        // is a single atomic store it tolerates concurrently.
+        void drop_ring() noexcept
+        {
+            // Clear the shared pool and tag timeline BEFORE re-sizing the
+            // RegionStores, so that if a store init somehow throws (only
+            // the ~182 KB of staging buffers can - effectively
+            // unreachable) the pool is already empty and consistent.  A
+            // store left partly sized after such a failure can still hold
+            // stale chunk ids, but RegionStore::load() bounds-checks every
+            // id against the pool, so a later gather() safely returns
+            // false rather than reading out of bounds.
+            m_pool.clear();
+            m_tags.clear();
+            m_capture_ceiling_hit.store(false, std::memory_order_release);
+            m_usable_latest_seq.store(-1, std::memory_order_release);
+            m_pending_demo_seek_ms.store(-1, std::memory_order_release);
+            m_pending_demo_seek_master.store(-1,
+                                             std::memory_order_release);
+            m_pending_demo_seek_seq.store(-1, std::memory_order_release);
+            m_pending_demo_seek_round.store(-1, std::memory_order_release);
+            m_native_demo_seek_guard_ticks.store(0,
+                                                 std::memory_order_release);
+            m_pending_demo_seek_retry_ticks = 0;
+            ReplayScrubDiag::clear_cached_demo_driver();
+            m_last_round = -1;
             try
             {
-                const size_t total       = ring_frames * kSnapshotStride;
-                const size_t il_total    = ring_frames * kIL_CaptureBytes;
-
-                m_data.reset(new uint8_t[total]);
-                std::memset(m_data.get(), 0, total);
-
-                // Parallel InputLog-state ring.  If this alloc throws,
-                // the catch handler MUST drop m_data too - otherwise
-                // we leak ~590 MB until the next successful
-                // ensure_initialized() call.
-                m_input_log_ring.reset(new uint8_t[il_total]);
-                std::memset(m_input_log_ring.get(), 0, il_total);
-
-                // Parallel decoder-state ring (FLuxReplayDataBlock at
-                // *pBM+0x460).  Tiny relative to the other rings -
-                // 1021 bytes per slot.
-                const size_t rdb_total = ring_frames * kRDB_Bytes;
-                m_rdb_ring.reset(new uint8_t[rdb_total]);
-                std::memset(m_rdb_ring.get(), 0, rdb_total);
-
-                // Parallel extras ring (round-end seek-back fix,
-                // 2026-05-14): WorldModePump + BlockInteractiveOps +
-                // cinematic head + BM internal state bytes.  ~100 bytes
-                // per slot.
-                const size_t extras_total = ring_frames * kExtras_Bytes;
-                m_extras_ring.reset(new uint8_t[extras_total]);
-                std::memset(m_extras_ring.get(), 0, extras_total);
-
-                m_seq_tags    = std::vector<std::atomic<int32_t>>(ring_frames);
-                m_round_tags  = std::vector<std::atomic<int32_t>>(ring_frames);
-                m_frame_tags  = std::vector<std::atomic<int32_t>>(ring_frames);
-                m_master_tags = std::vector<std::atomic<int32_t>>(ring_frames);
-                for (auto& tag : m_seq_tags)    tag.store(-1, std::memory_order_relaxed);
-                for (auto& tag : m_round_tags)  tag.store(-1, std::memory_order_relaxed);
-                for (auto& tag : m_frame_tags)  tag.store(-1, std::memory_order_relaxed);
-                for (auto& tag : m_master_tags) tag.store(-1, std::memory_order_relaxed);
-                m_head.store(0,  std::memory_order_relaxed);
-                m_count.store(0, std::memory_order_relaxed);
-                m_ring_frames        = ring_frames;
-                m_have_last_counter  = false;
-                m_last_round         = -1;
-                m_next_seq           = 0;
-                return true;
+                m_sim_store   .init(&m_pool, kSnapshotStride);
+                m_il_store    .init(&m_pool, kIL_CaptureBytes);
+                m_rdb_store   .init(&m_pool, kRDB_Bytes);
+                m_extras_store.init(&m_pool, kExtras_Bytes);
             }
             catch (const std::bad_alloc&)
             {
-                // Drop any partial allocation so we don't leak earlier
-                // sub-allocations if a later one threw.
-                m_data.reset();
-                m_input_log_ring.reset();
-                m_rdb_ring.reset();
-                m_extras_ring.reset();
-                m_seq_tags.clear();
-                m_round_tags.clear();
-                m_frame_tags.clear();
-                m_master_tags.clear();
-                m_ring_frames = 0;
-                RC::Output::send<RC::LogLevel::Error>(
-                    STR("[ReplayScrub] ring alloc failed for {} frames "
-                        "(sim ~{} MB + InputLog ~{} MB + RDB ~{} MB)\n"),
-                    ring_frames,
-                    (ring_frames * kSnapshotStride) / (1024ull * 1024ull),
-                    (ring_frames * kIL_CaptureBytes) / (1024ull * 1024ull),
-                    (ring_frames * kRDB_Bytes) / (1024ull * 1024ull));
-                return false;
+                RC::Output::send<RC::LogLevel::Error>(STR(
+                    "[ReplayScrub] store staging alloc failed\n"));
             }
         }
 
+        // Full teardown for module shutdown / destruction.  For the dedup
+        // store this is the same as a logical drop - the RegionStore /
+        // ChunkPool / TagTimeline destructors release the rest - but it
+        // is kept as a named entry point because shutdown() and the
+        // destructor call it.
         void free_ring() noexcept
         {
-            // Mark the ring empty BEFORE tearing down the storage so a
-            // concurrent UI read of earliest/latest_seq() observes
-            // count==0 before it tries to subscript a cleared vector.
-            // (ensure_initialized() also flips m_initialized=false
-            // around the teardown.  free_ring() is additionally
-            // reachable from the destructor; the reset_for_new_replay()
-            // path uses drop_ring() instead, which keeps the storage -
-            // belt-and-braces.)
-            m_count.store(0, std::memory_order_release);
-            m_head.store(0,  std::memory_order_release);
-            m_ring_frames        = 0;
-            m_have_last_counter  = false;
-            m_last_round         = -1;
-            m_next_seq           = 0;
-            m_data.reset();
-            m_extras_ring.reset();
-            m_input_log_ring.reset();
-            m_rdb_ring.reset();
-            m_seq_tags.clear();
-            m_round_tags.clear();
-            m_frame_tags.clear();
-            m_master_tags.clear();
-        }
-
-        // Drop captured contents but keep the allocation.  Used when the
-        // timeline becomes chronologically discontinuous: a new replay
-        // (on_presence_change) or a replay restart inside the viewer
-        // (CurrentRound jumps backward).  Round-to-round transitions do
-        // NOT drop the ring - the timeline spans the whole match.
-        //
-        // We DO NOT zero m_input_log_ring (~16 KB x ring_frames =
-        // ~57 MB memset).  The old blobs become unreachable because
-        // every find_slot_for_seq() call first checks m_seq_tags[i] >= 0
-        // - we set them all to -1 here, so no slot is reachable until
-        // capture_snapshot overwrites it.
-        void drop_ring() noexcept
-        {
-            for (auto& tag : m_seq_tags)    tag.store(-1, std::memory_order_relaxed);
-            for (auto& tag : m_round_tags)  tag.store(-1, std::memory_order_relaxed);
-            for (auto& tag : m_frame_tags)  tag.store(-1, std::memory_order_relaxed);
-            for (auto& tag : m_master_tags) tag.store(-1, std::memory_order_relaxed);
-            m_head.store(0,  std::memory_order_relaxed);
-            m_count.store(0, std::memory_order_relaxed);
-            m_next_seq   = 0;
-            m_last_round = -1;
+            drop_ring();
+            m_have_last_counter = false;
         }
 
         bool read_frame_counter(uint32_t& out) const noexcept
@@ -3007,145 +4043,785 @@ namespace Horse
             return r;
         }
 
-        // Consume any pending resize request posted by the UI thread
-        // (render thread) via request_resize().  Runs on the game
-        // thread from service_seek_request(), so the actual teardown
-        // + realloc is single-threaded with respect to tick_capture
-        // and do_seek_to_seq which both run on the same thread.
-        // No-op when no request is pending.
-        void service_resize_request() noexcept
+        // Read ALuxBattleReplayPlayer.nTotalRounds (rounds in the recorded
+        // match, ReplayPlayer+0x3B0).  Returns -1 if the actor isn't
+        // resolvable.  The replay's final round is CurrentRound ==
+        // nTotalRounds - 1; used by tick_generate_timeline to stop the
+        // moment the last round ends.
+        int32_t read_total_rounds() const noexcept
         {
-            const size_t req = m_pending_resize_frames.exchange(
-                0, std::memory_order_acq_rel);
-            if (req == 0) return;
-            // No change needed if the ring is already the requested
-            // size.  Reading m_ring_frames is safe here - this method
-            // is only ever called from the cockpit pre-tick (game
-            // thread), the same thread that writes m_ring_frames.
-            if (is_initialized() && m_ring_frames == req) return;
-            // 2026-05-16: cancel any in-progress timeline generation
-            // before reallocating the ring - the realloc discards every
-            // captured snapshot, so finishing the fast-forward into a
-            // fresh ring would be pointless.  Restores the frame cap.
-            if (m_timeline_gen_state.load(std::memory_order_acquire)
-                == static_cast<int>(TimelineGenState::Generating))
-            {
-                stop_generate_timeline("ring-resize", false);
-            }
-            ensure_initialized(req);
+            RC::Unreal::UObject* rp =
+                ReplayScrubDiag::replay_player_ptr().get(
+                    L"LuxBattleReplayPlayer");
+            if (!rp) return -1;
+            int32_t n = -1;
+            if (!SafeReadInt32(reinterpret_cast<const uint8_t*>(rp)
+                                   + kRP_TotalRounds_Off, &n))
+                return -1;
+            return n;
         }
 
-        // Capture a snapshot of the current sim state into the next
-        // ring slot, tagged with `wall_tag` (= g_LuxBattle_FrameCounter)
-        // AND the engine's replay master_clock value AT CAPTURE TIME.
-        // See m_master_tags doc for why we need both clocks.
-        void capture_snapshot(int32_t wall_tag) noexcept
+        // Read g_LuxBattle_LastRoundResultType (i16 @ imageBase +
+        // kRVA_LastRoundResultType).  0 = a round is live; non-zero = a
+        // round has ended.  Returns 0 on any read failure so a transient
+        // miss can never false-signal "round ended".
+        int32_t read_last_round_result() const noexcept
         {
-            if (!m_data || !m_exec_write) return;
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return 0;
+            int16_t v = 0;
+            if (!SafeReadInt16(reinterpret_cast<const void*>(
+                                   base + kRVA_LastRoundResultType), &v))
+                return 0;
+            return v;
+        }
 
-            const size_t cap   = m_ring_frames;
-            const size_t slot  = m_head.load(std::memory_order_relaxed);
-            uint8_t* slot_data = m_data.get() + slot * kSnapshotStride;
+        bool write_last_round_result(int16_t v) const noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            return SafeWriteBytes(reinterpret_cast<void*>(
+                                      base + kRVA_LastRoundResultType),
+                                  &v, sizeof(v));
+        }
 
-            // Re-target the shim at this slot's data, reset cursor,
-            // and let the engine fill it.  ExecMoveChangeAndPost is a
-            // bounded ~80-100 KB structured copy (verified via decompile
-            // @ 0x1403841E0) - sub-millisecond, not a framerate cost.
-            m_shim.retarget(slot_data, kSnapshotStride);
-            m_exec_write(&m_shim);
+        // Read ALuxBattleReplayPlayer.bIsPlayingBack (1-byte bool @
+        // ReplayPlayer+0x3D0).  Returns 1 while the engine is playing the
+        // replay back, 0 once it has stopped, -1 if the actor isn't
+        // resolvable.
+        int32_t read_replay_is_playing_back() const noexcept
+        {
+            RC::Unreal::UObject* rp =
+                ReplayScrubDiag::replay_player_ptr().get(
+                    L"LuxBattleReplayPlayer");
+            if (!rp) return -1;
+            uint8_t b = 0;
+            if (!SafeReadUInt8(reinterpret_cast<const uint8_t*>(rp)
+                                   + kRP_IsPlayingBack_Off, &b))
+                return -1;
+            return b ? 1 : 0;
+        }
 
-            // Capture the engine's InputLog replay-state window in
-            // lockstep with the simulation snapshot, so a future
-            // restore reproduces every replay-machinery field
-            // (including the cache, drain cursor, double-tick guard,
-            // playback cursor, master clock, etc.) for the captured
-            // frame.
-            if (!capture_input_cache(slot))
+        // True once either player has won enough rounds to decide the
+        // match: per-chara round-win count (chara+0x1314, u16) reaches the
+        // rounds-needed-to-win threshold (chara+0x1318, u32) - the same
+        // test LuxBattle_EvaluateRoundResult @ 0x140385440 applies.
+        // ReplayPlayer-independent: it reads the g_LuxBattle_CharaSlotP1 /
+        // P2 globals directly, so it works even when the ReplayPlayer
+        // actor (used for the round-index signal) can't be resolved.
+        // Returns false on any unresolved pointer / read failure, and a
+        // zero threshold is treated as "not configured" so it can never
+        // false-fire before the match has been set up.
+        bool match_decided() const noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            const uintptr_t slots[2] =
+                { base + kRVA_CharaSlotP1, base + kRVA_CharaSlotP2 };
+            for (uintptr_t slot_addr : slots)
             {
-                // InputLog wasn't readable.  m_exec_write already
-                // overwrote m_data[slot], so this slot's sim / IL /
-                // extras are now mutually inconsistent - invalidate its
-                // seq tag so find_slot_for_seq() can never select it.
-                // (m_head / m_count were not advanced, so the FIFO
-                // accessors never saw it anyway.)
-                m_seq_tags[slot].store(-1, std::memory_order_release);
+                void* chara = nullptr;
+                if (!SafeReadPtr(reinterpret_cast<const void*>(slot_addr),
+                                 &chara)
+                    || !chara)
+                    continue;
+                const uint8_t* c = reinterpret_cast<const uint8_t*>(chara);
+                uint16_t wins   = 0;
+                uint32_t needed = 0;
+                if (SafeReadUInt16(c + kChara_RoundWins_Off,   &wins)
+                    && SafeReadUInt32(c + kChara_RoundsToWin_Off, &needed)
+                    && needed > 0 && needed < 100
+                    && wins >= needed)
+                    return true;
+            }
+            return false;
+        }
+
+        // True only if BOTH battle chara slots resolve to live chara
+        // objects.  do_seek's snapshot restore (m_exec_read) writes deep
+        // into these objects; restoring into freed/dead charas is the
+        // scrub-back crash path.  The g_LuxBattle_CharaSlotP1/P2 globals
+        // are NOT nulled on match teardown, so a non-null pointer alone
+        // is not enough - the offset-0 vtable is verified against
+        // PLAYER::vftable (set by LuxBattleChara_Ctor), which a freed-
+        // and-reused heap block will not carry.  SEH-guarded so a
+        // dangling pointer that faults on the vtable read just returns
+        // false.  (This cannot detect a block freed but not yet reused;
+        // the SEH guard around m_exec_read is the backstop for that.)
+        bool charas_alive() const noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            const uintptr_t expect_vt = base + kRVA_CharaVTable;
+            const uintptr_t slots[2] =
+                { base + kRVA_CharaSlotP1, base + kRVA_CharaSlotP2 };
+            for (uintptr_t slot_addr : slots)
+            {
+                void* chara = nullptr;
+                if (!SafeReadPtr(reinterpret_cast<const void*>(slot_addr),
+                                 &chara)
+                    || !chara)
+                    return false;
+                void* vt = nullptr;
+                if (!SafeReadPtr(chara, &vt)
+                    || reinterpret_cast<uintptr_t>(vt) != expect_vt)
+                    return false;
+            }
+            return true;
+        }
+
+        static uint64_t elapsed_us(
+            std::chrono::steady_clock::time_point a,
+            std::chrono::steady_clock::time_point b) noexcept
+        {
+            return static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    b - a).count());
+        }
+
+        void reset_generation_profile() noexcept
+        {
+            m_gen_profile_frames.store(0, std::memory_order_release);
+            m_gen_profile_total_us.store(0, std::memory_order_release);
+            m_gen_profile_sim_us.store(0, std::memory_order_release);
+            m_gen_profile_il_us.store(0, std::memory_order_release);
+            m_gen_profile_rdb_us.store(0, std::memory_order_release);
+            m_gen_profile_extras_us.store(0, std::memory_order_release);
+            m_gen_profile_commit_us.store(0, std::memory_order_release);
+        }
+
+        void add_generation_profile_sample(
+            uint64_t total_us, uint64_t sim_us, uint64_t il_us,
+            uint64_t rdb_us, uint64_t extras_us,
+            uint64_t commit_us) noexcept
+        {
+            m_gen_profile_frames.fetch_add(1, std::memory_order_acq_rel);
+            m_gen_profile_total_us.fetch_add(total_us,
+                                             std::memory_order_acq_rel);
+            m_gen_profile_sim_us.fetch_add(sim_us,
+                                           std::memory_order_acq_rel);
+            m_gen_profile_il_us.fetch_add(il_us,
+                                          std::memory_order_acq_rel);
+            m_gen_profile_rdb_us.fetch_add(rdb_us,
+                                           std::memory_order_acq_rel);
+            m_gen_profile_extras_us.fetch_add(extras_us,
+                                              std::memory_order_acq_rel);
+            m_gen_profile_commit_us.fetch_add(commit_us,
+                                              std::memory_order_acq_rel);
+        }
+
+        void log_generation_profile(const char* reason) noexcept
+        {
+            const TimelineGenProfile p = timeline_gen_profile();
+            if (p.frames == 0) return;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub] Generate timeline profile ({}) - "
+                "{} frames in {:.3f}s = {:.1f} ticks/s; avg capture "
+                "{:.1f} us (sim {:.1f}, InputLog {:.1f}, RDB {:.1f}, "
+                "extras {:.1f}, commit {:.1f})\n"),
+                RC::to_generic_string(reason ? reason : "?"),
+                p.frames, p.wall_seconds, p.ticks_per_second,
+                p.avg_total_us, p.avg_sim_us, p.avg_inputlog_us,
+                p.avg_rdb_us, p.avg_extras_us, p.avg_commit_us);
+        }
+
+        static uint64_t hash_bytes64(const uint8_t* p,
+                                     size_t n) noexcept
+        {
+            uint64_t h = 1469598103934665603ull;
+            for (size_t i = 0; i < n; ++i)
+            {
+                h ^= p[i];
+                h *= 1099511628211ull;
+            }
+            return h;
+        }
+
+        bool ensure_exp2_buffers() noexcept
+        {
+            try
+            {
+                if (m_exp2_sim_before.size() != kSnapshotStride)
+                    m_exp2_sim_before.assign(kSnapshotStride, 0);
+                if (m_exp2_sim_after.size() != kSnapshotStride)
+                    m_exp2_sim_after.assign(kSnapshotStride, 0);
+                if (m_exp2_il_before.size() != kIL_CaptureBytes)
+                    m_exp2_il_before.assign(kIL_CaptureBytes, 0);
+                if (m_exp2_rdb_before.size() != kRDB_Bytes)
+                    m_exp2_rdb_before.assign(kRDB_Bytes, 0);
+                if (m_exp2_extras_before.size() != kExtras_Bytes)
+                    m_exp2_extras_before.assign(kExtras_Bytes, 0);
+                return true;
+            }
+            catch (const std::bad_alloc&)
+            {
+                return false;
+            }
+        }
+
+        void evaluate_battle_step_generation_end(
+            const std::chrono::steady_clock::time_point& now) noexcept
+        {
+            const int32_t master = read_engine_master_clock();
+            const int32_t round  = read_current_round();
+            const int32_t last_master =
+                m_timeline_gen_last_master.load(std::memory_order_acquire);
+            const int32_t last_round = m_gen_last_round;
+            const int32_t last_round_result = read_last_round_result();
+            const int32_t is_playing_back = read_replay_is_playing_back();
+
+            if (std::chrono::duration<double>(now - m_gen_started_at)
+                    .count() > kGenMaxSeconds)
+            {
+                stop_generate_timeline("safety-timeout", false);
+                return;
+            }
+            if (GameMode::instance().current_presence()
+                != GamePresence::Replay)
+            {
+                stop_generate_timeline("left-replay", false);
+                return;
+            }
+            if (m_capture_ceiling_hit.load(std::memory_order_acquire))
+            {
+                stop_generate_timeline("memory-ceiling", true);
                 return;
             }
 
-            // Capture the Stage 1 decoder's state (file/buffer
-            // cursors, working frame ID, etc.) in lockstep with the
-            // simulation snapshot.  If the BM has no decoder block
-            // (between-match transitions) we still keep the slot's
-            // simulation + InputLog data - the decoder-state restore
-            // will just be a no-op for that slot.
-            capture_replay_data_block(slot);
+            const int32_t tr_now = read_total_rounds();
+            if (tr_now > 0) m_gen_total_rounds = tr_now;
 
-            // Capture the round-end-fix extras (WorldModePump struct
-            // pointer + cinematic head + BM internal state bytes).
-            // If any sub-capture faults (between-match teardown), the
-            // blob is left zeroed; restore_extras handles that case
-            // by skipping writes to invalid targets.
-            capture_extras(slot);
+            const bool in_final_round =
+                (m_gen_seen_progress && m_gen_total_rounds > 0
+                 && round >= 0 && round + 1 >= m_gen_total_rounds);
+            if (in_final_round && last_round_result == 0)
+            {
+                m_gen_final_round_played = true;
+                if (master >= kRoundBoundarySeekGuardMaster)
+                {
+                    const int32_t safe_seq = raw_latest_seq();
+                    if (safe_seq >= 0)
+                    {
+                        if (m_gen_final_round_first_safe_seq < 0)
+                            m_gen_final_round_first_safe_seq = safe_seq;
+                        m_gen_final_round_last_safe_seq = safe_seq;
+                    }
+                }
+            }
+            if (m_gen_final_round_played && last_round_result != 0)
+            {
+                stop_generate_timeline("match-ended", true);
+                return;
+            }
 
-            // Derive master_tag FROM the captured IL blob's
-            // nMasterClock field rather than reading the engine
-            // separately.  This guarantees the two are in lockstep -
-            // there's no race window where the engine ticks between
-            // reading master_clock and reading the IL bytes.
-            const uint8_t* il_blob = input_log_slot_ptr(slot);
+            {
+                const bool decided = match_decided();
+                if (m_gen_seen_progress && !decided)
+                    m_gen_match_undecided_seen = true;
+                if (m_gen_match_undecided_seen && decided)
+                {
+                    stop_generate_timeline("match-decided", true);
+                    return;
+                }
+            }
+
+            if (is_playing_back == 1)
+            {
+                m_gen_seen_playing_back   = true;
+                m_gen_playback_gone_ticks = 0;
+            }
+            else if (is_playing_back == 0 && m_gen_seen_playing_back)
+            {
+                ++m_gen_playback_gone_ticks;
+            }
+            if (m_gen_playback_gone_ticks > kGenPlaybackGoneTicks)
+            {
+                stop_generate_timeline("playback-ended", true);
+                return;
+            }
+
+            if (round > m_gen_max_round) m_gen_max_round = round;
+
+            const bool round_known =
+                (round >= 0 && last_round >= 0);
+            const bool round_advanced = round_known && round > last_round;
+            const bool master_advanced =
+                (master >= 0 && last_master >= 0 && master > last_master);
+            const bool master_rolled_back =
+                (master >= 0 && last_master >= 0 && master < last_master);
+
+            const bool round_looped =
+                (round >= 0 && m_gen_max_round >= 0
+                 && round < m_gen_max_round);
+            if (round_looped
+                || (master_rolled_back && round_known && !round_advanced))
+            {
+                stop_generate_timeline("replay-looped", true);
+                return;
+            }
+
+            if (master_advanced || round_advanced)
+            {
+                m_gen_last_advance  = now;
+                m_gen_seen_progress = true;
+            }
+
+            if (master >= 0)
+                m_timeline_gen_last_master.store(
+                    master, std::memory_order_release);
+            if (round >= 0)
+                m_gen_last_round = round;
+
+            const double stuck_limit = in_final_round
+                ? kGenFinalRoundStuckSeconds : kGenStuckSeconds;
+            if (std::chrono::duration<double>(now - m_gen_last_advance)
+                    .count() > stuck_limit)
+            {
+                stop_generate_timeline(
+                    in_final_round ? "match-ended" : "end-of-recording",
+                    true);
+                return;
+            }
+        }
+
+        bool run_battle_step_generate_one_frame() noexcept
+        {
+            auto on_transient_failure = [this](const char* reason) noexcept
+            {
+                const int32_t count =
+                    ++m_exp2_transient_fail_count;
+                if (count <= kExp2TransientFailureBudget)
+                {
+                    RC::Output::send<RC::LogLevel::Verbose>(STR(
+                        "[ReplayScrub.EXP2] direct-step generation transient "
+                        "failure {} / {} for {}\n"),
+                        count, kExp2TransientFailureBudget,
+                        RC::to_generic_string(reason ? reason : "?"));
+                }
+                return count > kExp2TransientFailureBudget;
+            };
+            auto on_recovered = [this]() noexcept
+            {
+                m_exp2_transient_fail_count = 0;
+            };
+
+            if (!charas_alive())
+            {
+                stop_generate_timeline("battle-state-loss", false);
+                return false;
+            }
+            if (m_gen_request.exchange(kGenReqNone,
+                                       std::memory_order_acq_rel)
+                == kGenReqStop)
+            {
+                stop_generate_timeline("user", false);
+                return false;
+            }
+            if (!is_initialized() || !m_exec_write || !m_exec_read)
+            {
+                stop_generate_timeline("direct-generation-initialized-failed",
+                                       false);
+                return false;
+            }
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base)
+            {
+                stop_generate_timeline("direct-generation-no-imagebase",
+                                       false);
+                return false;
+            }
+            uint64_t input[2] = {};
+            uint8_t camera_args[24] = {};
+            const bool input_ok =
+                SafeReadBytes(reinterpret_cast<const void*>(
+                                 base + kRVA_LatestEngineInput),
+                             input, sizeof(input));
+            const bool camera_ok =
+                SafeReadBytes(reinterpret_cast<const void*>(
+                                 base + kRVA_PerFrameCameraArgs),
+                             camera_args, sizeof(camera_args));
+            if (!input_ok || !camera_ok)
+            {
+                if (on_transient_failure("engine input/camera read failed"))
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.EXP2] direct-step generation aborted - "
+                        "engine input/camera reads failed repeatedly "
+                        "(input_ok={} camera_ok={})\n"),
+                        input_ok ? 1 : 0, camera_ok ? 1 : 0);
+                    stop_generate_timeline("direct-step-read-failed", false);
+                }
+                return true;
+            }
+            const int32_t master_before = read_engine_master_clock();
+            if (master_before < 0)
+            {
+                if (on_transient_failure("master clock unreadable"))
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.EXP2] direct-step generation "
+                        "aborted - master clock unreadable repeatedly\n"));
+                    stop_generate_timeline("direct-step-master-clock-unreadable",
+                                           false);
+                }
+                return true;
+            }
+
+            uintptr_t args[3] = {
+                reinterpret_cast<uintptr_t>(&input[0]),
+                reinterpret_cast<uintptr_t>(&input[1]),
+                reinterpret_cast<uintptr_t>(camera_args)
+            };
+            const bool step_ok =
+                SafeInvokePerFrameTick(m_per_frame_tick_bypass, args);
+            if (!step_ok)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EXP2] direct-step generation frame FAILED\n"));
+                stop_generate_timeline("direct-step-failed", false);
+                return false;
+            }
+
+            const auto t1 = std::chrono::steady_clock::now();
+            uint32_t wall_after = 0;
+            if (!read_frame_counter(wall_after))
+            {
+                if (on_transient_failure("frame counter unreadable"))
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.EXP2] direct-step generation aborted - "
+                        "frame counter unreadable repeatedly\n"));
+                    stop_generate_timeline("direct-step-framecounter-unreadable",
+                                           false);
+                }
+                return true;
+            }
+
+            const bool should_commit =
+                !m_gen_battle_step_probe.load(std::memory_order_acquire);
+            if (!capture_snapshot(static_cast<int32_t>(wall_after),
+                                 should_commit))
+            {
+                if (m_capture_ceiling_hit.load(std::memory_order_acquire))
+                {
+                    stop_generate_timeline("memory-ceiling", true);
+                }
+                else
+                {
+                    if (on_transient_failure("capture snapshot failed"))
+                    {
+                        RC::Output::send<RC::LogLevel::Warning>(STR(
+                            "[ReplayScrub.EXP2] direct-step generation "
+                            "aborted - snapshot capture failed repeatedly\n"));
+                        stop_generate_timeline("direct-step-capture-failed",
+                                               false);
+                    }
+                    return true;
+                }
+            }
+            if (!should_commit)
+                return false;
+
+            on_recovered();
+            evaluate_battle_step_generation_end(t1);
+            return m_timeline_gen_state.load(std::memory_order_acquire)
+                == static_cast<int>(TimelineGenState::Generating);
+        }
+
+        bool capture_snapshot(int32_t wall_tag, bool commit = true) noexcept
+        {
+            if (!is_initialized() || !m_exec_write) return false;
+            const bool profile_generation =
+                m_timeline_gen_state.load(std::memory_order_acquire)
+                == static_cast<int>(TimelineGenState::Generating);
+            const bool do_commit = commit && !m_gen_battle_step_probe.load(
+                std::memory_order_acquire);
+            const auto t_total0 = std::chrono::steady_clock::now();
+            uint64_t sim_us = 0;
+            uint64_t il_us = 0;
+            uint64_t rdb_us = 0;
+            uint64_t extras_us = 0;
+            uint64_t commit_us = 0;
+
+            if (m_capture_ceiling_hit.load(std::memory_order_acquire))
+                return false;
+
+            if (store_bytes() >= kMaxStoreBytes)
+            {
+                if (do_commit)
+                    m_capture_ceiling_hit.store(true,
+                        std::memory_order_release);
+                else
+                    m_capture_ceiling_hit.store(
+                        m_capture_ceiling_hit.load(std::memory_order_acquire)
+                        || (store_bytes() >= kMaxStoreBytes),
+                        std::memory_order_release);
+
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] capture stopped - {} MB snapshot "
+                    "ceiling reached; timeline holds {} frames\n"),
+                    kMaxStoreBytes / (1024ull * 1024ull), m_tags.count());
+                return false;
+            }
+
+            auto t0 = std::chrono::steady_clock::now();
+            m_shim.retarget(m_sim_store.scratch(), kSnapshotStride);
+            if (!SafeInvokeExec(m_exec_write, &m_shim))
+                return false;
+            auto t1 = std::chrono::steady_clock::now();
+            sim_us = elapsed_us(t0, t1);
+
+            t0 = std::chrono::steady_clock::now();
+            if (!capture_input_cache(m_il_store.scratch()))
+                return false;
+            t1 = std::chrono::steady_clock::now();
+            il_us = elapsed_us(t0, t1);
+
+            t0 = std::chrono::steady_clock::now();
+            capture_replay_data_block(m_rdb_store.scratch());
+            t1 = std::chrono::steady_clock::now();
+            rdb_us = elapsed_us(t0, t1);
+            t0 = std::chrono::steady_clock::now();
+            capture_extras(m_extras_store.scratch());
+            t1 = std::chrono::steady_clock::now();
+            extras_us = elapsed_us(t0, t1);
+
             int32_t master_tag = -1;
-            if (il_blob)
             {
                 const uintptr_t off =
                     kIL_nMasterClock_Off - kIL_CaptureStart_Off;
-                std::memcpy(&master_tag, il_blob + off, sizeof(master_tag));
+                std::memcpy(&master_tag, m_il_store.scratch() + off,
+                            sizeof(master_tag));
             }
-            if (master_tag < 0)
+            if (master_tag < 0) return false;
+
+            int32_t round_tag = 0;
+            std::memcpy(&round_tag, m_extras_store.scratch()
+                        + kExtras_Off_RP_CurrentRound, sizeof(round_tag));
+
+            int32_t demo_time_ms = -1;
             {
-                // Bad capture-time master clock - same inconsistent-slot
-                // situation as the InputLog-unreadable path above.
-                m_seq_tags[slot].store(-1, std::memory_order_release);
+                const ReplayScrubDiag::DemoNetDriverSnap d =
+                    ReplayScrubDiag::read_demo_net_driver_fast();
+                if (d.readable && d.raw_demo_cur_time >= 0.0f)
+                {
+                    demo_time_ms = static_cast<int32_t>(
+                        d.raw_demo_cur_time * 1000.0f + 0.5f);
+                }
+            }
+
+            if (do_commit)
+            {
+                try
+                {
+                    t0 = std::chrono::steady_clock::now();
+                    const bool c0 = m_sim_store.commit();
+                    const bool c1 = m_il_store.commit();
+                    const bool c2 = m_rdb_store.commit();
+                    const bool c3 = m_extras_store.commit();
+                    t1 = std::chrono::steady_clock::now();
+                    commit_us = elapsed_us(t0, t1);
+                    if (!(c0 && c1 && c2 && c3))
+                    {
+                        static std::atomic<bool> s_selftest_warned{false};
+                        if (!s_selftest_warned.exchange(
+                                true, std::memory_order_relaxed))
+                            RC::Output::send<RC::LogLevel::Error>(STR(
+                                "[ReplayScrub] ChunkPool self-test FAILED on "
+                                "commit - snapshot dedup may be corrupt\n"));
+                    }
+                }
+                catch (const std::bad_alloc&)
+                {
+                    if (!m_capture_ceiling_hit.exchange(
+                            true, std::memory_order_acq_rel))
+                        RC::Output::send<RC::LogLevel::Default>(STR(
+                            "[ReplayScrub] capture stopped - out of memory "
+                            "folding snapshot; timeline holds {} frames\n"),
+                            m_tags.count());
+                    return false;
+                }
+
+                const int32_t seq_tag = static_cast<int32_t>(m_tags.count());
+                m_tags.append(seq_tag, round_tag, wall_tag, master_tag,
+                              demo_time_ms);
+                if (profile_generation)
+                {
+                    const auto t_total1 = std::chrono::steady_clock::now();
+                    add_generation_profile_sample(
+                        elapsed_us(t_total0, t_total1), sim_us, il_us,
+                        rdb_us, extras_us, commit_us);
+                }
+                static std::atomic<bool> s_logged{false};
+                if (!s_logged.exchange(true, std::memory_order_relaxed))
+                {
+                    RC::Output::send<RC::LogLevel::Default>(
+                        STR("[ReplayScrub] first capture: seq={} round={} "
+                            "wall_tag={} master_tag={} shim cursor after "
+                            "Exec={} bytes\n"),
+                        seq_tag, round_tag, wall_tag, master_tag,
+                        static_cast<unsigned long long>(m_shim.cursor()));
+                }
+            }
+
+            return true;
+        }
+
+        void run_battle_step_generate_slice() noexcept
+        {
+            const auto slice_start = std::chrono::steady_clock::now();
+            for (int32_t i = 0; i < kExp2MaxFramesPerSlice; ++i)
+            {
+                if (!m_gen_battle_step_generate.load(std::memory_order_acquire))
+                    return;
+                if (!run_battle_step_generate_one_frame())
+                    return;
+                if (elapsed_us(slice_start, std::chrono::steady_clock::now()) >
+                    kExp2SliceBudgetUs
+                    && i > 0)
+                {
+                    return;
+                }
+            }
+        }
+
+        void run_battle_step_probe() noexcept
+        {
+            if (!is_initialized() || !m_exec_write || !m_exec_read)
+                return;
+            if (GameMode::instance().current_presence()
+                != GamePresence::Replay)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EXP2] direct-step probe ignored - "
+                    "not in the Replay viewer\n"));
+                return;
+            }
+            if (!charas_alive())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EXP2] direct-step probe ignored - "
+                    "battle charas are not both alive\n"));
+                return;
+            }
+            if (!resolve_per_frame_tick_bypass() || !ensure_exp2_buffers())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EXP2] direct-step probe failed - "
+                    "could not prepare trampoline/buffers\n"));
                 return;
             }
 
-            // Read CurrentRound back from the extras blob that
-            // capture_extras() just populated (no extra engine read) -
-            // it drives the timeline's round markers - and stamp this
-            // capture's monotonic sequence number (the timeline coord).
-            int32_t round_tag = 0;
-            if (m_extras_ring)
-            {
-                std::memcpy(&round_tag,
-                            m_extras_ring.get() + slot * kExtras_Bytes
-                                + kExtras_Off_RP_CurrentRound,
-                            sizeof(round_tag));
-            }
-            const int32_t seq_tag = m_next_seq++;
+            m_gen_battle_step_probe.store(true,
+                                          std::memory_order_release);
+            const auto t0 = std::chrono::steady_clock::now();
 
-            m_round_tags [slot].store(round_tag,  std::memory_order_release);
-            m_frame_tags [slot].store(wall_tag,   std::memory_order_release);
-            m_master_tags[slot].store(master_tag, std::memory_order_release);
-            // Store the seq tag LAST: find_slot_for_seq() and the UI
-            // treat seq >= 0 as "slot valid", so the other three tags
-            // must be visible before seq is.
-            m_seq_tags   [slot].store(seq_tag,    std::memory_order_release);
-            m_head.store((slot + 1) % cap, std::memory_order_release);
-            const size_t cnt = m_count.load(std::memory_order_relaxed);
-            if (cnt < cap)
-                m_count.store(cnt + 1, std::memory_order_release);
+            uint32_t wall_before = 0;
+            read_frame_counter(wall_before);
+            const int32_t master_before = read_engine_master_clock();
 
-            // First-fire log so the user can confirm the capture
-            // path is alive without enabling Verbose.
-            static std::atomic<bool> s_logged{false};
-            if (!s_logged.exchange(true, std::memory_order_relaxed))
+            uint64_t input[2] = {};
+            uint8_t camera_args[24] = {};
+            const uintptr_t base = NativeBinding::imageBase();
+            if (base)
             {
-                RC::Output::send<RC::LogLevel::Default>(
-                    STR("[ReplayScrub] first capture: seq={} round={} "
-                        "wall_tag={} master_tag={} shim cursor after "
-                        "Exec={} bytes\n"),
-                    seq_tag, round_tag, wall_tag, master_tag,
-                    static_cast<unsigned long long>(m_shim.cursor()));
+                SafeReadBytes(reinterpret_cast<const void*>(
+                                  base + kRVA_LatestEngineInput),
+                              input, sizeof(input));
+                SafeReadBytes(reinterpret_cast<const void*>(
+                                  base + kRVA_PerFrameCameraArgs),
+                              camera_args, sizeof(camera_args));
             }
+
+            std::memset(m_exp2_sim_before.data(), 0, kSnapshotStride);
+            std::memset(m_exp2_sim_after.data(), 0, kSnapshotStride);
+            std::memset(m_exp2_il_before.data(), 0, kIL_CaptureBytes);
+            std::memset(m_exp2_rdb_before.data(), 0, kRDB_Bytes);
+            std::memset(m_exp2_extras_before.data(), 0, kExtras_Bytes);
+
+            bool pre_ok = true;
+            m_shim.retarget(m_exp2_sim_before.data(), kSnapshotStride);
+            pre_ok &= SafeInvokeExec(m_exec_write, &m_shim);
+            pre_ok &= capture_input_cache(m_exp2_il_before.data());
+            pre_ok &= capture_replay_data_block(m_exp2_rdb_before.data());
+            capture_extras(m_exp2_extras_before.data());
+            if (!pre_ok)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EXP2] direct-step probe aborted - "
+                    "pre-step state capture failed (wall={} master={})\n"),
+                    wall_before, master_before);
+                m_gen_battle_step_probe.store(false,
+                                              std::memory_order_release);
+                return;
+            }
+
+            const uint64_t pre_hash = hash_bytes64(
+                m_exp2_sim_before.data(), kSnapshotStride);
+
+            uintptr_t args[3] = {
+                reinterpret_cast<uintptr_t>(&input[0]),
+                reinterpret_cast<uintptr_t>(&input[1]),
+                reinterpret_cast<uintptr_t>(camera_args)
+            };
+            const auto t_step0 = std::chrono::steady_clock::now();
+            const bool step_ok =
+                SafeInvokePerFrameTick(m_per_frame_tick_bypass, args);
+            const auto t_step1 = std::chrono::steady_clock::now();
+
+            m_shim.retarget(m_exp2_sim_after.data(), kSnapshotStride);
+            const bool post_capture_ok =
+                SafeInvokeExec(m_exec_write, &m_shim);
+            const uint64_t post_hash = hash_bytes64(
+                m_exp2_sim_after.data(), kSnapshotStride);
+
+            uint32_t wall_after = 0;
+            read_frame_counter(wall_after);
+            const int32_t master_after = read_engine_master_clock();
+
+            m_shim.retarget(m_exp2_sim_before.data(), kSnapshotStride);
+            bool restore_ok = SafeInvokeExec(m_exec_read, &m_shim);
+            restore_ok &= restore_input_cache(m_exp2_il_before.data());
+            restore_ok &= restore_replay_data_block(m_exp2_rdb_before.data());
+            if (charas_alive())
+            {
+                restore_extras(m_exp2_extras_before.data());
+            }
+            else
+            {
+                restore_ok = false;
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EXP2] skipped extras restore - battle "
+                    "charas changed or tore down during direct step\n"));
+            }
+            if (base)
+            {
+                restore_ok &= SafeWriteUInt32(
+                    reinterpret_cast<void*>(base + kRVA_FrameCounter),
+                    wall_before);
+                restore_ok &= SafeWriteBytes(
+                    reinterpret_cast<void*>(base + kRVA_LatestEngineInput),
+                    input, sizeof(input));
+                restore_ok &= SafeWriteBytes(
+                    reinterpret_cast<void*>(base + kRVA_PerFrameCameraArgs),
+                    camera_args, sizeof(camera_args));
+            }
+
+            const auto t1 = std::chrono::steady_clock::now();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EXP2] direct PerFrameTick probe {} - "
+                "post_capture={} restore={} wall {}->{} master {}->{} input "
+                "p1=0x{:X} p2=0x{:X} sim_hash 0x{:016X}->0x{:016X} "
+                "step={} us total={} us\n"),
+                RC::to_generic_string(step_ok ? "OK" : "FAILED"),
+                post_capture_ok ? 1 : 0,
+                restore_ok ? 1 : 0,
+                wall_before, wall_after, master_before, master_after,
+                input[0], input[1], pre_hash, post_hash,
+                elapsed_us(t_step0, t_step1), elapsed_us(t0, t1));
+
+            m_gen_battle_step_probe.store(false,
+                                          std::memory_order_release);
         }
 
         // Read pInputLog->nMasterClock via UE4SS reflection +
@@ -3165,27 +4841,18 @@ namespace Horse
             return master;
         }
 
-        // Resolve a pointer into the per-slot InputLog-state blob.
-        uint8_t* input_log_slot_ptr(size_t slot) noexcept
-        {
-            if (!m_input_log_ring || slot >= m_ring_frames) return nullptr;
-            return m_input_log_ring.get() + slot * kIL_CaptureBytes;
-        }
-
         // Capture the engine's InputLog replay-state window
-        // (pInputLog+0x394..+0x4414) verbatim into our ring slot.
-        // Called from capture_snapshot RIGHT AFTER the HgCpuDirect
-        // simulation write, while the engine state is still at the
-        // captured frame's master clock.
+        // (pInputLog+0x394..+0x4414) verbatim into `dst` (the IL region's
+        // staging buffer).  Called from capture_snapshot RIGHT AFTER the
+        // HgCpuDirect simulation write, while the engine state is still at
+        // the captured frame's master clock.
         //
-        // Returns true on success, false if the BM/InputLog couldn't
-        // be resolved (between-match transitions).  SEH-wrapped via
-        // SafeReadBytes - the InputLog actor can be torn down during
-        // mode transitions and a fault here shouldn't kill the
-        // process.
-        bool capture_input_cache(size_t slot) noexcept
+        // Returns true on success, false if the BM/InputLog couldn't be
+        // resolved (between-match transitions).  SEH-wrapped via
+        // SafeReadBytes - the InputLog actor can be torn down during mode
+        // transitions and a fault here shouldn't kill the process.
+        bool capture_input_cache(uint8_t* dst) noexcept
         {
-            uint8_t* dst = input_log_slot_ptr(slot);
             if (!dst) return false;
 
             RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
@@ -3221,9 +4888,8 @@ namespace Horse
         // SEH-wrapped via SafeWriteBytes: the writes go to engine
         // memory and could fault if the InputLog actor was torn down
         // between the SafeReadPtr resolve and the write.
-        bool restore_input_cache(size_t slot) noexcept
+        bool restore_input_cache(const uint8_t* src) noexcept
         {
-            const uint8_t* src = input_log_slot_ptr(slot);
             if (!src) return false;
 
             RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
@@ -3255,28 +4921,26 @@ namespace Horse
             return ok;
         }
 
-        // Resolve a pointer into the per-slot decoder-state blob.
-        uint8_t* rdb_slot_ptr(size_t slot) noexcept
-        {
-            if (!m_rdb_ring || slot >= m_ring_frames) return nullptr;
-            return m_rdb_ring.get() + slot * kRDB_Bytes;
-        }
-
         // Capture the Stage 1 decoder's full state (FLuxReplayDataBlock
-        // at *(pBM+0x460), 1021 bytes) verbatim into our ring slot.
+        // at *(pBM+0x460), 1021 bytes) verbatim into `dst` (the decoder
+        // region's staging buffer).
         //
         // This is the KEY missing piece identified 2026-05-11: the
         // decoder's read/write cursors (llFileReadCursor,
-        // llDecodedBufferReadCursor, llDecodedBufferWriteCursor)
-        // control which packets the engine consumes per frame.
-        // Without restoring them on seek, the decoder stays at the
-        // live-edge file position and serves "later" packets to the
-        // restored state - which is exactly the "plays inputs from
-        // later in the round" symptom we saw.
-        bool capture_replay_data_block(size_t slot) noexcept
+        // llDecodedBufferReadCursor, llDecodedBufferWriteCursor) control
+        // which packets the engine consumes per frame.  Without restoring
+        // them on seek, the decoder stays at the live-edge file position
+        // and serves "later" packets to the restored state - which is
+        // exactly the "plays inputs from later in the round" symptom.
+        //
+        // `dst` is pre-zeroed so a faulted capture (BM unresolvable, or a
+        // fault mid-teardown) commits a clean blob rather than the prior
+        // tick's staging bytes - the restore path needs zero cursors, not
+        // a stale occupant's.
+        bool capture_replay_data_block(uint8_t* dst) noexcept
         {
-            uint8_t* dst = rdb_slot_ptr(slot);
             if (!dst) return false;
+            std::memset(dst, 0, kRDB_Bytes);
 
             RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
             if (!bm_obj) return false;
@@ -3310,9 +4974,8 @@ namespace Horse
         //   +0x3F4  u16    wWorkP1Input
         //   +0x3F6  u16    wWorkP2Input
         //   +0x3FC  u8     bRunningFlag
-        bool restore_replay_data_block(size_t slot) noexcept
+        bool restore_replay_data_block(const uint8_t* src) noexcept
         {
-            const uint8_t* src = rdb_slot_ptr(slot);
             if (!src) return false;
 
             RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
@@ -3332,13 +4995,6 @@ namespace Horse
             ok &= SafeWriteBytes(rdb + 0x3F0, src + 0x3F0, 8);  // 4x wWork ushorts
             ok &= SafeWriteBytes(rdb + 0x3FC, src + 0x3FC, 1);  // bRunningFlag
             return ok;
-        }
-
-        // Resolve a pointer into the per-slot extras blob.
-        uint8_t* extras_slot_ptr(size_t slot) noexcept
-        {
-            if (!m_extras_ring || slot >= m_ring_frames) return nullptr;
-            return m_extras_ring.get() + slot * kExtras_Bytes;
         }
 
         // -----------------------------------------------------------------
@@ -3429,9 +5085,10 @@ namespace Horse
             }
         }
 
-        // Capture WorldModePump + BlockInteractiveOps + cinematic head +
-        // BM state bytes into a single per-slot blob (kExtras_Bytes).
-        // The blob layout is documented at kExtras_Off_* above.
+        // Capture BlockInteractiveOps + cinematic head + BM state bytes +
+        // FrameInput / per-chara replay state into `dst` (the extras
+        // region's staging buffer, kExtras_Bytes).  The blob layout is
+        // documented at kExtras_Off_* above.
         //
         // Round-end seek-back fix (2026-05-14): without this, a backward
         // seek from post-KO into mid-round leaves WorldModePump's mode
@@ -3439,21 +5096,25 @@ namespace Horse
         // MasterModeFlag next tick, gating PerFrameTick's chara input
         // tick OFF via the BattleAdvanceFlag check.  Captures the live
         // state of all four sub-fields; restores them surgically on seek.
-        void capture_extras(size_t slot) noexcept
+        void capture_extras(uint8_t* dst) noexcept
         {
-            uint8_t* dst = extras_slot_ptr(slot);
             if (!dst) return;
+            // Pre-zero the whole staging blob: capture_extras fills only
+            // specific sub-ranges and the rest must read back as zero.
+            // The old per-slot ring was alloc-zeroed once; staging
+            // buffers are reused tick-to-tick so they are zeroed here.
+            std::memset(dst, 0, kExtras_Bytes);
             const uintptr_t base = NativeBinding::imageBase();
             if (!base) return;
 
-            // WorldModePump struct (64 bytes).  Static .data location;
-            // pointer-shaped fields (mode pointers, BM ptr, sub-driver
-            // ptr) point at long-lived static instances that survive
-            // round transitions, so the captured pointer values remain
-            // valid at restore time within the same session.
-            SafeReadBytes(reinterpret_cast<const void*>(base + kRVA_WorldModePump),
-                          dst + kExtras_Off_WorldModePump,
-                          kExtras_WorldModePump_Bytes);
+            // WorldModePump: NOT captured here (2026-05-16 fix).  The
+            // engine's own HgCpuDirect snapshot already captures the mode
+            // pointers (g_LuxBattle_WorldModePump.pCurrentMode /
+            // pQueuedNextMode) as RELOCATABLE references and restores them
+            // correctly - see the matching note in restore_extras().
+            // HorseMod capturing them as a raw 64-byte blob was redundant,
+            // and the raw restore caused a seek use-after-free; the
+            // kExtras_Off_WorldModePump bytes are now left unused.
 
             // BlockInteractiveOps (4 bytes).
             SafeReadBytes(reinterpret_cast<const void*>(base + kRVA_BlockInteractiveOps),
@@ -3492,11 +5153,11 @@ namespace Horse
                 if (SafeReadUInt8(bm + kBM_bEnginePauseFlag_Off, &b))
                     dst[kExtras_Off_BM_EnginePause] = b;
 
-                // PlayerRecordArray gate bits (2026-05-14 fix).
-                // pPRA = *(BM+0x440); both players' +0x394/+0x398
-                // are captured.  See CopyNextFrameToManager_SetMoveState4
-                // @ 0x140435C20 plate for why bit 9 of +0x398 gates the
-                // replay's per-frame snapshot copier.
+                // Historical PlayerRecordArray diagnostics.  Ghidra
+                // recheck showed PRA+0x398 bits 8/9 participate in
+                // ReplayPlayer round-reset navigation, not per-frame
+                // character movement.  Keep the bytes for comparisons,
+                // but normal seek no longer restores or forces them.
                 void* pra_raw = nullptr;
                 if (SafeReadPtr(bm + kBM_PlayerRecordArray_Off, &pra_raw) && pra_raw)
                 {
@@ -3551,16 +5212,15 @@ namespace Horse
                 if (SafeReadPtr(bm + kBM_FrameInputActor_Off, &fi_raw) && fi_raw)
                 {
                     const uint8_t* fi = reinterpret_cast<const uint8_t*>(fi_raw);
-                    // Capture 0x120 bytes covering both slot records.
-                    for (size_t off = 0;
-                         off + 4 <= kFI_SlotRecords_Bytes;
-                         off += 4)
-                    {
-                        uint32_t v32 = 0;
-                        if (SafeReadUInt32(fi + kFI_SlotRecords_Start + off, &v32))
-                            std::memcpy(dst + kExtras_Off_FrameInput_Slots + off,
-                                        &v32, 4);
-                    }
+                    // Capture 0x120 bytes covering both slot records in
+                    // one SEH-guarded copy (was 72 separate SafeReadUInt32
+                    // calls).  Pre-zero so a fault mid-teardown leaves a
+                    // clean blob rather than the prior occupant's bytes.
+                    std::memset(dst + kExtras_Off_FrameInput_Slots, 0,
+                                kFI_SlotRecords_Bytes);
+                    SafeReadBytes(fi + kFI_SlotRecords_Start,
+                                  dst + kExtras_Off_FrameInput_Slots,
+                                  kFI_SlotRecords_Bytes);
 
                     static std::atomic<bool> s_fi_capture_logged{false};
                     if (!s_fi_capture_logged.exchange(
@@ -3596,11 +5256,9 @@ namespace Horse
             // ReplayScrubDiag (revalidates each call).  Between matches
             // the actor can be null - we then leave the captured RP
             // bytes zeroed, and restore_extras will skip the write.
-            // Zero the three RP extras fields first: round_tag is now a
-            // timeline coordinate (m_round_tags), so on a wrapped slot a
-            // null actor or a failed read must leave a safe default
-            // (round 0) rather than stale bytes from the slot's prior
-            // occupant.
+            // Zero the three RP extras fields first: a null actor or a
+            // failed read must leave a safe default (round 0) rather than
+            // stale bytes from the staging buffer's prior tick.
             {
                 const int32_t z = 0;
                 std::memcpy(dst + kExtras_Off_RP_CurrentTime,  &z, 4);
@@ -3648,18 +5306,15 @@ namespace Horse
                         const size_t blob_off = (pi == 0)
                             ? kExtras_Off_P1_CharaReplay
                             : kExtras_Off_P2_CharaReplay;
-                        // SafeReadBytes is not exposed; use repeated
-                        // SafeReadUInt32 for each 4-byte chunk in the
-                        // range, then 1 byte for the trailing bCharaMode.
-                        uint32_t buf32 = 0;
-                        for (size_t off = 0;
-                             off + 4 <= kExtras_CharaReplay_Bytes;
-                             off += 4)
-                        {
-                            if (SafeReadUInt32(c + kChara_ReplayState_Start + off,
-                                               &buf32))
-                                std::memcpy(dst + blob_off + off, &buf32, 4);
-                        }
+                        // One SEH-guarded copy of the whole replay-state
+                        // window (was 13 separate SafeReadUInt32 calls).
+                        // Pre-zero so a fault mid-teardown leaves a clean
+                        // blob rather than the prior occupant's bytes.
+                        std::memset(dst + blob_off, 0,
+                                    kExtras_CharaReplay_Bytes);
+                        SafeReadBytes(c + kChara_ReplayState_Start,
+                                      dst + blob_off,
+                                      kExtras_CharaReplay_Bytes);
                     }
                 }
             }
@@ -3676,9 +5331,8 @@ namespace Horse
         // Restore the round-end-fix extras blob into the engine.  Called
         // from do_seek_to_seq AFTER the HgCpuDirect + IL + RDB restores.
         // Surgical writes to four distinct memory locations.
-        void restore_extras(size_t slot) noexcept
+        void restore_extras(const uint8_t* src) noexcept
         {
-            const uint8_t* src = extras_slot_ptr(slot);
             if (!src) return;
             const uintptr_t base = NativeBinding::imageBase();
             if (!base) return;
@@ -3727,15 +5381,13 @@ namespace Horse
             // HgCpuDirect through these same pointers, just at lower
             // offsets).
             //
-            // Stage 2 of the replay input pipeline reads
-            // chara->nReplayFrameTarget_at0x4414 to validate decoded
-            // packets.  Without restoring this, post-seek Stage 2 may
-            // reject all packets once the cached window runs out.
-            //
-            // Gated by m_enable_chara_4400_restore (default ON).  Older
-            // Ghidra plate observed these fields contain VFX bytes in
-            // match-replay viewing - if restoring them is harmful, the
-            // user can toggle this off via the Replay tab.
+            // Historical experiment: Stage 2 appeared to read chara+0x4414
+            // while validating decoded packets, so this path restored
+            // chara+0x43F4..0x4428.  The 2026-05-18 repro showed captured
+            // values here can be float-looking/stale in match replay, and
+            // enabling this restore preceded a crash.  The setter now keeps
+            // m_enable_chara_4400_restore false; leave the code in place only
+            // as an intentionally disabled diagnostic path.
             if (m_enable_chara_4400_restore.load(std::memory_order_acquire))
             {
                 const uintptr_t base = NativeBinding::imageBase();
@@ -3834,8 +5486,8 @@ namespace Horse
             }
 
             // Risky speculative writes (WorldModePump pointer, PRA bits,
-            // ReplayPlayer cursor) stay gated.  These caused the
-            // 2026-05-15 crash.
+            // captured ReplayPlayer cursor) stay gated.  These caused the
+            // 2026-05-15 crash and the 2026-05-18 post-generate crash repro.
             if (!m_enable_speculative_restore.load(std::memory_order_acquire))
             {
                 static std::atomic<bool> s_logged_skip{false};
@@ -3903,10 +5555,11 @@ namespace Horse
             {
                 uint8_t* bm = reinterpret_cast<uint8_t*>(bm_obj);
 
-                // PlayerRecordArray gate bits restore.  Direct dword
-                // writes to the live PRA fields.  Forward bit (0x200)
-                // must be set for CopyNextFrameToManager to advance
-                // dwPlaybackCursor and dispatch the next-frame snapshot.
+            // PlayerRecordArray gate bits restore.  Direct dword writes to
+            // live PRA fields are unsafe as a general seek fix: 2026-05-18
+            // testing crashed after this gated path was enabled.  Keep this
+            // under the disabled speculative gate until the real writer/control
+            // path is identified.
                 void* pra_raw = nullptr;
                 if (SafeReadPtr(bm + kBM_PlayerRecordArray_Off, &pra_raw) && pra_raw)
                 {
@@ -3943,18 +5596,12 @@ namespace Horse
                 }
             }
 
-            // ALuxBattleReplayPlayer playback-cursor restore (2026-05-15
-            // architectural reset).  THIS is the cursor the BP-level
-            // replay menu reads each tick to dispatch recorded frames.
-            // Without this, the menu keeps reading the live-edge frame
-            // and dispatches it into our restored chara state -
-            // observable symptom: "chars finish current move and idle".
-            //
-            // Writes captured CurrentTime + CurrentRound verbatim
-            // (no master_tag / 60.0f derivation, no hardcoded round 0).
-            // Forces bIsPlayingBack to whatever the capture had (which
-            // should be 1 since captures are gated on !m_paused, and
-            // forward play has bIsPlayingBack=1).
+            // Captured ALuxBattleReplayPlayer cursor restore.  Do not use as
+            // the normal seek path: after Generate Timeline completes these
+            // captured values can be final-edge/stale.  The safe seek path is
+            // write_replay_player_cursor(), which derives CurrentRound and
+            // CurrentTime from the selected snapshot tags and forces playback
+            // active without replaying stale captured extras.
             float   captured_rp_time  = 0.0f;
             int32_t captured_rp_round = 0;
             uint8_t captured_rp_play  = 0;
@@ -4013,37 +5660,157 @@ namespace Horse
             }
         }
 
-        // Find the ring slot whose seq tag matches `target_seq`
-        // exactly, or the closest <= target_seq.  Returns -1 if no
-        // acceptable slot.  Visit-once linear scan over the ring; cheap
-        // on a one-shot user action.  Bounds-checked against
-        // m_seq_tags.size() so a concurrent free_ring() teardown can't
-        // fault the subscript.
+        // Map a timeline seq to its tick index.  Capture is append-only
+        // and seq is gap-free from 0, so seq IS the tick index: this is a
+        // clamp, not a search.  A too-new target clamps to the latest
+        // tick; returns -1 if the timeline is empty or the target is
+        // negative.
         int32_t find_slot_for_seq(int32_t target_seq) const noexcept
         {
-            int32_t best_slot = -1;
-            int32_t best_tag  = -1;
-            const size_t cap = m_ring_frames;
-            if (cap > m_seq_tags.size()) return -1;
-            for (size_t i = 0; i < cap; ++i)
-            {
-                const int32_t tag =
-                    m_seq_tags[i].load(std::memory_order_acquire);
-                if (tag < 0) continue;
-                if (tag > target_seq) continue;
-                if (tag > best_tag)
-                {
-                    best_tag  = tag;
-                    best_slot = static_cast<int32_t>(i);
-                }
-            }
-            return best_slot;
+            const size_t cnt = m_tags.count();
+            if (cnt == 0 || target_seq < 0) return -1;
+            const int32_t latest = latest_seq();
+            if (latest < 0) return -1;
+            if (target_seq > latest) return latest;
+            return target_seq;
         }
 
-        // Restore the simulation from the ring slot whose seq tag
-        // is closest <= target_seq.  Does NOT touch m_paused - pause state
-        // is purely UI-driven (drag-start sets it, drag-end optionally
-        // clears it, Play/Pause and step buttons set it explicitly).
+        int32_t find_slot_for_round_master(int32_t round,
+                                           int32_t master) const noexcept
+        {
+            if (round < 0 || master < 0) return -1;
+            const int32_t latest = latest_seq();
+            if (latest < 0) return -1;
+
+            int32_t best_seq = -1;
+            int32_t best_master = -1;
+            for (int32_t k = 0; k <= latest; ++k)
+            {
+                int32_t s = -1, r = -1, f = -1, m = -1;
+                if (!m_tags.get(static_cast<size_t>(k), s, r, f, m)) break;
+                if (r != round || m < 0 || m > master) continue;
+                if (m >= best_master)
+                {
+                    best_master = m;
+                    best_seq = s;
+                }
+            }
+            return best_seq;
+        }
+
+        // Avoid restoring snapshots from the round-transition window.
+        // The UI marker for "R2" points at the first captured tick whose
+        // round tag changed, but those first ticks are not stable restore
+        // points: SC6 has just rebased replay clocks and is rebuilding
+        // round-local state.  Return either the original tick or a nearby
+        // tick safely inside the same round.
+        int32_t adjust_seek_tick_away_from_round_boundary(
+            int32_t tick) const noexcept
+        {
+            if (tick <= 0) return tick;
+
+            const size_t cnt = m_tags.count();
+            if (cnt == 0 || static_cast<size_t>(tick) >= cnt) return tick;
+
+            int32_t seq = -1, round = -1, wall = -1, master = -1;
+            if (!m_tags.get(static_cast<size_t>(tick),
+                            seq, round, wall, master))
+                return tick;
+
+            size_t next_round = static_cast<size_t>(tick) + 1;
+            while (next_round < cnt)
+            {
+                int32_t ns = -1, nr = -1, nf = -1, nm = -1;
+                if (!m_tags.get(next_round, ns, nr, nf, nm)) break;
+                if (nr != round) break;
+                ++next_round;
+            }
+
+            // The last few snapshots before a round tag change are part of
+            // the same transition hazard as the first snapshots after it:
+            // BM/replay actors are being parked for round teardown.  If the
+            // user clicks just before the R2 marker, move deeper into the
+            // current round instead of restoring the teardown edge.
+            if (next_round < cnt)
+            {
+                const size_t frames_to_next = next_round
+                    - static_cast<size_t>(tick);
+                if (frames_to_next
+                    <= static_cast<size_t>(kRoundBoundarySeekGuardFrames))
+                {
+                    if (static_cast<size_t>(tick)
+                        >= static_cast<size_t>(kRoundBoundarySeekGuardFrames))
+                    {
+                        const size_t adjusted = static_cast<size_t>(tick)
+                            - static_cast<size_t>(
+                                kRoundBoundarySeekGuardFrames);
+                        int32_t as = -1, ar = -1, af = -1, am = -1;
+                        if (m_tags.get(adjusted, as, ar, af, am)
+                            && ar == round)
+                            return static_cast<int32_t>(adjusted);
+                    }
+                    return tick;
+                }
+            }
+
+            size_t start = static_cast<size_t>(tick);
+            while (start > 0)
+            {
+                int32_t ps = -1, pr = -1, pf = -1, pm = -1;
+                if (!m_tags.get(start - 1, ps, pr, pf, pm)) return tick;
+                if (pr != round) break;
+                --start;
+            }
+
+            // start==0 is the first round's initial capture, not a
+            // mid-match transition from one round object graph to another.
+            if (start == 0) return tick;
+
+            const size_t frames_into_round =
+                static_cast<size_t>(tick) - start;
+
+            // Two independent transition signals have proven unsafe:
+            // the first committed ticks after the round tag changes, and
+            // low round-local replay clocks even after more than 30 ticks.
+            // The 2026-05-18 crash restored master_clock=53 / lastFID=1.
+            if (frames_into_round
+                    >= static_cast<size_t>(kRoundBoundarySeekGuardFrames)
+                && master >= kRoundBoundarySeekGuardMaster)
+                return tick;
+
+            size_t adjusted = start
+                + static_cast<size_t>(kRoundBoundarySeekGuardFrames);
+            if (adjusted >= cnt) adjusted = cnt - 1;
+
+            int32_t as = -1, ar = -1, af = -1, am = -1;
+            if (!m_tags.get(adjusted, as, ar, af, am) || ar != round)
+                return tick;
+
+            while (adjusted + 1 < cnt
+                   && am < kRoundBoundarySeekGuardMaster)
+            {
+                int32_t ns = -1, nr = -1, nf = -1, nm = -1;
+                if (!m_tags.get(adjusted + 1, ns, nr, nf, nm)
+                    || nr != round)
+                    break;
+                ++adjusted;
+                as = ns;
+                ar = nr;
+                af = nf;
+                am = nm;
+            }
+
+            if (am < kRoundBoundarySeekGuardMaster)
+                return tick;
+
+            return static_cast<int32_t>(adjusted);
+        }
+
+        // Restore the simulation from the captured tick `target_seq`
+        // (clamped to the timeline).  Does NOT touch m_paused - pause
+        // state is purely UI-driven (drag-start sets it, drag-end
+        // optionally clears it, Play/Pause and step buttons set it
+        // explicitly).
         //
         // Why no pause-management here: there's a thread race between
         // the UI thread (which fires on_drag_end on mouse release) and
@@ -4054,37 +5821,73 @@ namespace Horse
         // defeat the auto-resume contract.  Keeping pause UI-driven
         // closes the race: the UI's last action wins.
         //
-        // No-op if no acceptable slot exists (e.g. seek beyond captured
-        // range or before any captures were taken).
+        // No-op if the timeline is empty.
         void do_seek_to_seq(int32_t target_seq) noexcept
         {
-            if (!m_data || !m_exec_read) return;
-            const int32_t slot = find_slot_for_seq(target_seq);
-            if (slot < 0) return;
+            if (!is_initialized() || !m_exec_read) return;
+            int32_t tick = find_slot_for_seq(target_seq);
+            if (tick < 0) return;
+            const int32_t requested_tick = tick;
+            int32_t requested_seq = -1, requested_round = -1,
+                    requested_wall = -1, requested_master = -1;
+            (void)m_tags.get(static_cast<size_t>(tick),
+                             requested_seq, requested_round,
+                             requested_wall, requested_master);
 
-            uint8_t* slot_data =
-                m_data.get() + static_cast<size_t>(slot) * kSnapshotStride;
+            tick = adjust_seek_tick_away_from_round_boundary(tick);
+            if (tick != requested_tick)
+            {
+                int32_t adjusted_seq = -1, adjusted_round = -1,
+                        adjusted_wall = -1, adjusted_master = -1;
+                (void)m_tags.get(static_cast<size_t>(tick),
+                                 adjusted_seq, adjusted_round,
+                                 adjusted_wall, adjusted_master);
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] seek target_seq={} adjusted away from "
+                    "round boundary: tick {}(round={} master={}) -> "
+                    "{}(round={} master={})\n"),
+                    target_seq, requested_tick, requested_round,
+                    requested_master, tick, adjusted_round,
+                    adjusted_master);
+            }
 
-            const int32_t seq_tag    = m_seq_tags[static_cast<size_t>(slot)]
-                                         .load(std::memory_order_acquire);
-            const int32_t wall_tag   = m_frame_tags[static_cast<size_t>(slot)]
-                                         .load(std::memory_order_acquire);
-            const int32_t master_tag = m_master_tags[static_cast<size_t>(slot)]
-                                         .load(std::memory_order_acquire);
+            int32_t seq_tag = -1, round_tag = -1,
+                    wall_tag = -1, master_tag = -1;
+            if (!m_tags.get(static_cast<size_t>(tick),
+                            seq_tag, round_tag, wall_tag, master_tag))
+                return;
 
-            // Defence in depth: capture_snapshot now skips slots that
-            // failed to read the master clock, so this should never
+            // Defence in depth: capture_snapshot never commits a tick
+            // whose master clock was unreadable, so this should never
             // fire.  If it ever does, refuse the seek rather than
             // poison the engine cursors with -1.
             if (master_tag < 0)
             {
                 RC::Output::send<RC::LogLevel::Warning>(
-                    STR("[ReplayScrub] seek refused: slot={} wall_tag={} "
+                    STR("[ReplayScrub] seek refused: tick={} wall_tag={} "
                         "has master_tag=-1 (capture-time master clock "
                         "was unreadable)\n"),
-                    slot, wall_tag);
+                    tick, wall_tag);
                 return;
             }
+
+            const int32_t demo_ms = m_tags.demo_time_ms(
+                static_cast<size_t>(tick));
+            const bool rp_cursor_seek =
+                m_use_replay_player_seek.load(std::memory_order_acquire);
+            const bool native_demo_seek =
+                m_use_demo_goto_time_seek.load(std::memory_order_acquire);
+            const bool auto_resume_after_seek =
+                m_resume_after_seek.load(std::memory_order_acquire)
+                && m_auto_resume_on_release.load(std::memory_order_acquire);
+            const bool has_native_demo_time = (demo_ms >= 0);
+            const int32_t native_target_ms =
+                has_native_demo_time
+                    ? demo_ms
+                    : static_cast<int32_t>(
+                          (static_cast<int64_t>(seq_tag) * 1000 + 30) / 60);
+            const float replay_player_seconds =
+                static_cast<float>(master_tag) / 60.0f;
 
             // Seek diagnostics (verbose-only).  At scrub-drag rates a
             // seek fires every frame, so unconditional PRE/POST_SEEK
@@ -4097,26 +5900,143 @@ namespace Horse
                 m_verbose_diag.load(std::memory_order_acquire);
             if (verbose)
             {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] seek begin target_seq={} "
+                    "requested_tick={} tick={} round={} wall_tag={} "
+                    "master_tag={} paused={} rp_cursor={} native_demo={} "
+                    "demo_ms={} native_target_ms={}\n"),
+                    target_seq, requested_tick, tick, round_tag, wall_tag,
+                    master_tag,
+                    m_paused.load(std::memory_order_acquire) ? 1 : 0,
+                    rp_cursor_seek ? 1 : 0,
+                    native_demo_seek ? 1 : 0, demo_ms, native_target_ms);
+
                 // Full replay-system state before the restore; pairs
                 // with POST_SEEK below for a side-by-side log diff.
                 dump_replay_state("PRE_SEEK", seq_tag);
                 ReplayScrubDiag::dump_full("PRE_SEEK");
             }
 
+            // Primary seek path: let UE4's replay driver rebuild the
+            // checkpoint/packet stream.  This must run before any legacy
+            // HgCpuDirect restore because that restore writes the current
+            // live chara graph and can fault when the target is in another
+            // round/session context.  Native seek is async; if the driver
+            // is busy, keep the newest requested time and retry on later
+            // cockpit ticks.
+            if (native_demo_seek)
+            {
+                if (!has_native_demo_time)
+                {
+                    static std::atomic<bool> s_warned_missing_demo_time{false};
+                    if (!s_warned_missing_demo_time.exchange(
+                            true, std::memory_order_relaxed))
+                    {
+                        RC::Output::send<RC::LogLevel::Warning>(STR(
+                            "[ReplayScrub] timeline has no captured "
+                            "DemoCurrentTime; falling back to seq/60 for "
+                            "native DemoNetDriver seek. Regenerate the "
+                            "timeline with this build for exact native "
+                            "demo timestamps.\n"));
+                    }
+                }
+
+                const bool direct_driver_available =
+                    ReplayScrubDiag::read_demo_net_driver().readable;
+                const bool native_submitted =
+                    request_demo_goto_time_seek_ms(native_target_ms,
+                                                   master_tag, round_tag,
+                                                   seq_tag);
+
+                if (native_submitted)
+                {
+                    begin_native_demo_seek_settle(
+                        native_target_ms, !auto_resume_after_seek);
+                    if (verbose)
+                    {
+                        dump_replay_state("POST_NATIVE_SEEK_REQUEST", seq_tag);
+                        ReplayScrubDiag::dump_full("POST_NATIVE_SEEK_REQUEST");
+                        m_post_seek_countdown.store(kDefaultPostSeekDumpFrames,
+                                                    std::memory_order_release);
+                        m_last_movevm_p1 =
+                            ReplayScrubDiag::read_chara_movevm(0);
+                        m_last_movevm_p2 =
+                            ReplayScrubDiag::read_chara_movevm(1);
+                        uint32_t cur_seed = 0;
+                        read_frame_counter(cur_seed);
+                        m_diag_last_wall   = cur_seed;
+                        m_diag_last_master = master_tag;
+                        m_diag_last_paused =
+                            m_paused.load(std::memory_order_acquire);
+                    }
+                    return;
+                }
+
+                // Keep the newest native request pending and do not write
+                // legacy state over the replay driver.  A visual snapshot
+                // preview can make a broken native seek look fixed while
+                // the engine's real playback cursor is still wrong; the
+                // default path must either queue UDemoNetDriver work or
+                // remain visibly unresolved.
+                if (direct_driver_available)
+                {
+                    return;
+                }
+                return;
+            }
+
+            // Legacy snapshot restore path.  This remains available only
+            // when native DemoNetDriver seek is explicitly disabled.  It
+            // writes deep battle/chara state, so keep the live-context
+            // checks here.
+            if (read_engine_master_clock() < 0 || !charas_alive())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] legacy seek refused: battle context not "
+                    "live (BM/InputLog/chara torn down)\n"));
+                return;
+            }
+
+            const int32_t live_round = read_current_round();
+            const int32_t live_round_result = read_last_round_result();
+            if (live_round >= 0 && round_tag != live_round)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] legacy cross-round snapshot restore: "
+                    "live_round={} target_round={} live_result={}\n"),
+                    live_round, round_tag, live_round_result);
+            }
+
             // Step 1: Restore full simulation state (chara, globals,
             // terrain, camera, timer, motion, physics, VFX) to the
-            // snapshot frame.  This is the heavy lifting - writes
-            // ~80-100 KB of engine state.
-            m_shim.retarget(slot_data, kSnapshotStride);
-            m_exec_read(&m_shim);
+            // snapshot frame.  gather() reconstructs the tick's sim
+            // region byte-for-byte into the sim store's scratch buffer;
+            // the shim reads ~80-100 KB of it back into the engine.
+            const uint8_t* sim_blob =
+                m_sim_store.gather(static_cast<size_t>(tick));
+            if (!sim_blob) return;
+            m_shim.retarget(const_cast<uint8_t*>(sim_blob), kSnapshotStride);
+            // SEH-guarded: if the restore faults (captured state vs. live
+            // context mismatch) abort the seek instead of crashing.
+            if (!SafeInvokeExec(m_exec_read, &m_shim))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] seek aborted: snapshot restore faulted "
+                    "(tick={}) - engine state left as-is\n"), tick);
+                return;
+            }
 
             // Step 2: Restore the captured InputLog state window
             // (pInputLog+0x394..+0x4414).  Reproduces the engine's
             // entire replay-playback bookkeeping at the captured
             // frame: cache entries, drain cursor, double-tick guard,
             // playback cursor, master/last-frame IDs, and any other
-            // hidden state in the +0x394..+0x4414 byte range.
-            restore_input_cache(static_cast<size_t>(slot));
+            // hidden state in the +0x394..+0x4414 byte range.  The
+            // gathered pointer is held for Step 5's nLastFrameID read -
+            // nothing re-gathers the IL store between here and there.
+            const uint8_t* il_blob =
+                m_il_store.gather(static_cast<size_t>(tick));
+            restore_input_cache(il_blob);
 
             // Step 3: Restore the Stage 1 decoder's state (*pBM+0x460,
             // FLuxReplayDataBlock, 1021 bytes).  This rewinds the
@@ -4128,10 +6048,12 @@ namespace Horse
             // (restored to T) gets fed inputs from frame F onwards
             // - the "plays inputs from later in the round" symptom
             // the user reported on 2026-05-11.
-            restore_replay_data_block(static_cast<size_t>(slot));
+            restore_replay_data_block(
+                m_rdb_store.gather(static_cast<size_t>(tick)));
 
-            // Step 4: Restore round-end-fix extras (WorldModePump +
-            // BlockInteractiveOps + cinematic head + BM state bytes).
+            // Step 4: Restore round-end-fix extras (BlockInteractiveOps +
+            // cinematic head + BM state bytes + FrameInput / per-chara
+            // replay state).
             //
             // Done BEFORE the BM cursor write below so the BM state-
             // byte restore doesn't clobber values the cursor sync
@@ -4140,7 +6062,7 @@ namespace Horse
             // (characters frozen post-restore because PerFrameTick's
             // BattleAdvanceFlag check still sees mode==3) is what this
             // step fixes.
-            restore_extras(static_cast<size_t>(slot));
+            restore_extras(m_extras_store.gather(static_cast<size_t>(tick)));
 
             // Step 5: Sync the BM-side replay cursors (BM+0x148C
             // nReplayLastApplied AND BM+0x1488 nReplayLastFrameID).
@@ -4148,16 +6070,15 @@ namespace Horse
             // HgCpuDirect chara/global window AND the InputLog/
             // DecoderBlock state we just restored.
             //
-            // Read the snapshot's nLastFrameID from the captured IL
-            // blob (offset +0xC within the blob since the capture
-            // starts at +0x394 and nLastFrameID is at +0x3A0).  We
-            // must write BM+0x1488 to THIS value, not to master_tag,
+            // Read the snapshot's nLastFrameID from the IL blob
+            // gathered in Step 2 (offset +0xC within the blob since the
+            // capture starts at +0x394 and nLastFrameID is at +0x3A0).
+            // We must write BM+0x1488 to THIS value, not to master_tag,
             // because SimulationLoop's mismatch check compares the
             // BM-side cache against the live IL field which is the
             // snapshot value after restore_input_cache.
             int32_t snapshot_last_frame_id = -1;
-            if (const uint8_t* il_blob =
-                    input_log_slot_ptr(static_cast<size_t>(slot)))
+            if (il_blob)
             {
                 std::memcpy(&snapshot_last_frame_id,
                             il_blob + (kIL_nLastFrameID_Off
@@ -4165,62 +6086,19 @@ namespace Horse
                             sizeof(snapshot_last_frame_id));
             }
             write_replay_cursors(master_tag, snapshot_last_frame_id);
+            write_replay_player_cursor(round_tag, master_tag,
+                                       replay_player_seconds);
 
             // Step 6 (EXPERIMENTAL): rewind the UE4-level playback
-            // (Old Step 6 removed 2026-05-15.) The ReplayPlayer
-            // CurrentTime/CurrentRound/bIsPlayingBack write now lives
-            // in restore_extras() above and uses the per-snapshot
-            // CAPTURED live values (not master_tag/60 derivation and
-            // not hardcoded round 0).  Cleaner: one place, accurate,
-            // multi-round safe.
+            // Step 6 moved out of restore_extras after the 2026-05-18
+            // post-generate test: captured ReplayPlayer extras can be
+            // zero/stale after match end.  We now derive the cursor from
+            // the seek target's tags and only write the three RP fields.
 
             m_last_seek_target.store(seq_tag, std::memory_order_release);
             // Record the master clock value the engine is now at so the
             // UI playhead can extrapolate forward as master advances.
             m_last_seek_master_tag.store(master_tag, std::memory_order_release);
-
-            // 2026-05-15 (ultrathink): user-toggleable force-writes for
-            // bisection.  Each independent of the safety-gated
-            // restore_extras path.
-            //
-            // Force PRA bit 9 (FORWARD play) = 1 on both players.  Per
-            // CopyNextFrameToManager_SetMoveState4 plate, this bit gates
-            // the ReplayPlayer's per-frame snapshot dispatcher.  If the
-            // engine post-seek isn't dispatching, this might be needed.
-            if (m_force_pra_forward_bit_on_seek.load(std::memory_order_acquire))
-            {
-                RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
-                if (bm_obj)
-                {
-                    uint8_t* bm = reinterpret_cast<uint8_t*>(bm_obj);
-                    void* pra_raw = nullptr;
-                    if (SafeReadPtr(bm + kBM_PlayerRecordArray_Off, &pra_raw)
-                        && pra_raw)
-                    {
-                        uint8_t* pra = reinterpret_cast<uint8_t*>(pra_raw);
-                        for (int p = 0; p < 2; ++p)
-                        {
-                            uint32_t v = 0;
-                            if (SafeReadUInt32(pra + p * kPRA_PlayerStride
-                                                   + kPRA_FieldAt398_Off, &v))
-                            {
-                                v |= kPRA_ForwardBit;
-                                SafeWriteBytes(pra + p * kPRA_PlayerStride
-                                                  + kPRA_FieldAt398_Off,
-                                               &v, 4);
-                            }
-                        }
-                        static std::atomic<bool> s_logged_force_fwd{false};
-                        if (!s_logged_force_fwd.exchange(
-                                true, std::memory_order_relaxed))
-                        {
-                            RC::Output::send<RC::LogLevel::Default>(
-                                STR("[ReplayScrub] first force-write of "
-                                    "PRA bit 9 (FORWARD) on seek\n"));
-                        }
-                    }
-                }
-            }
 
             // Force bIsPlayingBack = 1 on ReplayPlayer.  Tells engine
             // "we're playing back; don't end the replay".
@@ -4275,10 +6153,10 @@ namespace Horse
                     m_paused.load(std::memory_order_acquire);
 
                 RC::Output::send<RC::LogLevel::Default>(
-                    STR("[ReplayScrub] seek target_seq={} -> slot={} "
-                        "wall_tag={} master_tag={} (paused={})  armed "
-                        "post-seek tick dump for {} frames\n"),
-                    target_seq, slot, wall_tag, master_tag,
+                    STR("[ReplayScrub] seek target_seq={} -> tick={} "
+                        "round={} wall_tag={} master_tag={} (paused={})  "
+                        "armed post-seek tick dump for {} frames\n"),
+                    target_seq, tick, round_tag, wall_tag, master_tag,
                     m_paused.load(std::memory_order_acquire) ? 1 : 0,
                     kDefaultPostSeekDumpFrames);
             }
@@ -4354,14 +6232,15 @@ namespace Horse
             // master_tag so the diff with the BM-side IL[master=...]
             // makes the bug-mode obvious at a glance.
             int32_t slot_master_tag = -1;
-            if (m_ring_frames > 0)
             {
-                // Find the slot matching this hint frame and report
-                // its captured master_tag; -1 if not in ring.
+                // Find the tick matching this hint frame and report its
+                // captured master_tag; -1 if not on the timeline.
                 const int32_t s = find_slot_for_seq(hint_frame);
-                if (s >= 0)
-                    slot_master_tag = m_master_tags[static_cast<size_t>(s)]
-                                         .load(std::memory_order_acquire);
+                int32_t s_seq, s_round, s_wall, s_master;
+                if (s >= 0
+                    && m_tags.get(static_cast<size_t>(s),
+                                  s_seq, s_round, s_wall, s_master))
+                    slot_master_tag = s_master;
             }
 
             // UI playhead diagnostic (2026-05-15): surface what
@@ -4393,12 +6272,9 @@ namespace Horse
                 ui_seek_target, ui_seek_master, ui_live_master,
                 ui_playhead, ui_paused);
 
-            // Dump PlayerRecordArrayPtr+0x394/+0x398 button bits for
-            // both players.  These drive CopyNextFrameToManager_-
-            // SetMoveState4: bit 8 of +0x398 = REWIND, bit 9 = FORWARD.
-            // Logging these is the cheapest way to find out if the
-            // engine is signalling forward-play through this channel,
-            // which we don't yet understand in replay-viewing mode.
+            // Dump PlayerRecordArrayPtr+0x394/+0x398 bits for both
+            // players.  These were a false lead for movement resume, but
+            // remain useful when comparing round-reset state.
             void* pra = nullptr;
             SafeReadPtr(bm + 0x440, &pra);
             if (pra)
@@ -4582,6 +6458,370 @@ namespace Horse
                     master_clock, last_frame_id,
                     reinterpret_cast<uintptr_t>(bm));
             }
+        }
+
+        void write_replay_player_cursor(int32_t round_tag,
+                                        int32_t master_clock,
+                                        float current_time_seconds) noexcept
+        {
+            if (!m_use_replay_player_seek.load(std::memory_order_acquire))
+                return;
+            if (round_tag < 0 || master_clock < 0) return;
+
+            RC::Unreal::UObject* rp_obj =
+                ReplayScrubDiag::replay_player_ptr().get(
+                    L"LuxBattleReplayPlayer");
+            if (!rp_obj) return;
+
+            uint8_t* rp = reinterpret_cast<uint8_t*>(rp_obj);
+            const uint8_t is_playing = 1;
+
+            SafeWriteBytes(rp + kRP_CurrentRound_Off,
+                           &round_tag, sizeof(round_tag));
+            SafeWriteBytes(rp + kRP_CurrentTime_Off,
+                           &current_time_seconds,
+                           sizeof(current_time_seconds));
+            SafeWriteBytes(rp + kRP_IsPlayingBack_Off,
+                           &is_playing, sizeof(is_playing));
+
+            static std::atomic<bool> s_logged{false};
+            if (!s_logged.exchange(true, std::memory_order_relaxed))
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] first ReplayPlayer cursor sync; "
+                    "CurrentRound={} CurrentTime={:.4f} "
+                    "bIsPlayingBack=1 (round-local master_clock={})\n"),
+                    round_tag, current_time_seconds, master_clock);
+            }
+        }
+
+        static bool demo_driver_has_pending_goto(
+            const ReplayScrubDiag::DemoNetDriverSnap& s) noexcept
+        {
+            return s.raw_busy_791 != 0
+                || s.raw_current_task_7b8 != 0
+                || s.raw_task_count_7b0 > 0;
+        }
+
+        void begin_native_demo_seek_settle(int32_t target_ms,
+                                           bool refreeze_after) noexcept
+        {
+            if (!refreeze_after)
+            {
+                m_native_demo_seek_settle_ticks.store(
+                    0, std::memory_order_release);
+                m_native_demo_seek_settle_ms.store(
+                    target_ms, std::memory_order_release);
+                return;
+            }
+            m_native_demo_seek_settle_ms.store(target_ms,
+                                               std::memory_order_release);
+            m_native_demo_seek_settle_ticks.store(
+                kNativeDemoSeekSettleTicks, std::memory_order_release);
+            if (m_paused.load(std::memory_order_acquire))
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] native seek queued while paused; "
+                    "temporarily releasing tick gates for up to {} frames "
+                    "so UE4 can rebuild to {:.3f}s, then pause will "
+                    "re-freeze on the landed state\n"),
+                    kNativeDemoSeekSettleTicks,
+                    static_cast<float>(target_ms) / 1000.0f);
+            }
+        }
+
+        void service_native_demo_seek_settle() noexcept
+        {
+            int32_t ticks = m_native_demo_seek_settle_ticks.load(
+                std::memory_order_acquire);
+            if (ticks <= 0) return;
+
+            bool landed = false;
+            const int32_t target_ms = m_native_demo_seek_settle_ms.load(
+                std::memory_order_acquire);
+            const float target_seconds =
+                static_cast<float>(target_ms) / 1000.0f;
+
+            ReplayScrubDiag::DemoNetDriverSnap d =
+                ReplayScrubDiag::read_demo_net_driver_fast();
+            if (!d.readable)
+                d = ReplayScrubDiag::read_demo_net_driver();
+
+            if (d.readable)
+            {
+                const bool busy = demo_driver_has_pending_goto(d)
+                    || d.raw_loading_794 != 0;
+                const float delta =
+                    d.raw_demo_cur_time > target_seconds
+                        ? d.raw_demo_cur_time - target_seconds
+                        : target_seconds - d.raw_demo_cur_time;
+                const bool time_close =
+                    target_ms < 0
+                    || !ReplayScrubDiag::demo_snap_time_is_sane(d)
+                    || delta <= 0.250f
+                    || d.raw_demo_cur_time >= target_seconds - 0.050f;
+                landed = !busy && time_close;
+            }
+
+            if (landed || ticks <= 1)
+            {
+                m_native_demo_seek_settle_ticks.store(
+                    0, std::memory_order_release);
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] native seek settle {} after {} frame(s) "
+                    "(driver=0x{:X} cur={:.3f}s target={:.3f}s busy={} "
+                    "tasks={} current_task=0x{:X})\n"),
+                    RC::to_generic_string(landed ? "landed" : "timed out"),
+                    kNativeDemoSeekSettleTicks - ticks + 1,
+                    d.driver_ptr, d.raw_demo_cur_time, target_seconds,
+                    d.readable && demo_driver_has_pending_goto(d) ? 1 : 0,
+                    d.raw_task_count_7b0, d.raw_current_task_7b8);
+                return;
+            }
+
+            m_native_demo_seek_settle_ticks.store(
+                ticks - 1, std::memory_order_release);
+        }
+
+        bool safe_call_demo_goto_time(void* driver,
+                                      float target_seconds) noexcept
+        {
+            if (!m_demo_goto_time || !driver) return false;
+            __try
+            {
+                m_demo_goto_time(driver, target_seconds, nullptr);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                ReplayScrubDiag::clear_cached_demo_driver();
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] native DemoNetDriver seek call faulted; "
+                    "cleared cached driver and will retry/fallback "
+                    "(driver=0x{:X} target={:.3f}s)\n"),
+                    reinterpret_cast<uintptr_t>(driver), target_seconds);
+                return false;
+            }
+        }
+
+        bool request_demo_goto_time_seek_ms(int32_t target_ms,
+                                            int32_t master_clock,
+                                            int32_t round_tag,
+                                            int32_t seq_tag) noexcept
+        {
+            const bool had_pending =
+                m_pending_demo_seek_ms.load(std::memory_order_acquire) >= 0;
+            m_pending_demo_seek_ms.store(target_ms,
+                                         std::memory_order_release);
+            m_pending_demo_seek_master.store(master_clock,
+                                             std::memory_order_release);
+            m_pending_demo_seek_seq.store(seq_tag,
+                                          std::memory_order_release);
+            m_pending_demo_seek_round.store(round_tag,
+                                            std::memory_order_release);
+            if (!had_pending)
+                m_pending_demo_seek_retry_ticks = 0;
+            if (m_pending_demo_seek_retry_ticks <= 0)
+                return service_pending_demo_goto_time_seek(true);
+            return false;
+        }
+
+        bool service_pending_demo_goto_time_seek(bool log_wait) noexcept
+        {
+            const int32_t target_ms =
+                m_pending_demo_seek_ms.load(std::memory_order_acquire);
+            if (target_ms < 0) return false;
+            if (!log_wait && m_pending_demo_seek_retry_ticks > 0)
+            {
+                --m_pending_demo_seek_retry_ticks;
+                return false;
+            }
+
+            const int32_t master_clock =
+                m_pending_demo_seek_master.load(std::memory_order_acquire);
+            const int32_t seq_tag =
+                m_pending_demo_seek_seq.load(std::memory_order_acquire);
+            const int32_t round_tag =
+                m_pending_demo_seek_round.load(std::memory_order_acquire);
+            const float target_seconds =
+                static_cast<float>(target_ms) / 1000.0f;
+
+            if (try_queue_demo_goto_time_seek_seconds(
+                    target_seconds, master_clock, round_tag, seq_tag,
+                    log_wait))
+            {
+                m_pending_demo_seek_ms.store(-1,
+                                             std::memory_order_release);
+                m_pending_demo_seek_master.store(-1,
+                                                 std::memory_order_release);
+                m_pending_demo_seek_seq.store(-1,
+                                              std::memory_order_release);
+                m_pending_demo_seek_round.store(-1,
+                                                std::memory_order_release);
+                m_pending_demo_seek_retry_ticks = 0;
+                return true;
+            }
+            else
+            {
+                m_pending_demo_seek_retry_ticks =
+                    kNativeDemoSeekRetryTicks;
+                return false;
+            }
+        }
+
+        bool try_queue_demo_goto_time_seek_seconds(float target_seconds,
+                                                   int32_t master_clock,
+                                                   int32_t round_tag,
+                                                   int32_t seq_tag,
+                                                   bool log_wait) noexcept
+        {
+            if (!m_use_demo_goto_time_seek.load(std::memory_order_acquire))
+                return true;
+            if (target_seconds < 0.0f) return true;
+            if (!m_demo_goto_time)
+            {
+                if (try_queue_demo_goto_time_seek_cvar(
+                        target_seconds, master_clock, round_tag, seq_tag))
+                {
+                    return true;
+                }
+                if (log_wait)
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub] native DemoNetDriver seek pending: "
+                        "direct function pointer unresolved and CVar "
+                        "fallback unavailable (seq={} master_clock={} "
+                        "target={:.3f}s)\n"),
+                        seq_tag, master_clock, target_seconds);
+                return false;
+            }
+
+            const ReplayScrubDiag::DemoNetDriverSnap before =
+                ReplayScrubDiag::read_demo_net_driver();
+            if (!before.readable)
+            {
+                if (log_wait)
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub] native DemoNetDriver seek pending: "
+                        "direct driver unresolved "
+                        "(seq={} master_clock={} target={:.3f}s)\n"),
+                        seq_tag, master_clock, target_seconds);
+                return false;
+            }
+
+            // Ghidra: UDemoNetDriver::GotoTimeInSeconds silently drops a
+            // request when an FGotoTimeInSecondsTask is already queued
+            // or driver+0x791 is set.  Do not call in that state: keep
+            // the newest requested target pending and retry later.
+            if (demo_driver_has_pending_goto(before))
+            {
+                if (log_wait)
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub] native DemoNetDriver seek deferred: "
+                        "driver busy seq={} target={:.3f}s "
+                        "[+791=0x{:02X} +7B0={} +7B8=0x{:X}]\n"),
+                        seq_tag, target_seconds,
+                        static_cast<unsigned>(before.raw_busy_791),
+                        before.raw_task_count_7b0,
+                        before.raw_current_task_7b8);
+                return false;
+            }
+
+            if (!safe_call_demo_goto_time(
+                    reinterpret_cast<void*>(before.driver_ptr),
+                    target_seconds))
+            {
+                return false;
+            }
+
+            ReplayScrubDiag::DemoNetDriverSnap after{};
+            const bool after_readable =
+                ReplayScrubDiag::read_demo_driver_raw(
+                    reinterpret_cast<void*>(before.driver_ptr), after);
+            const bool task_observed =
+                after_readable
+                && (after.raw_task_count_7b0 > before.raw_task_count_7b0
+                    || after.raw_current_task_7b8
+                        != before.raw_current_task_7b8
+                    || after.raw_busy_791 != before.raw_busy_791);
+            if (!task_observed)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] native DemoNetDriver seek call returned "
+                    "but no FGotoTimeInSecondsTask was observed; retrying "
+                    "later (seq={} master_clock={} target={:.3f}s "
+                    "driver=0x{:X} before[+791=0x{:02X} +7B0={} "
+                    "+7B8=0x{:X}] after_readable={} after[+791=0x{:02X} "
+                    "+7B0={} +7B8=0x{:X}])\n"),
+                    seq_tag, master_clock, target_seconds, before.driver_ptr,
+                    static_cast<unsigned>(before.raw_busy_791),
+                    before.raw_task_count_7b0, before.raw_current_task_7b8,
+                    after_readable ? 1 : 0,
+                    static_cast<unsigned>(after.raw_busy_791),
+                    after.raw_task_count_7b0, after.raw_current_task_7b8);
+                return false;
+            }
+
+            if (m_use_replay_player_seek.load(std::memory_order_acquire))
+            {
+                write_replay_player_cursor(
+                    round_tag, master_clock,
+                    static_cast<float>(master_clock) / 60.0f);
+            }
+            m_native_demo_seek_guard_ticks.store(
+                kNativeDemoSeekGuardTicks, std::memory_order_release);
+            m_last_seek_target.store(seq_tag, std::memory_order_release);
+            m_last_seek_master_tag.store(master_clock,
+                                         std::memory_order_release);
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub] native DemoNetDriver::GotoTimeInSeconds "
+                "submitted; "
+                "seq={} master_clock={} target={:.3f}s "
+                "driver=0x{:X} rawCur {:.3f}->{:.3f} "
+                "raw+791 0x{:02X}->0x{:02X} "
+                "raw+794 0x{:02X}->0x{:02X} "
+                "tasks {}->{} currentTask 0x{:X}->0x{:X}\n"),
+                seq_tag, master_clock, target_seconds, after.driver_ptr,
+                before.raw_demo_cur_time, after.raw_demo_cur_time,
+                static_cast<unsigned>(before.raw_busy_791),
+                static_cast<unsigned>(after.raw_busy_791),
+                static_cast<unsigned>(before.raw_loading_794),
+                static_cast<unsigned>(after.raw_loading_794),
+                before.raw_task_count_7b0, after.raw_task_count_7b0,
+                before.raw_current_task_7b8,
+                after.raw_current_task_7b8);
+            return true;
+        }
+
+        bool try_queue_demo_goto_time_seek_cvar(float target_seconds,
+                                                int32_t master_clock,
+                                                int32_t round_tag,
+                                                int32_t seq_tag) noexcept
+        {
+            void* cvar =
+                ScreenPercentageOverride::find_cvar(
+                    L"demo.GotoTimeInSeconds");
+            if (!cvar) return false;
+
+            wchar_t value[32]{};
+            if (swprintf_s(value, L"%.3f", target_seconds) <= 0)
+                return false;
+
+            if (!ScreenPercentageOverride::cvar_set(cvar, value))
+                return false;
+
+            m_native_demo_seek_guard_ticks.store(
+                kNativeDemoSeekGuardTicks, std::memory_order_release);
+            m_last_seek_target.store(seq_tag, std::memory_order_release);
+            m_last_seek_master_tag.store(master_clock,
+                                         std::memory_order_release);
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub] native demo.GotoTimeInSeconds CVar "
+                "submitted; seq={} master_clock={} target={:.3f}s "
+                "(direct DemoNetDriver pointer unresolved)\n"),
+                seq_tag, master_clock, target_seconds);
+            return true;
         }
     };
 

@@ -1,0 +1,141 @@
+{
+  "address": "0x140435c20",
+  "completeness": {
+    "all_deductions_unfixable": false,
+    "classification": "worker",
+    "code_line_count": 84,
+    "comment_density": 0.6,
+    "completeness_score": 69.34535123214272,
+    "decompilation_available": true,
+    "deduction_count": 4,
+    "disasm_comment_count": 4,
+    "documentation_profile": "worker",
+    "effective_score": 76.84535123214272,
+    "fixable_deductions": 23.15464876785729,
+    "function_name": "LuxReplayChara_Tick_CopyNextFrameToManager_SetMoveState4",
+    "globals_unrenamed": 0,
+    "has_calling_convention": true,
+    "has_custom_name": true,
+    "has_plate_comment": true,
+    "has_prototype": true,
+    "has_renameable_variables": true,
+    "hungarian_violations": 1,
+    "inline_comment_count": 1,
+    "is_compiler_helper": false,
+    "is_stub": false,
+    "is_thunk": false,
+    "labels_unrenamed": 0,
+    "magic_numbers_undocumented": 0,
+    "max_achievable_score": 92.5,
+    "ordinals_undocumented": 0,
+    "phantom_count": 0,
+    "plate_issues": 4,
+    "return_type": "void",
+    "return_type_resolved": true,
+    "struct_accesses_unresolved": 0,
+    "structural_deductions": 7.499999999999999,
+    "type_quality_issues": 0,
+    "undefined_count": 2
+  },
+  "created_at": "2026-05-17T23:09:11+00:00",
+  "decompile": "\r\n/* LuxReplayChara_Tick_CopyNextFrameToManager_SetMoveState4(ALuxBattleFrameInputLog* pInputLog)\r\n   ============================================================================\r\n   ALuxBattleReplayPlayer's UE4 Actor::Tick override (vtable[131] = +0x418\r\n   in vtable @ 0x143290718).  Per-UE4-frame snapshot copier that drives\r\n   visual replay playback (Strategy A in HorseMod scrub design).\r\n   \r\n   ==========================================================================\r\n   GATING CONDITION (load-bearing for HorseMod scrub-resume, 2026-05-14)\r\n   ==========================================================================\r\n   After AActor_TickActor, resolves pBM and pPlayerRecordArray =\r\n   pBM->PlayerRecordsBase_at0x440.  Reads two PlayerField uints:\r\n     pra+0x394   pPlayerFieldAt394 (auxiliary flags - currently unused here)\r\n     pra+0x398   dwReplayDirectionBits\r\n                 bit 8 (0x100)  = REWIND requested\r\n                 bit 9 (0x200)  = FORWARD requested\r\n   \r\n   If pInputLog->bEnable_at0x398 != 0 AND BM status == 2:\r\n     if (rewind bit set) AND cursor > 0:           cursor--\r\n     else if (forward bit set) AND cursor <= total: cursor++\r\n     else (NEITHER bit set):                        return early - NO ADVANCE\r\n   \r\n   If cursor advanced AND in [0, nTotalRecordedFrames]:\r\n     memcpy 192 bytes from pRecordedFrameBuffer[cursor*0xC0] -> BM+0x1360\r\n     SetMoveState(4)  // triggers HandleStageInitPhase to dispatch snapshot\r\n   \r\n   ==========================================================================\r\n   HORSEMOD SCRUB-RESUME FAILURE (THE ACTUAL CAUSE, 2026-05-14)\r\n   ==========================================================================\r\n   Per the 21:47 session log diagnostic dump:\r\n     POST_SEEK PRA P0[+394=0x0 +398=0x0] P1[+394=0x0 +398=0x0]\r\n   \r\n   Both forward AND rewind bits clear post-seek.  Function early-returns\r\n   every frame.  BM+0x1360 never gets new snapshot copied.  HandleStage-\r\n   InitPhase has nothing to dispatch.  Chara MoveVM finishes whichever\r\n   move was loaded at the snapshot frame (because chara state was correctly\r\n   restored) then idles because no new MoveState=4 dispatch arrives.\r\n   \r\n   User-observed symptom matches exactly: \"the state seems correct to when\r\n   I select, its just that the replay doesnt play from the point I\r\n   selected afterwards. Characters seem to finish whatever move they were\r\n   executing and then stand still.\"\r\n   \r\n   ==========================================================================\r\n   WHO SETS PRA+0x398 BIT 9 IN NORMAL REPLAY VIEWING\r\n   ==========================================================================\r\n   Per LuxBattleManager_GetPlayerFieldAt398_Stride0xa8 @ 0x1403F0B70, these\r\n   are PlayerField bits read from pra+(playerIndex*0xa8)+0x398.  The\r\n   PlayerField is written by UE4's input pipeline based on the user's\r\n   controller input.  In replay viewing the bits are SET BY THE BLUEPRINT-\r\n   LEVEL REPLAY MENU when the user holds the forward / rewind input or\r\n   when the menu logic considers replay playback active.\r\n   \r\n   HorseMod's pause/play UI flip is independent of these bits.  When\r\n   HorseMod scrub un-pauses, it removes the WorldTickGate freeze but\r\n   does NOT set the forward bit, so this function still early-returns\r\n   even though the world is otherwise unpaused.\r\n   \r\n   Fix: either\r\n     (a) Capture pra+0x394/+0x398 per-snapshot and restore on seek\r\n         (preserves whatever bit pattern was natural at the captured frame)\r\n     (b) Force bit 9 = 1 on un-pause when the HorseMod state is \"playing\"\r\n   The HorseMod ReplayScrub extras blob now does (a) - see\r\n   horselib/ReplayScrub.hpp::capture_extras / restore_extras. */\r\n\r\nvoid LuxReplayChara_Tick_CopyNextFrameToManager_SetMoveState4(ALuxBattleFrameInputLog *pInputLog)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  ulonglong uVar2;\r\n  byte cBattleStatus;\r\n  uint dwForwardReverseBits;\r\n  uint dwPlaybackCursor;\r\n  ALuxBattleManager_Partial *pBM;\r\n  ulonglong *pSnapshotSrc;\r\n  byte *pPlayerArrayBase;\r\n  ulonglong qwSnapshotChunk;\r\n  \r\n                    /* WORLDTICKGATE REPLAY-LEAK: WorldTickGate only RETs LuxBattle_PerFrameTick at\r\n                       0x1402dbc60 \u2014 the old \"Site 10 entry-hook\" mentioned in the plate above is\r\n                       NO LONGER APPLIED in the WorldTickGate model. Consequence during match-replay\r\n                       watching with HorseMod freeze active: this Actor::Tick handler runs every UE4\r\n                       frame, reads pInputLog->dwPlaybackCursor_at0x39C, optionally adjusts based on\r\n                       replay-control bits (forward/reverse-play bits 8/9), and copies a 192-byte\r\n                       chara-state snapshot from pRecordedFrameBuffer_at0x3A8 into\r\n                       pBM->pReplayCharaSnapshot_at0x1360. Then sets MoveState to 4. None of this is\r\n                       gated by Site 9. See LuxBattle_PerFrameTick @ 0x1402dbc60 for the full leak\r\n                       map. */\r\n  AActor_TickActor();\r\n  pBM = LuxResolveBattleManagerFromComponent(&pInputLog->pUE4Component_at0x388);\r\n  if ((pBM != (ALuxBattleManager_Partial *)0x0) &&\r\n     (pPlayerArrayBase = pBM->PlayerRecordsBase_at0x440, pPlayerArrayBase != (byte *)0x0)) {\r\n    LuxBattleManager_GetPlayerFieldAt394_Stride0xa8(pPlayerArrayBase,0);\r\n    dwForwardReverseBits = GetBattlePlayerRecordField398(pPlayerArrayBase,0);\r\n    cBattleStatus = ALuxBattleManager_GetStatusByte1480(pBM);\r\n    if ((pInputLog->bEnable_at0x398 != 0) && (cBattleStatus == 2)) {\r\n      dwPlaybackCursor = pInputLog->dwPlaybackCursor_at0x39C;\r\n      if ((dwForwardReverseBits >> 8 & 1) == 0) {\r\n        if ((dwForwardReverseBits >> 9 & 1) == 0) {\r\n          return;\r\n        }\r\n        if (pInputLog->nTotalRecordedFrames_at0x3B0 < (int)dwPlaybackCursor) {\r\n          return;\r\n        }\r\n        dwPlaybackCursor = dwPlaybackCursor + 1;\r\n      }\r\n      else if (0 < (int)dwPlaybackCursor) {\r\n        dwPlaybackCursor = dwPlaybackCursor - 1;\r\n      }\r\n      if ((-1 < (int)dwPlaybackCursor) &&\r\n         ((int)dwPlaybackCursor < pInputLog->nTotalRecordedFrames_at0x3B0)) {\r\n        pSnapshotSrc = (ulonglong *)\r\n                       (pInputLog->pRecordedFrameBuffer_at0x3A8 +\r\n                       (longlong)(int)dwPlaybackCursor * 0xc0);\r\n        uVar1 = *pSnapshotSrc;\r\n        qwSnapshotChunk = pSnapshotSrc[1];\r\n        (pBM->ReplayCharaSnapshot_at0x1360).dwMoveProviderHexId = (int)uVar1;\r\n        (pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x04[0] = (char)(uVar1 >> 0x20);\r\n        (pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x04[1] = (char)(uVar1 >> 0x28);\r\n        (pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x04[2] = (char)(uVar1 >> 0x30);\r\n        (pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x04[3] = (char)(uVar1 >> 0x38);\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x04 + 4) = qwSnapshotChunk;\r\n        uVar1 = pSnapshotSrc[3];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x04 + 0xc) = pSnapshotSrc[2];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x04 + 0x14) = uVar1;\r\n        uVar1 = pSnapshotSrc[4];\r\n        uVar2 = pSnapshotSrc[5];\r\n        (pBM->ReplayCharaSnapshot_at0x1360).flPosX = (float)(int)uVar1;\r\n        (pBM->ReplayCharaSnapshot_at0x1360).flPosY = (float)(int)(uVar1 >> 0x20);\r\n        (pBM->ReplayCharaSnapshot_at0x1360).flPosZ = (float)(int)uVar2;\r\n        (pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C[0] = (char)(uVar2 >> 0x20);\r\n        (pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C[1] = (char)(uVar2 >> 0x28);\r\n        (pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C[2] = (char)(uVar2 >> 0x30);\r\n        (pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C[3] = (char)(uVar2 >> 0x38);\r\n        uVar1 = pSnapshotSrc[7];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 4) = pSnapshotSrc[6];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0xc) = uVar1;\r\n        uVar1 = pSnapshotSrc[9];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x14) = pSnapshotSrc[8];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x1c) = uVar1;\r\n        uVar1 = pSnapshotSrc[0xb];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x24) = pSnapshotSrc[10]\r\n        ;\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x2c) = uVar1;\r\n        uVar1 = pSnapshotSrc[0xd];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x34) =\r\n             pSnapshotSrc[0xc];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x3c) = uVar1;\r\n        uVar1 = pSnapshotSrc[0xf];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x44) =\r\n             pSnapshotSrc[0xe];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x4c) = uVar1;\r\n        uVar1 = pSnapshotSrc[0x11];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x54) =\r\n             pSnapshotSrc[0x10];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x5c) = uVar1;\r\n        uVar1 = pSnapshotSrc[0x13];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 100) =\r\n             pSnapshotSrc[0x12];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x6c) = uVar1;\r\n        uVar1 = pSnapshotSrc[0x15];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x74) =\r\n             pSnapshotSrc[0x14];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x7c) = uVar1;\r\n        uVar1 = pSnapshotSrc[0x17];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x84) =\r\n             pSnapshotSrc[0x16];\r\n        *(ulonglong *)((pBM->ReplayCharaSnapshot_at0x1360).pReserved_0x2C + 0x8c) = uVar1;\r\n        ALuxBattleManager_SetMoveState(pBM,4);\r\n      }\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n",
+  "disassembly": "140435c20: MOV qword ptr [RSP + 0x10],RBX \n140435c25: PUSH RDI \n140435c26: SUB RSP,0x20 ; stack frame: 0x20 bytes\n140435c2a: MOV RBX,RCX \n140435c2d: CALL 0x140562320 \n140435c32: LEA RCX,[RBX + 0x388] \n140435c39: CALL 0x14045fdc0 \n140435c3e: MOV RDI,RAX \n140435c41: TEST RAX,RAX \n140435c44: JZ 0x140435d81 \n140435c4a: MOV qword ptr [RSP + 0x30],RSI \n140435c4f: MOV RSI,qword ptr [RAX + 0x440] \n140435c56: TEST RSI,RSI \n140435c59: JZ 0x140435d7c \n140435c5f: XOR EDX,EDX \n140435c61: MOV RCX,RSI \n140435c64: CALL 0x1403f0540 \n140435c69: XOR EDX,EDX \n140435c6b: MOV RCX,RSI \n140435c6e: CALL 0x1403f0b70 \n140435c73: MOV RCX,RDI \n140435c76: MOV ESI,EAX \n140435c78: CALL 0x1403ef850 \n140435c7d: CMP AL,0x2 \n140435c7f: SETZ AL \n140435c82: CMP byte ptr [RBX + 0x398],0x0 \n140435c89: JZ 0x140435d7c \n140435c8f: TEST AL,AL \n140435c91: JZ 0x140435d7c \n140435c97: MOV ECX,dword ptr [RBX + 0x39c] \n140435c9d: BT ESI,0x8 \n140435ca1: JNC 0x140435cab \n140435ca3: TEST ECX,ECX \n140435ca5: JLE 0x140435cc5 \n140435ca7: DEC ECX \n140435ca9: JMP 0x140435cc3 \n140435cab: BT ESI,0x9 ; bit 9 mask: forward-play button\n140435caf: JNC 0x140435d7c \n140435cb5: CMP ECX,dword ptr [RBX + 0x3b0] \n140435cbb: JG 0x140435d7c \n140435cc1: INC ECX \n140435cc3: TEST ECX,ECX \n140435cc5: JS 0x140435d7c \n140435ccb: CMP ECX,dword ptr [RBX + 0x3b0] \n140435cd1: JGE 0x140435d7c \n140435cd7: LEA R8,[RDI + 0x1360] \n140435cde: MOVSXD RAX,ECX \n140435ce1: MOV RCX,RDI \n140435ce4: LEA RDX,[RAX + RAX*0x2] \n140435ce8: SHL RDX,0x6 ; 0xC0 == sizeof(FLuxBattleRoundStartData) (192 bytes per recorded frame)\n140435cec: ADD RDX,qword ptr [RBX + 0x3a8] \n140435cf3: MOVUPS XMM0,xmmword ptr [RDX] \n140435cf6: MOVUPS xmmword ptr [R8],XMM0 \n140435cfa: MOVUPS XMM1,xmmword ptr [RDX + 0x10] \n140435cfe: MOVUPS xmmword ptr [R8 + 0x10],XMM1 \n140435d03: MOVUPS XMM0,xmmword ptr [RDX + 0x20] \n140435d07: MOVUPS xmmword ptr [R8 + 0x20],XMM0 \n140435d0c: MOVUPS XMM1,xmmword ptr [RDX + 0x30] \n140435d10: MOVUPS xmmword ptr [R8 + 0x30],XMM1 \n140435d15: MOVUPS XMM0,xmmword ptr [RDX + 0x40] \n140435d19: MOVUPS xmmword ptr [R8 + 0x40],XMM0 \n140435d1e: MOVUPS XMM1,xmmword ptr [RDX + 0x50] \n140435d22: MOVUPS xmmword ptr [R8 + 0x50],XMM1 \n140435d27: MOVUPS XMM0,xmmword ptr [RDX + 0x60] \n140435d2b: MOVUPS xmmword ptr [R8 + 0x60],XMM0 \n140435d30: MOVUPS XMM0,xmmword ptr [RDX + 0x70] \n140435d34: MOVUPS xmmword ptr [R8 + 0x70],XMM0 \n140435d39: MOVUPS XMM1,xmmword ptr [RDX + 0x80] \n140435d40: MOVUPS xmmword ptr [R8 + 0x80],XMM1 \n140435d48: MOVUPS XMM0,xmmword ptr [RDX + 0x90] \n140435d4f: MOVUPS xmmword ptr [R8 + 0x90],XMM0 \n140435d57: MOVUPS XMM1,xmmword ptr [RDX + 0xa0] \n140435d5e: MOVUPS xmmword ptr [R8 + 0xa0],XMM1 \n140435d66: MOVUPS XMM0,xmmword ptr [RDX + 0xb0] \n140435d6d: MOV DL,0x4 \n140435d6f: MOVUPS xmmword ptr [R8 + 0xb0],XMM0 \n140435d77: CALL 0x1403f8370 \n140435d7c: MOV RSI,qword ptr [RSP + 0x30] \n140435d81: MOV RBX,qword ptr [RSP + 0x38] \n140435d86: ADD RSP,0x20 ; stack frame teardown: 0x20 bytes\n140435d8a: POP RDI \n140435d8b: RET \n",
+  "function_info": "Function: LuxReplayChara_Tick_CopyNextFrameToManager_SetMoveState4 at 140435c20\nSignature: void __fastcall LuxReplayChara_Tick_CopyNextFrameToManager_SetMoveState4(ALuxBattleFrameInputLog * pInputLog)\nEntry: 140435c20\nBody: 140435c20 - 140435d8b",
+  "plate": {
+    "address": "140435c20",
+    "comment": "LuxReplayChara_Tick_CopyNextFrameToManager_SetMoveState4(ALuxBattleFrameInputLog* pInputLog)\n============================================================================\nALuxBattleReplayPlayer's UE4 Actor::Tick override (vtable[131] = +0x418\nin vtable @ 0x143290718).  Per-UE4-frame snapshot copier that drives\nvisual replay playback (Strategy A in HorseMod scrub design).\n\n==========================================================================\nGATING CONDITION (load-bearing for HorseMod scrub-resume, 2026-05-14)\n==========================================================================\nAfter AActor_TickActor, resolves pBM and pPlayerRecordArray =\npBM->PlayerRecordsBase_at0x440.  Reads two PlayerField uints:\n  pra+0x394   pPlayerFieldAt394 (auxiliary flags - currently unused here)\n  pra+0x398   dwReplayDirectionBits\n              bit 8 (0x100)  = REWIND requested\n              bit 9 (0x200)  = FORWARD requested\n\nIf pInputLog->bEnable_at0x398 != 0 AND BM status == 2:\n  if (rewind bit set) AND cursor > 0:           cursor--\n  else if (forward bit set) AND cursor <= total: cursor++\n  else (NEITHER bit set):                        return early - NO ADVANCE\n\nIf cursor advanced AND in [0, nTotalRecordedFrames]:\n  memcpy 192 bytes from pRecordedFrameBuffer[cursor*0xC0] -> BM+0x1360\n  SetMoveState(4)  // triggers HandleStageInitPhase to dispatch snapshot\n\n==========================================================================\nHORSEMOD SCRUB-RESUME FAILURE (THE ACTUAL CAUSE, 2026-05-14)\n==========================================================================\nPer the 21:47 session log diagnostic dump:\n  POST_SEEK PRA P0[+394=0x0 +398=0x0] P1[+394=0x0 +398=0x0]\n\nBoth forward AND rewind bits clear post-seek.  Function early-returns\nevery frame.  BM+0x1360 never gets new snapshot copied.  HandleStage-\nInitPhase has nothing to dispatch.  Chara MoveVM finishes whichever\nmove was loaded at the snapshot frame (because chara state was correctly\nrestored) then idles because no new MoveState=4 dispatch arrives.\n\nUser-observed symptom matches exactly: \"the state seems correct to when\nI select, its just that the replay doesnt play from the point I\nselected afterwards. Characters seem to finish whatever move they were\nexecuting and then stand still.\"\n\n==========================================================================\nWHO SETS PRA+0x398 BIT 9 IN NORMAL REPLAY VIEWING\n==========================================================================\nPer LuxBattleManager_GetPlayerFieldAt398_Stride0xa8 @ 0x1403F0B70, these\nare PlayerField bits read from pra+(playerIndex*0xa8)+0x398.  The\nPlayerField is written by UE4's input pipeline based on the user's\ncontroller input.  In replay viewing the bits are SET BY THE BLUEPRINT-\nLEVEL REPLAY MENU when the user holds the forward / rewind input or\nwhen the menu logic considers replay playback active.\n\nHorseMod's pause/play UI flip is independent of these bits.  When\nHorseMod scrub un-pauses, it removes the WorldTickGate freeze but\ndoes NOT set the forward bit, so this function still early-returns\neven though the world is otherwise unpaused.\n\nFix: either\n  (a) Capture pra+0x394/+0x398 per-snapshot and restore on seek\n      (preserves whatever bit pattern was natural at the captured frame)\n  (b) Force bit 9 = 1 on un-pause when the HorseMod state is \"playing\"\nThe HorseMod ReplayScrub extras blob now does (a) - see\nhorselib/ReplayScrub.hpp::capture_extras / restore_extras.",
+    "function_name": "LuxReplayChara_Tick_CopyNextFrameToManager_SetMoveState4"
+  },
+  "program": "SoulcaliburVI.exe",
+  "variables": {
+    "function_address": "140435c20",
+    "function_name": "LuxReplayChara_Tick_CopyNextFrameToManager_SetMoveState4",
+    "locals": [
+      {
+        "is_phantom": false,
+        "name": "dwForwardReverseBits",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "EAX:4",
+        "suggested_prefix": "dw",
+        "type": "uint"
+      },
+      {
+        "is_phantom": false,
+        "name": "cBattleStatus",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "AL:1",
+        "suggested_prefix": "b",
+        "type": "byte"
+      },
+      {
+        "is_phantom": false,
+        "name": "dwPlaybackCursor",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "ECX:4",
+        "suggested_prefix": "dw",
+        "type": "uint"
+      },
+      {
+        "is_phantom": false,
+        "name": "pSnapshotSrc",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "RDX:8",
+        "suggested_prefix": "p",
+        "type": "ulonglong *"
+      },
+      {
+        "is_phantom": true,
+        "name": "local_res10",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[0x10]:8",
+        "type": "undefined8"
+      },
+      {
+        "is_phantom": true,
+        "name": "local_res8",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[0x8]:8",
+        "type": "undefined8"
+      },
+      {
+        "is_phantom": false,
+        "name": "pPlayerArrayBase",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "HASH:5f76e57edc:8",
+        "suggested_prefix": "p",
+        "type": "byte *"
+      },
+      {
+        "is_phantom": false,
+        "name": "qwSnapshotChunk",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "HASH:105f2dc51abf:8",
+        "suggested_prefix": "qw",
+        "type": "ulonglong"
+      }
+    ],
+    "parameters": [
+      {
+        "name": "pInputLog",
+        "needs_rename": false,
+        "needs_type": false,
+        "ordinal": 0,
+        "storage": "RCX:8",
+        "suggested_prefix": "p",
+        "type": "ALuxBattleFrameInputLog *"
+      }
+    ],
+    "total_locals": 8
+  },
+  "xrefs": {
+    "error": "Error getting function references: Either function_name or function_address must be provided"
+  }
+}

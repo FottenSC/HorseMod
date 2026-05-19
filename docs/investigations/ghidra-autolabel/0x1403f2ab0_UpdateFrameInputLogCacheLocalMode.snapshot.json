@@ -1,0 +1,87 @@
+{
+  "address": "0x1403f2ab0",
+  "completeness": {
+    "all_deductions_unfixable": false,
+    "classification": "leaf",
+    "code_line_count": 40,
+    "comment_density": 0.0,
+    "completeness_score": 61.57903195851287,
+    "decompilation_available": true,
+    "deduction_count": 5,
+    "disasm_comment_count": 0,
+    "documentation_profile": "leaf",
+    "effective_score": 75.77495141387067,
+    "fixable_deductions": 24.225048586129336,
+    "function_name": "UpdateFrameInputLogCacheLocalMode",
+    "globals_unrenamed": 0,
+    "has_calling_convention": true,
+    "has_custom_name": true,
+    "has_plate_comment": true,
+    "has_prototype": true,
+    "has_renameable_variables": true,
+    "hungarian_violations": 0,
+    "inline_comment_count": 0,
+    "is_compiler_helper": false,
+    "is_stub": false,
+    "is_thunk": false,
+    "labels_unrenamed": 1,
+    "magic_numbers_undocumented": 2,
+    "max_achievable_score": 85.8040805446422,
+    "ordinals_undocumented": 0,
+    "phantom_count": 0,
+    "plate_issues": 4,
+    "return_type": "void",
+    "return_type_resolved": true,
+    "struct_accesses_unresolved": 0,
+    "structural_deductions": 14.19591945535779,
+    "type_quality_issues": 0,
+    "undefined_count": 7
+  },
+  "created_at": "2026-05-17T23:09:27+00:00",
+  "decompile": "\r\n/* LuxBattleManager_UpdateInputCache_LocalMode\r\n   ==========================================================================\r\n   THE OFFLINE MATCH-REPLAY INPUT CACHE WRITER.  Per-tick function that\r\n   caches the current per-slot input at pInputLog->pReplayInputCache[slot]\r\n   indexed by (nMasterClock & 0x1FF).\r\n   \r\n   This corrects the WRONG plate on LuxBattleManager_GetCachedRoundValue_-\r\n   ByIndex @ 0x1403F0720, which incorrectly claimed \"during offline match-\r\n   replay viewing the .replay-file pipeline does NOT fill this cache\".\r\n   THIS function DOES fill it offline.\r\n   \r\n   ==========================================================================\r\n   DISPATCH PATH\r\n   ==========================================================================\r\n   Called via InputLog vtable[0xCA0] (vtable base 0x143282F18, slot at\r\n   0x143283BB8 holds 0x1403F2B60).  vtable[0xCA0] points to\r\n   LuxBattleManager_UpdateInputCache_OnlineOrLocal @ 0x1403F2B60 which\r\n   routes:\r\n     - pInputLog->dwOnlineActive_at0x4404 == 0  ->  LocalMode (this fn)\r\n     - pInputLog->dwOnlineActive_at0x4404 != 0  ->  inline Online path\r\n                                                    (same algorithm but\r\n                                                     uses +0x4410 instead\r\n                                                     of +0x3A4 as index)\r\n   \r\n   ==========================================================================\r\n   ALGORITHM (per active player slot)\r\n   ==========================================================================\r\n     for slot = 0..pInputLog->bEnable_at0x398:\r\n         if (pInputLog->dwForwardReverseBitfield_at0x394 & (1 << slot)) {\r\n             uMaster = pInputLog->nMasterClock_at0x3A4;\r\n             uInput  = *(uint*)(pInputLog + 0x3B8 + slot * 4);\r\n             if ((int)uMaster >= 0) {\r\n                 idx = uMaster & 0x1FF;\r\n                 entry = pInputLog->pReplayInputCache[slot][idx];\r\n                 if (entry.nFrameID == pInputLog->nLastFrameID_at0x3A0 &&\r\n                     entry.dwFrameIndex == uMaster) {\r\n                     if (entry.bFilled) continue;  // already populated this frame\r\n                 } else {\r\n                     // overwrite tag\r\n                     entry.nFrameID    = pInputLog->nLastFrameID_at0x3A0;\r\n                     entry.dwFrameIndex= uMaster;\r\n                 }\r\n                 entry.bFilled     = 1;\r\n                 entry.dwInputValue= uInput;\r\n             }\r\n         }\r\n   \r\n   So each player's cache slot at (masterClock & 0x1FF) gets refreshed\r\n   every tick from pInputLog+0x3B8+slot*4 (per-slot current input source).\r\n   \r\n   ==========================================================================\r\n   SOURCE OF +0x3B8 (PER-SLOT CURRENT INPUT)\r\n   ==========================================================================\r\n   The \"per-slot current input\" array at pInputLog+0x3B8 must be populated\r\n   upstream BEFORE this function runs.  Likely populated by:\r\n     - Stage 2 of the replay pipeline (LuxReplay_ConsumeDecodedInputPackets\r\n       @ 0x1403F63B0) \u2014 decodes .replay-file packets and (possibly) writes\r\n       them to pInputLog+0x3B8 as a side effect\r\n     - Or by ALuxBattleReplayPlayer's TickActor before this dispatcher fires\r\n   \r\n   TODO: trace exact writers of pInputLog+0x3B8/+0x3BC to confirm.\r\n   \r\n   ==========================================================================\r\n   HORSEMOD SCRUB IMPLICATIONS\r\n   ==========================================================================\r\n   The HorseMod ReplayScrub IL window restore (pInputLog+0x394..+0x4414)\r\n   covers ALL state this writer reads AND writes:\r\n     - +0x394  dwForwardReverseBitfield  (gate)\r\n     - +0x398  bEnable                    (slot count loop bound)\r\n     - +0x39C  dwPlaybackCursor           (used by ReplayPlayer's TickActor)\r\n     - +0x3A0  nLastFrameID               (cache entry tag)\r\n     - +0x3A4  nMasterClock               (cache index for offline)\r\n     - +0x3B8..+0x3BC  per-slot current input (writer reads)\r\n     - +0x3C0..+0x43C0  the cache itself (writer fills)\r\n     - +0x4404 dwOnlineActive             (dispatcher branch select)\r\n     - +0x4410 nDrainCursor               (cache index for online)\r\n   \r\n   So restoring this window AFTER seek-back preserves the writer's\r\n   input state and the cache contents at the snapshot frame.  The writer\r\n   should resume correctly from the restored masterClock value.\r\n   \r\n   HOWEVER if the upstream that populates +0x3B8 (the per-slot current\r\n   input) is gated on chara+0x4400 / chara+0x4424 (the chara replay-state\r\n   flags), and those are repurposed for VFX in match-replay viewing per\r\n   the older 2026-05-10 plate, then +0x3B8 may NOT be refreshed each tick\r\n   in offline match-replay.  In that case the cache gets the SAME stale\r\n   input value cached each frame -> chara sees same input forever ->\r\n   appears to \"stick\" at one input.\r\n   \r\n   This matches the observed POST_SEEK behavior of \"EngineInput=0x9 for\r\n   7 frames, then drops to 0\".  The 0x9 may be the snapshot-time stale\r\n   value cached repeatedly, and the drop to 0 may be a watchdog/timeout\r\n   clearing +0x3B8 or a state-machine transition stopping the dispatcher.\r\n   \r\n   Address: 0x1403F2AB0\r\n    */\r\n\r\nvoid UpdateFrameInputLogCacheLocalMode(ALuxBattleFrameInputLog *pInputLog)\r\n\r\n{\r\n  uint uVar1;\r\n  uint uVar2;\r\n  uint uVar3;\r\n  uint uVar4;\r\n  FLuxReplayInputCacheEntry *pFVar5;\r\n  int iVar6;\r\n  uint *puVar7;\r\n  \r\n  iVar6 = 0;\r\n  if (0 < *(int *)&pInputLog->bEnable_at0x398) {\r\n    puVar7 = (uint *)&pInputLog->field_0x3b8;\r\n    uVar4 = 1;\r\n    pFVar5 = pInputLog->pReplayInputCache;\r\n    do {\r\n      if ((pInputLog->dwPlaybackCursor_at0x39C & uVar4) != 0) {\r\n        uVar1 = pInputLog->nMasterClock_at0x3A4;\r\n        uVar2 = *puVar7;\r\n        if (-1 < (int)uVar1) {\r\n          uVar3 = uVar1 & 0x1ff;\r\n          if ((pFVar5[uVar3].nFrameID == pInputLog->nLastFrameID_at0x3A0) &&\r\n             (pFVar5[uVar3].dwFrameIndex == uVar1)) {\r\n            if (pFVar5[uVar3].bFilled != 0) goto LAB_1403f2b32;\r\n          }\r\n          else {\r\n            pFVar5[uVar3].nFrameID = pInputLog->nLastFrameID_at0x3A0;\r\n            pFVar5[uVar3].dwFrameIndex = uVar1;\r\n          }\r\n          pFVar5[uVar3].bFilled = 1;\r\n          pFVar5[uVar3].dwInputValue = uVar2;\r\n        }\r\n      }\r\nLAB_1403f2b32:\r\n      iVar6 = iVar6 + 1;\r\n      uVar4 = uVar4 << 1 | (uint)((int)uVar4 < 0);\r\n      puVar7 = puVar7 + 1;\r\n      pFVar5 = pFVar5 + 0x200;\r\n    } while (iVar6 < *(int *)&pInputLog->bEnable_at0x398);\r\n  }\r\n  return;\r\n}\r\n\r\n",
+  "disassembly": "1403f2ab0: SUB RSP,0x8 \n1403f2ab4: XOR R9D,R9D \n1403f2ab7: CMP dword ptr [RCX + 0x398],R9D \n1403f2abe: JLE 0x1403f2b54 \n1403f2ac4: MOV qword ptr [RSP],RDI \n1403f2ac8: LEA R10,[RCX + 0x3b8] \n1403f2acf: MOV EDX,0x1 \n1403f2ad4: MOV qword ptr [RSP + 0x10],RBX \n1403f2ad9: ROL EDX,0x0 \n1403f2adc: LEA RDI,[RCX + 0x3c0] \n1403f2ae3: TEST dword ptr [RCX + 0x39c],EDX \n1403f2ae9: JZ 0x1403f2b32 \n1403f2aeb: MOV R8D,dword ptr [RCX + 0x3a4] \n1403f2af2: MOV R11D,dword ptr [R10] \n1403f2af5: MOV EBX,dword ptr [RCX + 0x3a0] \n1403f2afb: TEST R8D,R8D \n1403f2afe: JS 0x1403f2b32 \n1403f2b00: MOV EAX,R8D \n1403f2b03: AND EAX,0x1ff \n1403f2b08: ADD RAX,RAX \n1403f2b0b: CMP dword ptr [RDI + RAX*0x8],EBX \n1403f2b0e: JNZ 0x1403f2b20 \n1403f2b10: CMP dword ptr [RDI + RAX*0x8 + 0x4],R8D \n1403f2b15: JNZ 0x1403f2b20 \n1403f2b17: CMP byte ptr [RDI + RAX*0x8 + 0xc],0x0 \n1403f2b1c: JNZ 0x1403f2b32 \n1403f2b1e: JMP 0x1403f2b28 \n1403f2b20: MOV dword ptr [RDI + RAX*0x8],EBX \n1403f2b23: MOV dword ptr [RDI + RAX*0x8 + 0x4],R8D \n1403f2b28: MOV byte ptr [RDI + RAX*0x8 + 0xc],0x1 \n1403f2b2d: MOV dword ptr [RDI + RAX*0x8 + 0x8],R11D \n1403f2b32: INC R9D \n1403f2b35: ROL EDX,0x1 \n1403f2b37: ADD R10,0x4 \n1403f2b3b: ADD RDI,0x2000 \n1403f2b42: CMP R9D,dword ptr [RCX + 0x398] \n1403f2b49: JL 0x1403f2ae3 \n1403f2b4b: MOV RDI,qword ptr [RSP] \n1403f2b4f: MOV RBX,qword ptr [RSP + 0x10] \n1403f2b54: ADD RSP,0x8 \n1403f2b58: RET \n",
+  "function_info": "Function: UpdateFrameInputLogCacheLocalMode at 1403f2ab0\nSignature: void __fastcall UpdateFrameInputLogCacheLocalMode(ALuxBattleFrameInputLog * pInputLog)\nEntry: 1403f2ab0\nBody: 1403f2ab0 - 1403f2b58",
+  "plate": {
+    "address": "1403f2ab0",
+    "comment": "LuxBattleManager_UpdateInputCache_LocalMode\n==========================================================================\nTHE OFFLINE MATCH-REPLAY INPUT CACHE WRITER.  Per-tick function that\ncaches the current per-slot input at pInputLog->pReplayInputCache[slot]\nindexed by (nMasterClock & 0x1FF).\n\nThis corrects the WRONG plate on LuxBattleManager_GetCachedRoundValue_-\nByIndex @ 0x1403F0720, which incorrectly claimed \"during offline match-\nreplay viewing the .replay-file pipeline does NOT fill this cache\".\nTHIS function DOES fill it offline.\n\n==========================================================================\nDISPATCH PATH\n==========================================================================\nCalled via InputLog vtable[0xCA0] (vtable base 0x143282F18, slot at\n0x143283BB8 holds 0x1403F2B60).  vtable[0xCA0] points to\nLuxBattleManager_UpdateInputCache_OnlineOrLocal @ 0x1403F2B60 which\nroutes:\n  - pInputLog->dwOnlineActive_at0x4404 == 0  ->  LocalMode (this fn)\n  - pInputLog->dwOnlineActive_at0x4404 != 0  ->  inline Online path\n                                                 (same algorithm but\n                                                  uses +0x4410 instead\n                                                  of +0x3A4 as index)\n\n==========================================================================\nALGORITHM (per active player slot)\n==========================================================================\n  for slot = 0..pInputLog->bEnable_at0x398:\n      if (pInputLog->dwForwardReverseBitfield_at0x394 & (1 << slot)) {\n          uMaster = pInputLog->nMasterClock_at0x3A4;\n          uInput  = *(uint*)(pInputLog + 0x3B8 + slot * 4);\n          if ((int)uMaster >= 0) {\n              idx = uMaster & 0x1FF;\n              entry = pInputLog->pReplayInputCache[slot][idx];\n              if (entry.nFrameID == pInputLog->nLastFrameID_at0x3A0 &&\n                  entry.dwFrameIndex == uMaster) {\n                  if (entry.bFilled) continue;  // already populated this frame\n              } else {\n                  // overwrite tag\n                  entry.nFrameID    = pInputLog->nLastFrameID_at0x3A0;\n                  entry.dwFrameIndex= uMaster;\n              }\n              entry.bFilled     = 1;\n              entry.dwInputValue= uInput;\n          }\n      }\n\nSo each player's cache slot at (masterClock & 0x1FF) gets refreshed\nevery tick from pInputLog+0x3B8+slot*4 (per-slot current input source).\n\n==========================================================================\nSOURCE OF +0x3B8 (PER-SLOT CURRENT INPUT)\n==========================================================================\nThe \"per-slot current input\" array at pInputLog+0x3B8 must be populated\nupstream BEFORE this function runs.  Likely populated by:\n  - Stage 2 of the replay pipeline (LuxReplay_ConsumeDecodedInputPackets\n    @ 0x1403F63B0) \u2014 decodes .replay-file packets and (possibly) writes\n    them to pInputLog+0x3B8 as a side effect\n  - Or by ALuxBattleReplayPlayer's TickActor before this dispatcher fires\n\nTODO: trace exact writers of pInputLog+0x3B8/+0x3BC to confirm.\n\n==========================================================================\nHORSEMOD SCRUB IMPLICATIONS\n==========================================================================\nThe HorseMod ReplayScrub IL window restore (pInputLog+0x394..+0x4414)\ncovers ALL state this writer reads AND writes:\n  - +0x394  dwForwardReverseBitfield  (gate)\n  - +0x398  bEnable                    (slot count loop bound)\n  - +0x39C  dwPlaybackCursor           (used by ReplayPlayer's TickActor)\n  - +0x3A0  nLastFrameID               (cache entry tag)\n  - +0x3A4  nMasterClock               (cache index for offline)\n  - +0x3B8..+0x3BC  per-slot current input (writer reads)\n  - +0x3C0..+0x43C0  the cache itself (writer fills)\n  - +0x4404 dwOnlineActive             (dispatcher branch select)\n  - +0x4410 nDrainCursor               (cache index for online)\n\nSo restoring this window AFTER seek-back preserves the writer's\ninput state and the cache contents at the snapshot frame.  The writer\nshould resume correctly from the restored masterClock value.\n\nHOWEVER if the upstream that populates +0x3B8 (the per-slot current\ninput) is gated on chara+0x4400 / chara+0x4424 (the chara replay-state\nflags), and those are repurposed for VFX in match-replay viewing per\nthe older 2026-05-10 plate, then +0x3B8 may NOT be refreshed each tick\nin offline match-replay.  In that case the cache gets the SAME stale\ninput value cached each frame -> chara sees same input forever ->\nappears to \"stick\" at one input.\n\nThis matches the observed POST_SEEK behavior of \"EngineInput=0x9 for\n7 frames, then drops to 0\".  The 0x9 may be the snapshot-time stale\nvalue cached repeatedly, and the drop to 0 may be a watchdog/timeout\nclearing +0x3B8 or a state-machine transition stopping the dispatcher.\n\nAddress: 0x1403F2AB0\n",
+    "function_name": "UpdateFrameInputLogCacheLocalMode"
+  },
+  "program": "SoulcaliburVI.exe",
+  "variables": {
+    "function_address": "1403f2ab0",
+    "function_name": "UpdateFrameInputLogCacheLocalMode",
+    "locals": [
+      {
+        "is_phantom": true,
+        "name": "local_res8",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[0x8]:8",
+        "type": "undefined8"
+      },
+      {
+        "is_phantom": true,
+        "name": "local_8",
+        "needs_rename": false,
+        "needs_type": false,
+        "storage": "Stack[-0x8]:8",
+        "type": "undefined8"
+      }
+    ],
+    "parameters": [
+      {
+        "name": "pInputLog",
+        "needs_rename": false,
+        "needs_type": false,
+        "ordinal": 0,
+        "storage": "RCX:8",
+        "suggested_prefix": "p",
+        "type": "ALuxBattleFrameInputLog *"
+      }
+    ],
+    "total_locals": 2
+  },
+  "xrefs": {
+    "error": "Error getting function references: Either function_name or function_address must be provided"
+  }
+}

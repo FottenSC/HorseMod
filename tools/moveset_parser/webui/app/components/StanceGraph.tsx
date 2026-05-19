@@ -351,12 +351,39 @@ function SvgGraph({
   return (
     <ZoomableSvg viewBox={vb}>
       {edges.map((e, i) => {
-        if (e.from === e.to) return null;
+        const hot = sel !== null && e.from === sel;
+        const dim = sel !== null && !hot;
+        const color = hot ? "#5cc77a" : dim ? "#36404f" : "#5a7a9c";
+        const lw = e.count >= 100 ? 28 : e.count >= 10 ? 22 : 16;
+
+        // Self-loop (a move that re-enters its own stance): a small loop
+        // bulging out of the node's top edge.
+        if (e.from === e.to) {
+          const p = positions.get(e.from);
+          if (!p) return null;
+          const ty = p.y - NH / 2;
+          return (
+            <g key={i} opacity={dim ? 0.5 : 1}>
+              <path
+                d={`M ${p.x - 20} ${ty} C ${p.x - 52} ${ty - 76} ${p.x + 52} ${ty - 76} ${p.x + 20} ${ty}`}
+                fill="none" stroke={color} strokeWidth={hot ? 2.6 : 1.6}
+                markerEnd={`url(#${hot ? "sg-arr-hot" : "sg-arr"})`}
+              />
+              {!dim && (
+                <g transform={`translate(${p.x} ${ty - 58})`}>
+                  <rect x={-lw / 2} y={-8} width={lw} height={16} rx={3}
+                    fill="#14171d" opacity={0.92} />
+                  <text textAnchor="middle" dominantBaseline="central"
+                    fontSize={11} fill="#cdd2d8">{e.count}</text>
+                </g>
+              )}
+            </g>
+          );
+        }
+
         const a = positions.get(e.from);
         const b = positions.get(e.to);
         if (!a || !b) return null;
-        const hot = sel !== null && e.from === sel;
-        const dim = sel !== null && !hot;
         // Bow the curve perpendicular to the a→b vector. The opposite
         // edge (b→a) computes the perpendicular from b→a, so the two
         // bow to opposite sides and never overlap.
@@ -367,8 +394,6 @@ function SvgGraph({
         const ctrl = { x: (a.x + b.x) / 2 + px * bow, y: (a.y + b.y) / 2 + py * bow };
         const s = clipToBox(a, ctrl, NW / 2 + 3, NH / 2 + 3);
         const t = clipToBox(b, ctrl, NW / 2 + 10, NH / 2 + 10);
-        const color = hot ? "#5cc77a" : dim ? "#36404f" : "#5a7a9c";
-        const lw = e.count >= 100 ? 28 : e.count >= 10 ? 22 : 16;
         return (
           <g key={i} opacity={dim ? 0.5 : 1}>
             <path
@@ -457,14 +482,27 @@ function ArcDiagram({
 
       {edges.map((e, i) => {
         const fi = idx.get(e.from), ti = idx.get(e.to);
-        if (fi === undefined || ti === undefined || fi === ti) return null;
+        if (fi === undefined || ti === undefined) return null;
+        const hot = sel !== null && e.from === sel;
+        const dim = sel !== null && !hot;
+        const color = hot ? "#5cc77a" : dim ? "#36404f" : "#5a7a9c";
+        // Self-loop: a small loop above the chip.
+        if (fi === ti) {
+          const x = fi * gap;
+          return (
+            <path
+              key={i}
+              d={`M ${x - 16} ${-ch / 2} C ${x - 40} ${-ch / 2 - 54} ${x + 40} ${-ch / 2 - 54} ${x + 16} ${-ch / 2}`}
+              fill="none" stroke={color} strokeWidth={hot ? 2.4 : 1.5}
+              opacity={dim ? 0.5 : 1}
+              markerEnd={`url(#${hot ? "sg-arr-hot" : "sg-arr"})`}
+            />
+          );
+        }
         const x1 = fi * gap, x2 = ti * gap;
         const forward = ti > fi;
         const h = Math.min(280, 46 + Math.abs(x2 - x1) * 0.42) * (forward ? -1 : 1);
         const y0 = forward ? -ch / 2 : ch / 2;
-        const hot = sel !== null && e.from === sel;
-        const dim = sel !== null && !hot;
-        const color = hot ? "#5cc77a" : dim ? "#36404f" : "#5a7a9c";
         return (
           <path
             key={i}
@@ -532,8 +570,22 @@ function MatrixView({
                 {from}
               </th>
               {names.map((to) => {
-                if (from === to) return <td key={to} className="mx-diag" />;
                 const c = count.get(`${from} ${to}`) ?? 0;
+                if (from === to) {
+                  // Diagonal = self-loop count, blue-tinted to set it
+                  // apart from the green cross-stance cells.
+                  return (
+                    <td
+                      key={to}
+                      className={c ? "mx-cell" : "mx-diag"}
+                      style={c ? { background: `rgba(111,168,224,${0.16 + 0.62 * (c / max)})` } : undefined}
+                      onClick={c ? () => onSelect(from) : undefined}
+                      title={c ? `${from} self-loop: ${c} move${c === 1 ? "" : "s"}` : undefined}
+                    >
+                      {c || ""}
+                    </td>
+                  );
+                }
                 return (
                   <td
                     key={to}
@@ -693,8 +745,9 @@ export function StanceGraphView({
 
       <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>
         {hint} An edge <strong>X → Z</strong> means a move done in stance X
-        shifts you into stance Z. Click a stance to focus its transitions;
-        scroll to zoom, drag the backdrop to pan.
+        shifts you into stance Z — a loop back to X keeps the stance, an
+        edge to <strong>Neutral</strong> exits it. Click a stance to focus
+        its transitions; scroll to zoom, drag the backdrop to pan.
         {sel && (
           <>
             {" "}Showing <strong>{sel}</strong>{" "}

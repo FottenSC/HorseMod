@@ -206,43 +206,210 @@ def _resolve_main_index(
 
     Both interpretations are valid and there's no flag distinguishing
     them at this layer. Heuristic: prefer the cell interpretation if
-    `cells[mainIndex]` is an Attack-role cell; otherwise fall back to
-    the slot. This gets 84%+ of Mitsurugi's moves correctly mapped.
+    `cells[mainIndex]` is an Attack-role cell with a valid active
+    window; otherwise fall back to the slot.
     """
-    out = {"cellIdx": -1, "slotIdx": -1, "resolution": "none"}
+    out = {
+        "cellIdx": -1,
+        "slotIdx": -1,
+        "resolution": "none",
+        "candidateCount": 0,
+        "candidateBestRank": 0,
+        "candidateScore": 0,
+    }
     if khd is None or main_index <= 0:
         return out
 
     cells = khd.sections[0].entries if khd.sections else []
     slots = khd.slots
 
-    # Try as cell index first
+    def _score_cell(cell: LuxBattleAttackCell, variant_index: int = 0) -> int:
+        """Heuristic score for selecting the best candidate attack cell."""
+        if (
+            cell.cell_role != "Attack"
+            or cell.wI16BaseDamage <= 0
+            or not cell.has_valid_active_window
+        ):
+            return -1_000_000
+        score = 50
+        score += min(cell.wI16BaseDamage, 80)
+        active_len = cell.wI16MasterWindowEnd - cell.wI16MasterWindowStart
+        if active_len > 0:
+            score += min(active_len, 30)
+        if cell.wI16MasterWindowStart >= 0:
+            score += 2
+        # Prefers earlier slot variants when otherwise tied.
+        score += max(0, 3 - variant_index)
+        return score
+
+    def _best_slot_attack_candidate(slot_idx: int) -> tuple[int, int, int] | None:
+        if slot_idx < 0 or slot_idx >= len(slots):
+            return None
+        slot = slots[slot_idx]
+        best: tuple[int, int, int] | None = None
+        for variant_idx, c in enumerate(slot.nCellBoneIndexPerVariant):
+            if not (0 <= c < len(cells)):
+                continue
+            cell = cells[c]
+            score = _score_cell(cell, variant_idx)
+            if score < 0:
+                continue
+            cand = (score, c, variant_idx)
+            if best is None or cand > best:
+                best = cand
+        return best
+
+    def _best_slot_candidates(slot_indices: list[int]) -> tuple[int, int, int] | None:
+        best: tuple[int, int, int] | None = None
+        for slot_idx in slot_indices:
+            slot_best = _best_slot_attack_candidate(slot_idx)
+            if slot_best is None:
+                continue
+            if best is None or slot_best > best:
+                best = slot_best
+        return best
+
+    # Try as cell index first.
     if 0 <= main_index < len(cells):
         cell = cells[main_index]
         if cell.cell_role == "Attack":
-            out["cellIdx"] = main_index
-            # Reverse-resolve to a slot that USES this cell (for navigation)
-            for s_idx, s in enumerate(slots):
-                if main_index in s.nCellBoneIndexPerVariant:
-                    out["slotIdx"] = s_idx
-                    break
-            out["resolution"] = "cell"
+            direct_score = _score_cell(cell, 0)
+            # Reverse-resolve to a slot that USES this cell (for navigation).
+            matching_slots = [
+                s_idx for s_idx, s in enumerate(slots)
+                if main_index in s.nCellBoneIndexPerVariant
+            ]
+            matching_slot = matching_slots[0] if matching_slots else -1
+
+            # Direct-cell selection is only trusted when the active window
+            # is in a normal range. If not, try to recover via associated
+            # slot variants (same cell may be referenced by a slot whose
+            # other variant carries the real startup).
+            if direct_score >= 0:
+                out.update(
+                    {
+                        "cellIdx": main_index,
+                        "slotIdx": matching_slot,
+                        "resolution": "cell-direct",
+                        "candidateCount": 1,
+                        "candidateBestRank": 1,
+                        "candidateScore": direct_score,
+                    }
+                )
+                if matching_slots:
+                    replacement = None
+                    replacement_slot = -1
+                    for slot_idx in matching_slots:
+                        slot_best = _best_slot_attack_candidate(slot_idx)
+                        if slot_best is None:
+                            continue
+                        slot_score, slot_cell_idx, _slot_variant = slot_best
+                        if replacement is None or slot_score > replacement[0]:
+                            replacement = (slot_score, slot_cell_idx)
+                            replacement_slot = slot_idx
+                    if replacement is not None:
+                        slot_score, slot_cell_idx = replacement
+                        out["candidateCount"] = 2
+                        out["candidateScore"] = direct_score
+                        if slot_score - direct_score >= 16:
+                            out.update(
+                                {
+                                    "cellIdx": slot_cell_idx,
+                                    "slotIdx": replacement_slot,
+                                    "resolution": "slot-overrides-direct",
+                                    "candidateBestRank": 2,
+                                    "candidateScore": slot_score,
+                                }
+                            )
+                            return out
+                return out
+
+            # Direct index was an Attack role but had invalid window values.
+            # Prefer a matching-slot replacement if one has a valid startup.
+            slot_replacement = _best_slot_candidates(matching_slots)
+            if slot_replacement is not None:
+                slot_score, slot_cell_idx, _slot_variant = slot_replacement
+                out.update(
+                    {
+                        "cellIdx": slot_cell_idx,
+                        "slotIdx": matching_slot,
+                        "resolution": "slot-overrides-direct",
+                        "candidateCount": 1,
+                        "candidateBestRank": 1,
+                        "candidateScore": slot_score,
+                    }
+                )
+                return out
+
+            # main_index may also be a slot index with different valid variants.
+            if 0 <= main_index < len(slots):
+                slot_best = _best_slot_attack_candidate(main_index)
+                if slot_best is not None:
+                    slot_score, slot_cell_idx, _slot_variant = slot_best
+                    out.update(
+                        {
+                            "cellIdx": slot_cell_idx,
+                            "slotIdx": main_index,
+                            "resolution": "slot-overrides-direct",
+                            "candidateCount": 1,
+                            "candidateBestRank": 1,
+                            "candidateScore": slot_score,
+                        }
+                    )
+                    return out
+
+            out.update(
+                {
+                    "cellIdx": main_index,
+                    "slotIdx": matching_slot,
+                    "resolution": "cell-direct-invalid-startup",
+                    "candidateCount": 1,
+                    "candidateBestRank": 1,
+                    "candidateScore": direct_score,
+                }
+            )
             return out
 
-    # Fall back to slot
-    if 0 <= main_index < len(slots):
-        slot = slots[main_index]
-        for c in slot.nCellBoneIndexPerVariant:
-            if 0 <= c < len(cells) and cells[c].cell_role == "Attack":
-                out["cellIdx"] = c
-                out["slotIdx"] = main_index
-                out["resolution"] = "slot"
+        # main_index is non-attack as cell; try the slot interpretation
+        # and return the best attack variant available.
+        if 0 <= main_index < len(slots):
+            slot_best = _best_slot_attack_candidate(main_index)
+            if slot_best is not None:
+                slot_score, slot_cell_idx, _slot_variant = slot_best
+                out.update(
+                    {
+                        "cellIdx": slot_cell_idx,
+                        "slotIdx": main_index,
+                        "resolution": "slot",
+                        "candidateCount": 1,
+                        "candidateBestRank": 1,
+                        "candidateScore": slot_score,
+                    }
+                )
                 return out
-        # Slot exists but has no attack cell — still a valid navigation target
+
+    # Fall back to slot.
+    if 0 <= main_index < len(slots):
+        slot_best = _best_slot_attack_candidate(main_index)
+        if slot_best is not None:
+            slot_score, cell_idx, _slot_variant = slot_best
+            out.update(
+                {
+                    "cellIdx": cell_idx,
+                    "slotIdx": main_index,
+                    "resolution": "slot",
+                    "candidateCount": 1,
+                    "candidateBestRank": 1,
+                    "candidateScore": slot_score,
+                }
+            )
+            return out
+        # Slot exists but has no attack cell — still a valid navigation target.
         out["slotIdx"] = main_index
         out["resolution"] = "slot-no-cell"
 
     return out
+
 
 
 _THROW_INPUT_RE = re.compile(r"\+G\b|\bG\+|\bA\+G|\bB\+G|\bK\+G|\bG\+A|\bG\+B|\bG\+K")
@@ -295,6 +462,50 @@ def _is_pure_direction_input(button_input: str) -> bool:
     if not button_input:
         return False
     return all(ch in _DIRECTION_CHARS for ch in button_input)
+
+
+def _command_set_sort_key(
+    cs: dict[str, Any],
+    cells: list[LuxBattleAttackCell],
+) -> tuple[int, int, int, int, int]:
+    """Score command-sets for canonical selection.
+
+    Higher tuples are better in sort order. Preference is:
+    1) concrete attack-cell hits over slot-only/navigation-only entries
+    2) concrete resolution quality
+    3) higher candidate score
+    4) earlier authoring index (lower commandSetIndex)
+    5) lower cell index as stable tie-breaker
+    """
+    cell_idx = cs.get("cellIdx", -1)
+    resolution = str(cs.get("resolution") or "none")
+    candidate_score = int(cs.get("candidateScore", 0) or 0)
+    command_set_index = int(cs.get("commandSetIndex", 0) or 0)
+
+    resolution_rank = {
+        "cell-direct": 6,
+        "slot-overrides-direct": 5,
+        "cell-direct-invalid-startup": 4,
+        "cell": 4,
+        "slot": 3,
+        "slot-no-cell": 2,
+        "movement-only": 1,
+        "none": 0,
+    }.get(resolution, 1)
+
+    if 0 <= cell_idx < len(cells):
+        c = cells[cell_idx]
+        has_attack = 1 if (c.cell_role == "Attack" and c.wI16BaseDamage > 0 and c.has_valid_active_window) else 0
+    else:
+        has_attack = 0
+
+    return (
+        has_attack,
+        resolution_rank,
+        candidate_score,
+        -command_set_index,
+        -cell_idx if cell_idx >= 0 else -9999,
+    )
 
 
 def _find_dispatcher_variants(
@@ -414,7 +625,7 @@ def _build_movelist_payload(
             move_id = item.get("MoveListID", 0)
             param = item.get("Param", {}) or {}
             command_sets = []
-            for cs in param.get("CommandSets", []):
+            for command_set_index, cs in enumerate(param.get("CommandSets", [])):
                 mi = cs.get("MainIndex", 0)
                 if not mi:
                     continue
@@ -424,33 +635,26 @@ def _build_movelist_payload(
                 if resolved["resolution"] == "none":
                     continue
                 command_sets.append({
+                    "commandSetIndex": command_set_index,
                     "mainIndex": mi,
                     "introIndex": cs.get("IntroIndex", 0),
                     "cellIdx": resolved["cellIdx"],
                     "slotIdx": resolved["slotIdx"],
                     "resolution": resolved["resolution"],
+                    "candidateCount": resolved["candidateCount"],
+                    "candidateBestRank": resolved["candidateBestRank"],
+                    "candidateScore": resolved["candidateScore"],
                 })
             if not command_sets:
                 continue
-            # Bandai's CommandSets array is ordered, and the UI treats
-            # commandSets[0] as the "primary" stats source. But some
-            # entries put an empty/preamble slot in cs[0] (resolution
-            # "slot-no-cell") and the actual hit cell in cs[1]. Examples:
-            # Mitsurugi "Harvest Stalk Reaper" K.K.B, Sophitia "Violet
-            # Squall" 6A, Taki "Stalker Drop" A+G. To stop the UI from
-            # rendering blank rows on these, promote the first CS that
-            # actually resolves to an Attack cell to the front. We keep
-            # the original order otherwise so multi-hit attacks (where
-            # cs[0] is the headline first hit) stay correct.
             khd_cells = khd.sections[0].entries if khd and khd.sections else []
-            if khd_cells and command_sets[0].get("cellIdx", -1) < 0:
-                for i in range(1, len(command_sets)):
-                    cidx = command_sets[i].get("cellIdx", -1)
-                    if 0 <= cidx < len(khd_cells):
-                        cell = khd_cells[cidx]
-                        if cell.cell_role == "Attack" and cell.wI16BaseDamage > 0:
-                            command_sets.insert(0, command_sets.pop(i))
-                            break
+            if len(command_sets) > 1 and khd_cells:
+                command_sets.sort(
+                    key=lambda cs: _command_set_sort_key(cs, khd_cells),
+                    reverse=True,
+                )
+            for i, cs in enumerate(command_sets):
+                cs["commandSetIndex"] = i
             entry = movelist_idx.get(move_id)
             full_cmd = entry.command if entry else ""
             condition, button_input = locales.split_condition_and_input(full_cmd)
@@ -631,6 +835,7 @@ def cell_to_dict(c: LuxBattleAttackCell, idx: int) -> dict[str, Any]:
         "activeStart": c.wI16MasterWindowStart,
         "activeEnd": c.wI16MasterWindowEnd,
         "activeFrames": c.active_frame_count,
+        "hasValidActiveWindow": c.has_valid_active_window,
         "onBlock": c.wI16BlockstunFrames,
         "onHitStanding": c.wI16HitstunStandingNormal,
         "onHitStandingAir": c.wI16HitstunStandingAir,
