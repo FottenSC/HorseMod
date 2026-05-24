@@ -30,6 +30,7 @@ set(HORSELIB_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/OnlineRules.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/LuxBattleLauncherStartHook.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/HasSubProviderEntryHook.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ReplayDebugTrace.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ReplayScrub.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ReplayScrubDiag.hpp
 )
@@ -39,6 +40,10 @@ add_library(${TARGET} SHARED
     ${SCVI_HEADERS}
     ${HORSELIB_GAMEIMGUI_HEADERS}
     ${HORSELIB_HEADERS}
+)
+
+set(HORSEMOD_REPLAY_FUNCTION_MAP
+    "${CMAKE_CURRENT_SOURCE_DIR}/debug/SoulcaliburVI_function_map.tsv"
 )
 
 target_include_directories(${TARGET} PRIVATE
@@ -98,6 +103,15 @@ target_link_options(${TARGET} PRIVATE
     # (see tools/crash_dump_parse.py).
     /MAP
 )
+
+if(EXISTS "${HORSEMOD_REPLAY_FUNCTION_MAP}")
+    add_custom_command(TARGET ${TARGET} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${HORSEMOD_REPLAY_FUNCTION_MAP}"
+            "$<TARGET_FILE_DIR:${TARGET}>/SoulcaliburVI_function_map.tsv"
+        COMMENT "Copying replay function map next to HorseMod.dll"
+    )
+endif()
 
 # Copy the DLL to the game's mod directory after building (optional, adjust path as needed)
 # add_custom_command(TARGET ${TARGET} POST_BUILD

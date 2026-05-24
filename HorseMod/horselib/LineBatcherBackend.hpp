@@ -70,6 +70,13 @@
 #include <Unreal/FMemory.hpp>
 #include <Unreal/World.hpp>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 
@@ -130,6 +137,8 @@ namespace Horse
         // frame just to grow.  64 lines = 2 charas × ~32 segments — plenty
         // of headroom for AABBs + per-move capsules later.
         static constexpr int32_t kInitialCapacity = 64;
+        static constexpr int32_t kMaxLinesPerFrame = 32768;
+        static constexpr int32_t kMaxLineCapacity = 65536;
 
         // Change which of UWorld's three batchers we append to.  Takes
         // effect on the next primeFrom (or immediately if the UWorld
@@ -158,13 +167,21 @@ namespace Horse
 
         // Pivot — plant a reference UObject we can call GetWorld() on.
         // The cockpit (or any chara) works.  We cache the resolved UWorld
-        // and its batcher pointer for subsequent frames.
+        // and its batcher pointer for subsequent frames. Hot-path calls
+        // trust explicit invalidation instead of UObject::IsReal because
+        // that scans the full object array.
         void primeFrom(Obj pivot)
         {
-            if (m_lbc && RC::Unreal::UObject::IsReal(m_lbc)) return;
             if (!pivot) return;
             auto* world = pivot.raw()->GetWorld();
-            if (!world) return;
+            if (!world)
+            {
+                invalidate();
+                return;
+            }
+            if (m_lbc && m_world == world) return;
+
+            invalidate();
             m_world = world;
 
             // Pick the batcher slot per m_slot.  Both are plain
@@ -205,16 +222,65 @@ namespace Horse
             // Nothing needed — appends happen via drawLine.
         }
 
+        // SC6's PersistentLineBatcher does not run UE4's stock lifetime
+        // sweep, so manage FBatchedLine::RemainingLifeTime ourselves.
+        // Callers pass game-time seconds, not wall-clock seconds; during
+        // HorseMod freeze this stays at 0, so trails hold their shape.
+        void advanceLifetime(float seconds)
+        {
+            if (m_slot != LineBatcherSlot::Persistent) return;
+            if (seconds <= 0.0f || !isReady()) return;
+
+            auto* arr = batchedLinesHeader();
+            if (!saneBatchedLinesHeader(arr))
+            {
+                logInvalidHeader(arr, L"advanceLifetime");
+                invalidate();
+                return;
+            }
+
+            auto* lines = static_cast<FBatchedLine*>(arr->Data);
+            int32_t write = 0;
+            for (int32_t read = 0; read < arr->Num; ++read)
+            {
+                FBatchedLine line = lines[read];
+                line.RemainingLifeTime -= seconds;
+                if (line.RemainingLifeTime <= 0.0f)
+                    continue;
+                if (write != read)
+                    lines[write] = line;
+                else
+                    lines[write].RemainingLifeTime = line.RemainingLifeTime;
+                ++write;
+            }
+
+            if (write != arr->Num)
+            {
+                arr->Num = write;
+                Horse::NativeBinding::markRenderStateDirty(m_lbc);
+            }
+        }
+
         void drawLine(const FVec3& a, const FVec3& b,
                       const FLinColor& color, float thickness) override
         {
             if (!isReady()) return;
             auto* arr = batchedLinesHeader();
-            if (!arr) return;
+            if (!saneBatchedLinesHeader(arr))
+            {
+                logInvalidHeader(arr, L"header");
+                invalidate();
+                return;
+            }
 
             // Ensure capacity.  GMalloc::Realloc uses the same allocator the
             // component itself uses, so later TickComponent frees are safe.
-            reserveAtLeast(arr, arr->Num + 1);
+            if (!reserveAtLeast(arr, arr->Num + 1))
+            {
+                logInvalidHeader(arr, L"reserve");
+                invalidate();
+                return;
+            }
 
             auto* slot = static_cast<FBatchedLine*>(arr->Data) + arr->Num;
             slot->Start             = a;
@@ -251,6 +317,8 @@ namespace Horse
         RC::Unreal::UObject* world()       const { return m_world; }
 
     private:
+        using Clock = std::chrono::steady_clock;
+
         TArrHdr* batchedLinesHeader()
         {
             if (!m_lbc) return nullptr;
@@ -258,24 +326,120 @@ namespace Horse
                 reinterpret_cast<uint8_t*>(m_lbc) + 0x808);
         }
 
+        static bool writableCommitted(const void* ptr, size_t bytes)
+        {
+            if (!ptr || bytes == 0) return false;
+
+            MEMORY_BASIC_INFORMATION mbi{};
+            if (VirtualQuery(ptr, &mbi, sizeof(mbi)) == 0)
+                return false;
+            if (mbi.State != MEM_COMMIT)
+                return false;
+            if ((mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0)
+                return false;
+
+            const DWORD protect = mbi.Protect & 0xff;
+            const bool writable =
+                protect == PAGE_READWRITE ||
+                protect == PAGE_WRITECOPY ||
+                protect == PAGE_EXECUTE_READWRITE ||
+                protect == PAGE_EXECUTE_WRITECOPY;
+            if (!writable)
+                return false;
+
+            const auto* start = static_cast<const uint8_t*>(ptr);
+            const auto* base = static_cast<const uint8_t*>(mbi.BaseAddress);
+            const size_t offset = static_cast<size_t>(start - base);
+            return offset <= mbi.RegionSize && bytes <= mbi.RegionSize - offset;
+        }
+
+        bool saneBatchedLinesHeader(const TArrHdr* arr) const
+        {
+            if (!writableCommitted(arr, sizeof(TArrHdr)))
+                return false;
+            if (arr->Num < 0 || arr->Max < 0)
+                return false;
+            if (arr->Num > arr->Max)
+                return false;
+            if (arr->Num >= kMaxLinesPerFrame)
+                return false;
+            if (arr->Max > kMaxLineCapacity)
+                return false;
+            if (arr->Max > 0 && !arr->Data)
+                return false;
+            if (arr->Data)
+            {
+                const size_t bytes = sizeof(FBatchedLine) *
+                    static_cast<size_t>((std::max)(arr->Max, 1));
+                if (!writableCommitted(arr->Data, bytes))
+                    return false;
+            }
+            return true;
+        }
+
+        void logInvalidHeader(const TArrHdr* arr, const wchar_t* reason)
+        {
+            const auto now = Clock::now();
+            if (m_lastInvalidLog.time_since_epoch().count() != 0 &&
+                now - m_lastInvalidLog < std::chrono::seconds(5))
+                return;
+            m_lastInvalidLog = now;
+
+            void* data = nullptr;
+            int32_t num = -1;
+            int32_t max = -1;
+            if (writableCommitted(arr, sizeof(TArrHdr)))
+            {
+                data = arr->Data;
+                num = arr->Num;
+                max = arr->Max;
+            }
+
+            RC::Output::send<RC::LogLevel::Warning>(
+                STR("[HorseMod.LineBatcher] invalid BatchedLines header "
+                    "world=0x{:x} lbc=0x{:x} data=0x{:x} num={} max={} "
+                    "reason={}\n"),
+                reinterpret_cast<uintptr_t>(m_world),
+                reinterpret_cast<uintptr_t>(m_lbc),
+                reinterpret_cast<uintptr_t>(data),
+                num,
+                max,
+                RC::to_generic_string(reason ? reason : L"?"));
+        }
+
         // Grow the raw TArray header using the game's allocator so later
         // frees by the component itself are valid.
-        void reserveAtLeast(TArrHdr* arr, int32_t needed)
+        bool reserveAtLeast(TArrHdr* arr, int32_t needed)
         {
-            if (arr->Max >= needed) return;
-            const int32_t newMax = (arr->Max == 0)
+            if (!arr || needed <= 0 || needed > kMaxLineCapacity)
+                return false;
+            if (arr->Max < 0 || arr->Max > kMaxLineCapacity)
+                return false;
+            if (arr->Max >= needed) return true;
+
+            const int32_t proposed = (arr->Max == 0)
                 ? kInitialCapacity
                 : (needed + (needed / 4) + 16);
+            const int32_t newMax = (std::min)(kMaxLineCapacity, proposed);
+            if (newMax < needed)
+                return false;
+
             using RC::Unreal::GMalloc;
-            arr->Data = (*GMalloc)->Realloc(
+            void* newData = (*GMalloc)->Realloc(
                 arr->Data,
                 static_cast<size_t>(newMax) * sizeof(FBatchedLine),
                 alignof(FBatchedLine));
+            if (!newData)
+                return false;
+
+            arr->Data = newData;
             arr->Max = newMax;
+            return true;
         }
 
         RC::Unreal::UObject* m_world = nullptr;
         RC::Unreal::UObject* m_lbc   = nullptr;
+        Clock::time_point    m_lastInvalidLog{};
         // Default to Foreground so hitboxes draw on top of the weapon
         // mesh — the natural choice for a debug overlay.  Flip via
         // setSlot() / the ImGui tab.

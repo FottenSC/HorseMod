@@ -1,0 +1,12 @@
+[
+  {
+    "animation_hex": "1491",
+    "character": "Zasalamel",
+    "cid": "024",
+    "clip_offset": null,
+    "failure_stage": "unknown_without_root_motion_decode",
+    "frame": "",
+    "movement_type": "backstep_candidate",
+    "reason": "motion section is smaller than 0x20 bytes"
+  }
+]

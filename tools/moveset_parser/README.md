@@ -228,10 +228,15 @@ From `LuxMoveVM_UpdateMoveDataTable @ 0x14038F7D0`:
 
 ```
 +0x00  u32      nMotionCount      (628-2046 per chara; 1641 for chr000)
-+0x04  u32[N+1] motion_offsets    (last is end-sentinel)
++0x04  u32      reserved_zero
++0x08  u32[N]   motion_offsets    (indexed by anim id; no count+1 sentinel)
 @offset[i] : per-motion frame data (HgMotion-private layout)
-@end_sentinel..file_end : authored lookup trailer (always present, 2-18 KB)
 ```
+
+Ghidra reference: `LuxMoveVM_InitMotionPlayback @ 0x140300400` reads
+`motionBank[animIndex + 2]`, so animation `0` uses the offset at file
+`+0x08`. Section size is computed from the next offset, or EOF for the final
+entry. Empty motions are represented by repeated offsets.
 
 `chr0ff.mot` is the "common motion" file (783 motions, only 4 empty —
 i.e., almost fully populated, unlike per-chara files which are 34-81%
@@ -239,7 +244,8 @@ empty since the table is reserved for the full motion-id namespace).
 
 ### CPU AI (`.dtp`)
 
-Same generic offset-table layout as `.mot`. Always **9 sections**, with
+Uses the older generic offset-table layout: count at `+0x00`, offsets starting
+at `+0x04`, and a count+1 end sentinel. Always **9 sections**, with
 several at FIXED sizes across all characters (strong invariants):
 
 | Index | Size (all chars)       | Role |

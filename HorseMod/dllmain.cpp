@@ -1,5 +1,5 @@
 // ============================================================================
-// HorseMod — SoulCalibur VI hit-volume visualiser (UE4SS C++ mod).
+// HorseMod - SoulCalibur VI hit-volume visualiser (UE4SS C++ mod).
 //
 // What this shows
 // ---------------
@@ -7,50 +7,47 @@
 // and draw their contents as wire-frame volumes in world space using
 // UWorld's ULineBatchComponent.
 //
-//   HURTBOXES  (KHit list at chara+0x444B8) — entries that RECEIVE
+//   HURTBOXES  (KHit list at chara+0x444B8) - entries that RECEIVE
 //              damage from opponent attacks.  On by default.  Flashes red
 //              when that slot's PerHurtboxReactionState[i] is non-zero
 //              (just got hit).  The hurtbox list holds every "receive"
-//              volume — damage hurtboxes, throw-reach receivers,
+//              volume - damage hurtboxes, throw-reach receivers,
 //              proximity/auto-turn cages.  The engine's own classifier
 //              doesn't sub-bucket these from the defender side; reactions
 //              are decided per-slot based on which attacker category bits
 //              are set in the incoming mask.  We no longer invent
 //              size-based sub-buckets for this reason.
 //
-//   ATTACK     (KHit list at chara+0x44498) — entries that DEAL damage
+//   ATTACK     (KHit list at chara+0x44498) - entries that DEAL damage
 //   BOXES      (or initiate a grab).  On by default.  Dim amber for
-//              strikes; a node whose per-frame active gate (node+0x14) is
-//              non-zero is drawn bright yellow (the "hot" attack for the
-//              current frame — the tick sets this bit to
-//              `(hotMask >> node[+0x17]) & 1`, meaning the MoveVM's hot
-//              bitmap has this bone slot marked active).  Grab/throw
-//              attacks are drawn magenta — the engine distinguishes them
+//              strikes; a node is drawn bright only when the renderer's
+//              engine-truth `is_per_frame_active` predicate passes
+//              (geometry gate, attack category mask, and active-frame phase).
+//              Grab/throw attacks are drawn magenta - the engine distinguishes them
 //              from strikes via bits 31 and 55 of the CategoryMask at
 //              node+0x08 (see LuxBattle_ResolveAttackVsHurtboxMask22
 //              @ 0x14033C100).
 //
-//   BODY /     (KHit list at chara+0x44478) — entries that neither deal
+//   BODY /     (KHit list at chara+0x44478) - entries that neither deal
 //   PUSHBOX    nor receive damage.  Used by
 //              LuxBattle_SolvePhysBodyCollision @ 0x14030CCF0 for
 //              character-to-character physical pushing only.  OFF by
-//              default (visually noisy — spacing context only).
+//              default (visually noisy - spacing context only).
 //              Enable per-player from the ImGui tab.
 //
 // Historical note: earlier versions of this mod had the three list heads
-// rotated (Attack↔Body↔Hurtbox off by one in the old plate on
+// rotated (Attack?Body?Hurtbox off by one in the old plate on
 // LuxBattle_TickHitResolutionAndBodyCollision @ 0x14033CCA0).  That's why
-// "attack" boxes used to appear to not make contact with the opponent —
+// "attack" boxes used to appear to not make contact with the opponent -
 // they were actually the pushbox list.  Corrected above.
 //
 // Visibility is per-player: P1 and P2 each get independent hurtbox /
 // attack / body toggles, so e.g. you can hide P2's pushboxes while
 // keeping P1's visible.
 //
-// All geometry comes from Pipeline 2 (legacy KHit chain) — the same data
-// the hit resolver uses.  Weapon-trail Pipeline 1 (ActiveAttackSlot via
-// TraceManager) is not drawn in this build; most hit volumes of interest
-// (kicks, hurtboxes, bodies) are in Pipeline 2 anyway.
+// This build visualizes the authoritative legacy KHit chain used for
+// attack/hurt/body resolution.  The separate weapon-trail TraceManager
+// capsule path is intentionally not drawn in this pass.
 //
 // Hotkeys
 //   F5  toggle overlay on / off
@@ -58,26 +55,26 @@
 //       subsequent presses queue additional frames (held F6 yields
 //       ~30fps slow-motion via UE4SS key auto-repeat).  Implementation
 //       writes speedval = 0 / 1.0 alternation through Horse::SpeedControl
-//       (the trampolined GetTimeDilationScalar override) — see the
+//       (the trampolined GetTimeDilationScalar override) - see the
 //       frame_step_apply helper below.
 //   F7  toggle free-fly camera.  Ansel-free: writes our own pose to
 //       ALuxBattleCamera+0x410..+0x428 each cockpit tick while CamLock
 //       holds off the engine's director.  Keyboard controls: WASD
 //       translate, Q/E up/down, arrows or IJKL look (arrows may be
-//       swallowed by SC6's RawInput handler — IJKL is the reliable
+//       swallowed by SC6's RawInput handler - IJKL is the reliable
 //       fallback), Shift/Ctrl for speed.  XInput pad 0 is also polled
 //       (sticks translate/look, LT/RT vertical, LB/RB speed).  See
 //       horselib/FreeCamera.hpp.
 //
 // ImGui tab ("HorseMod")
-//   • overlay enable toggle (mirrors F5)
-//   • per-list visibility toggles (hurtbox / attack / body)
-//   • line thickness slider
-//   • LineBatcher slot selector (Default / Persistent / Foreground)
+//   - overlay enable toggle (mirrors F5)
+//   - per-list visibility toggles (hurtbox / attack / body)
+//   - line thickness slider
+//   - LineBatcher slot selector (Default / Persistent / Foreground)
 //
-// Everything else the earlier prototype had — predicate hooks, bounds
+// Everything else the earlier prototype had - predicate hooks, bounds
 // traces, yarare watchers, process-event spies, cockpit-widget backend,
-// capsule walker — has been removed.  If you want any of that back, pull
+// capsule walker - has been removed.  If you want any of that back, pull
 // it out of git history; it's all on dead paths for the "draw the real
 // hitboxes" goal we're pursuing now.
 //
@@ -85,12 +82,14 @@
 //   LuxBattle_TickHitResolutionAndBodyCollision  @ 0x14033CCA0  (full plate)
 //   ALuxBattleChara_GetBoneTransformForPose      @ 0x140462760
 //   LuxSkeletalBoneIndex_Remap                   @ 0x140898140
-//   KHitBase / KHitArea / KHitSphere / KHitFixArea — 0xA0 bytes each
+//   KHitBase / KHitArea / KHitSphere / KHitFixArea native field layouts
 // ============================================================================
 
 #include "horselib/HorseLib.hpp"
 #include "horselib/KHitWalker.hpp"
 #include "horselib/LineBatcherBackend.hpp"
+#include "horselib/StageBoundaryOverlay.hpp"
+#include "horselib/StageVisualSuppressor.hpp"
 #include "horselib/NativeBinding.hpp"
 #include "horselib/CamLock.hpp"
 #include "horselib/FreeCamera.hpp"
@@ -99,6 +98,7 @@
 #include "horselib/SpeedControl.hpp"
 #include "horselib/WorldTickGate.hpp"
 #include "horselib/ReplayClockGate.hpp"
+#include "horselib/ReplayDebugTrace.hpp"
 #include "horselib/ActorTickGate.hpp"
 #include "horselib/TimeDilationGate.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
@@ -147,13 +147,13 @@
 
 // Self-disable in online matches against humans (RankMatch / CasualMatch).
 // Hooks ULuxUIGamePresenceUtil::SetPresence to track the current scene's
-// ELuxGamePresence enum value — Training/Replay/single-player are safe,
+// ELuxGamePresence enum value - Training/Replay/single-player are safe,
 // online matches are not.  See horselib/GameMode.hpp for the full rationale
 // and the enum mapping.
 #include "horselib/GameMode.hpp"
 
 // PolyHook x64Detour on ULuxUIBattleLauncher::Start (image+0x5EEB50).
-// This is the chokepoint for ALL 5 BattleRule overrides — the detour
+// This is the chokepoint for ALL 5 BattleRule overrides - the detour
 // calls the appropriate Set<X>Mode setter on the launcher BEFORE the
 // original Start runs, writing our values into the launcher's data-
 // table cache.  The original then reads our values when it builds the
@@ -176,21 +176,21 @@
 #define HORSE_ENABLE_EBTRACER 0
 #endif
 
-// Replay scrubbing — per-frame full-state snapshot ring + ExecFinalize-
+// Replay scrubbing - per-frame full-state snapshot ring + ExecFinalize-
 // AndPost-driven seek.  Captures snapshots only during Replay presence;
 // otherwise idle.  See horselib/ReplayScrub.hpp's file-header doc for
 // the IBuffer contract and Strategy C rationale (~49 MB resident at the
 // default 5-second / 300-frame ring size).
 #include "horselib/ReplayScrub.hpp"
 
-// horselib/GamePause.hpp REMOVED — was a 5-site trampoline patching the
+// horselib/GamePause.hpp REMOVED - was a 5-site trampoline patching the
 // chara+0x394 audio-state bit instead of the world-tick pause we
 // thought.  Superseded by the SpeedControl freeze-frame mechanism (see
 // the "Freeze frame" UI block below) which writes speedval=0 / 1.0 to
 // engage the dt-scale freeze + sites 1..16 + g_LuxBattle_VMFreezeByte.
-// Removed 2026-04 — see git history for the implementation.
+// Removed 2026-04 - see git history for the implementation.
 //
-// horselib/BattlePauseRequest.hpp also REMOVED 2026-04-27 — turned out
+// horselib/BattlePauseRequest.hpp also REMOVED 2026-04-27 - turned out
 // to invoke the same audio-mute path, breaking Soul Charge mid-move.
 // See the member-list block where m_battle_pause_request used to live
 // for the full forensic.
@@ -214,6 +214,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <string>
 #include <vector>
 
 using namespace RC;
@@ -223,12 +224,12 @@ using namespace RC::Unreal;
 // Build-date formatter used in the ImGui window title.
 //
 // __DATE__ is the C preprocessor's compile-time date string, format
-// "Mmm DD YYYY" — month is the abbreviated English name (Jan/Feb/...
+// "Mmm DD YYYY" - month is the abbreviated English name (Jan/Feb/...
 // /Dec), DD is the day of the month (space-padded to 2 columns for
 // single-digit days, e.g. "Apr  3 2026"), YYYY is the year.
 //
 // We reformat to "DD-Mmm-YYYY" so the date is unambiguously day-first
-// — avoids the perennial US-vs-rest-of-world confusion between e.g.
+// - avoids the perennial US-vs-rest-of-world confusion between e.g.
 // "04/05" meaning April 5th vs May 4th.  Using the abbreviated month
 // name (Apr, May, Jun, ...) instead of a numeric month makes the
 // ordering self-evident regardless of the reader's locale.
@@ -278,7 +279,7 @@ private:
     std::atomic<bool> m_enabled{false};
 
     // Per-player visibility toggles.  Default on-launch layout is
-    // "only P2's hurtboxes visible" — the most common starting point
+    // "only P2's hurtboxes visible" - the most common starting point
     // for frame-data practice where P2 is the training dummy and you
     // want to see their incoming-damage volumes without the visual
     // noise of P1's own attacks / hurtboxes.  User flips the rest on
@@ -292,20 +293,20 @@ private:
     std::atomic<bool> m_show_p2_body{false};
 
     // ----------------------------------------------------------------
-    //   Box-visibility filter — single master toggle.
+    //   Box-visibility filter - single master toggle.
     //
-    //   m_only_show_active   default ON   engine-truth narrow filter
+    //   m_only_show_active   default ON   engine-live narrow filter
     //                                     applied to both lists:
-    //                                       hits  → is_per_frame_active
+    //                                       hits  ? is_per_frame_active
     //                                              && attacker_can_strike_engine
-    //                                       hurts → classifier_addressable
+    //                                       hurts ? classifier_addressable
     //                                              && overlap_active
     //                                              && defender_can_react_engine
     //                                     (what the classifier actually
     //                                      acts on)
     //
     //   The two chara-wide gates (attacker_can_strike_engine /
-    //   defender_can_react_engine — same boolean, dual-named) cover
+    //   defender_can_react_engine - same boolean, dual-named) cover
     //   the resolver's three early-return sites that disable
     //   reaction processing wholesale:
     //     * Battle running         (DAT_144846410 != 0)
@@ -318,18 +319,18 @@ private:
     // Engine-truth predicates:
     //   is_per_frame_active = (attack_node[+0x14] != 0) &&
     //                         (cat_mask & chara[+0x44058]) != 0
-    //                       — exact predicate of
+    //                       - exact predicate of
     //                         LuxBattle_ResolveAttackVsHurtboxMask22
     //                         @ 0x14033C100 before firing damage.
     //   classifier_addressable = (slot < min(chara+0x44494, 22))
-    //                       — slot index is within the classifier's
+    //                       - slot index is within the classifier's
     //                         iteration range.  A box at slot >= cap
     //                         can never deal damage no matter what
     //                         its +0x14 says, because the for-loop in
     //                         ResolveAttackVsHurtboxMask22 won't read
     //                         its PerHurtboxBitmask entry.
     //   overlap_active      = (hurt_node[+0x14] != 0)
-    //                       — same byte the engine's overlap loop in
+    //                       - same byte the engine's overlap loop in
     //                         LuxBattleChara_UpdateAllKHitWorldCenters
     //                         @ 0x14030D6A0 gates iteration on.
     //                         Initialised to 1 by
@@ -340,7 +341,7 @@ private:
     //   defender_can_react_engine = (DAT_144846410 != 0) &&
     //                                (chara+0x20B8 == 0) &&
     //                                (chara+0x19B0 != 6)
-    //                       — the three early-return gates of
+    //                       - the three early-return gates of
     //                         LuxBattle_ResolveAttackVsHurtboxMask22.
     //                         When any fails, the whole resolver
     //                         skips and no slot is read.  Same
@@ -362,7 +363,7 @@ private:
     // Semantics:
     //   OFF: do nothing.  The game manages weapon visibility normally
     //        (cinematic cues, ring-out states, etc.).
-    //   ON : re-apply hidden every frame — overrides any game-driven
+    //   ON : re-apply hidden every frame - overrides any game-driven
     //        visibility change, so weapons stay gone while the toggle is
     //        held.
     //   ON -> OFF transition: call SetWeaponVisibility(true) once per
@@ -374,7 +375,7 @@ private:
     //     UFUNCTION(BlueprintCallable)
     //     void SetWeaponVisibility(bool bVisible);
     // which is a registered UFunction and therefore reachable through
-    // ProcessEvent — no native-RVA binding needed.
+    // ProcessEvent - no native-RVA binding needed.
     std::atomic<bool> m_hide_weapons{false};
     // Tracks the last state actually pushed to the game; lets us detect
     // the ON->OFF edge so we restore visibility exactly once.
@@ -397,7 +398,7 @@ private:
     //        UE4 layer allows it.
     //
     //   3. ALuxBattleManager::RequestStartAnselSession / RequestEndAnselSession
-    //        Per-match actual session lifecycle — gated on (1) and (2).
+    //        Per-match actual session lifecycle - gated on (1) and (2).
     //
     // Empirically the community-reliable way to un-gate Ansel in SC6
     // is to force layer (1) on every frame.  The SC6-layer (2) stubs
@@ -413,7 +414,7 @@ private:
     // stop touching it.  This matches the weapon-visibility semantics
     // above.
     //
-    // This runs independent of the F5 overlay toggle — the user said
+    // This runs independent of the F5 overlay toggle - the user said
     // "always allows", so it fires from the hook pre-callback before
     // the enabled / NativeBinding-ready gates.
     std::atomic<bool> m_ansel_always_allowed{true};
@@ -432,19 +433,19 @@ private:
     // ---- Camera lock --------------------------------------------------------
     // Freeze the battle camera at its current pose while the toggle is
     // held.  Implemented by patching SC6's per-frame "commit POV to
-    // memory" instructions to NOPs — see horselib/CamLock.hpp for the
+    // memory" instructions to NOPs - see horselib/CamLock.hpp for the
     // full disassembly walk and the historical note on why the previous
     // CameraCache.POV-write approach didn't work (UMG widget tick runs
     // AFTER the renderer has already consumed the POV).
     //
     // Semantics:
-    //   OFF: every store runs as normal — engine owns the camera.
+    //   OFF: every store runs as normal - engine owns the camera.
     //   ON : 5 stores at site A and 5 stores at site B are NOPed.  The
     //        camera struct in memory keeps whatever location/rotation/FOV
     //        it had at the moment we toggled ON; nothing in the engine
     //        rewrites those fields for the duration.
     //
-    // CamLock owns the live BytePatch state — it must outlive every
+    // CamLock owns the live BytePatch state - it must outlive every
     // call site (kept until ~HorseMod) so the patches get cleanly
     // restored on mod unload.  Atomic for ImGui-thread reads against
     // the patch state (the patch-flip itself happens on the same
@@ -456,7 +457,7 @@ private:
     // Writes the SC6 battle camera's pose (Location, Rotation, FOV) from
     // our own per-cockpit-tick state, driven by WASD + arrow keys.  Uses
     // CamLock internally to freeze engine writes so the input doesn't
-    // fight the director-cam.  Independent of Nvidia Ansel — no Ansel
+    // fight the director-cam.  Independent of Nvidia Ansel - no Ansel
     // session is involved, so our hitbox overlay continues to render.
     //
     // Note: enabling free-camera implicitly enables CamLock; disabling
@@ -475,7 +476,7 @@ private:
     //     Wrote to ALuxBattleCamera+0x410..+0x428 (from
     //     LuxBattleManager.BattleCamera) AND called
     //     K2_SetActorLocationAndRotation via ProcessEvent each tick.
-    //     Neither moved the camera — the first is the wrong object,
+    //     Neither moved the camera - the first is the wrong object,
     //     and the ProcessEvent call had a malformed params block
     //     (over-sized FHitResult shifted bTeleport off-offset).
     //
@@ -493,24 +494,24 @@ private:
     //     where plVar15 is an APlayerController and [0x84] (=+0x420)
     //     is the PlayerCameraManager field.  The 5 CamLock NOP
     //     targets all write to `this+0x410..+0x428` on that PCM.
-    //     APlayerController::GetPlayerViewPoint @ 0x142046410 —
-    //     the consumer invoked by ULocalPlayer::CalcSceneView — reads
+    //     APlayerController::GetPlayerViewPoint @ 0x142046410 -
+    //     the consumer invoked by ULocalPlayer::CalcSceneView - reads
     //     back from the SAME +0x410..+0x424 block on PCM.
     //
     //     So the renderer-authoritative POV data lives on the
     //     APlayerCameraManager, NOT the ALuxBattleCamera.  The
     //     actor's +0x410..+0x428 is a director-scratch block that
-    //     nothing downstream reads — writing there looks like it
+    //     nothing downstream reads - writing there looks like it
     //     works (memory persists) but has zero render-side effect.
     void*             m_cached_player_camera_manager = nullptr;
     // UE4SS reflection-side locators: a cached FindFirstOf handle for
     // APlayerController, revalidated by GlobalPtr::get on level
     // changes.  PCM is read as the "PlayerCameraManager" property
-    // on the PC every tick (cheap — hashed FName lookup).
+    // on the PC every tick (cheap - hashed FName lookup).
     Horse::GlobalPtr  m_player_controller{};
 
     // ---- Hide characters ----------------------------------------------------
-    // Bytepatch port of somberness's CE "Invisible" cheat — see
+    // Bytepatch port of somberness's CE "Invisible" cheat - see
     // horselib/CharaInvis.hpp for the full disassembly walk.
     //
     // Replaces the earlier per-frame SetCharacterVisibility(false) UFunction
@@ -525,10 +526,10 @@ private:
     //
     // The new approach inverts the engine's own visibility-compare
     // instructions inside ALuxBattleChara_SyncMoveStateVisibility so that
-    // every read of the visibility flag now produces "hidden" — eliminating
+    // every read of the visibility flag now produces "hidden" - eliminating
     // the race because we're INSIDE the read path, not racing the writes.
     //
-    // Useful when you're diagnosing hitbox shapes on a specific move —
+    // Useful when you're diagnosing hitbox shapes on a specific move -
     // the character mesh and its skirt/cape/hair occlude the volumes.
     // Hitboxes are part of the gameplay skeleton, not the mesh, so they
     // keep updating fine while the mesh is invisible.
@@ -536,7 +537,7 @@ private:
     std::atomic<bool> m_hide_chara{false};
 
     // ---- Speed control (slow-motion / freeze) -------------------------------
-    // Bytepatch port of somberness's CE "Speed control v2" cheat — see
+    // Bytepatch port of somberness's CE "Speed control v2" cheat - see
     // horselib/SpeedControl.hpp for the full disassembly walk and the
     // user contract.
     //
@@ -546,19 +547,19 @@ private:
     // (animations, hit timing, opcode-stream execution, motion-object
     // advancement) all scale uniformly with speedval.
     //
-    //   speedval = 0.0   → frozen
-    //   speedval = 0.05  → 20× slow-mo (great for active-frame inspection)
-    //   speedval = 0.1   → 10× slow-mo
-    //   speedval = 0.5   → half speed
-    //   speedval = 1.0   → normal
+    //   speedval = 0.0   ? frozen
+    //   speedval = 0.05  ? 20- slow-mo (great for active-frame inspection)
+    //   speedval = 0.1   ? 10- slow-mo
+    //   speedval = 0.5   ? half speed
+    //   speedval = 1.0   ? normal
     //
-    // Independent of the GamePause toggle and the F6 step hotkey — they
+    // Independent of the GamePause toggle and the F6 step hotkey - they
     // gate different mechanisms and stack cleanly.
     Horse::SpeedControl m_speed_control{};
     std::atomic<bool>   m_speed_enabled{false};
     std::atomic<float>  m_speed_value{1.0f};
 
-    // ---- World-tick gate (PerFrameTick / Site 9 — moved here 2026-05-05) ---
+    // ---- World-tick gate (PerFrameTick / Site 9 - moved here 2026-05-05) ---
     // Single PerFrameTick gate driving freeze + frame-step semantics
     // independently of the speedval / dt-multiply path.  See
     // horselib/WorldTickGate.hpp for the full plate.  In step+freeze mode
@@ -572,7 +573,7 @@ private:
     // Sibling gate for the replay master-clock INC instructions
     // (LuxBattleChara_VTable648_TickAndAdvanceReplayClock at 0x1403E1FC0
     // and the GatedBy4404 variant at 0x1403E2000).  Reads from the
-    // WorldTickGate policy slot — when frozen, both INCs are skipped so
+    // WorldTickGate policy slot - when frozen, both INCs are skipped so
     // the master clock at ALuxBattleFrameInputLog+0x3A4 stays pinned.
     // Without this gate, match-replay viewing leaks: SimulationLoop's
     // catch-up loop keeps draining recorded inputs into BM input data,
@@ -599,13 +600,13 @@ private:
     // doesn't halt P1 in match-replay watching.  This gate's entry-patch
     // returns 0 unconditionally during freeze, which forces every dt-
     // multiply integrator (MoveVM, physics, anim, FX) to produce 0
-    // deltas — including UE4 anim instances that scale by the engine's
+    // deltas - including UE4 anim instances that scale by the engine's
     // tick dilation.  See horselib/TimeDilationGate.hpp for the full
     // plate.
     Horse::TimeDilationGate m_time_dilation_gate{};
     // Previous-cockpit-tick snapshot of g_LuxBattle_FrameCounter.  Read
     // at the top of frame_step_apply() to detect whether PerFrameTick
-    // ran since our last call — drives WorldTickGate's step-credit
+    // ran since our last call - drives WorldTickGate's step-credit
     // drain on a real "did the world tick" signal instead of cockpit
     // hook timing.  Read/written exclusively from the cockpit pre-
     // tick (game thread); no atomic needed.
@@ -616,7 +617,7 @@ private:
     // requested speedval doesn't change (perf audit, 2026-04).  Init
     // and reset-on-disable to NaN so the first write of any active
     // span is always forced (NaN != anything is always true).  Read
-    // and written exclusively from the cockpit-tick caller — no
+    // and written exclusively from the cockpit-tick caller - no
     // atomic needed.
     float m_last_speed_target =
         std::numeric_limits<float>::quiet_NaN();
@@ -649,33 +650,46 @@ private:
     // m_vm_freeze_byte_we_set above.
     //
     // The Soul-Charge break: SC has audio-cue-driven phase transitions
-    // (activation glow → AOE pulse → recovery).  Muting audio mid-SC by
+    // (activation glow ? AOE pulse ? recovery).  Muting audio mid-SC by
     // setting bit 2 of chara+0x394 stalls the state machine; the AOE phase
     // never fires, hitboxes never activate, the move "doesn't hit" anymore.
     //
     // Trade-off: without BattlePauseRequest the round timer ticks during
     // long replay freezes, eventually ending the round.  Acceptable for
-    // now — the alternative was breaking gameplay-critical mechanics.  If
+    // now - the alternative was breaking gameplay-critical mechanics.  If
     // a clean round-timer halt is needed, the next investigation should
     // target the BattleTimeManager's actual tick path (BM+0x4F8) without
     // touching audio state.
 
     // ---- Suppress VFX -------------------------------------------------------
-    // Bytepatch port of somberness's CE "VFX off" cheat — see
+    // Bytepatch port of somberness's CE "VFX off" cheat - see
     // horselib/VFXOff.hpp for the full disassembly walk.  Replaces the
     // earlier per-frame DestroyAllVFx polling: that approach let each
     // VFX spawn for one frame before tearing it down (1-tick flashes
     // on every hit) and burned a UFunction call per tick.  The
     // bytepatch installs a midfunction trampoline that overrides the
     // engine's per-slot VFX-state writer to plant a sentinel constant
-    // the renderer treats as culled — effects never become visible.
+    // the renderer treats as culled - effects never become visible.
     //
     // Same toggle, same ImGui label.  No hot-path work; flip is a
     // single 5-byte JMP install.
     Horse::VFXOff     m_vfx_off{};
     std::atomic<bool> m_suppress_vfx{false};
 
-    // ---- Freeze frame (REWORKED — drives Horse::SpeedControl) ---------------
+    // Draws the deterministic scbattle gameplay boundary copied into
+    // g_scbattle_StageInfo_BarrierArray. Controlled only by the General
+    // tab checkbox; deliberately independent of the F5 hitbox overlay.
+    std::atomic<bool> m_show_stage_boundary{false};
+    Horse::StageBoundaryOverlay m_stage_boundary{};
+
+    // Visual-only stage mesh hiding for inspecting hitboxes and the
+    // stage boundary wireframe.  Independent of F5 and gameplay
+    // collision; StageVisualSuppressor caches actor/component pointers
+    // and reapplies at a low cadence instead of scanning every tick.
+    Horse::StageVisualSuppressor m_stage_visuals{};
+    std::atomic<bool> m_hide_stage_visuals{false};
+
+    // ---- Freeze frame (REWORKED - drives Horse::SpeedControl) ---------------
     // Replaces the broken Horse::GamePause helper (which patched a chara
     // audio-flag bit at +0x394, not a world-pause).  The actual world-
     // tick pause in SC6 is the master VM-freeze byte at 0x1448462D0:
@@ -690,7 +704,7 @@ private:
     // one cockpit tick, then back to 0.0f".
     //
     // No new patches; no new race conditions.  The existing SpeedControl
-    // patches do all the work — this UI block just toggles the value.
+    // patches do all the work - this UI block just toggles the value.
     //
     // Interaction with the Slow-motion checkbox:
     //   * Freeze ON     -> speedval = 0.0  (highest priority)
@@ -702,13 +716,13 @@ private:
     // Same shape as the old GamePause::on_tick() machine but the
     // "clear bit" / "set bit" actions are now "set speedval = 1.0" /
     // "set speedval = base".  Two cockpit ticks per advanced game
-    // frame — first tick lifts the freeze, second tick re-applies it.
+    // frame - first tick lifts the freeze, second tick re-applies it.
     std::atomic<int>  m_step_pending{0};
     std::atomic<bool> m_step_expecting{false};
 
     // Per-step diagnostic logger toggle (Time-tab checkbox).  When on,
-    // every F6 step emits two UE4SS.log lines — "pre" right before the
-    // world ticks at speedval=1.0, "post" right after — with key chara
+    // every F6 step emits two UE4SS.log lines - "pre" right before the
+    // world ticks at speedval=1.0, "post" right after - with key chara
     // fields the hit classifier reads (chara+0x16E5 attack-active,
     // +0x16EA ready-to-hit, +0x44058 own-cell, +0x44048 mirror-cell,
     // +0x4495A move slot id, +0x44DC2 sub-frame cell idx, +0x3500
@@ -721,13 +735,13 @@ private:
 
     // Defensive frame-step resync: cockpit::Update can fire WITHOUT
     // the world ticking (UMG widget tick is independent of world tick
-    // — see comment at the frame_step_apply callsite).  If Step Tick A
+    // - see comment at the frame_step_apply callsite).  If Step Tick A
     // publishes speedval=1.0 but the world doesn't actually tick before
     // the next cockpit pre-hook (loading reentrance, paused redraw, a
     // doubled cockpit::Update call), pivoting to Step Tick B would
     // silently consume the user's F6 press.
     //
-    // Witness: per-lane tick counter at lane+0x04 (int32) — the engine
+    // Witness: per-lane tick counter at lane+0x04 (int32) - the engine
     // increments this every world tick that processes the chara.  We
     // snapshot it on Step Tick A; on Step Tick B we re-read and only
     // pivot if at least one lane counter advanced.  If none advanced,
@@ -735,7 +749,7 @@ private:
     //
     // Cap holds at kStepDwellMax cockpit ticks to recover from a
     // stale or unmappable witness (e.g., chara struct destroyed during
-    // a mode transition with pending > 0 — should be cleared by
+    // a mode transition with pending > 0 - should be cleared by
     // clear_time_features_on_transition but we belt-and-suspender it).
     struct StepWorldTickWitness
     {
@@ -751,7 +765,7 @@ private:
 
     // Presence-transition tracker.  Stores the GamePresence we last
     // observed in on_cockpit_update_pre.  Whenever the live presence
-    // differs from this value (i.e. SC6 transitioned modes — e.g.
+    // differs from this value (i.e. SC6 transitioned modes - e.g.
     // training -> ranked -> training), we forcibly clear Freeze and
     // Slow-motion regardless of the "Auto disable online" gate.
     //
@@ -760,16 +774,16 @@ private:
     //      builds new ones during a mode switch.  If freeze stays
     //      active across the transition, Site 9 (PerFrameTick entry-
     //      RET) blocks the new BattleManager's per-frame tick the
-    //      moment its first chara fires the chain — including
+    //      moment its first chara fires the chain - including
     //      UpdateBattleCameraSynthesis, which is what the renderer
     //      reads to set the view matrix.  Result: black screen on
     //      training reload from a previous match.
     //   2. Slow-motion has the same hazard via Sites 1/3/4/5/6
-    //      (dt-scale at math sites) — fractional dt during state-
+    //      (dt-scale at math sites) - fractional dt during state-
     //      machine init can produce uninitialised camera / VFX
     //      state on the new mode's first frames.
     //   3. Once cleared, freeze/slow-mo STAY cleared (the user must
-    //      manually re-engage them) — matching the user's mental
+    //      manually re-engage them) - matching the user's mental
     //      model of "these are temporary debug tools, not persistent
     //      settings".
     //
@@ -780,6 +794,8 @@ private:
     std::atomic<uint8_t> m_last_seen_presence{
         static_cast<uint8_t>(Horse::GamePresence::Unknown)};
 
+    bool m_replay_scrub_time_suspended_logged {false};
+
     // Frame-stepped slow-motion accumulator.
     //
     // Old behaviour (dt-scale slow-mo): writes a fractional speedval
@@ -789,7 +805,7 @@ private:
     // frame, and a fractional dt accumulator drifts past hit
     // boundaries unpredictably (one tick advances by 0.5, next by
     // 1.0 once accum crosses, but the per-frame-cell hit detector
-    // expects to see EACH integer frame exactly once — at fractional
+    // expects to see EACH integer frame exactly once - at fractional
     // dt it sees the same frame twice or skips entirely).
     //
     // New behaviour (frame-stepped slow-mo): each cockpit tick is a
@@ -798,14 +814,14 @@ private:
     // tick is a "go" tick (target = 1.0), accumulator -= 1.0.
     // Otherwise it's a "stop" tick (target = 0.0).  Effective
     // average speed = S, but every game frame the engine sees is a
-    // clean native-dt frame — hit cells advance one integer frame
+    // clean native-dt frame - hit cells advance one integer frame
     // at a time, multi-hit moves resolve correctly.
     //
     // Trade-off: slightly choppier visuals at low speeds (1 frame
     // every 4 ticks at S=0.25 = 15 fps effective).  But for analysis
     // and replay-watching, frame accuracy matters more than smooth
     // motion.  The choppiness is identical to repeatedly mashing
-    // the Step-1 button at the right cadence — which is exactly
+    // the Step-1 button at the right cadence - which is exactly
     // what users were asking for when they said "frame stepping
     // works but slow-mo doesn't".
     //
@@ -822,10 +838,10 @@ private:
     // Most recent cockpit-tick decision from frame_step_apply().
     // Read by render_time_tab() to show a live cadence indicator
     // that flickers between "GO" (green) and "STOP" (red) so the
-    // user can see the frame-step cadence at a glance — useful for
+    // user can see the frame-step cadence at a glance - useful for
     // confirming the slider is actually doing what they expect at
     // very low speeds (e.g., 0.001x = one go-tick every ~1000
-    // cockpit ticks ≈ 17 seconds; without a live indicator the user
+    // cockpit ticks - 17 seconds; without a live indicator the user
     // would have no visual confirmation the system is alive).
     //
     // Atomic because it's written from the cockpit hook thread and
@@ -840,7 +856,7 @@ private:
     // Red "just got hit" sticky flash duration, in GAME FRAMES.
     //
     // The underlying PerHurtboxReactionState signal is a ~1-frame pulse
-    // (~16ms at 60fps) — too short to see.  We extend it by holding the
+    // (~16ms at 60fps) - too short to see.  We extend it by holding the
     // hot state for `m_flash_frames` game frames before fading.
     //
     // KHitWalker drains the sticky by tracking g_LuxBattle_FrameCounter
@@ -848,10 +864,10 @@ private:
     // end of LuxBattle_PerFrameTick.  Since Horse::WorldTickGate gates
     // PerFrameTick at its entry, the counter halts under freeze and
     // advances once per gate-released game frame under step / slow-mo
-    // — the flash is held during freeze, drains one unit per F6 step,
+    // - the flash is held during freeze, drains one unit per F6 step,
     // and drains in lockstep with the slowed game clock during slow-mo.
     //
-    // Default 15 frames ≈ 250ms of native-speed gameplay.
+    // Default 15 frames - 250ms of native-speed gameplay.
     std::atomic<int> m_flash_frames{15};
 
     std::atomic<float> m_thickness{1.5f};
@@ -867,14 +883,21 @@ private:
 
     // Trail length in game frames for whichever backend is in the
     // Persistent slot.  Pushed to the backend each cockpit tick as
-    // m_trail_frames / 60.0 seconds (RemainingLifeTime is wall-clock
-    // in the engine's batcher tick).  Range matches the slider 1..300
-    // = 1 frame to 5 seconds of trail at 60 Hz.  Default 30 ≈ 0.5 s,
+    // m_trail_frames / 60.0 seconds.  HorseMod advances that lifetime
+    // from g_LuxBattle_FrameCounter, not wall-clock time, so freeze and
+    // F6 step hold/drain the trail in game-frame units.  Range matches the slider 1..300
+    // = 1 frame to 5 seconds of trail at 60 Hz.  Default 30 - 0.5 s,
     // long enough to be visibly useful for tracing a move without
     // drowning the screen in line history.  Used for both backends
-    // when their slot == Persistent — Normal-slot backends ignore
+    // when their slot == Persistent - Normal-slot backends ignore
     // this and stick to LineBatcherBackend::kDefaultLifetime.
     std::atomic<int> m_trail_frames{30};
+
+    // Persistent trail cadence follows the game frame counter, not the
+    // cockpit/render tick.  When HorseMod freeze holds PerFrameTick, this
+    // counter stops, so persistent lines are neither duplicated nor aged.
+    bool     m_have_trail_game_frame{false};
+    uint32_t m_last_trail_game_frame{0};
 
     // ---- Retrack-event overlay ----------------------------------------
     // When ON, watches each chara's facing yaw every cockpit tick and
@@ -883,7 +906,7 @@ private:
     // chara's facing changed appreciably while a move was active).
     //
     // -------------------------------------------------------------------
-    // History — what was tried first and why it was wrong
+    // History - what was tried first and why it was wrong
     // -------------------------------------------------------------------
     // Initial implementation watched chara+0x16E6 / chara+0x16E1 for
     // an "active retrack" gate equivalent to:
@@ -896,7 +919,7 @@ private:
     //                  caller writes are widespread, not specifically
     //                  "move-locks-facing")
     //   chara+0x16E1 = motion-input flag #0x11  (part of the
-    //                  fall-reaction cluster {0x0c..0x11, 0x29, 0x35} —
+    //                  fall-reaction cluster {0x0c..0x11, 0x29, 0x35} -
     //                  toggled by LuxBattle_ComputeHitReactionParams
     //                  @ 0x140343b90 case 0xd, which is a SPECIFIC
     //                  knockback / recovery type)
@@ -907,43 +930,43 @@ private:
     //
     // i.e. retracking RUNS during idle/walk, AND during fall-reactions
     // mid-move; it's BLOCKED during normal mid-move animation.  There
-    // is NO "homing override" flag — moves that track the opponent
+    // is NO "homing override" flag - moves that track the opponent
     // (homing throws, certain supers) implement that through some
     // other mechanism (likely the SLERP-weight system at
     // chara+0x971ac..+0x971b8 set up at move-start, or by the move
     // script writing chara+0x94 directly).
     //
     // So watching the gate flag-pair fired the overlay during knockback
-    // and fall recoveries — which the user reported as "triggers in
+    // and fall recoveries - which the user reported as "triggers in
     // unexpected places".  Confirmed: my interpretation was wrong.
     //
     // -------------------------------------------------------------------
-    // Current implementation — direct yaw-delta detection
+    // Current implementation - direct yaw-delta detection
     // -------------------------------------------------------------------
     // Read chara+0x94 (facing yaw, written by ApplyFacingRotationDelta)
     // every cockpit tick, compute the per-tick delta against last
     // tick's snapshot, and fire when:
     //
-    //   |yaw_delta| > kRetrackYawThresholdNorm   (= ~0.7° per tick)
+    //   |yaw_delta| > kRetrackYawThresholdNorm   (= ~0.7- per tick)
     //   AND chara is in some move state          (chara+0x16E6 != 0)
     //
     // This catches "the engine rotated my chara appreciably during a
     // move" regardless of which internal mechanism produced the
-    // rotation — homing-throw retrack, hit-reaction realignment, or
+    // rotation - homing-throw retrack, hit-reaction realignment, or
     // a move script's direct yaw write.  False positives are limited
     // by the threshold; brief sub-degree adjustments don't fire.
     //
     // The yaw value at chara+0x94 is normalised in [0, 1) where 1.0
-    // == 360°.  See the plate on RetrackFacingTowardOpponent for the
+    // == 360-.  See the plate on RetrackFacingTowardOpponent for the
     // unit convention; the integrator at +0x94 uses the same scale.
     //
-    // Off by default — diagnostic feature, not gameplay-affecting.
+    // Off by default - diagnostic feature, not gameplay-affecting.
     std::atomic<bool> m_show_retrack_events{false};
 
-    // Yaw threshold in normalised units (1.0 == 360°).  ~0.002 == 0.72°.
+    // Yaw threshold in normalised units (1.0 == 360-).  ~0.002 == 0.72-.
     // Below this we treat the rotation as "noise" / fine-tune adjustment
     // and don't fire; above it we treat it as a real retrack event.
-    // Tuned empirically — natural facing-maintenance during idle/walk
+    // Tuned empirically - natural facing-maintenance during idle/walk
     // produces sub-millidegree fluctuations; homing moves and hit
     // reactions produce multi-degree-per-tick rotations that easily
     // clear this bar.
@@ -963,14 +986,14 @@ private:
     // frame and draws every entry whose age is < kHudTextEventLifetime.
     //
     // Used by:
-    //   • Retrack-event detector — formats "Player N retrack event" and
+    //   - Retrack-event detector - formats "Player N retrack event" and
     //     pushes a string when an in-move yaw burst exceeds threshold.
-    //   • Test button (General tab) — pushes "Hello World" to verify
+    //   - Test button (General tab) - pushes "Hello World" to verify
     //     the overlay path is alive without needing a fight.
-    //   • Any future C++ feature that wants to surface a transient
+    //   - Any future C++ feature that wants to surface a transient
     //     diagnostic line on top of the game viewport.
     //
-    // 8 slots × 1.5s lifetime is enough to show ~5 events per second
+    // 8 slots - 1.5s lifetime is enough to show ~5 events per second
     // (an upper bound for human-perceivable distinct events) without
     // truncation.  Older entries get overwritten FIFO-style; the
     // renderer skips entries older than the lifetime cap, so
@@ -999,7 +1022,7 @@ private:
     size_t       m_hud_text_event_head = 0;
 
     // Push a transient text line onto the overlay queue.  Truncates
-    // strings longer than the slot capacity, which is fine — these
+    // strings longer than the slot capacity, which is fine - these
     // are user-facing diagnostic banners, not log lines.  Safe to
     // call from any game-thread code (cockpit hook, button handler,
     // detector).
@@ -1037,14 +1060,14 @@ private:
     // (Secondary attack-role filter / shouldShowAttackRole was removed
     // 2026-04 along with the UI for it.  Strike vs Throw partitioning
     // turned out to be more noise than signal for practical hitbox
-    // inspection — users just want "show all attack volumes" or
+    // inspection - users just want "show all attack volumes" or
     // "show none," which the master Attacks per-player checkbox
     // already covers.  If you want them back, the engine split is
     // documented at KHitAttackRole + the classifier at
     // LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100.)
 
     // ==================================================================
-    // Settings persistence — file-backed via Horse::ModSettings.
+    // Settings persistence - file-backed via Horse::ModSettings.
     // ==================================================================
     //
     // Load: call once from the ctor BEFORE any render path reads an
@@ -1056,17 +1079,17 @@ private:
     // Save: sync every persisted atomic back into the ModSettings
     // map, then ModSettings::save_if_dirty() does the actual disk
     // write (only if something changed since the last save).  Called
-    // periodically from on_update (every ~120 frames ≈ 2s at 60 FPS)
+    // periodically from on_update (every ~120 frames - 2s at 60 FPS)
     // so slider drags don't spam the disk, and once more from the
     // dtor so the final state lands on disk on graceful shutdown.
     //
     // What we DON'T persist: runtime state (m_update_calls, hook
     // bookkeeping), transient toggles (m_freeze_frame, m_step_pending,
-    // overlay visibility — user wants overlay hidden on launch
+    // overlay visibility - user wants overlay hidden on launch
     // regardless), diagnostic-only flags.
     //
     // Key-naming convention: snake_case, descriptive over short, no
-    // prefix.  Old/renamed settings are safe to leave in the file —
+    // prefix.  Old/renamed settings are safe to leave in the file -
     // ModSettings preserves unknown keys across saves.
     void load_persisted_settings()
     {
@@ -1082,7 +1105,7 @@ private:
         m_show_p2_atk            .store(S.get_bool ("show_p2_hitboxes",      true ));
         m_show_p2_body           .store(S.get_bool ("show_p2_body",          false));
         // Box-visibility filter triple (see m_only_show_active block).
-        // Default: master narrow ON, both per-list overrides OFF — gives
+        // Default: master narrow ON, both per-list overrides OFF - gives
         // the engine-truth "what's hitting RIGHT NOW" view on first
         // launch.  The legacy keys (`damage_active_only`,
         // `show_unused_hurtboxes`) are silently dropped; users who had
@@ -1091,12 +1114,12 @@ private:
         m_flash_frames           .store(S.get_int  ("hit_flash_frames",      15   ));
         m_thickness              .store(S.get_float("thickness",             1.5f ));
         // Per-feature line-batcher slot.  Hitboxes default to Foreground
-        // (always-on-top, the only sensible choice — Persistent would
+        // (always-on-top, the only sensible choice - Persistent would
         // pile up unreadable trails).  Hurtboxes also default to
         // Foreground but the user can flip them to Persistent to trace
         // a chara's hurtbox path through a move.  The legacy single
         // key "line_batcher_slot" from before the split is silently
-        // ignored — old enum values aren't valid in the new 2-entry
+        // ignored - old enum values aren't valid in the new 2-entry
         // enum and the user has to pick again from the new combos.
         m_slot_hit .store(static_cast<Horse::LineBatcherSlot>(
             S.get_int("line_batcher_slot_hit",
@@ -1121,12 +1144,14 @@ private:
         m_hide_weapons           .store(S.get_bool ("hide_weapons",          false));
         m_hide_chara             .store(S.get_bool ("hide_characters",       false));
         m_suppress_vfx           .store(S.get_bool ("suppress_vfx",          false));
+        m_show_stage_boundary    .store(S.get_bool ("show_stage_boundary",   false));
+        m_hide_stage_visuals     .store(S.get_bool ("hide_stage_visuals",    false));
         m_show_retrack_events    .store(S.get_bool ("show_retrack_events",   false));
 
         // --- Reset override -----------------------------------------
         // Captured pose persists across reboots so the user can resume
         // training from the same custom starting position.  The toggle
-        // itself does NOT persist — it's deliberately reset to OFF on
+        // itself does NOT persist - it's deliberately reset to OFF on
         // every game start so a stale capture from a previous session
         // can't surprise the user with an unexpected teleport on the
         // first reset bind they press.  The user has to consciously
@@ -1171,7 +1196,7 @@ private:
     // ModSettings to write the file if anything changed since the
     // last save.  Set() calls diff internally, so idempotent calls on
     // unchanged values are O(map-lookup) and don't touch the dirty
-    // flag — cheap to call every on_update tick.
+    // flag - cheap to call every on_update tick.
     void save_persisted_settings()
     {
         auto& S = Horse::ModSettings::instance();
@@ -1206,10 +1231,12 @@ private:
         S.set("hide_weapons",          m_hide_weapons.load());
         S.set("hide_characters",       m_hide_chara.load());
         S.set("suppress_vfx",          m_suppress_vfx.load());
+        S.set("show_stage_boundary",   m_show_stage_boundary.load());
+        S.set("hide_stage_visuals",    m_hide_stage_visuals.load());
         S.set("show_retrack_events",   m_show_retrack_events.load());
 
         // --- Reset override ----------------------------------------
-        // The toggle is deliberately NOT persisted — see the matching
+        // The toggle is deliberately NOT persisted - see the matching
         // load_persisted_settings block for the rationale (start each
         // session with the override OFF; user must opt in).  We still
         // persist the captured pose so a previously-set custom spawn
@@ -1231,13 +1258,13 @@ private:
 
         // HorseMod online policy persists across reboots so the user's
         // chosen modded-lobby ruleset survives a restart.  Unlike the
-        // reset-override toggle, this one IS persistent — it's a
+        // reset-override toggle, this one IS persistent - it's a
         // long-lived "what kind of online matches do I want" pref,
         // not a session-scoped behaviour.
         S.set("online_policy",
               static_cast<int>(Horse::OnlineRules::instance().current_policy()));
 
-        // GameMode "Auto disable online" — see load path for the
+        // GameMode "Auto disable online" - see load path for the
         // default rationale.
         S.set("gamemode_auto_disable_online",
               Horse::GameMode::instance().auto_disable_online());
@@ -1255,7 +1282,7 @@ private:
 
     // Reset-override UFunction hook bookkeeping.
     //
-    // We don't actually know which UFunction the user's reset bind invokes —
+    // We don't actually know which UFunction the user's reset bind invokes -
     // SC6 has at least four candidate paths that all eventually run the
     // training-mode position-reset chain:
     //
@@ -1265,7 +1292,7 @@ private:
     //   /Script/LuxorGame.LuxBattleFunctionLibrary:RequestTrainingModeBattleReset
     //
     // The previous attempt hooked only TrainingModePositionReset and the
-    // post-hook never fired — the user's bind takes a different path.
+    // post-hook never fired - the user's bind takes a different path.
     // Rather than guess, we register hooks on ALL of them and let the one
     // that fires identify itself in the log via the custom_data ptr.
     // Multiple firings are harmless: apply_to_charas() is idempotent
@@ -1292,7 +1319,7 @@ private:
 
     // Tick counter for throttled settings persistence.  on_update
     // bumps this every frame and calls save_persisted_settings()
-    // every kSaveEveryNFrames — batching slider-drag updates into
+    // every kSaveEveryNFrames - batching slider-drag updates into
     // one disk write per ~2 seconds.  See ctor for constant value.
     int                          m_save_tick    = 0;
     static constexpr int         kSaveEveryNFrames = 120;
@@ -1306,6 +1333,7 @@ private:
     // (UWorld+0x48 vs UWorld+0x50) per their slot setting.
     Horse::LineBatcherBackend  m_backend_hit;
     Horse::LineBatcherBackend  m_backend_hurt;
+    Horse::LineBatcherBackend  m_backend_stage;
 
     // In-game ImGui overlay token (see on_unreal_init / dtor).  Non-zero
     // after Horse::GameImGui::register_tab returns; passed to
@@ -1313,7 +1341,7 @@ private:
     uint64_t m_gameimgui_tab_token = 0;
 
     // Nav-bootstrap flag: set to true when the overlay transitions from
-    // hidden→shown, consumed by render_hitboxes_tab which then calls
+    // hidden?shown, consumed by render_hitboxes_tab which then calls
     // ImGui::SetKeyboardFocusHere() on the master F5 toggle.  Forces
     // ImGui to assign a NavId and activate the nav highlight without
     // the user having to press Square/X first.  Without this, ImGui
@@ -1327,7 +1355,7 @@ private:
     // Free-camera diagnostic one-shots: first time we successfully resolve
     // the PlayerCameraManager (so the user can confirm we're targeting
     // a real object), and first time we fall back to the direct +0x420
-    // offset read (means reflection couldn't find the property name —
+    // offset read (means reflection couldn't find the property name -
     // unlikely but survivable).
     bool m_logged_pcm_resolve  = false;
     bool m_logged_pcm_fallback = false;
@@ -1343,7 +1371,7 @@ public:
         // Load persisted settings BEFORE any render path can observe
         // an atomic.  If settings.cfg is missing (first-run) each
         // get_* call returns its default argument, matching the
-        // compiled-in defaults — functionally identical to the
+        // compiled-in defaults - functionally identical to the
         // pre-persistence behaviour on a clean install.
         load_persisted_settings();
 
@@ -1357,7 +1385,7 @@ public:
         //                      RestartBattleImmediately
         //   LuxBattleGameMode: RequestTrainingModeBattleReset(side)
         // Earlier builds put RequestTrainingModeBattleReset on
-        // LuxBattleFunctionLibrary — that's wrong and crashed startup
+        // LuxBattleFunctionLibrary - that's wrong and crashed startup
         // because UE4SS's RegisterHook(StringType) dereferences the
         // result of StaticFindObject<UFunction*> without a null check
         // when the path doesn't resolve.
@@ -1389,14 +1417,14 @@ public:
             }
         });
 
-        // F6 — single-frame step.  Lazily turns on Freeze-frame on first
+        // F6 - single-frame step.  Lazily turns on Freeze-frame on first
         // press so the user doesn't need to touch the ImGui tab.  Holding
         // F6 yields ~30 fps slow-motion via UE4SS's keyboard auto-repeat:
         // each press queues one frame; the cockpit-hook state machine
         // drains them one per two cockpit ticks (see frame_step_apply).
         //
         // F7 / F6 both honour the General-tab "Auto disable online"
-        // gate — if we're in a Ranked / Casual match with the gate on,
+        // gate - if we're in a Ranked / Casual match with the gate on,
         // pressing the hotkey is a no-op (with a one-line log so the
         // user knows their press was ignored, not lost).  This matches
         // the UI checkbox behaviour: the ImGui control is greyed out
@@ -1406,7 +1434,7 @@ public:
             if (Horse::GameMode::instance().should_force_disable_features())
             {
                 Output::send<LogLevel::Default>(
-                    STR("[HorseMod] F7 ignored — Free-fly camera is "
+                    STR("[HorseMod] F7 ignored - Free-fly camera is "
                         "auto-disabled in online matches.\n"));
                 return;
             }
@@ -1422,7 +1450,7 @@ public:
             // a SINGLE frame instead of letting the engine free-run.
             //
             // Note: the HUD "Step 1 (F6)" button (see render_tab_impl)
-            // does NOT latch freeze — it only adds to step_pending and
+            // does NOT latch freeze - it only adds to step_pending and
             // is greyed out unless Freeze is already on.  That's by
             // design: the button path expects the user to have opened
             // the HUD and turned on Freeze deliberately, whereas the
@@ -1431,7 +1459,7 @@ public:
             if (Horse::GameMode::instance().should_force_disable_features())
             {
                 Output::send<LogLevel::Default>(
-                    STR("[HorseMod] F6 ignored — Freeze frame is "
+                    STR("[HorseMod] F6 ignored - Freeze frame is "
                         "auto-disabled in online matches.\n"));
                 return;
             }
@@ -1443,7 +1471,7 @@ public:
         });
 
         // NOTE: the old UE4SS register_tab(...) call lived here.  We no
-        // longer register our tab with UE4SS's external GUI — the tab
+        // longer register our tab with UE4SS's external GUI - the tab
         // is now hosted in-game via Horse::GameImGui (see on_unreal_init
         // below).  Removing the UE4SS registration means the HorseMod
         // tab no longer appears in the separate "UE4SS Debugging Tools"
@@ -1456,7 +1484,7 @@ public:
         // RIDEV_NOLEGACY flag, which suppresses WM_KEYDOWN on the
         // game HWND at the OS level.  UE4SS's keydown_event uses a
         // WH_KEYBOARD_LL low-level hook underneath, which is the
-        // only reliable way to catch keys past NOLEGACY — this is
+        // only reliable way to catch keys past NOLEGACY - this is
         // the same trick Horse::LowLevelKeyInput uses for F5/F6/F7.
         //
         // Back/Select on the gamepad also toggles the overlay; that
@@ -1466,7 +1494,7 @@ public:
             const bool v = !Horse::GameImGui::visible();
             Horse::GameImGui::set_visible(v);
             Output::send<LogLevel::Default>(
-                STR("[HorseMod] F2 pressed — overlay {}\n"),
+                STR("[HorseMod] F2 pressed - overlay {}\n"),
                 v ? STR("SHOWN") : STR("HIDDEN"));
         });
 
@@ -1479,11 +1507,15 @@ public:
     {
         Output::send<LogLevel::Verbose>(STR("[HorseMod] dtor ENTER\n"));
 
-        // Final settings save — catches anything the periodic
+        // Final settings save - catches anything the periodic
         // on_update save would have missed in the last sub-2s window
         // before shutdown.  Crashes lose at most the most-recent
         // ~2-second window of changes; graceful exits lose nothing.
         save_persisted_settings();
+
+        // Restore visual-only stage hiding before the UObject hook is
+        // removed so a graceful unload cannot leave stage actors hidden.
+        m_stage_visuals.restoreNow();
 
         // Zero instance pointer FIRST so any in-flight hook sees null.
         s_instance.store(nullptr);
@@ -1492,7 +1524,7 @@ public:
         // cockpit hook.  Order matters only loosely here, but calling
         // shutdown() synchronises: it unHooks the DXGI vtable (Present
         // calls immediately revert to whatever was installed before
-        // us — usually Steam's hook directly), restores the game's
+        // us - usually Steam's hook directly), restores the game's
         // WndProc, and releases our D3D11 RTV.  After this returns no
         // further render_tab_impl calls can happen from our hook.
         if (m_gameimgui_tab_token)
@@ -1553,7 +1585,7 @@ public:
         Output::send<LogLevel::Verbose>(STR("[HorseMod] dtor EXIT\n"));
     }
 
-    // No on_ui_init() override — UE4SS_ENABLE_IMGUI() set up the shared
+    // No on_ui_init() override - UE4SS_ENABLE_IMGUI() set up the shared
     // ImGui context + allocator for the UE4SS external window.  We host
     // our own ImGui context inside Horse::GameImGui (see on_unreal_init),
     // so we skip UE4SS's wiring entirely.  The allocator remains the
@@ -1570,7 +1602,7 @@ public:
         // after Steam's gameoverlayrenderer64.dll has installed its
         // Present hook during the game's initial DLL loading.  Our
         // PresentHook::install() reads the DXGI vtable and performs a
-        // PolyHook VFuncSwap — chaining ON TOP of Steam's hook rather
+        // PolyHook VFuncSwap - chaining ON TOP of Steam's hook rather
         // than fighting it.  The actual per-frame rendering and
         // WndProc attachment both kick in lazily on the first hooked
         // Present() (see GameImGui.hpp for the bootstrap callback).
@@ -1605,7 +1637,7 @@ public:
         Horse::SetStartPositionHook::instance().install();
 
         // Install the C++-level launcher-Start hook.  This is the
-        // chokepoint for ALL 5 BattleRule overrides — the launcher's
+        // chokepoint for ALL 5 BattleRule overrides - the launcher's
         // Start method reads the data-table cache and applies the
         // per-match rules; we hook it to write our desired
         // BattleRule.<X> values into that cache right before the
@@ -1618,7 +1650,7 @@ public:
 
         // Install the C++-level "is slip-out suppressed?" runtime-gate
         // hook.  This is the deeper, host-joiner-symmetric override
-        // for the SlipOut policy specifically — every client runs the
+        // for the SlipOut policy specifically - every client runs the
         // chara-init function that calls
         // LuxBattleChara_HasSubProviderEntryOfType0x3e, so PolyHooking
         // it gives both peers the same answer regardless of which side
@@ -1681,6 +1713,8 @@ public:
             save_persisted_settings();
         }
 
+        service_presence_transition_safety("update");
+
         const bool all_reset_registered = std::all_of(
             m_reset_slots.begin(), m_reset_slots.end(),
             [](const ResetHookSlot& s) { return s.registered; });
@@ -1699,7 +1733,7 @@ public:
             Horse::OnlineRules::instance().try_install_hooks();
         // GameMode: hook SetPresence so we know which scene the user
         // is in (Training / Replay / online match / etc).  Idempotent
-        // and silent on retry — the LuxUIGamePresenceUtil class is a
+        // and silent on retry - the LuxUIGamePresenceUtil class is a
         // BlueprintFunctionLibrary loaded very early, so this usually
         // succeeds on the first poll attempt.
         if (!game_mode_installed)
@@ -1721,7 +1755,7 @@ private:
         // RegisterHook(path).  UE4SS's path overload (UObjectGlobals.cpp
         // line 859) calls StaticFindObject<UFunction*> with no null check
         // and then dereferences the result inside the UFunction* overload
-        // at line 810 (Function->GetFunc()) — null deref crashes the
+        // at line 810 (Function->GetFunc()) - null deref crashes the
         // game.  Worse, even with a valid UFunction the inner overload
         // can THROW std::runtime_error if the function isn't FUNC_Native
         // and isn't ProcessInternal-routed (line 855).  An uncaught
@@ -1757,7 +1791,7 @@ private:
         UnrealScriptFunctionCallable post_cb =
             [](UnrealScriptFunctionCallableContext&, void*) {};
 
-        // Wrap RegisterHook in try/catch — the underlying UE4SS code
+        // Wrap RegisterHook in try/catch - the underlying UE4SS code
         // throws std::runtime_error if the UFunction isn't a hookable
         // shape (see UObjectGlobals.cpp:855).  We don't want that
         // exception escaping into UE4SS's mod loop.
@@ -1770,7 +1804,7 @@ private:
             Output::send<LogLevel::Error>(
                 STR("[HorseMod] RegisterHook threw on '{}': {}\n"),
                 m_hook_path, RC::to_generic_string(e.what()));
-            // Don't set m_hook_registered — poll loop will skip this
+            // Don't set m_hook_registered - poll loop will skip this
             // path on retry once the underlying issue is fixed.  In
             // practice an exception here means the engine version is
             // wrong and we won't recover, but we'd rather log forever
@@ -1781,12 +1815,12 @@ private:
         // RegisterHook returns {0, 0} for the global-script-hook path
         // (UObjectGlobals.cpp:842 increments before assigning, so the
         // smallest legitimate ID is 1).  An all-zero pair is therefore
-        // a sentinel for "registration silently no-op'd" — defensively
+        // a sentinel for "registration silently no-op'd" - defensively
         // refuse to mark registered so we keep retrying.
         if (m_hook_ids.first == 0 && m_hook_ids.second == 0)
         {
             Output::send<LogLevel::Warning>(
-                STR("[HorseMod] RegisterHook returned (0,0) for '{}' — "
+                STR("[HorseMod] RegisterHook returned (0,0) for '{}' - "
                     "treating as failure.\n"), m_hook_path);
             return;
         }
@@ -1800,17 +1834,17 @@ private:
     //
     // Each post-hook fires AFTER the engine has run the round-intro position
     // chain (PositionCharasByRoundConfig -> PositionCharasSymmetrically ->
-    // LuxBattleChara_SetStartPosition) for that path — the right spot to
+    // LuxBattleChara_SetStartPosition) for that path - the right spot to
     // overwrite the chara pose with the user's captured override.
     //
     // Multi-path rationale: the user's reset bind goes through a UFunction
     // we can't determine statically (they may have rebound it; SC6's
     // training-mode UI may dispatch via a different entry point depending
     // on context).  We register on every plausible candidate and the one
-    // that fires logs its identity via the custom_data tag — both for our
+    // that fires logs its identity via the custom_data tag - both for our
     // diagnosis here and for the user to see in UE4SS.log.
     //
-    // Each slot's class lookup gates that slot independently — failed
+    // Each slot's class lookup gates that slot independently - failed
     // lookups (class not yet loaded) just retry next poll tick, same way
     // try_register_cockpit_hook does.
     void try_register_reset_hooks()
@@ -1840,7 +1874,7 @@ private:
                 nullptr, nullptr, slot.class_path);
             if (!klass)
             {
-                // Class not yet registered — try again next poll tick.
+                // Class not yet registered - try again next poll tick.
                 continue;
             }
 
@@ -1848,7 +1882,7 @@ private:
             // RegisterHook(path).  UE4SS's path-overload of RegisterHook
             // (UObjectGlobals.cpp:859) calls StaticFindObject<UFunction*>
             // and then immediately dereferences the result via
-            // Function->GetFunc() — so a null-result (function-not-found)
+            // Function->GetFunc() - so a null-result (function-not-found)
             // crashes the game with a null deref.
             //
             // Pre-checking here means a wrong/typo'd path just logs a
@@ -1861,7 +1895,7 @@ private:
             {
                 Output::send<LogLevel::Warning>(
                     STR("[HorseMod] Reset-override hook SKIPPED: UFunction "
-                        "'{}' not found on class '{}' — typo or wrong class? "
+                        "'{}' not found on class '{}' - typo or wrong class? "
                         "Will retry on next poll tick.\n"),
                     slot.func_path, slot.class_path);
                 continue;
@@ -1897,7 +1931,7 @@ private:
             {
                 Output::send<LogLevel::Warning>(
                     STR("[HorseMod] Reset-hook RegisterHook returned (0,0) "
-                        "for '{}' — treating as failure.\n"),
+                        "for '{}' - treating as failure.\n"),
                     slot.func_path);
                 continue;
             }
@@ -1915,13 +1949,13 @@ private:
     // cockpit pre-hook so it runs every frame independent of the F5
     // overlay state.
     //
-    // Safe to call before NativeBinding is resolved — this path is
+    // Safe to call before NativeBinding is resolved - this path is
     // pure UE4 reflection and does not touch SC6 RVAs.  Safe when no
     // ----------------------------------------------------------------
-    // Online-match feature gate — force-disable the four "competitive"
+    // Online-match feature gate - force-disable the four "competitive"
     // features (lock camera, free-fly, freeze frame, slow motion) when
     // the user is in a Ranked / Casual online match AND has "Auto
-    // disable online" enabled in the General tab.  Idempotent — calling
+    // disable online" enabled in the General tab.  Idempotent - calling
     // disable() on an already-disabled feature is a no-op.  Called from
     // on_cockpit_update_pre BEFORE the normal apply_* / frame_step_apply
     // / free_camera_apply chain so the rest of those helpers see the
@@ -1943,7 +1977,7 @@ private:
     // Why we don't clear camera-lock + free-fly here (unlike the
     // full apply_online_forced_disable):
     //   - Camera lock is a static bytepatch (CamLock).  It doesn't
-    //     interfere with actor lifecycle — the engine's camera
+    //     interfere with actor lifecycle - the engine's camera
     //     stores still update the underlying memory, our patch just
     //     no-ops the writer.  Carrying it across a transition is
     //     harmless.
@@ -1953,7 +1987,7 @@ private:
     //     mode's camera manager.
     //
     // Freeze + slow-mo are different because they install into
-    // PerFrameTick / replay tick / cursor advance — exactly the
+    // PerFrameTick / replay tick / cursor advance - exactly the
     // paths that get re-entered from the new mode's chara
     // initialization.  Suppressing those during init breaks setup.
     void clear_time_features_on_transition()
@@ -1971,7 +2005,7 @@ private:
             m_speed_enabled.store(false);
             m_speed_control.disable();
         }
-        // World-tick gate: same hazard as the SpeedControl patches —
+        // World-tick gate: same hazard as the SpeedControl patches -
         // a presence transition rebuilds BattleManager + chara actors,
         // and a stale gate "frozen" state would block PerFrameTick on
         // the new mode's first tick (= black screen).  Disable so the
@@ -1990,19 +2024,61 @@ private:
             m_world_tick_gate.disable();
     }
 
+    void suspend_manual_time_controls_for_replay_scrub(const char* reason)
+    {
+        const bool had_manual =
+            m_freeze_frame.load() || m_step_pending.load() > 0
+            || m_step_expecting.load() || m_speed_enabled.load()
+            || m_speed_control.is_enabled()
+            || m_vm_freeze_byte_we_set.load();
+
+        if (!had_manual) return;
+
+        m_freeze_frame.store(false);
+        m_step_pending.store(0);
+        m_step_expecting.store(false);
+        m_step_witness.valid = false;
+        m_step_dwell = 0;
+        m_speed_enabled.store(false);
+        if (m_speed_control.is_enabled())
+            m_speed_control.disable();
+
+        if (m_vm_freeze_byte_we_set.load())
+        {
+            const uintptr_t base = Horse::NativeBinding::imageBase();
+            if (base
+                && try_write_vm_freeze_byte(
+                    reinterpret_cast<volatile uint8_t*>(
+                        base + 0x4862D0),
+                    0))
+            {
+                m_vm_freeze_byte_we_set.store(false);
+            }
+        }
+
+        if (!m_replay_scrub_time_suspended_logged)
+        {
+            m_replay_scrub_time_suspended_logged = true;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayScrub.gates] suspended manual Freeze/F6/slow-mo "
+                "for replay timeline review (reason={})\n"),
+                RC::to_generic_string(reason ? reason : "?"));
+        }
+    }
+
     // Per-tick enforcement of all four gated features while the
     // online safety gate is engaged.
     //
     // All four (Lock camera, Free-fly, Freeze, Slow-motion) follow
     // the same pattern:
     //   1. Set to OFF the first time the gate fires this match
-    //      (the per-tick clamp is idempotent — once off, the inner
+    //      (the per-tick clamp is idempotent - once off, the inner
     //      `if` short-circuits on subsequent ticks).
     //   2. LOCKED OFF for the duration of the gate's engagement
     //      (UI shows them struck-through + BeginDisabled; if any
     //      back-door write somehow flips the atom, the next tick
     //      clamps it back).
-    //   3. Stay off after the gate disengages — nothing re-stores
+    //   3. Stay off after the gate disengages - nothing re-stores
     //      them automatically.  The user manually re-engages.
     //
     // This matches the user's mental model: "auto-disable means
@@ -2034,7 +2110,7 @@ private:
             Output::send<LogLevel::Default>(
                 STR("[HorseMod] online gate: force-disabling Free-fly camera\n"));
             m_free_camera_enabled.store(false);
-            // Don't call m_free_camera.set(false, ...) directly here —
+            // Don't call m_free_camera.set(false, ...) directly here -
             // it needs the live PCM pointer which free_camera_apply
             // already resolves.  Letting that helper do the actual
             // state-machine work keeps the two ownership rules
@@ -2046,7 +2122,7 @@ private:
         // Clear the freeze atomic and any pending step queue.  The
         // frame_step_apply driver picks this up on the next tick and
         // restores speedval to the slow-mo base (or 1.0 if slow-mo
-        // is off — and we're about to force that off too).
+        // is off - and we're about to force that off too).
         if (m_freeze_frame.load() || m_step_pending.load() > 0)
         {
             Output::send<LogLevel::Default>(
@@ -2075,7 +2151,7 @@ private:
         // Match the UI checkbox callback's behaviour for "slow motion
         // turned off": clear m_speed_enabled, then disable the
         // SpeedControl patches (which resets the shared speedval
-        // back to 1.0 — see SpeedControl::disable()).
+        // back to 1.0 - see SpeedControl::disable()).
         if (m_speed_enabled.load() || m_speed_control.is_enabled())
         {
             Output::send<LogLevel::Default>(
@@ -2094,7 +2170,7 @@ private:
 
         const bool now  = m_ansel_always_allowed.load();
         const bool last = m_last_applied_ansel_allowed.load();
-        // Nothing to do while both the toggle and last-applied are off —
+        // Nothing to do while both the toggle and last-applied are off -
         // let the engine manage the flag itself.
         if (!now && !last) return;
 
@@ -2109,7 +2185,7 @@ private:
             {
                 // Ansel plugin not loaded in this build / run; silently
                 // skip.  (One-shot log would be nice but is low value
-                // — the toggle is visibly inert in that case.)
+                // - the toggle is visibly inert in that case.)
                 return;
             }
         }
@@ -2119,7 +2195,7 @@ private:
         if (!f) return;
 
         // `now` = desired visibility state; `last` captures whether
-        // we're on the restore edge (last=true, now=false → push false
+        // we're on the restore edge (last=true, now=false ? push false
         // once).
         struct { bool bIsPhotographyAllowed; } p{ now };
         m_ansel_cdo->ProcessEvent(f, &p);
@@ -2138,9 +2214,9 @@ private:
     // ==========================================================================
     // STEP PROTOCOL (current state, 2026-05)
     // ==========================================================================
-    // The cockpit pre-hook fires on the UMG widget tick — AFTER the world
-    // tick of the same UE4 frame (UWorld::Tick → FTickTaskManager → SlateApp
-    // → UMG → render).  So any speedval write here takes effect on the NEXT
+    // The cockpit pre-hook fires on the UMG widget tick - AFTER the world
+    // tick of the same UE4 frame (UWorld::Tick ? FTickTaskManager ? SlateApp
+    // ? UMG ? render).  So any speedval write here takes effect on the NEXT
     // UE4 frame's actor ticks.  That timing constraint dictates the 2-tick
     // step state machine below.
     //
@@ -2160,7 +2236,7 @@ private:
     //     chara TickActor entry-RET) are enabled but did not fix this.
     //     A speculative BattleAdvanceFlag override (force flOutBlendW0=1,
     //     nOutModeTag=0 at step Tick A to defeat the AND-of-three gate
-    //     at PerFrameTick step 3) was tried and reverted — empirically
+    //     at PerFrameTick step 3) was tried and reverted - empirically
     //     didn't fix it, AND had side effects during normal gameplay.
     //     Root cause is deeper in the hit-classifier or per-cell hit-mask
     //     advance path; needs targeted investigation.
@@ -2169,8 +2245,8 @@ private:
     //   * GetTimeDilationScalar Path A (chara+0x3510 < 0 = super-freeze /
     //     soul-charge cinematic / KO replay) bypasses speedval.  Stepping
     //     during these phases advances at engine-controlled rates instead
-    //     of 1.0 × PlaybackSpeed.
-    //   * AdvanceLaneFrameStep advances by dt × pLane[+0x30] (PlaybackSpeed).
+    //     of 1.0 - PlaybackSpeed.
+    //   * AdvanceLaneFrameStep advances by dt - pLane[+0x30] (PlaybackSpeed).
     //     Moves with non-unity playback speed advance by != 1.0 anim
     //     frames per step.  Matches native gameplay; by-engine design.
     //
@@ -2181,7 +2257,7 @@ private:
     //   tick B     expecting=true:  target=base; counter--; expecting=false
     //
     // Two cockpit ticks per advanced game frame because the engine reads
-    // speedval inside its world tick — we lift the freeze, world ticks
+    // speedval inside its world tick - we lift the freeze, world ticks
     // once at full speed, we re-apply the freeze.
 
     // Snapshot the step-mode world-tick witness (per-lane tick counters
@@ -2212,7 +2288,7 @@ private:
     // Compare current witness against `prev`.  Returns true when the
     // world has ticked since `prev` was captured (any lane counter
     // changed), OR when we cannot measure (no prior snapshot or
-    // current snapshot fails) — the conservative "assume ticked"
+    // current snapshot fails) - the conservative "assume ticked"
     // fallback avoids permanent state-machine lockup if the chara
     // struct disappears mid-step.
     bool world_ticked_since(const StepWorldTickWitness& prev) noexcept
@@ -2231,13 +2307,13 @@ private:
         // Drain step credits off PerFrameTick's own end-of-function counter,
         // not off cockpit hook timing.  g_LuxBattle_FrameCounter @
         // imageBase+0x470D0C4 is incremented at the very end of
-        // LuxBattle_PerFrameTick — so by the time the NEXT cockpit pre-tick
+        // LuxBattle_PerFrameTick - so by the time the NEXT cockpit pre-tick
         // fires we know unambiguously whether PerFrameTick ran on the
         // previous UE4 frame, regardless of where in the tick scheduler
         // each actor's tick landed.  Tying credit drain to this counter
         // makes step counts exact: an add_step(N) advances exactly N
         // forward replay frames.  Driving it off the cockpit pre/post
-        // hook had a subtle bug — cockpit Update can fire BEFORE
+        // hook had a subtle bug - cockpit Update can fire BEFORE
         // PerFrameTick in the same frame, so a pre-/post-hook decrement
         // landed before Site 9 saw the new policy and we'd miss the
         // last credit of a burst (visible to the user as 10-step
@@ -2251,7 +2327,7 @@ private:
                 &cur_frame);
             if (ok && m_prev_frame_counter_seen)
             {
-                // PerFrameTick ran (counter advanced) → drain one credit.
+                // PerFrameTick ran (counter advanced) ? drain one credit.
                 // Wraparound at uint32 max takes years at 60Hz; ignore it.
                 if (cur_frame != m_prev_frame_counter_value)
                     m_world_tick_gate.consume_one_credit();
@@ -2263,19 +2339,19 @@ private:
             }
         }
 
-        // Replay-scrub overrides the freeze decision: any active scrub
-        // session implies freeze (so the engine doesn't immediately
-        // re-derive divergent state on top of the restored snapshot).
-        // Folded into m_freeze_frame's downstream effect via OR rather
-        // than as a separate priority tier so the existing
-        // WorldTickGate-driven path handles it transparently.
-        const bool scrub_freeze =
-            Horse::ReplayScrub::instance().is_scrub_active();
+        const auto scrub_policy =
+            Horse::ReplayScrub::instance().replay_gate_policy();
+        const bool scrub_gate_requested =
+            scrub_policy.world_tick_gate
+            || scrub_policy.replay_clock_gate
+            || scrub_policy.actor_tick_gate
+            || scrub_policy.time_dilation_gate
+            || scrub_policy.vm_freeze_byte;
 
-        const bool freeze     = m_freeze_frame.load() || scrub_freeze;
+        const bool freeze     = m_freeze_frame.load();
         const bool slow_mo    = m_speed_enabled.load();
         const int  pending    = m_step_pending.load();
-        // (m_step_expecting / m_step_witness / m_step_dwell are dormant —
+        // (m_step_expecting / m_step_witness / m_step_dwell are dormant -
         // the 2-tick state machine they belonged to is replaced by the
         // WorldTickGate-driven path.  Field removal is proposal step 4-5.)
 
@@ -2283,16 +2359,16 @@ private:
         // Compute target speedval for this cockpit tick.
         //
         // Priority chain (highest first):
-        //   1. Frame-step in flight        — alternate 1.0 / base over 2 ticks
-        //   2. Freeze                       — target = 0.0
-        //   3. Frame-stepped slow-motion    — target = 0.0 or 1.0 per tick
+        //   1. Frame-step in flight        - alternate 1.0 / base over 2 ticks
+        //   2. Freeze                       - target = 0.0
+        //   3. Frame-stepped slow-motion    - target = 0.0 or 1.0 per tick
         //                                     (controlled by m_slow_mo_accumulator;
         //                                      see member's plate for rationale)
-        //   4. Otherwise                    — target = 1.0 (native speed)
+        //   4. Otherwise                    - target = 1.0 (native speed)
         //
         // The frame-stepped slow-mo replaces the old dt-scale slow-mo
         // (which used to write fractional speedvals like 0.5).  Every
-        // tick is now a CLEAN 0.0 or 1.0 — no fractional dt, so
+        // tick is now a CLEAN 0.0 or 1.0 - no fractional dt, so
         // multi-hit move cells resolve at integer frame boundaries
         // exactly like they would at native speed.  See the member's
         // plate for the trade-off discussion.
@@ -2300,8 +2376,12 @@ private:
         float target;
         bool  need_active;
         bool  gate_drives_this_tick = false;
+        bool  desired_world_gate = false;
+        bool  desired_replay_clock_gate = false;
+        bool  desired_actor_tick_gate = false;
+        bool  desired_time_dilation_gate = false;
 
-        if (pending > 0 || freeze)
+        if (pending > 0 || freeze || scrub_gate_requested)
         {
             // ---- WORLD-TICK-GATE-DRIVEN PATH (2026-05-05) ---------------
             // Freeze + frame-step are now driven by Horse::WorldTickGate
@@ -2315,7 +2395,7 @@ private:
             //   * Each F6 press bumps m_step_pending (existing hotkey
             //     handler is unchanged).
             //   * Here we DRAIN m_step_pending into the gate as step
-            //     credits — each PerFrameTick call atomically decrements
+            //     credits - each PerFrameTick call atomically decrements
             //     the slot and runs the displaced prologue.
             //
             // After credits are exhausted the slot is 0 = frozen again,
@@ -2333,38 +2413,57 @@ private:
             // PerFrameTick), so it tracks the gate exactly: counter
             // halts under freeze, advances by 1 per step credit
             // consumed.  No SpeedControl coupling.
-            if (!m_world_tick_gate.is_resolved())
+            const bool manual_gate_request = pending > 0 || freeze;
+            desired_world_gate =
+                manual_gate_request || scrub_policy.world_tick_gate
+                || scrub_policy.replay_clock_gate
+                || scrub_policy.actor_tick_gate
+                || scrub_policy.time_dilation_gate;
+            desired_replay_clock_gate =
+                manual_gate_request || scrub_policy.replay_clock_gate;
+            desired_actor_tick_gate =
+                manual_gate_request || scrub_policy.actor_tick_gate;
+            desired_time_dilation_gate =
+                manual_gate_request || scrub_policy.time_dilation_gate;
+
+            if (desired_world_gate && !m_world_tick_gate.is_resolved())
                 m_world_tick_gate.resolve();
-            if (m_world_tick_gate.is_resolved() &&
+            if (desired_world_gate && m_world_tick_gate.is_resolved() &&
                 !m_world_tick_gate.is_enabled())
                 m_world_tick_gate.enable();
 
             // Sibling: replay master-clock gate.  Resolves once on first
             // use (sig-scans both INC sites).  Enables in lockstep with
             // WorldTickGate so during match-replay viewing the master
-            // clock is pinned while frozen — without it, SimulationLoop's
+            // clock is pinned while frozen - without it, SimulationLoop's
             // catch-up loop keeps walking the replay timeline forward
             // and fast-forwards on unfreeze.  Resolution failure is
             // non-fatal: WorldTickGate alone still works for live and
             // training, so we just log and proceed.
-            if (!m_replay_clock_gate.is_resolved())
+            if (desired_replay_clock_gate
+                && !m_replay_clock_gate.is_resolved())
                 m_replay_clock_gate.resolve(
                     m_world_tick_gate.policy_slot_address());
-            if (m_replay_clock_gate.is_resolved() &&
+            if (desired_replay_clock_gate
+                && m_replay_clock_gate.is_resolved() &&
                 !m_replay_clock_gate.is_enabled())
                 m_replay_clock_gate.enable();
 
-            if (!m_actor_tick_gate.is_resolved())
+            if (desired_actor_tick_gate
+                && !m_actor_tick_gate.is_resolved())
                 m_actor_tick_gate.resolve(
                     m_world_tick_gate.policy_slot_address());
-            if (m_actor_tick_gate.is_resolved() &&
+            if (desired_actor_tick_gate
+                && m_actor_tick_gate.is_resolved() &&
                 !m_actor_tick_gate.is_enabled())
                 m_actor_tick_gate.enable();
 
-            if (!m_time_dilation_gate.is_resolved())
+            if (desired_time_dilation_gate
+                && !m_time_dilation_gate.is_resolved())
                 m_time_dilation_gate.resolve(
                     m_world_tick_gate.policy_slot_address());
-            if (m_time_dilation_gate.is_resolved() &&
+            if (desired_time_dilation_gate
+                && m_time_dilation_gate.is_resolved() &&
                 !m_time_dilation_gate.is_enabled())
                 m_time_dilation_gate.enable();
 
@@ -2373,14 +2472,24 @@ private:
                 // Move ALL pending presses into the gate at once.  add_step
                 // is atomic (fetch_add on the int32_t slot via atomic_ref),
                 // so we won't race the trampoline's lock-dec on the same
-                // memory.  exchange clears m_step_pending to 0 — F6 hotkey
+                // memory.  exchange clears m_step_pending to 0 - F6 hotkey
                 // presses that arrive between this and the next cockpit
                 // tick land in m_step_pending and get committed next time.
                 const int n = m_step_pending.exchange(0);
                 if (n > 0) m_world_tick_gate.add_step(n);
             }
+            const int sc6_step_credits =
+                Horse::ReplayScrub::instance()
+                    .consume_sc6_seek_native_step_request();
+            if (sc6_step_credits > 0)
+            {
+                m_world_tick_gate.add_step(sc6_step_credits);
+                Horse::ReplayScrub::instance()
+                    .notify_sc6_seek_native_step_granted(
+                        sc6_step_credits);
+            }
             // else: pure freeze with no NEW presses this tick.  Do NOT write
-            // 0 to the slot — the slot is the LIVE step-credit counter (the
+            // 0 to the slot - the slot is the LIVE step-credit counter (the
             // trampoline lock-decs it each world tick), so a Step N command
             // from a previous cockpit tick may still have credits draining.
             // Writing 0 here would clobber e.g. "9 credits remaining" and
@@ -2391,7 +2500,7 @@ private:
             //     naturally; subsequent ticks bail without anyone touching
             //     it from C++.
 
-            // Stale 2-tick state machine fields — reset so a future
+            // Stale 2-tick state machine fields - reset so a future
             // path that reads them doesn't pick up garbage from the old
             // mode.  The full removal of expecting/witness/dwell is
             // proposal step 4-5 (cleanup phase).
@@ -2412,7 +2521,7 @@ private:
             // "go" or "stop") used to write speedval = 1.0 / 0.0 and rely
             // on Site 9 to bail PerFrameTick on the 0 ticks.  With Site 9
             // moved out of SpeedControl, that fall-through stops working
-            // — speedval = 0 lets PerFrameTick run, but the dt-multiply
+            // - speedval = 0 lets PerFrameTick run, but the dt-multiply
             // sites at 1/3/4/5/6/8 produce dt=0 inside it, re-introducing
             // the same contamination that broke multi-hit moves under
             // frame-step.  Instead, drive the cadence through the
@@ -2422,7 +2531,7 @@ private:
             // Net effect: at S=0.5, half the cockpit ticks each produce
             // ONE PerFrameTick at native dt (= half-rate world advance),
             // the other half bail at the gate (= world frozen).  Every
-            // game frame the engine sees is integer-dt — multi-hit moves
+            // game frame the engine sees is integer-dt - multi-hit moves
             // resolve correctly even in slow-mo.  Trade-off (per the
             // proposal's slow-mo plate): visuals are choppier than the
             // old fractional-dt slow-mo at very low slider values; for
@@ -2430,7 +2539,7 @@ private:
             const float S = m_speed_value.load();
             if (S >= 1.0f)
             {
-                // Slider at or past native speed — no slowdown to apply.
+                // Slider at or past native speed - no slowdown to apply.
                 // Run at full speed, gate stays disabled so the engine's
                 // PerFrameTick prologue runs unconditionally (= no per-
                 // tick patch flipping in the steady state).
@@ -2474,7 +2583,7 @@ private:
                 bool go_this_tick;
                 if (S <= 0.0f)
                 {
-                    // Slider at zero — collapse to freeze for this tick.
+                    // Slider at zero - collapse to freeze for this tick.
                     // Same end-state as the dedicated freeze toggle, kept
                     // here so the slider's edges have no discontinuity.
                     go_this_tick          = false;
@@ -2506,11 +2615,15 @@ private:
                 target                = 1.0f;       // never write speedval=0
                 need_active           = false;
                 gate_drives_this_tick = true;
+                desired_world_gate = true;
+                desired_replay_clock_gate = true;
+                desired_actor_tick_gate = true;
+                desired_time_dilation_gate = true;
             }
         }
         else
         {
-            // No freeze, no slow-mo, no step queued — native speed.
+            // No freeze, no slow-mo, no step queued - native speed.
             target                  = 1.0f;
             m_slow_mo_accumulator   = 0.0f;
             need_active             = false;
@@ -2519,18 +2632,73 @@ private:
         // ---- World-tick gate disengage --------------------------------
         // When this tick is NOT gate-driven (native or pure slow-mo), the
         // gate must be disabled so the engine's PerFrameTick prologue runs
-        // unconditionally.  Idempotent — disable() is a no-op when already
+        // unconditionally.  Idempotent - disable() is a no-op when already
         // disabled, no per-tick patch flipping in the steady state.
         // The sibling gates are disabled FIRST so they can't observe a
         // stale policy slot value during the brief window between
         // disable() calls.
-        if (!gate_drives_this_tick && m_replay_clock_gate.is_enabled())
+        const bool manual_gate_active =
+            desired_world_gate
+            && (freeze || pending > 0 || slow_mo)
+            && !scrub_gate_requested;
+        const char* gate_log_reason = manual_gate_active
+            ? "manual-freeze"
+            : (scrub_policy.reason ? scrub_policy.reason : "None");
+        Horse::ReplayScrub::instance().check_ui_park_gate_state(
+            desired_world_gate,
+            desired_replay_clock_gate,
+            desired_actor_tick_gate,
+            desired_time_dilation_gate,
+            gate_drives_this_tick
+                && m_world_tick_gate.policy() == 0
+                && (freeze || pending > 0 || slow_mo
+                    || scrub_policy.vm_freeze_byte));
+        {
+            static bool s_gate_diag_valid = false;
+            static bool s_last_world = false;
+            static bool s_last_replay = false;
+            static bool s_last_actor = false;
+            static bool s_last_time = false;
+            static const char* s_last_reason = "";
+            if (!s_gate_diag_valid
+                || s_last_world != desired_world_gate
+                || s_last_replay != desired_replay_clock_gate
+                || s_last_actor != desired_actor_tick_gate
+                || s_last_time != desired_time_dilation_gate
+                || s_last_reason != gate_log_reason)
+            {
+                s_gate_diag_valid = true;
+                s_last_world = desired_world_gate;
+                s_last_replay = desired_replay_clock_gate;
+                s_last_actor = desired_actor_tick_gate;
+                s_last_time = desired_time_dilation_gate;
+                s_last_reason = gate_log_reason;
+                if (scrub_gate_requested
+                    || desired_world_gate || desired_replay_clock_gate
+                    || desired_actor_tick_gate || desired_time_dilation_gate
+                    || (gate_log_reason && gate_log_reason[0] != 'N'))
+                {
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub.gates] reason={} world={} replay={} "
+                        "actor={} time={} vm={}\n"),
+                        RC::to_generic_string(gate_log_reason
+                            ? gate_log_reason : "?"),
+                        desired_world_gate ? 1 : 0,
+                        desired_replay_clock_gate ? 1 : 0,
+                        desired_actor_tick_gate ? 1 : 0,
+                        desired_time_dilation_gate ? 1 : 0,
+                        scrub_policy.vm_freeze_byte ? 1 : 0);
+                }
+            }
+        }
+
+        if (!desired_replay_clock_gate && m_replay_clock_gate.is_enabled())
             m_replay_clock_gate.disable();
-        if (!gate_drives_this_tick && m_actor_tick_gate.is_enabled())
+        if (!desired_actor_tick_gate && m_actor_tick_gate.is_enabled())
             m_actor_tick_gate.disable();
-        if (!gate_drives_this_tick && m_time_dilation_gate.is_enabled())
+        if (!desired_time_dilation_gate && m_time_dilation_gate.is_enabled())
             m_time_dilation_gate.disable();
-        if (!gate_drives_this_tick && m_world_tick_gate.is_enabled())
+        if (!desired_world_gate && m_world_tick_gate.is_enabled())
             m_world_tick_gate.disable();
 
         // Publish the tick kind for the render-thread UI cadence
@@ -2539,7 +2707,8 @@ private:
         // (no flickering during freeze, native, or step-only).
         {
             TickKind kind = TickKind::Inactive;
-            if (slow_mo && !freeze && pending == 0 && gate_drives_this_tick)
+            if (slow_mo && !freeze && pending == 0 && gate_drives_this_tick
+                && !scrub_gate_requested)
             {
                 const float S = m_speed_value.load();
                 if (S > 0.0f && S < 1.0f)
@@ -2570,7 +2739,7 @@ private:
             // unchanged from last tick (perf audit, 2026-04).  Steady-
             // state freeze (target=0) and steady-state slow-mo at a
             // fixed slider value would otherwise re-write the same
-            // float ~60×/s.  Cheap individually but cumulative noise.
+            // float ~60-/s.  Cheap individually but cumulative noise.
             // First tick after enable() carries m_last_speed_target =
             // NaN, and `NaN != target` is always true, so the first
             // write is forced.
@@ -2606,7 +2775,7 @@ private:
         // 2026-05 update: re-engage VMFreezeByte during pure-freeze
         // (WorldTickGate policy == 0).  The earlier blanket disable
         // (gate_drives_this_tick -> want_freeze=false) was too aggressive
-        // — without it, holding HorseMod freeze in match-replay watching
+        // - without it, holding HorseMod freeze in match-replay watching
         // for longer than a round duration let UE4 anim play out the
         // current chara montage and the BM round timer wallclock down to
         // zero, transitioning into the next round.  The user-visible
@@ -2634,7 +2803,7 @@ private:
         //      ever requested" path skips entirely.  Avoids stomping
         //      on SC6's own hit-stop/cinematic freeze writes during
         //      load/transitions.
-        //   2. State-change-only — only emit a write when the desired
+        //   2. State-change-only - only emit a write when the desired
         //      state DIFFERS from our last write.
         //   3. SEH-wrapped via the static helper (try_write_vm_freeze_byte);
         //      __try/__except can't live in this function because of
@@ -2645,9 +2814,17 @@ private:
             // ticks leave the byte clear so PerFrameTick can advance at
             // native dt.  Non-gate-driven path keeps the historical
             // target==0 check.
+            // ReplayScrub uses the same world/replay gate policy to hold a
+            // restored frame, but using SC6's global VMFreezeByte here made
+            // post-generation replay review crawl at about one cockpit tick
+            // per second.  Keep VMFreezeByte for the explicit Freeze/step UI
+            // path, not for timeline review.
             const bool want_freeze =
                 gate_drives_this_tick
-                    ? (m_world_tick_gate.policy() == 0)
+                    ? (m_world_tick_gate.policy() == 0
+                       && ((freeze || pending > 0 || slow_mo)
+                               && !scrub_gate_requested
+                           || scrub_policy.vm_freeze_byte))
                     : (target == 0.0f);
             const bool currently_owned = m_vm_freeze_byte_we_set.load();
             if ((want_freeze || currently_owned) &&
@@ -2664,7 +2841,7 @@ private:
                     }
                     else
                     {
-                        // Fault on access — disable our ownership flag
+                        // Fault on access - disable our ownership flag
                         // and fall back to the per-function bare-RET
                         // sites (1..16).  Don't keep retrying.
                         m_vm_freeze_byte_we_set.store(false);
@@ -2688,14 +2865,14 @@ private:
         //   logic.  Reverted.  The actual root cause of multi-hit miss
         //   is deeper in the hit-classifier path; investigation pending.
 
-        // BattlePauseRequest call removed 2026-04-27 — the underlying
+        // BattlePauseRequest call removed 2026-04-27 - the underlying
         // ULuxBattleFunctionLibrary::SetBattlePause UFunction merely sets
         // an audio-state bit at chara+0x394 (per the Ghidra plate on
         // LuxBattleChara_SyncAudioActiveState_FromBattleFlags), it doesn't
         // actually halt the world tick.  Empirically observed to break
         // Soul Charge mid-move because SC's audio-cue-driven phase
         // transitions stall when audio is force-muted.  Sites 1-16 +
-        // VMFreezeByte (above) remain the actual freeze mechanism — see
+        // VMFreezeByte (above) remain the actual freeze mechanism - see
         // the BattlePauseRequest removal comment in the member list.
     }
 
@@ -2716,7 +2893,7 @@ private:
         }
     }
 
-    // try_force_battle_advance_flag: REMOVED 2026-05-02 — see comment
+    // try_force_battle_advance_flag: REMOVED 2026-05-02 - see comment
     // block in frame_step_apply for the rationale (didn't fix multi-hit
     // miss, had side effects during normal gameplay).
 
@@ -2747,12 +2924,12 @@ private:
     // the first hit's frame fails the gate -> "the move only hits once".
     //
     // FIX: at every step Tick A (pre-hook BEFORE the next world tick),
-    // for each chara, if (16E5==1 && 16EA==0 && 16EB==1) → clear 16EB to
+    // for each chara, if (16E5==1 && 16EA==0 && 16EB==1) ? clear 16EB to
     // 0.  This emulates the engine's between-active-phases cleanup that
     // would normally come out of hit-stop end.  Conditions:
     //
     //   16E5==1   = the chara IS attacking.  Don't clear lockout if not
-    //                (e.g. defender just past a hit they took — irrelevant).
+    //                (e.g. defender just past a hit they took - irrelevant).
     //   16EA==0   = no active phase right now.  Clearing during an active
     //                phase would let a single hitbox register repeatedly
     //                within the SAME phase (double-hit bug).
@@ -2793,13 +2970,13 @@ private:
     //       16EB clears as part of that.
     //
     // In step mode the speedval=1.0 tick runs the full simulation, so
-    // (B) and (C) work just like native — IF the threshold is reached.
+    // (B) and (C) work just like native - IF the threshold is reached.
     // (A) is the one that consistently breaks during step: hit-stop
     // queues, but the scheduler that consumes the queue gates on
     // VMFreezeByte and on a tight tick cadence that the step rhythm
     // disrupts; the diagnostic log on Siegfried 4A+B shows
     // chara+0x3500 stays at 1.0 and +0x3508 stays at -1 throughout the
-    // master window — hit-stop never engages — so 16EB latches at the
+    // master window - hit-stop never engages - so 16EB latches at the
     // first hit and stays latched forever.
     //
     // STRATEGY
@@ -2809,10 +2986,10 @@ private:
     //   * Chara is attacking            (16E5=1)
     //   * Lockout is latched            (16EB=1)
     //   * Hit-stop is NOT running       (3508 <= 0)
-    //                                    — hit-stop would naturally pace
+    //                                    - hit-stop would naturally pace
     //                                      and clear 16EB on its own
     //   * No 16EB-conditional override  (lane[+0x5E] == -1 on lane 0/1)
-    //                                    — engine path (B) handles this
+    //                                    - engine path (B) handles this
     //
     // When all gate, we apply the cadence-counted clear: count step
     // ticks where 16EA=0 (engine forced it off due to 16EB), and after
@@ -2821,14 +2998,14 @@ private:
     // emulates the timing that hit-stop would have produced.
     //
     // The cadence is DATA-DRIVEN per cell, derived from
-    // cell+0x46 (HitstunStandingNormal) — read every step, divided by 4.
+    // cell+0x46 (HitstunStandingNormal) - read every step, divided by 4.
     // RATIONALE: SC6 doesn't expose an explicit "frames between hits"
     // field anywhere I could locate via static analysis; what IS
     // authored on every cell is hitstun (the defender's stun frames).
     // In fighting-game design, hit-stop (the attacker's stop frames
     // between hits) is typically ~1/4 of hitstun, so we use that as
     // our derived cadence.  For Siegfried 4A+B (cell+0x46 = 30):
-    //   K = 30/4 = 7  → 8-frame cycle → hits at anim 18/26/34
+    //   K = 30/4 = 7  ? 8-frame cycle ? hits at anim 18/26/34
     //                    in the [17..39] master window = 3 hits.
     // For shorter-hitstun moves the cadence shrinks proportionally;
     // for single-hit moves the cell's master window is short enough
@@ -2838,11 +3015,11 @@ private:
     // CAVEAT: this is a HEURISTIC (the /4 ratio).  The engine's exact
     // multi-hit pacing for moves like 4A+B uses a mechanism I could
     // not isolate via static byte search of all common store
-    // encodings — the 16EB latch isn't written via direct disp32, it
+    // encodings - the 16EB latch isn't written via direct disp32, it
     // appears to come from indirect addressing or a struct-stamp path
     // (probably inside the hit-application chain in
     // LuxBattleChara_*).  If a move under-/over-fires, the formula
-    // is the lever — change /4 to /3 (faster) or /5 (slower).
+    // is the lever - change /4 to /3 (faster) or /5 (slower).
     static constexpr int kEBLockoutDivisor = 4;
     static constexpr int kEBLockoutFallback = 7;   // when cell read fails
     static constexpr int kEBLockoutMin = 2;        // never below this
@@ -2875,7 +3052,7 @@ private:
 
                 // GATE: hit-stop engaged.  When chara+0x3508 > 0 the
                 // engine is in hit-stop and will naturally clear 16EB
-                // when the timer expires.  Don't interfere — even
+                // when the timer expires.  Don't interfere - even
                 // clearing 16EB during hit-stop would let the next
                 // tick fire another hit through hit-stop, breaking
                 // engine semantics.
@@ -2895,7 +3072,7 @@ private:
                 // and once the threshold is reached TransitionToMove
                 // clears 16EB itself.  We must not race that path.
                 //
-                // Check both lanes — the active attack could be on
+                // Check both lanes - the active attack could be on
                 // either.  Lane 0 = chara+0x444F0, lane 1 = +0x44958.
                 int16_t lane0_2F = -1, lane1_2F = -1;
                 std::memcpy(&lane0_2F,
@@ -2916,7 +3093,7 @@ private:
                 // (instruction at 0x1402FCAF6: MOV [RBX+0x5a], R9W) and
                 // the lane[+0x68] threshold is reached, TransitionToMove
                 // fires and clears chara+0x16EB itself.  We must not race
-                // that path — clearing 16EB heuristically here would let
+                // that path - clearing 16EB heuristically here would let
                 // the resolver fire on the current (wrong) cell instead
                 // of the cell the engine is about to switch to.
                 int16_t lane0_5A = -1, lane1_5A = -1;
@@ -2934,7 +3111,7 @@ private:
 
                 // GATE: deferred transition target authored via the
                 // CALLCOND 0x15 wrapper path (lane[+0xB4]).  Same race
-                // concern as 0x5A — let the engine's transition path
+                // concern as 0x5A - let the engine's transition path
                 // own the 16EB clear when it has work queued.
                 int16_t lane0_B4 = -1, lane1_B4 = -1;
                 std::memcpy(&lane0_B4,
@@ -2958,7 +3135,7 @@ private:
                     continue;
                 }
 
-                // 16E5=1, 16EB=1, 16EA=0 — engine forced 16EA off
+                // 16E5=1, 16EB=1, 16EA=0 - engine forced 16EA off
                 // because of the lockout; classic between-hits state.
                 // Compute the per-move cadence threshold from the
                 // active cell's HitstunStandingNormal (cell+0x46).
@@ -3000,7 +3177,7 @@ private:
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                // Faulted — chara pointer not mapped this frame.  Skip.
+                // Faulted - chara pointer not mapped this frame.  Skip.
                 s_eb_lockout_delay[pi] = 0;
             }
         }
@@ -3014,8 +3191,8 @@ private:
     // decide whether to register a hit, plus the lane-1 anim cursor.
     // Emits ONE LINE PER CHARA per call.  Caller invokes twice per F6
     // step:
-    //   "pre"  — before the world tick at speedval=1.0
-    //   "post" — after  the world tick at speedval=1.0
+    //   "pre"  - before the world tick at speedval=1.0
+    //   "post" - after  the world tick at speedval=1.0
     //
     // Reading a "pre"/"post" pair tells you which field changed across
     // exactly one game frame.  For multi-hit miss diagnosis: between
@@ -3025,7 +3202,7 @@ private:
     // All reads SEH-wrapped; a faulting field shows as "??".
     static void log_frame_step_diag(const char* phase, int seq) noexcept
     {
-        // Phase string is fixed "pre" or "post" — use a wide-string
+        // Phase string is fixed "pre" or "post" - use a wide-string
         // literal directly instead of a runtime char->wide conversion
         // (UE4SS's STR macro only works on literals).
         const auto phase_w = (phase[0] == 'p' && phase[1] == 'o')
@@ -3106,7 +3283,7 @@ private:
             void* active_lane_cursor = nullptr;
             SafeReadPtr   (b + 0x44068, &active_lane_cursor);
 
-            // chara+0x2130 — MoveExecState (1=running, 2=committed-after-
+            // chara+0x2130 - MoveExecState (1=running, 2=committed-after-
             // TransitionToMove, 0=cleared by TerminateCurrentMove).  If
             // this ever flips to 2 mid-multi-hit, TransitionToMove fired.
             int32_t v_2130 = -1;
@@ -3114,7 +3291,7 @@ private:
 
             // lane1[+0x2C] (= chara + 0x44984): CheckMoveTransitionTiming
             // writes 1 here ONLY AFTER successfully calling TransitionToMove
-            // (asm 1402fde6b).  Persistent post-call marker — if this is
+            // (asm 1402fde6b).  Persistent post-call marker - if this is
             // ever 1 during step, the engine's natural transition fired.
             int32_t lane1_2C = -1;
             SafeReadInt32(lane1 + 0x2C, &lane1_2C);
@@ -3192,21 +3369,21 @@ private:
     }
 
     // ------------------------------------------------------------------
-    // Free-fly camera driver — wired into the cockpit pre-hook.
+    // Free-fly camera driver - wired into the cockpit pre-hook.
     //
     // Per-tick responsibilities:
     //   * Resolve the ALuxBattleCamera* from LuxBattleManager.BattleCamera
     //     (UObject property, stable within a battle, null between).
-    //   * Handle UI-toggle edge transitions (ON → snapshot current pose +
-    //     enable CamLock; OFF → release CamLock, drop our pose state).
+    //   * Handle UI-toggle edge transitions (ON ? snapshot current pose +
+    //     enable CamLock; OFF ? release CamLock, drop our pose state).
     //   * If enabled, drive the camera-manager's POV cache from
     //     keyboard / gamepad input via FreeCamera::tick(), which
     //     writes directly to PCM+0x410..+0x428.  That block IS the
-    //     renderer-facing POV — see the long comment on
+    //     renderer-facing POV - see the long comment on
     //     m_cached_player_camera_manager above for the Ghidra
     //     evidence and the iterations that led us to it.
     //
-    // We DON'T early-return when the overlay F5 is off — the user may
+    // We DON'T early-return when the overlay F5 is off - the user may
     // want to fly the camera around to take screenshots without the
     // overlay, matching the Ansel-replacement use case.
     // ------------------------------------------------------------------
@@ -3235,17 +3412,17 @@ private:
             return;
         }
 
-        // Resolve the APlayerCameraManager every tick — this is the
+        // Resolve the APlayerCameraManager every tick - this is the
         // write target for Free-Fly pose data (see the long comment
         // on m_cached_player_camera_manager for why it is NOT the
         // ALuxBattleCamera from LuxBattleManager.BattleCamera).
         //
         // Primary path (reflection):
-        //   find-first-of APlayerController → read its
+        //   find-first-of APlayerController ? read its
         //   "PlayerCameraManager" UObject* property.
         // Fallback (direct offset):
         //   PC+0x420 is the native PlayerCameraManager field on
-        //   APlayerController — this is the EXACT offset that
+        //   APlayerController - this is the EXACT offset that
         //   UWorld::Tick @ 0x141f02230 reads when it invokes
         //   APlayerCameraManager_CommitPOV_NoInterp(pc[0x84]).
         //   If UE4SS reflection ever fails to find the property
@@ -3270,7 +3447,7 @@ private:
             }
             else
             {
-                // Direct-offset fallback — matches the UWorld::Tick
+                // Direct-offset fallback - matches the UWorld::Tick
                 // read that feeds the engine's own commit path.
                 auto* pc_bytes = reinterpret_cast<uint8_t*>(pc_raw);
                 void* raw_pcm = *reinterpret_cast<void**>(pc_bytes + 0x420);
@@ -3279,14 +3456,14 @@ private:
                 {
                     Output::send<LogLevel::Warning>(
                         STR("[HorseMod.FreeCamera] reflection didn't find "
-                            "PlayerCameraManager property — using direct "
+                            "PlayerCameraManager property - using direct "
                             "offset fallback PC+0x420 -> 0x{:x}\n"),
                         reinterpret_cast<uintptr_t>(pcm));
                     m_logged_pcm_fallback = true;
                 }
             }
         }
-        // One-shot first-resolve log — captures BOTH the PC address
+        // One-shot first-resolve log - captures BOTH the PC address
         // and the PCM address so the user (or Ghidra) can sanity-check
         // both pointers against whatever the engine reports at runtime.
         if (!m_logged_pcm_resolve && pcm)
@@ -3311,11 +3488,57 @@ private:
         }
 
         // Per-tick pose update (no-op if not enabled or pcm null).
-        // This is the ONLY commit path — direct memcpy into the PCM's
+        // This is the ONLY commit path - direct memcpy into the PCM's
         // FCameraCacheEntry.POV at +0x410..+0x428.  CamLock's 5 NOP
         // sites (all of which also target PCM+0x410..+0x428) stop the
         // engine from stomping our writes each tick.
         m_free_camera.tick(pcm);
+    }
+
+    void service_presence_transition_safety(const char* source)
+    {
+        const uint8_t cur = static_cast<uint8_t>(
+            Horse::GameMode::instance().current_presence());
+        const uint8_t prev = m_last_seen_presence.exchange(
+            cur, std::memory_order_acq_rel);
+        if (prev == cur)
+            return;
+
+        using GMP = Horse::GamePresence;
+        const GMP from = static_cast<GMP>(prev);
+        const GMP to   = static_cast<GMP>(cur);
+        if (from != GMP::Unknown)
+        {
+            Output::send<LogLevel::Default>(
+                STR("[HorseMod] presence transition {} -> {} - "
+                    "force-clearing Freeze frame + Slow-motion + "
+                    "step queue (manual re-enable required, source={})\n"),
+                Horse::presence_name(from),
+                Horse::presence_name(to),
+                RC::to_generic_string(source ? source : "?"));
+        }
+
+        clear_time_features_on_transition();
+
+        // Replay scrubber: drop captured snapshots and cancel any
+        // pending seek.  If we are entering Replay, initialise now so
+        // an armed timeline generation can catch the earliest clean
+        // replay-start frames instead of waiting for the cockpit hook.
+        Horse::ReplayScrub::instance().on_presence_change();
+        if (to == GMP::Replay)
+            (void)Horse::ReplayScrub::instance().ensure_initialized();
+
+        // Drop the cached battle-level globals.  LuxBattleManager /
+        // CockpitBase / PlayerController are torn down across this
+        // transition; invalidating forces the next GlobalPtr::get() to
+        // re-resolve immediately.
+        m_lux.invalidate();
+        m_player_controller.invalidate();
+        m_backend_hit.invalidate();
+        m_backend_hurt.invalidate();
+        m_backend_stage.invalidate();
+        m_stage_boundary.invalidate();
+        m_stage_visuals.invalidate();
     }
 
     // ------------------------------------------------------------------
@@ -3333,73 +3556,7 @@ private:
         // reset post-hook.
         Horse::ResetOverride::instance().tick();
 
-        // ----------------------------------------------------------------
-        // PRESENCE-TRANSITION SAFETY CLEAR
-        // ----------------------------------------------------------------
-        // Detect ANY scene-presence transition (training -> ranked,
-        // ranked -> training, training -> menu, etc.) and on the
-        // change, force-clear Freeze and Slow-motion.  This protects
-        // against the black-screen / broken-camera-init class of bug
-        // that happens when SpeedControl patches stay applied while
-        // SC6 tears down the old BattleManager / chara actors and
-        // builds new ones.  See m_last_seen_presence's plate above
-        // for the full rationale.
-        //
-        // Crucially: this fires REGARDLESS of the "Auto disable
-        // online" toggle — even with the gate off, mode transitions
-        // still tear down state that would crash with active patches.
-        // The toggle is for ONLINE-MATCH safety, not transition
-        // safety; the two concerns happen to overlap on freeze/slow-
-        // mo so we run both checks.
-        //
-        // Once cleared, freeze/slow-mo STAY cleared (no auto-restore
-        // on the way back) — the user must re-engage manually.  This
-        // matches the user's reported mental model and the comment
-        // block on m_last_seen_presence.
-        {
-            const uint8_t cur = static_cast<uint8_t>(
-                Horse::GameMode::instance().current_presence());
-            const uint8_t prev = m_last_seen_presence.exchange(
-                cur, std::memory_order_acq_rel);
-            if (prev != cur)
-            {
-                using GMP = Horse::GamePresence;
-                const GMP from = static_cast<GMP>(prev);
-                const GMP to   = static_cast<GMP>(cur);
-                // Skip the "init unknown -> first seen" case for
-                // logging — it's not a real user-visible transition,
-                // just the first time the SetPresence hook fires.
-                // We DO still clear freeze/slow-mo on the first fire
-                // (see plate on m_last_seen_presence) — the log
-                // suppression is purely cosmetic.
-                if (from != GMP::Unknown)
-                {
-                    Output::send<LogLevel::Default>(
-                        STR("[HorseMod] presence transition {} -> {} — "
-                            "force-clearing Freeze frame + Slow-motion + "
-                            "step queue (manual re-enable required)\n"),
-                        Horse::presence_name(from),
-                        Horse::presence_name(to));
-                }
-                clear_time_features_on_transition();
-
-                // Replay scrubber: drop captured snapshots and cancel
-                // any pending seek.  Captures are relevant only to the
-                // match-in-progress; transitioning rooms means the
-                // ring's contents are no longer chronologically
-                // continuous with whatever the engine is doing now.
-                Horse::ReplayScrub::instance().on_presence_change();
-
-                // Drop the cached battle-level globals.  LuxBattle-
-                // Manager / CockpitBase / PlayerController are all torn
-                // down across this transition; invalidating forces the
-                // next GlobalPtr::get() to re-resolve immediately rather
-                // than serve a stale pointer until the throttled
-                // revalidation timer next fires.
-                m_lux.invalidate();
-                m_player_controller.invalidate();
-            }
-        }
+        service_presence_transition_safety("cockpit");
 
         // ----------------------------------------------------------------
         // ONLINE-MATCH FEATURE GATE
@@ -3414,12 +3571,12 @@ private:
         //   - Freeze frame
         //   - Slow motion
         //
-        // We force-disable these every tick (idempotent calls — if the
+        // We force-disable these every tick (idempotent calls - if the
         // feature is already off, the disable is a no-op) so even if
         // the user finds a way to flip the underlying atomic via some
         // other code path, the next cockpit tick clamps it back off.
         // The UI side is gated separately (see render_camera_tab and
-        // render_time_tab) — both checkboxes go BeginDisabled() while
+        // render_time_tab) - both checkboxes go BeginDisabled() while
         // this predicate is true.
         //
         // NOT gated by this:
@@ -3432,25 +3589,47 @@ private:
         //   - Reset position override (only fires on training-mode
         //     reset events the engine doesn't dispatch in matches)
         //   - Online rule overrides (the intended use case for
-        //     online play — both peers opt in)
+        //     online play - both peers opt in)
         if (Horse::GameMode::instance().should_force_disable_features())
         {
             apply_online_forced_disable();
         }
 
-        // Apply Ansel override first — independent of the overlay F5
+        // Apply Ansel override first - independent of the overlay F5
         // gate and the NativeBinding-ready gate below, because the user
         // asked for it to be "always" on while the toggle is held.
         apply_ansel_override_if_needed();
 
-        // Camera lock has NO per-frame helper here — it's implemented as
+        // Camera lock has NO per-frame helper here - it's implemented as
         // a runtime bytepatch (Horse::CamLock) that's flipped on/off
         // from the ImGui toggle.  The patch is a property of the
         // process, not the cockpit tick.
 
-        // VFX suppression: same bytepatch story as camera lock — the
+        // VFX suppression: same bytepatch story as camera lock - the
         // toggle is a process-state property, not a per-frame action.
         // No call needed here.
+
+        {
+            const auto rs_presence =
+                Horse::GameMode::instance().current_presence();
+            if (rs_presence == Horse::GamePresence::Replay
+                && !Horse::ReplayScrub::instance().is_initialized())
+            {
+                Horse::ReplayScrub::instance().ensure_initialized();
+            }
+        }
+
+        if (Horse::ReplayScrub::instance().wants_time_controls_suspended())
+        {
+            suspend_manual_time_controls_for_replay_scrub(
+                "replay-scrub-critical-path");
+        }
+        else
+        {
+            m_replay_scrub_time_suspended_logged = false;
+        }
+
+        Horse::ReplayScrub::instance().service_pre_frame_gate();
 
         // Frame-step + freeze-frame driver.  Computes the desired
         // speedval from the (Freeze, Slow-mo, step-counter) tuple and
@@ -3460,6 +3639,7 @@ private:
         // world tick), while the ImGui tab callback only runs when the
         // user has the menu open.
         frame_step_apply();
+        Horse::ReplayScrub::instance().service_post_frame_gate();
 
         // Free-camera driver.  Resolves ALuxBattleCamera* from the current
         // LuxBattleManager.BattleCamera property (null outside battle)
@@ -3470,12 +3650,12 @@ private:
         free_camera_apply();
 
         // Replay scrubber driver.  Two operations per cockpit tick:
-        //   1. tick_capture() — read g_LuxBattle_FrameCounter; if it
+        //   1. tick_capture() - read g_LuxBattle_FrameCounter; if it
         //      advanced AND we're in Replay presence AND capture is
         //      enabled AND we aren't currently scrubbing, snapshot the
         //      live state into the next ring slot via the engine's
         //      ExecMoveChangeAndPost (against our HgCpuBufferShim).
-        //   2. service_seek_request() — if the UI posted a target
+        //   2. service_seek_request() - if the UI posted a target
         //      frame, ExecFinalizeAndPost the matching ring slot and
         //      engage WorldTickGate freeze so the engine doesn't
         //      immediately re-derive divergent state on top.
@@ -3488,17 +3668,7 @@ private:
         // viewer don't pay any memory cost.  Subsequent ticks find
         // is_initialized()=true and skip.  Capture is unbounded (2 GB
         // ceiling); there is no capture-window setting.
-        {
-            const auto rs_presence =
-                Horse::GameMode::instance().current_presence();
-            if (rs_presence == Horse::GamePresence::Replay
-                && !Horse::ReplayScrub::instance().is_initialized())
-            {
-                Horse::ReplayScrub::instance().ensure_initialized();
-            }
-        }
         Horse::ReplayScrub::instance().tick_capture();
-        Horse::ReplayScrub::instance().service_seek_request();
         // 2026-05-16: "Generate timeline" driver.  Services the UI
         // start/stop request and, while generating, watches for the
         // end of the recording.  The fast-forward itself is done by
@@ -3508,10 +3678,16 @@ private:
         // completion.
         Horse::ReplayScrub::instance().tick_generate_timeline();
 
+        if (!raw_cockpit) return;
+
+        // Keep visual stage hiding serviced even while replay timeline
+        // generation skips rendering-oriented overlay work below.
+        m_stage_visuals.tick(m_hide_stage_visuals.load());
+
         // During a "Generate timeline" fast-forward the user is not
-        // watching the screen, so skip the rest of this per-frame mod
-        // work — chiefly the hitbox visualiser (m_lux.forEachChara +
-        // line-batch draws), the dominant per-frame mod cost.  This
+        // watching the screen, so skip rendering-oriented per-frame mod
+        // work - stage-boundary drawing and the hitbox visualiser
+        // (m_lux.forEachChara + line-batch draws).  This
         // leaves the fast-forward loop bound only by SC6's own
         // simulation + the (sub-millisecond) snapshot capture, which
         // tick_capture() above already did this frame.  Combined with
@@ -3533,7 +3709,7 @@ private:
         // Always-on heartbeat: once every ~2s print a single line so we can
         // confirm the hook is ticking even while the overlay is off.  This
         // separates "hook not firing" from "F5 not toggled".
-        // DISABLED — noisy; re-enable if diagnosing "is the hook firing?".
+        // DISABLED - noisy; re-enable if diagnosing "is the hook firing?".
 #if 0
         if ((m_update_calls & 0x7F) == 1)
         {
@@ -3548,13 +3724,14 @@ private:
         }
 #endif
 
-        if (!m_enabled.load() || !raw_cockpit) return;
-        if (!Horse::NativeBinding::isReady())
+        const bool native_ready = Horse::NativeBinding::isReady();
+        if (!native_ready)
         {
-            if (!m_logged_native_missing)
+            if ((m_enabled.load() || m_show_stage_boundary.load()) &&
+                !m_logged_native_missing)
             {
                 Output::send<LogLevel::Warning>(
-                    STR("[HorseMod] NativeBinding not ready — KHit draw disabled\n"));
+                    STR("[HorseMod] NativeBinding not ready - overlay draw disabled\n"));
                 m_logged_native_missing = true;
             }
             return;
@@ -3562,14 +3739,42 @@ private:
 
         Horse::Obj pivot{raw_cockpit};
 
+        if (m_show_stage_boundary.load())
+        {
+            if (m_backend_stage.slot() != Horse::LineBatcherSlot::Foreground)
+                m_backend_stage.setSlot(Horse::LineBatcherSlot::Foreground);
+            m_backend_stage.setLifetime(Horse::LineBatcherBackend::kDefaultLifetime);
+            m_backend_stage.primeFrom(pivot);
+            if (m_backend_stage.isReady())
+            {
+                Horse::Obj bm = m_lux.battleManager();
+                Horse::Obj stageManager =
+                    bm ? bm.getObj(L"BattleStageActorManager") : Horse::Obj{};
+                m_backend_stage.beginFrame();
+                (void)m_stage_boundary.draw(m_backend_stage, stageManager);
+                m_backend_stage.endFrame();
+            }
+        }
+
+        if (!m_enabled.load()) return;
+
         // Sync each backend's slot with the per-feature ImGui toggles
         // and prime both this frame.  setSlot() invalidates the cached
         // LBC pointer when the slot changes; primeFrom() re-resolves it
         // from the (current) UWorld.  Idempotent when nothing changed.
+        bool trail_slot_changed = false;
         if (m_backend_hit.slot()  != m_slot_hit.load())
+        {
             m_backend_hit.setSlot(m_slot_hit.load());
+            trail_slot_changed = true;
+        }
         if (m_backend_hurt.slot() != m_slot_hurt.load())
+        {
             m_backend_hurt.setSlot(m_slot_hurt.load());
+            trail_slot_changed = true;
+        }
+        if (trail_slot_changed)
+            m_have_trail_game_frame = false;
 
         // Push the per-line lifetime: Persistent backends use the user-
         // configured trail length (m_trail_frames game frames at 60Hz),
@@ -3593,11 +3798,47 @@ private:
         m_backend_hit.primeFrom(pivot);
         m_backend_hurt.primeFrom(pivot);
 
-        // Both must be ready to proceed — partial readiness would let
+        // Both must be ready to proceed - partial readiness would let
         // (e.g.) hitboxes draw without their hurtbox counterparts on
         // the same frame, which would visually misrepresent the state
         // of a move and confuse a viewer.
         if (!m_backend_hit.isReady() || !m_backend_hurt.isReady()) return;
+
+        uint32_t trail_game_frame = 0;
+        bool have_trail_game_frame = false;
+        {
+            constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
+            const uintptr_t base = Horse::NativeBinding::imageBase();
+            have_trail_game_frame = base != 0 && Horse::SafeReadUInt32(
+                reinterpret_cast<const void*>(base + kFrameCounterRVA),
+                &trail_game_frame);
+        }
+
+        uint32_t trail_frames_elapsed = 0;
+        bool append_persistent_this_tick = true;
+        if (have_trail_game_frame)
+        {
+            if (m_have_trail_game_frame)
+            {
+                trail_frames_elapsed =
+                    trail_game_frame - m_last_trail_game_frame;
+                append_persistent_this_tick = trail_frames_elapsed != 0;
+            }
+            m_last_trail_game_frame = trail_game_frame;
+            m_have_trail_game_frame = true;
+        }
+        else
+        {
+            m_have_trail_game_frame = false;
+        }
+
+        if (trail_frames_elapsed > 0)
+        {
+            const float game_seconds =
+                static_cast<float>(trail_frames_elapsed) / 60.0f;
+            m_backend_hit.advanceLifetime(game_seconds);
+            m_backend_hurt.advanceLifetime(game_seconds);
+        }
 
         m_backend_hit.beginFrame();
         m_backend_hurt.beginFrame();
@@ -3610,10 +3851,10 @@ private:
         // ---- Weapon visibility snapshot ---------------------------------
         // Compute once per frame.  `apply_weapons` is true when we need to
         // actively push SetWeaponVisibility into the game this frame:
-        //   * when the EFFECTIVE toggle is ON — re-apply every frame to
+        //   * when the EFFECTIVE toggle is ON - re-apply every frame to
         //     overwrite any game-driven re-show (the engine can flip
         //     visibility as part of cinematic cues; we fight it back).
-        //   * on the EFFECTIVE ON -> OFF transition — call once with
+        //   * on the EFFECTIVE ON -> OFF transition - call once with
         //     true to restore visibility, then stop touching it.
         //
         // CONFLICT WITH "Hide characters"
@@ -3626,20 +3867,20 @@ private:
         //
         // SetWeaponVisibility(false) writes 0 to +0x534.  When both
         // toggles are on, the patched compare reads `0 == 1 -> visible`
-        // and the weapons stay VISIBLE — opposite of what the user
+        // and the weapons stay VISIBLE - opposite of what the user
         // asked for.
         //
         // Fix: when hide_chara is on, the patch ALREADY hides weapons
         // (CharaInvis patches both +0x533 chara-mesh and +0x534
         // weapon-mesh comparators).  So we suppress our own writes
-        // entirely — let the engine's per-move-state writes settle the
+        // entirely - let the engine's per-move-state writes settle the
         // flag back to 1 (its normal "visible" default) and let the
         // patch invert that to "invisible" the way it's designed to.
         //
         // The transition tracking (last_applied) still runs against
         // the EFFECTIVE state so that toggling hide_chara ON while
         // hide_weapons was previously hiding gets correctly accounted
-        // for — we write `true` once on that edge to flip +0x534 back
+        // for - we write `true` once on that edge to flip +0x534 back
         // to 1, which the patch then reads as invisible.  Without that
         // restore step, +0x534 would stay at 0 (our last write) and
         // the patch's "0 -> visible" inversion would briefly show the
@@ -3658,7 +3899,7 @@ private:
 
         // ---- Character-mesh visibility ----------------------------------
         // Now handled by Horse::CharaInvis bytepatches (see ImGui block
-        // for the toggle).  No per-frame UFunction call here — the
+        // for the toggle).  No per-frame UFunction call here - the
         // patch lives inside the engine's own visibility-getter so it
         // works invariantly across all move states without flicker.
 
@@ -3678,7 +3919,7 @@ private:
             }
 
             // ---- Retrack-event edge detection ---------------------------
-            // Read chara+0x94 (facing yaw, in [0,1) normalised, 1.0=360°)
+            // Read chara+0x94 (facing yaw, in [0,1) normalised, 1.0=360-)
             // and chara+0x16E6 (a motion-input flag that's set during
             // most moves) every cockpit tick.  Compute per-tick yaw
             // delta against last tick's snapshot, then fire on the
@@ -3691,7 +3932,7 @@ private:
             //
             // See the field doc on m_show_retrack_events for why we're
             // measuring yaw-delta directly instead of watching gate
-            // flags — short version: the original flag-pair check fired
+            // flags - short version: the original flag-pair check fired
             // on hit-fall reactions, not on what the user calls
             // "retrack events".
             {
@@ -3722,8 +3963,8 @@ private:
 
                 const bool was = m_was_retracking[pi];
 
-                // Rising edge: not-retracking → retracking.  Only push
-                // a banner if the user has the overlay enabled — keeps
+                // Rising edge: not-retracking ? retracking.  Only push
+                // a banner if the user has the overlay enabled - keeps
                 // the buffer empty (and no stale times) for users who
                 // never enable it.
                 if (retracking_now && !was &&
@@ -3755,7 +3996,7 @@ private:
             //
             // The hurt predicate is an OR of three engine-truth gates:
             //
-            //   classifier_addressable  — the slot index (+0x17) is
+            //   classifier_addressable  - the slot index (+0x17) is
             //     less than chara+0x44494 (= AttackMaxSlot, reused as
             //     the classifier's hurt-iteration ceiling).  A box at
             //     slot >= cap can NEVER deal damage this frame because
@@ -3763,11 +4004,11 @@ private:
             //     loop won't read its PerHurtboxBitmask slot.
             //     [Geralt block-hold rectangle case.]
             //
-            //   overlap_active           — the byte at +0x14 is
+            //   overlap_active           - the byte at +0x14 is
             //     non-zero, so UpdateAllKHitWorldCenters' overlap loop
             //     will OR attacker bits into PerHurtboxBitmask[slot].
             //
-            //   defender_can_react_engine — chara-wide gate covering
+            //   defender_can_react_engine - chara-wide gate covering
             //     the three early-return sites of the resolver:
             //     battle-running global, chara+0x20B8 (incapacitated),
             //     chara+0x19B0 (no-react state, == 6).  When any
@@ -3778,19 +4019,18 @@ private:
             //
             // Any gate failing means "this hurtbox cannot land a
             // reaction this frame," which is the engine-truth answer
-            // to "Only show active boxes."  All three must pass for
-            // damage, so hiding when ANY fails matches what the
-            // engine actually does.
+            // to "boxes that can matter this frame."  All three must
+            // pass for damage, so hiding when ANY fails matches what
+            // the engine actually does.
             //
             // Master OFF (only_active==false) draws everything
             // authored on either list regardless of these predicates.
             const bool only_active = m_only_show_active.load();
             if (!show_hurt && !show_atk && !show_body) return;
 
-            // KHit +0x60 values are already in absolute UE4 world space
-            // (Z-up, cm) — the game's per-frame update bakes chara position,
-            // yaw, and bone-local into the matrix that wrote them.  The
-            // walker just reads them raw; no xform parameter needed.
+            // KHit native buffers are battle-space scratch fields.  The
+            // walker anchors render positions through the owning UE bone
+            // matrix and uses area buffers only for sweep deltas.
             Horse::KHitWalker::forEachKHit(
                 chara.raw(),
                 static_cast<uint32_t>(pi),
@@ -3801,15 +4041,15 @@ private:
                         case Horse::KHitList::Hurtbox:
                             if (!show_hurt) return;
                             // Hurtbox-side narrow filter (engine truth
-                            // — see the long comment at the toggle
+                            // - see the long comment at the toggle
                             // snapshot above for the OR rationale).
                             //
                             //   classifier_addressable  : slot < cap?
                             //     If false, classifier loop ignores
                             //     this slot; box can't deal damage no
                             //     matter what its +0x14 says.  These
-                            //     are the cyan-coloured VM-gated
-                            //     extension hurtboxes (e.g. Geralt's
+                            //     are cyan-coloured classifier-ignored
+                            //     extension/meta hurtboxes (e.g. Geralt's
                             //     two large rectangles, slot >=
                             //     AttackMaxSlot).
                             //
@@ -3823,7 +4063,7 @@ private:
                             //     (battle not running, chara
                             //     incapacitated/dead, no-react state
                             //     6).  Whole hurtbox list is inert
-                            //     this frame — KO cinematics,
+                            //     this frame - KO cinematics,
                             //     round-end pose, paused / loading.
                             //
                             // ALL three must pass for the engine to
@@ -3841,7 +4081,7 @@ private:
                             // Hitbox-side narrow filter (engine truth).
                             //
                             // is_per_frame_active = (+0x14 != 0) AND
-                            //   (cat_mask & chara[+0x44058]) != 0 — the
+                            //   (cat_mask & chara[+0x44058]) != 0 - the
                             // exact predicate LuxBattle_Resolve-
                             // AttackVsHurtboxMask22 (0x14033C100)
                             // applies before firing damage.  Hides
@@ -3849,7 +4089,7 @@ private:
                             // only the engine-authored damage frames.
                             //
                             // (The legacy "Damage-active only" toggle
-                            // tested is_damage_active — same per-move
+                            // tested is_damage_active - same per-move
                             // cell but the slot-bit interpretation,
                             // broader than is_per_frame_active.  It was
                             // dropped 2026-05 because in default state
@@ -3883,6 +4123,11 @@ private:
                         (d.list == Horse::KHitList::Attack)
                             ? m_backend_hit
                             : m_backend_hurt;
+                    if (b.slot() == Horse::LineBatcherSlot::Persistent &&
+                        !append_persistent_this_tick)
+                    {
+                        return;
+                    }
                     Horse::DrawKHitDraw(b, d, col, T);
                     ++nodes_drawn;
                 });
@@ -3891,7 +4136,7 @@ private:
         // Commit the state we actually pushed to the game this frame.
         // Only update last-applied when we had at least one chara to push
         // to; otherwise we'd "lose" the pending transition (e.g. toggle
-        // flips OFF between rounds while no chara exists — we'd never
+        // flips OFF between rounds while no chara exists - we'd never
         // get a chance to call SetWeaponVisibility(true) and weapons
         // would stay hidden).
         //
@@ -3910,7 +4155,7 @@ private:
 
         // Once per ~2s: dump a summary so we can tell whether each stage
         // fired.  Parallel to the KHitWalker's shouldLog() throttle.
-        // DISABLED — noisy; re-enable for end-to-end health checks.
+        // DISABLED - noisy; re-enable for end-to-end health checks.
 #if 0
         if ((++m_diag_tick & 0x7F) == 1)
         {
@@ -3929,13 +4174,13 @@ private:
 
     // ------------------------------------------------------------------
     // Colour scheme (engine-role driven, not size-heuristic)
-    //   Hurtboxes — green (receive volumes).  Bright red when reaction_hot
-    //               (this slot just got hit — sticky-extended).
-    //   Attacks   — amber (strike) / magenta (throw/grab).  Hot (the
+    //   Hurtboxes - green (receive volumes).  Bright red when reaction_hot
+    //               (this slot just got hit - sticky-extended).
+    //   Attacks   - amber (strike) / magenta (throw/grab).  Hot (the
     //               currently-active cell) overrides to bright yellow for
     //               strikes or bright pink for throws so you can still see
     //               which one is live.
-    //   Body/push — dim blue.  These are not involved in damage.
+    //   Body/push - dim blue.  These are not involved in damage.
     // A subtle per-player hue nudge keeps P1 / P2 distinguishable when
     // they overlap visually.
     // ------------------------------------------------------------------
@@ -3957,11 +4202,11 @@ private:
                 // a reaction regardless of geometry / +0x14 / slot
                 // index.  Show as DIM GREY ("authored, but engine
                 // is frozen on this chara right now") so the
-                // distinction from the "vanishingly addressable
-                // but inert" cyan VM-gated case is visible.
+                // distinction from cyan "classifier ignores this slot"
+                // cases is visible.
                 //
-                // Reached only when the master "Only show active"
-                // filter is OFF — the narrow filter hides these
+                // Reached only when the master engine-live
+                // filter is OFF - the narrow filter hides these
                 // boxes by default.
                 if (!d.defender_can_react_engine)
                 {
@@ -3970,31 +4215,27 @@ private:
                                              0.45f * player_tint, 0.5f };
                 }
 
-                // VM-gated extended-reach hurtbox.  Authored with
-                // +0x14 = 0 as the default off-state, flipped on
-                // per-frame by the move-VM via opcode 0x13AC (see
-                // LuxMoveVM_SetHurtboxSlotsActiveMask
-                // @ 0x140308D70).  Slot index +0x17 is typically
-                // beyond chara+0x44494 (AttackMaxSlot, reused as
-                // the classifier's iteration ceiling) so they only
-                // contribute to damage when the per-move data has
-                // armed both +0x14 and the iteration bound.
+                // Classifier-ignored hurtbox.  This box may be real
+                // geometry, but its slot index is outside the current
+                // classifier iteration range, so the damage resolver
+                // will not read it this frame.  Many of these are
+                // move-script extended-reach / meta hurtboxes, but the
+                // user-facing truth is simpler: the classifier ignores
+                // this slot right now.
                 //
                 // Colour them in CYAN tones so the user can see
                 // them flip on/off across frames:
-                //   bright cyan  = VM-gated AND currently on
+                //   bright cyan  = ignored slot AND currently on
                 //                  (overlap_active == true)
-                //   dim cyan     = VM-gated AND currently off
+                //   dim cyan     = ignored slot AND currently off
                 //                  (overlap_active == false; only
-                //                  visible when "Only show active
-                //                  boxes" is OFF, since the narrow
-                //                  filter would otherwise skip them)
+                //                  visible when the engine-live filter
+                //                  is OFF, since the narrow filter
+                //                  would otherwise skip them)
                 //
-                // Detection: a hurtbox is "VM-gated" iff its slot
-                // index is at or beyond the classifier bound.  The
-                // classifier_addressable flag captures `slot < cap`
-                // already, so `!classifier_addressable` is the same
-                // signal the agent investigation identified.
+                // Detection: classifier_addressable captures `slot < cap`,
+                // so `!classifier_addressable` is exactly "resolver will
+                // not read this slot".
                 if (!d.classifier_addressable)
                 {
                     return d.overlap_active
@@ -4006,22 +4247,26 @@ private:
                                             0.55f, 0.6f }; // dim cyan = +0x14 off + slot OOB
                 }
 
-                // Classifier-addressable but +0x14 == 0 — the slot
-                // IS in range but the engine's overlap loop will
-                // skip this node.  Authored "off by default,
-                // flipped on by the move-VM" extended reach inside
-                // the addressable range.  Render in dim green to
-                // tell users "this hurtbox exists but is currently
-                // disabled by opcode 0x13AC."
+                // Classifier-addressable but +0x14 == 0 - the slot
+                // IS in range but the engine's overlap loop will skip
+                // this node.  Full-body i-frames get a distinct purple
+                // tint; otherwise render dim green for a per-slot
+                // disable / armor-style window.
                 if (!d.overlap_active)
                 {
+                    if (d.full_body_invul)
+                    {
+                        return Horse::FLinColor{ 0.70f * player_tint,
+                                                 0.45f,
+                                                 0.95f, 0.75f };
+                    }
                     return Horse::FLinColor{ 0.20f * player_tint,
                                              0.50f,
                                              0.20f * player_tint, 0.5f };
                 }
 
                 // Unified green for normal classifier-addressable
-                // hurtbox entries — the engine doesn't sub-
+                // hurtbox entries - the engine doesn't sub-
                 // categorise these from the defender side.
                 return Horse::FLinColor{ 0.25f * player_tint,
                                          0.95f,
@@ -4033,53 +4278,55 @@ private:
                 const bool is_throw =
                     (d.attack_role == Horse::KHitAttackRole::Throw);
 
-                // Throws keep the pink/magenta scheme — tier doesn't
+                // Throws keep the pink/magenta scheme - tier doesn't
                 // apply to grabs.  Hot vs cold variants only.  When the
                 // engine's throw-height gate would reject this throw
                 // against the current defender (defender too tall and
                 // throw's yarareId not in the unconditional allow-set
-                // — see KHitDraw::throw_height_gate_ok), desaturate to
-                // grey-ish to signal "boxes overlap but throw will
-                // whiff" — the classic small-attacker-vs-tall-defender
-                // empirical bug visualised.
+                // - see KHitDraw::throw_height_gate_ok), desaturate to
+                // grey-ish to signal "boxes overlap but throw dispatch
+                // will reject this defender height."  Other stance /
+                // transition gates are already accounted for before a
+                // throw becomes engine-live; this colour is specifically
+                // the late height dispatch rule.
                 if (is_throw)
                 {
                     const bool gate_fail = !d.throw_height_gate_ok;
                     if (gate_fail)
                     {
-                        return d.is_current_attack
+                        return d.is_per_frame_active
                             ? Horse::FLinColor{ 0.65f, 0.50f, 0.60f, 0.85f }
                             : Horse::FLinColor{ 0.45f * player_tint,
                                                 0.35f,
                                                 0.40f * player_tint, 0.45f };
                     }
-                    return d.is_current_attack
+                    return d.is_per_frame_active
                         ? Horse::FLinColor{ 1.0f, 0.30f, 0.85f, 1.0f }  // hot throw = pink
                         : Horse::FLinColor{ 0.85f * player_tint,
                                             0.15f,
                                             0.70f * player_tint, 0.6f }; // cold throw = magenta
                 }
 
-                // Strikes — colour by AttackFlags tier (engine-truth
+                // Strikes - colour by AttackFlags tier (engine-truth
                 // classification of high/mid/low/unblockable from
                 // cell+0x32 read in EvaluateMoveTransition + ProcessHit).
                 // The data has been on every KHitDraw since the
                 // 2026-05-15 audit; this routes it into rendering.
                 //
-                //   High        — red-orange  (must block standing)
-                //   Mid         — amber       (blockable any stance)
-                //   Low         — sky-blue    (must block crouching)
-                //   Unblockable — magenta-red (must dodge — GI-immune
+                //   High        - red-orange  (must block standing)
+                //   Mid         - amber       (blockable any stance)
+                //   Low         - sky-blue    (must block crouching)
+                //   Unblockable - magenta-red (must dodge - GI-immune
                 //                              when bit 0x200 is set)
-                //   Special     — light cyan  (special framing rule)
-                //   Unknown     — amber       (fallback to legacy)
+                //   Special     - light cyan  (special framing rule)
+                //   Unknown     - amber       (fallback to legacy)
                 //
                 // Hot (live this frame) variants are full saturation;
                 // cold variants are tinted by player_tint with 0.6 alpha.
                 const Horse::KHitAttackTier tier = d.attack_tier;
-                if (d.is_current_attack)
+                if (d.is_per_frame_active)
                 {
-                    // Hot strike — pop out from other strikes.
+                    // Hot strike - pop out from other strikes.
                     switch (tier)
                     {
                         case Horse::KHitAttackTier::High:
@@ -4178,9 +4425,9 @@ private:
         else if (forced)
         {
             s.colour       = ImVec4{1.00f, 0.30f, 0.30f, 1.0f};
-            s.short_label  = "Online match — features locked";
+            s.short_label  = "Online match - features locked";
             s.tooltip_body =
-                "Auto disable online: ON. In a Ranked/Casual match — "
+                "Auto disable online: ON. In a Ranked/Casual match - "
                 "Lock-cam, Free-fly, Freeze, Slow-mo are locked off.";
         }
         else
@@ -4188,7 +4435,7 @@ private:
             s.colour       = ImVec4{0.30f, 0.90f, 0.40f, 1.0f};
             s.short_label  = "All features available";
             s.tooltip_body =
-                "Auto disable online: ON. Scene safe — all features "
+                "Auto disable online: ON. Scene safe - all features "
                 "available.";
         }
         return s;
@@ -4233,7 +4480,7 @@ private:
         // title-bar background colour theme.
         dl->AddRect(sq_min, sq_max, IM_COL32(0, 0, 0, 200), 2.0f, 0, 1.0f);
 
-        // Tooltip on hover — manual hit-test since the square isn't an
+        // Tooltip on hover - manual hit-test since the square isn't an
         // ImGui item.  Slight padding around the rect so the user
         // doesn't have to be pixel-precise.
         const ImVec2 hover_min{sq_min.x - 2.0f, sq_min.y - 2.0f};
@@ -4271,19 +4518,19 @@ private:
     // Walk m_hud_text_events[] and draw every entry that's still within
     // its lifetime onto the foreground draw list, fading alpha linearly
     // from 100% at fire-time to 0% at lifetime expiry.  Stacks the most
-    // recent event at the top and grows downward — newer entries hide
+    // recent event at the top and grows downward - newer entries hide
     // older ones if more fired in a short burst, which is the right
     // visual cue (the latest matters more).
     //
     // Drawing is FOREGROUND so the lines appear above both the game
     // and any ImGui windows.  Costs one std::array sweep + at most
     // kHudTextEventCount AddText calls per frame regardless of what's
-    // happening on screen — cheap.
+    // happening on screen - cheap.
     //
     // The buffer is the shared overlay queue for arbitrary on-screen
     // text events (retrack-event detector, "Hello World" test button,
     // future C++-side diagnostic banners).  We don't gate on the
-    // retrack toggle here because the queue is generic — gating
+    // retrack toggle here because the queue is generic - gating
     // happens at the push site (only retrack pushes are gated by
     // m_show_retrack_events).
     void draw_hud_text_overlay()
@@ -4326,7 +4573,7 @@ private:
     }
 
     // ------------------------------------------------------------------
-    // ImGui panel — single window split into four topical tabs.
+    // ImGui panel - single window split into four topical tabs.
     //
     //   Hitboxes  master F5, live move-frame, KHit lists, attack-role
     //             / damage filters, hit-flash slider, render options
@@ -4343,7 +4590,7 @@ private:
     void render_tab_impl()
     {
         // ----------------------------------------------------------------
-        // Always-on overlays first — these draw to GetForegroundDrawList
+        // Always-on overlays first - these draw to GetForegroundDrawList
         // unconditionally so they show up regardless of whether the
         // HorseMod window is open / collapsed / hidden via F2.  Anything
         // that needs to appear on top of the game without the user
@@ -4352,9 +4599,9 @@ private:
         draw_hud_text_overlay();
 
         // -----------------------------------------------------------------
-        // Gamepad-first friendliness — ONE-SHOT focus claim on show
+        // Gamepad-first friendliness - ONE-SHOT focus claim on show
         // -----------------------------------------------------------------
-        // When the overlay flips hidden → shown (F2, Back-button, etc.)
+        // When the overlay flips hidden ? shown (F2, Back-button, etc.)
         // we claim window focus + set m_nav_bootstrap_pending so the
         // currently-visible tab can run a single ImGui::SetKeyboardFocus-
         // Here() against its primary widget.  That's it.  No per-frame
@@ -4368,7 +4615,7 @@ private:
         // "if focus drifted away for any reason, get it back".  In
         // practice that block caused two user-visible bugs:
         //
-        //   1. CLICK EATING — `IsWindowFocused(_RootAndChildWindows)`
+        //   1. CLICK EATING - `IsWindowFocused(_RootAndChildWindows)`
         //      can transiently return false during the same frame ImGui
         //      is processing a click on one of our widgets (popups,
         //      child regions, even regular checkbox state transitions
@@ -4379,13 +4626,13 @@ private:
         //      mod menu it lags quite a bit for letting me click on
         //      things."
         //
-        //   2. STUCK BOOTSTRAP — m_nav_bootstrap_pending was set true
+        //   2. STUCK BOOTSTRAP - m_nav_bootstrap_pending was set true
         //      every frame the focus check failed.  If the user was on
         //      a non-Hitboxes tab when the bootstrap fired, the flag
         //      was never consumed (only render_hitboxes_tab clears it).
         //      Then the moment the user navigated to Hitboxes,
         //      SetKeyboardFocusHere() snapped focus onto the F5
-        //      checkbox — eating any in-flight click on a different
+        //      checkbox - eating any in-flight click on a different
         //      widget.
         //
         // The fix below addresses both: bootstrap is one-shot, fires only
@@ -4400,9 +4647,9 @@ private:
         }
 
         // Window title carries the build date (DD-Mmm-YYYY) so users
-        // running the dev mod can tell which build they're on — useful
+        // running the dev mod can tell which build they're on - useful
         // when triaging bug reports on Discord ("which date is your
-        // overlay window showing?").  Computed once from __DATE__ —
+        // overlay window showing?").  Computed once from __DATE__ -
         // see horsemod_window_title() at the top of this TU.
         if (!ImGui::Begin(horsemod_window_title()))
         {
@@ -4419,10 +4666,10 @@ private:
         // current state and the gate's effect.
         //
         // Four colour states (same semantics as the old banner):
-        //   GREY     gating toggle off              — all features available
-        //   GREEN    gating on, scene safe          — all features available
-        //   RED      gating on, in Ranked / Casual  — 4 features force-disabled
-        //   YELLOW   presence not yet resolved      — gate inactive
+        //   GREY     gating toggle off              - all features available
+        //   GREEN    gating on, scene safe          - all features available
+        //   RED      gating on, in Ranked / Casual  - 4 features force-disabled
+        //   YELLOW   presence not yet resolved      - gate inactive
         //
         // The square is drawn into the WINDOW draw list (clipped to the
         // title bar rect) so it composites correctly with ImGui's own
@@ -4502,13 +4749,13 @@ private:
         s_requested_tab = -1;
 
         // Unconditionally clear m_nav_bootstrap_pending at the end of
-        // every frame — even if the visible tab wasn't render_hitboxes_-
+        // every frame - even if the visible tab wasn't render_hitboxes_-
         // tab and didn't consume it.  Without this clear the flag would
         // be sticky across multiple frames in the "Camera/Time/General
         // tab is visible when the user shows the overlay" case, and
         // would then steal focus the moment the user navigated to the
         // Hitboxes tab (eating any in-flight click).  Clearing here
-        // means: bootstrap is best-effort — if you happen to be on the
+        // means: bootstrap is best-effort - if you happen to be on the
         // Hitboxes tab when the overlay shows, focus snaps to F5; on
         // any other tab the bootstrap is harmlessly dropped.
         m_nav_bootstrap_pending = false;
@@ -4517,7 +4764,7 @@ private:
     }
 
     // ==================================================================
-    // Hitboxes tab — the core feature.  Master F5 toggle with live
+    // Hitboxes tab - the core feature.  Master F5 toggle with live
     // status line, per-player move-frame display, KHit list checkboxes
     // (hurt / attack / body for P1 + P2), attack-role filters
     // (strike / throw) and the three engine-derived damage filters,
@@ -4525,7 +4772,7 @@ private:
     // ==================================================================
     void render_hitboxes_tab()
     {
-        // Nav bootstrap — see m_nav_bootstrap_pending doc comment.
+        // Nav bootstrap - see m_nav_bootstrap_pending doc comment.
         // Called BEFORE the checkbox so ImGui applies focus to it.
         // Cleared immediately so subsequent frames don't keep
         // stealing focus from wherever the user has navigated to.
@@ -4555,7 +4802,7 @@ private:
         // just needs to start a match for the rest to come online.
         if (!Horse::NativeBinding::isReady())
         {
-            ImGui::TextDisabled("(setting up — check UE4SS.log if this persists)");
+            ImGui::TextDisabled("(setting up - check UE4SS.log if this persists)");
         }
         else if (!m_hook_registered)
         {
@@ -4625,16 +4872,25 @@ private:
         // top of this class for the engine-truth predicates.
         {
             bool only_active = m_only_show_active.load();
-            if (ImGui::Checkbox("Only show active boxes", &only_active))
+            if (ImGui::Checkbox("Only boxes that can matter this frame",
+                                &only_active))
                 m_only_show_active.store(only_active);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Show only the boxes the engine is actually using "
-                "this frame (engine-truth narrow filter).");
+                "Default analysis view.\n\n"
+                "Hitboxes: shown only on engine damage frames.\n"
+                "Hurtboxes: shown only when the classifier can read the "
+                "slot, the overlap gate is on, and the defender can react.\n\n"
+                "Turn this off to inspect authored boxes, ignored slots, "
+                "partial armor, and full-body i-frame states.");
+            ImGui::TextDisabled(
+                "Colors: hurt green/red, ignored slot cyan, per-slot off "
+                "dim green, full-body i-frames purple, no-react grey; "
+                "throws grey when height dispatch rejects.");
         }
 
         // --- Hit-flash duration -----------------------------------------
         // The raw PerHurtboxReactionState signal is a ~1-frame pulse
-        // (~16ms at 60fps) — too short to see.  This slider extends the
+        // (~16ms at 60fps) - too short to see.  This slider extends the
         // visible red flash by holding the "hot" state for N GAME FRAMES
         // before fading.  0 = disable the sticky entirely (raw 1-frame
         // pulse only).
@@ -4642,16 +4898,16 @@ private:
         // The drain is keyed on g_LuxBattle_FrameCounter (incremented
         // at the end of LuxBattle_PerFrameTick), so it tracks the same
         // tick the rest of the simulation does:
-        //   * Freeze frame ON  → counter halts → flash held indefinitely.
-        //   * F6 step          → counter +1   → flash drains by 1.
-        //   * Slow-mo at S×    → counter advances at S× wall rate, so
-        //                        the flash visibly persists 1/S× longer
+        //   * Freeze frame ON  ? counter halts ? flash held indefinitely.
+        //   * F6 step          ? counter +1   ? flash drains by 1.
+        //   * Slow-mo at S-    ? counter advances at S- wall rate, so
+        //                        the flash visibly persists 1/S- longer
         //                        in real time (matching the slowed anim).
-        //   * Native play      → counter advances at 60Hz regardless of
+        //   * Native play      ? counter advances at 60Hz regardless of
         //                        render rate, so 15 frames = 250ms on
         //                        any monitor (60/120/144Hz).
         //
-        // 15 frames ≈ 250ms at 60fps; 60 frames ≈ 1 second; the slider
+        // 15 frames - 250ms at 60fps; 60 frames - 1 second; the slider
         // caps at 60.
         ImGui::Spacing();
         ImGui::Separator();
@@ -4681,9 +4937,9 @@ private:
                 ImGui::SetTooltip("Line thickness for the wireframes.");
 
             // Per-feature renderer combos.  Two entries each: Persistent
-            // (depth-tested, lines accumulate over time — useful for
+            // (depth-tested, lines accumulate over time - useful for
             // tracing a chara's path through a move) and Normal
-            // (always-on-top, lines clear each frame — clean read of
+            // (always-on-top, lines clear each frame - clean read of
             // the current state).  The third historical entry "Default"
             // (UWorld+0x40, depth-tested per-frame) was removed because
             // its lines disappeared behind characters, which defeats
@@ -4711,13 +4967,13 @@ private:
                     "Normal: always on top. Persistent: lines "
                     "accumulate (useful for tracing a move's path).");
 
-            // Trail length — only meaningful when at least one renderer
+            // Trail length - only meaningful when at least one renderer
             // is set to Persistent.  Hidden otherwise to keep the UI
-            // free of inert controls.  Works identically with "Only
-            // show active boxes" enabled: the persistent batcher
+            // free of inert controls.  Works identically with the
+            // engine-live filter enabled: the persistent batcher
             // accumulates ONLY the active-frame draws, producing a
             // trail of where the active hit/hurt boxes actually were
-            // — which is the most useful read for move analysis.
+            // - which is the most useful read for move analysis.
             const bool any_persistent =
                 m_slot_hit.load()  == Horse::LineBatcherSlot::Persistent ||
                 m_slot_hurt.load() == Horse::LineBatcherSlot::Persistent;
@@ -4733,17 +4989,18 @@ private:
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                     "How long Persistent-slot lines stay visible, in "
-                    "game frames (60/sec). Lifetime decrements in "
-                    "wall-clock time, so freeze and slow-mo extend "
-                    "the visible trail. Works with 'Only show active "
-                    "boxes' — the trail then shows just the active-"
-                    "frame footprint of each hit/hurt box.");
+                    "game frames (60/sec). Lifetime decrements only "
+                    "when SC6's game-frame counter advances, so freeze "
+                    "holds the trail and F6 step drains one frame. "
+                    "the visible trail. Works with 'Only boxes that can "
+                    "matter this frame' - the trail then shows just the "
+                    "engine-live footprint of each hit/hurt box.");
             }
         }
     }
 
     // ==================================================================
-    // Camera tab — pose lock (position + rotation group), Free-fly
+    // Camera tab - pose lock (position + rotation group), Free-fly
     // camera (F7) with its sub-controls (move/look/FOV sliders, live
     // pose readout, memory-verify line, input diagnostics), and Ansel
     // always-allowed.  All independent of the F5 hitbox overlay.
@@ -4753,7 +5010,7 @@ private:
         // --- Always allow Ansel camera -----------------------------------
         // Runs independent of the F5 hitbox overlay.  Kept at the top of
         // the Camera tab (rather than buried under Free-fly's sub-controls)
-        // because it's a single checkbox with no state to inspect — the
+        // because it's a single checkbox with no state to inspect - the
         // user either wants Ansel always available or not.
         bool aa = m_ansel_always_allowed.load();
         if (ImGui::Checkbox("Always allow Ansel camera", &aa))
@@ -4764,7 +5021,7 @@ private:
             "Normally SC6 only allows Ansel in specific situations\n"
             "(menus, cinematics, ring-out).  With this on you can\n"
             "trigger the Ansel hotkey any time, even mid-match.\n\n"
-            "Independent of the F5 overlay — you can use Ansel with\n"
+            "Independent of the F5 overlay - you can use Ansel with\n"
             "or without the hitbox overlay enabled.");
 
         ImGui::Separator();
@@ -4785,7 +5042,7 @@ private:
             // locked because free-fly turned it on").  Additionally we
             // grey-out the checkbox while free-fly is active because
             // its underlying CamLock is being driven by the free-fly
-            // state machine — letting the user poke the checkbox then
+            // state machine - letting the user poke the checkbox then
             // would cause a fight between the two owners.
             const bool fc_on = m_free_camera_enabled.load();
             const bool online_locked =
@@ -4800,7 +5057,7 @@ private:
             }
             if (any_disabled) ImGui::EndDisabled();
             // Strike through the label when force-disabled BY THE
-            // ONLINE GATE specifically — a strong visual cue that the
+            // ONLINE GATE specifically - a strong visual cue that the
             // gate (not a normal "no value" path) is blocking the
             // toggle.  Strikethrough is reserved for the online-gate
             // case so the existing "free-fly owns the lock" disabled
@@ -4808,7 +5065,7 @@ private:
             if (online_locked) draw_disabled_strikethrough();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                 online_locked
-                    ? "Disabled — you're in a Ranked or Casual online\n"
+                    ? "Disabled - you're in a Ranked or Casual online\n"
                       "match and the General tab's \"Auto disable online\"\n"
                       "toggle is on.\n\n"
                       "Camera locking will be available again when the\n"
@@ -4816,7 +5073,7 @@ private:
                       "toggle off in the General tab to override (not\n"
                       "recommended for online play)."
                 : fc_on
-                    ? "Disabled while Free-fly camera is on — free-fly\n"
+                    ? "Disabled while Free-fly camera is on - free-fly\n"
                       "takes over the camera lock while it's active.\n"
                       "Turn free-fly off first to toggle this manually."
                     : "Freeze the camera at its current position, angle,\n"
@@ -4828,26 +5085,26 @@ private:
                       "Independent of the F5 overlay.");
 
             // Lock camera rotation has been removed from the UI.
-            // It's still useful internally — Free-fly camera enables
+            // It's still useful internally - Free-fly camera enables
             // it automatically while it's active so arrow-key look
-            // works — but exposing it as a separate user toggle was
+            // works - but exposing it as a separate user toggle was
             // confusing.  Free-fly now owns the rotation lock entirely.
 
-            // Status line — friendly summary of whether the camera
+            // Status line - friendly summary of whether the camera
             // is currently locked.  Free-fly turning on the lock
             // counts as "active" here so the user sees feedback when
             // free-cam mode is engaged.
             if (!m_cam_lock.is_resolved() && lc)
             {
                 ImGui::TextDisabled(
-                    "(camera lock couldn't find its hook points — "
+                    "(camera lock couldn't find its hook points - "
                     "see UE4SS.log for details)");
             }
             else if (m_cam_lock.is_enabled() &&
                      m_cam_lock.is_rotation_enabled())
             {
                 ImGui::TextDisabled(
-                    "(camera fully locked — position + rotation)");
+                    "(camera fully locked - position + rotation)");
             }
             else if (m_cam_lock.is_enabled())
             {
@@ -4862,7 +5119,7 @@ private:
             // Built-in WASD + arrow-key fly camera.  Uses CamLock to
             // freeze the engine's camera stores then writes the pose
             // ourselves each cockpit tick.  Works WITHOUT invoking
-            // Nvidia Ansel — the hitbox overlay stays visible because
+            // Nvidia Ansel - the hitbox overlay stays visible because
             // SC6's `r.Photography.InSession` CVar never gets set.
             ImGui::Spacing();
             {
@@ -4877,7 +5134,7 @@ private:
                 if (ImGui::IsItemHovered() && ff_online_locked)
                 {
                     ImGui::SetTooltip(
-                        "Disabled — you're in a Ranked or Casual online\n"
+                        "Disabled - you're in a Ranked or Casual online\n"
                         "match and the General tab's \"Auto disable online\"\n"
                         "toggle is on.\n\n"
                         "Free-fly camera will be available again when the\n"
@@ -4894,15 +5151,15 @@ private:
                     "  A / D       strafe left / right\n"
                     "  E / Q       move up / down\n"
                     "  Arrows or IJKL   look around\n"
-                    "  Shift       5× faster  |  Ctrl  0.2× slower\n"
+                    "  Shift       5- faster  |  Ctrl  0.2- slower\n"
                     "(If the arrow keys don't respond, use IJKL\n"
-                    " instead — the game grabs arrows on some\n"
+                    " instead - the game grabs arrows on some\n"
                     " screens.)\n\n"
                     "Controller (player 1):\n"
                     "  Left stick    move\n"
                     "  Right stick   look\n"
                     "  LT / RT       move down / up\n"
-                    "  LB / RB       0.2× / 5× speed\n\n"
+                    "  LB / RB       0.2- / 5- speed\n\n"
                     "Turning this on also locks the camera\n"
                     "automatically; turning it off releases the\n"
                     "lock.  To re-frame a shot, toggle OFF, let\n"
@@ -4919,8 +5176,8 @@ private:
                         m_free_camera.move_speed() = mv;
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                         "How fast WASD / left-stick moves the camera.\n"
-                        "Hold Shift (or RB) for 5× this speed, Ctrl\n"
-                        "(or LB) for 0.2×.");
+                        "Hold Shift (or RB) for 5- this speed, Ctrl\n"
+                        "(or LB) for 0.2-.");
 
                     float lk = m_free_camera.look_speed();
                     if (ImGui::SliderFloat("Look speed", &lk,
@@ -4941,7 +5198,7 @@ private:
                         "angle / fisheye look.  70 is the game's\n"
                         "default.");
 
-                    // Live pose readout — handy for reproducing shots.
+                    // Live pose readout - handy for reproducing shots.
                     ImGui::TextDisabled(
                         "position (%.1f, %.1f, %.1f)  rotation (%.1f, %.1f, %.1f)",
                         m_free_camera.loc_x(),
@@ -4951,7 +5208,7 @@ private:
                         m_free_camera.yaw(),
                         m_free_camera.roll());
 
-                    // On-screen memory persistence check — read the
+                    // On-screen memory persistence check - read the
                     // camera-manager memory live and compare to our
                     // expected pose.  Makes "is our write actually
                     // reaching memory?" debuggable without reading log
@@ -4997,14 +5254,14 @@ private:
                 if (fc && !m_cached_player_camera_manager)
                 {
                     ImGui::TextDisabled(
-                        "(waiting for a match — free-cam needs an "
+                        "(waiting for a match - free-cam needs an "
                         "active camera)");
                 }
             }
     }
 
     // ==================================================================
-    // Time tab — Freeze frame (drives SpeedControl speedval=0 for a
+    // Time tab - Freeze frame (drives SpeedControl speedval=0 for a
     // hard world-tick stop), Step 1 / Step N buttons for deterministic
     // frame-stepping under freeze, and the Slow-motion slider + preset
     // buttons (0.001x..1.0x).  Both toggles are independent; Freeze
@@ -5015,7 +5272,7 @@ private:
         // --- Live move-frame display -------------------------------------
         // Deref chara+0x44068 ActiveLaneStateCursorPtr and show
         // CurrentAnimFrame / AnimLengthFrames for each player.  Costs
-        // ~4 safe reads per frame per player — negligible.
+        // ~4 safe reads per frame per player - negligible.
         //
         // Lives on the Time tab because it's the frame-data readout you
         // watch while driving Freeze frame / Slow-mo: "I paused at frame
@@ -5048,7 +5305,7 @@ private:
                     "  current-frame / total-frames\n"
                     "  move ID (internal hex value)\n"
                     "  lane (which attack slot is active)\n"
-                    "  speed (playback multiplier — 1.00x = normal)\n"
+                    "  speed (playback multiplier - 1.00x = normal)\n"
                     "  [T] = mid-transition between moves\n"
                     "  [done] / [end] = move has finished playing\n"
                     "\n"
@@ -5063,11 +5320,11 @@ private:
 
         ImGui::Separator();
 
-            // --- Freeze frame (REWORKED — drives Horse::SpeedControl) --
+            // --- Freeze frame (REWORKED - drives Horse::SpeedControl) --
             // Sets the SpeedControl speedval to 0 to freeze the world,
             // back to its base value (Slow-mo slider or 1.0) on
             // unfreeze.  Frame-step temporarily lifts the freeze for
-            // one cockpit-tick cycle — see frame_step_apply.  The old
+            // one cockpit-tick cycle - see frame_step_apply.  The old
             // chara+0x394 bytepatch approach was wrong (audio bit, not
             // world pause); see plate on g_LuxBattle_VMFreezeByte.
             const bool time_online_locked =
@@ -5077,7 +5334,7 @@ private:
             if (ImGui::Checkbox("Freeze frame", &ff))
             {
                 m_freeze_frame.store(ff);
-                // No explicit resolve/enable here — frame_step_apply
+                // No explicit resolve/enable here - frame_step_apply
                 // does the lazy enable on the next cockpit tick when
                 // it sees freeze=true.
             }
@@ -5086,7 +5343,7 @@ private:
             if (ImGui::IsItemHovered() && time_online_locked)
             {
                 ImGui::SetTooltip(
-                    "Disabled — you're in a Ranked or Casual online\n"
+                    "Disabled - you're in a Ranked or Casual online\n"
                     "match and the General tab's \"Auto disable online\"\n"
                     "toggle is on.\n\n"
                     "Freeze frame will be available again when the\n"
@@ -5101,7 +5358,7 @@ private:
 
             // Step-frame controls.  m_step_pending++ queues frames so
             // mashing the button (or holding F6) is lossless.  No
-            // engine-state gating needed — the SpeedControl patches
+            // engine-state gating needed - the SpeedControl patches
             // are independent of battle context and work as soon as
             // they resolve, which the frame_step_apply driver does
             // lazily on first non-1.0 target.
@@ -5128,37 +5385,37 @@ private:
             if (!ff && ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip(
-                    "Turn on Freeze frame first — stepping only\n"
+                    "Turn on Freeze frame first - stepping only\n"
                     "makes sense when the world is paused.");
             }
 
-            // Status line — "paused" / "stepping" / unresolved.
+            // Status line - "paused" / "stepping" / unresolved.
             if (m_speed_control.is_resolved())
             {
                 if (const int q = m_step_pending.load(); q > 0)
                 {
-                    ImGui::TextDisabled("(advancing %d more frame%s…)",
+                    ImGui::TextDisabled("(advancing %d more frame%s-)",
                                         q, q == 1 ? "" : "s");
                 }
                 else if (ff)
                 {
-                    ImGui::TextDisabled("(paused — press F6 to advance one frame)");
+                    ImGui::TextDisabled("(paused - press F6 to advance one frame)");
                 }
             }
             else if (ff)
             {
                 ImGui::TextDisabled(
-                    "(couldn't hook the game's timing — see UE4SS.log)");
+                    "(couldn't hook the game's timing - see UE4SS.log)");
             }
 
             // ---- Per-step diagnostic logger (debug aid) ----------------
-            // UI hidden — underlying logger machinery (m_step_diag_*) and
+            // UI hidden - underlying logger machinery (m_step_diag_*) and
             // settings persistence remain intact, so the feature can be
             // toggled by editing settings.cfg or by un-#if-ing this block.
 #if 0
             // Off by default.  When on, every F6 step writes two lines
-            // to UE4SS.log — one BEFORE the step's world tick, one
-            // AFTER — listing the chara fields the hit classifier
+            // to UE4SS.log - one BEFORE the step's world tick, one
+            // AFTER - listing the chara fields the hit classifier
             // consults.  Used to diagnose multi-hit-miss / held-input
             // bugs by diffing the pre/post snapshots.  Heavy: noisy log,
             // ~16 bytes per chara per snapshot * 2 charas * 2 phases =
@@ -5174,7 +5431,7 @@ private:
                         // for this enable cycle.
                         m_step_diag_seq.store(0);
                         Output::send<LogLevel::Default>(
-                            STR("[FStep] per-step diagnostic ENABLED — "
+                            STR("[FStep] per-step diagnostic ENABLED - "
                                 "next F6 step will log pre/post chara "
                                 "fields to UE4SS.log\n"));
                     }
@@ -5189,7 +5446,7 @@ private:
                     "bugs.  When enabled, each F6 step writes two lines\n"
                     "to UE4SS.log (a pre-step snapshot and a post-step\n"
                     "snapshot) listing chara+0x16E5/0x16EA/0x44058/etc.\n"
-                    "— the fields the hit classifier reads.  Diff a\n"
+                    "- the fields the hit classifier reads.  Diff a\n"
                     "pre/post pair to see what changed across one game\n"
                     "frame.  Leave OFF for normal play.");
             }
@@ -5198,7 +5455,7 @@ private:
             // --- Speed control (slow-motion / freeze) ------------------
             // Replaces the engine's master delta-time reads with a load
             // from a single user-controlled float.  Independent of the
-            // Freeze-frame toggle above — Freeze gates the chara state
+            // Freeze-frame toggle above - Freeze gates the chara state
             // machine, this gates ALL dt-driven subsystems (animation,
             // hit timing, particles within the MoveVM scope).
             //
@@ -5209,7 +5466,7 @@ private:
             {
                 // The whole slow-motion block (checkbox + slider +
                 // preset buttons) is locked while the online gate is
-                // engaged — disabling just the checkbox would leave
+                // engaged - disabling just the checkbox would leave
                 // the slider/presets clickable, and clicking a preset
                 // would still mutate m_speed_value (harmless because
                 // m_speed_control.is_enabled() would be false, but
@@ -5245,14 +5502,14 @@ private:
                 // so the visual cue lines up with the checkbox row
                 // and not with anything below it.
                 if (sm_online_locked) draw_disabled_strikethrough();
-                // Tooltip — picks the gate-locked text or the normal
+                // Tooltip - picks the gate-locked text or the normal
                 // explanation depending on state.  Only shown while the
                 // checkbox is hovered (Slider/Presets get their own
                 // tooltips below).
                 if (ImGui::IsItemHovered() && sm_online_locked)
                 {
                     ImGui::SetTooltip(
-                        "Disabled — you're in a Ranked or Casual online\n"
+                        "Disabled - you're in a Ranked or Casual online\n"
                         "match and the General tab's \"Auto disable online\"\n"
                         "toggle is on.\n\n"
                         "Slow-motion will be available again when the\n"
@@ -5266,12 +5523,12 @@ private:
                 // ---- Live cadence dot --------------------------
                 // Small colored square on the SAME ROW as the
                 // checkbox + slider that flickers between green
-                // (this tick is a "go" tick — full game frame) and
-                // red (this tick is a "stop" tick — frozen).  Lets
+                // (this tick is a "go" tick - full game frame) and
+                // red (this tick is a "stop" tick - frozen).  Lets
                 // the user visually confirm the slider is producing
                 // the cadence they expect, especially important at
                 // very low speeds (e.g., 0.01x = one go tick every
-                // 100 cockpit ticks ≈ 1.6 sec — without this dot
+                // 100 cockpit ticks - 1.6 sec - without this dot
                 // the user has no feedback the system is alive).
                 //
                 // Drawn as a custom-rendered dummy item so its
@@ -5290,14 +5547,14 @@ private:
                         case TickKind::Go:
                             col = ImVec4{0.30f, 0.90f, 0.40f, 1.0f};
                             hover_text =
-                                "GO tick — this cockpit tick is\n"
+                                "GO tick - this cockpit tick is\n"
                                 "advancing the game by one full\n"
                                 "native-dt frame.";
                             break;
                         case TickKind::Stop:
                             col = ImVec4{0.95f, 0.30f, 0.30f, 1.0f};
                             hover_text =
-                                "STOP tick — this cockpit tick is\n"
+                                "STOP tick - this cockpit tick is\n"
                                 "fully frozen.  The next 'go' tick\n"
                                 "fires once the accumulator crosses\n"
                                 "1.0 (slider value adds per tick).";
@@ -5330,7 +5587,7 @@ private:
                 //
                 // Range capped at 1.0 because the frame-stepped
                 // implementation can't tick the world MORE than once
-                // per cockpit tick — values >1.0 silently behave as
+                // per cockpit tick - values >1.0 silently behave as
                 // 1.0 (see frame_step_apply's slow-mo branch).
                 //
                 // Logarithmic scale gives finer resolution at the
@@ -5360,7 +5617,7 @@ private:
                     "0.1x  = every 10th tick is a game frame (~6 fps)\n"
                     "0.05x = every 20th tick is a game frame (~3 fps)");
 
-                // Effective rate readout — shown below the slider so
+                // Effective rate readout - shown below the slider so
                 // the user sees the cadence they're picking in
                 // human-readable units without having to do mental
                 // arithmetic.
@@ -5431,7 +5688,7 @@ private:
                 if (!m_speed_control.is_resolved() && sc_on)
                 {
                     ImGui::TextDisabled(
-                        "(couldn't hook the game's timing — see UE4SS.log)");
+                        "(couldn't hook the game's timing - see UE4SS.log)");
                 }
                 else if (m_speed_control.is_enabled())
                 {
@@ -5443,7 +5700,7 @@ private:
     }
 
     // ==================================================================
-    // Labbing tab — training-mode utilities for practising specific
+    // Labbing tab - training-mode utilities for practising specific
     // setups: capture a custom reset pose and have the in-game training
     // position-reset bind warp both players back to it.
     // ==================================================================
@@ -5499,7 +5756,7 @@ private:
                 // share setups (Discord, notes) without re-capturing.
                 // Format documented in ResetOverride::poses_to_json /
                 // poses_from_json.  Only "expected numbers in expected
-                // places" validation — does NOT verify the position is
+                // places" validation - does NOT verify the position is
                 // legal on the current stage.
                 if (ImGui::Button("Copy position"))
                 {
@@ -5548,7 +5805,7 @@ private:
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                     "Replace captured poses from JSON in the clipboard. "
-                    "P1 / P2 are independent — pasting a P1-only payload "
+                    "P1 / P2 are independent - pasting a P1-only payload "
                     "leaves the existing P2 capture untouched.");
 
                 if (!m_reset_pose_io_status.empty())
@@ -5583,13 +5840,14 @@ private:
                 if (!any_reset_registered)
                 {
                     ImGui::TextDisabled(
-                        "(waiting for training-reset hook — start a match)");
+                        "(waiting for training-reset hook - start a match)");
                 }
             }
+
     }
 
     // ==================================================================
-    // Replay tab — video-style scrubbing for SC6 match replays.
+    // Replay tab - video-style scrubbing for SC6 match replays.
     //
     // SC6's .replay file format only stores deterministic inputs +
     // round-start checkpoints, so per-frame backward seek requires us
@@ -5601,13 +5859,85 @@ private:
     //
     // UI flow:
     //   1. User enters the Replay viewer.
-    //   2. User opens this tab and clicks "Generate timeline" — the
+    //   2. User opens this tab and clicks "Generate timeline" - the
     //      replay fast-forwards (engine frame cap removed) and the ring
     //      fills.  (Or enables "Capture" for passive 1x capture instead.)
-    //   3. User drags the timeline / uses the transport buttons → seeks
+    //   3. User drags the timeline / uses the transport buttons ? seeks
     //      to that capture; the world freezes while paused.
-    //   4. User presses Play → playback resumes from the playhead.
+    //   4. User presses Play ? playback resumes from the playhead.
     // ==================================================================
+    static const char* replay_scrub_block_reason_text(
+        Horse::ReplayScrub::NativeSeekFailure reason) noexcept
+    {
+        using Reason = Horse::ReplayScrub::NativeSeekFailure;
+        switch (reason)
+        {
+        case Reason::FunctionUnresolved:
+            return "native function unresolved";
+        case Reason::DriverUnresolved:
+            return "driver unresolved";
+        case Reason::DriverBusy:
+            return "driver busy";
+        case Reason::CallFaulted:
+            return "native call faulted";
+        case Reason::TaskNotObserved:
+            return "task not observed";
+        case Reason::SettleTimedOut:
+            return "settle timed out";
+        case Reason::InvalidTarget:
+            return "invalid target";
+        case Reason::TimelineMissingDemoTime:
+            return "no captured demo time";
+        case Reason::NativeTimeSourceUnresolved:
+            return "native time unresolved";
+        case Reason::LegacyVerifyFailed:
+            return "SC6 replay-state verify failed";
+        case Reason::InteractiveReplayContextUnresolved:
+            return "SC6 replay context unresolved";
+        case Reason::InteractiveReplayResetFaulted:
+            return "SC6 legacy reset faulted";
+        case Reason::InteractiveReplayRoundSelectFailed:
+            return "SC6 round select failed";
+        case Reason::InteractiveReplayFastForwardStalled:
+            return "SC6 fast-forward stalled";
+        case Reason::InteractiveReplayVerifyFailed:
+            return "SC6 exact verify failed";
+        case Reason::InteractiveReplayTargetPastMatchEnd:
+            return "SC6 target past match end";
+        case Reason::RoundResetDataUnavailable:
+            return "SC6 reset data unavailable";
+        case Reason::Sc6ResetSnapshotReadFailed:
+            return "SC6 reset snapshot read failed";
+        case Reason::Sc6ResetSnapshotWriteFailed:
+            return "SC6 reset snapshot write failed";
+        case Reason::Sc6InputLogRestoreFailed:
+            return "SC6 input log restore failed";
+        case Reason::Sc6ReplayDataBlockRestoreFailed:
+            return "SC6 replay data restore failed";
+        case Reason::Sc6ReplayCursorWriteFailed:
+            return "SC6 replay cursor write failed";
+        case Reason::Sc6ReplayPlayerCursorWriteFailed:
+            return "SC6 replay player cursor write failed";
+        case Reason::Sc6SetMoveStateFaulted:
+            return "SC6 round reset dispatch failed";
+        case Reason::Sc6InteractiveReplayResetFaultedDiagnostic:
+            return "SC6 diagnostic reset faulted";
+        case Reason::Sc6ResetDispatchFailed:
+            return "SC6 reset dispatch failed";
+        case Reason::CapturedSnapshotRestoreFailed:
+            return "selected frame restore failed";
+        case Reason::CapturedSnapshotCompareFailed:
+            return "selected frame could not be verified";
+        case Reason::CapturedSnapshotValidationStepFailed:
+            return "selected frame validation step failed";
+        case Reason::NotLanded:
+            return "selected frame not verified";
+        case Reason::None:
+        default:
+            return "selected frame not verified";
+        }
+    }
+
     void render_replay_tab()
     {
         auto& scrub = Horse::ReplayScrub::instance();
@@ -5615,7 +5945,7 @@ private:
         if (!scrub.is_initialized())
         {
             ImGui::TextDisabled(
-                "(replay scrubber not initialised — check UE4SS.log)");
+                "(replay scrubber not initialised - check UE4SS.log)");
             return;
         }
 
@@ -5626,28 +5956,27 @@ private:
         const int32_t earl   = scrub.earliest_seq();
         const int32_t latst  = scrub.latest_seq();
         const int32_t live   = scrub.live_frame();
-        const bool    paused = scrub.is_paused();
-        static int  s_playhead = -1;
-        static bool s_timeline_dragging = false;
+        auto timeline_view = scrub.timeline_view();
+        bool paused = timeline_view.paused;
+        const char* play_block_reason =
+            replay_scrub_block_reason_text(timeline_view.block_reason);
 
         // 2026-05-16 UX fix: don't early-return when not in replay /
         // captures empty.  Show a status notice but keep the Settings /
         // Debug toggles below editable anytime so the user can pre-
         // configure before entering the replay viewer.
         const bool show_timeline_ui = in_replay && cnt > 0;
-        if (!show_timeline_ui)
-            s_timeline_dragging = false;
         if (!in_replay)
         {
             ImGui::TextDisabled(
-                "(idle — enter the Replay viewer to capture.  Settings "
+                "(idle - enter the Replay viewer to capture.  Settings "
                 "below are editable anytime.)");
             ImGui::Spacing();
         }
         else if (cnt == 0)
         {
             ImGui::TextDisabled(
-                "(timeline empty — click \"Generate timeline\" below to "
+                "(timeline empty - click \"Generate timeline\" below to "
                 "fast-forward through the replay and fill it, or enable "
                 "\"Capture\" for passive 1x capture.  live=%d)", live);
             ImGui::Spacing();
@@ -5659,66 +5988,72 @@ private:
         // -----------------------------------------------------------------
         // Time display row
         // -----------------------------------------------------------------
-        // Playhead policy: ReplayScrub::current_play_position() returns
-        // a capture-sequence coordinate (monotonic across the whole
-        // match):
-        //     * Paused on a seeked snapshot: that snapshot's seq.
-        //     * Playing, or never seeked: the live capture edge.
-        // (See ReplayScrub::current_play_position for why post-seek
-        // playback follows the live edge rather than extrapolating a
-        // master-clock delta - the latter stalled across round
-        // boundaries.)
-        if (!s_timeline_dragging)
-        {
-            s_playhead = scrub.current_play_position();
-            if (s_playhead < earl)  s_playhead = earl;
-            if (s_playhead > latst) s_playhead = latst;
-        }
+        timeline_view = scrub.timeline_view();
+        paused = timeline_view.paused;
+        play_block_reason =
+            replay_scrub_block_reason_text(timeline_view.block_reason);
+        int playhead = timeline_view.displayed_seq;
+        if (playhead < earl)  playhead = earl;
+        if (playhead > latst) playhead = latst;
 
         auto fmt_time = [](float seconds, char* out, size_t n) {
             const int mm = static_cast<int>(seconds) / 60;
             const float ss = seconds - mm * 60.0f;
             std::snprintf(out, n, "%02d:%05.2f", mm, ss);
         };
-        // s_playhead is a capture-sequence coordinate (monotonic across
+        // playhead is a capture-sequence coordinate (monotonic across
         // the whole match, including round boundaries).  Resolve it to
         // (round, within-round frame) for a round-aware read-out; the
         // "capture N / total" still gives the overall timeline position.
         int32_t ph_round = -1, ph_wall = -1;
-        scrub.seq_tag_info(s_playhead, ph_round, ph_wall);
+        scrub.seq_tag_info(playhead, ph_round, ph_wall);
         char cur_buf[16];
         fmt_time(ph_wall >= 0 ? static_cast<float>(ph_wall) / 60.0f : 0.0f,
                  cur_buf, sizeof(cur_buf));
         if (ph_round >= 0)
-            ImGui::Text("Round %d  ·  %s  ·  capture %d / %d",
+            ImGui::Text("Round %d  -  %s  -  capture %d / %d",
                         ph_round + 1, cur_buf,
-                        s_playhead - earl + 1, latst - earl + 1);
+                        playhead - earl + 1, latst - earl + 1);
         else
             ImGui::Text("capture %d / %d",
-                        s_playhead - earl + 1, latst - earl + 1);
+                        playhead - earl + 1, latst - earl + 1);
         ImGui::SameLine(0.0f, 30.0f);
         if (paused)
             ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.35f, 1.0f), "PAUSED");
         else
             ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "LIVE");
+        if (timeline_view.native_pending)
+        {
+            ImGui::SameLine(0.0f, 12.0f);
+            ImGui::TextDisabled("%s",
+                                timeline_view.block_reason
+                                    == Horse::ReplayScrub::NativeSeekFailure::None
+                                      ? "Checking selected frame..."
+                                      : play_block_reason);
+        }
+        else if (paused && !timeline_view.can_play)
+        {
+            ImGui::SameLine(0.0f, 12.0f);
+            ImGui::TextDisabled("%s", play_block_reason);
+        }
 
         // -----------------------------------------------------------------
         // Custom-drawn timeline (the "playhead" UI).
         //
         // Layout:
-        //   ┌───────────────────────────────────────────────┐
-        //   │ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒|▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│   ← bar
-        //   │                       ●                      │   ← playhead
-        //   └───────────────────────────────────────────────┘
+        //   +-----------------------------------------------+
+        //   - ---------------------|-----------------------   ? bar
+        //   -                       ?                      -   ? playhead
+        //   +-----------------------------------------------+
         //
         // The bar's mouse interaction:
-        //   * mouse-down on bar           → on_drag_start, seek to mouse X
-        //   * drag while held             → seek to mouse X each frame X moves
-        //   * mouse-up                    → on_drag_end (stays paused unless auto-resume is toggled)
+        //   * mouse-down on bar           ? on_drag_start, seek to mouse X
+        //   * drag while held             ? seek to mouse X each frame X moves
+        //   * mouse-up                    ? on_drag_end (stays paused unless auto-resume is toggled)
         //
         // ImGui's InvisibleButton + IsItemActive() / IsItemDeactivated()
         // gives us all four signals cleanly.  No need for separate
-        // is-clicked-vs-dragged logic — they're the same interaction.
+        // is-clicked-vs-dragged logic - they're the same interaction.
         // -----------------------------------------------------------------
         const float bar_h = 28.0f;
         const float bar_w = ImGui::GetContentRegionAvail().x;
@@ -5728,11 +6063,11 @@ private:
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
-        // Background — full bar (dark grey).
+        // Background - full bar (dark grey).
         dl->AddRectFilled(bar_pos, bar_max,
                           IM_COL32( 35,  35,  40, 255), 4.0f);
 
-        // Captured-range overlay — the whole bar for now since the ring's
+        // Captured-range overlay - the whole bar for now since the ring's
         // earl..latst IS the viewable timeline.  Reserved for future
         // "full replay extent" rendering when we read nTotalRecorded-
         // Frames; in that mode this overlay would shade only the
@@ -5740,7 +6075,7 @@ private:
         dl->AddRectFilled(bar_pos, bar_max,
                           IM_COL32( 80, 130, 180, 110), 4.0f);
 
-        // Round-boundary markers — a thin tick + "R<n>" label wherever
+        // Round-boundary markers - a thin tick + "R<n>" label wherever
         // the replay crossed into a new round.  collect_round_markers()
         // returns one entry per round held in the ring, keyed by the
         // capture seq of that round's first snapshot.
@@ -5763,31 +6098,28 @@ private:
             }
         }
 
-        // Mouse interaction — must run before drawing the playhead so
-        // an in-flight drag updates s_playhead this frame.
+        // Mouse interaction - must run before drawing the playhead so
+        // an in-flight drag updates playhead this frame.
         const bool active   = ImGui::IsItemActive();
         const bool hovered  = ImGui::IsItemHovered();
 
         // Drag-edge detection.  Use ImGui's Active/Deactivated states
-        // rather than tracking ourselves — they're correctly shaped for
+        // rather than tracking ourselves - they're correctly shaped for
         // click-and-hold-then-release semantics.
         const bool drag_start = ImGui::IsItemActivated();
         const bool drag_end   = ImGui::IsItemDeactivated();
 
         if (drag_start)
         {
-            s_timeline_dragging = true;
-            scrub.on_drag_start();
+            scrub.ui_begin_drag();
         }
         if (drag_end)
         {
-            scrub.on_drag_end();
-            s_timeline_dragging = false;
+            scrub.ui_end_drag();
         }
 
         if (active)
         {
-            s_timeline_dragging = true;
             const float mx    = ImGui::GetIO().MousePos.x;
             const float frac  = (bar_w > 0.0f)
                                 ? (mx - bar_pos.x) / bar_w : 0.0f;
@@ -5795,16 +6127,16 @@ private:
                               : (frac > 1.0f) ? 1.0f : frac;
             const int   target = earl
                               + static_cast<int>(clmp * (latst - earl) + 0.5f);
-            if (target != s_playhead)
+            if (target != playhead)
             {
-                s_playhead = target;
-                scrub.request_seek(target);
+                playhead = target;
+                scrub.ui_drag_to_seq(target);
             }
         }
 
         // Playhead glyph: vertical line + circle at center.
         const float playhead_frac = (latst > earl)
-            ? static_cast<float>(s_playhead - earl)
+            ? static_cast<float>(playhead - earl)
               / static_cast<float>(latst - earl)
             : 0.0f;
         const float px = bar_pos.x + playhead_frac * bar_w;
@@ -5837,7 +6169,7 @@ private:
         ImGui::Spacing();
 
         // -----------------------------------------------------------------
-        // Transport row — jump/step/play-pause.  Step buttons engage
+        // Transport row - jump/step/play-pause.  Step buttons engage
         // pause (frame-by-frame review UX); the timeline drag uses
         // its own on_drag_start/on_drag_end pair instead.  Play/Pause
         // toggles the freeze directly without going through the seek
@@ -5846,19 +6178,18 @@ private:
         auto step_seek = [&](int target) {
             if (target < earl)  target = earl;
             if (target > latst) target = latst;
-            s_playhead = target;
+            playhead = target;
             // Step buttons explicitly engage pause - clicking +1 while
             // playing is "advance one frame and stop", matching every
             // video player's frame-step UX.
-            scrub.set_paused(true);
-            scrub.request_seek(target);
+            scrub.ui_step_to_seq(target);
         };
         if (ImGui::Button("|<<##rs_first"))      step_seek(earl);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Jump to oldest captured frame (pauses)");
         ImGui::SameLine();
-        if (ImGui::Button("<<-10##rs_b10"))      step_seek(s_playhead - 10);
+        if (ImGui::Button("<<-10##rs_b10"))      step_seek(playhead - 10);
         ImGui::SameLine();
-        if (ImGui::Button("<-1##rs_b1"))         step_seek(s_playhead - 1);
+        if (ImGui::Button("<-1##rs_b1"))         step_seek(playhead - 1);
         ImGui::SameLine();
 
         // Play / Pause toggle in the middle.  Pure pause flag flip -
@@ -5868,26 +6199,32 @@ private:
         // in sync; freezing here is a clean halt.
         if (paused)
         {
+            if (!timeline_view.can_play)
+                ImGui::BeginDisabled(true);
             if (ImGui::Button(" Play ##rs_play"))
-                scrub.set_paused(false);
+                scrub.ui_request_play();
+            if (!timeline_view.can_play)
+                ImGui::EndDisabled();
         }
         else
         {
             if (ImGui::Button("Pause ##rs_play"))
                 // Anchor the playhead at the live edge so the UI
                 // doesn't jump back to a stale prior-seek position
-                // (see ReplayScrub::mark_paused_at_live for the full
+                // (see ReplayScrub::ui_pause_at_live for the full
                 // race-free explanation).
-                scrub.mark_paused_at_live();
+                scrub.ui_pause_at_live();
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            paused
-              ? "Resume forward replay playback from the current playhead."
-              : "Pause replay playback at the current live edge.");
+            paused && !timeline_view.can_play
+              ? play_block_reason
+              : (paused
+                    ? "Resume forward replay playback from the current playhead."
+                    : "Pause replay playback at the current live edge."));
         ImGui::SameLine();
-        if (ImGui::Button("+1>##rs_f1"))         step_seek(s_playhead + 1);
+        if (ImGui::Button("+1>##rs_f1"))         step_seek(playhead + 1);
         ImGui::SameLine();
-        if (ImGui::Button("+10>>##rs_f10"))      step_seek(s_playhead + 10);
+        if (ImGui::Button("+10>>##rs_f10"))      step_seek(playhead + 10);
         ImGui::SameLine();
         if (ImGui::Button(">>|##rs_last"))       step_seek(latst);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip(
@@ -5898,12 +6235,12 @@ private:
         }  // end of: if (show_timeline_ui)
 
         // -----------------------------------------------------------------
-        // Generate timeline — fast-forward the replay to fill the ring.
+        // Generate timeline - fast-forward the replay to fill the ring.
         //
         // Removes SC6's engine frame-rate cap (UEngine FixedFrameRate)
         // for the duration, so the replay plays back as fast as the
         // machine can render + simulate.  Every frame is still captured
-        // into the ring exactly as in 1x playback — only sooner.  The
+        // into the ring exactly as in 1x playback - only sooner.  The
         // cap is restored automatically when the replay ends.  See
         // ReplayScrub::FrameCapOverride for the mechanism.
         // -----------------------------------------------------------------
@@ -5932,11 +6269,11 @@ private:
                 ImGui::SameLine(0.0f, 14.0f);
                 const char* gen_label =
                     scrub.is_battle_step_generation()
-                        ? "Generating (experimental 2 — direct PerFrameTick)…  %zu frames"
+                        ? "Generating (experimental 2 - direct PerFrameTick)-  %zu frames"
                         : scrub.is_experimental_generation()
-                            ? "Generating (experimental — render skipped)…  "
+                            ? "Generating (experimental - render skipped)-  "
                               "%zu frames"
-                            : "Generating — replay at max speed…  %zu frames";
+                            : "Generating - replay at max speed-  %zu frames";
                 ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.35f, 1.0f),
                     gen_label, cnt);
                 const auto prof = scrub.timeline_gen_profile();
@@ -5953,65 +6290,89 @@ private:
             else
             {
                 const bool done = (gen_state == GS::Done);
-                if (ImGui::Button(done ? "Re-generate timeline##rs_gen"
-                                       : "Generate timeline##rs_gen"))
-                    scrub.request_generate_timeline();
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Fast-forwards the replay by removing SC6's 60 fps\n"
-                    "engine cap, filling the scrub timeline as it plays.\n"
-                    "Speed depends on your hardware — the replay still\n"
-                    "renders every frame.  The cap is restored\n"
-                    "automatically when the replay reaches its end.\n"
-                    "\n"
-                    "Tip: open a replay and Generate right away to\n"
-                    "capture it from the start.  The whole replay is\n"
-                    "captured — there is no length limit.");
+                const bool gen_locked =
+                    scrub.is_timeline_generation_locked_complete();
+                const bool gen_waiting =
+                    scrub.is_generate_armed_for_next_clean_start();
+                const bool gen_allowed =
+                    gen_waiting ? true : scrub.can_generate_timeline();
+                const char* gen_block_reason =
+                    gen_allowed ? "" : scrub.generate_block_reason();
+                const char* gen_status = scrub.generate_status_text();
+                if (gen_waiting)
+                {
+                    if (ImGui::Button("Cancel waiting##rs_gen"))
+                        scrub.cancel_generate_waiting();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                        "Stop waiting for the next replay restart.");
+                }
+                else
+                {
+                    if (!gen_allowed)
+                        ImGui::BeginDisabled(true);
+                    if (ImGui::Button(gen_locked
+                                           ? "Timeline complete##rs_gen"
+                                           : (done ? "Re-generate timeline##rs_gen"
+                                                   : "Generate timeline##rs_gen")))
+                        scrub.request_generate_timeline();
+                    if (!gen_allowed)
+                        ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                        gen_status && gen_status[0]
+                            ? gen_status
+                            : gen_allowed
+                            ? "Builds the timeline so you can scrub this replay.\n"
+                              "If the replay already started, click Generate,\n"
+                              "then restart or reload the replay."
+                            : gen_block_reason);
+                }
 
-                // Experimental variant — same fast-forward, but it also
-                // SKIPS rendering the scene each frame so generation is
-                // sim-bound instead of render-bound (much faster).  See
-                // ReplayScrub::RenderSkipOverride.
+                if (!gen_allowed && gen_block_reason && gen_block_reason[0])
+                    ImGui::TextDisabled(
+                        "%s", gen_block_reason);
+                else if (gen_status && gen_status[0])
+                    ImGui::TextDisabled("%s", gen_status);
+
+                // Experimental variant: same fast-forward, but it also skips
+                // rendering so generation is sim-bound instead of render-bound.
+                // See ReplayScrub::RenderSkipOverride.
                 ImGui::SameLine();
+                if (!gen_allowed || gen_waiting)
+                    ImGui::BeginDisabled(true);
                 if (ImGui::Button("Experimental##rs_gen_exp"))
                     scrub.request_generate_timeline_experimental();
+                if (!gen_allowed || gen_waiting)
+                    ImGui::EndDisabled();
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Experimental — fast-forwards like Generate timeline,\n"
-                    "but also SKIPS rendering the scene each frame.  Only\n"
-                    "the simulation runs, so generation is far faster\n"
-                    "(SC6 replay viewing is render-bound).\n"
+                    "Faster timeline build. The screen may stop updating\n"
+                    "while it runs; that is expected.\n"
                     "\n"
-                    "The screen mostly FREEZES while generating — that is\n"
-                    "expected.  One frame in 16 is still drawn so the\n"
-                    "window stays responsive and Stop stays clickable.\n"
-                    "Rendering is restored automatically when it ends.");
+                    "Use the normal Generate button first unless this is\n"
+                    "too slow.");
 
                 ImGui::SameLine();
+                if (!gen_allowed || gen_waiting)
+                    ImGui::BeginDisabled(true);
                 if (ImGui::Button("Experimental 2##rs_gen_exp2"))
                     scrub.request_generate_timeline_experimental_battle_step();
+                if (!gen_allowed || gen_waiting)
+                    ImGui::EndDisabled();
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Experimental 2 - direct battle-step generation.\n"
-                    "Builds the timeline by repeatedly calling\n"
-                    "SC6's PerFrameTick through a bypass trampoline\n"
-                    "and snapshots every simulation frame. No UE rendering\n"
-                    "is needed for each frame, so this path is intended\n"
-                    "to be much faster than full-replay fast-forward.\n"
-                    "Use this as a proof of direct simulation speed.\n"
+                    "Fastest test path. It is for debugging only.\n"
                     "\n"
-                    "Warning: because it depends on how replay inputs are\n"
-                    "materialized per-frame, it is experimental and only\n"
-                    "for validation.");
+                    "Use normal Generate for real timeline work.");
 
                 if (done)
                 {
                     ImGui::SameLine(0.0f, 14.0f);
                     ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f),
-                        "Done — %zu frames captured", cnt);
+                        "Done - %zu frames captured", cnt);
                 }
             }
         }
 
         // -----------------------------------------------------------------
-        // Settings row — Auto-resume + Capture.
+        // Settings row - Auto-resume + Capture.
         // ALL settings below are editable regardless of replay state.
         // -----------------------------------------------------------------
         bool ar = scrub.auto_resume_on_release();
@@ -6027,13 +6388,13 @@ private:
         if (ImGui::Checkbox("Capture##rs_cap", &cap_on))
             scrub.set_capture_enabled(cap_on);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "Passive capture — OFF by default.  When ON, every Replay\n"
+            "Passive capture - OFF by default.  When ON, every Replay\n"
             "frame is snapshotted into the timeline during normal 1x\n"
             "viewing, which has a per-frame cost.  Normally leave this\n"
-            "OFF and use \"Generate timeline\" to build the timeline —\n"
+            "OFF and use \"Generate timeline\" to build the timeline -\n"
             "generation captures regardless of this toggle.");
 
-        // Timeline readout — frame count, duration, and dedup-store
+        // Timeline readout - frame count, duration, and dedup-store
         // memory.  Capture is unbounded: the deduplicating snapshot store
         // spans the whole replay, and the only limit is a 2 GB resident-
         // memory ceiling, so there is no capture-window setting to tune.
@@ -6098,119 +6459,53 @@ private:
             "tick.  Works regardless of verbose mode -- useful for\n"
             "capturing a snapshot of engine state at a precise moment.");
 
-        // Historical bisection controls.  These remain visible for context,
-        // but are locked off because the 2026-05-18 crash repro implicated
-        // broad chara/PRA/captured-ReplayPlayer restores.
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::TextDisabled("Scrub bisection toggles (2026-05-15 ultrathink)");
-        ImGui::TextDisabled("Locked off after 2026-05-18 crash repro.");
-        ImGui::BeginDisabled();
-
-        bool en_chara_4400 = scrub.enable_chara_4400_restore();
-        if (ImGui::Checkbox("Restore chara+0x4400 fields on seek##rs_c4400",
-                            &en_chara_4400))
-            scrub.set_enable_chara_4400_restore(en_chara_4400);
+        bool write_trace = Horse::ReplayDebugTrace::instance().enabled();
+        if (ImGui::Checkbox("Write replay trace##rs_trace", &write_trace))
+            Horse::ReplayDebugTrace::instance().set_enabled(write_trace);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "When ON, restores chara+0x43F4..+0x4428 (52 B per chara)\n"
-            "from the snapshot.\n"
-            "\n"
-            "Locked off after the 2026-05-18 repro: captured values here\n"
-            "looked float/stale in match replay, and enabling this path\n"
-            "preceded a crash.");
+            "Writes one JSON object per line for replay generation and\n"
+            "SC6 exact seek phases. This does not change replay behavior.");
+        ImGui::SameLine(0.0f, 20.0f);
+        if (ImGui::Button("New trace file##rs_trace_new"))
+            Horse::ReplayDebugTrace::instance().open_new_session(L"ui");
+        ImGui::SameLine();
+        if (ImGui::Button("Close trace##rs_trace_close"))
+            Horse::ReplayDebugTrace::instance().close_session();
 
-        bool force_fwd = scrub.force_pra_forward_bit_on_seek();
-        if (ImGui::Checkbox("Force PRA bit 9 (FORWARD) on seek##rs_force_fwd",
-                            &force_fwd))
-            scrub.set_force_pra_forward_bit_on_seek(force_fwd);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "When ON, after each seek, force-write PRA+0x398 bit 9 (0x200)\n"
-            "= 1 on both players.\n"
-            "\n"
-            "Ghidra recheck showed the old bit-9 theory was a false lead:\n"
-            "that path is round-reset navigation, not character motion.\n"
-            "Locked off after the 2026-05-18 crash repro.");
-
-        bool force_play = scrub.force_isplayingback_on_seek();
-        if (ImGui::Checkbox("Force bIsPlayingBack=1 on seek##rs_force_play",
-                            &force_play))
-            scrub.set_force_isplayingback_on_seek(force_play);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "When ON, after each seek, force-write ReplayPlayer+0x3D0\n"
-            "(bIsPlayingBack) = 1.\n"
-            "\n"
-            "Per ALuxBattleReplayPlayer_RegisterProperties @ 0x14097BEB0,\n"
-            "bIsPlayingBack is a replicated BoolProperty at +0x3D0.\n"
-            "Normal seeks use DemoNetDriver and leave this replicated\n"
-            "cursor alone unless the ReplayPlayer cursor experiment below\n"
-            "is explicitly enabled.");
-
-        bool en_spec = scrub.enable_speculative_restore();
-        if (ImGui::Checkbox("MASTER: enable speculative writes (WorldModePump+PRA+RP)"
-                            "##rs_speculative", &en_spec))
-            scrub.set_enable_speculative_restore(en_spec);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "MASTER GATE for the 'risky' restore writes that previously\n"
-            "caused crashes (2026-05-15 and 2026-05-18):\n"
-            "  - WorldModePump struct restore (pointer write)\n"
-            "  - PRA+0x394/+0x398 bits restore\n"
-            "  - ReplayPlayer cursor restore (CurrentTime/Round/bIsPlay)\n"
-            "\n"
-            "When native DemoNetDriver seek is ON (default), normal seeks\n"
-            "return before legacy snapshot restore and let UE4 rebuild the\n"
-            "replay state through its checkpoint/packet path.\n"
-            "\n"
-            "If native seek is explicitly OFF, the legacy path still does:\n"
-            "  - HgCpuDirect chara restore\n"
-            "  - IL window (FrameInputLog +0x394..+0x4414) restore\n"
-            "  - RDB cursor restore\n"
-            "  - BM cursor pair sync\n"
-            "  - 4 BM state byte writes (always applied)\n"
-            "  - optional derived ReplayPlayer cursor sync\n"
-            "\n"
-            "This gate is locked off in this build.");
-
-        ImGui::EndDisabled();
+        bool mirror_trace =
+            Horse::ReplayDebugTrace::instance().mirror_to_log();
+        if (ImGui::Checkbox("Mirror trace to UE4SS.log##rs_trace_mirror",
+                            &mirror_trace))
+        {
+            Horse::ReplayDebugTrace::instance().set_mirror_to_log(
+                mirror_trace);
+        }
+        bool verbose_slices =
+            Horse::ReplayDebugTrace::instance().verbose_slices();
+        if (ImGui::Checkbox("Verbose seek slices##rs_trace_slices",
+                            &verbose_slices))
+        {
+            Horse::ReplayDebugTrace::instance().set_verbose_slices(
+                verbose_slices);
+        }
+        const std::string trace_path =
+            Horse::ReplayDebugTrace::instance().current_path_utf8();
+        if (!trace_path.empty())
+        {
+            ImGui::TextWrapped("Trace: %s", trace_path.c_str());
+        }
 
         ImGui::Spacing();
-        bool use_rp_seek = scrub.use_replay_player_seek();
-        if (ImGui::Checkbox(
-                "EXPERIMENTAL: seek via ReplayPlayer.CurrentTime"
-                "##rs_rp_seek", &use_rp_seek))
-            scrub.set_use_replay_player_seek(use_rp_seek);
+        ImGui::TextDisabled("Strict SC6 exact seek: ON");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "When ON, every seek writes ALuxBattleReplayPlayer.CurrentRound,\n"
-            "CurrentTime, and bIsPlayingBack using verified byte offsets.\n"
-            "CurrentTime is derived from the selected snapshot master clock\n"
-            "instead of copied from stale captured extras.\n"
-            "\n"
-            "Default OFF: the normal path is DemoNetDriver seek.  This\n"
-            "cursor write is only a UI repair experiment after native\n"
-            "task submission is observed.\n"
-            "\n"
-            "Watch for '[ReplayScrub] first ReplayPlayer cursor sync' and\n"
-            "POST_SEEK_TICK ReplayPlayer diagnostics in UE4SS.log.");
-
-        bool use_demo_seek = scrub.use_demo_goto_time_seek();
-        if (ImGui::Checkbox(
-                "Use native DemoNetDriver seek on timeline seek"
-                "##rs_demo_goto", &use_demo_seek))
-            scrub.set_use_demo_goto_time_seek(use_demo_seek);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "When ON, every seek also calls UE4's\n"
-            "UDemoNetDriver::GotoTimeInSeconds with the absolute demo\n"
-            "time captured for that timeline frame.  Ghidra shows this\n"
-            "queues FGotoTimeInSecondsTask, which rebuilds replay-driver\n"
-            "state and replays packets toward the requested time.\n"
-            "\n"
-            "This is now the normal path for post-seek playback.  Watch\n"
-            "for '[ReplayScrub] native DemoNetDriver::GotoTimeInSeconds\n"
-            "submitted' in UE4SS.log; it includes raw DemoNetDriver\n"
-            "+0x791/+0x794/+0x7B0/+0x7B8 before/after state.");
+            "Timeline seeks reset SC6's native replay state to the target\n"
+            "round start and fast-forward to the exact captured master\n"
+            "clock. Play stays disabled until round/master/cache verification\n"
+            "lands exactly.");
     }
 
     // ==================================================================
-    // General tab — catch-all for visibility overrides and other
+    // General tab - catch-all for visibility overrides and other
     // toggles that don't fit the Hitboxes / Camera / Time split.
     // Hide weapons (per-frame
     // SetWeaponVisibility call), Hide characters (bytepatch on
@@ -6219,7 +6514,7 @@ private:
     // ==================================================================
     void render_general_tab()
     {
-            // ---- Online safety gate (TOP of General — primary control) ----
+            // ---- Online safety gate (TOP of General - primary control) ----
             // The single master toggle for HorseMod's online auto-disable
             // behaviour.  Placed at the top of the General tab because:
             //   1. It governs whether four features in OTHER tabs (Camera,
@@ -6257,8 +6552,8 @@ private:
                     "current state.");
 
                 // Friendly status row that mirrors the title-bar
-                // indicator's state in plain text — same colour, same
-                // tooltip body — so users who prefer reading text over
+                // indicator's state in plain text - same colour, same
+                // tooltip body - so users who prefer reading text over
                 // squinting at a 12-pixel square can see exactly what
                 // the gate is doing right now.
                 const OnlineStatusUI s = compute_online_status_ui();
@@ -6288,12 +6583,37 @@ private:
             }
             ImGui::Separator();
 
+            // --- Stage boundary -----------------------------------------
+            // Draws the scbattle gameplay boundary used by stage/ring
+            // logic. This is intentionally independent of the F5 hitbox
+            // overlay toggle.
+            {
+                bool sb = m_show_stage_boundary.load();
+                if (ImGui::Checkbox("Stage boundary", &sb))
+                    m_show_stage_boundary.store(sb);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Draw the deterministic gameplay stage boundary. "
+                    "Unaffected by F5.");
+            }
+
+            {
+                bool hsv = m_hide_stage_visuals.load();
+                if (ImGui::Checkbox("Hide stage visuals", &hsv))
+                    m_hide_stage_visuals.store(hsv);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Hide rendered stage meshes so hitboxes and stage "
+                    "wireframes are easier to see. Gameplay collision is "
+                    "unchanged.");
+            }
+
+            ImGui::Separator();
+
             // --- Hide weapons -------------------------------------------
             // Force hide both charas' weapons so they stop occluding the
             // hitbox overlay.  Calls SetWeaponVisibility(false) every frame
             // while on (so the game's own show-triggers don't sneak weapons
             // back in); calls SetWeaponVisibility(true) once on OFF to
-            // restore.  Applies only while the overlay is enabled — if F5
+            // restore.  Applies only while the overlay is enabled - if F5
             // turns the mod off, weapons stay in whatever state the engine
             // last set (typically visible).
             //
@@ -6302,7 +6622,7 @@ private:
             // via a bytepatch that's incompatible with our per-frame
             // SetWeaponVisibility writes (the patch inverts the meaning
             // of the +0x534 weapon-flag, so writing 0 produces "visible"
-            // — opposite of what we want).  See the apply-loop comment
+            // - opposite of what we want).  See the apply-loop comment
             // in render_tab_impl for the full breakdown.
             const bool hide_chara_active = m_hide_chara.load();
             bool hw = m_hide_weapons.load();
@@ -6327,7 +6647,7 @@ private:
 
             // --- Hide characters (bytepatch, no flicker) ---------------
             // Inverts the engine's own visibility-compare instructions
-            // inside ALuxBattleChara_SyncMoveStateVisibility — the
+            // inside ALuxBattleChara_SyncMoveStateVisibility - the
             // chara stays hidden through every move state including
             // critical edges and transformations that previously caused
             // 1-frame flickers.  See horselib/CharaInvis.hpp.
@@ -6344,13 +6664,13 @@ private:
             if (!m_chara_invis.is_resolved() && hc)
             {
                 ImGui::TextDisabled(
-                    "(couldn't hook character visibility — see UE4SS.log)");
+                    "(couldn't hook character visibility - see UE4SS.log)");
             }
 
             // --- Suppress VFX ------------------------------------------
             // Bytepatch port of somberness's CE "VFX off" cheat.
             // Patches the engine's per-slot VFX-state writer to plant a
-            // sentinel constant the renderer culls — effects never
+            // sentinel constant the renderer culls - effects never
             // become visible.  See horselib/VFXOff.hpp.
             bool sv = m_suppress_vfx.load();
             if (ImGui::Checkbox("Suppress VFX", &sv))
@@ -6365,10 +6685,10 @@ private:
             if (!m_vfx_off.is_resolved() && sv)
             {
                 ImGui::TextDisabled(
-                    "(couldn't hook the VFX system — see UE4SS.log)");
+                    "(couldn't hook the VFX system - see UE4SS.log)");
             }
 
-            // Modded-lobby UI temporarily disabled — the v1 SlipOut path
+            // Modded-lobby UI temporarily disabled - the v1 SlipOut path
             // didn't work in the latest test (see UE4SS.log session
             // 2026-05-08).  Hooks remain installed in the background;
             // policy stays at whatever's persisted in settings.cfg
@@ -6439,25 +6759,25 @@ private:
                         "%s",
                         Horse::OnlineRules::policy_tooltip(current));
 
-                // Status line — three states:
+                // Status line - three states:
                 //   * Hooks not yet installed (UE class not loaded).
-                //   * Hooks installed but Vanilla policy → no override.
+                //   * Hooks installed but Vanilla policy ? no override.
                 //   * Hooks installed and a non-Vanilla policy active.
                 if (!rules.hooks_installed())
                 {
                     ImGui::TextDisabled(
-                        "(installing hooks — start a match scene)");
+                        "(installing hooks - start a match scene)");
                 }
                 else if (current == Horse::HorsePolicy::Vanilla)
                 {
                     ImGui::TextDisabled(
-                        "Vanilla mode — no rule overrides active.");
+                        "Vanilla mode - no rule overrides active.");
                 }
                 else
                 {
                     ImGui::TextColored(
                         ImVec4(0.3f, 0.9f, 0.3f, 1.0f),
-                        "Active: %s — both peers MUST have HorseMod\n"
+                        "Active: %s - both peers MUST have HorseMod\n"
                         "with this policy or the connection will drop.",
                         Horse::OnlineRules::policy_name(current));
                 }

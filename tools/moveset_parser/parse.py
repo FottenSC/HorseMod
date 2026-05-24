@@ -9,7 +9,7 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from luxformats import (
-    KhdFile, OffsetTableFile, VtbFile, LpdFile, LpbBlock, HitFile,
+    KhdFile, OffsetTableFile, MotionBankFile, VtbFile, LpdFile, LpbBlock, HitFile,
     parse_auto, parse_khd, parse_mot, parse_dtp, parse_vtb, parse_lpd,
     parse_lpb, parse_hit_dat, MOVE_TYPE_NAMES,
 )
@@ -36,22 +36,39 @@ def dump_khd(k: KhdFile, *, show_entries: int = 16, show_raw: bool = False) -> N
             kind = "unidentified layout"
         print(f"\n  Section {s.section_index}: offset=0x{s.offset:08X} size=0x{s.size:X}  {kind}")
         for i, e in enumerate(s.entries[:show_entries]):
-            name = f"  name={e.name!r}" if e.name else ""
+            type_tag = getattr(e, "type_tag", None)
+            type_name = getattr(e, "type_name", type(e).__name__)
+            name_value = getattr(e, "name", "")
+            name = f"  name={name_value!r}" if name_value else ""
             extra = ""
-            if e.type_tag in (0x0B, 0x1E):
+            if type_tag is None:
+                if s.section_index == 0:
+                    extra = (
+                        f"  damage={getattr(e, 'wI16BaseDamage', '?')}"
+                        f"  flags=0x{getattr(e, 'wU16AttackFlags', 0):04X}"
+                    )
+                elif s.section_index == 1:
+                    extra = (
+                        f"  duration={getattr(e, 'nSDuration60ths', '?')}"
+                        f"  passthrough={getattr(e, 'nSPassthroughTag', '?')}"
+                    )
+            elif type_tag in (0x0B, 0x1E):
                 extra = f"  set1={e.motion_ids_set1}  set2={e.motion_ids_set2}"
-            elif e.type_tag == 0x06:
+            elif type_tag == 0x06:
                 extra = f"  motion(+0x38)={e.field_38}"
-            elif e.type_tag in (0x07, 0x1B):
+            elif type_tag in (0x07, 0x1B):
                 extra = f"  motion(+0x3E)={e.field_3e}"
-            elif e.type_tag in (0x08, 0x09, 0x1C, 0x1D):
+            elif type_tag in (0x08, 0x09, 0x1C, 0x1D):
                 extra = f"  motion(+0x3C)={e.field_3c}  new_val={e.new_value}"
-            elif e.type_tag == 0x10:
+            elif type_tag == 0x10:
                 m = "(skip)" if e.field_3c == 0xFFFF else f"={e.field_3c}"
                 extra = f"  motion{m}"
-            elif e.type_tag == 0x0E:
+            elif type_tag == 0x0E:
                 extra = f"  remap_writer slot={e.slot_index}"
-            print(f"    [{i:3d}] type=0x{e.type_tag:02X} ({e.type_name}){name}{extra}")
+            if type_tag is None:
+                print(f"    [{i:3d}] {type_name}{name}{extra}")
+            else:
+                print(f"    [{i:3d}] type=0x{type_tag:02X} ({type_name}){name}{extra}")
         if s.entry_count > show_entries:
             print(f"    ... +{s.entry_count - show_entries} more entries")
         if show_raw and s.entry_count == 0:
@@ -63,7 +80,7 @@ def dump_khd(k: KhdFile, *, show_entries: int = 16, show_raw: bool = False) -> N
                 print(f"    raw[:64]: {s.raw[:64].hex(' ')}")
 
 
-def dump_offset_table(t: OffsetTableFile, *, label: str) -> None:
+def dump_offset_table(t: OffsetTableFile | MotionBankFile, *, label: str) -> None:
     print(f"{label}  count={t.count}  file_size={fmt_size(len(t.raw))}")
     empty = sum(1 for sz in t.sizes if sz == 0)
     print(f"  sections: {len(t.offsets)} ({empty} empty)")
@@ -132,7 +149,7 @@ def main(argv: list[str]) -> int:
 
         if isinstance(obj, KhdFile):
             dump_khd(obj, show_entries=args.entries, show_raw=args.raw)
-        elif isinstance(obj, OffsetTableFile):
+        elif isinstance(obj, (OffsetTableFile, MotionBankFile)):
             dump_offset_table(obj, label=f"{ext.upper()[1:]} file")
         elif isinstance(obj, VtbFile):
             dump_vtb(obj)

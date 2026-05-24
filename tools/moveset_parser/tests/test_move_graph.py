@@ -30,18 +30,16 @@ def test_mitsurugi_slot_graph_has_edges(mitsurugi_graph, mitsurugi_bank):
     assert total > 1000, f"only {total} edges extracted — emulator regression?"
 
 
-def test_no_cross_bank_pollution_in_user_in_count(mitsurugi_graph):
-    # Cross-bank edges (dst_bank != 0) should NOT inflate any slot's
-    # user_in_count for THIS bank. The guard is in build_slot_graph.
+def test_packed_bucket_edges_resolve_before_user_in_count(mitsurugi_graph):
+    # Ghidra's LuxMoveVM_ResolveBankSlot proves dst_bank is an internal
+    # FLuxMoveBank bucket, not an external KHD file. Bucketed edges can
+    # contribute to the resolved local slot's incoming count.
     g = mitsurugi_graph
     for slot_idx, count in g.user_in_count.items():
-        # All edges contributing to this count must be same-bank
         in_edges = [e for e in g.edges_by_dst.get(slot_idx, [])
                     if e.predicate_kind in USER_INPUT_KINDS]
-        # edges_by_dst is now only populated for same-bank, so its length
-        # must equal user_in_count for any slot.
-        # (sanity check: the count matches what edges_by_dst holds)
-        assert all(e.dst_bank == 0 for e in g.edges_by_dst.get(slot_idx, []))
+        assert len(in_edges) == count
+    assert any(e.dst_bank != 0 for edges in g.edges_by_dst.values() for e in edges)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,28 @@
+{
+  "do_not_claim": [
+    "Do not rank movement distance from animation id alone",
+    "Do not rank movement distance from MOT section size alone",
+    "Do not treat one candidate transition as the complete movement option without checking stances and follow-up routing"
+  ],
+  "known_exact_authored_root_motion_when_high_confidence": [
+    "Backstep/sidestep/forward-step authored root distance for selected routes with root_decode_confidence=high",
+    "Per-frame root-translation curve for selected routes with root_decode_confidence=high",
+    "First frame of meaningful authored displacement for selected routes with root_decode_confidence=high"
+  ],
+  "known_static_but_not_distance": [
+    "Per-character KHD slot tables",
+    "Decoded direction-gated MoveVM transition candidates",
+    "MOT section sizes and hashes for candidate animation ids",
+    "Whether a candidate slot carries attack cells",
+    "Whether candidate MOT payloads are shared or unique by raw hash",
+    "Canonical backstep route selection and unranked reason per character",
+    "Motion clip headers from the engine-correct +0x08 MOT layout"
+  ],
+  "unknown_without_additional_static_modeling": [
+    "Exact recovery/cancel frame unless command/movelist metadata proves it",
+    "Whether each empty local MOT section resolves through common chr0ff or an asset-loader remap",
+    "Cross-bank direction routes until target-bank resolution is implemented",
+    "Hurtbox pose over time during movement",
+    "Runtime-adjusted position after walls, ring edge, terrain, and opponent body collision"
+  ]
+}

@@ -166,9 +166,11 @@ Cross-round restore is a separate root problem. Ghidra shows `LuxBattle_HgCpuDir
   immediately before submitting the newest target.
 - 23:55 performance/playhead fix:
   A timeline generated before exact `DemoCurrentTime` capture had `demo_ms=-1`, causing
-  native seek to refuse every drag tick and spam the log. Native seek now falls back to
-  monotonic `seq/60` for old timelines and logs that warning only once. Seek-begin logs
-  are verbose-only. Deferred native retries are throttled to one attempt every 5 cockpit
+  native seek to refuse every drag tick and spam the log. The temporary
+  monotonic `seq/60` fallback was later removed because it could make Play
+  unlock on the wrong native replay time. Old timelines now show
+  `no captured demo time` and must be regenerated. Seek-begin logs are
+  verbose-only. Deferred native retries are throttled to one attempt every 5 cockpit
   ticks while the driver is busy/unresolved. The UI playhead no longer re-reads engine
   state while the timeline bar is actively held, so it stays under the mouse instead of
   snapping back to the live/end position between refused or deferred seek attempts.
@@ -208,6 +210,117 @@ Cross-round restore is a separate root problem. Ghidra shows `LuxBattle_HgCpuDir
   longer part of the default path and are never done by the unresolved-driver CVar
   fallback; this prevents a failed native seek from looking successful only because
   shallow replicated cursor fields were changed.
+- 2026-05-20 state-machine rewrite:
+  The timeline scrubber now separates three states explicitly:
+  UI requested playhead, visual preview snapshot, and native replay authority.
+  The old replay tab kept local `static` playhead/drag flags and refreshed the
+  playhead from `current_play_position()` after mouse release. When native seek
+  was unresolved/deferred, `current_play_position()` fell through to the generated
+  timeline edge, so releasing a drag could snap the UI to the end even though the
+  user selected an older tick.
+  `ReplayScrub` now owns `UiPlayheadState`, `PreviewState`, and `NativeSeekState`.
+  The replay tab renders `timeline_view()` and posts intent APIs
+  (`ui_begin_drag`, `ui_drag_to_seq`, `ui_end_drag`, `ui_step_to_seq`,
+  `ui_pause_at_live`, `ui_request_play`) instead of holding UI-local authority.
+  Dragging updates requested/displayed seq immediately and release no longer
+  recomputes from `latest_seq()`.
+  Preview restore is visual-only: it can restore the captured snapshot while
+  paused, but it does not write `m_last_seek_target` and cannot mark native seek
+  successful. `m_last_seek_target` is now only written when the native settle
+  window observes a readable `DemoNetDriver` that is no longer busy and whose demo
+  time has reached the current requested target.
+  Native seeks are generation-tagged. Pending retries, direct submissions, CVar
+  submissions, and settle windows carry the generation of the latest requested
+  target; stale native results are logged and ignored instead of unlocking Play.
+  The CVar fallback may submit a native request, but it does not unlock Play
+  unless landing is later verified through a readable driver.
+  The Play button now calls `ui_request_play()` and is blocked while native status
+  is queued/submitted/settling/failed for the selected tick. Pausing at the live
+  edge is treated as landed because no seek is required; seeking to older ticks
+  requires native landing before playback is allowed.
+  Subagent review found four follow-up issues and they were addressed before
+  handoff:
+  round-boundary adjustment now republishes the adjusted safe seq as the selected
+  target so a real native landing can unlock Play; UI-facing drag/auto-play flags
+  are atomic instead of plain fields mutated from both UI and cockpit threads;
+  stale preview display writes are generation/request checked; and `drop_ring()`
+  clears landed target/master authority with the rest of the scrub state.
+- 2026-05-20 disabled-Play / driver-unresolved follow-up:
+  Runtime logs showed the Play button was blocked for the correct reason:
+  native replay authority never landed because `DemoNetDriver` was unresolved,
+  and generated ticks still had `demo_ms=-1`. The fix did not weaken the Play
+  gate. `ReplayScrubDiag` now exposes a report-based resolver that records the
+  source tried, world pointer, container pointer, candidate driver pointer,
+  task-field readability, time-field readability, and failure reason for each
+  path. The resolver tries the cached driver, `ReplayPlayer->GetWorld()` outside
+  the capture hot path, cached world, `GWorld`, `UWorld.DemoNetDriver`,
+  `UWorld.LevelCollections[*].DemoNetDriver`, and finally non-hot object-array
+  probing. Reports are logged once at Generate start and once on seek failure.
+  The capture hot path uses `read_demo_net_driver_fast()`, which only uses cached
+  pointers/GWorld and guarded raw reads; it does not run `FindFirstOf` or object
+  array probes per captured frame. If the fast resolver cannot read
+  `DemoCurrentTime`, Generate stores `demo_ms=-1` and logs that once per
+  generation. Seeks against such a timeline are blocked with
+  `no captured demo time`; the timeline must be regenerated after this build
+  before exact native timestamps can exist.
+  Candidate validation no longer rejects a driver solely because
+  `DemoCurrentTime` or `DemoTotalTime` look odd. The raw time fields are
+  diagnostic; the task/busy fields are the acceptance signal for native seek
+  submission. Seek logs now include `+0x791`, `+0x794`, `+0x7A8`, `+0x7B0`,
+  `+0x7B4`, and `+0x7B8` before/after `GotoTimeInSeconds`, so the next runtime
+  test can distinguish unresolved driver, busy driver, missing task transition,
+  and settle timeout. The replay UI now displays the specific block reason
+  (`driver unresolved`, `driver busy`, `task not observed`, `settle timed out`,
+  `no captured demo time`, etc.) instead of only `play blocked`.
+  Ghidra MCP was checked during this pass, but no running instance was available,
+  so no new labels/prototypes were applied. The offsets still requiring a live
+  Ghidra verification pass are `GWorld`, `UWorld.DemoNetDriver`,
+  `UWorld.LevelCollections`, `FLevelCollection.DemoNetDriver`,
+  `UDemoNetDriver.DemoCurrentTime`, `UDemoNetDriver.DemoTotalTime`,
+  `UDemoNetDriver::GotoTimeInSeconds`, and the task/busy fields around
+  `FGotoTimeInSecondsTask`.
+- Subagent review follow-up for this pass:
+  The review found five strict-authority gaps and they were addressed before
+  handoff. Missing `DemoCurrentTime` now blocks native seek instead of falling
+  back to `seq/60`; the legacy snapshot path no longer publishes native
+  `Landed`; unresolved direct driver seeks still try the native
+  `demo.GotoTimeInSeconds` CVar path but remain gated on readable-driver settle;
+  cached object-array demo-driver state is invalidated with the raw driver/world
+  cache; and background native retry failures publish the current block reason so
+  the UI does not stay on a stale status.
+- 2026-05-20 Ghidra MCP verification pass:
+  MCP direct TCP connect succeeded against `SoulcaliburVI.exe` at image base
+  `0x140000000`. The load-bearing replay-seek offsets used by HorseMod were
+  verified:
+  - `GWorld @ 0x1443B4DB8`, matching runtime RVA `0x43B4DB8`.
+  - `Z_Construct_UClass_UWorld @ 0x1428A5B90` registers
+    `UWorld.LevelCollections` at `+0x120` and `UWorld.DemoNetDriver` at
+    `+0xB8`.
+  - `Z_Construct_UScriptStruct_FLevelCollection @ 0x1428B4BA0` confirms
+    `FLevelCollection` size `0x80`, `GameState +0x08`, `NetDriver +0x10`,
+    `DemoNetDriver +0x18`, `PersistentLevel +0x20`, and `Levels +0x28`.
+  - `UDemoNetDriver_GotoTimeInSeconds @ 0x141E0ECA0` takes
+    `(UDemoNetDriver*, float TimeInSeconds, FOnGotoTimeDelegate*)`, checks
+    `UDemoNetDriverHasTaskNamed(..., "FGotoTimeInSecondsTask")`, also checks
+    `driver+0x791`, allocates a `0x28`-byte task, stores target seconds at
+    `task+0x14`, and queues it with `QueueDemoNetDriverTask`.
+  - `UDemoNetDriverHasTaskNamed @ 0x141E13590` checks current task
+    `driver+0x7B8`, then scans task array data `driver+0x7A8` using count
+    `driver+0x7B0`.
+  - `QueueDemoNetDriverTask @ 0x141E01CB0` confirms task-array layout:
+    data pointer `+0x7A8`, count `+0x7B0`, max/capacity `+0x7B4`, current
+    task pointer `+0x7B8`.
+  - `ProcessDemoGotoTimeTaskStart @ 0x141E1C980` confirms task layout:
+    `task+0x08` driver, `task+0x10` saved old `DemoCurrentTime`,
+    `task+0x14` target seconds. It reads/writes driver `DemoCurrentTime +0x418`
+    and clamps against `DemoTotalTime +0x414`.
+  - `LoadDemoCheckpointAndResumeAtScrubTime @ 0x141E13A00` confirms
+    `DemoCurrentTime +0x418`, `DemoTotalTime +0x414`, busy/task flag writes at
+    `+0x791`, and checkpoint/loading flag writes at `+0x794`.
+  Ghidra updates made: set the prototype for `QueueDemoNetDriverTask`, added
+  plate comments to `QueueDemoNetDriverTask`, `UDemoNetDriverHasTaskNamed`,
+  `ProcessDemoGotoTimeTaskStart`, and `LoadDemoCheckpointAndResumeAtScrubTime`,
+  added a disassembly comment at `GWorld`, and saved the program.
 
 ## Next test expectation
 
@@ -216,15 +329,17 @@ With `Use native DemoNetDriver seek on timeline seek` enabled, seek near round 2
 - avoid the crash,
 - log `native DemoNetDriver::GotoTimeInSeconds submitted`,
 - or log `native demo.GotoTimeInSeconds CVar submitted` if the direct pointer is still unresolved,
+- keep the UI playhead on the selected tick after drag release,
+- keep Play blocked until `native seek settle landed` is logged for that selected tick,
 - show `POST_SEEK_TICK` ReplayPlayer/UDemoNetDriver state near the target when verbose diagnostics are enabled,
 - resume character motion because UE4's replay driver reloads/replays packet state.
 
 If it still stands still, inspect whether the submitted native task is actually
 accepted and processed: `DemoCurrentTime`, `+0x791`, `+0x7B0`, and `+0x7B8` should
 change as the task runs. A missing `demo_ms` means the timeline was generated by an
-older build or the active driver was unresolved at capture time; HorseMod falls back
-to monotonic `seq/60` for those older timelines, while regenerating with this build
-gives exact native demo timestamps.
+older build or the active driver was unresolved at capture time; HorseMod blocks
+Play with `no captured demo time` for those timelines. Regenerating with this
+build is required so exact native demo timestamps are present.
 
 Rapid dragging is supported by pending-target retry. `UDemoNetDriver_GotoTimeInSeconds`
 silently drops requests while an `FGotoTimeInSecondsTask` is already queued or

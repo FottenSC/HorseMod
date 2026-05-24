@@ -13,7 +13,7 @@ import struct
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from luxformats import (
@@ -124,14 +124,20 @@ def validate_khd(path: str, data: bytes) -> tuple[bool, list[str], dict]:
     return (len(issues) == 0), issues, stats
 
 
-def validate_offset_table(path: str, data: bytes, expected_min_count: int = 1, expected_max_count: int = 4096) -> tuple[bool, list[str], dict]:
+def validate_offset_table(
+    path: str,
+    data: bytes,
+    expected_min_count: int = 1,
+    expected_max_count: int = 4096,
+    parser: Callable[[bytes], OffsetTableFile] = parse_dtp,
+) -> tuple[bool, list[str], dict]:
     issues: list[str] = []
     stats: dict = {}
     if len(data) < 8:
         issues.append("file too small")
         return False, issues, stats
     try:
-        t = parse_mot(data)
+        t = parser(data)
     except Exception as e:
         issues.append(f"parse failed: {e}")
         return False, issues, stats
@@ -256,13 +262,13 @@ def run(root: str, verbose: bool = False) -> int:
     for name in sorted(os.listdir(os.path.join(root, "mot"))):
         if name.endswith(".mot"):
             process(os.path.join(root, "mot", name), validate_offset_table, "mot",
-                    expected_min_count=10, expected_max_count=4096)
+                    expected_min_count=10, expected_max_count=4096, parser=parse_mot)
 
     print("[3/4] Validating .dtp files...")
     for name in sorted(os.listdir(os.path.join(root, "cpu"))):
         if name.endswith(".dtp"):
             process(os.path.join(root, "cpu", name), validate_offset_table, "dtp",
-                    expected_min_count=2, expected_max_count=50)
+                    expected_min_count=2, expected_max_count=50, parser=parse_dtp)
 
     print("[4/4] Validating .dat files (atkhit / bodyhit / yararehit)...")
     for name in sorted(os.listdir(os.path.join(root, "hit"))):

@@ -190,7 +190,12 @@ class TransitionEvent:
 
     @property
     def next_move_id_raw(self) -> Optional[int]:
-        """args[0] = packed (bank<<12)|slot."""
+        """args[0] = packed FLuxMoveBank address.
+
+        Engine reference: LuxMoveVM_ResolveBankSlot uses bits 15..12 as
+        the move-bank bucket and bits 10..0 as slot within that bucket.
+        Bit 11 is not part of the slot index.
+        """
         if not self.args:
             return None
         v = self.args[0]
@@ -208,7 +213,7 @@ class TransitionEvent:
         raw = self.next_move_id_raw
         if raw is None:
             return None
-        return raw & 0xFFF
+        return raw & 0x7FF
 
     @property
     def is_indirect(self) -> bool:

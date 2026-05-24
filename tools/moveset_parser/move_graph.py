@@ -36,8 +36,8 @@ AUTO_KINDS = {"auto", "frame", "stance", "from-move", "range"}
 class SlotEdge:
     """One transition edge, expressed for graph consumers."""
     src_slot: int
-    dst_slot: int
-    dst_bank: int                 # high nibble of packed move-id (0=same)
+    dst_slot: int                 # resolved linear slot index in KHD slot table
+    dst_bank: int                 # FLuxMoveBank bucket index from packed move-id
     raw_move_id: int              # the full packed (bank<<12)|slot
     predicate_text: str
     predicate_kind: str           # "buttons" / "direction" / "command" / "auto" / "stance" / "frame" / "from-move" / "other" / "indirect" / "always"
@@ -77,11 +77,12 @@ def build_slot_graph(bank: KhdFile, file_bytes: bytes) -> SlotGraph:
         for t in result.transitions:
             if t.next_move_slot is None:
                 continue
-            # Cross-bank transitions: bank > 0 means the target slot is
-            # in a different .khd (e.g. shared motion bank 0xff, or a
-            # crossover-system bank). We emit the edge so the UI can
-            # show it, but slot-table lookups MUST guard on bank == 0.
-            if t.next_move_bank == 0 and t.next_move_slot >= len(bank.slots):
+            # Packed move ids are resolved through LuxMoveVM_ResolveBankSlot:
+            # bits 15..12 select one of four buckets inside the same
+            # FLuxMoveBank, and bits 10..0 select the slot within that
+            # bucket. The graph stores the resolved linear slot index.
+            resolved_slot = bank.resolve_packed_slot(t.next_move_id_raw)
+            if resolved_slot is None:
                 continue
             pred = decode_predicate(t.predicate)
             sub = t.predicate.sub_opcode if t.predicate else None
@@ -94,7 +95,7 @@ def build_slot_graph(bank: KhdFile, file_bytes: bytes) -> SlotGraph:
                         arg_concretes.append(None)
             edge = SlotEdge(
                 src_slot=slot.slot_index,
-                dst_slot=t.next_move_slot,
+                dst_slot=resolved_slot,
                 dst_bank=t.next_move_bank or 0,
                 raw_move_id=t.next_move_id_raw or 0,
                 predicate_text=pred.text,
@@ -106,14 +107,9 @@ def build_slot_graph(bank: KhdFile, file_bytes: bytes) -> SlotGraph:
                 callcond_idx=t.callcond_idx,
             )
             edges.append(edge)
-            # Only add to incoming maps when the edge is same-bank — a
-            # cross-bank edge targets some other character's slot table
-            # and would falsely inflate this bank's slot-N incoming
-            # count (and the user_in_count for that slot).
-            if t.next_move_bank == 0:
-                g.edges_by_dst.setdefault(t.next_move_slot, []).append(edge)
-                if pred.kind in USER_INPUT_KINDS:
-                    g.user_in_count[t.next_move_slot] = g.user_in_count.get(t.next_move_slot, 0) + 1
+            g.edges_by_dst.setdefault(resolved_slot, []).append(edge)
+            if pred.kind in USER_INPUT_KINDS:
+                g.user_in_count[resolved_slot] = g.user_in_count.get(resolved_slot, 0) + 1
             if pred.kind in USER_INPUT_KINDS:
                 g.user_out_count[slot.slot_index] = g.user_out_count.get(slot.slot_index, 0) + 1
                 g.distinct_user_inputs_out.setdefault(slot.slot_index, set()).add(pred.text)

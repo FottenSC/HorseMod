@@ -140,7 +140,8 @@
 //   * BodyList    → "other" — character-to-character pushing (physics).
 //                   Not involved in hit resolution.
 //
-// KHitBase common header (0xA0 = 160 bytes total per node):
+// KHitBase common header.  The common fields are shared; subclass-specific
+// fields extend past the header and must be interpreted by StreamTypeTag:
 //     +0x00  void* Vtable
 //     +0x08  u64   PerAttackerBit  = 1ULL << (authored_slot & 0x3F)
 //                                    (SlotByte is stream byte[2], mirrored
@@ -198,13 +199,16 @@
 //     +0x18  KHitBase* Next                  (list link, null-terminates)
 //
 // Subclass geometry:
-//     KHitSphere  (tag 0): +0x30 center (vec3) + 1.0f  ;  radius vec4 @ +0x70
-//     KHitArea    (tag 1): +0x30 center (vec3) + 1.0f  ;  +0x40 extents vec3 + 1.0f
-//                          +0x50..+0x8F  rotation block (3 rows × 16 bytes)
-//                          Bone-attached via the +0x17 bone id.
-//     KHitFixArea (tag 2): +0x30/+0x40/+0x50 3x4 rot/scale rows (3x3 active,
-//                          row W = 1.0f), translation @ +0x90.  World-space,
-//                          no bone attachment.
+//     KHitSphere  (tag 0): +0x30 bone-local center, +0x50 current native
+//                          world center, +0x60 previous native world center,
+//                          +0x70 live radius.
+//     KHitArea    (tag 1): +0x30/+0x40 bone-local endpoint references,
+//                          +0x50/+0x60 native world buffer A (P1/P2),
+//                          +0x70/+0x80 native world buffer B (P1/P2).
+//                          Overlap uses the current and previous buffer halves
+//                          as a swept spine.
+//     KHitFixArea (tag 2): +0x30/+0x40/+0x50 bone-local reference points,
+//                          +0x60/+0x70/+0x80 native world reference points.
 //
 // Pose selector
 // -------------
@@ -219,8 +223,9 @@
 // callback so the caller decides colour / style / whether to draw at all.
 // Three primitive flavours:
 //
-//   KHitDraw { kind = Box,    centre + 8 corners (world-space) }
-//   KHitDraw { kind = Sphere, centre + radius (world-space) }
+//   KHitDraw { kind = Box,        KHitArea current/previous spine endpoints }
+//   KHitDraw { kind = Sphere,     centre + radius }
+//   KHitDraw { kind = FixAreaTri, KHitFixArea reference-point axes }
 //
 // All coordinates are in UE units, directly pluggable into LineBatcher.
 // ============================================================================
@@ -1059,9 +1064,9 @@ namespace Horse
         // Quicker alternative: draw two lines — WP1→WP2 (spine) and
         // WP1→WP3 (side).  Matches authored intent.
         //
-        // HorseMod rendering uses these offsets to draw the authored
-        // shapes — sphere at +0x50/r=+0x70, capsule endpoints at
-        // +0x50/+0x58 (cur P1/P2), OBB basis at +0x60/+0x70/+0x80.
+        // HorseMod rendering uses these engine-updated native world fields
+        // directly: sphere at +0x50/r=+0x70, Area buffers at +0x50/+0x60
+        // and +0x70/+0x80, FixArea reference points at +0x60/+0x70/+0x80.
         constexpr uintptr_t SphereBoneLocalCenter   = 0x30;  // FVector
         constexpr uintptr_t SphereWorldCenterCur    = 0x50;  // FVector
         constexpr uintptr_t SphereWorldCenterPrev   = 0x60;  // FVector
@@ -1087,8 +1092,8 @@ namespace Horse
         constexpr uintptr_t FixAreaWorldP3          = 0x80;  // FVector
         constexpr uintptr_t FixAreaBoneIndexUe4     = 0x90;  // uint32
 
-        // Each KHit node is 0x80 (128) bytes — verified empirically:
-        //   node->next - node == 0x80 exactly in the scratch pool.
+        // Common KHit header and subclass field map.  Do not infer a
+        // uniform node size from a pool stride; KHitArea reaches +0x94.
         //
         // Layout (Ghidra-confirmed via KHitSphere_UpdateWorldCenter @
         // 0x14030E1A0 and KHitArea_UpdateWorldCenters @ 0x14030E480):
@@ -1117,11 +1122,9 @@ namespace Horse
         //     +0x70  Radius (float) + aux floats
         //
         // The game does: prev <- cur; cur <- FMatrix*local using the chara's
-        // skeletal-mesh pose matrix (itself in Namco battle-world space, NOT
-        // UE4 world).  So both +0x50 and +0x60 are in *legacy Namco* world —
-        // they look like UE4 world values in the hex dump only by coincidence
-        // (Y-up, metres).  We don't read them; we build UE4 world positions
-        // ourselves via GetBoneTransformForPose (Option B below).
+        // skeletal-mesh pose matrix.  Both +0x50 and +0x60 are native Namco
+        // battle-world fields.  The renderer now reads these engine-updated
+        // fields directly and converts them to UE world for LineBatcher.
         //
         // *** WARNING: these offsets are SPHERE-ONLY. ***
         // For KHitArea  (tag 1): +0x30/+0x40 are bone-local P1/P2 (OBB
@@ -1220,7 +1223,8 @@ namespace Horse
     // ------------------------------------------------------------------
     constexpr float kLuxCmToUE = 100.0f;
 
-    // Box         — 8 corners (KHitArea — bone-local AABB rotated by bone).
+    // Box         — KHitArea native current/previous spine endpoints,
+    //               drawn as a swept-quad outline.
     // Sphere      — centre + radius (KHitSphere).
     // FixAreaTri  — KHitFixArea's 3 reference points (P1/P2/P3 world).
     //               Drawn as two lines (spine P1→P2, side P1→P3) to
@@ -1514,7 +1518,8 @@ namespace Horse
         // neutral / standing / blocking — invisible to the damage
         // classifier — and the per-move VM enables them for
         // specific Geralt moves where the extended reach is needed.
-        // HorseMod renders them in CYAN to flag the VM-gated state.
+        // HorseMod renders them in CYAN to flag that the classifier
+        // ignores the slot this frame.
         //
         // Identical to `geom_active` for the underlying value, but
         // semantically tagged for the hurtbox-list use case.  Kept
@@ -1547,6 +1552,15 @@ namespace Horse
         // readHurtboxInvulState(chara) once per tick).
         bool        is_invul_slot = false;
 
+        // Chara-wide companion to is_invul_slot, stamped onto every draw
+        // record for the same chara.  These let the renderer distinguish a
+        // single masked limb / armor slot from true full-body i-frames when
+        // the user has the broad "show everything" view enabled.
+        uint32_t    disabled_hurtbox_slot_mask = 0;
+        uint32_t    present_hurtbox_slot_mask  = 0;
+        bool        any_invul_slot             = false;
+        bool        full_body_invul            = false;
+
         // Chara-wide "the engine can fire reactions on this chara
         // this frame" gate.  Composed from three early-return
         // sites in LuxBattle_ResolveAttackVsHurtboxMask22:
@@ -1575,7 +1589,7 @@ namespace Horse
         //           && overlap_active
         //           && defender_can_react_engine;
         //
-        // Used by the dllmain "Only show active boxes" filter as
+        // Used by the dllmain engine-live visibility filter as
         // an additional clause OR'd with the existing two — see
         // the toggle composition table in dllmain.cpp.
         bool        defender_can_react_engine = true;
@@ -3200,6 +3214,13 @@ namespace Horse
             const ThrowHeightSnapshot throw_height =
                 readThrowHeightSnapshot(list_chara);
 
+            // Per-chara hurtbox-disable snapshot.  This is the aggregate
+            // version of KHitDraw::is_invul_slot and is used only for
+            // presentation: per-slot disables stay distinct from full-body
+            // i-frames in the overlay.
+            const HurtboxInvulState hurt_invul =
+                readHurtboxInvulState(list_chara);
+
             // Chara-wide final hit-reaction result code (chara+0x43DA0).
             // Complements the per-slot reaction_state by capturing the
             // mutual-hit-arbitration consolidated outcome.  See KHitDraw
@@ -3213,7 +3234,7 @@ namespace Horse
                      reactions_hot, hurt_slot_count, defender_can_react,
                      chara_phase, mwin_start, mwin_end, in_master_window,
                      cell_attack_flags, cell_input_cond, cell_attack_tier,
-                     stance, throw_height, final_hit_result,
+                     stance, throw_height, hurt_invul, final_hit_result,
                      alt_snap,
                      verbose, visit);
             // --- Hurtbox list ------------------------------------------------
@@ -3222,7 +3243,7 @@ namespace Horse
                      reactions_hot, hurt_slot_count, defender_can_react,
                      chara_phase, mwin_start, mwin_end, in_master_window,
                      cell_attack_flags, cell_input_cond, cell_attack_tier,
-                     stance, throw_height, final_hit_result,
+                     stance, throw_height, hurt_invul, final_hit_result,
                      alt_snap,
                      verbose, visit);
             // --- Body / pushbox list -----------------------------------------
@@ -3231,7 +3252,7 @@ namespace Horse
                      reactions_hot, hurt_slot_count, defender_can_react,
                      chara_phase, mwin_start, mwin_end, in_master_window,
                      cell_attack_flags, cell_input_cond, cell_attack_tier,
-                     stance, throw_height, final_hit_result,
+                     stance, throw_height, hurt_invul, final_hit_result,
                      alt_snap,
                      verbose, visit);
         }
@@ -3294,114 +3315,6 @@ namespace Horse
         // on unreal-init + every slider drag.
         static inline std::atomic<int> s_sticky_frames{15};
 
-        // ----------------------------------------------------------------
-        // Per-node Area-SPINE cache for engine-truth swept rendering.
-        //
-        // Why: KHitArea::OverlapTest @ 0x14030E4E0 tests against a shape
-        // built from THREE world-space points (cur_P1, cur_P2, prev_P2
-        // for OBB-1; prev_P1, prev_P2, cur_P1 for OBB-2 — see plate on
-        // PopulateOverlapScratch @ 0x14030E610).  The visualiser needs
-        // the prev-frame endpoint pair to render the engine's swept
-        // hit volume faithfully.
-        //
-        // Cache structure: each entry stores BOTH the previous-game-tick
-        // endpoints AND the current-game-tick endpoints, plus the game
-        // tick we last updated at.  Shift logic:
-        //   * lastTick == curTick       → same game tick (multiple render
-        //                                  frames within one game tick).
-        //                                  DO NOT shift; serve existing
-        //                                  cur/prev and overwrite cur with
-        //                                  fresh sample (idempotent — the
-        //                                  bone is frozen so this is a
-        //                                  redundant write, but harmless).
-        //   * lastTick + 1 == curTick   → one game tick advanced.  Shift:
-        //                                  prev = cur, cur = fresh.
-        //                                  has_prev = true.
-        //   * gap > 1                   → multi-tick gap (round restart,
-        //                                  off-screen, walker disabled).
-        //                                  Reset: prev = cur = fresh.
-        //                                  has_prev = false.
-        //
-        // Why the shift-on-tick-advance design: the cockpit hook fires
-        // every render frame (60–144 Hz typical), but the game's tick
-        // counter only advances when LuxBattle_PerFrameTick runs (60 Hz,
-        // halted during pause / freeze).  An earlier "single-buffer"
-        // design overwrote prev on every cockpit fire, which meant:
-        //
-        //   * At >60 Hz render: swept quad flashed for one render frame
-        //     per tick, then collapsed to cur-only for the remaining
-        //     renders in that tick — visible flicker.
-        //   * Under frame-step: the first render after a step showed the
-        //     quad, then subsequent paused renders hid prev.  User
-        //     stepping and inspecting saw "no prev was drawn this tick"
-        //     even though the engine did sweep.
-        //
-        // The dual-buffer design here serves the SAME cached prev for
-        // every render frame within one game tick, so the swept quad
-        // persists until the game advances another tick.  Frame-step
-        // works correctly: step → tick advances → cache shifts → quad
-        // shows the engine's actual prev→cur sweep, and STAYS visible
-        // for as long as the user inspects that paused tick.
-        //
-        // Cache layout: linear-probe hash table, 256 slots per player,
-        // keyed by node pointer.  P1 and P2 KHit nodes live in disjoint
-        // per-player global scratch regions (DAT_14485ebd0 +
-        // pi*0x4000), so pointer collisions across players are impossible.
-        //
-        // Memory: 2 players × 256 slots × (8 byte ptr + 4 byte tick +
-        // 48 byte four-vec3 + 1 byte flag) = ~31 KB.
-        struct AreaSpineCacheEntry
-        {
-            void*    node      = nullptr;
-            uint32_t lastTick  = 0;
-            FVec3    cur_p1    = {};
-            FVec3    cur_p2    = {};
-            FVec3    prev_p1   = {};
-            FVec3    prev_p2   = {};
-            bool     has_prev  = false;
-        };
-        static constexpr int kAreaSpineCacheSize = 256;
-        static inline AreaSpineCacheEntry s_area_spine_cache[2][kAreaSpineCacheSize] = {};
-
-        // Hash a node pointer down to a cache-slot index.  Linear probe
-        // for collisions; returns the index of either an existing entry
-        // for `node` or the first empty/evictable slot.  Tries up to 8
-        // probes before giving up (returns -1) — far more than needed
-        // for our 40-ish-nodes-per-chara workload.
-        static int findAreaSpineCacheSlot(uint32_t pi, void* node)
-        {
-            if (pi >= 2) return -1;
-            auto& bucket = s_area_spine_cache[pi];
-            const uintptr_t h = reinterpret_cast<uintptr_t>(node);
-            // Mix the pointer bits — KHit nodes are 0x80-byte stride so
-            // raw masking would put consecutive nodes in adjacent slots.
-            const uint32_t mixed = static_cast<uint32_t>(
-                (h >> 7) ^ (h >> 15) ^ (h >> 23));
-            int idx = static_cast<int>(mixed % kAreaSpineCacheSize);
-            for (int i = 0; i < 8; ++i)
-            {
-                AreaSpineCacheEntry& e = bucket[idx];
-                if (e.node == node || e.node == nullptr) return idx;
-                idx = (idx + 1) % kAreaSpineCacheSize;
-            }
-            return -1; // give up — visualisation will just lack prev this tick
-        }
-
-        // Read the global game-frame counter once for the spine cache.
-        // Mirrors the read in forEachKHit but isolated so buildAreaWorld
-        // can call it without plumbing the value through every helper.
-        static uint32_t readGameFrameCounter() noexcept
-        {
-            constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
-            const uintptr_t base = NativeBinding::imageBase();
-            if (!base) return 0;
-            uint32_t cur = 0;
-            if (!SafeReadUInt32(reinterpret_cast<const void*>(
-                    base + kFrameCounterRVA), &cur))
-                return 0;
-            return cur;
-        }
-
         template <class Visit>
         static void walkList(void* chara,
                              uint32_t poseSelector,
@@ -3446,6 +3359,11 @@ namespace Horse
                              // pre-read-once pattern; stamped on every
                              // KHitDraw.  See readThrowHeightSnapshot().
                              const ThrowHeightSnapshot& charaThrowHeight,
+                             // Chara-wide hurtbox-disable state.  Stamped
+                             // on every KHitDraw so the renderer can present
+                             // partial slot disables differently from
+                             // full-body i-frames.
+                             const HurtboxInvulState& charaHurtInvul,
                              // Chara-wide final hit-result code from
                              // chara+0x43DA0.  Pre-read; stamped on every
                              // KHitDraw.  Value table in KHitDraw doc.
@@ -3629,7 +3547,7 @@ namespace Horse
                 // strictly tighter "engine will fire damage" gate.
                 // (The legacy "Damage-active only" UI toggle that
                 // routed this flag was removed 2026-05 in favour of
-                // the unified "Only show active boxes" filter, which
+                // the unified engine-live visibility filter, which
                 // uses is_per_frame_active.)
                 d.is_damage_active      = (listKind == KHitList::Attack &&
                                            slotBitInMask(boneId,
@@ -3691,6 +3609,12 @@ namespace Horse
                 d.attacker_effective_height = charaThrowHeight.attacker_height;
                 d.throw_height_gate_ok      = charaThrowHeight.gate_ok;
 
+                // Chara-wide hurtbox disable / invul summary.
+                d.disabled_hurtbox_slot_mask = charaHurtInvul.disabled_slot_mask;
+                d.present_hurtbox_slot_mask  = charaHurtInvul.present_slot_mask;
+                d.any_invul_slot             = charaHurtInvul.any_invul_slot;
+                d.full_body_invul            = charaHurtInvul.full_body_invul;
+
                 // Chara-wide final hit-reaction result code (chara+0x43DA0).
                 d.final_hit_result_code     = charaFinalHitResultCode;
 
@@ -3718,7 +3642,7 @@ namespace Horse
                 // fires damage via a second classifier pass against the
                 // Lane 2 cell — slots authored as live in Lane 2 but
                 // not in the primary cell would otherwise be incorrectly
-                // hidden by the "Only show active boxes" filter.
+                // hidden by the engine-live visibility filter.
                 const bool primary_active =
                     (cat_mask & ownAttackMask) != 0;
                 const bool alt_active =
@@ -3817,10 +3741,10 @@ namespace Horse
 
                 // Build geometry per subclass.
                 //
-                // Sphere and Area are bone-attached — they need the chara +
-                // poseSelector to call GetBoneTransformForPose.  FixArea is
-                // static world geometry with no bone, so we use the legacy
-                // Namco-world value at +0x50 directly.
+                // The native KHit buffers are battle-space scratch fields.
+                // For render-world placement we anchor points through
+                // ALuxBattleChara_GetBoneTransformForPose; area buffers are
+                // only used for current/previous motion deltas.
                 bool ok = false;
                 // Skip reason codes:
                 //   0 = not skipped
@@ -3845,103 +3769,13 @@ namespace Horse
                         if (!ok) skip_code = 2;
                         break;
                     case 2:
-                        ok = buildFixAreaWorld(nbytes, d);
+                        ok = buildFixAreaWorld(chara, poseSelector,
+                                               nbytes, d);
                         if (!ok) skip_code = 3;
                         break;
                     default:
                         skip_code = 9;
                         break;
-                }
-
-                // ------------------------------------------------------------
-                // BELOW-GROUND DIAGNOSTIC (2026-05-15)
-                // ------------------------------------------------------------
-                // When a sphere renders with its centre Z below the visible
-                // floor (treated as Z <= -5 UE cm to absorb terrain-pad noise),
-                // dump the identifying fields so the user can correlate the
-                // overlay to a specific bone/slot/move.  Captures:
-                //   - +0x17 KindTag (slot index, drives PerHurtboxBitmask /
-                //                    classifier addressability; 6/7 trigger
-                //                    ground-clamp branch)
-                //   - +0x7C UE4 bone index (which skeletal bone the sphere
-                //                            is attached to in UE-space)
-                //   - +0x70 live radius (post-anim-cell scale + post-ground-
-                //                        clamp inflation)
-                //   - +0x74 authored radius
-                //   - +0x50..+0x5B Namco world center (engine's authoritative
-                //                  position — includes ground-clamp pull on
-                //                  slot 6/7; the bone-matrix path we render
-                //                  from does NOT include this)
-                //   - rendered UE world centre (what the overlay drew)
-                //
-                // De-dups per (chara_id, list_kind, kind_tag, ue_bone_idx)
-                // tuple so log spam stays bounded.  Each unique tuple is
-                // logged exactly once per mod lifetime — a "first sighting"
-                // record.  The cap is generous: 256 unique tuples is more
-                // than the entire SC6 chara roster's combined slot inventory.
-                if (ok && streamTag == 0 && d.centre.Z <= -5.0f)
-                {
-                    // Read Namco-world center (+0x50..+0x5B) so we can compare
-                    // to the bone-matrix-derived UE position we just rendered.
-                    // If these differ significantly after Namco->UE conversion
-                    // (Z->X, X->Y, Y->Z, ×100), the ground-clamp branch has
-                    // fired for this node.
-                    float namco_x = 0.0f, namco_y = 0.0f, namco_z = 0.0f;
-                    SafeReadFloat(nbytes + KHitOffsets::SphereWorldCenterCur + 0,
-                                  &namco_x);
-                    SafeReadFloat(nbytes + KHitOffsets::SphereWorldCenterCur + 4,
-                                  &namco_y);
-                    SafeReadFloat(nbytes + KHitOffsets::SphereWorldCenterCur + 8,
-                                  &namco_z);
-                    // Namco (X, Y, Z) -> UE (Z, X, Y) ×100.  Matches the
-                    // axis-swap used in buildFixAreaWorld.
-                    const float engine_ue_x = namco_z * 100.0f;
-                    const float engine_ue_y = namco_x * 100.0f;
-                    const float engine_ue_z = namco_y * 100.0f;
-
-                    float authored_radius = 0.0f;
-                    SafeReadFloat(nbytes + KHitOffsets::SphereRadiusAuthored,
-                                  &authored_radius);
-
-                    // De-dup key: (pi, list, kind_tag, bone_idx).  Pack into
-                    // a single u32 for a small linear-probe seen-set.
-                    const uint32_t key =
-                          (static_cast<uint32_t>(poseSelector & 1) << 28)
-                        | (static_cast<uint32_t>(listKind) << 24)
-                        | (static_cast<uint32_t>(boneId) << 16)
-                        | (ueBoneDbg & 0xFFFFu);
-                    constexpr int kSeenCap = 256;
-                    static uint32_t s_below_seen[kSeenCap] = {};
-                    static int      s_below_count = 0;
-                    bool already = false;
-                    for (int i = 0; i < s_below_count && i < kSeenCap; ++i)
-                    {
-                        if (s_below_seen[i] == key) { already = true; break; }
-                    }
-                    if (!already && s_below_count < kSeenCap)
-                    {
-                        s_below_seen[s_below_count++] = key;
-                        const bool likely_ground_clamp =
-                            (boneId == 6 || boneId == 7);
-                        const float engine_vs_render_dz =
-                            engine_ue_z - d.centre.Z;
-                        RC::Output::send<RC::LogLevel::Verbose>(
-                            STR("[HorseMod.BelowGround] pi={} list={} kind=0x{:02x}"
-                                " ueBone=0x{:x} clamp_path={}"
-                                " r_live={:.2f} r_auth={:.2f}"
-                                " render_UE=({:.1f},{:.1f},{:.1f})"
-                                " engine_UE=({:.1f},{:.1f},{:.1f})"
-                                " dZ_engine_minus_render={:.2f}\n"),
-                            poseSelector,
-                            static_cast<int>(listKind),
-                            static_cast<int>(boneId),
-                            ueBoneDbg,
-                            likely_ground_clamp ? STR("YES") : STR("no"),
-                            d.radius, authored_radius * kLuxCmToUE,
-                            d.centre.X, d.centre.Y, d.centre.Z,
-                            engine_ue_x, engine_ue_y, engine_ue_z,
-                            engine_vs_render_dz);
-                    }
                 }
 
                 // Log the first 4 skipped nodes per list so we can see what
@@ -4148,30 +3982,17 @@ namespace Horse
             return true;
         }
 
-        // Fetch the world-space bone FMatrix for a given UE4 bone index.
-        // Returns false on bad index, faulty read, or native-call failure.
         static bool fetchBoneMatrix(void* chara,
                                     uint32_t poseSelector,
                                     uint32_t ueBoneIdx,
                                     FMatrix64& out_xform)
         {
             if (ueBoneIdx == 0xFFFFFFFFu) return false;
-            // Sanity clamp — any skeleton with more than 4096 bones would
-            // be absurd; this catches garbage reads cheaply.
             if (ueBoneIdx > 4096u) return false;
             return NativeBinding::getBoneTransform(
                 chara, poseSelector, ueBoneIdx, out_xform);
         }
 
-        // Resolve a KHit node's bone attachment into a UE4 bone FMatrix
-        // (4×4 affine) in world space using the SPHERE layout — i.e. the
-        // pre-remapped UE4 bone index at +0x7C.  Matches the game's own
-        // KHitSphere_UpdateWorldCenter and is valid for first-node-of-list
-        // cases where the raw +0x17 byte is 0 (which our remap path would
-        // reject as "invalid").
-        //
-        // Area nodes do NOT store their bone idx at +0x7C — see
-        // resolveAreaBoneTransforms below.
         static bool resolveSphereBoneTransform(void* chara,
                                                uint32_t poseSelector,
                                                const uint8_t* node,
@@ -4184,9 +4005,6 @@ namespace Horse
             return fetchBoneMatrix(chara, poseSelector, ueBone, out_xform);
         }
 
-        // Area has two bone attachments — one per diagonal corner.  Reads
-        // both and returns the two matrices.  Returns false if either
-        // read/lookup fails.
         static bool resolveAreaBoneTransforms(void* chara,
                                               uint32_t poseSelector,
                                               const uint8_t* node,
@@ -4196,34 +4014,18 @@ namespace Horse
             uint32_t ueBoneA = 0xFFFFFFFFu;
             uint32_t ueBoneB = 0xFFFFFFFFu;
             if (!SafeReadUInt32(node + KHitOffsets::Area_UE4BoneIndexA,
-                                &ueBoneA)) return false;
+                                &ueBoneA))
+                return false;
             if (!SafeReadUInt32(node + KHitOffsets::Area_UE4BoneIndexB,
-                                &ueBoneB)) return false;
+                                &ueBoneB))
+                return false;
             if (!fetchBoneMatrix(chara, poseSelector, ueBoneA, outA))
                 return false;
-            // P2's bone is often the same as P1's, but not required.  If B
-            // fails (e.g. out-of-range garbage) fall back to A so we still
-            // render something sensible.
             if (!fetchBoneMatrix(chara, poseSelector, ueBoneB, outB))
                 outB = outA;
             return true;
         }
 
-        // Pre-scale a bone-local SC6 point by g_LuxCmToUEScale (10.0) before
-        // running it through the bone FMatrix.  The matrix's row magnitudes
-        // are the actor's skeletal component scale (≈1.0) — they don't
-        // include the cm→UE conversion, so we do it here.
-        static FVec3 LiftBoneLocalToWorld(const FMatrix64& bone,
-                                          const FVec3& boneLocal)
-        {
-            const FVec3 scaled = { boneLocal.X * kLuxCmToUE,
-                                   boneLocal.Y * kLuxCmToUE,
-                                   boneLocal.Z * kLuxCmToUE };
-            return TransformPoint(bone, scaled);
-        }
-
-        // Approximate the uniform 3×3 row scale of a bone FMatrix by
-        // averaging the three row magnitudes.  Used to size spheres.
         static float rowScaleMean(const FMatrix64& m)
         {
             auto mag = [&](int r) {
@@ -4234,8 +4036,39 @@ namespace Horse
             return (mag(0) + mag(1) + mag(2)) / 3.0f;
         }
 
-        // KHitSphere: transform the bone-local centre at +0x30 through the
-        // bone's world FMatrix.  Matches SC6's ALuxTraceManager path.
+        static FVec3 LiftBoneLocalToWorld(const FMatrix64& bone,
+                                          const FVec3& boneLocal)
+        {
+            const FVec3 scaled = { boneLocal.X * kLuxCmToUE,
+                                   boneLocal.Y * kLuxCmToUE,
+                                   boneLocal.Z * kLuxCmToUE };
+            return TransformPoint(bone, scaled);
+        }
+
+        static FVec3 BattleDeltaToUE(const FVec3& newer,
+                                     const FVec3& older) noexcept
+        {
+            const FVec3 d{ older.X - newer.X,
+                           older.Y - newer.Y,
+                           older.Z - newer.Z };
+            return FVec3{ d.Z * kLuxCmToUE,
+                          d.X * kLuxCmToUE,
+                          d.Y * kLuxCmToUE };
+        }
+
+        static bool readAreaDoubleBufferToggle(uint32_t& outToggle) noexcept
+        {
+            constexpr uintptr_t kAreaDoubleBufferToggleRVA = 0x470DEC4;
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            return SafeReadUInt32(reinterpret_cast<const void*>(
+                                      base + kAreaDoubleBufferToggleRVA),
+                                  &outToggle);
+        }
+
+        // KHitSphere: render from the bone-local center through the UE
+        // pose matrix.  The native +0x50 center is battle-space scratch
+        // and does not by itself carry the render-world actor placement.
         static bool buildSphereWorld(void* chara, uint32_t pose,
                                      const uint8_t* node,
                                      uint8_t /*internalBoneId*/,
@@ -4246,10 +4079,12 @@ namespace Horse
                 return false;
 
             FVec3 local;
-            if (!readVec3(node + KHitOffsets::LocalCenter, local)) return false;
+            if (!readVec3(node + KHitOffsets::LocalCenter, local))
+                return false;
 
             float radius = 0.0f;
-            if (!SafeReadFloat(node + KHitOffsets::Radius, &radius)) return false;
+            if (!SafeReadFloat(node + KHitOffsets::Radius, &radius))
+                return false;
             if (radius < 0.0f) radius = -radius;
 
             out.kind   = KHitKind::Sphere;
@@ -4258,9 +4093,11 @@ namespace Horse
             return true;
         }
 
-        // KHitArea: a 1D SPINE (P1 → P2) attached to a bone.  P1 at
-        // +0x30 and P2 at +0x40 are AUTHORED ENDPOINTS — not diagonal
-        // corners of an OBB.  The engine's overlap test
+        // KHitArea: anchor the current endpoints through the UE pose
+        // matrix, then use the native double buffers only for the
+        // current/previous motion delta.  This keeps actor placement in
+        // render space while preserving the engine-updated sweep direction.
+        // The engine's overlap test
         // (KHitArea::OverlapTest @ 0x14030E4E0) reads them as the
         // endpoints of the attacker's spine, then builds the actual hit
         // shape at test time from THREE points via Gram-Schmidt
@@ -4285,13 +4122,10 @@ namespace Horse
         //
         // What we render now
         // -------------------
-        // Just the engine's SOURCE DATA:
-        //   * Cur spine = cur_P1_world → cur_P2_world (always drawn)
-        //   * Prev spine = prev_P1_world → prev_P2_world (drawn iff the
-        //     per-node cache holds a one-tick-old snapshot for THIS node)
-        //   * Two connecting edges: cur_P1→prev_P1 and cur_P2→prev_P2
-        //     (drawn iff has_prev_spine — together with the two spines
-        //     they outline the swept quad the engine just hit-tested)
+        // Current spine endpoints come from the same authored local points
+        // passed through the UE render-space bone matrix. The native
+        // battle-space double buffers only provide the previous-vs-current
+        // delta for the swept outline.
         //
         // Stationary attacks: prev ≈ cur, quad collapses to a near-
         // single line.  Moving attacks: quad opens up, visually
@@ -4299,13 +4133,11 @@ namespace Horse
         // behavior: zero-motion ⇒ zero cross-section, motion ⇒
         // cross-section proportional to motion delta.
         //
-        // Two-bone caveat
-        // ----------------
-        // P1 and P2 can attach to DIFFERENT bones (+0x90 holds bone A
-        // for P1, +0x94 holds bone B for P2).  Common case is same
-        // bone, but for swept-limb volumes the two endpoints can be
-        // on different bones.  We resolve each endpoint through its
-        // own bone transform.
+        // Native-buffer caveat
+        // --------------------
+        // The collision path consumes the native buffers, but those values
+        // are not UE render-world coordinates. Drawing them as absolute
+        // positions pins boxes near the stage origin.
         static bool buildAreaWorld(void* chara, uint32_t pose,
                                    const uint8_t* node,
                                    uint8_t /*internalBoneId*/,
@@ -4321,95 +4153,43 @@ namespace Horse
             if (!readVec3(node + KHitOffsets::Area_LocalP2, localP2))
                 return false;
 
-            // Cur spine endpoints in UE world.  P1 through bone A
-            // (read from +0x90), P2 through bone B (read from +0x94).
-            // Same-bone case (the common authoring) is a degenerate
-            // case of this — boneA == boneB and the spine sweeps
-            // through that single bone's orientation.
+            out.kind = KHitKind::Box;
             out.spine_p1_world = LiftBoneLocalToWorld(boneA, localP1);
             out.spine_p2_world = LiftBoneLocalToWorld(boneB, localP2);
-            out.kind = KHitKind::Box;
-
-            // Initialise prev fields to cur so any consumer that
-            // ignores has_prev_spine still gets sane data (a quad
-            // collapsed to a line).
             out.prev_p1_world  = out.spine_p1_world;
             out.prev_p2_world  = out.spine_p2_world;
             out.has_prev_spine = false;
 
-            // -- Spine cache (per-node prev-frame retention) -------------
-            // See AreaSpineCacheEntry doc above for the three-state
-            // shift algorithm (same tick / +1 tick / multi-tick gap).
-            // Critical: the cockpit hook can fire many render frames
-            // within a single game tick (especially under pause /
-            // frame-step / >60 Hz monitors), so the shift must only
-            // happen when the GAME TICK actually advances, not on
-            // every cockpit fire.  Serving the same cached prev for
-            // every render frame within one tick is what makes the
-            // swept quad persist while the user inspects a paused
-            // frame.
-            const uint32_t curTick = readGameFrameCounter();
-            const int cacheIdx = findAreaSpineCacheSlot(
-                pose, const_cast<void*>(static_cast<const void*>(node)));
-            if (cacheIdx >= 0)
-            {
-                AreaSpineCacheEntry& entry = s_area_spine_cache[pose][cacheIdx];
-                if (entry.node != node)
-                {
-                    // Fresh slot — node not seen here before, or evicted.
-                    entry.node      = const_cast<void*>(static_cast<const void*>(node));
-                    entry.cur_p1    = out.spine_p1_world;
-                    entry.cur_p2    = out.spine_p2_world;
-                    entry.prev_p1   = out.spine_p1_world;
-                    entry.prev_p2   = out.spine_p2_world;
-                    entry.has_prev  = false;
-                    entry.lastTick  = curTick;
-                }
-                else if (entry.lastTick == curTick)
-                {
-                    // Same game tick — multiple cockpit fires within one
-                    // tick.  Do NOT shift prev.  The bone is frozen this
-                    // tick so refreshing cur with the same value is a
-                    // no-op; we still update it for paranoia in case the
-                    // bone matrix path returns a slightly-different
-                    // value (e.g. floating-point noise).
-                    entry.cur_p1    = out.spine_p1_world;
-                    entry.cur_p2    = out.spine_p2_world;
-                }
-                else if (entry.lastTick + 1 == curTick)
-                {
-                    // Game advanced exactly one tick — shift cur to
-                    // prev, take the fresh values as the new cur.
-                    // has_prev becomes true.
-                    entry.prev_p1   = entry.cur_p1;
-                    entry.prev_p2   = entry.cur_p2;
-                    entry.cur_p1    = out.spine_p1_world;
-                    entry.cur_p2    = out.spine_p2_world;
-                    entry.has_prev  = true;
-                    entry.lastTick  = curTick;
-                }
-                else
-                {
-                    // Multi-tick gap (round restart, off-screen, walker
-                    // disabled).  Reset — the cached values describe a
-                    // position that isn't the engine's actual previous
-                    // tick, so showing them would be misleading.
-                    entry.cur_p1    = out.spine_p1_world;
-                    entry.cur_p2    = out.spine_p2_world;
-                    entry.prev_p1   = out.spine_p1_world;
-                    entry.prev_p2   = out.spine_p2_world;
-                    entry.has_prev  = false;
-                    entry.lastTick  = curTick;
-                }
+            FVec3 bufA_P1, bufA_P2, bufB_P1, bufB_P2;
+            if (!readVec3(node + KHitOffsets::AreaWorldBufA + 0x00,
+                          bufA_P1))
+                return true;
+            if (!readVec3(node + KHitOffsets::AreaWorldBufA + 0x10, bufA_P2))
+                return true;
+            if (!readVec3(node + KHitOffsets::AreaWorldBufB + 0x00, bufB_P1))
+                return true;
+            if (!readVec3(node + KHitOffsets::AreaWorldBufB + 0x10, bufB_P2))
+                return true;
 
-                // Hand out the cached prev to the renderer regardless
-                // of which branch above we took.  When has_prev is
-                // false, prev fields equal cur and the renderer
-                // collapses the quad to a single spine line.
-                out.prev_p1_world  = entry.prev_p1;
-                out.prev_p2_world  = entry.prev_p2;
-                out.has_prev_spine = entry.has_prev;
-            }
+            uint32_t areaToggle = 0;
+            if (!readAreaDoubleBufferToggle(areaToggle))
+                return true;
+
+            const bool bufferBIsCurrent = (areaToggle & 1u) != 0;
+            const FVec3& curP1  = bufferBIsCurrent ? bufB_P1 : bufA_P1;
+            const FVec3& curP2  = bufferBIsCurrent ? bufB_P2 : bufA_P2;
+            const FVec3& prevP1 = bufferBIsCurrent ? bufA_P1 : bufB_P1;
+            const FVec3& prevP2 = bufferBIsCurrent ? bufA_P2 : bufB_P2;
+
+            const FVec3 p1Delta = BattleDeltaToUE(curP1, prevP1);
+            const FVec3 p2Delta = BattleDeltaToUE(curP2, prevP2);
+            out.prev_p1_world = FVec3{ out.spine_p1_world.X + p1Delta.X,
+                                       out.spine_p1_world.Y + p1Delta.Y,
+                                       out.spine_p1_world.Z + p1Delta.Z };
+            out.prev_p2_world = FVec3{ out.spine_p2_world.X + p2Delta.X,
+                                       out.spine_p2_world.Y + p2Delta.Y,
+                                       out.spine_p2_world.Z + p2Delta.Z };
+            out.has_prev_spine = true;
             return true;
         }
 
@@ -4432,28 +4212,31 @@ namespace Horse
         // Earlier revisions of this function incorrectly read +0x40
         // as "extents" and +0x50 as "centre", producing a wildly-
         // mispositioned AABB.  See the 2026-04 investigation notes.
-        static bool buildFixAreaWorld(const uint8_t* node, KHitDraw& out)
+        static bool buildFixAreaWorld(void* chara, uint32_t pose,
+                                      const uint8_t* node, KHitDraw& out)
         {
-            FVec3 namcoP1, namcoP2, namcoP3;
-            if (!readVec3(node + KHitOffsets::FixAreaWorldP1, namcoP1))
+            FVec3 localP1, localP2, localP3;
+            if (!readVec3(node + KHitOffsets::FixAreaBoneLocalP1, localP1))
                 return false;
-            if (!readVec3(node + KHitOffsets::FixAreaWorldP2, namcoP2))
+            if (!readVec3(node + KHitOffsets::FixAreaBoneLocalP2, localP2))
                 return false;
-            if (!readVec3(node + KHitOffsets::FixAreaWorldP3, namcoP3))
+            if (!readVec3(node + KHitOffsets::FixAreaBoneLocalP3, localP3))
                 return false;
 
-            // Axis swap: Namco (X=right, Y=up, Z=fwd) → UE (X=fwd, Y=right, Z=up).
-            auto toUE = [](const FVec3& n) {
-                return FVec3{ n.Z * kLuxCmToUE,
-                              n.X * kLuxCmToUE,
-                              n.Y * kLuxCmToUE };
-            };
             // Stash into corners[0..2] so we don't bloat the KHitDraw
             // struct for every node.  The draw helper reads three
             // specific slots based on the kind tag.
-            out.corners[0] = toUE(namcoP1);
-            out.corners[1] = toUE(namcoP2);
-            out.corners[2] = toUE(namcoP3);
+            uint32_t ueBone = 0xFFFFFFFFu;
+            if (!SafeReadUInt32(node + KHitOffsets::FixAreaBoneIndexUe4,
+                                &ueBone))
+                return false;
+            FMatrix64 bone{};
+            if (!fetchBoneMatrix(chara, pose, ueBone, bone))
+                return false;
+
+            out.corners[0] = LiftBoneLocalToWorld(bone, localP1);
+            out.corners[1] = LiftBoneLocalToWorld(bone, localP2);
+            out.corners[2] = LiftBoneLocalToWorld(bone, localP3);
             out.kind = KHitKind::FixAreaTri;
             return true;
         }
@@ -4470,37 +4253,27 @@ namespace Horse
     {
         if (d.kind == KHitKind::Box)
         {
-            // KHitArea — engine-truth spine + swept-quad outline.  The
+            // KHitArea — engine-truth native buffers + swept-quad outline. The
             // engine treats P1/P2 as 1D spine endpoints; the actual hit
             // shape is built at overlap-test time from THREE points
-            // (the cur spine plus the OTHER frame's tip / hilt as the
+            // (one buffer's spine plus the other buffer's tip / hilt as the
             // side reference, see KHitDraw::spine_p1_world docs).  We
             // render the SOURCE DATA:
             //
-            //   * Cur spine     : spine_p1_world → spine_p2_world
-            //                     (always drawn)
-            //   * Prev spine    : prev_p1_world  → prev_p2_world
-            //                     (drawn iff has_prev_spine, otherwise
-            //                      identical to cur and the line
-            //                      would overdraw)
-            //   * Two connectors: cur_P1→prev_P1 and cur_P2→prev_P2
-            //                     (close the swept quad; drawn iff
-            //                      has_prev_spine)
+            //   * Buffer A spine: spine_p1_world -> spine_p2_world
+            //   * Buffer B spine: prev_p1_world  -> prev_p2_world
+            //   * Two connectors close the swept quad between buffers.
             //
-            // Stationary attacks: prev ≈ cur, quad collapses to one
+            // Stationary attacks: A ≈ B, quad collapses to one
             // line — engine-truth (zero-motion ⇒ zero cross-section).
             // Moving attacks: quad opens up, visually communicating
             // the swept envelope that the engine hit-tested this
             // tick.
-            // All 4 quad edges use the caller's color uniformly.  3 of
-            // the 4 lines correspond to vectors the engine literally
-            // consumes (cur spine = OBB-1 primary axis, prev spine =
-            // OBB-2 primary axis, P1 connector = OBB-2 side reference);
-            // the 4th (P2 connector) is a "courtesy" closure that
-            // completes the quad outline without itself being an engine-
-            // computed vector.  All 4 share the same endpoints the
-            // engine reads, so together they outline the swept region
-            // the engine's two OBBs effectively cover.
+            // All 4 quad edges use the caller's color uniformly. The native
+            // scratch builder consumes both spines and one cross-buffer side
+            // reference; the remaining connector is a courtesy closure. All
+            // 4 share the same endpoints the engine reads, so together they
+            // outline the swept region the engine's two OBBs effectively cover.
             overlay.drawLine(d.spine_p1_world, d.spine_p2_world,
                              color, thickness);
             if (d.has_prev_spine)

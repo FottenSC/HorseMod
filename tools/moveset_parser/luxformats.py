@@ -45,7 +45,7 @@ from typing import Optional
 
 
 # ----------------------------------------------------------------------
-# Generic offset-table header (.mot / .dtp share this)
+# Generic offset-table header (.dtp and some small tables)
 # ----------------------------------------------------------------------
 
 @dataclass
@@ -73,9 +73,67 @@ def parse_offset_table(data: bytes, *, expected_max_count: int = 1 << 20) -> Off
     return OffsetTableFile(count=count, offsets=offs[:count], sizes=sizes, raw=data)
 
 
-def parse_mot(data: bytes) -> OffsetTableFile:
-    """Parse a chr*.mot motion table."""
-    return parse_offset_table(data)
+@dataclass
+class MotionBankFile:
+    """Engine-layout chr*.mot motion bank.
+
+    Ghidra reference: LuxMoveVM_InitMotionPlayback @ 0x140300400 indexes
+    motion offsets as `bank[animIndex + 2]`, so the file layout is:
+
+        +0x00 u32 count
+        +0x04 u32 reserved/zero
+        +0x08 u32 offsets[count]
+
+    There is no guaranteed count+1 sentinel. Section size is computed from
+    the next offset, or EOF for the final entry.
+    """
+
+    count: int
+    reserved_04: int
+    offsets: list[int]
+    sizes: list[int]
+    raw: bytes = field(repr=False)
+
+    def section(self, i: int) -> bytes:
+        return self.raw[self.offsets[i] : self.offsets[i] + self.sizes[i]]
+
+
+def _align_up(value: int, align: int) -> int:
+    return (value + align - 1) & ~(align - 1)
+
+
+def parse_mot(data: bytes) -> MotionBankFile:
+    """Parse a chr*.mot motion table using the engine's +0x08 offset layout."""
+    if len(data) < 0x10:
+        raise ValueError("MOT too small")
+    count, reserved_04 = struct.unpack_from("<II", data, 0)
+    if count == 0 or count > (1 << 20):
+        raise ValueError(f"implausible MOT count: {count}")
+    if reserved_04 != 0:
+        raise ValueError(f"unexpected MOT reserved_04: 0x{reserved_04:X}")
+    table_end = 8 + count * 4
+    if table_end > len(data):
+        raise ValueError(f"MOT offset table exceeds file: 0x{table_end:X} > 0x{len(data):X}")
+    offsets = list(struct.unpack_from(f"<{count}I", data, 8))
+    first_data = _align_up(table_end, 8)
+    if offsets and offsets[0] < first_data:
+        raise ValueError(
+            f"MOT first data offset 0x{offsets[0]:X} precedes aligned header 0x{first_data:X}"
+        )
+    prev = 0
+    for idx, off in enumerate(offsets):
+        if off < prev:
+            raise ValueError(f"MOT offsets are not monotonic at index {idx}: 0x{off:X} < 0x{prev:X}")
+        if off > len(data):
+            raise ValueError(f"MOT offset out of range at index {idx}: 0x{off:X} > 0x{len(data):X}")
+        if off == 0:
+            raise ValueError(f"MOT offset index {idx} points at file header")
+        prev = off
+    sizes: list[int] = []
+    for i, off in enumerate(offsets):
+        next_off = offsets[i + 1] if i + 1 < len(offsets) else len(data)
+        sizes.append(next_off - off)
+    return MotionBankFile(count=count, reserved_04=reserved_04, offsets=offsets, sizes=sizes, raw=data)
 
 
 def parse_dtp(data: bytes) -> OffsetTableFile:
@@ -912,9 +970,25 @@ class KhdFile:
     # Slot table: every FLuxMoveBankSlotView, indexed from 0. Walked
     # automatically by parse_khd.
     slots: list[FLuxMoveBankSlotView] = field(default_factory=list)
+    # FLuxMoveBank buckets at +0x1C..+0x2A. Packed move ids use
+    # bits 15..12 as bucket index and bits 10..0 as slot within bucket.
+    slot_buckets: list[tuple[int, int]] = field(default_factory=list)
     # Reverse index: cell_idx -> list of (slot_idx, variant_index).
     # Built by parse_khd from nCellBoneIndexPerVariant scans.
     cell_to_slots: dict[int, list] = field(default_factory=dict)
+
+    def resolve_packed_slot(self, packed_move_id: int) -> int | None:
+        bucket_idx = (packed_move_id >> 12) & 0xF
+        slot_in_bucket = packed_move_id & 0x7FF
+        if bucket_idx >= len(self.slot_buckets):
+            return None
+        start, count = self.slot_buckets[bucket_idx]
+        if slot_in_bucket >= count:
+            return None
+        slot_idx = start + slot_in_bucket
+        if slot_idx >= len(self.slots):
+            return None
+        return slot_idx
 
 
 def _detect_record_stride(section: bytes) -> tuple[Optional[int], int]:
@@ -1106,6 +1180,7 @@ def parse_khd(data: bytes) -> KhdFile:
         sections=sections,
         raw=data,
         slots=slot_records,
+        slot_buckets=buckets,
     )
     # Build a reverse index: cell_idx -> list of (slot_idx, variant)
     # that reference that cell via nCellBoneIndexPerVariant.

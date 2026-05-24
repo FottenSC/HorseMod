@@ -76,19 +76,30 @@
 #include "GameMode.hpp"
 #include "HorseLib.hpp"   // GlobalPtr for LuxBattleManager lookup
 #include "NativeBinding.hpp"
+#include "ReplayDebugTrace.hpp"
 #include "ReplayScrubDiag.hpp"
 #include "SafeMemoryRead.hpp"
+
+#ifndef HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG
+#define HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG 0
+#endif
+
+#ifndef HORSEMOD_REPLAY_ENABLE_INTERACTIVE_RESET_DIAG
+#define HORSEMOD_REPLAY_ENABLE_INTERACTIVE_RESET_DIAG 0
+#endif
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cwchar>
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <new>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -1120,6 +1131,36 @@ namespace Horse
                 std::memory_order_relaxed);
         }
 
+        bool demo_time_stats(int32_t& min_ms, int32_t& max_ms,
+                             size_t& valid_count) const noexcept
+        {
+            const size_t n = count();
+            min_ms = 0x7fffffff;
+            max_ms = -1;
+            valid_count = 0;
+            for (size_t i = 0; i < n; ++i)
+            {
+                Block* blk =
+                    m_blocks[i / kBlockTicks].load(
+                        std::memory_order_acquire);
+                if (!blk) continue;
+                const int32_t ms =
+                    blk->e[i % kBlockTicks].demo_time_ms.load(
+                        std::memory_order_relaxed);
+                if (ms < 0) continue;
+                if (ms < min_ms) min_ms = ms;
+                if (ms > max_ms) max_ms = ms;
+                ++valid_count;
+            }
+            if (valid_count == 0)
+            {
+                min_ms = -1;
+                max_ms = -1;
+                return false;
+            }
+            return true;
+        }
+
         // [game thread] Logical clear: the published count drops to 0, so
         // every entry becomes unreachable.  The block storage is kept and
         // overwritten by later appends (see the class plate).
@@ -1219,6 +1260,433 @@ namespace Horse
             DirectPerFrame = 2,
         };
 
+        enum class ScrubMode : int
+        {
+            Idle = 0,
+            Generated,
+            Dragging,
+            PausedPreview,
+            NativeSeekQueued,
+            NativeSeekSubmitted,
+            NativeSeekSettling,
+            NativeSeekLanded,
+            NativeSeekFailed,
+            Playing,
+        };
+
+        enum class NativeSeekStatus : int
+        {
+            Idle = 0,
+            Queued,
+            DeferredBusy,
+            Submitted,
+            Settling,
+            Landed,
+            Failed,
+        };
+
+        enum class NativeSeekFailure : int
+        {
+            None = 0,
+            FunctionUnresolved,
+            DriverUnresolved,
+            DriverBusy,
+            CallFaulted,
+            TaskNotObserved,
+            SettleTimedOut,
+            InvalidTarget,
+            TimelineMissingDemoTime,
+            NativeTimeSourceUnresolved,
+            LegacyVerifyFailed,
+            InteractiveReplayContextUnresolved,
+            InteractiveReplayResetFaulted,
+            InteractiveReplayRoundSelectFailed,
+            InteractiveReplayFastForwardStalled,
+            InteractiveReplayVerifyFailed,
+            InteractiveReplayTargetPastMatchEnd,
+            RoundResetDataUnavailable,
+            Sc6ResetSnapshotReadFailed,
+            Sc6ResetSnapshotWriteFailed,
+            Sc6InputLogRestoreFailed,
+            Sc6ReplayDataBlockRestoreFailed,
+            Sc6ReplayCursorWriteFailed,
+            Sc6ReplayPlayerCursorWriteFailed,
+            Sc6SetMoveStateFaulted,
+            Sc6InteractiveReplayResetFaultedDiagnostic,
+            Sc6ResetDispatchFailed,
+            CapturedSnapshotRestoreFailed,
+            CapturedSnapshotCompareFailed,
+            CapturedSnapshotValidationStepFailed,
+            NotLanded,
+        };
+
+        enum class SeekApplyStatus : int
+        {
+            Failed = 0,
+            Pending,
+            Submitted,
+            AppliedSc6Exact,
+            AppliedLegacy,
+        };
+
+        enum class PreviewStatus : int
+        {
+            Idle = 0,
+            Requested,
+            Applied,
+            Failed,
+            SkippedUnsafe,
+        };
+
+        enum class ReplayScrubHoldKind : int
+        {
+            None = 0,
+            UiParkOnly,
+            RestoredFrameHold,
+            ValidationStep,
+            ManualDiagnosticFreeze,
+        };
+
+        struct ReplayScrubGatePolicy
+        {
+            bool world_tick_gate {false};
+            bool replay_clock_gate {false};
+            bool actor_tick_gate {false};
+            bool time_dilation_gate {false};
+            bool vm_freeze_byte {false};
+            const char* reason {"None"};
+        };
+
+        enum class ReplayScrubGateReason : int
+        {
+            None = 0,
+            UiParkOnly,
+            RestoredFrameHold,
+            ValidationStep,
+        };
+
+        struct ReplayTimelineView
+        {
+            int32_t earliest_seq {-1};
+            int32_t latest_seq {-1};
+            int32_t displayed_seq {-1};
+            int32_t requested_seq {-1};
+            int32_t landed_seq {-1};
+
+            ScrubMode mode {ScrubMode::Idle};
+            NativeSeekStatus native_status {NativeSeekStatus::Idle};
+            NativeSeekFailure block_reason {NativeSeekFailure::None};
+
+            bool paused {false};
+            bool can_play {false};
+            bool native_pending {false};
+            bool preview_applied {false};
+        };
+
+        enum class SeekCommandKind : int
+        {
+            None = 0,
+            RequestPreviewAndNativeSeek,
+            StepToSeq,
+            PauseAtLive,
+            PlayFromSelected,
+            Cancel,
+        };
+
+        struct UiPlayheadState
+        {
+            int32_t requested_seq {-1};
+            int32_t displayed_seq {-1};
+            bool dragging {false};
+            bool wants_play {false};
+        };
+
+        struct PreviewState
+        {
+            int32_t seq {-1};
+            int32_t round {-1};
+            PreviewStatus status {PreviewStatus::Idle};
+            NativeSeekFailure failure_reason {NativeSeekFailure::None};
+        };
+
+        struct NativeSeekState
+        {
+            int32_t requested_seq {-1};
+            int32_t adjusted_seq {-1};
+            int32_t target_ms {-1};
+            int32_t round {-1};
+            int32_t master {-1};
+
+            NativeSeekStatus status {NativeSeekStatus::Idle};
+            NativeSeekFailure failure {NativeSeekFailure::None};
+
+            uintptr_t driver_ptr {0};
+            int32_t settle_ticks_left {0};
+            bool direct_driver_available {false};
+            bool cvar_submitted {false};
+            uint32_t generation {0};
+        };
+
+        enum class Sc6ContextFailure : int
+        {
+            None = 0,
+            ImageBaseMissing,
+            BattleManagerMissing,
+            InputLogMissing,
+            ReplayPlayerMissing,
+            StateResetDataMissing,
+            InteractiveReplayUnreadable,
+            RoundResetSnapshotMissing,
+        };
+
+        enum class Sc6ContextSource : int
+        {
+            None = 0,
+            ObjectRegistryBattleManager,
+            WorldModePumpBattleManager,
+        };
+
+        struct Sc6ReplaySeekContext
+        {
+            Sc6ContextSource source {Sc6ContextSource::None};
+            uintptr_t world_mode_pump {0};
+            uintptr_t battle_manager {0};
+            uintptr_t world_mode_pump_battle_manager {0};
+            uintptr_t object_registry_battle_manager {0};
+            uintptr_t sub_driver {0};
+            uintptr_t input_log {0};
+            uintptr_t replay_player {0};
+            uintptr_t state_reset_data {0};
+            uintptr_t interactive_replay {0};
+            int32_t total_rounds {-1};
+            int32_t current_round {-1};
+            int32_t input_master {-1};
+            int32_t battle_master {-1};
+            Sc6ContextFailure failure {Sc6ContextFailure::None};
+            bool battle_manager_ok {false};
+            bool world_mode_pump_bm_ok {false};
+            bool object_registry_bm_ok {false};
+            bool input_log_ok {false};
+            bool replay_player_ok {false};
+            bool state_reset_data_ok {false};
+            bool interactive_replay_ok {false};
+            bool captured_round_reset_ok {false};
+            bool readable {false};
+        };
+
+        struct GenerateStartReadiness
+        {
+            bool in_replay {false};
+            bool context_ok {false};
+            bool seek_context_ok {false};
+            bool reset_source_ok {false};
+            bool live_bm_reset_ok {false};
+            bool state_reset_data_ok {false};
+            bool clean_start {false};
+            int32_t round {-1};
+            int32_t input_master {-1};
+            int32_t battle_master {-1};
+            Sc6ContextSource seek_context_source {
+                Sc6ContextSource::None};
+            uintptr_t battle_manager {0};
+            uintptr_t world_mode_pump_battle_manager {0};
+            uintptr_t object_registry_battle_manager {0};
+            uintptr_t input_log {0};
+            uintptr_t world_mode_pump_input_log {0};
+            uintptr_t object_registry_input_log {0};
+            uintptr_t sub_driver {0};
+            uintptr_t replay_player {0};
+            uintptr_t state_reset_data {0};
+            uintptr_t interactive_replay {0};
+            Sc6ContextFailure seek_context_failure {
+                Sc6ContextFailure::None};
+            const char* reason {"unread"};
+        };
+
+        enum class Sc6SeekAuthority : int
+        {
+            CapturedSnapshotValidated = 0,
+            NativeRoundReplayDiagnostic,
+        };
+
+        enum class CapturedSeekValidationMode : int
+        {
+            None = 0,
+            PreviousToTarget,
+            TargetToNext,
+            StaticTarget,
+        };
+
+        enum class Sc6ExactSeekPhase : int
+        {
+            Idle = 0,
+            Queued,
+            RestoreValidationOrigin,
+            ValidateStepToTarget,
+            CompareTargetSnapshot,
+            RestoreTargetAfterValidation,
+            ResetRound,
+            FastForward,
+            Verify,
+            Landed,
+            Failed,
+            Cancelled,
+        };
+
+        struct Sc6ExactSeekJob
+        {
+            uint32_t generation {0};
+            Sc6ExactSeekPhase phase {Sc6ExactSeekPhase::Idle};
+            Sc6SeekAuthority authority {
+                Sc6SeekAuthority::CapturedSnapshotValidated};
+            int32_t requested_seq {-1};
+            int32_t target_tick {-1};
+            int32_t target_seq {-1};
+            int32_t target_round {-1};
+            int32_t target_master {-1};
+            int32_t validation_origin_tick {-1};
+            int32_t validation_origin_seq {-1};
+            int32_t validation_origin_round {-1};
+            int32_t validation_origin_master {-1};
+            int32_t validation_compare_tick {-1};
+            int32_t validation_compare_seq {-1};
+            int32_t validation_compare_round {-1};
+            int32_t validation_compare_master {-1};
+            int32_t round_start_tick {-1};
+            int32_t round_start_seq {-1};
+            int32_t round_start_master {-1};
+            int32_t frames_advanced {0};
+            int32_t slices_serviced {0};
+            int32_t stall_count {0};
+            int32_t last_live_master {-1};
+            int32_t native_step_requested_master {-1};
+            int32_t native_step_last_observed_master {-1};
+            int32_t native_step_requested_credits {0};
+            int32_t native_step_granted_credits {0};
+            int32_t native_step_observed_credits {0};
+            int32_t native_step_stall_count {0};
+            int32_t native_step_wait_services {0};
+            NativeSeekFailure failure {NativeSeekFailure::None};
+            const char* label {"USER"};
+            CapturedSeekValidationMode validation_mode {
+                CapturedSeekValidationMode::None};
+            bool service_logged {false};
+            bool native_step_waiting {false};
+            bool snapshot_validation_ok {false};
+        };
+
+        struct CapturedFrameRestoreReport
+        {
+            int32_t seq {-1};
+            int32_t tick {-1};
+            int32_t round {-1};
+            int32_t master {-1};
+            bool sim_restore_ok {false};
+            bool input_log_restore_ok {false};
+            bool rdb_restore_ok {false};
+            bool extras_restore_ok {false};
+            bool cursor_write_ok {false};
+            bool replay_player_cursor_write_ok {false};
+            NativeSeekFailure failure {NativeSeekFailure::None};
+        };
+
+        struct LiveCapturedFrameScratch
+        {
+            std::vector<uint8_t> sim;
+            std::vector<uint8_t> input_log;
+            std::vector<uint8_t> rdb;
+            std::vector<uint8_t> extras;
+            bool sim_ok {false};
+            bool input_log_ok {false};
+            bool rdb_ok {false};
+            bool extras_ok {false};
+        };
+
+        struct CapturedFrameCompareReport
+        {
+            int32_t expected_seq {-1};
+            int32_t expected_tick {-1};
+            int32_t expected_round {-1};
+            int32_t expected_master {-1};
+
+            bool sim_match {false};
+            bool input_log_match {false};
+            bool rdb_match {false};
+            bool extras_match {false};
+
+            uint64_t expected_sim_hash {0};
+            uint64_t live_sim_hash {0};
+            uint64_t expected_input_log_hash {0};
+            uint64_t live_input_log_hash {0};
+            uint64_t expected_rdb_hash {0};
+            uint64_t live_rdb_hash {0};
+            uint64_t expected_extras_hash {0};
+            uint64_t live_extras_hash {0};
+
+            int32_t first_mismatch_region {-1};
+            int32_t first_mismatch_offset {-1};
+            uint8_t expected_byte {0};
+            uint8_t live_byte {0};
+            int32_t first_ignored_mismatch_region {-1};
+            int32_t first_ignored_mismatch_offset {-1};
+            uint8_t first_ignored_expected_byte {0};
+            uint8_t first_ignored_live_byte {0};
+            uint32_t ignored_mismatch_count {0};
+            const char* first_ignored_reason {"none"};
+            bool strict_match {false};
+            bool policy_match {false};
+            bool ok {false};
+            const char* reason {"unread"};
+        };
+
+        struct Sc6SeekVerifyReport
+        {
+            int32_t live_round {-1};
+            int32_t replay_player_round {-1};
+            int32_t input_master {-1};
+            int32_t battle_master {-1};
+            int32_t battle_master_delta {-1};
+            int32_t active_count {-1};
+            uint32_t active_mask {0};
+            int32_t checked_slots {0};
+            int32_t cache_slot {-1};
+            int32_t cache_expected_frame_id {-1};
+            int32_t cache_frame_id {-1};
+            uint32_t cache_frame_index {0};
+            uint32_t cache_input_value {0};
+            uint32_t current_input_value {0};
+            uint8_t cache_filled {0};
+            bool cache_checked {false};
+            bool ok {false};
+            const char* reason {"unread"};
+        };
+
+        struct Sc6ResetApplyReport
+        {
+            uintptr_t battle_manager {0};
+            uintptr_t input_log {0};
+            uintptr_t replay_player {0};
+            uintptr_t state_reset_data {0};
+            uintptr_t reset_dst {0};
+            int32_t target_round {-1};
+            int32_t target_master {-1};
+            int32_t origin_tick {-1};
+            int32_t origin_seq {-1};
+            int32_t origin_master {-1};
+            int32_t origin_last_frame_id {-1};
+            const char* reset_source {"none"};
+            NativeSeekFailure failure {NativeSeekFailure::None};
+            bool context_ok {false};
+            bool reset_source_ok {false};
+            bool reset_snapshot_read_ok {false};
+            bool reset_snapshot_write_ok {false};
+            bool input_log_restore_ok {false};
+            bool rdb_restore_ok {false};
+            bool set_move_state_ok {false};
+            bool replay_cursor_write_ok {false};
+            bool replay_player_cursor_write_ok {false};
+        };
+
         // A round-boundary marker for the timeline UI: `seq` is the
         // capture sequence of the first snapshot of round `round`.
         // Returned by collect_round_markers().
@@ -1251,10 +1719,32 @@ namespace Horse
         static constexpr uintptr_t kRVA_ExecMoveChangeAndPost = 0x3841E0;
         static constexpr uintptr_t kRVA_ExecFinalizeAndPost   = 0x384540;
         static constexpr uintptr_t kRVA_LuxBattlePerFrameTick = 0x2DBC60;
+        static constexpr uintptr_t kRVA_LuxBattleInteractiveReplayReset = 0x37E900;
+        static constexpr uintptr_t kRVA_ALuxBattleManagerSetMoveState = 0x3F8370;
         static constexpr uintptr_t kRVA_FrameCounter          = 0x470D0C4;
         static constexpr uintptr_t kRVA_PerFrameCameraArgs    = 0x470D100;
         static constexpr uintptr_t kRVA_LatestEngineInput     = 0x4855700;
+        static constexpr uintptr_t kRVA_InputRingBaseOffset   = 0x470DED0;
+        static constexpr uintptr_t kRVA_CCpuCommandArray      = 0x4715400;
+        static constexpr uintptr_t kRVA_PerPlayerInputRing    = 0x485E750;
+        static constexpr uintptr_t kRVA_PerPlayerInputCursor  = 0x485EB20;
+        static constexpr uintptr_t kRVA_LfsrState             = 0x485EB30;
+        static constexpr uintptr_t kRVA_LfsrIndex             = 0x485EB94;
         static constexpr uintptr_t kRVA_DemoGotoTimeInSeconds = 0x1E0ECA0;
+
+        static constexpr uintptr_t kWorldModePump_BattleManager_Off = 0x30;
+        static constexpr uintptr_t kWorldModePump_SubDriver_Off     = 0x38;
+        static constexpr uintptr_t kBM_InteractiveReplay_Off        = 0xAA120;
+        static constexpr size_t    kRoundStartDataBytes             = 0xC0;
+        static constexpr int32_t   kMaxSc6ReplayRounds              = 16;
+
+        // Accuracy guard: setting demo.GotoTimeInSeconds may route to the
+        // same engine scrub code, but a CVar write only proves that the
+        // console variable accepted text.  It does not prove the active
+        // UDemoNetDriver accepted an FGotoTimeInSecondsTask.  Keep strict
+        // timeline seeks on the direct path where we can observe task
+        // insertion before temporarily releasing tick gates.
+        static constexpr bool kAllowUnobservedDemoGotoCVarFallback = false;
 
         // ROUND-END SEEK-BACK fix (2026-05-14): the HgCpuDirect global
         // snapshot covers g_LuxBattle_VMFreezeRecord, the 320-byte region
@@ -1358,6 +1848,46 @@ namespace Horse
                     "extras {} B per tick, {} MB capture ceiling)\n"),
                 kSnapshotStride, kIL_CaptureBytes, kRDB_Bytes, kExtras_Bytes,
                 kMaxStoreBytes / (1024ull * 1024ull));
+                RC::Output::send<RC::LogLevel::Default>(
+                STR("[ReplayScrub] build replay-accuracy-v10l "
+                    "strict_sc6_exact=1 captured_seek_validate=1 "
+                    "native_round_replay_diag=1 legacy_seek={} "
+                    "legacy_preview={} cache_required=1 "
+                    "reset_snapshots=1 gate_policy_split=1 "
+                    "postgen_light_hold=1 stale_timeline_rebuild=1 "
+                    "failed_seek_cleanup=1 manual_gate_split=1 "
+                    "latest_input_restore=1 input_ring_restore=1 "
+                    "rng_restore=1 required_extras=1 "
+                    "capture_fail_abort=1 compare_diag_only=1 "
+                    "cache_value_diag_only=1 cache_tag_diag_only=1\n"),
+                kEnableLegacySeekDiagnostics ? 1 : 0,
+                kEnableLegacySnapshotPreview ? 1 : 0);
+            RC::Output::send<RC::LogLevel::Default>(
+                STR("[ReplayScrub] deployment check: v10l loaded from "
+                    "HorseMod main.dll\n"));
+            {
+                ReplayTraceFields f;
+                f.string("build", "replay-accuracy-v10l")
+                 .boolean("strict_sc6_exact", true)
+                 .boolean("captured_seek_validate", true)
+                 .boolean("native_round_replay_diag", true)
+                 .boolean("legacy_seek", kEnableLegacySeekDiagnostics)
+                 .boolean("legacy_preview", kEnableLegacySnapshotPreview)
+                 .boolean("cache_required", true)
+                 .boolean("reset_snapshots", true)
+                 .boolean("gate_policy_split", true)
+                 .boolean("postgen_light_hold", true)
+                 .boolean("stale_timeline_rebuild", true)
+                 .boolean("failed_seek_cleanup", true)
+                 .boolean("manual_gate_split", true)
+                 .boolean("latest_input_restore", true)
+                 .boolean("input_ring_restore", true)
+                 .boolean("rng_restore", true)
+                 .boolean("required_extras", true)
+                 .boolean("capture_fail_abort", true);
+                ReplayDebugTrace::instance().event(
+                    "replay_scrub_initialized", f);
+            }
             return true;
         }
 
@@ -1581,7 +2111,45 @@ namespace Horse
 
             // Both wall AND master advanced - real forward play.
             // Capture exactly ONE snapshot per cockpit tick.
-            (void)capture_snapshot(static_cast<int32_t>(cur), true);
+            const bool cap_ok =
+                capture_snapshot(static_cast<int32_t>(cur), true);
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                    == static_cast<int>(TimelineGenState::Generating))
+            {
+                if (!cap_ok)
+                {
+                    const int32_t fails = ++m_gen_capture_fail_count;
+                    if (fails == 1)
+                    {
+                        RC::Output::send<RC::LogLevel::Warning>(STR(
+                            "[ReplayScrub] Generate timeline capture failed "
+                            "at startup/progress (wall={} master={} round={} "
+                            "extras_reason={}); generation will stop if this "
+                            "persists\n"),
+                            cur, cur_master, read_current_round(),
+                            RC::to_generic_string(
+                                m_last_extras_failure
+                                    ? m_last_extras_failure : "unknown"));
+                    }
+                    if (fails >= kGenMaxConsecutiveCaptureFailures)
+                    {
+                        RC::Output::send<RC::LogLevel::Warning>(STR(
+                            "[ReplayScrub] Generate timeline aborted - "
+                            "capture failed {} consecutive frames "
+                            "(last reason={})\n"),
+                            fails,
+                            RC::to_generic_string(
+                                m_last_extras_failure
+                                    ? m_last_extras_failure : "unknown"));
+                        stop_generate_timeline("capture-failed", false);
+                        return;
+                    }
+                }
+                else
+                {
+                    m_gen_capture_fail_count = 0;
+                }
+            }
             m_last_counter = cur;
             m_last_master  = cur_master;
 
@@ -1939,31 +2507,36 @@ namespace Horse
             m_diag_last_master = master;
         }
 
-        // Service any deferred-seek request the UI posted.  Called
-        // from the same cockpit pre-tick that runs tick_capture().
-        // Doing this inside the cockpit hook (instead of from the UI
-        // thread) ensures the ExecFinalizeAndPost call always lands
-        // on the game thread between PerFrameTicks.
-        void service_seek_request()
+        // Pre-gate service runs before dllmain's frame_step_apply().
+        // This lets a newly queued captured seek restore its validation
+        // origin and publish a one-frame validation request before the
+        // gate driver grants credits for this cockpit tick.
+        void service_pre_frame_gate()
         {
             if (!is_initialized()) return;
-            const int32_t target = m_seek_request.exchange(
-                kSeekIdle, std::memory_order_acq_rel);
-            if (target == kSeekIdle)
-            {
-                service_native_demo_seek_settle();
-                service_pending_demo_goto_time_seek(false);
-                return;
-            }
-            do_seek_to_seq(target);
-            if (m_resume_after_seek.exchange(false, std::memory_order_acq_rel)
-                && m_auto_resume_on_release.load(std::memory_order_acquire))
-            {
-                m_paused.store(false, std::memory_order_release);
-                m_native_demo_seek_settle_ticks.store(
-                    0, std::memory_order_release);
-            }
+            service_ui_command();
+            service_drag_preview();
+            service_sc6_exact_seek_job();
+            service_pending_demo_goto_time_seek(false);
+        }
+
+        // Post-gate service runs after frame_step_apply().  The seek job's
+        // own wait guard prevents observing a just-granted credit before
+        // SC6's world tick has actually consumed it, but this pass catches
+        // immediate failures/state publications and keeps UI state fresh.
+        void service_post_frame_gate()
+        {
+            if (!is_initialized()) return;
+            service_sc6_exact_seek_job();
             service_native_demo_seek_settle();
+            publish_timeline_state();
+        }
+
+        // Back-compat wrapper for any older call sites.
+        void service_seek_request()
+        {
+            service_pre_frame_gate();
+            service_post_frame_gate();
         }
 
         // ---- Diagnostic UI accessors -------------------------------
@@ -1984,85 +2557,15 @@ namespace Horse
             m_force_diag_request.store(true, std::memory_order_release);
         }
 
-        // Write ALuxBattleReplayPlayer.CurrentTime/CurrentRound/
-        // bIsPlayingBack via DIRECT BYTE WRITES at the verified Ghidra
-        // struct offsets.  This is cursor/UI repair; the motion source
-        // for normal seeks is UDemoNetDriver::GotoTimeInSeconds.
-        bool use_replay_player_seek() const noexcept
+        void log_generate_locked_complete_once() const noexcept
         {
-            return m_use_replay_player_seek.load(std::memory_order_acquire);
-        }
-        void set_use_replay_player_seek(bool v) noexcept
-        {
-            m_use_replay_player_seek.store(v, std::memory_order_release);
-        }
-
-        bool use_demo_goto_time_seek() const noexcept
-        {
-            return m_use_demo_goto_time_seek.load(std::memory_order_acquire);
-        }
-        void set_use_demo_goto_time_seek(bool v) noexcept
-        {
-            m_use_demo_goto_time_seek.store(v, std::memory_order_release);
-            if (!v)
-            {
-                m_pending_demo_seek_ms.store(-1, std::memory_order_release);
-                m_pending_demo_seek_master.store(-1,
-                                                 std::memory_order_release);
-                m_pending_demo_seek_seq.store(-1,
-                                              std::memory_order_release);
-                m_pending_demo_seek_round.store(-1,
-                                                std::memory_order_release);
-                m_native_demo_seek_guard_ticks.store(
-                    0, std::memory_order_release);
-                m_pending_demo_seek_retry_ticks = 0;
-            }
-        }
-
-        // 2026-05-15 granular debug toggles (ultrathink session).
-        bool enable_chara_4400_restore() const noexcept
-        {
-            return m_enable_chara_4400_restore.load(std::memory_order_acquire);
-        }
-        void set_enable_chara_4400_restore(bool v) noexcept
-        {
-            (void)v;
-            // Disabled after 2026-05-18 testing: these values looked like
-            // float/VFX data and restoring them preceded a crash.
-            m_enable_chara_4400_restore.store(false, std::memory_order_release);
-        }
-
-        bool force_pra_forward_bit_on_seek() const noexcept
-        {
-            return m_force_pra_forward_bit_on_seek.load(std::memory_order_acquire);
-        }
-        void set_force_pra_forward_bit_on_seek(bool v) noexcept
-        {
-            (void)v;
-            m_force_pra_forward_bit_on_seek.store(false, std::memory_order_release);
-        }
-
-        bool force_isplayingback_on_seek() const noexcept
-        {
-            return m_force_isplayingback_on_seek.load(std::memory_order_acquire);
-        }
-        void set_force_isplayingback_on_seek(bool v) noexcept
-        {
-            (void)v;
-            m_force_isplayingback_on_seek.store(false, std::memory_order_release);
-        }
-
-        bool enable_speculative_restore() const noexcept
-        {
-            return m_enable_speculative_restore.load(std::memory_order_acquire);
-        }
-        void set_enable_speculative_restore(bool v) noexcept
-        {
-            (void)v;
-            // Keep the broad speculative restore locked out in normal builds:
-            // it writes WorldModePump/PRA/captured RP state and caused the
-            // 2026-05-18 post-generate crash when toggled manually.
-            m_enable_speculative_restore.store(false, std::memory_order_release);
+            static std::atomic<bool> s_logged{false};
+            if (s_logged.exchange(true, std::memory_order_relaxed))
+                return;
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayScrub] Generate timeline ignored - current replay "
+                "already has a complete generated timeline; load/restart "
+                "replay to generate again\n"));
         }
 
         // [render thread] "Generate timeline" UI requests.  The UI runs
@@ -2071,6 +2574,16 @@ namespace Horse
         // same request/handoff pattern as request_seek).
         void request_generate_timeline() noexcept
         {
+            ReplayTraceFields f;
+            f.string("mode", "normal").boolean("armed", false);
+            ReplayDebugTrace::instance().event("generate_request", f);
+            if (is_timeline_generation_locked_complete())
+            {
+                log_generate_locked_complete_once();
+                return;
+            }
+            if (arm_generate_if_replay_already_advanced(kGenReqStart))
+                return;
             m_gen_request.store(kGenReqStart, std::memory_order_release);
         }
         // As request_generate_timeline(), but the pass also skips the
@@ -2078,6 +2591,17 @@ namespace Horse
         // fast-forward - drives the "Experimental" button.
         void request_generate_timeline_experimental() noexcept
         {
+            ReplayTraceFields f;
+            f.string("mode", "experimental").boolean("armed", false);
+            ReplayDebugTrace::instance().event("generate_request", f);
+            if (is_timeline_generation_locked_complete())
+            {
+                log_generate_locked_complete_once();
+                return;
+            }
+            if (arm_generate_if_replay_already_advanced(
+                    kGenReqStartExperimental))
+                return;
             m_gen_request.store(kGenReqStartExperimental,
                                 std::memory_order_release);
         }
@@ -2086,6 +2610,17 @@ namespace Horse
         // (bypassing UE4 rendering) instead of replay fast-forward.
         void request_generate_timeline_experimental_battle_step() noexcept
         {
+            ReplayTraceFields f;
+            f.string("mode", "battle_step").boolean("armed", false);
+            ReplayDebugTrace::instance().event("generate_request", f);
+            if (is_timeline_generation_locked_complete())
+            {
+                log_generate_locked_complete_once();
+                return;
+            }
+            if (arm_generate_if_replay_already_advanced(
+                    kGenReqStartBattleStep))
+                return;
             m_gen_request.store(kGenReqStartBattleStep,
                                 std::memory_order_release);
         }
@@ -2098,7 +2633,35 @@ namespace Horse
         }
         void request_stop_generate_timeline() noexcept
         {
+            if (m_gen_armed_hold_logged.load(std::memory_order_acquire))
+            {
+                m_paused.store(false, std::memory_order_release);
+                m_hold_kind.store(
+                    static_cast<int32_t>(ReplayScrubHoldKind::None),
+                    std::memory_order_release);
+            }
+            m_gen_armed_mode.store(kGenReqNone, std::memory_order_release);
+            reset_armed_generate_wait_log();
             m_gen_request.store(kGenReqStop, std::memory_order_release);
+        }
+        void cancel_generate_waiting() noexcept
+        {
+            const int prev = m_gen_armed_mode.exchange(
+                kGenReqNone, std::memory_order_acq_rel);
+            if (prev != kGenReqNone)
+            {
+                if (m_gen_armed_hold_logged.load(
+                        std::memory_order_acquire))
+                {
+                    m_paused.store(false, std::memory_order_release);
+                    m_hold_kind.store(
+                        static_cast<int32_t>(ReplayScrubHoldKind::None),
+                        std::memory_order_release);
+                }
+                reset_armed_generate_wait_log();
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] Generate timeline waiting cancelled\n"));
+            }
         }
 
         // "Generate timeline" state accessor (2026-05-16) - the UI
@@ -2107,6 +2670,91 @@ namespace Horse
         {
             return static_cast<TimelineGenState>(
                 m_timeline_gen_state.load(std::memory_order_acquire));
+        }
+
+        bool is_timeline_generation_locked_complete() const noexcept
+        {
+            return has_context_valid_completed_timeline();
+        }
+
+        bool has_completed_timeline() const noexcept
+        {
+            return timeline_gen_state() == TimelineGenState::Done
+                && m_tags.count() > 0;
+        }
+
+        bool has_context_valid_completed_timeline() const noexcept
+        {
+            return has_completed_timeline()
+                && m_timeline_context_valid.load(
+                    std::memory_order_acquire);
+        }
+
+        bool has_stale_preserved_timeline() const noexcept
+        {
+            return has_completed_timeline()
+                && !m_timeline_context_valid.load(
+                    std::memory_order_acquire);
+        }
+
+        bool is_generate_armed_for_next_clean_start() const noexcept
+        {
+            return m_gen_armed_mode.load(std::memory_order_acquire)
+                != kGenReqNone;
+        }
+
+        const char* generate_status_text() noexcept
+        {
+            if (is_generate_armed_for_next_clean_start())
+            {
+                if (m_gen_armed_hold_logged.load(
+                        std::memory_order_acquire))
+                    return "Waiting at replay start. Timeline will build automatically.";
+                return "Waiting. Restart or reload the replay; timeline will build automatically.";
+            }
+
+            if (has_stale_preserved_timeline())
+                return "Previous timeline is from an old replay. Restart or reload, then Generate will replace it.";
+
+            const GenerateStartReadiness ready =
+                read_generate_start_readiness();
+            if (ready.context_ok && !ready.clean_start)
+                return "Replay already started. Click Generate, then restart or reload the replay.";
+            if (ready.clean_start
+                && (!ready.seek_context_ok || !ready.reset_source_ok))
+                return "Replay is still loading. Wait at the start before generating.";
+
+            return "";
+        }
+
+        bool can_generate_timeline() noexcept
+        {
+            const GenerateStartReadiness ready =
+                read_generate_start_readiness();
+            return GameMode::instance().current_presence()
+                    == GamePresence::Replay
+                && timeline_gen_state() != TimelineGenState::Generating
+                && !is_timeline_generation_locked_complete()
+                && ready.context_ok
+                && (!ready.clean_start
+                    || (ready.seek_context_ok && ready.reset_source_ok));
+        }
+
+        const char* generate_block_reason() noexcept
+        {
+            if (timeline_gen_state() == TimelineGenState::Generating)
+                return "Generation is already running.";
+            if (is_timeline_generation_locked_complete())
+                return "Timeline complete. Restart or load another replay to build it again.";
+            if (has_stale_preserved_timeline())
+                return "";
+            const GenerateStartReadiness ready =
+                read_generate_start_readiness();
+            if (ready.context_ok
+                && (!ready.clean_start
+                    || (ready.seek_context_ok && ready.reset_source_ok)))
+                return "";
+            return ready.reason;
         }
 
         // True while the current generation pass is the EXPERIMENTAL
@@ -2200,11 +2848,77 @@ namespace Horse
                     "the Replay viewer\n"));
                 return;
             }
+            if (is_timeline_generation_locked_complete())
+            {
+                log_generate_locked_complete_once();
+                return;
+            }
+            const GenerateStartReadiness ready =
+                read_generate_start_readiness();
+            if (!ready.clean_start)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline blocked - replay is "
+                    "not at start (reason={} context_ok={} round={} "
+                    "input_master={} battle_master={} source={} "
+                    "object_bm=0x{:X} object_il=0x{:X} wmp_bm=0x{:X} "
+                    "wmp_il=0x{:X} chosen_bm=0x{:X} chosen_il=0x{:X} "
+                    "seek_context_ok={} sub=0x{:X} rp=0x{:X} "
+                    "reset=0x{:X} live_bm_reset_ok={})\n"),
+                    RC::to_generic_string(ready.reason),
+                    ready.context_ok ? 1 : 0, ready.round,
+                    ready.input_master, ready.battle_master,
+                    RC::to_generic_string(sc6_context_source_name(
+                        ready.seek_context_source)),
+                    ready.object_registry_battle_manager,
+                    ready.object_registry_input_log,
+                    ready.world_mode_pump_battle_manager,
+                    ready.world_mode_pump_input_log,
+                    ready.battle_manager, ready.input_log,
+                    ready.seek_context_ok ? 1 : 0, ready.sub_driver,
+                    ready.replay_player, ready.state_reset_data,
+                    ready.live_bm_reset_ok ? 1 : 0);
+                return;
+            }
+            if (!ready.seek_context_ok || !ready.reset_source_ok)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline blocked - exact SC6 "
+                    "reset source is not ready failure={} "
+                    "source={} context_ok={} seek_context_ok={} round={} "
+                    "input_master={} battle_master={} object_bm=0x{:X} "
+                    "object_il=0x{:X} wmp_bm=0x{:X} wmp_il=0x{:X} "
+                    "chosen_bm=0x{:X} chosen_il=0x{:X} sub=0x{:X} "
+                    "rp=0x{:X} reset=0x{:X} irs=0x{:X} "
+                    "live_bm_reset_ok={} state_reset_data_ok={}\n"),
+                    RC::to_generic_string(sc6_context_failure_name(
+                        ready.seek_context_failure)),
+                    RC::to_generic_string(sc6_context_source_name(
+                        ready.seek_context_source)),
+                    ready.context_ok ? 1 : 0,
+                    ready.seek_context_ok ? 1 : 0, ready.round,
+                    ready.input_master, ready.battle_master,
+                    ready.object_registry_battle_manager,
+                    ready.object_registry_input_log,
+                    ready.world_mode_pump_battle_manager,
+                    ready.world_mode_pump_input_log,
+                    ready.battle_manager, ready.input_log,
+                    ready.sub_driver, ready.replay_player,
+                    ready.state_reset_data, ready.interactive_replay,
+                    ready.live_bm_reset_ok ? 1 : 0,
+                    ready.state_reset_data_ok ? 1 : 0);
+                return;
+            }
             // Generation needs the replay PLAYING - tick_capture() skips
             // capture while paused.  Drop any pause/scrub state.  (The
             // passive-capture toggle is NOT required: tick_capture()
             // captures whenever a generation pass is running.)
             m_paused.store(false, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::None),
+                std::memory_order_release);
+            cancel_sc6_exact_seek("generation start");
+            m_sc6_seek_job = Sc6ExactSeekJob{};
 
             if (!m_frame_cap.engage())
             {
@@ -2249,18 +2963,26 @@ namespace Horse
                 m_screen_pct.engage();
             }
 
-            // Re-generate support: discard any previous timeline so this
-            // pass starts EMPTY.  Without this, a re-generate would append
-            // the new pass onto the old timeline, producing a chrono-
-            // logically discontinuous coordinate space.  Placed AFTER every
-            // early-return check above, so a generation that fails to start
-            // (not initialised / not in Replay / frame-cap engage failed)
-            // never destroys the existing timeline.  m_last_seek_target is
-            // cleared too so the playhead doesn't park on a stale seq
-            // carried over from the discarded timeline.
+            // A valid new generation starts from an empty timeline.  This
+            // is intentionally after every guard and after frame-cap
+            // engagement, so a failed start never destroys the timeline.
             drop_ring();
             m_last_seek_target.store(-1, std::memory_order_release);
             m_usable_latest_seq.store(-1, std::memory_order_release);
+            log_sc6_context_report(
+                "GEN_START",
+                resolve_sc6_replay_seek_context_report(),
+                true);
+            {
+                const auto time_report =
+                    ReplayScrubDiag::resolve_demo_time_source_report(true);
+                ReplayScrubDiag::log_demo_time_source_report_once(
+                    "GEN_START", time_report);
+                const auto driver_report =
+                    ReplayScrubDiag::resolve_demo_net_driver_report(true);
+                ReplayScrubDiag::log_demo_driver_resolve_report_once(
+                    "GEN_START", driver_report);
+            }
 
             const int32_t m = read_engine_master_clock();
             m_timeline_gen_start_master.store(m, std::memory_order_release);
@@ -2275,6 +2997,10 @@ namespace Horse
             m_gen_total_rounds        = -1;
             m_gen_final_round_first_safe_seq = -1;
             m_gen_final_round_last_safe_seq  = -1;
+            m_gen_missing_demo_time_logged = false;
+            m_gen_demo_time_recovered_logged = false;
+            m_gen_capture_fail_count = 0;
+            m_last_extras_failure = "none";
             const auto now = std::chrono::steady_clock::now();
             m_gen_started_at   = now;
             m_gen_finished_at  = now;
@@ -2286,9 +3012,36 @@ namespace Horse
 
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayScrub] Generate timeline STARTED ({}) - frame cap "
-                "removed; replay fast-forwarding (master={})\n"),
+                "removed; replay fast-forwarding (master={} clean_start=1 "
+                "round={} input_master={} battle_master={} "
+                "seek_context_ok={} reset_source_ok={} source={} "
+                "live_bm_reset_ok={})\n"),
                 RC::to_generic_string(experimental
-                    ? "experimental: render skipped" : "normal"), m);
+                    ? "experimental: render skipped" : "normal"), m,
+                ready.round, ready.input_master, ready.battle_master,
+                ready.seek_context_ok ? 1 : 0,
+                ready.reset_source_ok ? 1 : 0,
+                RC::to_generic_string(sc6_context_source_name(
+                    ready.seek_context_source)),
+                ready.live_bm_reset_ok ? 1 : 0);
+            {
+                ReplayTraceFields f;
+                f.string("mode", experimental ? "experimental" : "normal")
+                 .integer("round", ready.round)
+                 .integer("input_master", ready.input_master)
+                 .integer("battle_master", ready.battle_master)
+                 .integer("start_master", m)
+                 .string("context_source", sc6_context_source_name(
+                             ready.seek_context_source))
+                 .boolean("seek_context_ok", ready.seek_context_ok)
+                 .boolean("reset_source_ok", ready.reset_source_ok)
+                 .boolean("live_bm_reset_ok", ready.live_bm_reset_ok)
+                 .hex("bm", ready.battle_manager)
+                 .hex("input_log", ready.input_log)
+                 .hex("replay_player", ready.replay_player)
+                 .hex("state_reset_data", ready.state_reset_data);
+                ReplayDebugTrace::instance().event("generate_start", f);
+            }
         }
 
         void start_generate_timeline_battle_step() noexcept
@@ -2296,6 +3049,11 @@ namespace Horse
             if (m_timeline_gen_state.load(std::memory_order_acquire)
                 == static_cast<int>(TimelineGenState::Generating))
                 return;
+            if (is_timeline_generation_locked_complete())
+            {
+                log_generate_locked_complete_once();
+                return;
+            }
 
             if (!is_initialized())
             {
@@ -2343,8 +3101,70 @@ namespace Horse
                     "ignored - battle charas are not both alive\n"));
                 return;
             }
+            const GenerateStartReadiness ready =
+                read_generate_start_readiness();
+            if (!ready.clean_start)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline (battle-step) blocked "
+                    "- replay is not at start (reason={} context_ok={} "
+                    "round={} input_master={} battle_master={} source={} "
+                    "object_bm=0x{:X} object_il=0x{:X} wmp_bm=0x{:X} "
+                    "wmp_il=0x{:X} chosen_bm=0x{:X} chosen_il=0x{:X} "
+                    "seek_context_ok={} sub=0x{:X} rp=0x{:X} "
+                    "reset=0x{:X} live_bm_reset_ok={})\n"),
+                    RC::to_generic_string(ready.reason),
+                    ready.context_ok ? 1 : 0, ready.round,
+                    ready.input_master, ready.battle_master,
+                    RC::to_generic_string(sc6_context_source_name(
+                        ready.seek_context_source)),
+                    ready.object_registry_battle_manager,
+                    ready.object_registry_input_log,
+                    ready.world_mode_pump_battle_manager,
+                    ready.world_mode_pump_input_log,
+                    ready.battle_manager, ready.input_log,
+                    ready.seek_context_ok ? 1 : 0, ready.sub_driver,
+                    ready.replay_player, ready.state_reset_data,
+                    ready.live_bm_reset_ok ? 1 : 0);
+                return;
+            }
+            if (!ready.seek_context_ok || !ready.reset_source_ok)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline (battle-step) "
+                    "blocked - exact SC6 reset source is not ready "
+                    "failure={} source={} context_ok={} "
+                    "seek_context_ok={} round={} input_master={} "
+                    "battle_master={} object_bm=0x{:X} "
+                    "object_il=0x{:X} wmp_bm=0x{:X} wmp_il=0x{:X} "
+                    "chosen_bm=0x{:X} chosen_il=0x{:X} sub=0x{:X} "
+                    "rp=0x{:X} reset=0x{:X} irs=0x{:X} "
+                    "live_bm_reset_ok={} state_reset_data_ok={}\n"),
+                    RC::to_generic_string(sc6_context_failure_name(
+                        ready.seek_context_failure)),
+                    RC::to_generic_string(sc6_context_source_name(
+                        ready.seek_context_source)),
+                    ready.context_ok ? 1 : 0,
+                    ready.seek_context_ok ? 1 : 0, ready.round,
+                    ready.input_master, ready.battle_master,
+                    ready.object_registry_battle_manager,
+                    ready.object_registry_input_log,
+                    ready.world_mode_pump_battle_manager,
+                    ready.world_mode_pump_input_log,
+                    ready.battle_manager, ready.input_log,
+                    ready.sub_driver, ready.replay_player,
+                    ready.state_reset_data, ready.interactive_replay,
+                    ready.live_bm_reset_ok ? 1 : 0,
+                    ready.state_reset_data_ok ? 1 : 0);
+                return;
+            }
 
             m_paused.store(false, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::None),
+                std::memory_order_release);
+            cancel_sc6_exact_seek("generation start");
+            m_sc6_seek_job = Sc6ExactSeekJob{};
             m_frame_cap.disengage();
             m_screen_pct.disengage();
             m_render_skip.disengage();
@@ -2357,10 +3177,26 @@ namespace Horse
             m_gen_battle_step_generate.store(true,
                                             std::memory_order_release);
             m_exp2_transient_fail_count = 0;
+            m_gen_capture_fail_count = 0;
+            m_last_extras_failure = "none";
 
             drop_ring();
             m_last_seek_target.store(-1, std::memory_order_release);
             m_usable_latest_seq.store(-1, std::memory_order_release);
+            log_sc6_context_report(
+                "GEN_START_BATTLE_STEP",
+                resolve_sc6_replay_seek_context_report(),
+                true);
+            {
+                const auto time_report =
+                    ReplayScrubDiag::resolve_demo_time_source_report(true);
+                ReplayScrubDiag::log_demo_time_source_report_once(
+                    "GEN_START_BATTLE_STEP", time_report);
+                const auto report =
+                    ReplayScrubDiag::resolve_demo_net_driver_report(true);
+                ReplayScrubDiag::log_demo_driver_resolve_report_once(
+                    "GEN_START_BATTLE_STEP", report);
+            }
 
             const int32_t m = read_engine_master_clock();
             m_timeline_gen_start_master.store(m, std::memory_order_release);
@@ -2375,6 +3211,8 @@ namespace Horse
             m_gen_total_rounds        = -1;
             m_gen_final_round_first_safe_seq = -1;
             m_gen_final_round_last_safe_seq  = -1;
+            m_gen_missing_demo_time_logged = false;
+            m_gen_demo_time_recovered_logged = false;
             const auto now = std::chrono::steady_clock::now();
             m_gen_started_at   = now;
             m_gen_finished_at  = now;
@@ -2387,7 +3225,195 @@ namespace Horse
 
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayScrub] Generate timeline STARTED (experimental "
-                "battle-step path) - direct PerFrameTick stepping\n"));
+                "battle-step path) - direct PerFrameTick stepping "
+                "(clean_start=1 round={} input_master={} battle_master={} "
+                "seek_context_ok={} reset_source_ok={} source={} "
+                "live_bm_reset_ok={})\n"),
+                ready.round, ready.input_master, ready.battle_master,
+                ready.seek_context_ok ? 1 : 0,
+                ready.reset_source_ok ? 1 : 0,
+                RC::to_generic_string(sc6_context_source_name(
+                    ready.seek_context_source)),
+                ready.live_bm_reset_ok ? 1 : 0);
+            {
+                ReplayTraceFields f;
+                f.string("mode", "battle_step")
+                 .integer("round", ready.round)
+                 .integer("input_master", ready.input_master)
+                 .integer("battle_master", ready.battle_master)
+                 .integer("start_master", m)
+                 .string("context_source", sc6_context_source_name(
+                             ready.seek_context_source))
+                 .boolean("seek_context_ok", ready.seek_context_ok)
+                 .boolean("reset_source_ok", ready.reset_source_ok)
+                 .boolean("live_bm_reset_ok", ready.live_bm_reset_ok)
+                 .hex("bm", ready.battle_manager)
+                 .hex("input_log", ready.input_log)
+                 .hex("replay_player", ready.replay_player)
+                 .hex("state_reset_data", ready.state_reset_data);
+                ReplayDebugTrace::instance().event("generate_start", f);
+            }
+        }
+
+        bool validate_generated_timeline_seek_data() noexcept
+        {
+            const size_t count = m_tags.count();
+            if (count == 0)
+            {
+                m_timeline_seek_data_valid.store(
+                    false, std::memory_order_release);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.capture] invalid complete timeline: "
+                    "no committed frames\n"));
+                return false;
+            }
+
+            std::array<bool, kMaxSc6ReplayRounds> seen{};
+            std::array<int32_t, kMaxSc6ReplayRounds> first_seq{};
+            std::array<int32_t, kMaxSc6ReplayRounds> first_master{};
+            std::array<int32_t, kMaxSc6ReplayRounds> last_seq{};
+            std::array<int32_t, kMaxSc6ReplayRounds> last_master{};
+            first_seq.fill(-1);
+            first_master.fill(-1);
+            last_seq.fill(-1);
+            last_master.fill(-1);
+
+            bool ok = true;
+            int32_t prev_seq = -1;
+            for (size_t i = 0; i < count; ++i)
+            {
+                int32_t seq = -1, round = -1, frame = -1, master = -1;
+                if (!m_tags.get(i, seq, round, frame, master))
+                {
+                    ok = false;
+                    continue;
+                }
+                if (seq != static_cast<int32_t>(i)
+                    || seq <= prev_seq
+                    || round < 0
+                    || round >= kMaxSc6ReplayRounds
+                    || master < 0)
+                {
+                    ok = false;
+                }
+                else
+                {
+                    const size_t r = static_cast<size_t>(round);
+                    if (!seen[r])
+                    {
+                        seen[r] = true;
+                        first_seq[r] = seq;
+                        first_master[r] = master;
+                    }
+                    else if (master < last_master[r])
+                    {
+                        ok = false;
+                    }
+                    last_seq[r] = seq;
+                    last_master[r] = master;
+                }
+                prev_seq = seq;
+            }
+
+            int32_t first_timeline_seq = -1, first_round = -1;
+            int32_t first_frame = -1, first_timeline_master = -1;
+            int32_t last_timeline_seq = -1, last_round = -1;
+            int32_t last_frame = -1, last_timeline_master = -1;
+            (void)m_tags.get(0, first_timeline_seq, first_round,
+                             first_frame, first_timeline_master);
+            (void)m_tags.get(count - 1, last_timeline_seq, last_round,
+                             last_frame, last_timeline_master);
+
+            int32_t round_count = 0;
+            for (int32_t r = 0; r < kMaxSc6ReplayRounds; ++r)
+            {
+                if (!seen[static_cast<size_t>(r)]) continue;
+                ++round_count;
+                const bool reset_ok =
+                    has_captured_round_reset_snapshot(r);
+                bool il_origin_ok = false;
+                bool rdb_origin_ok = false;
+                const int32_t origin_seq =
+                    m_sc6_round_reset_snapshot_seq[
+                        static_cast<size_t>(r)];
+                if (origin_seq >= 0
+                    && static_cast<size_t>(origin_seq) < count)
+                {
+                    il_origin_ok =
+                        m_il_store.gather(
+                            static_cast<size_t>(origin_seq)) != nullptr;
+                    rdb_origin_ok =
+                        m_rdb_store.gather(
+                            static_cast<size_t>(origin_seq)) != nullptr;
+                }
+                if (!reset_ok || !il_origin_ok || !rdb_origin_ok)
+                    ok = false;
+
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub.capture] round={} first_seq={} "
+                    "first_master={} last_seq={} last_master={} "
+                    "reset_snapshot={} reset_origin_seq={} "
+                    "reset_origin_master={} il_origin={} rdb_origin={}\n"),
+                    r,
+                    first_seq[static_cast<size_t>(r)],
+                    first_master[static_cast<size_t>(r)],
+                    last_seq[static_cast<size_t>(r)],
+                    last_master[static_cast<size_t>(r)],
+                    reset_ok ? 1 : 0, origin_seq,
+                    m_sc6_round_reset_snapshot_master[
+                        static_cast<size_t>(r)],
+                    il_origin_ok ? 1 : 0, rdb_origin_ok ? 1 : 0);
+                {
+                    ReplayTraceFields f;
+                    f.integer("round", r)
+                     .integer("first_seq", first_seq[static_cast<size_t>(r)])
+                     .integer("first_master",
+                              first_master[static_cast<size_t>(r)])
+                     .integer("last_seq", last_seq[static_cast<size_t>(r)])
+                     .integer("last_master",
+                              last_master[static_cast<size_t>(r)])
+                     .boolean("reset_snapshot", reset_ok)
+                     .integer("reset_origin_seq", origin_seq)
+                     .integer("reset_origin_master",
+                              m_sc6_round_reset_snapshot_master[
+                                  static_cast<size_t>(r)])
+                     .boolean("il_origin", il_origin_ok)
+                     .boolean("rdb_origin", rdb_origin_ok);
+                    ReplayDebugTrace::instance().event(
+                        "capture_round_summary", f);
+                }
+            }
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.capture] complete frames={} rounds={} "
+                "first_seq={} first_master={} last_seq={} "
+                "last_master={} seek_data_valid={}\n"),
+                count, round_count, first_timeline_seq,
+                first_timeline_master, last_timeline_seq,
+                last_timeline_master, ok ? 1 : 0);
+            {
+                ReplayTraceFields f;
+                f.uinteger("frames", count)
+                 .integer("rounds", round_count)
+                 .integer("first_seq", first_timeline_seq)
+                 .integer("first_master", first_timeline_master)
+                 .integer("last_seq", last_timeline_seq)
+                 .integer("last_master", last_timeline_master)
+                 .boolean("integrity_ok", ok);
+                ReplayDebugTrace::instance().event("generate_complete", f);
+            }
+
+            m_timeline_seek_data_valid.store(
+                ok, std::memory_order_release);
+            m_timeline_context_valid.store(
+                ok, std::memory_order_release);
+            if (!ok)
+            {
+                publish_native_failure_reason(
+                    NativeSeekFailure::RoundResetDataUnavailable);
+                publish_mode(ScrubMode::NativeSeekFailed);
+            }
+            return ok;
         }
 
         // [game thread] End "Generate timeline": restore the frame cap
@@ -2416,19 +3442,27 @@ namespace Horse
                                              : TimelineGenState::Idle),
                 std::memory_order_release);
 
-            // Freeze the replay on a COMPLETED generation pass.
-            // Generation ran the replay uncapped; if it just kept playing
-            // at 1x the replay would run on into the post-match cinematic
-            // and then exit to a menu - a presence change that wipes the
-            // freshly-built timeline before the user can scrub it.
-            // Pausing parks the world on the stop frame (the final KO for
-            // a completed match) so the timeline survives for scrubbing;
-            // the user resumes with Play whenever they want.  Only on
-            // reached_end: a user-requested Stop, or an abnormal safety-
-            // timeout / left-replay, must not silently freeze the game.
+            // Completed generation parks the Replay UI target and holds
+            // the replay with the light world/replay-clock gates only.
+            // Broad actor/time/VM gates caused post-generation crawl, but
+            // a pure UI park let the replay keep running into the menu.
+            // Play remains disabled until a validated seek lands.  Only on
+            // reached_end: a user-requested Stop, or an abnormal
+            // safety-timeout / left-replay, must not change live replay
+            // state.
             if (was_generating && reached_end)
             {
                 m_paused.store(true, std::memory_order_release);
+                m_hold_kind.store(
+                    static_cast<int32_t>(
+                        ReplayScrubHoldKind::RestoredFrameHold),
+                    std::memory_order_release);
+                m_timeline_context_valid.store(true,
+                                               std::memory_order_release);
+                m_ui_park_no_gate_check_ticks.store(
+                    0, std::memory_order_release);
+                const bool seek_data_valid =
+                    validate_generated_timeline_seek_data();
 
                 int32_t park_seq = -1;
                 if (m_gen_final_round_last_safe_seq >= 0)
@@ -2444,11 +3478,22 @@ namespace Horse
                     m_usable_latest_seq.store(park_seq,
                                               std::memory_order_release);
                     RC::Output::send<RC::LogLevel::Default>(STR(
-                        "[ReplayScrub] Generate timeline parking on safe "
-                        "pre-result seq={} (first_safe={} last_safe={})\n"),
+                        "[ReplayScrub] Generate timeline parked UI at "
+                        "safe pre-result seq={} (first_safe={} "
+                        "last_safe={}); native seek deferred\n"),
                         park_seq, m_gen_final_round_first_safe_seq,
                         m_gen_final_round_last_safe_seq);
-                    do_seek_to_seq(park_seq);
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub] Generate timeline parked with "
+                        "lightweight replay hold; actor/time/VM freeze "
+                        "gates disabled\n"));
+                    publish_ui_target(park_seq);
+                    if (seek_data_valid)
+                    {
+                        publish_native_status(NativeSeekStatus::Idle,
+                                              NativeSeekFailure::NotLanded);
+                        publish_mode(ScrubMode::Generated);
+                    }
                     write_last_round_result(0);
                 }
                 else
@@ -2511,6 +3556,8 @@ namespace Horse
                 run_battle_step_probe();
             else if (req == kGenReqStop)
                 stop_generate_timeline("user", false);
+
+            service_armed_generate_start();
 
             const bool generating =
                 m_timeline_gen_state.load(std::memory_order_acquire)
@@ -2781,26 +3828,202 @@ namespace Horse
             return m_capture_enabled.load(std::memory_order_acquire);
         }
 
+        int32_t clamp_seq_to_timeline(int32_t seq) const noexcept
+        {
+            const int32_t earliest = earliest_seq();
+            const int32_t latest = latest_seq();
+            if (earliest < 0 || latest < 0) return -1;
+            if (seq < earliest) return earliest;
+            if (seq > latest) return latest;
+            return seq;
+        }
+
+        void ui_begin_drag() noexcept
+        {
+            m_paused.store(true, std::memory_order_release);
+            const bool keep_replay_held =
+                has_context_valid_completed_timeline();
+            m_hold_kind.store(
+                static_cast<int32_t>(
+                    keep_replay_held ? ReplayScrubHoldKind::RestoredFrameHold
+                                     : ReplayScrubHoldKind::UiParkOnly),
+                std::memory_order_release);
+            m_resume_after_seek.store(false, std::memory_order_release);
+            m_ui_dragging.store(true, std::memory_order_release);
+            m_drag_preview_seq.store(
+                m_ui_requested_seq.load(std::memory_order_acquire),
+                std::memory_order_release);
+            m_last_drag_preview_seq.store(-1, std::memory_order_release);
+            m_ui_wants_play.store(false, std::memory_order_release);
+            publish_mode(ScrubMode::Dragging);
+        }
+
+        void ui_drag_to_seq(int32_t seq) noexcept
+        {
+            seq = clamp_seq_to_timeline(seq);
+            if (seq < 0) return;
+            publish_ui_target(seq);
+            m_drag_preview_seq.store(seq, std::memory_order_release);
+            publish_native_failure_reason(NativeSeekFailure::None);
+        }
+
+        void ui_end_drag() noexcept
+        {
+            m_ui_dragging.store(false, std::memory_order_release);
+            m_drag_preview_seq.store(-1, std::memory_order_release);
+            m_last_drag_preview_seq.store(-1, std::memory_order_release);
+            m_ui_wants_play.store(
+                m_auto_resume_on_release.load(std::memory_order_acquire),
+                std::memory_order_release);
+            const int32_t seq = clamp_seq_to_timeline(
+                m_ui_requested_seq.load(std::memory_order_acquire));
+            if (seq >= 0)
+                post_seek_command(SeekCommandKind::RequestPreviewAndNativeSeek,
+                                  seq);
+        }
+
+        void ui_step_to_seq(int32_t seq) noexcept
+        {
+            seq = clamp_seq_to_timeline(seq);
+            if (seq < 0) return;
+            m_paused.store(true, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::ValidationStep),
+                std::memory_order_release);
+            m_ui_dragging.store(false, std::memory_order_release);
+            m_ui_wants_play.store(false, std::memory_order_release);
+            publish_ui_target(seq);
+            post_seek_command(SeekCommandKind::StepToSeq, seq);
+        }
+
+        void ui_pause_at_live() noexcept
+        {
+            const int32_t live_round = read_current_round();
+            const int32_t live_master =
+                m_live_master_cached.load(std::memory_order_acquire);
+            const int32_t exact_seq =
+                find_slot_for_round_master(live_round, live_master);
+            int32_t seq = exact_seq;
+            if (seq < 0) seq = latest_seq();
+            seq = clamp_seq_to_timeline(seq);
+            if (seq >= 0) publish_ui_target(seq);
+            if (exact_seq >= 0 && seq == exact_seq)
+            {
+                m_last_seek_target.store(seq, std::memory_order_release);
+                if (live_master >= 0)
+                    m_last_seek_master_tag.store(
+                        live_master, std::memory_order_release);
+                publish_native_status(NativeSeekStatus::Landed);
+            }
+            else
+            {
+                m_last_seek_target.store(-1, std::memory_order_release);
+                m_last_seek_master_tag.store(-1, std::memory_order_release);
+                publish_native_status(NativeSeekStatus::Failed,
+                                      NativeSeekFailure::NotLanded);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] pause-at-live could not map live "
+                    "round/master to an exact captured seq; Play remains "
+                    "blocked (round={} master={} fallback_seq={})\n"),
+                    live_round, live_master, seq);
+            }
+            m_paused.store(true, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::RestoredFrameHold),
+                std::memory_order_release);
+            m_ui_dragging.store(false, std::memory_order_release);
+            m_ui_wants_play.store(false, std::memory_order_release);
+            publish_mode(ScrubMode::PausedPreview);
+        }
+
+        void ui_request_play() noexcept
+        {
+            m_ui_wants_play.store(false, std::memory_order_release);
+            post_seek_command(SeekCommandKind::PlayFromSelected,
+                              m_ui_requested_seq.load(
+                                  std::memory_order_acquire));
+        }
+
+        void ui_cancel() noexcept
+        {
+            post_seek_command(SeekCommandKind::Cancel, -1);
+        }
+
+        ReplayTimelineView timeline_view() const noexcept
+        {
+            ReplayTimelineView v{};
+            v.earliest_seq = earliest_seq();
+            v.latest_seq = latest_seq();
+            v.displayed_seq = clamp_seq_to_timeline(
+                m_ui_displayed_seq.load(std::memory_order_acquire));
+            if (v.displayed_seq < 0)
+                v.displayed_seq = current_play_position();
+            v.requested_seq = clamp_seq_to_timeline(
+                m_ui_requested_seq.load(std::memory_order_acquire));
+            v.landed_seq = clamp_seq_to_timeline(
+                m_last_seek_target.load(std::memory_order_acquire));
+            v.mode = static_cast<ScrubMode>(
+                m_scrub_mode.load(std::memory_order_acquire));
+            v.native_status = static_cast<NativeSeekStatus>(
+                m_native_status.load(std::memory_order_acquire));
+            v.block_reason = static_cast<NativeSeekFailure>(
+                m_play_block_reason.load(std::memory_order_acquire));
+            v.paused = is_paused();
+            v.can_play = can_play_from_selected();
+            v.native_pending = has_pending_native_seek()
+                || v.native_status == NativeSeekStatus::Queued
+                || v.native_status == NativeSeekStatus::DeferredBusy
+                || v.native_status == NativeSeekStatus::Submitted
+                || v.native_status == NativeSeekStatus::Settling;
+            v.preview_applied =
+                static_cast<PreviewStatus>(
+                    m_preview_status.load(std::memory_order_acquire))
+                == PreviewStatus::Applied;
+            return v;
+        }
+
+        bool can_play_from_selected() const noexcept
+        {
+            const int32_t requested =
+                m_ui_requested_seq.load(std::memory_order_acquire);
+            const int32_t landed =
+                m_last_seek_target.load(std::memory_order_acquire);
+            return requested >= 0
+                && m_timeline_seek_data_valid.load(
+                       std::memory_order_acquire)
+                && landed == requested
+                && static_cast<NativeSeekStatus>(
+                       m_native_status.load(std::memory_order_acquire))
+                    == NativeSeekStatus::Landed;
+        }
+
+        NativeSeekFailure play_block_reason() const noexcept
+        {
+            return static_cast<NativeSeekFailure>(
+                m_play_block_reason.load(std::memory_order_acquire));
+        }
+
         // Request a seek to timeline position `target_seq` (a capture
         // sequence - see the m_tags doc).  Doesn't actually seek until the
         // next cockpit tick (see service_seek_request); the UI thread
         // just posts the request via this atomic.
         void request_seek(int32_t target_seq) noexcept
         {
-            const int32_t latest = latest_seq();
-            if (latest >= 0 && target_seq > latest)
-                target_seq = latest;
-            m_seek_request.store(target_seq, std::memory_order_release);
+            ui_step_to_seq(target_seq);
         }
 
         // Cancel any pause/scrub state - world resumes at the next
         // cockpit tick.  Equivalent to clicking Play.
         void cancel_scrub() noexcept
         {
+            clear_scrub_state();
             m_resume_after_seek.store(false, std::memory_order_release);
             m_native_demo_seek_settle_ticks.store(
                 0, std::memory_order_release);
             m_paused.store(false, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::None),
+                std::memory_order_release);
         }
 
         // ---- Pause / play / drag state model -------------------------
@@ -2828,6 +4051,11 @@ namespace Horse
                     0, std::memory_order_release);
             }
             m_paused.store(v, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(v
+                    ? ReplayScrubHoldKind::RestoredFrameHold
+                    : ReplayScrubHoldKind::None),
+                std::memory_order_release);
         }
 
         // Engage pause AND anchor the playhead at the current live
@@ -2840,25 +4068,150 @@ namespace Horse
         // Idempotent if called while already paused.
         void mark_paused_at_live() noexcept
         {
-            const int32_t L = latest_seq();
-            if (L >= 0)
-                m_last_seek_target.store(L, std::memory_order_release);
-            m_paused.store(true, std::memory_order_release);
+            ui_pause_at_live();
         }
 
-        // Back-compat alias - dllmain's frame_step_apply still calls
-        // is_scrub_active() to decide whether to engage freeze.  Native
-        // UDemoNetDriver seek is async, so after queueing a seek we may
-        // keep the UI logically paused while temporarily releasing the
-        // tick gates.  That gives UE4's checkpoint task a few frames to
-        // rebuild/replay to the requested time; once the settle window
-        // completes, this returns true again and the world re-freezes on
-        // the selected tick.
         bool is_scrub_active() const noexcept
         {
             return is_paused()
                 && m_native_demo_seek_settle_ticks.load(
                        std::memory_order_acquire) <= 0;
+        }
+
+        ReplayScrubGatePolicy replay_gate_policy() const noexcept
+        {
+            ReplayScrubGatePolicy p{};
+
+            if (!is_paused())
+                return p;
+
+            if (m_native_demo_seek_settle_ticks.load(
+                    std::memory_order_acquire) > 0)
+                return p;
+
+            const ReplayScrubHoldKind hold =
+                static_cast<ReplayScrubHoldKind>(
+                    m_hold_kind.load(std::memory_order_acquire));
+
+            if (hold == ReplayScrubHoldKind::UiParkOnly)
+            {
+                p.reason = "UiParkOnly";
+                return p;
+            }
+
+            if (sc6_exact_seek_phase_active(m_sc6_seek_job.phase)
+                || hold == ReplayScrubHoldKind::ValidationStep)
+            {
+                p.world_tick_gate = true;
+                p.replay_clock_gate = true;
+                p.reason = "ValidationStep";
+                return p;
+            }
+
+            if (hold == ReplayScrubHoldKind::RestoredFrameHold)
+            {
+                p.world_tick_gate = true;
+                p.replay_clock_gate = true;
+                p.reason = "RestoredFrameHold";
+                return p;
+            }
+
+            if (hold == ReplayScrubHoldKind::ManualDiagnosticFreeze)
+            {
+                p.world_tick_gate = true;
+                p.replay_clock_gate = true;
+                p.actor_tick_gate = true;
+                p.time_dilation_gate = true;
+                p.vm_freeze_byte = true;
+                p.reason = "ManualDiagnosticFreeze";
+                return p;
+            }
+
+            p.reason = "PausedNoGate";
+            return p;
+        }
+
+        bool has_active_validation_step() const noexcept
+        {
+            return sc6_exact_seek_phase_active(m_sc6_seek_job.phase)
+                || static_cast<ReplayScrubHoldKind>(
+                       m_hold_kind.load(std::memory_order_acquire))
+                   == ReplayScrubHoldKind::ValidationStep;
+        }
+
+        bool is_generation_done_reviewing() const noexcept
+        {
+            return has_context_valid_completed_timeline();
+        }
+
+        bool wants_time_controls_suspended() const noexcept
+        {
+            return has_active_validation_step()
+                || timeline_gen_state() == TimelineGenState::Generating
+                || m_gen_armed_hold_logged.load(
+                    std::memory_order_acquire);
+        }
+
+        void check_ui_park_gate_state(bool world_gate,
+                                      bool replay_gate,
+                                      bool actor_gate,
+                                      bool time_gate,
+                                      bool vm_freeze) noexcept
+        {
+            int32_t ticks = m_ui_park_no_gate_check_ticks.load(
+                std::memory_order_acquire);
+            if (ticks <= 0) return;
+
+            const ReplayScrubHoldKind hold =
+                static_cast<ReplayScrubHoldKind>(
+                    m_hold_kind.load(std::memory_order_acquire));
+            if (hold != ReplayScrubHoldKind::UiParkOnly)
+            {
+                m_ui_park_no_gate_check_ticks.store(
+                    0, std::memory_order_release);
+                return;
+            }
+
+            m_ui_park_no_gate_check_ticks.store(
+                ticks - 1, std::memory_order_release);
+            if (!(world_gate || replay_gate || actor_gate
+                  || time_gate || vm_freeze))
+                return;
+
+            RC::Output::send<RC::LogLevel::Error>(STR(
+                "[ReplayScrub.gates] ERROR UiParkOnly has active gate "
+                "world={} replay={} actor={} time={} vm={}\n"),
+                world_gate ? 1 : 0, replay_gate ? 1 : 0,
+                actor_gate ? 1 : 0, time_gate ? 1 : 0,
+                vm_freeze ? 1 : 0);
+        }
+
+        int32_t consume_sc6_seek_native_step_request() noexcept
+        {
+            const int32_t requested =
+                m_sc6_native_step_request.exchange(
+                    0, std::memory_order_acq_rel);
+            return requested > 0 ? requested : 0;
+        }
+
+        void notify_sc6_seek_native_step_granted(
+            int32_t credits) noexcept
+        {
+            if (credits <= 0) return;
+            const int32_t total =
+                m_sc6_native_step_granted.fetch_add(
+                    credits, std::memory_order_acq_rel)
+                + credits;
+            ReplayTraceFields f;
+            f.integer("credits", credits)
+             .integer("granted_total", total);
+            ReplayDebugTrace::instance().event(
+                "sc6_native_step_granted", f);
+        }
+
+        bool sc6_exact_seek_active() const noexcept
+        {
+            return sc6_exact_seek_phase_active(m_sc6_seek_job.phase);
         }
 
         bool auto_resume_on_release() const noexcept
@@ -2877,8 +4230,7 @@ namespace Horse
         // the drag regardless of any other state.
         void on_drag_start() noexcept
         {
-            m_resume_after_seek.store(false, std::memory_order_release);
-            m_paused.store(true, std::memory_order_release);
+            ui_begin_drag();
         }
 
         // Called by the UI when the user releases the playhead.  Default
@@ -2889,16 +4241,7 @@ namespace Horse
         // the game thread.
         void on_drag_end() noexcept
         {
-            if (!m_auto_resume_on_release.load(std::memory_order_acquire))
-                return;
-
-            if (m_seek_request.load(std::memory_order_acquire) != kSeekIdle)
-            {
-                m_resume_after_seek.store(true, std::memory_order_release);
-                return;
-            }
-
-            m_paused.store(false, std::memory_order_release);
+            ui_end_drag();
         }
 
         // ---- Current playhead position --------------------------------
@@ -2929,6 +4272,14 @@ namespace Horse
         // Returns -1 if no useful position is available (no captures).
         int32_t current_play_position() const noexcept
         {
+            int32_t requested = clamp_seq_to_timeline(
+                m_ui_requested_seq.load(std::memory_order_acquire));
+            if (requested >= 0
+                && (is_paused() || has_pending_native_seek()))
+            {
+                return requested;
+            }
+
             int32_t seeked =
                 m_last_seek_target.load(std::memory_order_acquire);
 
@@ -3008,7 +4359,11 @@ namespace Horse
             m_bm_ptr.invalidate();
             ReplayScrubDiag::replay_player_ptr().invalidate();
             ReplayScrubDiag::clear_cached_demo_driver();
+            ReplayScrubDiag::clear_cached_demo_time_source();
             m_paused.store(false, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::None),
+                std::memory_order_release);
             m_seek_request.store(kSeekIdle, std::memory_order_release);
             m_resume_after_seek.store(false, std::memory_order_release);
             m_pending_demo_seek_ms.store(-1, std::memory_order_release);
@@ -3016,12 +4371,20 @@ namespace Horse
                                              std::memory_order_release);
             m_pending_demo_seek_seq.store(-1, std::memory_order_release);
             m_pending_demo_seek_round.store(-1, std::memory_order_release);
+            m_pending_demo_seek_generation.store(
+                0, std::memory_order_release);
             m_native_demo_seek_guard_ticks.store(0,
                                                  std::memory_order_release);
             m_native_demo_seek_settle_ticks.store(0,
                                                   std::memory_order_release);
             m_native_demo_seek_settle_ms.store(-1,
                                                std::memory_order_release);
+            m_native_demo_seek_settle_seq.store(-1,
+                                                std::memory_order_release);
+            m_native_demo_seek_settle_master.store(-1,
+                                                   std::memory_order_release);
+            m_native_demo_seek_settle_generation.store(
+                0, std::memory_order_release);
             m_pending_demo_seek_retry_ticks = 0;
             m_last_seek_target.store(-1, std::memory_order_release);
             m_usable_latest_seq.store(-1, std::memory_order_release);
@@ -3038,6 +4401,8 @@ namespace Horse
             m_timeline_gen_state.store(
                 static_cast<int>(TimelineGenState::Idle),
                 std::memory_order_release);
+            m_timeline_context_valid.store(false,
+                                           std::memory_order_release);
             m_gen_request.store(kGenReqNone, std::memory_order_release);
             m_gen_mode.store(static_cast<int>(BattleStepMode::None),
                              std::memory_order_release);
@@ -3060,6 +4425,27 @@ namespace Horse
         // pre-tick).
         void on_presence_change() noexcept
         {
+            if (GameMode::instance().current_presence()
+                    != GamePresence::Replay
+                && is_generation_done_reviewing())
+            {
+                m_timeline_context_valid.store(
+                    false, std::memory_order_release);
+                m_sc6_native_step_request.store(
+                    0, std::memory_order_release);
+                m_seek_command_kind.store(
+                    static_cast<int32_t>(SeekCommandKind::None),
+                    std::memory_order_release);
+                publish_native_status(
+                    NativeSeekStatus::Failed,
+                    NativeSeekFailure::InteractiveReplayContextUnresolved);
+                publish_mode(ScrubMode::NativeSeekFailed);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] completed timeline preserved after "
+                    "replay context changed; exact seek disabled until "
+                    "replay reload\n"));
+                return;
+            }
             reset_for_new_replay("presence change");
         }
 
@@ -3184,11 +4570,16 @@ namespace Horse
         using ExecReadFn  = void* (__fastcall*)(HgCpuBufferShim*);
         using DemoGotoTimeFn = void (__fastcall*)(void*, float, void*);
         using PerFrameTickFn = void (__fastcall*)(uintptr_t*);
+        using InteractiveReplayResetFn = void (__fastcall*)(void*);
+        using BattleManagerSetMoveStateFn = void (__fastcall*)(void*, uint8_t);
 
         ExecWriteFn m_exec_write {nullptr};
         ExecReadFn  m_exec_read  {nullptr};
         DemoGotoTimeFn m_demo_goto_time {nullptr};
         PerFrameTickFn m_per_frame_tick_bypass {nullptr};
+        InteractiveReplayResetFn m_interactive_replay_reset {nullptr};
+        BattleManagerSetMoveStateFn m_battle_manager_set_move_state {nullptr};
+        NativeCallFault m_last_set_move_state_fault {};
         const void* m_frame_counter_addr {nullptr};
 
         // Single shim, re-targeted onto each ring slot in turn.  The
@@ -3241,6 +4632,7 @@ namespace Horse
         static constexpr uintptr_t kBM_BattleFrameInputLog_Off    = 0x478;
         static constexpr uintptr_t kBM_pReplayCharaSnapshot_Off   = 0x1360;
         static constexpr uintptr_t kBM_bMoveStateByte_Off         = 0x1463;
+        static constexpr uintptr_t kBM_bStatusByte_Off            = 0x1480;
         static constexpr uintptr_t kBM_nReplayLastFrameID_Off     = 0x1488;
         static constexpr uintptr_t kBM_nReplayLastApplied_Off     = 0x148C;
         static constexpr uintptr_t kBM_nFrameAdvanceCounter_Off   = 0x1490;
@@ -3350,8 +4742,7 @@ namespace Horse
         //   +0x1490  nFrameAdvanceCounter (already captured via cursor sync)
         static constexpr uintptr_t kBM_bEnginePauseFlag_Off       = 0x12F3;
         static constexpr uintptr_t kBM_bMainStateMachineByte_Off  = 0x1461;
-        // bMoveStateByte_Off already declared above as 0x1463
-        static constexpr uintptr_t kBM_bStatusByte_Off            = 0x1480;
+        // bMoveStateByte_Off and bStatusByte_Off are declared above.
 
         // PlayerRecordArray replay-menu bits.  Earlier notes treated
         // bit 9 as a per-frame movement gate, but Ghidra recheck on
@@ -3380,7 +4771,16 @@ namespace Horse
         //   [0x78..0x7C)  ALuxBattleReplayPlayer.CurrentRound (int32)
         //   [0x7C..0x7D)  ALuxBattleReplayPlayer.bIsPlayingBack (bool)
         //   [0x7D..0x80)  pad
-        // Total: 0x80 = 128 bytes per slot.  At 7200 slots = ~900 KB.
+        //   [0x80..0xE8)  chara replay-state fields
+        //   [0xE8..0x208) ALuxBattleFrameInput per-slot input records
+        //   [0x208..0x218) g_LuxBattle_LatestEngineInput_PerPlayer
+        //   [0x218..0x230) g_LuxBattle_PerFrameCameraArgs
+        //   [0x230..0x600) g_LuxBattle_PerPlayerInputRing entries
+        //   [0x600..0x608) g_LuxBattle_PerPlayerInputRingCursor[2]
+        //   [0x608..0x610) g_LuxBattle_InputRingBaseOffset_PerPlayer[2]
+        //   [0x610..0x674) g_LuxBattle_LfsrState
+        //   [0x674..0x678) g_dwLuxBattleLfsrIndex
+        //   [0x678..0x738) g_LuxBattle_CCpuCommandArray
         //
         // The ReplayPlayer state at the end IS THE PLAYBACK CURSOR (2026-05-15
         // user reframing): the BP-level replay menu reads CurrentTime each
@@ -3461,7 +4861,37 @@ namespace Horse
         // sentinels but no allocations).  Safe for bytewise restore.
         static constexpr size_t kExtras_FrameInput_Bytes      = 0x120;
         static constexpr size_t kExtras_Off_FrameInput_Slots  = 0xE8;
-        static constexpr size_t kExtras_Bytes                 = 0x208;
+        // 2026-05-23: captured seek validation showed the first stable
+        // post-step mismatch at HgCpuDirect sim+0x2148, which maps through
+        // WriteCharaStateToSnapshot to live chara+0x2158
+        // (dwRawButtonWord_2158).  Ghidra confirms LuxBattle_PerFrameTick
+        // rebuilds that region from pArgs->pInputP1/P2, and those args are
+        // mirrored into g_LuxBattle_LatestEngineInput_PerPlayer before the
+        // chara input tick.  HgCpuDirect does not serialize these globals,
+        // so validated captured seek must snapshot them alongside FrameInput.
+        static constexpr size_t kExtras_Off_LatestEngineInput = 0x208;
+        static constexpr size_t kExtras_LatestEngineInput_Bytes = 0x10;
+        static constexpr size_t kExtras_Off_PerFrameCameraArgs = 0x218;
+        static constexpr size_t kExtras_PerFrameCameraArgs_Bytes = 0x18;
+        static constexpr size_t kInputRing_PlayerCount        = 2;
+        static constexpr size_t kInputRing_EntriesPerPlayer   = 0x3D;
+        static constexpr size_t kInputRing_EntryBytes         = 8;
+        static constexpr size_t kInputRing_PlayerBytes =
+            kInputRing_EntriesPerPlayer * kInputRing_EntryBytes;
+        static constexpr size_t kExtras_Off_InputRingEntries  = 0x230;
+        static constexpr size_t kExtras_InputRingEntries_Bytes =
+            kInputRing_PlayerCount * kInputRing_PlayerBytes;
+        static constexpr size_t kExtras_Off_InputRingCursor   = 0x600;
+        static constexpr size_t kExtras_InputRingCursor_Bytes = 0x08;
+        static constexpr size_t kExtras_Off_InputRingBase     = 0x608;
+        static constexpr size_t kExtras_InputRingBase_Bytes   = 0x08;
+        static constexpr size_t kExtras_Off_LfsrState         = 0x610;
+        static constexpr size_t kExtras_LfsrState_Bytes       = 0x64;
+        static constexpr size_t kExtras_Off_LfsrIndex         = 0x674;
+        static constexpr size_t kExtras_LfsrIndex_Bytes       = 0x04;
+        static constexpr size_t kExtras_Off_CCpuCommandArray  = 0x678;
+        static constexpr size_t kExtras_CCpuCommandArray_Bytes = 0xC0;
+        static constexpr size_t kExtras_Bytes                 = 0x738;
 
         // Chara replay-state field range (NOT in HgCpuDirect snapshot).
         static constexpr uintptr_t kChara_ReplayState_Start = 0x43F4;
@@ -3485,6 +4915,7 @@ namespace Horse
         // ALuxBattleReplayPlayer_RegisterProperties @ 0x14097beb0).
         static constexpr uintptr_t kRP_CurrentRound_Off    = 0x39C;
         static constexpr uintptr_t kRP_CurrentTime_Off     = 0x3A0;
+        static constexpr uintptr_t kRP_StateResetData_Off  = 0x3A8;
         // nTotalRounds: number of rounds in the recorded match.  Verified
         // via execIsExistNextRound @ 0x1409a5490, whose body is
         // RetVal = (CurrentRound + 1) < nTotalRounds - so the final round
@@ -3537,6 +4968,24 @@ namespace Horse
         // otherwise blocked while WorldModePump's GetModeType still
         // returns 3 (round-end) post-restore.
         RegionStore m_extras_store;
+
+        // Native SC6 round-reset snapshots copied from BattleManager+0x1360
+        // as each round appears in the generated timeline.  These give exact
+        // seek a reset source even if ALuxBattleReplayPlayer/StateResetData is
+        // no longer discoverable after match completion.
+        std::array<std::array<uint8_t, kRoundStartDataBytes>,
+                   kMaxSc6ReplayRounds> m_sc6_round_reset_snapshots {};
+        std::array<bool, kMaxSc6ReplayRounds>
+            m_sc6_round_reset_snapshot_valid {};
+        std::array<int32_t, kMaxSc6ReplayRounds>
+            m_sc6_round_reset_snapshot_seq {};
+        std::array<int32_t, kMaxSc6ReplayRounds>
+            m_sc6_round_reset_snapshot_master {};
+        std::array<int32_t, kMaxSc6ReplayRounds>
+            m_sc6_round_reset_snapshot_last_frame_id {};
+        std::atomic<bool> m_timeline_seek_data_valid {false};
+        std::atomic<bool> m_timeline_context_valid {false};
+        std::atomic<int32_t> m_ui_park_no_gate_check_ticks {0};
 
         // Per-tick metadata, one entry per committed snapshot, appended
         // by the capture path and read locklessly by the UI thread (see
@@ -3598,9 +5047,42 @@ namespace Horse
         // ordinary 1x viewing (accepting the per-frame cost).
         std::atomic<bool> m_capture_enabled          {false};
         std::atomic<bool> m_paused                   {false};
+        std::atomic<int32_t> m_hold_kind {
+            static_cast<int32_t>(ReplayScrubHoldKind::None)};
         std::atomic<bool> m_auto_resume_on_release   {false};
         std::atomic<bool> m_resume_after_seek        {false};
         std::atomic<int32_t> m_seek_request          {kSeekIdle};
+
+        // Replay timeline state-machine model.  The UI posts compact
+        // intents; the cockpit/game thread owns the full structs and
+        // publishes a small atomic view.  This separates "where the user
+        // put the playhead" from "what preview restored" and "what
+        // DemoNetDriver has actually landed."
+        UiPlayheadState m_ui {};
+        PreviewState    m_preview {};
+        NativeSeekState m_native {};
+        Sc6ExactSeekJob m_sc6_seek_job {};
+        uint32_t        m_seek_generation {0};
+        std::atomic<int32_t> m_sc6_native_step_request {0};
+        std::atomic<int32_t> m_sc6_native_step_granted {0};
+
+        std::atomic<int32_t> m_seek_command_kind {
+            static_cast<int32_t>(SeekCommandKind::None)};
+        std::atomic<int32_t> m_seek_command_seq {-1};
+        std::atomic<int32_t> m_ui_displayed_seq {-1};
+        std::atomic<int32_t> m_ui_requested_seq {-1};
+        std::atomic<int32_t> m_drag_preview_seq {-1};
+        std::atomic<int32_t> m_last_drag_preview_seq {-1};
+        std::atomic<bool>    m_ui_dragging {false};
+        std::atomic<bool>    m_ui_wants_play {false};
+        std::atomic<int32_t> m_scrub_mode {
+            static_cast<int32_t>(ScrubMode::Idle)};
+        std::atomic<int32_t> m_native_status {
+            static_cast<int32_t>(NativeSeekStatus::Idle)};
+        std::atomic<int32_t> m_play_block_reason {
+            static_cast<int32_t>(NativeSeekFailure::None)};
+        std::atomic<int32_t> m_preview_status {
+            static_cast<int32_t>(PreviewStatus::Idle)};
 
         // Verbose diagnostics toggle (UI checkbox).  When ON:
         //   - every BASELINE dump also calls ReplayScrubDiag::dump_full
@@ -3616,40 +5098,33 @@ namespace Horse
         // Ghidra offsets).
         //
         // Default ON (2026-05-15 reset to architectural-first thinking):
-        //
-        // What we're TRYING to do: skip to the closest captured save
-        // point AND move the engine's replay-playback cursor to that
-        // save point's master clock.
-        //
-        // Cursors we already restore (via IL window):
-        //   pInputLog->nMasterClock @ +0x3A4
-        //   pInputLog->dwPlaybackCursor @ +0x39C
-        // PLUS BM+0x148C/+0x1488 cursor pair sync.
-        //
-        // ReplayPlayer cursor repair.  OFF by default: writing these
-        // replicated-looking fields is shallow and can make the UI appear
-        // to move even when the native demo driver did not accept a seek.
-        // Character motion is driven by the native DemoNetDriver seek below.
-        std::atomic<bool>    m_use_replay_player_seek {false};
-
-        // 2026-05-18: engine-native seek.  Direct ReplayPlayer byte
-        // writes only move replicated UI/cursor fields; they do not
-        // rebuild the DemoNetDriver packet stream that actually drives
-        // match-replay actors.  Capture stores absolute
-        // UDemoNetDriver.DemoCurrentTime per timeline tick, then seek
-        // calls UDemoNetDriver::GotoTimeInSeconds with that time.
-        std::atomic<bool>    m_use_demo_goto_time_seek {true};
+        // Diagnostic-only UE demo seek state.  SC6 replay viewer scrubbing
+        // uses native SC6 round reset + deterministic PerFrameTick
+        // fast-forward as the authority; UDemoNetDriver remains only behind
+        // HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG for developer validation.
         std::atomic<int32_t> m_pending_demo_seek_ms     {-1};
         std::atomic<int32_t> m_pending_demo_seek_master {-1};
         std::atomic<int32_t> m_pending_demo_seek_seq    {-1};
         std::atomic<int32_t> m_pending_demo_seek_round  {-1};
+        std::atomic<uint32_t> m_pending_demo_seek_generation {0};
         std::atomic<int32_t> m_native_demo_seek_guard_ticks {0};
         std::atomic<int32_t> m_native_demo_seek_settle_ticks {0};
         std::atomic<int32_t> m_native_demo_seek_settle_ms    {-1};
+        std::atomic<int32_t> m_native_demo_seek_settle_seq   {-1};
+        std::atomic<int32_t> m_native_demo_seek_settle_master {-1};
+        std::atomic<uint32_t> m_native_demo_seek_settle_generation {0};
         int32_t              m_pending_demo_seek_retry_ticks {0};
         static constexpr int32_t kNativeDemoSeekGuardTicks = 600;
         static constexpr int32_t kNativeDemoSeekRetryTicks = 5;
         static constexpr int32_t kNativeDemoSeekSettleTicks = 120;
+        static constexpr float kNativeSeekTimeToleranceSeconds =
+            0.5f / 60.0f;
+        static constexpr bool kEnableLegacySeekDiagnostics =
+            HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG != 0;
+        static constexpr bool kEnableLegacySnapshotPreview = false;
+        static constexpr int32_t kSc6NativeStepCreditsPerRequest = 1;
+        static constexpr int32_t kSc6NativeStepMaxStalls = 16;
+        static constexpr int32_t kSc6SeekMaxFrames = 20000;
 
         // Set to N (default 600 = 10 seconds @ 60fps) right after a
         // seek; decremented every cockpit tick.  Per-tick detail
@@ -3712,54 +5187,6 @@ namespace Horse
         std::atomic<int32_t> m_last_seek_master_tag {-1};
         std::atomic<int32_t> m_live_master_cached   {-1};
 
-        // 2026-05-15 SAFETY GATE.  Defaults to FALSE: restore_extras
-        // skips ALL speculative writes (WorldModePump, BlockInteractive-
-        // Ops, cinematic head, BM state bytes, PRA bits, ReplayPlayer
-        // state).  The 15:24 crash on un-pause-after-seek was caused
-        // by one of these speculative writes corrupting engine state.
-        //
-        // When false, do_seek_to_seq still does:
-        //   * HgCpuDirect chara/global restore (ExecFinalizeAndPost)
-        //   * IL window restore (verified engine consumer)
-        //   * RDB selective cursor restore (verified engine consumer)
-        //   * BM cursor pair sync (verified engine consumer)
-        //
-        // To re-enable speculative writes one at a time for binary
-        // searching the crash cause, set this true and add individual
-        // sub-gates inside restore_extras.
-        std::atomic<bool>    m_enable_speculative_restore {false};
-
-        // 2026-05-15 (ultrathink): Granular debug toggles.  These let the
-        // user bisect which restore is needed/harmful, since the conflicting
-        // Ghidra plates make it ambiguous which speculative fields drive
-        // playback and which corrupt state.
-        //
-        // - m_enable_chara_4400_restore: chara+0x43F4..+0x4428 (52 B/chara).
-        //   The FLuxBattleChara struct labels these as "replay state cursors"
-        //   (dwReplayLookupKey/EnableFlag/FrameOffset/FrameTotal/FrameTarget/
-        //   ConsumerCursor/bCharaMode).  An older Ghidra plate empirically
-        //   observed VFX-byte values in these fields during match-replay
-        //   viewing (bCharaMode=14/197/63 not 5/2) and concluded they are
-        //   "repurposed for VFX".  Default OFF: the 2026-05-18 Generate-
-        //   timeline crash happened immediately after this restore logged
-        //   float-looking "frame target" values (0x3Fxxxxxx), so normal
-        //   playback should not write this range unless explicitly enabled
-        //   for bisection.
-        //
-        // - m_force_pra_forward_bit_on_seek: retained only as a locked-off
-        //   historical bisection toggle.  Ghidra recheck on 2026-05-18
-        //   showed the function behind the old theory is ReplayPlayer's
-        //   round-reset tick, not per-frame motion dispatch.
-        //
-        // - m_force_isplayingback_on_seek: write ReplayPlayer+0x3D0 = 1
-        //   immediately after seek.  Forces bIsPlayingBack = true so the
-        //   engine doesn't think replay has ended.  Default OFF.
-        //
-        // Each toggle is exposed in HorseMod's Replay tab UI for bisection.
-        std::atomic<bool>    m_enable_chara_4400_restore     {false};
-        std::atomic<bool>    m_force_pra_forward_bit_on_seek {false};
-        std::atomic<bool>    m_force_isplayingback_on_seek   {false};
-
         // 2026-05-16 "Generate timeline" - fast-forward via frame-cap
         // removal.  See the FrameCapOverride plate above for the full
         // mechanism: removing SC6's engine FixedFrameRate cap makes
@@ -3781,6 +5208,11 @@ namespace Horse
         ScreenPercentageOverride m_screen_pct;
         RenderSkipOverride       m_render_skip;
         std::atomic<int>     m_gen_request               {0};
+        std::atomic<int>     m_gen_armed_mode            {0};
+        std::atomic<int32_t> m_gen_armed_last_log_round  {INT32_MIN};
+        std::atomic<int32_t> m_gen_armed_last_log_master_bucket {INT32_MIN};
+        std::atomic<int>     m_gen_armed_last_log_state  {0};
+        std::atomic<bool>    m_gen_armed_hold_logged     {false};
         std::atomic<int>     m_timeline_gen_state        {0};
         std::atomic<int32_t> m_timeline_gen_start_master {0};
         std::atomic<int32_t> m_timeline_gen_last_master  {0};
@@ -3832,6 +5264,7 @@ namespace Horse
         static constexpr double kGenStuckSeconds           = 8.0;
         static constexpr double kGenFinalRoundStuckSeconds = 3.0;
         static constexpr double kGenMaxSeconds             = 600.0;
+        static constexpr int32_t kGenMaxConsecutiveCaptureFailures = 8;
         static constexpr int32_t kPostResultParkBackoffFrames = 30;
         // Cockpit ticks bIsPlayingBack must stay 0 before the playback-
         // ended backstop trips - far beyond any momentary flicker.
@@ -3899,8 +5332,328 @@ namespace Horse
         int32_t m_gen_total_rounds {-1};
         int32_t m_gen_final_round_first_safe_seq {-1};
         int32_t m_gen_final_round_last_safe_seq  {-1};
+        bool m_gen_missing_demo_time_logged {false};
+        bool m_gen_demo_time_recovered_logged {false};
+        int32_t m_gen_capture_fail_count {0};
+        const char* m_last_extras_failure {"none"};
 
         // ---- Internals ------------------------------------------------
+
+        void publish_mode(ScrubMode mode) noexcept
+        {
+            m_scrub_mode.store(static_cast<int32_t>(mode),
+                               std::memory_order_release);
+        }
+
+        void publish_native_status(NativeSeekStatus status,
+                                   NativeSeekFailure failure =
+                                       NativeSeekFailure::None) noexcept
+        {
+            m_native.status = status;
+            m_native.failure = failure;
+            m_native_status.store(static_cast<int32_t>(status),
+                                  std::memory_order_release);
+            m_play_block_reason.store(static_cast<int32_t>(failure),
+                                      std::memory_order_release);
+        }
+
+        void publish_native_failure_reason(
+            NativeSeekFailure failure) noexcept
+        {
+            m_native.failure = failure;
+            m_play_block_reason.store(static_cast<int32_t>(failure),
+                                      std::memory_order_release);
+        }
+
+        void publish_preview_status(PreviewStatus status,
+                                    NativeSeekFailure reason =
+                                        NativeSeekFailure::None) noexcept
+        {
+            m_preview.status = status;
+            m_preview.failure_reason = reason;
+            m_preview_status.store(static_cast<int32_t>(status),
+                                   std::memory_order_release);
+        }
+
+        void publish_ui_target(int32_t seq) noexcept
+        {
+            seq = clamp_seq_to_timeline(seq);
+            if (seq < 0) return;
+            m_ui_requested_seq.store(seq, std::memory_order_release);
+            m_ui_displayed_seq.store(seq, std::memory_order_release);
+        }
+
+        void post_seek_command(SeekCommandKind kind, int32_t seq) noexcept
+        {
+            if (seq >= 0)
+                seq = clamp_seq_to_timeline(seq);
+            m_seek_command_seq.store(seq, std::memory_order_release);
+            m_seek_command_kind.store(static_cast<int32_t>(kind),
+                                      std::memory_order_release);
+        }
+
+        bool has_pending_native_seek() const noexcept
+        {
+            const NativeSeekStatus status =
+                static_cast<NativeSeekStatus>(
+                    m_native_status.load(std::memory_order_acquire));
+            const Sc6ExactSeekPhase sc6_phase = m_sc6_seek_job.phase;
+            const bool sc6_pending =
+                sc6_exact_seek_phase_active(sc6_phase);
+            return m_pending_demo_seek_ms.load(std::memory_order_acquire) >= 0
+                || sc6_pending
+                || status == NativeSeekStatus::Queued
+                || status == NativeSeekStatus::DeferredBusy
+                || status == NativeSeekStatus::Submitted
+                || status == NativeSeekStatus::Settling;
+        }
+
+        void service_drag_preview() noexcept
+        {
+            if (!m_ui_dragging.load(std::memory_order_acquire))
+            {
+                m_drag_preview_seq.store(-1, std::memory_order_release);
+                m_last_drag_preview_seq.store(-1,
+                                              std::memory_order_release);
+                return;
+            }
+
+            if (sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
+                return;
+
+            const SeekCommandKind pending_kind =
+                static_cast<SeekCommandKind>(
+                    m_seek_command_kind.load(std::memory_order_acquire));
+            if (pending_kind != SeekCommandKind::None)
+                return;
+
+            const int32_t seq = clamp_seq_to_timeline(
+                m_drag_preview_seq.load(std::memory_order_acquire));
+            if (seq < 0) return;
+            if (seq == m_last_drag_preview_seq.load(
+                    std::memory_order_acquire))
+                return;
+
+            const int32_t tick = find_slot_for_seq(seq);
+            if (tick < 0)
+            {
+                publish_preview_status(PreviewStatus::Failed,
+                                       NativeSeekFailure::InvalidTarget);
+                m_last_drag_preview_seq.store(seq,
+                                              std::memory_order_release);
+                return;
+            }
+
+            publish_preview_status(PreviewStatus::Requested);
+            CapturedFrameRestoreReport restore{};
+            if (!restore_captured_frame_for_seek(
+                    tick, "DRAG_PREVIEW", restore))
+            {
+                const NativeSeekFailure failure =
+                    restore.failure == NativeSeekFailure::None
+                        ? NativeSeekFailure::CapturedSnapshotRestoreFailed
+                        : restore.failure;
+                publish_preview_status(PreviewStatus::Failed, failure);
+                m_last_drag_preview_seq.store(seq,
+                                              std::memory_order_release);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] drag preview restore failed seq={} "
+                    "tick={} reason={}\n"),
+                    seq, tick,
+                    RC::to_generic_string(native_seek_failure_name(
+                        failure)));
+                return;
+            }
+
+            m_preview.seq = restore.seq;
+            m_preview.round = restore.round;
+            m_last_drag_preview_seq.store(seq,
+                                          std::memory_order_release);
+            publish_preview_status(PreviewStatus::Applied);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::RestoredFrameHold),
+                std::memory_order_release);
+            publish_mode(ScrubMode::Dragging);
+            if (m_verbose_diag.load(std::memory_order_acquire))
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] drag preview applied seq={} tick={} "
+                    "round={} master={} (visual-only)\n"),
+                    restore.seq, restore.tick, restore.round,
+                    restore.master);
+            }
+        }
+
+        void clear_scrub_state() noexcept
+        {
+            m_ui = UiPlayheadState{};
+            m_preview = PreviewState{};
+            m_native = NativeSeekState{};
+            m_sc6_seek_job = Sc6ExactSeekJob{};
+            m_seek_generation = 0;
+            m_seek_request.store(kSeekIdle, std::memory_order_release);
+            m_resume_after_seek.store(false, std::memory_order_release);
+            m_seek_command_kind.store(
+                static_cast<int32_t>(SeekCommandKind::None),
+                std::memory_order_release);
+            m_seek_command_seq.store(-1, std::memory_order_release);
+            m_ui_displayed_seq.store(-1, std::memory_order_release);
+            m_ui_requested_seq.store(-1, std::memory_order_release);
+            m_drag_preview_seq.store(-1, std::memory_order_release);
+            m_last_drag_preview_seq.store(-1, std::memory_order_release);
+            m_ui_dragging.store(false, std::memory_order_release);
+            m_ui_wants_play.store(false, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::None),
+                std::memory_order_release);
+            m_pending_demo_seek_ms.store(-1, std::memory_order_release);
+            m_pending_demo_seek_master.store(-1, std::memory_order_release);
+            m_pending_demo_seek_seq.store(-1, std::memory_order_release);
+            m_pending_demo_seek_round.store(-1, std::memory_order_release);
+            m_pending_demo_seek_generation.store(0,
+                                                 std::memory_order_release);
+            m_native_demo_seek_guard_ticks.store(0,
+                                                 std::memory_order_release);
+            m_native_demo_seek_settle_ticks.store(0,
+                                                  std::memory_order_release);
+            m_native_demo_seek_settle_ms.store(-1,
+                                               std::memory_order_release);
+            m_native_demo_seek_settle_seq.store(-1,
+                                                std::memory_order_release);
+            m_native_demo_seek_settle_master.store(-1,
+                                                   std::memory_order_release);
+            m_native_demo_seek_settle_generation.store(
+                0, std::memory_order_release);
+            m_pending_demo_seek_retry_ticks = 0;
+            m_last_seek_target.store(-1, std::memory_order_release);
+            m_last_seek_master_tag.store(-1, std::memory_order_release);
+            publish_mode(ScrubMode::Idle);
+            publish_native_status(NativeSeekStatus::Idle);
+            publish_preview_status(PreviewStatus::Idle);
+        }
+
+        void service_ui_command() noexcept
+        {
+            const SeekCommandKind kind = static_cast<SeekCommandKind>(
+                m_seek_command_kind.exchange(
+                    static_cast<int32_t>(SeekCommandKind::None),
+                    std::memory_order_acq_rel));
+            if (kind == SeekCommandKind::None) return;
+            int32_t seq = m_seek_command_seq.exchange(
+                -1, std::memory_order_acq_rel);
+            if (seq >= 0) seq = clamp_seq_to_timeline(seq);
+
+            switch (kind)
+            {
+            case SeekCommandKind::RequestPreviewAndNativeSeek:
+            case SeekCommandKind::StepToSeq:
+                if (seq < 0) return;
+                if (m_sc6_seek_job.requested_seq == seq
+                    && sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
+                {
+                    RC::Output::send<RC::LogLevel::Verbose>(STR(
+                        "[ReplayScrub.sc6seek] duplicate pending seek "
+                        "ignored seq={} phase={}\n"),
+                        seq, static_cast<int>(m_sc6_seek_job.phase));
+                    return;
+                }
+                m_paused.store(true, std::memory_order_release);
+                m_hold_kind.store(
+                    static_cast<int32_t>(ReplayScrubHoldKind::ValidationStep),
+                    std::memory_order_release);
+                publish_ui_target(seq);
+                ++m_seek_generation;
+                m_native.generation = m_seek_generation;
+                m_native.requested_seq = seq;
+                m_native.adjusted_seq = -1;
+                m_native.failure = NativeSeekFailure::None;
+                m_native.direct_driver_available = false;
+                m_native.cvar_submitted = false;
+                publish_native_status(NativeSeekStatus::Queued,
+                                      NativeSeekFailure::None);
+                publish_mode(
+                    m_ui_dragging.load(std::memory_order_acquire)
+                        ? ScrubMode::Dragging
+                        : ScrubMode::PausedPreview);
+                publish_preview_status(PreviewStatus::SkippedUnsafe);
+                if (!queue_sc6_exact_seek(seq, "USER"))
+                {
+                    // queue_sc6_exact_seek() publishes failure and restores
+                    // a stable hold.  Do not leave the pre-queue
+                    // ValidationStep hold active here.
+                }
+                break;
+
+            case SeekCommandKind::PauseAtLive:
+                ui_pause_at_live();
+                break;
+
+            case SeekCommandKind::PlayFromSelected:
+                if (can_play_from_selected())
+                {
+                    m_ui_wants_play.store(false, std::memory_order_release);
+                    m_paused.store(false, std::memory_order_release);
+                    m_hold_kind.store(
+                        static_cast<int32_t>(ReplayScrubHoldKind::None),
+                        std::memory_order_release);
+                    m_native_demo_seek_settle_ticks.store(
+                        0, std::memory_order_release);
+                    publish_mode(ScrubMode::Playing);
+                    publish_native_status(NativeSeekStatus::Landed);
+                }
+                else
+                {
+                    m_ui_wants_play.store(false, std::memory_order_release);
+                    m_paused.store(true, std::memory_order_release);
+                    m_hold_kind.store(
+                        static_cast<int32_t>(
+                            ReplayScrubHoldKind::RestoredFrameHold),
+                        std::memory_order_release);
+                    NativeSeekFailure reason = m_native.failure;
+                    if (reason == NativeSeekFailure::None)
+                        reason = NativeSeekFailure::NotLanded;
+                    m_play_block_reason.store(static_cast<int32_t>(reason),
+                                              std::memory_order_release);
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub] play blocked: requested_seq={} "
+                        "landed_seq={} native_status={} reason={} "
+                        "sc6_phase={} sc6_target_master={}\n"),
+                        m_ui_requested_seq.load(std::memory_order_acquire),
+                        m_last_seek_target.load(std::memory_order_acquire),
+                        m_native_status.load(std::memory_order_acquire),
+                        static_cast<int32_t>(reason),
+                        static_cast<int32_t>(m_sc6_seek_job.phase),
+                        m_sc6_seek_job.target_master);
+                }
+                break;
+
+            case SeekCommandKind::Cancel:
+                cancel_scrub();
+                break;
+
+            case SeekCommandKind::None:
+                break;
+            }
+        }
+
+        void publish_timeline_state() noexcept
+        {
+            int32_t displayed = clamp_seq_to_timeline(
+                m_ui_displayed_seq.load(std::memory_order_acquire));
+            if (displayed < 0) displayed = current_play_position();
+            m_ui_displayed_seq.store(displayed, std::memory_order_release);
+            const int32_t requested = clamp_seq_to_timeline(
+                m_ui_requested_seq.load(std::memory_order_acquire));
+            m_ui_requested_seq.store(requested, std::memory_order_release);
+
+            if (!is_paused()
+                && !has_pending_native_seek()
+                && m_scrub_mode.load(std::memory_order_acquire)
+                    != static_cast<int32_t>(ScrubMode::Playing))
+            {
+                publish_mode(ScrubMode::Generated);
+            }
+        }
 
         bool resolve_natives() noexcept
         {
@@ -3912,11 +5665,18 @@ namespace Horse
                 base + kRVA_ExecFinalizeAndPost);
             m_demo_goto_time = reinterpret_cast<DemoGotoTimeFn>(
                 base + kRVA_DemoGotoTimeInSeconds);
+            m_interactive_replay_reset =
+                reinterpret_cast<InteractiveReplayResetFn>(
+                    base + kRVA_LuxBattleInteractiveReplayReset);
+            m_battle_manager_set_move_state =
+                reinterpret_cast<BattleManagerSetMoveStateFn>(
+                    base + kRVA_ALuxBattleManagerSetMoveState);
             m_frame_counter_addr =
                 reinterpret_cast<const void*>(base + kRVA_FrameCounter);
             return m_exec_write != nullptr
                 && m_exec_read  != nullptr
                 && m_demo_goto_time != nullptr
+                && m_battle_manager_set_move_state != nullptr
                 && m_frame_counter_addr != nullptr;
         }
 
@@ -3983,6 +5743,16 @@ namespace Horse
             // false rather than reading out of bounds.
             m_pool.clear();
             m_tags.clear();
+            m_sc6_round_reset_snapshot_valid.fill(false);
+            m_sc6_round_reset_snapshot_seq.fill(-1);
+            m_sc6_round_reset_snapshot_master.fill(-1);
+            m_sc6_round_reset_snapshot_last_frame_id.fill(-1);
+            m_timeline_seek_data_valid.store(
+                false, std::memory_order_release);
+            m_timeline_context_valid.store(
+                false, std::memory_order_release);
+            m_ui_park_no_gate_check_ticks.store(
+                0, std::memory_order_release);
             m_capture_ceiling_hit.store(false, std::memory_order_release);
             m_usable_latest_seq.store(-1, std::memory_order_release);
             m_pending_demo_seek_ms.store(-1, std::memory_order_release);
@@ -3990,10 +5760,24 @@ namespace Horse
                                              std::memory_order_release);
             m_pending_demo_seek_seq.store(-1, std::memory_order_release);
             m_pending_demo_seek_round.store(-1, std::memory_order_release);
+            m_pending_demo_seek_generation.store(
+                0, std::memory_order_release);
             m_native_demo_seek_guard_ticks.store(0,
                                                  std::memory_order_release);
+            m_native_demo_seek_settle_ticks.store(0,
+                                                  std::memory_order_release);
+            m_native_demo_seek_settle_ms.store(-1,
+                                               std::memory_order_release);
+            m_native_demo_seek_settle_seq.store(-1,
+                                                std::memory_order_release);
+            m_native_demo_seek_settle_master.store(-1,
+                                                   std::memory_order_release);
+            m_native_demo_seek_settle_generation.store(
+                0, std::memory_order_release);
             m_pending_demo_seek_retry_ticks = 0;
+            clear_scrub_state();
             ReplayScrubDiag::clear_cached_demo_driver();
+            ReplayScrubDiag::clear_cached_demo_time_source();
             m_last_round = -1;
             try
             {
@@ -4582,7 +6366,8 @@ namespace Horse
             t1 = std::chrono::steady_clock::now();
             rdb_us = elapsed_us(t0, t1);
             t0 = std::chrono::steady_clock::now();
-            capture_extras(m_extras_store.scratch());
+            if (!capture_extras(m_extras_store.scratch()))
+                return false;
             t1 = std::chrono::steady_clock::now();
             extras_us = elapsed_us(t0, t1);
 
@@ -4595,18 +6380,90 @@ namespace Horse
             }
             if (master_tag < 0) return false;
 
+            int32_t last_frame_id_tag = -1;
+            {
+                const uintptr_t off =
+                    kIL_nLastFrameID_Off - kIL_CaptureStart_Off;
+                std::memcpy(&last_frame_id_tag,
+                            m_il_store.scratch() + off,
+                            sizeof(last_frame_id_tag));
+            }
+
             int32_t round_tag = 0;
             std::memcpy(&round_tag, m_extras_store.scratch()
                         + kExtras_Off_RP_CurrentRound, sizeof(round_tag));
+            if (do_commit)
+            {
+                const int32_t next_seq =
+                    static_cast<int32_t>(m_tags.count());
+                capture_sc6_round_reset_snapshot_if_needed(
+                    round_tag, next_seq, master_tag, last_frame_id_tag);
+            }
 
             int32_t demo_time_ms = -1;
+            ReplayScrubDiag::DemoTimeSourceSnap demo_time_snap{};
             {
-                const ReplayScrubDiag::DemoNetDriverSnap d =
-                    ReplayScrubDiag::read_demo_net_driver_fast();
-                if (d.readable && d.raw_demo_cur_time >= 0.0f)
+                demo_time_snap =
+                    ReplayScrubDiag::read_demo_time_source_fast();
+                if (!(demo_time_snap.readable && demo_time_snap.time_sane)
+                    && profile_generation && do_commit)
+                {
+                    const size_t committed_count = m_tags.count();
+                    if (committed_count < 5
+                        || (committed_count % 300u) == 0u)
+                    {
+                        demo_time_snap =
+                            ReplayScrubDiag::read_demo_time_source();
+                        if (demo_time_snap.readable
+                            && demo_time_snap.time_sane
+                            && !m_gen_demo_time_recovered_logged)
+                        {
+                            m_gen_demo_time_recovered_logged = true;
+                            RC::Output::send<RC::LogLevel::Default>(STR(
+                                "[ReplayScrub] Generate timeline native "
+                                "demo time source recovered during capture: "
+                                "source={} ptr=0x{:X} cur={:.3f}s "
+                                "total={:.3f}s after {} committed tick(s)\n"),
+                                RC::to_generic_string(
+                                    ReplayScrubDiag::demo_driver_source_name(
+                                        demo_time_snap.source)),
+                                demo_time_snap.source_ptr,
+                                demo_time_snap.raw_demo_cur_time,
+                                demo_time_snap.raw_demo_total_time,
+                                committed_count);
+                        }
+                    }
+                }
+                if (demo_time_snap.readable && demo_time_snap.time_sane)
                 {
                     demo_time_ms = static_cast<int32_t>(
-                        d.raw_demo_cur_time * 1000.0f + 0.5f);
+                        demo_time_snap.raw_demo_cur_time * 1000.0f + 0.5f);
+                }
+            }
+            if (profile_generation && do_commit && demo_time_ms < 0
+                && !m_gen_missing_demo_time_logged)
+            {
+                m_gen_missing_demo_time_logged = true;
+                if (demo_time_snap.time_fields_readable
+                    && !demo_time_snap.time_sane)
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub] Generate timeline found native "
+                        "demo time source 0x{:X}, but DemoCurrentTime/"
+                        "DemoTotalTime are not sane (cur={:.3f}s "
+                        "total={:.3f}s); committed ticks will store "
+                        "demo_ms=-1 until the time source is sane\n"),
+                        demo_time_snap.source_ptr,
+                        demo_time_snap.raw_demo_cur_time,
+                        demo_time_snap.raw_demo_total_time);
+                }
+                else
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub] Generate timeline has no native "
+                        "demo time source yet; committed ticks will store "
+                        "demo_ms=-1 until the fast time-source resolver "
+                        "finds sane DemoCurrentTime/DemoTotalTime fields\n"));
                 }
             }
 
@@ -4658,9 +6515,20 @@ namespace Horse
                     RC::Output::send<RC::LogLevel::Default>(
                         STR("[ReplayScrub] first capture: seq={} round={} "
                             "wall_tag={} master_tag={} shim cursor after "
-                            "Exec={} bytes\n"),
+                            "Exec={} bytes demo_ms={}\n"),
                         seq_tag, round_tag, wall_tag, master_tag,
-                        static_cast<unsigned long long>(m_shim.cursor()));
+                        static_cast<unsigned long long>(m_shim.cursor()),
+                        demo_time_ms);
+                    ReplayTraceFields f;
+                    f.integer("seq", seq_tag)
+                     .integer("round", round_tag)
+                     .integer("wall_tag", wall_tag)
+                     .integer("master", master_tag)
+                     .integer("demo_ms", demo_time_ms)
+                     .uinteger("shim_cursor",
+                               static_cast<uint64_t>(m_shim.cursor()));
+                    ReplayDebugTrace::instance().event(
+                        "capture_first_frame", f);
                 }
             }
 
@@ -4744,7 +6612,7 @@ namespace Horse
             pre_ok &= SafeInvokeExec(m_exec_write, &m_shim);
             pre_ok &= capture_input_cache(m_exp2_il_before.data());
             pre_ok &= capture_replay_data_block(m_exp2_rdb_before.data());
-            capture_extras(m_exp2_extras_before.data());
+            pre_ok &= capture_extras(m_exp2_extras_before.data());
             if (!pre_ok)
             {
                 RC::Output::send<RC::LogLevel::Warning>(STR(
@@ -4785,7 +6653,8 @@ namespace Horse
             restore_ok &= restore_replay_data_block(m_exp2_rdb_before.data());
             if (charas_alive())
             {
-                restore_extras(m_exp2_extras_before.data());
+                restore_ok &= restore_extras(
+                    m_exp2_extras_before.data());
             }
             else
             {
@@ -4841,6 +6710,16 @@ namespace Horse
             return master;
         }
 
+        int32_t read_battle_manager_master_clock() noexcept
+        {
+            RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
+            if (!bm_obj) return -1;
+            uint8_t* bm = reinterpret_cast<uint8_t*>(bm_obj);
+            int32_t master = -1;
+            SafeReadInt32(bm + kBM_nReplayLastApplied_Off, &master);
+            return master;
+        }
+
         // Capture the engine's InputLog replay-state window
         // (pInputLog+0x394..+0x4414) verbatim into `dst` (the IL region's
         // staging buffer).  Called from capture_snapshot RIGHT AFTER the
@@ -4867,12 +6746,9 @@ namespace Horse
         }
 
         // Restore a previously-captured InputLog-state blob into the
-        // engine's live InputLog.  Called from do_seek_to_seq RIGHT
-        // AFTER the HgCpuDirect simulation restore so the engine's
-        // replay-playback machinery (cache, drain cursor, double-tick
-        // guard, and any other hidden bookkeeping in the +0x394..
-        // +0x4414 window) is fully rewound to match the snapshot
-        // frame.
+        // engine's live InputLog.  Used by generation/direct-step probes
+        // and by diagnostic legacy seek builds only; normal replay seeks
+        // use SC6 exact round reset + fast-forward authority.
         //
         // POINTER SKIP: pRecordedFrameBuffer @ pInputLog+0x3A8 is a
         // pointer to engine-managed memory.  Within a session it's
@@ -4997,6 +6873,3700 @@ namespace Horse
             return ok;
         }
 
+        static const char* sc6_context_failure_name(
+            Sc6ContextFailure failure) noexcept
+        {
+            switch (failure)
+            {
+            case Sc6ContextFailure::None:
+                return "None";
+            case Sc6ContextFailure::ImageBaseMissing:
+                return "ImageBaseMissing";
+            case Sc6ContextFailure::BattleManagerMissing:
+                return "BattleManagerMissing";
+            case Sc6ContextFailure::InputLogMissing:
+                return "InputLogMissing";
+            case Sc6ContextFailure::ReplayPlayerMissing:
+                return "ReplayPlayerMissing";
+            case Sc6ContextFailure::StateResetDataMissing:
+                return "StateResetDataMissing";
+            case Sc6ContextFailure::InteractiveReplayUnreadable:
+                return "InteractiveReplayUnreadable";
+            case Sc6ContextFailure::RoundResetSnapshotMissing:
+                return "RoundResetSnapshotMissing";
+            default:
+                return "Unknown";
+            }
+        }
+
+        static const char* sc6_context_source_name(
+            Sc6ContextSource source) noexcept
+        {
+            switch (source)
+            {
+            case Sc6ContextSource::None:
+                return "None";
+            case Sc6ContextSource::ObjectRegistryBattleManager:
+                return "ObjectRegistryBattleManager";
+            case Sc6ContextSource::WorldModePumpBattleManager:
+                return "WorldModePumpBattleManager";
+            default:
+                return "Unknown";
+            }
+        }
+
+        static const char* native_seek_failure_name(
+            NativeSeekFailure failure) noexcept
+        {
+            switch (failure)
+            {
+            case NativeSeekFailure::None:
+                return "None";
+            case NativeSeekFailure::FunctionUnresolved:
+                return "FunctionUnresolved";
+            case NativeSeekFailure::DriverUnresolved:
+                return "DriverUnresolved";
+            case NativeSeekFailure::DriverBusy:
+                return "DriverBusy";
+            case NativeSeekFailure::CallFaulted:
+                return "CallFaulted";
+            case NativeSeekFailure::TaskNotObserved:
+                return "TaskNotObserved";
+            case NativeSeekFailure::SettleTimedOut:
+                return "SettleTimedOut";
+            case NativeSeekFailure::InvalidTarget:
+                return "InvalidTarget";
+            case NativeSeekFailure::TimelineMissingDemoTime:
+                return "TimelineMissingDemoTime";
+            case NativeSeekFailure::NativeTimeSourceUnresolved:
+                return "NativeTimeSourceUnresolved";
+            case NativeSeekFailure::LegacyVerifyFailed:
+                return "LegacyVerifyFailed";
+            case NativeSeekFailure::InteractiveReplayContextUnresolved:
+                return "InteractiveReplayContextUnresolved";
+            case NativeSeekFailure::InteractiveReplayResetFaulted:
+                return "InteractiveReplayResetFaulted";
+            case NativeSeekFailure::InteractiveReplayRoundSelectFailed:
+                return "InteractiveReplayRoundSelectFailed";
+            case NativeSeekFailure::InteractiveReplayFastForwardStalled:
+                return "InteractiveReplayFastForwardStalled";
+            case NativeSeekFailure::InteractiveReplayVerifyFailed:
+                return "InteractiveReplayVerifyFailed";
+            case NativeSeekFailure::InteractiveReplayTargetPastMatchEnd:
+                return "InteractiveReplayTargetPastMatchEnd";
+            case NativeSeekFailure::RoundResetDataUnavailable:
+                return "RoundResetDataUnavailable";
+            case NativeSeekFailure::Sc6ResetSnapshotReadFailed:
+                return "Sc6ResetSnapshotReadFailed";
+            case NativeSeekFailure::Sc6ResetSnapshotWriteFailed:
+                return "Sc6ResetSnapshotWriteFailed";
+            case NativeSeekFailure::Sc6InputLogRestoreFailed:
+                return "Sc6InputLogRestoreFailed";
+            case NativeSeekFailure::Sc6ReplayDataBlockRestoreFailed:
+                return "Sc6ReplayDataBlockRestoreFailed";
+            case NativeSeekFailure::Sc6ReplayCursorWriteFailed:
+                return "Sc6ReplayCursorWriteFailed";
+            case NativeSeekFailure::Sc6ReplayPlayerCursorWriteFailed:
+                return "Sc6ReplayPlayerCursorWriteFailed";
+            case NativeSeekFailure::Sc6SetMoveStateFaulted:
+                return "Sc6SetMoveStateFaulted";
+            case NativeSeekFailure::Sc6InteractiveReplayResetFaultedDiagnostic:
+                return "Sc6InteractiveReplayResetFaultedDiagnostic";
+            case NativeSeekFailure::Sc6ResetDispatchFailed:
+                return "Sc6ResetDispatchFailed";
+            case NativeSeekFailure::CapturedSnapshotRestoreFailed:
+                return "CapturedSnapshotRestoreFailed";
+            case NativeSeekFailure::CapturedSnapshotCompareFailed:
+                return "CapturedSnapshotCompareFailed";
+            case NativeSeekFailure::CapturedSnapshotValidationStepFailed:
+                return "CapturedSnapshotValidationStepFailed";
+            case NativeSeekFailure::NotLanded:
+                return "NotLanded";
+            default:
+                return "Unknown";
+            }
+        }
+
+        static const char* sc6_seek_authority_name(
+            Sc6SeekAuthority authority) noexcept
+        {
+            switch (authority)
+            {
+            case Sc6SeekAuthority::CapturedSnapshotValidated:
+                return "CapturedSnapshotValidated";
+            case Sc6SeekAuthority::NativeRoundReplayDiagnostic:
+                return "NativeRoundReplayDiagnostic";
+            default:
+                return "Unknown";
+            }
+        }
+
+        static const char* captured_seek_validation_mode_name(
+            CapturedSeekValidationMode mode) noexcept
+        {
+            switch (mode)
+            {
+            case CapturedSeekValidationMode::None:
+                return "None";
+            case CapturedSeekValidationMode::PreviousToTarget:
+                return "prev_to_target";
+            case CapturedSeekValidationMode::TargetToNext:
+                return "target_to_next";
+            case CapturedSeekValidationMode::StaticTarget:
+                return "static_target";
+            default:
+                return "unknown";
+            }
+        }
+
+        static const char* sc6_exact_seek_phase_name(
+            Sc6ExactSeekPhase phase) noexcept
+        {
+            switch (phase)
+            {
+            case Sc6ExactSeekPhase::Idle: return "Idle";
+            case Sc6ExactSeekPhase::Queued: return "Queued";
+            case Sc6ExactSeekPhase::RestoreValidationOrigin:
+                return "RestoreValidationOrigin";
+            case Sc6ExactSeekPhase::ValidateStepToTarget:
+                return "ValidateStepToTarget";
+            case Sc6ExactSeekPhase::CompareTargetSnapshot:
+                return "CompareTargetSnapshot";
+            case Sc6ExactSeekPhase::RestoreTargetAfterValidation:
+                return "RestoreTargetAfterValidation";
+            case Sc6ExactSeekPhase::ResetRound: return "ResetRound";
+            case Sc6ExactSeekPhase::FastForward: return "FastForward";
+            case Sc6ExactSeekPhase::Verify: return "Verify";
+            case Sc6ExactSeekPhase::Landed: return "Landed";
+            case Sc6ExactSeekPhase::Failed: return "Failed";
+            case Sc6ExactSeekPhase::Cancelled: return "Cancelled";
+            default: return "Unknown";
+            }
+        }
+
+        static bool sc6_exact_seek_phase_active(
+            Sc6ExactSeekPhase phase) noexcept
+        {
+            return phase == Sc6ExactSeekPhase::Queued
+                || phase == Sc6ExactSeekPhase::RestoreValidationOrigin
+                || phase == Sc6ExactSeekPhase::ValidateStepToTarget
+                || phase == Sc6ExactSeekPhase::CompareTargetSnapshot
+                || phase == Sc6ExactSeekPhase::RestoreTargetAfterValidation
+                || phase == Sc6ExactSeekPhase::ResetRound
+                || phase == Sc6ExactSeekPhase::FastForward
+                || phase == Sc6ExactSeekPhase::Verify;
+        }
+
+        void trace_sc6_context(const char* event_name,
+                               const Sc6ReplaySeekContext& ctx,
+                               const char* label) noexcept
+        {
+            ReplayTraceFields f;
+            f.string("label", label ? label : "?")
+             .string("source", sc6_context_source_name(ctx.source))
+             .boolean("readable", ctx.readable)
+             .string("failure", sc6_context_failure_name(ctx.failure))
+             .hex("wmp", ctx.world_mode_pump)
+             .hex("bm", ctx.battle_manager)
+             .hex("object_bm", ctx.object_registry_battle_manager)
+             .hex("wmp_bm", ctx.world_mode_pump_battle_manager)
+             .hex("sub_driver", ctx.sub_driver)
+             .hex("input_log", ctx.input_log)
+             .hex("replay_player", ctx.replay_player)
+             .hex("state_reset_data", ctx.state_reset_data)
+             .hex("interactive_replay", ctx.interactive_replay)
+             .integer("total_rounds", ctx.total_rounds)
+             .integer("current_round", ctx.current_round)
+             .integer("input_master", ctx.input_master)
+             .integer("battle_master", ctx.battle_master)
+             .boolean("bm_ok", ctx.battle_manager_ok)
+             .boolean("input_log_ok", ctx.input_log_ok)
+             .boolean("replay_player_ok", ctx.replay_player_ok)
+             .boolean("state_reset_data_ok", ctx.state_reset_data_ok)
+             .boolean("interactive_replay_ok", ctx.interactive_replay_ok)
+             .boolean("captured_round_reset_ok",
+                      ctx.captured_round_reset_ok);
+            ReplayDebugTrace::instance().event(event_name, f);
+        }
+
+        void trace_seek_job_event(const char* event_name,
+                                  const char* phase = nullptr) noexcept
+        {
+            ReplayTraceFields f;
+            f.string("label", m_sc6_seek_job.label
+                         ? m_sc6_seek_job.label : "?")
+             .string("phase", phase ? phase
+                                     : sc6_exact_seek_phase_name(
+                                           m_sc6_seek_job.phase))
+             .string("authority", sc6_seek_authority_name(
+                         m_sc6_seek_job.authority))
+             .integer("job_generation", m_sc6_seek_job.generation)
+             .integer("requested_seq", m_sc6_seek_job.requested_seq)
+             .integer("target_seq", m_sc6_seek_job.target_seq)
+             .integer("target_round", m_sc6_seek_job.target_round)
+             .integer("target_master", m_sc6_seek_job.target_master)
+             .integer("origin_seq", m_sc6_seek_job.validation_origin_seq)
+             .integer("origin_master",
+                      m_sc6_seek_job.validation_origin_master)
+             .integer("compare_seq", m_sc6_seek_job.validation_compare_seq)
+             .integer("compare_master",
+                      m_sc6_seek_job.validation_compare_master)
+             .string("validation_mode", captured_seek_validation_mode_name(
+                         m_sc6_seek_job.validation_mode))
+             .integer("round_start_seq", m_sc6_seek_job.round_start_seq)
+             .integer("round_start_master",
+                      m_sc6_seek_job.round_start_master)
+             .integer("frames_advanced", m_sc6_seek_job.frames_advanced)
+             .integer("slices_serviced", m_sc6_seek_job.slices_serviced)
+             .integer("stall_count", m_sc6_seek_job.stall_count)
+             .integer("native_step_requested_master",
+                      m_sc6_seek_job.native_step_requested_master)
+             .integer("native_step_last_observed_master",
+                      m_sc6_seek_job.native_step_last_observed_master)
+             .integer("native_step_requested_credits",
+                      m_sc6_seek_job.native_step_requested_credits)
+             .integer("native_step_granted_credits",
+                      m_sc6_seek_job.native_step_granted_credits)
+             .integer("native_step_observed_credits",
+                      m_sc6_seek_job.native_step_observed_credits)
+             .integer("native_step_stall_count",
+                      m_sc6_seek_job.native_step_stall_count)
+             .boolean("native_step_waiting",
+                      m_sc6_seek_job.native_step_waiting)
+             .string("failure", native_seek_failure_name(
+                         m_sc6_seek_job.failure));
+            ReplayDebugTrace::instance().event(event_name, f);
+        }
+
+        bool has_captured_round_reset_snapshot(int32_t round) const noexcept
+        {
+            return round >= 0 && round < kMaxSc6ReplayRounds
+                && m_sc6_round_reset_snapshot_valid[
+                    static_cast<size_t>(round)];
+        }
+
+        static int sc6_context_progress_score(
+            const Sc6ReplaySeekContext& ctx) noexcept
+        {
+            if (ctx.readable) return 100;
+            if (ctx.interactive_replay_ok) return 80;
+            if (ctx.input_log_ok) return 60;
+            if (ctx.battle_manager_ok) return 40;
+            if (ctx.battle_manager) return 20;
+            return 0;
+        }
+
+        Sc6ReplaySeekContext choose_better_sc6_context_failure(
+            const Sc6ReplaySeekContext& a,
+            const Sc6ReplaySeekContext& b) noexcept
+        {
+            if (a.readable) return a;
+            if (b.readable) return b;
+            const int as = sc6_context_progress_score(a);
+            const int bs = sc6_context_progress_score(b);
+            if (bs > as) return b;
+            if (as > bs) return a;
+            if (a.source == Sc6ContextSource::None) return b;
+            return a;
+        }
+
+        Sc6ReplaySeekContext resolve_sc6_replay_seek_context_for_bm(
+            Sc6ContextSource source,
+            uintptr_t battle_manager,
+            uintptr_t world_mode_pump,
+            uintptr_t sub_driver) noexcept
+        {
+            Sc6ReplaySeekContext ctx{};
+            ctx.source = source;
+            ctx.world_mode_pump = world_mode_pump;
+            ctx.sub_driver = sub_driver;
+            ctx.battle_manager = battle_manager;
+            // Ghidra recheck 2026-05-22:
+            // LuxBattle_AdvanceWorldModePump uses +0x38 only as the
+            // "drain round-result cinematic" presence guard.  The state
+            // pointer passed to that native path is BattleManager+0xAA120
+            // from WorldModePump+0x30.  Do not require +0x38 here; it can
+            // be null after generation/parking even though the exact seek
+            // context is still valid.
+            if (!ctx.battle_manager)
+            {
+                ctx.failure = Sc6ContextFailure::BattleManagerMissing;
+                return ctx;
+            }
+            ctx.battle_manager_ok = true;
+            if (source == Sc6ContextSource::ObjectRegistryBattleManager)
+                ctx.object_registry_bm_ok = true;
+            else if (source == Sc6ContextSource::WorldModePumpBattleManager)
+                ctx.world_mode_pump_bm_ok = true;
+
+            void* il_raw = nullptr;
+            if (!SafeReadPtr(reinterpret_cast<const void*>(
+                                 ctx.battle_manager
+                                 + kBM_BattleFrameInputLog_Off),
+                             &il_raw) || !il_raw)
+            {
+                ctx.failure = Sc6ContextFailure::InputLogMissing;
+                return ctx;
+            }
+            ctx.input_log = reinterpret_cast<uintptr_t>(il_raw);
+            ctx.input_log_ok = true;
+
+            RC::Unreal::UObject* rp_obj =
+                ReplayScrubDiag::replay_player_ptr().get(
+                    L"LuxBattleReplayPlayer");
+            if (rp_obj)
+            {
+                ctx.replay_player = reinterpret_cast<uintptr_t>(rp_obj);
+                ctx.replay_player_ok = true;
+
+                void* state_reset_raw = nullptr;
+                if (SafeReadPtr(reinterpret_cast<const void*>(
+                                    ctx.replay_player
+                                    + kRP_StateResetData_Off),
+                                &state_reset_raw) && state_reset_raw)
+                {
+                    ctx.state_reset_data =
+                        reinterpret_cast<uintptr_t>(state_reset_raw);
+                    ctx.state_reset_data_ok = true;
+                }
+
+                (void)SafeReadInt32(reinterpret_cast<const void*>(
+                                        ctx.replay_player
+                                        + kRP_TotalRounds_Off),
+                                    &ctx.total_rounds);
+                (void)SafeReadInt32(reinterpret_cast<const void*>(
+                                        ctx.replay_player
+                                        + kRP_CurrentRound_Off),
+                                    &ctx.current_round);
+            }
+            (void)SafeReadInt32(reinterpret_cast<const void*>(
+                                    ctx.input_log
+                                    + kIL_nMasterClock_Off),
+                                &ctx.input_master);
+            (void)SafeReadInt32(reinterpret_cast<const void*>(
+                                    ctx.battle_manager
+                                    + kBM_nReplayLastApplied_Off),
+                                &ctx.battle_master);
+
+            ctx.interactive_replay =
+                ctx.battle_manager + kBM_InteractiveReplay_Off;
+            uint32_t ir_state = 0;
+            ctx.interactive_replay_ok =
+                SafeReadUInt32(reinterpret_cast<const void*>(
+                                   ctx.interactive_replay),
+                               &ir_state);
+
+            for (int32_t round = 0; round < kMaxSc6ReplayRounds; ++round)
+            {
+                if (has_captured_round_reset_snapshot(round))
+                {
+                    ctx.captured_round_reset_ok = true;
+                    break;
+                }
+            }
+
+            if (!ctx.replay_player_ok)
+                ctx.failure = Sc6ContextFailure::ReplayPlayerMissing;
+            else if (!ctx.state_reset_data_ok)
+                ctx.failure = Sc6ContextFailure::StateResetDataMissing;
+            else
+                ctx.failure = Sc6ContextFailure::None;
+
+            ctx.readable = true;
+            return ctx;
+        }
+
+        Sc6ReplaySeekContext resolve_sc6_replay_seek_context_report() noexcept
+        {
+            Sc6ReplaySeekContext base_failure{};
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base)
+            {
+                base_failure.failure = Sc6ContextFailure::ImageBaseMissing;
+                return base_failure;
+            }
+
+            const uintptr_t world_mode_pump = base + kRVA_WorldModePump;
+            void* wmp_bm_raw = nullptr;
+            void* sub_raw = nullptr;
+            (void)SafeReadPtr(reinterpret_cast<const void*>(
+                                  world_mode_pump
+                                  + kWorldModePump_BattleManager_Off),
+                              &wmp_bm_raw);
+            (void)SafeReadPtr(reinterpret_cast<const void*>(
+                                  world_mode_pump
+                                  + kWorldModePump_SubDriver_Off),
+                              &sub_raw);
+            const uintptr_t wmp_bm =
+                reinterpret_cast<uintptr_t>(wmp_bm_raw);
+            const uintptr_t sub_driver =
+                reinterpret_cast<uintptr_t>(sub_raw);
+            const uintptr_t object_bm =
+                reinterpret_cast<uintptr_t>(
+                    m_bm_ptr.get(L"LuxBattleManager"));
+
+            base_failure.world_mode_pump = world_mode_pump;
+            base_failure.world_mode_pump_battle_manager = wmp_bm;
+            base_failure.object_registry_battle_manager = object_bm;
+            base_failure.sub_driver = sub_driver;
+            base_failure.failure = Sc6ContextFailure::BattleManagerMissing;
+
+            Sc6ReplaySeekContext best = base_failure;
+
+            if (object_bm)
+            {
+                Sc6ReplaySeekContext object_ctx =
+                    resolve_sc6_replay_seek_context_for_bm(
+                        Sc6ContextSource::ObjectRegistryBattleManager,
+                        object_bm, world_mode_pump, sub_driver);
+                object_ctx.world_mode_pump_battle_manager = wmp_bm;
+                object_ctx.object_registry_battle_manager = object_bm;
+                if (object_ctx.readable)
+                    return object_ctx;
+                best = choose_better_sc6_context_failure(best, object_ctx);
+            }
+
+            if (wmp_bm && wmp_bm != object_bm)
+            {
+                Sc6ReplaySeekContext wmp_ctx =
+                    resolve_sc6_replay_seek_context_for_bm(
+                        Sc6ContextSource::WorldModePumpBattleManager,
+                        wmp_bm, world_mode_pump, sub_driver);
+                wmp_ctx.world_mode_pump_battle_manager = wmp_bm;
+                wmp_ctx.object_registry_battle_manager = object_bm;
+                if (wmp_ctx.readable)
+                    return wmp_ctx;
+                best = choose_better_sc6_context_failure(best, wmp_ctx);
+            }
+
+            return best;
+        }
+
+        bool resolve_sc6_replay_seek_context(
+            Sc6ReplaySeekContext& ctx) noexcept
+        {
+            ctx = resolve_sc6_replay_seek_context_report();
+            return ctx.readable;
+        }
+
+        void log_sc6_context_report(const char* label,
+                                    const Sc6ReplaySeekContext& ctx,
+                                    bool ok) noexcept
+        {
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.sc6ctx] label={} ok={} failure={} "
+                "source={} wmp=0x{:X} object_bm=0x{:X} "
+                "wmp_bm=0x{:X} bm=0x{:X} bm_ok={} sub=0x{:X} "
+                "inputLog=0x{:X} input_ok={} rp=0x{:X} rp_ok={} "
+                "reset=0x{:X} reset_ok={} irs=0x{:X} irs_ok={} "
+                "captured_reset_any={} totalRounds={} rpRound={} "
+                "inputMaster={} bmMaster={}\n"),
+                RC::to_generic_string(label ? label : "?"),
+                ok ? 1 : 0,
+                RC::to_generic_string(
+                    sc6_context_failure_name(ctx.failure)),
+                RC::to_generic_string(sc6_context_source_name(ctx.source)),
+                ctx.world_mode_pump, ctx.object_registry_battle_manager,
+                ctx.world_mode_pump_battle_manager, ctx.battle_manager,
+                ctx.battle_manager_ok ? 1 : 0, ctx.sub_driver,
+                ctx.input_log, ctx.input_log_ok ? 1 : 0,
+                ctx.replay_player, ctx.replay_player_ok ? 1 : 0,
+                ctx.state_reset_data, ctx.state_reset_data_ok ? 1 : 0,
+                ctx.interactive_replay,
+                ctx.interactive_replay_ok ? 1 : 0,
+                ctx.captured_round_reset_ok ? 1 : 0,
+                ctx.total_rounds, ctx.current_round,
+                ctx.input_master, ctx.battle_master);
+        }
+
+        bool read_live_bm_round_reset_snapshot(
+            uintptr_t battle_manager,
+            std::array<uint8_t, kRoundStartDataBytes>& out) const noexcept
+        {
+            if (!battle_manager) return false;
+            return SafeReadBytes(reinterpret_cast<const void*>(
+                                     battle_manager
+                                     + kBM_pReplayCharaSnapshot_Off),
+                                 out.data(), out.size());
+        }
+
+        void capture_sc6_round_reset_snapshot_if_needed(
+            int32_t round,
+            int32_t seq,
+            int32_t master,
+            int32_t last_frame_id) noexcept
+        {
+            if (round < 0 || round >= kMaxSc6ReplayRounds)
+                return;
+            const size_t idx = static_cast<size_t>(round);
+            if (m_sc6_round_reset_snapshot_valid[idx])
+                return;
+
+            Sc6ReplaySeekContext ctx =
+                resolve_sc6_replay_seek_context_report();
+            if (!ctx.battle_manager_ok)
+                return;
+
+            std::array<uint8_t, kRoundStartDataBytes> snap{};
+            if (!read_live_bm_round_reset_snapshot(ctx.battle_manager, snap))
+                return;
+
+            m_sc6_round_reset_snapshots[idx] = snap;
+            m_sc6_round_reset_snapshot_valid[idx] = true;
+            m_sc6_round_reset_snapshot_seq[idx] = seq;
+            m_sc6_round_reset_snapshot_master[idx] = master;
+            m_sc6_round_reset_snapshot_last_frame_id[idx] =
+                last_frame_id;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.sc6reset] captured round reset snapshot "
+                "round={} seq={} master={} last_frame_id={} "
+                "bm=0x{:X} src=bm+1360\n"),
+                round, seq, master, last_frame_id, ctx.battle_manager);
+            ReplayTraceFields f;
+            f.integer("round", round)
+             .integer("seq", seq)
+             .integer("master", master)
+             .integer("last_frame_id", last_frame_id)
+             .hex("bm", ctx.battle_manager)
+             .string("source", "BattleManager+0x1360")
+             .hash("reset_hash", snap.data(), snap.size())
+             .uinteger("reset_size", snap.size());
+            ReplayDebugTrace::instance().event(
+                "capture_round_reset_snapshot", f);
+        }
+
+#if HORSEMOD_REPLAY_ENABLE_INTERACTIVE_RESET_DIAG
+        bool diagnostic_safe_call_interactive_replay_reset(
+            uintptr_t interactive_replay) noexcept
+        {
+            if (!m_interactive_replay_reset || !interactive_replay)
+                return false;
+            __try
+            {
+                m_interactive_replay_reset(
+                    reinterpret_cast<void*>(interactive_replay));
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+#endif
+
+        bool safe_call_battle_manager_set_move_state(
+            uintptr_t battle_manager, uint8_t move_state) noexcept
+        {
+            m_last_set_move_state_fault = NativeCallFault{};
+            if (!m_battle_manager_set_move_state || !battle_manager)
+                return false;
+            __try
+            {
+                m_battle_manager_set_move_state(
+                    reinterpret_cast<void*>(battle_manager), move_state);
+                return true;
+            }
+            __except (CaptureNativeCallFault(
+                GetExceptionCode(), GetExceptionInformation(),
+                &m_last_set_move_state_fault))
+            {
+                return false;
+            }
+        }
+
+        int32_t find_first_slot_for_round(int32_t round) const noexcept
+        {
+            if (round < 0) return -1;
+            const int32_t latest = latest_seq();
+            if (latest < 0) return -1;
+            for (int32_t k = 0; k <= latest; ++k)
+            {
+                int32_t s = -1, r = -1, f = -1, m = -1;
+                if (!m_tags.get(static_cast<size_t>(k), s, r, f, m))
+                    break;
+                if (r == round && m >= 0)
+                    return k;
+            }
+            return -1;
+        }
+
+        bool invoke_direct_sc6_frame_once() noexcept
+        {
+            if (!resolve_per_frame_tick_bypass())
+                return false;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            uint64_t input[2] = {};
+            uint8_t camera_args[24] = {};
+            if (!SafeReadBytes(reinterpret_cast<const void*>(
+                                   base + kRVA_LatestEngineInput),
+                               input, sizeof(input)))
+                return false;
+            if (!SafeReadBytes(reinterpret_cast<const void*>(
+                                   base + kRVA_PerFrameCameraArgs),
+                               camera_args, sizeof(camera_args)))
+                return false;
+
+            uintptr_t args[3] = {
+                reinterpret_cast<uintptr_t>(&input[0]),
+                reinterpret_cast<uintptr_t>(&input[1]),
+                reinterpret_cast<uintptr_t>(camera_args)
+            };
+            return SafeInvokePerFrameTick(m_per_frame_tick_bypass, args);
+        }
+
+        GenerateStartReadiness read_generate_start_readiness() noexcept
+        {
+            GenerateStartReadiness out{};
+            out.in_replay = GameMode::instance().current_presence()
+                == GamePresence::Replay;
+            if (!out.in_replay)
+            {
+                out.reason = "Enter the Replay viewer to generate a timeline.";
+                return out;
+            }
+
+            const uintptr_t base = NativeBinding::imageBase();
+            uintptr_t world_mode_pump = 0;
+            uintptr_t sub_driver = 0;
+            if (base)
+            {
+                world_mode_pump = base + kRVA_WorldModePump;
+                void* wmp_bm_raw = nullptr;
+                void* sub_raw = nullptr;
+                (void)SafeReadPtr(reinterpret_cast<const void*>(
+                                      world_mode_pump
+                                      + kWorldModePump_BattleManager_Off),
+                                  &wmp_bm_raw);
+                (void)SafeReadPtr(reinterpret_cast<const void*>(
+                                      world_mode_pump
+                                      + kWorldModePump_SubDriver_Off),
+                                  &sub_raw);
+                out.world_mode_pump_battle_manager =
+                    reinterpret_cast<uintptr_t>(wmp_bm_raw);
+                sub_driver = reinterpret_cast<uintptr_t>(sub_raw);
+                out.sub_driver = sub_driver;
+                if (out.world_mode_pump_battle_manager)
+                {
+                    void* wmp_il_raw = nullptr;
+                    (void)SafeReadPtr(reinterpret_cast<const void*>(
+                                          out.world_mode_pump_battle_manager
+                                          + kBM_BattleFrameInputLog_Off),
+                                      &wmp_il_raw);
+                    out.world_mode_pump_input_log =
+                        reinterpret_cast<uintptr_t>(wmp_il_raw);
+                }
+            }
+
+            RC::Unreal::UObject* bm_obj =
+                m_bm_ptr.get(L"LuxBattleManager");
+            out.object_registry_battle_manager =
+                reinterpret_cast<uintptr_t>(bm_obj);
+            if (out.object_registry_battle_manager)
+            {
+                void* object_il_raw = nullptr;
+                (void)SafeReadPtr(reinterpret_cast<const void*>(
+                                      out.object_registry_battle_manager
+                                      + kBM_BattleFrameInputLog_Off),
+                                  &object_il_raw);
+                out.object_registry_input_log =
+                    reinterpret_cast<uintptr_t>(object_il_raw);
+            }
+
+            Sc6ReplaySeekContext seek_ctx{};
+            if (out.object_registry_battle_manager)
+            {
+                seek_ctx = resolve_sc6_replay_seek_context_for_bm(
+                    Sc6ContextSource::ObjectRegistryBattleManager,
+                    out.object_registry_battle_manager,
+                    world_mode_pump, sub_driver);
+                seek_ctx.object_registry_battle_manager =
+                    out.object_registry_battle_manager;
+                seek_ctx.world_mode_pump_battle_manager =
+                    out.world_mode_pump_battle_manager;
+            }
+            else
+            {
+                seek_ctx = resolve_sc6_replay_seek_context_report();
+            }
+
+            out.seek_context_failure = seek_ctx.failure;
+            out.seek_context_source = seek_ctx.source;
+            out.battle_manager = seek_ctx.battle_manager;
+            out.input_log = seek_ctx.input_log;
+            out.interactive_replay = seek_ctx.interactive_replay;
+            out.sub_driver = seek_ctx.sub_driver;
+            out.replay_player = seek_ctx.replay_player;
+            out.state_reset_data = seek_ctx.state_reset_data;
+            out.state_reset_data_ok = seek_ctx.state_reset_data_ok;
+            out.input_master = seek_ctx.input_master;
+            out.battle_master = seek_ctx.battle_master;
+            if (seek_ctx.readable)
+                out.seek_context_ok = true;
+
+            if (!out.battle_manager && out.object_registry_battle_manager)
+                out.battle_manager = out.object_registry_battle_manager;
+            if (!out.input_log && out.object_registry_input_log)
+                out.input_log = out.object_registry_input_log;
+
+            if (!out.battle_manager || !out.input_log)
+            {
+                out.reason =
+                    "Replay is still loading. Try again in a moment.";
+                return out;
+            }
+
+            if (out.input_master < 0)
+                (void)SafeReadInt32(reinterpret_cast<const void*>(
+                                        out.input_log
+                                        + kIL_nMasterClock_Off),
+                                    &out.input_master);
+            if (out.battle_master < 0)
+                (void)SafeReadInt32(reinterpret_cast<const void*>(
+                                        out.battle_manager
+                                        + kBM_nReplayLastApplied_Off),
+                                    &out.battle_master);
+            out.round = read_current_round();
+
+            std::array<uint8_t, kRoundStartDataBytes> bm_reset{};
+            out.live_bm_reset_ok =
+                read_live_bm_round_reset_snapshot(out.battle_manager,
+                                                  bm_reset);
+            out.reset_source_ok =
+                out.state_reset_data_ok
+                || out.live_bm_reset_ok
+                || has_captured_round_reset_snapshot(out.round);
+
+            if (out.round < 0 || out.input_master < 0)
+            {
+                out.reason =
+                    "Replay is still loading. Try again in a moment.";
+                return out;
+            }
+
+            out.context_ok = true;
+
+            if (out.round != 0)
+            {
+                out.reason =
+                    "This replay already started. Click Generate, then restart or reload the replay.";
+                return out;
+            }
+            if (out.input_master > 1)
+            {
+                out.reason =
+                    "This replay already started. Click Generate, then restart or reload the replay.";
+                return out;
+            }
+            if (out.battle_master >= 0)
+            {
+                const int32_t delta =
+                    out.battle_master >= out.input_master
+                        ? (out.battle_master - out.input_master)
+                        : (out.input_master - out.battle_master);
+                if (delta > 1)
+                {
+                    out.reason =
+                        "This replay already started. Click Generate, then restart or reload the replay.";
+                    return out;
+                }
+            }
+
+            out.clean_start = true;
+            if (!out.seek_context_ok)
+            {
+                out.reason =
+                    "Replay is still loading. Wait at the start before generating.";
+                return out;
+            }
+            if (!out.reset_source_ok)
+            {
+                out.reason =
+                    "Replay is still loading. Wait at the start before generating.";
+                return out;
+            }
+
+            out.reason = "";
+            return out;
+        }
+
+        void reset_armed_generate_wait_log() noexcept
+        {
+            m_gen_armed_last_log_round.store(INT32_MIN,
+                                             std::memory_order_release);
+            m_gen_armed_last_log_master_bucket.store(
+                INT32_MIN, std::memory_order_release);
+            m_gen_armed_last_log_state.store(0,
+                                             std::memory_order_release);
+            m_gen_armed_hold_logged.store(false,
+                                          std::memory_order_release);
+        }
+
+        void log_armed_generate_wait_if_needed(
+            const GenerateStartReadiness& ready,
+            int state) noexcept
+        {
+            const int32_t master_bucket =
+                ready.input_master >= 0 ? ready.input_master / 300 : -1;
+            const int32_t last_round =
+                m_gen_armed_last_log_round.load(std::memory_order_acquire);
+            const int32_t last_bucket =
+                m_gen_armed_last_log_master_bucket.load(
+                    std::memory_order_acquire);
+            const int last_state =
+                m_gen_armed_last_log_state.load(std::memory_order_acquire);
+
+            if (last_round == ready.round
+                && last_bucket == master_bucket
+                && last_state == state)
+                return;
+
+            m_gen_armed_last_log_round.store(ready.round,
+                                             std::memory_order_release);
+            m_gen_armed_last_log_master_bucket.store(
+                master_bucket, std::memory_order_release);
+            m_gen_armed_last_log_state.store(state,
+                                             std::memory_order_release);
+
+            const char* prefix = state == 3
+                ? "armed Generate waiting for exact SC6 reset source"
+                : "armed Generate waiting for clean replay start";
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub] {} (state={} reason={} failure={} "
+                "source={} round={} input_master={} battle_master={} "
+                "object_bm=0x{:X} object_il=0x{:X} wmp_bm=0x{:X} "
+                "wmp_il=0x{:X} chosen_bm=0x{:X} chosen_il=0x{:X} "
+                "seek_context_ok={} reset_source_ok={} "
+                "live_bm_reset_ok={} state_reset_data_ok={})\n"),
+                RC::to_generic_string(prefix), state,
+                RC::to_generic_string(ready.reason ? ready.reason : ""),
+                RC::to_generic_string(sc6_context_failure_name(
+                    ready.seek_context_failure)),
+                RC::to_generic_string(sc6_context_source_name(
+                    ready.seek_context_source)),
+                ready.round, ready.input_master, ready.battle_master,
+                ready.object_registry_battle_manager,
+                ready.object_registry_input_log,
+                ready.world_mode_pump_battle_manager,
+                ready.world_mode_pump_input_log,
+                ready.battle_manager, ready.input_log,
+                ready.seek_context_ok ? 1 : 0,
+                ready.reset_source_ok ? 1 : 0,
+                ready.live_bm_reset_ok ? 1 : 0,
+                ready.state_reset_data_ok ? 1 : 0);
+        }
+
+        void hold_replay_at_clean_start_for_armed_generate(
+            const GenerateStartReadiness& ready) noexcept
+        {
+            m_paused.store(true, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::RestoredFrameHold),
+                std::memory_order_release);
+            if (m_gen_armed_hold_logged.exchange(
+                    true, std::memory_order_acq_rel))
+                return;
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub] armed Generate holding replay at clean "
+                "start while exact reset source resolves "
+                "(reason={} failure={} source={} round={} input_master={} "
+                "battle_master={} object_bm=0x{:X} object_il=0x{:X} "
+                "wmp_bm=0x{:X} wmp_il=0x{:X} chosen_bm=0x{:X} "
+                "chosen_il=0x{:X} live_bm_reset_ok={} "
+                "state_reset_data_ok={})\n"),
+                RC::to_generic_string(ready.reason ? ready.reason : ""),
+                RC::to_generic_string(sc6_context_failure_name(
+                    ready.seek_context_failure)),
+                RC::to_generic_string(sc6_context_source_name(
+                    ready.seek_context_source)),
+                ready.round, ready.input_master, ready.battle_master,
+                ready.object_registry_battle_manager,
+                ready.object_registry_input_log,
+                ready.world_mode_pump_battle_manager,
+                ready.world_mode_pump_input_log,
+                ready.battle_manager, ready.input_log,
+                ready.live_bm_reset_ok ? 1 : 0,
+                ready.state_reset_data_ok ? 1 : 0);
+        }
+
+        void service_armed_generate_start() noexcept
+        {
+            const int mode = m_gen_armed_mode.load(
+                std::memory_order_acquire);
+            if (mode == kGenReqNone)
+                return;
+
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                == static_cast<int>(TimelineGenState::Generating))
+                return;
+
+            if (is_timeline_generation_locked_complete())
+            {
+                m_gen_armed_mode.store(kGenReqNone,
+                                       std::memory_order_release);
+                reset_armed_generate_wait_log();
+                log_generate_locked_complete_once();
+                return;
+            }
+
+            const GenerateStartReadiness ready =
+                read_generate_start_readiness();
+            if (!ready.in_replay)
+                return;
+
+            if (!ready.clean_start)
+            {
+                const int state = ready.context_ok ? 2 : 1;
+                log_armed_generate_wait_if_needed(ready, state);
+                return;
+            }
+            if (!ready.seek_context_ok || !ready.reset_source_ok)
+            {
+                hold_replay_at_clean_start_for_armed_generate(ready);
+                log_armed_generate_wait_if_needed(ready, 3);
+                return;
+            }
+
+            m_gen_armed_mode.store(kGenReqNone, std::memory_order_release);
+            reset_armed_generate_wait_log();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub] armed Generate starting on clean replay "
+                "start mode={} round={} input_master={} "
+                "battle_master={} reset_source_ok={} source={} "
+                "live_bm_reset_ok={}\n"),
+                mode, ready.round, ready.input_master, ready.battle_master,
+                ready.reset_source_ok ? 1 : 0,
+                RC::to_generic_string(sc6_context_source_name(
+                    ready.seek_context_source)),
+                ready.live_bm_reset_ok ? 1 : 0);
+
+            if (mode == kGenReqStart)
+                start_generate_timeline(false);
+            else if (mode == kGenReqStartExperimental)
+                start_generate_timeline(true);
+            else if (mode == kGenReqStartBattleStep)
+                start_generate_timeline_battle_step();
+            else
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] armed Generate ignored unknown mode={}\n"),
+                    mode);
+        }
+
+        bool arm_generate_if_replay_already_advanced(int mode) noexcept
+        {
+            const GenerateStartReadiness ready =
+                read_generate_start_readiness();
+            if (!ready.in_replay || ready.clean_start || !ready.context_ok)
+                return false;
+
+            const int prev = m_gen_armed_mode.exchange(
+                mode, std::memory_order_acq_rel);
+            if (prev == mode)
+                return true;
+
+            reset_armed_generate_wait_log();
+            if (prev != kGenReqNone)
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] Generate timeline waiting mode changed "
+                    "{} -> {}\n"),
+                    prev, mode);
+                return true;
+            }
+
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayScrub] Generate timeline armed for next clean "
+                "replay start - current replay is already advanced "
+                "(mode={} reason={} round={} input_master={} "
+                "battle_master={} source={} object_bm=0x{:X} "
+                "object_il=0x{:X} wmp_bm=0x{:X} wmp_il=0x{:X} "
+                "chosen_bm=0x{:X} chosen_il=0x{:X} seek_context_ok={} "
+                "reset_source_ok={} live_bm_reset_ok={})\n"),
+                mode, RC::to_generic_string(ready.reason), ready.round,
+                ready.input_master, ready.battle_master,
+                RC::to_generic_string(sc6_context_source_name(
+                    ready.seek_context_source)),
+                ready.object_registry_battle_manager,
+                ready.object_registry_input_log,
+                ready.world_mode_pump_battle_manager,
+                ready.world_mode_pump_input_log,
+                ready.battle_manager, ready.input_log,
+                ready.seek_context_ok ? 1 : 0,
+                ready.reset_source_ok ? 1 : 0,
+                ready.live_bm_reset_ok ? 1 : 0);
+            ReplayTraceFields f;
+            f.string("mode", mode == kGenReqStartExperimental
+                         ? "experimental"
+                         : (mode == kGenReqStartBattleStep
+                                ? "battle_step" : "normal"))
+             .boolean("armed", true)
+             .string("reason", ready.reason ? ready.reason : "?")
+             .integer("round", ready.round)
+             .integer("input_master", ready.input_master)
+             .integer("battle_master", ready.battle_master)
+             .string("context_source", sc6_context_source_name(
+                         ready.seek_context_source))
+             .hex("object_bm", ready.object_registry_battle_manager)
+             .hex("object_il", ready.object_registry_input_log)
+             .hex("wmp_bm", ready.world_mode_pump_battle_manager)
+             .hex("wmp_il", ready.world_mode_pump_input_log)
+             .hex("chosen_bm", ready.battle_manager)
+             .hex("chosen_il", ready.input_log)
+             .boolean("seek_context_ok", ready.seek_context_ok)
+             .boolean("reset_source_ok", ready.reset_source_ok)
+             .boolean("live_bm_reset_ok", ready.live_bm_reset_ok);
+            ReplayDebugTrace::instance().event("generate_request", f);
+            return true;
+        }
+
+        bool choose_captured_seek_validation_origin(
+            Sc6ExactSeekJob& job) noexcept
+        {
+            job.validation_mode = CapturedSeekValidationMode::StaticTarget;
+            job.validation_origin_tick = job.target_tick;
+            job.validation_origin_seq = job.target_seq;
+            job.validation_origin_round = job.target_round;
+            job.validation_origin_master = job.target_master;
+            job.validation_compare_tick = job.target_tick;
+            job.validation_compare_seq = job.target_seq;
+            job.validation_compare_round = job.target_round;
+            job.validation_compare_master = job.target_master;
+
+            int32_t ps = -1, pr = -1, pw = -1, pm = -1;
+            if (job.target_tick > 0
+                && m_tags.get(static_cast<size_t>(job.target_tick - 1),
+                              ps, pr, pw, pm)
+                && pr == job.target_round
+                && pm >= 0
+                && pm + 1 == job.target_master)
+            {
+                job.validation_mode =
+                    CapturedSeekValidationMode::PreviousToTarget;
+                job.validation_origin_tick = job.target_tick - 1;
+                job.validation_origin_seq = ps;
+                job.validation_origin_round = pr;
+                job.validation_origin_master = pm;
+                return true;
+            }
+
+            int32_t ns = -1, nr = -1, nw = -1, nm = -1;
+            if (m_tags.get(static_cast<size_t>(job.target_tick + 1),
+                           ns, nr, nw, nm)
+                && nr == job.target_round
+                && nm >= 0
+                && nm == job.target_master + 1)
+            {
+                job.validation_mode =
+                    CapturedSeekValidationMode::TargetToNext;
+                job.validation_compare_tick = job.target_tick + 1;
+                job.validation_compare_seq = ns;
+                job.validation_compare_round = nr;
+                job.validation_compare_master = nm;
+            }
+
+            return true;
+        }
+
+        bool restore_captured_frame_for_seek(
+            int32_t tick,
+            const char* label,
+            CapturedFrameRestoreReport& out) noexcept
+        {
+            out = CapturedFrameRestoreReport{};
+            out.tick = tick;
+            if (!is_initialized() || !m_exec_read || tick < 0)
+            {
+                out.failure = NativeSeekFailure::InvalidTarget;
+                return false;
+            }
+
+            int32_t wall = -1;
+            if (!m_tags.get(static_cast<size_t>(tick),
+                            out.seq, out.round, wall, out.master)
+                || out.seq < 0 || out.round < 0 || out.master < 0)
+            {
+                out.failure = NativeSeekFailure::InvalidTarget;
+                return false;
+            }
+
+            const uint8_t* sim_blob =
+                m_sim_store.gather(static_cast<size_t>(tick));
+            const uint8_t* il_blob =
+                m_il_store.gather(static_cast<size_t>(tick));
+            const uint8_t* rdb_blob =
+                m_rdb_store.gather(static_cast<size_t>(tick));
+            const uint8_t* extras_blob =
+                m_extras_store.gather(static_cast<size_t>(tick));
+            if (!sim_blob || !il_blob || !rdb_blob || !extras_blob)
+            {
+                out.failure = NativeSeekFailure::InvalidTarget;
+                return false;
+            }
+
+            m_shim.retarget(const_cast<uint8_t*>(sim_blob),
+                            kSnapshotStride);
+            out.sim_restore_ok = SafeInvokeExec(m_exec_read, &m_shim);
+            if (!out.sim_restore_ok)
+            {
+                out.failure =
+                    NativeSeekFailure::CapturedSnapshotRestoreFailed;
+                return false;
+            }
+
+            out.input_log_restore_ok = restore_input_cache(il_blob);
+            if (!out.input_log_restore_ok)
+            {
+                out.failure = NativeSeekFailure::Sc6InputLogRestoreFailed;
+                return false;
+            }
+
+            out.rdb_restore_ok = restore_replay_data_block(rdb_blob);
+            if (!out.rdb_restore_ok)
+            {
+                out.failure =
+                    NativeSeekFailure::Sc6ReplayDataBlockRestoreFailed;
+                return false;
+            }
+
+            out.extras_restore_ok = restore_extras(extras_blob, true);
+            if (!out.extras_restore_ok)
+            {
+                out.failure = NativeSeekFailure::CapturedSnapshotRestoreFailed;
+                return false;
+            }
+
+            int32_t snapshot_last_frame_id = -1;
+            std::memcpy(&snapshot_last_frame_id,
+                        il_blob + (kIL_nLastFrameID_Off
+                                   - kIL_CaptureStart_Off),
+                        sizeof(snapshot_last_frame_id));
+
+            Sc6ReplaySeekContext ctx{};
+            (void)resolve_sc6_replay_seek_context(ctx);
+            out.cursor_write_ok = write_replay_cursors(
+                out.master, snapshot_last_frame_id, ctx.battle_manager);
+            if (!out.cursor_write_ok)
+            {
+                out.failure = NativeSeekFailure::Sc6ReplayCursorWriteFailed;
+                return false;
+            }
+
+            float captured_time = static_cast<float>(out.master) / 60.0f;
+            int32_t captured_round = out.round;
+            std::memcpy(&captured_time,
+                        extras_blob + kExtras_Off_RP_CurrentTime,
+                        sizeof(captured_time));
+            std::memcpy(&captured_round,
+                        extras_blob + kExtras_Off_RP_CurrentRound,
+                        sizeof(captured_round));
+            if (captured_round < 0) captured_round = out.round;
+            out.replay_player_cursor_write_ok =
+                write_replay_player_cursor(
+                    captured_round, out.master, captured_time, true,
+                    ctx.replay_player);
+            if (!out.replay_player_cursor_write_ok)
+            {
+                out.failure =
+                    NativeSeekFailure::Sc6ReplayPlayerCursorWriteFailed;
+                return false;
+            }
+
+            const int32_t live_round = read_current_round();
+            const int32_t live_master = read_engine_master_clock();
+            const int32_t master_delta =
+                (live_master >= out.master)
+                    ? (live_master - out.master)
+                    : (out.master - live_master);
+            if ((live_round >= 0 && live_round != out.round)
+                || live_master < 0 || master_delta > 1)
+            {
+                out.failure =
+                    NativeSeekFailure::CapturedSnapshotRestoreFailed;
+                return false;
+            }
+
+            out.failure = NativeSeekFailure::None;
+            uint64_t latest_input_p1 = 0;
+            uint64_t latest_input_p2 = 0;
+            std::memcpy(&latest_input_p1,
+                        extras_blob + kExtras_Off_LatestEngineInput,
+                        sizeof(latest_input_p1));
+            std::memcpy(&latest_input_p2,
+                        extras_blob + kExtras_Off_LatestEngineInput
+                            + sizeof(latest_input_p1),
+                        sizeof(latest_input_p2));
+            const uint64_t latest_input_hash = hash_bytes64(
+                extras_blob + kExtras_Off_LatestEngineInput,
+                kExtras_LatestEngineInput_Bytes);
+            const uint64_t camera_args_hash = hash_bytes64(
+                extras_blob + kExtras_Off_PerFrameCameraArgs,
+                kExtras_PerFrameCameraArgs_Bytes);
+            const uint64_t input_ring_hash = hash_bytes64(
+                extras_blob + kExtras_Off_InputRingEntries,
+                kExtras_InputRingEntries_Bytes);
+            const uint64_t lfsr_hash = hash_bytes64(
+                extras_blob + kExtras_Off_LfsrState,
+                kExtras_LfsrState_Bytes);
+            uint32_t input_cursor_p1 = 0;
+            uint32_t input_cursor_p2 = 0;
+            uint32_t input_base_p1 = 0;
+            uint32_t input_base_p2 = 0;
+            uint32_t lfsr_index = 0;
+            std::memcpy(&input_cursor_p1,
+                        extras_blob + kExtras_Off_InputRingCursor,
+                        sizeof(input_cursor_p1));
+            std::memcpy(&input_cursor_p2,
+                        extras_blob + kExtras_Off_InputRingCursor
+                            + sizeof(input_cursor_p1),
+                        sizeof(input_cursor_p2));
+            std::memcpy(&input_base_p1,
+                        extras_blob + kExtras_Off_InputRingBase,
+                        sizeof(input_base_p1));
+            std::memcpy(&input_base_p2,
+                        extras_blob + kExtras_Off_InputRingBase
+                            + sizeof(input_base_p1),
+                        sizeof(input_base_p2));
+            std::memcpy(&lfsr_index,
+                        extras_blob + kExtras_Off_LfsrIndex,
+                        sizeof(lfsr_index));
+            ReplayTraceFields f;
+            f.string("label", label ? label : "?")
+             .integer("seq", out.seq)
+             .integer("tick", out.tick)
+             .integer("round", out.round)
+             .integer("master", out.master)
+             .boolean("sim_restore_ok", out.sim_restore_ok)
+             .boolean("input_log_restore_ok", out.input_log_restore_ok)
+             .boolean("rdb_restore_ok", out.rdb_restore_ok)
+             .boolean("extras_restore_ok", out.extras_restore_ok)
+             .boolean("cursor_write_ok", out.cursor_write_ok)
+             .boolean("rp_cursor_write_ok",
+                      out.replay_player_cursor_write_ok)
+             .integer("live_round", live_round)
+             .integer("live_master", live_master)
+             .hex("latest_engine_input_p1", latest_input_p1)
+             .hex("latest_engine_input_p2", latest_input_p2)
+             .hex("latest_engine_input_hash", latest_input_hash)
+             .hex("per_frame_camera_args_hash", camera_args_hash)
+             .hex("input_ring_hash", input_ring_hash)
+             .integer("input_ring_cursor_p1", input_cursor_p1)
+             .integer("input_ring_cursor_p2", input_cursor_p2)
+             .integer("input_ring_base_p1", input_base_p1)
+             .integer("input_ring_base_p2", input_base_p2)
+             .hex("lfsr_hash", lfsr_hash)
+             .integer("lfsr_index", lfsr_index);
+            ReplayDebugTrace::instance().event(
+                "captured_seek_restore", f);
+            return true;
+        }
+
+        bool capture_live_frame_for_compare(
+            LiveCapturedFrameScratch& out) noexcept
+        {
+            out = LiveCapturedFrameScratch{};
+            if (!is_initialized() || !m_exec_write)
+                return false;
+            try
+            {
+                out.sim.assign(kSnapshotStride, 0);
+                out.input_log.assign(kIL_CaptureBytes, 0);
+                out.rdb.assign(kRDB_Bytes, 0);
+                out.extras.assign(kExtras_Bytes, 0);
+            }
+            catch (const std::bad_alloc&)
+            {
+                return false;
+            }
+
+            m_shim.retarget(out.sim.data(), kSnapshotStride);
+            out.sim_ok = SafeInvokeExec(m_exec_write, &m_shim);
+            out.input_log_ok = capture_input_cache(out.input_log.data());
+            out.rdb_ok = capture_replay_data_block(out.rdb.data());
+            out.extras_ok = capture_extras(out.extras.data());
+            return out.sim_ok && out.input_log_ok
+                && out.rdb_ok && out.extras_ok;
+        }
+
+        static int32_t first_mismatch_offset(
+            const uint8_t* expected,
+            const uint8_t* live,
+            size_t bytes,
+            uint8_t& expected_byte,
+            uint8_t& live_byte) noexcept
+        {
+            if (!expected || !live) return -1;
+            for (size_t i = 0; i < bytes; ++i)
+            {
+                if (expected[i] != live[i])
+                {
+                    expected_byte = expected[i];
+                    live_byte = live[i];
+                    return static_cast<int32_t>(i);
+                }
+            }
+            return -1;
+        }
+
+        struct CapturedCompareIgnoreRange
+        {
+            int region {-1};
+            int32_t offset {0};
+            int32_t size {0};
+            const char* reason {"unspecified"};
+        };
+
+        static bool captured_compare_offset_ignored(
+            int region,
+            int32_t offset,
+            const char** reason_out = nullptr) noexcept
+        {
+            // HgCpuDirect serializes each chara as 0x1400C bytes.  Ghidra
+            // shows LuxBattle_PerFrameTick and LuxBattle_TickCharaInput
+            // rebuild the live input/command-history state during the
+            // validation step.  These bytes are useful diagnostics, but the
+            // authority for landing is round/master/cache verification.
+            static constexpr int32_t kPerCharaSnapshotBytes = 0x1400C;
+            static constexpr int32_t kMotionInputLocalStart = 0x16C0;
+            static constexpr int32_t kMotionInputLocalSize = 0x180;
+            static constexpr int32_t kCharaInputLocalStart = 0x2144;
+            static constexpr int32_t kCharaInputLocalSize = 0x1020;
+            static constexpr int32_t kMotionBankLocalStart = 0x3D90;
+            static constexpr int32_t kMotionBankLocalSize = 0x40;
+            static constexpr CapturedCompareIgnoreRange kRanges[] = {
+                {0, kMotionInputLocalStart, kMotionInputLocalSize,
+                 "rebuilt FLuxBattleChara motion-input flag/history P1"},
+                {0, kPerCharaSnapshotBytes + kMotionInputLocalStart,
+                 kMotionInputLocalSize,
+                 "rebuilt FLuxBattleChara motion-input flag/history P2"},
+                {0, kCharaInputLocalStart, kCharaInputLocalSize,
+                 "rebuilt FLuxBattleChara input/command-history window P1"},
+                {0, kPerCharaSnapshotBytes + kCharaInputLocalStart,
+                 kCharaInputLocalSize,
+                 "rebuilt FLuxBattleChara input/command-history window P2"},
+                {0, kMotionBankLocalStart, kMotionBankLocalSize,
+                 "rebuilt chara+0x35A0 motion-bank interpolation P1"},
+                {0, kPerCharaSnapshotBytes + kMotionBankLocalStart,
+                 kMotionBankLocalSize,
+                 "rebuilt chara+0x35A0 motion-bank interpolation P2"},
+            };
+            for (const CapturedCompareIgnoreRange& range : kRanges)
+            {
+                if (region == range.region
+                    && offset >= range.offset
+                    && offset < range.offset + range.size)
+                {
+                    if (reason_out) *reason_out = range.reason;
+                    return true;
+                }
+            }
+            if (reason_out) *reason_out = nullptr;
+            return false;
+        }
+
+        static std::string hex_window_around(
+            const uint8_t* data,
+            size_t bytes,
+            int32_t center,
+            size_t radius = 8) noexcept
+        {
+            if (!data || bytes == 0 || center < 0)
+                return {};
+            const size_t c = static_cast<size_t>(center);
+            if (c >= bytes) return {};
+            const size_t start = c > radius ? c - radius : 0;
+            const size_t end = (c + radius + 1 < bytes)
+                ? c + radius + 1 : bytes;
+            std::string out;
+            out.reserve((end - start) * 3);
+            char buf[4] = {};
+            for (size_t i = start; i < end; ++i)
+            {
+                if (!out.empty()) out.push_back(' ');
+                std::snprintf(buf, sizeof(buf), "%02X",
+                              static_cast<unsigned>(data[i]));
+                out += buf;
+            }
+            return out;
+        }
+
+        static std::string describe_hgcpu_sim_offset(
+            int32_t offset) noexcept
+        {
+            if (offset < 0) return {};
+            // ExecMoveChangeAndPost/WriteCharaStateToSnapshot serializes two
+            // chara records in the 0x28018-byte HgCpuDirect buffer.  Ghidra
+            // shows the first record layout starts with chara+0x10 for 0x80
+            // bytes, then chara+0x90 for 0x3510 bytes, then secondary
+            // pointed sub-blocks.  This hint is diagnostic only.
+            static constexpr int32_t kPerCharaSnapshotBytes = 0x1400C;
+            const int32_t player =
+                (offset >= kPerCharaSnapshotBytes) ? 2 : 1;
+            const int32_t local = offset % kPerCharaSnapshotBytes;
+            char buf[160] = {};
+            if (local < 0x80)
+            {
+                std::snprintf(buf, sizeof(buf),
+                              "P%d HgCpuDirect local=0x%X live_chara+0x%X "
+                              "(primary header block)",
+                              player, local, 0x10 + local);
+            }
+            else if (local < 0x3590)
+            {
+                std::snprintf(buf, sizeof(buf),
+                              "P%d HgCpuDirect local=0x%X live_chara+0x%X "
+                              "(main chara state; includes input words "
+                              "around +0x2158)",
+                              player, local, 0x90 + (local - 0x80));
+            }
+            else if (local < 0x4DD0)
+            {
+                std::snprintf(buf, sizeof(buf),
+                              "P%d HgCpuDirect local=0x%X subblock+0x%X "
+                              "(chara+0x35A0 pointed motion/bone state)",
+                              player, local, local - 0x3590);
+            }
+            else if (local < 0x55D0)
+            {
+                std::snprintf(buf, sizeof(buf),
+                              "P%d HgCpuDirect local=0x%X subblock+0x%X "
+                              "(chara+0x27760 pointed state)",
+                              player, local, local - 0x4DD0);
+            }
+            else
+            {
+                std::snprintf(buf, sizeof(buf),
+                              "P%d HgCpuDirect local=0x%X "
+                              "(unmapped serialized region)",
+                              player, local);
+            }
+            return std::string(buf);
+        }
+
+        bool compare_live_frame_to_captured_tick(
+            int32_t expected_tick,
+            const LiveCapturedFrameScratch& live,
+            CapturedFrameCompareReport& out) noexcept
+        {
+            out = CapturedFrameCompareReport{};
+            out.expected_tick = expected_tick;
+            int32_t wall = -1;
+            if (expected_tick < 0
+                || !m_tags.get(static_cast<size_t>(expected_tick),
+                               out.expected_seq, out.expected_round,
+                               wall, out.expected_master))
+            {
+                out.reason = "invalid-target";
+                return false;
+            }
+
+            const uint8_t* sim_expected =
+                m_sim_store.gather(static_cast<size_t>(expected_tick));
+            const uint8_t* il_expected =
+                m_il_store.gather(static_cast<size_t>(expected_tick));
+            const uint8_t* rdb_expected =
+                m_rdb_store.gather(static_cast<size_t>(expected_tick));
+            const uint8_t* extras_expected =
+                m_extras_store.gather(static_cast<size_t>(expected_tick));
+            if (!sim_expected || !il_expected
+                || !rdb_expected || !extras_expected
+                || !live.sim_ok || !live.input_log_ok
+                || !live.rdb_ok || !live.extras_ok)
+            {
+                out.reason = "capture-missing";
+                return false;
+            }
+
+            out.expected_sim_hash =
+                hash_bytes64(sim_expected, kSnapshotStride);
+            out.live_sim_hash =
+                hash_bytes64(live.sim.data(), kSnapshotStride);
+            out.expected_input_log_hash =
+                hash_bytes64(il_expected, kIL_CaptureBytes);
+            out.live_input_log_hash =
+                hash_bytes64(live.input_log.data(), kIL_CaptureBytes);
+            out.expected_rdb_hash =
+                hash_bytes64(rdb_expected, kRDB_Bytes);
+            out.live_rdb_hash =
+                hash_bytes64(live.rdb.data(), kRDB_Bytes);
+            out.expected_extras_hash =
+                hash_bytes64(extras_expected, kExtras_Bytes);
+            out.live_extras_hash =
+                hash_bytes64(live.extras.data(), kExtras_Bytes);
+
+            bool sim_strict = true;
+            bool il_strict = true;
+            bool rdb_strict = true;
+            bool extras_strict = true;
+            auto region_match =
+                [&out](int region, const uint8_t* expected,
+                       const uint8_t* got, size_t bytes,
+                       bool& strict_region) noexcept -> bool {
+                    strict_region = true;
+                    bool policy_ok = true;
+                    for (size_t i = 0; i < bytes; ++i)
+                    {
+                        if (expected[i] == got[i]) continue;
+                        strict_region = false;
+                        const int32_t offset = static_cast<int32_t>(i);
+                        const char* ignore_reason = nullptr;
+                        if (captured_compare_offset_ignored(
+                                region, offset, &ignore_reason))
+                        {
+                            ++out.ignored_mismatch_count;
+                            if (out.first_ignored_mismatch_region < 0)
+                            {
+                                out.first_ignored_mismatch_region = region;
+                                out.first_ignored_mismatch_offset = offset;
+                                out.first_ignored_expected_byte =
+                                    expected[i];
+                                out.first_ignored_live_byte = got[i];
+                                out.first_ignored_reason =
+                                    ignore_reason ? ignore_reason : "ignored";
+                            }
+                            continue;
+                        }
+
+                        policy_ok = false;
+                        if (out.first_mismatch_region < 0)
+                        {
+                            out.first_mismatch_region = region;
+                            out.first_mismatch_offset = offset;
+                            out.expected_byte = expected[i];
+                            out.live_byte = got[i];
+                        }
+                    }
+                    return policy_ok;
+                };
+
+            out.sim_match = region_match(
+                0, sim_expected, live.sim.data(), kSnapshotStride,
+                sim_strict);
+            out.input_log_match = region_match(
+                1, il_expected, live.input_log.data(), kIL_CaptureBytes,
+                il_strict);
+            out.rdb_match = region_match(
+                2, rdb_expected, live.rdb.data(), kRDB_Bytes,
+                rdb_strict);
+            out.extras_match = region_match(
+                3, extras_expected, live.extras.data(), kExtras_Bytes,
+                extras_strict);
+            out.ok = out.sim_match && out.input_log_match
+                && out.rdb_match && out.extras_match;
+            out.strict_match =
+                sim_strict && il_strict && rdb_strict && extras_strict;
+            out.policy_match = out.ok;
+            out.reason = out.strict_match
+                ? "ok"
+                : (out.ok ? "policy-ignored-volatile"
+                          : "byte-mismatch");
+            return out.ok;
+        }
+
+        void trace_captured_snapshot_compare(
+            const CapturedFrameCompareReport& report) noexcept
+        {
+            ReplayTraceFields f;
+            f.string("label", m_sc6_seek_job.label
+                         ? m_sc6_seek_job.label : "?")
+             .integer("expected_seq", report.expected_seq)
+             .integer("expected_tick", report.expected_tick)
+             .integer("expected_round", report.expected_round)
+             .integer("expected_master", report.expected_master)
+             .boolean("sim_match", report.sim_match)
+             .boolean("input_log_match", report.input_log_match)
+             .boolean("rdb_match", report.rdb_match)
+             .boolean("extras_match", report.extras_match)
+             .hex("expected_sim_hash", report.expected_sim_hash)
+             .hex("live_sim_hash", report.live_sim_hash)
+             .hex("expected_input_log_hash",
+                  report.expected_input_log_hash)
+             .hex("live_input_log_hash", report.live_input_log_hash)
+             .hex("expected_rdb_hash", report.expected_rdb_hash)
+             .hex("live_rdb_hash", report.live_rdb_hash)
+             .hex("expected_extras_hash", report.expected_extras_hash)
+             .hex("live_extras_hash", report.live_extras_hash)
+             .integer("first_mismatch_region",
+                      report.first_mismatch_region)
+             .integer("first_mismatch_offset",
+                      report.first_mismatch_offset)
+             .integer("expected_byte", report.expected_byte)
+             .integer("live_byte", report.live_byte)
+             .boolean("strict_match", report.strict_match)
+             .boolean("policy_match", report.policy_match)
+             .integer("ignored_mismatch_count",
+                      static_cast<int64_t>(report.ignored_mismatch_count))
+             .integer("first_ignored_mismatch_region",
+                      report.first_ignored_mismatch_region)
+             .integer("first_ignored_mismatch_offset",
+                      report.first_ignored_mismatch_offset)
+             .integer("first_ignored_expected_byte",
+                      report.first_ignored_expected_byte)
+             .integer("first_ignored_live_byte",
+                      report.first_ignored_live_byte)
+             .string("first_ignored_reason",
+                     report.first_ignored_reason
+                         ? report.first_ignored_reason : "none")
+             .boolean("ok", report.ok)
+             .string("reason", report.reason ? report.reason : "?");
+            ReplayDebugTrace::instance().event(
+                "captured_snapshot_compare", f);
+        }
+
+        void trace_captured_snapshot_mismatch_detail(
+            const CapturedFrameCompareReport& report,
+            const LiveCapturedFrameScratch& live) noexcept
+        {
+            const bool using_ignored =
+                report.ok
+                && report.first_ignored_mismatch_region >= 0
+                && report.first_ignored_mismatch_offset >= 0;
+            const int32_t detail_region = using_ignored
+                ? report.first_ignored_mismatch_region
+                : report.first_mismatch_region;
+            const int32_t detail_offset = using_ignored
+                ? report.first_ignored_mismatch_offset
+                : report.first_mismatch_offset;
+            if (detail_region < 0 || detail_offset < 0)
+                return;
+
+            const uint8_t* expected = nullptr;
+            const uint8_t* got = nullptr;
+            size_t bytes = 0;
+            const char* region = "unknown";
+            switch (detail_region)
+            {
+            case 0:
+                expected = m_sim_store.gather(
+                    static_cast<size_t>(report.expected_tick));
+                got = live.sim.data();
+                bytes = kSnapshotStride;
+                region = "sim";
+                break;
+            case 1:
+                expected = m_il_store.gather(
+                    static_cast<size_t>(report.expected_tick));
+                got = live.input_log.data();
+                bytes = kIL_CaptureBytes;
+                region = "input_log";
+                break;
+            case 2:
+                expected = m_rdb_store.gather(
+                    static_cast<size_t>(report.expected_tick));
+                got = live.rdb.data();
+                bytes = kRDB_Bytes;
+                region = "rdb";
+                break;
+            case 3:
+                expected = m_extras_store.gather(
+                    static_cast<size_t>(report.expected_tick));
+                got = live.extras.data();
+                bytes = kExtras_Bytes;
+                region = "extras";
+                break;
+            default:
+                return;
+            }
+            if (!expected || !got || bytes == 0) return;
+
+            const std::string expected_near =
+                hex_window_around(expected, bytes,
+                                  detail_offset);
+            const std::string live_near =
+                hex_window_around(got, bytes,
+                                  detail_offset);
+            const std::string sim_hint =
+                (detail_region == 0)
+                    ? describe_hgcpu_sim_offset(detail_offset)
+                    : std::string{};
+
+            ReplayTraceFields f;
+            f.string("label", m_sc6_seek_job.label
+                         ? m_sc6_seek_job.label : "?")
+             .integer("expected_seq", report.expected_seq)
+             .integer("expected_tick", report.expected_tick)
+             .integer("expected_round", report.expected_round)
+             .integer("expected_master", report.expected_master)
+             .string("region", region)
+             .integer("offset", detail_offset)
+             .integer("expected_byte",
+                      using_ignored
+                          ? report.first_ignored_expected_byte
+                          : report.expected_byte)
+             .integer("live_byte",
+                      using_ignored
+                          ? report.first_ignored_live_byte
+                          : report.live_byte)
+             .boolean("ignored_by_policy", using_ignored)
+             .string("ignore_reason",
+                     using_ignored && report.first_ignored_reason
+                         ? report.first_ignored_reason : "none")
+             .string("nearby_expected", expected_near.c_str())
+             .string("nearby_live", live_near.c_str());
+            if (!sim_hint.empty())
+                f.string("sim_offset_hint", sim_hint.c_str());
+            ReplayDebugTrace::instance().event(
+                "captured_snapshot_mismatch_detail", f);
+        }
+
+        void cancel_sc6_exact_seek(const char* reason) noexcept
+        {
+            if (sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub.sc6seek] cancelled seq={} label={} "
+                    "reason={}\n"),
+                    m_sc6_seek_job.requested_seq,
+                    RC::to_generic_string(m_sc6_seek_job.label
+                        ? m_sc6_seek_job.label : "?"),
+                    RC::to_generic_string(reason ? reason : "?"));
+            }
+            m_sc6_seek_job.phase = Sc6ExactSeekPhase::Cancelled;
+            m_sc6_native_step_request.store(
+                0, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::RestoredFrameHold),
+                std::memory_order_release);
+        }
+
+        void finish_failed_seek_queue(NativeSeekFailure reason,
+                                      int32_t requested_seq,
+                                      const char* label) noexcept
+        {
+            if (reason == NativeSeekFailure::None)
+                reason = NativeSeekFailure::InvalidTarget;
+
+            Sc6ExactSeekJob failed{};
+            failed.generation = m_seek_generation;
+            failed.phase = Sc6ExactSeekPhase::Failed;
+            failed.failure = reason;
+            failed.requested_seq = requested_seq;
+            failed.target_seq = requested_seq;
+            failed.label = label ? label : "USER";
+            m_sc6_seek_job = failed;
+            m_sc6_native_step_request.store(
+                0, std::memory_order_release);
+
+            const ReplayScrubHoldKind next_hold =
+                has_context_valid_completed_timeline()
+                    ? ReplayScrubHoldKind::RestoredFrameHold
+                    : (has_completed_timeline()
+                           ? ReplayScrubHoldKind::UiParkOnly
+                           : ReplayScrubHoldKind::None);
+            m_hold_kind.store(static_cast<int32_t>(next_hold),
+                              std::memory_order_release);
+            m_paused.store(next_hold != ReplayScrubHoldKind::None,
+                           std::memory_order_release);
+
+            publish_native_status(NativeSeekStatus::Failed, reason);
+            publish_mode(ScrubMode::NativeSeekFailed);
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayScrub.sc6seek] seek queue failed label={} seq={} "
+                "reason={} next_hold={}\n"),
+                RC::to_generic_string(label ? label : "USER"),
+                requested_seq,
+                RC::to_generic_string(native_seek_failure_name(reason)),
+                RC::to_generic_string(
+                    next_hold == ReplayScrubHoldKind::RestoredFrameHold
+                        ? "RestoredFrameHold"
+                        : (next_hold == ReplayScrubHoldKind::UiParkOnly
+                               ? "UiParkOnly"
+                               : "None")));
+        }
+
+        bool queue_sc6_exact_seek(int32_t requested_seq,
+                                  const char* label) noexcept
+        {
+            if (!m_timeline_seek_data_valid.load(
+                    std::memory_order_acquire)
+                || !m_timeline_context_valid.load(
+                    std::memory_order_acquire))
+            {
+                finish_failed_seek_queue(
+                    NativeSeekFailure::RoundResetDataUnavailable,
+                    requested_seq, label);
+                return false;
+            }
+
+            const int32_t tick = find_slot_for_seq(requested_seq);
+            if (tick < 0)
+            {
+                finish_failed_seek_queue(NativeSeekFailure::InvalidTarget,
+                                         requested_seq, label);
+                return false;
+            }
+
+            int32_t seq_tag = -1, round_tag = -1,
+                    wall_tag = -1, master_tag = -1;
+            if (!m_tags.get(static_cast<size_t>(tick),
+                            seq_tag, round_tag, wall_tag, master_tag)
+                || seq_tag != requested_seq || round_tag < 0
+                || master_tag < 0)
+            {
+                finish_failed_seek_queue(NativeSeekFailure::InvalidTarget,
+                                         requested_seq, label);
+                return false;
+            }
+
+            if (m_sc6_seek_job.requested_seq == requested_seq
+                && sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
+                return true;
+
+            if (sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
+                cancel_sc6_exact_seek("new target");
+
+            m_sc6_seek_job = Sc6ExactSeekJob{};
+            m_sc6_seek_job.generation = m_seek_generation;
+            m_sc6_seek_job.phase =
+                Sc6ExactSeekPhase::RestoreValidationOrigin;
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::ValidationStep),
+                std::memory_order_release);
+            m_sc6_seek_job.authority =
+                Sc6SeekAuthority::CapturedSnapshotValidated;
+            m_sc6_seek_job.requested_seq = requested_seq;
+            m_sc6_seek_job.target_tick = tick;
+            m_sc6_seek_job.target_seq = seq_tag;
+            m_sc6_seek_job.target_round = round_tag;
+            m_sc6_seek_job.target_master = master_tag;
+            m_sc6_seek_job.label = label ? label : "USER";
+            if (!choose_captured_seek_validation_origin(m_sc6_seek_job))
+            {
+                finish_failed_seek_queue(NativeSeekFailure::InvalidTarget,
+                                         requested_seq, label);
+                return false;
+            }
+            m_sc6_seek_job.native_step_observed_credits =
+                m_sc6_native_step_granted.load(
+                    std::memory_order_acquire);
+            m_sc6_native_step_request.store(
+                0, std::memory_order_release);
+
+            m_native.requested_seq = requested_seq;
+            m_native.adjusted_seq = seq_tag;
+            m_native.target_ms = -1;
+            m_native.round = round_tag;
+            m_native.master = master_tag;
+            m_native.failure = NativeSeekFailure::None;
+            m_native.direct_driver_available = false;
+            m_native.cvar_submitted = false;
+            publish_native_status(NativeSeekStatus::Queued,
+                                  NativeSeekFailure::None);
+            publish_mode(ScrubMode::NativeSeekQueued);
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.sc6seek] captured seek queued label={} "
+                "seq={} round={} master={} tick={} mode={} origin_seq={} "
+                "origin_master={} compare_seq={} compare_master={} "
+                "generation={}\n"),
+                RC::to_generic_string(m_sc6_seek_job.label),
+                requested_seq, round_tag, master_tag, tick,
+                RC::to_generic_string(captured_seek_validation_mode_name(
+                    m_sc6_seek_job.validation_mode)),
+                m_sc6_seek_job.validation_origin_seq,
+                m_sc6_seek_job.validation_origin_master,
+                m_sc6_seek_job.validation_compare_seq,
+                m_sc6_seek_job.validation_compare_master,
+                m_sc6_seek_job.generation);
+            {
+                ReplayTraceFields f;
+                f.string("label", m_sc6_seek_job.label)
+                 .integer("requested_seq", requested_seq)
+                 .integer("target_seq", seq_tag)
+                 .integer("target_round", round_tag)
+                 .integer("target_master", master_tag)
+                 .integer("target_tick", tick)
+                 .integer("origin_seq",
+                          m_sc6_seek_job.validation_origin_seq)
+                 .integer("origin_master",
+                          m_sc6_seek_job.validation_origin_master)
+                 .integer("compare_seq",
+                          m_sc6_seek_job.validation_compare_seq)
+                 .integer("compare_master",
+                          m_sc6_seek_job.validation_compare_master)
+                 .string("validation_mode",
+                         captured_seek_validation_mode_name(
+                             m_sc6_seek_job.validation_mode))
+                 .integer("job_generation", m_sc6_seek_job.generation)
+                 .string("status", "Queued")
+                 .string("failure", "None");
+                ReplayDebugTrace::instance().event(
+                    "captured_seek_queued", f);
+            }
+            return true;
+        }
+
+        bool verify_sc6_exact_landing(const Sc6ExactSeekJob& job,
+                                      Sc6SeekVerifyReport& out) noexcept
+        {
+            out = Sc6SeekVerifyReport{};
+            Sc6ReplaySeekContext ctx{};
+            if (!resolve_sc6_replay_seek_context(ctx))
+            {
+                out.reason = "context";
+                return false;
+            }
+
+            out.live_round = read_current_round();
+            out.replay_player_round = ctx.current_round;
+            out.input_master = ctx.input_master;
+            out.battle_master = ctx.battle_master;
+            out.battle_master_delta =
+                (out.battle_master >= job.target_master)
+                    ? (out.battle_master - job.target_master)
+                    : (job.target_master - out.battle_master);
+
+            if (job.requested_seq
+                != m_ui_requested_seq.load(std::memory_order_acquire))
+            {
+                out.reason = "stale-request";
+                return false;
+            }
+            if (ctx.replay_player_ok
+                && out.replay_player_round != job.target_round)
+            {
+                out.reason = "replay-player-round";
+                return false;
+            }
+            if (out.live_round >= 0 && out.live_round != job.target_round)
+            {
+                out.reason = "live-round";
+                return false;
+            }
+            if (out.input_master != job.target_master)
+            {
+                out.reason = "input-master";
+                return false;
+            }
+            if (out.battle_master < 0 || out.battle_master_delta > 1)
+            {
+                out.reason = "battle-master";
+                return false;
+            }
+
+            int32_t active_count = -1;
+            uint32_t active_mask = 0;
+            const bool active_count_ok = SafeReadInt32(
+                reinterpret_cast<const void*>(ctx.input_log + 0x398),
+                &active_count);
+            const bool active_mask_ok = SafeReadUInt32(
+                reinterpret_cast<const void*>(ctx.input_log + 0x39C),
+                &active_mask);
+            out.active_count = active_count;
+            out.active_mask = active_mask;
+            if (!active_count_ok || !active_mask_ok)
+            {
+                out.reason = "active-metadata-read";
+                out.cache_checked = true;
+                return false;
+            }
+            if (active_count < 1 || active_count > 2
+                || (active_mask & ~0x3u) != 0
+                || (active_mask & ((1u << active_count) - 1u)) == 0)
+            {
+                out.reason = "active-metadata";
+                out.cache_checked = true;
+                return false;
+            }
+
+            int32_t live_last_frame_id = -1;
+            if (!SafeReadInt32(
+                    reinterpret_cast<const void*>(
+                        ctx.input_log + kIL_nLastFrameID_Off),
+                    &live_last_frame_id))
+            {
+                out.reason = "last-frame-id";
+                out.cache_checked = true;
+                return false;
+            }
+            for (int slot = 0; slot < active_count; ++slot)
+            {
+                if ((active_mask & (1u << slot)) == 0) continue;
+                const uintptr_t entry =
+                    ctx.input_log + kIL_InputCacheStart_Off
+                    + static_cast<uintptr_t>(slot) * 0x2000
+                    + static_cast<uintptr_t>(
+                          job.target_master & 0x1FF) * 0x10;
+                int32_t frame_id = -1;
+                uint32_t frame_index = 0;
+                uint32_t input_value = 0;
+                uint32_t current_input = 0;
+                uint8_t filled = 0;
+                if (!SafeReadInt32(reinterpret_cast<const void*>(entry),
+                                   &frame_id)
+                    || !SafeReadUInt32(
+                           reinterpret_cast<const void*>(entry + 4),
+                           &frame_index)
+                    || !SafeReadUInt32(
+                           reinterpret_cast<const void*>(entry + 8),
+                           &input_value)
+                    || !SafeReadUInt8(
+                           reinterpret_cast<const void*>(entry + 0xC),
+                           &filled)
+                    || !SafeReadUInt32(
+                           reinterpret_cast<const void*>(
+                               ctx.input_log + 0x3B8
+                               + static_cast<uintptr_t>(slot) * 4),
+                           &current_input))
+                {
+                    out.reason = "cache-read";
+                    out.cache_checked = true;
+                    out.cache_slot = slot;
+                    return false;
+                }
+                out.cache_checked = true;
+                ++out.checked_slots;
+                out.cache_slot = slot;
+                out.cache_expected_frame_id = live_last_frame_id;
+                out.cache_frame_id = frame_id;
+                out.cache_frame_index = frame_index;
+                out.cache_input_value = input_value;
+                out.current_input_value = current_input;
+                out.cache_filled = filled;
+                if (frame_id != live_last_frame_id
+                    || static_cast<int32_t>(frame_index)
+                        != job.target_master)
+                {
+                    // User logs on replay-accuracy-v10k show exact
+                    // round/master landing while this rolling cache is
+                    // stale, empty, or stores a ring-local frame index.
+                    // In this replay-view path the restored snapshot plus
+                    // one validation step are the authority; keep cache tag
+                    // mismatches as diagnostics instead of blocking Play.
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.sc6seek] cache tag diagnostic "
+                        "label={} seq={} slot={} frame_id={}/{} "
+                        "frame_index={} target_master={} filled={} "
+                        "cache_input=0x{:X} current_input=0x{:X} "
+                        "continuing_to_verify=1\n"),
+                        RC::to_generic_string(job.label
+                            ? job.label : "?"),
+                        job.requested_seq, slot, frame_id,
+                        live_last_frame_id, frame_index,
+                        job.target_master,
+                        static_cast<unsigned>(filled),
+                        input_value, current_input);
+                }
+                if (filled == 0 || input_value != current_input)
+                {
+                    // Ghidra: GetCachedInputForFrameInputLogSlot only
+                    // checks FrameID and FrameIndex before returning
+                    // dwInputValue.  bFilled and +0x3B8 are writer-side
+                    // diagnostics, not reader-side landing authority.
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub.sc6seek] cache value diagnostic "
+                        "label={} seq={} slot={} frame_id={} "
+                        "frame_index={} filled={} cache_input=0x{:X} "
+                        "current_input=0x{:X} continuing_to_verify=1\n"),
+                        RC::to_generic_string(job.label
+                            ? job.label : "?"),
+                        job.requested_seq, slot, frame_id,
+                        frame_index, static_cast<unsigned>(filled),
+                        input_value, current_input);
+                }
+            }
+            if (out.checked_slots <= 0)
+            {
+                out.reason = "cache-no-active-slots";
+                out.cache_checked = true;
+                return false;
+            }
+
+            out.ok = true;
+            out.reason = "ok";
+            return true;
+        }
+
+        void fail_sc6_exact_seek(NativeSeekFailure failure,
+                                 const Sc6SeekVerifyReport* report =
+                                     nullptr) noexcept
+        {
+            m_sc6_seek_job.failure = failure;
+            m_sc6_seek_job.phase = Sc6ExactSeekPhase::Failed;
+            m_sc6_native_step_request.store(
+                0, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::RestoredFrameHold),
+                std::memory_order_release);
+            publish_native_status(NativeSeekStatus::Failed, failure);
+            publish_mode(ScrubMode::NativeSeekFailed);
+            if (report)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.sc6seek] verify failed seq={} label={} "
+                    "reason={} round live={} rp={} target={} "
+                    "input_master live={} target={} bm_master={} "
+                    "bm_delta={} active_count={} active_mask=0x{:X} "
+                    "cache_checked={} checked_slots={} cache_slot={} "
+                    "cache_frame_id={}/{} cache_frame_index={} "
+                    "cache_input=0x{:X} current_input=0x{:X} "
+                    "cache_filled={}\n"),
+                    m_sc6_seek_job.requested_seq,
+                    RC::to_generic_string(m_sc6_seek_job.label
+                        ? m_sc6_seek_job.label : "?"),
+                    RC::to_generic_string(report->reason
+                        ? report->reason : "?"),
+                    report->live_round, report->replay_player_round,
+                    m_sc6_seek_job.target_round, report->input_master,
+                    m_sc6_seek_job.target_master, report->battle_master,
+                    report->battle_master_delta, report->active_count,
+                    report->active_mask,
+                    report->cache_checked ? 1 : 0,
+                    report->checked_slots,
+                    report->cache_slot, report->cache_frame_id,
+                    report->cache_expected_frame_id,
+                    report->cache_frame_index,
+                    report->cache_input_value,
+                    report->current_input_value,
+                    static_cast<unsigned>(report->cache_filled));
+                ReplayTraceFields f;
+                f.string("phase", sc6_exact_seek_phase_name(
+                             m_sc6_seek_job.phase))
+                 .string("failure", native_seek_failure_name(failure))
+                 .integer("requested_seq", m_sc6_seek_job.requested_seq)
+                 .string("label", m_sc6_seek_job.label
+                             ? m_sc6_seek_job.label : "?")
+                 .integer("target_round", m_sc6_seek_job.target_round)
+                 .integer("target_master", m_sc6_seek_job.target_master)
+                 .string("reason", report->reason ? report->reason : "?")
+                 .integer("live_round", report->live_round)
+                 .integer("replay_player_round",
+                          report->replay_player_round)
+                 .integer("input_master", report->input_master)
+                 .integer("battle_master", report->battle_master)
+                 .integer("battle_master_delta",
+                          report->battle_master_delta)
+                 .integer("active_count", report->active_count)
+                 .hex("active_mask", report->active_mask)
+                 .boolean("cache_checked", report->cache_checked)
+                 .integer("checked_slots", report->checked_slots)
+                 .integer("cache_slot", report->cache_slot)
+                 .integer("cache_frame_id", report->cache_frame_id)
+                 .integer("cache_expected_frame_id",
+                          report->cache_expected_frame_id)
+                 .integer("cache_frame_index", report->cache_frame_index)
+                 .hex("cache_input_value", report->cache_input_value)
+                 .hex("current_input_value",
+                      report->current_input_value)
+                 .integer("cache_filled", report->cache_filled);
+                ReplayDebugTrace::instance().event("sc6_failed", f);
+                if (m_sc6_seek_job.authority
+                    == Sc6SeekAuthority::CapturedSnapshotValidated)
+                    ReplayDebugTrace::instance().event(
+                        "captured_seek_failed", f);
+            }
+            else
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.sc6seek] failed seq={} label={} "
+                    "phase={} reason={} target_round={} "
+                    "target_master={} frames_advanced={}\n"),
+                    m_sc6_seek_job.requested_seq,
+                    RC::to_generic_string(m_sc6_seek_job.label
+                        ? m_sc6_seek_job.label : "?"),
+                    static_cast<int>(m_sc6_seek_job.phase),
+                    RC::to_generic_string(
+                        native_seek_failure_name(failure)),
+                    m_sc6_seek_job.target_round,
+                    m_sc6_seek_job.target_master,
+                    m_sc6_seek_job.frames_advanced);
+                trace_seek_job_event("sc6_failed");
+                if (m_sc6_seek_job.authority
+                    == Sc6SeekAuthority::CapturedSnapshotValidated)
+                    trace_seek_job_event("captured_seek_failed");
+            }
+        }
+
+        void fail_sc6_exact_seek_reset(
+            NativeSeekFailure failure,
+            const Sc6ResetApplyReport& report) noexcept
+        {
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayScrub.sc6seek] failed label={} seq={} "
+                "phase=ResetRound reason={} bm=0x{:X} inputLog=0x{:X} "
+                "rp=0x{:X} stateReset=0x{:X} resetDst=0x{:X} "
+                "target_round={} target_master={} origin_tick={} "
+                "origin_seq={} origin_master={} origin_last_frame_id={} "
+                "reset_source={} context_ok={} reset_source_ok={} "
+                "snapshot_read={} snapshot_write={} il_restore={} "
+                "rdb_restore={} set_move_state={} cursor_write={} "
+                "rp_cursor_write={}\n"),
+                RC::to_generic_string(m_sc6_seek_job.label
+                    ? m_sc6_seek_job.label : "?"),
+                m_sc6_seek_job.requested_seq,
+                RC::to_generic_string(native_seek_failure_name(failure)),
+                report.battle_manager, report.input_log,
+                report.replay_player, report.state_reset_data,
+                report.reset_dst, report.target_round,
+                report.target_master, report.origin_tick,
+                report.origin_seq, report.origin_master,
+                report.origin_last_frame_id,
+                RC::to_generic_string(report.reset_source
+                    ? report.reset_source : "none"),
+                report.context_ok ? 1 : 0,
+                report.reset_source_ok ? 1 : 0,
+                report.reset_snapshot_read_ok ? 1 : 0,
+                report.reset_snapshot_write_ok ? 1 : 0,
+                report.input_log_restore_ok ? 1 : 0,
+                report.rdb_restore_ok ? 1 : 0,
+                report.set_move_state_ok ? 1 : 0,
+                report.replay_cursor_write_ok ? 1 : 0,
+                report.replay_player_cursor_write_ok ? 1 : 0);
+            ReplayTraceFields f;
+            f.string("phase", "ResetRound")
+             .string("failure", native_seek_failure_name(failure))
+             .string("label", m_sc6_seek_job.label
+                         ? m_sc6_seek_job.label : "?")
+             .integer("requested_seq", m_sc6_seek_job.requested_seq)
+             .hex("bm", report.battle_manager)
+             .hex("input_log", report.input_log)
+             .hex("replay_player", report.replay_player)
+             .hex("state_reset_data", report.state_reset_data)
+             .hex("reset_dst", report.reset_dst)
+             .integer("target_round", report.target_round)
+             .integer("target_master", report.target_master)
+             .integer("origin_tick", report.origin_tick)
+             .integer("origin_seq", report.origin_seq)
+             .integer("origin_master", report.origin_master)
+             .integer("origin_last_frame_id",
+                      report.origin_last_frame_id)
+             .string("reset_source", report.reset_source
+                         ? report.reset_source : "none")
+             .boolean("context_ok", report.context_ok)
+             .boolean("reset_source_ok", report.reset_source_ok)
+             .boolean("reset_snapshot_read",
+                      report.reset_snapshot_read_ok)
+             .boolean("reset_snapshot_write",
+                      report.reset_snapshot_write_ok)
+             .boolean("il_restore", report.input_log_restore_ok)
+             .boolean("rdb_restore", report.rdb_restore_ok)
+             .boolean("set_move_state", report.set_move_state_ok)
+             .boolean("cursor_write", report.replay_cursor_write_ok)
+             .boolean("rp_cursor_write",
+                      report.replay_player_cursor_write_ok);
+            ReplayDebugTrace::instance().event("sc6_failed", f);
+            fail_sc6_exact_seek(failure);
+        }
+
+        void service_sc6_exact_seek_job() noexcept
+        {
+            if (m_sc6_seek_job.phase == Sc6ExactSeekPhase::Idle
+                || m_sc6_seek_job.phase == Sc6ExactSeekPhase::Landed
+                || m_sc6_seek_job.phase == Sc6ExactSeekPhase::Failed
+                || m_sc6_seek_job.phase == Sc6ExactSeekPhase::Cancelled)
+                return;
+
+            if (m_sc6_seek_job.generation != m_seek_generation)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.sc6seek] stale job failed label={} "
+                    "seq={} job_generation={} current_generation={}\n"),
+                    RC::to_generic_string(m_sc6_seek_job.label
+                        ? m_sc6_seek_job.label : "?"),
+                    m_sc6_seek_job.requested_seq,
+                    m_sc6_seek_job.generation, m_seek_generation);
+                trace_seek_job_event("sc6_failed", "StaleGeneration");
+                fail_sc6_exact_seek(NativeSeekFailure::InvalidTarget);
+                return;
+            }
+
+            if (!m_sc6_seek_job.service_logged)
+            {
+                m_sc6_seek_job.service_logged = true;
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub.sc6seek] service label={} seq={} "
+                    "phase={} generation={}\n"),
+                    RC::to_generic_string(m_sc6_seek_job.label
+                        ? m_sc6_seek_job.label : "?"),
+                    m_sc6_seek_job.requested_seq,
+                    static_cast<int>(m_sc6_seek_job.phase),
+                    m_sc6_seek_job.generation);
+                trace_seek_job_event("sc6_seek_service");
+            }
+
+            Sc6ReplaySeekContext ctx{};
+            if (!resolve_sc6_replay_seek_context(ctx))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.sc6seek] context unresolved label={} "
+                    "seq={} phase={} wmp=0x{:X} bm=0x{:X} sub=0x{:X} "
+                    "inputLog=0x{:X} replayPlayer=0x{:X} "
+                    "stateReset=0x{:X} irs=0x{:X} totalRounds={} "
+                    "rpRound={} inputMaster={} bmMaster={}\n"),
+                    RC::to_generic_string(m_sc6_seek_job.label
+                        ? m_sc6_seek_job.label : "?"),
+                    m_sc6_seek_job.requested_seq,
+                    static_cast<int>(m_sc6_seek_job.phase),
+                    ctx.world_mode_pump, ctx.battle_manager,
+                    ctx.sub_driver, ctx.input_log, ctx.replay_player,
+                    ctx.state_reset_data, ctx.interactive_replay,
+                    ctx.total_rounds, ctx.current_round,
+                    ctx.input_master, ctx.battle_master);
+                log_sc6_context_report(
+                    m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
+                    ctx, false);
+                trace_sc6_context(
+                    "sc6_context", ctx,
+                    m_sc6_seek_job.label ? m_sc6_seek_job.label : "?");
+                fail_sc6_exact_seek(
+                    NativeSeekFailure::InteractiveReplayContextUnresolved);
+                return;
+            }
+            trace_sc6_context(
+                "sc6_context", ctx,
+                m_sc6_seek_job.label ? m_sc6_seek_job.label : "?");
+
+            if (m_sc6_seek_job.phase
+                == Sc6ExactSeekPhase::RestoreValidationOrigin)
+            {
+                publish_native_status(NativeSeekStatus::Settling);
+                publish_mode(ScrubMode::NativeSeekSettling);
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .integer("target_seq", m_sc6_seek_job.target_seq)
+                     .integer("target_round",
+                              m_sc6_seek_job.target_round)
+                     .integer("target_master",
+                              m_sc6_seek_job.target_master)
+                     .integer("origin_seq",
+                              m_sc6_seek_job.validation_origin_seq)
+                     .integer("origin_master",
+                              m_sc6_seek_job.validation_origin_master)
+                     .integer("compare_seq",
+                              m_sc6_seek_job.validation_compare_seq)
+                     .integer("compare_master",
+                              m_sc6_seek_job.validation_compare_master)
+                     .string("validation_mode",
+                             captured_seek_validation_mode_name(
+                                 m_sc6_seek_job.validation_mode));
+                    ReplayDebugTrace::instance().event(
+                        "captured_seek_origin_selected", f);
+                }
+
+                CapturedFrameRestoreReport restore{};
+                if (!restore_captured_frame_for_seek(
+                        m_sc6_seek_job.validation_origin_tick,
+                        m_sc6_seek_job.label, restore))
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.sc6seek] captured restore failed "
+                        "label={} seq={} origin_tick={} origin_seq={} "
+                        "origin_master={} reason={}\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        m_sc6_seek_job.requested_seq,
+                        m_sc6_seek_job.validation_origin_tick,
+                        m_sc6_seek_job.validation_origin_seq,
+                        m_sc6_seek_job.validation_origin_master,
+                        RC::to_generic_string(native_seek_failure_name(
+                            restore.failure)));
+                    fail_sc6_exact_seek(
+                        restore.failure == NativeSeekFailure::None
+                            ? NativeSeekFailure::
+                                CapturedSnapshotRestoreFailed
+                            : restore.failure);
+                    return;
+                }
+
+                m_sc6_seek_job.native_step_requested_master =
+                    restore.master;
+                m_sc6_seek_job.native_step_last_observed_master =
+                    restore.master;
+                m_sc6_seek_job.native_step_requested_credits = 0;
+                m_sc6_seek_job.native_step_granted_credits =
+                    m_sc6_native_step_granted.load(
+                        std::memory_order_acquire);
+                m_sc6_seek_job.native_step_observed_credits =
+                    m_sc6_seek_job.native_step_granted_credits;
+                m_sc6_seek_job.native_step_stall_count = 0;
+                m_sc6_seek_job.native_step_wait_services = 0;
+                m_sc6_seek_job.native_step_waiting = false;
+
+                if (m_sc6_seek_job.validation_mode
+                    == CapturedSeekValidationMode::StaticTarget)
+                {
+                    m_sc6_seek_job.phase =
+                        Sc6ExactSeekPhase::CompareTargetSnapshot;
+                }
+                else
+                {
+                    m_sc6_seek_job.phase =
+                        Sc6ExactSeekPhase::ValidateStepToTarget;
+                }
+            }
+
+            if (m_sc6_seek_job.phase
+                == Sc6ExactSeekPhase::ValidateStepToTarget)
+            {
+                const SeekCommandKind pending_kind =
+                    static_cast<SeekCommandKind>(
+                        m_seek_command_kind.load(
+                            std::memory_order_acquire));
+                if (pending_kind != SeekCommandKind::None)
+                    return;
+
+                if (m_sc6_seek_job.native_step_waiting)
+                {
+                    const int32_t granted_total =
+                        m_sc6_native_step_granted.load(
+                            std::memory_order_acquire);
+                    if (granted_total
+                        <= m_sc6_seek_job.native_step_observed_credits)
+                        return;
+                    if (m_sc6_seek_job.native_step_wait_services <= 0)
+                    {
+                        m_sc6_seek_job.native_step_wait_services = 1;
+                        return;
+                    }
+
+                    const int32_t before =
+                        m_sc6_seek_job.native_step_requested_master;
+                    const int32_t live_master =
+                        read_engine_master_clock();
+                    const int32_t live_round = read_current_round();
+                    const int32_t observed_credits =
+                        granted_total
+                        - m_sc6_seek_job.native_step_observed_credits;
+                    m_sc6_seek_job.native_step_observed_credits =
+                        granted_total;
+                    m_sc6_seek_job.native_step_granted_credits =
+                        granted_total;
+                    m_sc6_seek_job.frames_advanced +=
+                        observed_credits > 0 ? observed_credits : 1;
+                    m_sc6_seek_job.native_step_last_observed_master =
+                        live_master;
+                    m_sc6_seek_job.native_step_waiting = false;
+                    m_sc6_seek_job.native_step_wait_services = 0;
+
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub.sc6seek] captured validation step "
+                        "observed label={} master {} -> {} expected={} "
+                        "round={} target_round={} credits={}\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        before, live_master,
+                        m_sc6_seek_job.validation_compare_master,
+                        live_round, m_sc6_seek_job.validation_compare_round,
+                        observed_credits);
+                    {
+                        ReplayTraceFields f;
+                        f.string("label", m_sc6_seek_job.label
+                                     ? m_sc6_seek_job.label : "?")
+                         .integer("requested_seq",
+                                  m_sc6_seek_job.requested_seq)
+                         .integer("target_round",
+                                  m_sc6_seek_job.target_round)
+                         .integer("target_master",
+                                  m_sc6_seek_job.target_master)
+                         .integer("compare_seq",
+                                  m_sc6_seek_job.validation_compare_seq)
+                         .integer("compare_master",
+                                  m_sc6_seek_job.validation_compare_master)
+                         .integer("master_before", before)
+                         .integer("master_after", live_master)
+                         .integer("live_round", live_round)
+                         .integer("credits", observed_credits)
+                         .integer("stall_count",
+                                  m_sc6_seek_job.native_step_stall_count);
+                        ReplayDebugTrace::instance().event(
+                            "captured_seek_validation_step_observed", f);
+                    }
+
+                    if (live_round >= 0
+                        && live_round
+                            != m_sc6_seek_job.validation_compare_round)
+                    {
+                        fail_sc6_exact_seek(
+                            NativeSeekFailure::
+                                CapturedSnapshotValidationStepFailed);
+                        return;
+                    }
+                    if (live_master
+                        != m_sc6_seek_job.validation_compare_master)
+                    {
+                        fail_sc6_exact_seek(
+                            NativeSeekFailure::
+                                CapturedSnapshotValidationStepFailed);
+                        return;
+                    }
+                    m_sc6_seek_job.phase =
+                        Sc6ExactSeekPhase::CompareTargetSnapshot;
+                }
+                else
+                {
+                    const int32_t live_master = read_engine_master_clock();
+                    m_sc6_seek_job.native_step_requested_master =
+                        live_master;
+                    m_sc6_seek_job.native_step_requested_credits =
+                        kSc6NativeStepCreditsPerRequest;
+                    m_sc6_seek_job.native_step_granted_credits =
+                        m_sc6_native_step_granted.load(
+                            std::memory_order_acquire);
+                    m_sc6_seek_job.native_step_wait_services = 0;
+                    m_sc6_seek_job.native_step_waiting = true;
+                    m_sc6_native_step_request.store(
+                        kSc6NativeStepCreditsPerRequest,
+                        std::memory_order_release);
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .integer("target_round",
+                              m_sc6_seek_job.target_round)
+                     .integer("target_master",
+                              m_sc6_seek_job.target_master)
+                     .integer("compare_seq",
+                              m_sc6_seek_job.validation_compare_seq)
+                     .integer("compare_master",
+                              m_sc6_seek_job.validation_compare_master)
+                     .integer("master_before", live_master)
+                     .integer("credits",
+                              kSc6NativeStepCreditsPerRequest);
+                    ReplayDebugTrace::instance().event(
+                        "captured_seek_validation_step_requested", f);
+                    return;
+                }
+            }
+
+            if (m_sc6_seek_job.phase
+                == Sc6ExactSeekPhase::CompareTargetSnapshot)
+            {
+                LiveCapturedFrameScratch live{};
+                CapturedFrameCompareReport report{};
+                const bool captured =
+                    capture_live_frame_for_compare(live);
+                const bool compared = captured
+                    && compare_live_frame_to_captured_tick(
+                        m_sc6_seek_job.validation_compare_tick,
+                        live, report);
+                if (captured)
+                {
+                    trace_captured_snapshot_compare(report);
+                    trace_captured_snapshot_mismatch_detail(report, live);
+                }
+                if (!captured)
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.sc6seek] captured snapshot compare "
+                        "diagnostic capture failed label={} seq={} "
+                        "compare_seq={} continuing_to_verify=1\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        m_sc6_seek_job.requested_seq,
+                        m_sc6_seek_job.validation_compare_seq);
+                }
+                else if (!compared)
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.sc6seek] captured snapshot compare "
+                        "diagnostic mismatch tolerated label={} seq={} "
+                        "compare_seq={} "
+                        "region={} offset=0x{:X} expected=0x{:02X} "
+                        "live=0x{:02X} reason={} ignored_mismatches={} "
+                        "continuing_to_verify=1\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        m_sc6_seek_job.requested_seq,
+                        m_sc6_seek_job.validation_compare_seq,
+                        report.first_mismatch_region,
+                        report.first_mismatch_offset,
+                        static_cast<unsigned>(report.expected_byte),
+                        static_cast<unsigned>(report.live_byte),
+                        RC::to_generic_string(report.reason
+                            ? report.reason : "?"),
+                        report.ignored_mismatch_count);
+                }
+                else if (!report.strict_match && report.policy_match)
+                {
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub.sc6seek] captured snapshot compare "
+                        "accepted by policy label={} seq={} compare_seq={} "
+                        "ignored_mismatches={} first_ignored_region={} "
+                        "first_ignored_offset=0x{:X} reason={}\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        m_sc6_seek_job.requested_seq,
+                        m_sc6_seek_job.validation_compare_seq,
+                        report.ignored_mismatch_count,
+                        report.first_ignored_mismatch_region,
+                        report.first_ignored_mismatch_offset,
+                        RC::to_generic_string(
+                            report.first_ignored_reason
+                                ? report.first_ignored_reason : "none"));
+                }
+
+                if (m_sc6_seek_job.validation_mode
+                    == CapturedSeekValidationMode::TargetToNext
+                    && m_sc6_seek_job.validation_compare_tick
+                        != m_sc6_seek_job.target_tick)
+                {
+                    m_sc6_seek_job.validation_compare_tick =
+                        m_sc6_seek_job.target_tick;
+                    m_sc6_seek_job.validation_compare_seq =
+                        m_sc6_seek_job.target_seq;
+                    m_sc6_seek_job.validation_compare_round =
+                        m_sc6_seek_job.target_round;
+                    m_sc6_seek_job.validation_compare_master =
+                        m_sc6_seek_job.target_master;
+                    m_sc6_seek_job.phase =
+                        Sc6ExactSeekPhase::RestoreTargetAfterValidation;
+                }
+                else
+                {
+                    m_sc6_seek_job.snapshot_validation_ok = true;
+                    m_sc6_seek_job.phase = Sc6ExactSeekPhase::Verify;
+                }
+            }
+
+            if (m_sc6_seek_job.phase
+                == Sc6ExactSeekPhase::RestoreTargetAfterValidation)
+            {
+                CapturedFrameRestoreReport restore{};
+                if (!restore_captured_frame_for_seek(
+                        m_sc6_seek_job.target_tick,
+                        m_sc6_seek_job.label, restore))
+                {
+                    fail_sc6_exact_seek(
+                        restore.failure == NativeSeekFailure::None
+                            ? NativeSeekFailure::
+                                CapturedSnapshotRestoreFailed
+                            : restore.failure);
+                    return;
+                }
+
+                LiveCapturedFrameScratch live{};
+                CapturedFrameCompareReport report{};
+                const bool captured =
+                    capture_live_frame_for_compare(live);
+                const bool compared = captured
+                    && compare_live_frame_to_captured_tick(
+                        m_sc6_seek_job.target_tick, live, report);
+                if (captured)
+                {
+                    trace_captured_snapshot_compare(report);
+                    trace_captured_snapshot_mismatch_detail(report, live);
+                }
+                if (!captured)
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.sc6seek] target snapshot restore "
+                        "diagnostic capture failed label={} seq={} "
+                        "continuing_to_verify=1\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        m_sc6_seek_job.requested_seq);
+                }
+                else if (!compared)
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.sc6seek] target snapshot restore "
+                        "diagnostic mismatch tolerated label={} seq={} "
+                        "region={} offset=0x{:X} expected=0x{:02X} "
+                        "live=0x{:02X} reason={} ignored_mismatches={} "
+                        "continuing_to_verify=1\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        m_sc6_seek_job.requested_seq,
+                        report.first_mismatch_region,
+                        report.first_mismatch_offset,
+                        static_cast<unsigned>(report.expected_byte),
+                        static_cast<unsigned>(report.live_byte),
+                        RC::to_generic_string(report.reason
+                            ? report.reason : "?"),
+                        report.ignored_mismatch_count);
+                }
+                else if (!report.strict_match && report.policy_match)
+                {
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub.sc6seek] target snapshot restore "
+                        "accepted by policy label={} seq={} "
+                        "ignored_mismatches={} first_ignored_region={} "
+                        "first_ignored_offset=0x{:X} reason={}\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        m_sc6_seek_job.requested_seq,
+                        report.ignored_mismatch_count,
+                        report.first_ignored_mismatch_region,
+                        report.first_ignored_mismatch_offset,
+                        RC::to_generic_string(
+                            report.first_ignored_reason
+                                ? report.first_ignored_reason : "none"));
+                }
+                m_sc6_seek_job.snapshot_validation_ok = true;
+                m_sc6_seek_job.phase = Sc6ExactSeekPhase::Verify;
+            }
+
+            if (m_sc6_seek_job.phase == Sc6ExactSeekPhase::Queued)
+            {
+                if (ctx.total_rounds > 0
+                    && m_sc6_seek_job.target_round >= ctx.total_rounds)
+                {
+                    fail_sc6_exact_seek(NativeSeekFailure::InvalidTarget);
+                    return;
+                }
+
+                const int32_t round_start_tick =
+                    find_first_slot_for_round(m_sc6_seek_job.target_round);
+                if (round_start_tick < 0
+                    || round_start_tick > m_sc6_seek_job.target_tick)
+                {
+                    fail_sc6_exact_seek(NativeSeekFailure::InvalidTarget);
+                    return;
+                }
+
+                int32_t start_seq = -1, start_round = -1,
+                        start_wall = -1, start_master = -1;
+                if (!m_tags.get(static_cast<size_t>(round_start_tick),
+                                start_seq, start_round, start_wall,
+                                start_master))
+                {
+                    fail_sc6_exact_seek(NativeSeekFailure::InvalidTarget);
+                    return;
+                }
+
+                m_sc6_seek_job.round_start_tick = round_start_tick;
+                m_sc6_seek_job.round_start_seq = start_seq;
+                m_sc6_seek_job.round_start_master = start_master;
+                m_sc6_seek_job.phase = Sc6ExactSeekPhase::ResetRound;
+                publish_native_status(NativeSeekStatus::Settling);
+                publish_mode(ScrubMode::NativeSeekSettling);
+            }
+
+            if (m_sc6_seek_job.phase == Sc6ExactSeekPhase::ResetRound)
+            {
+                const uintptr_t reset_dst =
+                    ctx.battle_manager + kBM_pReplayCharaSnapshot_Off;
+                Sc6ResetApplyReport reset_report{};
+                reset_report.context_ok = true;
+                reset_report.battle_manager = ctx.battle_manager;
+                reset_report.input_log = ctx.input_log;
+                reset_report.replay_player = ctx.replay_player;
+                reset_report.state_reset_data = ctx.state_reset_data;
+                reset_report.reset_dst = reset_dst;
+                reset_report.target_round = m_sc6_seek_job.target_round;
+                reset_report.target_master = m_sc6_seek_job.target_master;
+                reset_report.origin_tick = m_sc6_seek_job.round_start_tick;
+                reset_report.origin_seq = m_sc6_seek_job.round_start_seq;
+                reset_report.origin_master =
+                    m_sc6_seek_job.round_start_master;
+
+                std::array<uint8_t, kRoundStartDataBytes> round_start{};
+                const char* reset_source = "none";
+                bool reset_read = false;
+                int32_t origin_tick = m_sc6_seek_job.round_start_tick;
+                int32_t origin_seq = m_sc6_seek_job.round_start_seq;
+                int32_t origin_master = m_sc6_seek_job.round_start_master;
+                if (ctx.state_reset_data_ok
+                    && (ctx.total_rounds <= 0
+                        || m_sc6_seek_job.target_round < ctx.total_rounds))
+                {
+                    const uintptr_t reset_src =
+                        ctx.state_reset_data
+                        + static_cast<uintptr_t>(
+                            m_sc6_seek_job.target_round)
+                            * kRoundStartDataBytes;
+                    reset_read = SafeReadBytes(
+                        reinterpret_cast<const void*>(reset_src),
+                        round_start.data(), round_start.size());
+                    if (reset_read)
+                        reset_source = "ReplayPlayerStateResetData";
+                }
+                if (!reset_read
+                    && has_captured_round_reset_snapshot(
+                        m_sc6_seek_job.target_round))
+                {
+                    const size_t round_idx = static_cast<size_t>(
+                        m_sc6_seek_job.target_round);
+                    round_start =
+                        m_sc6_round_reset_snapshots[round_idx];
+                    reset_read = true;
+                    reset_source = "CapturedBM1360";
+                    if (m_sc6_round_reset_snapshot_seq[round_idx] >= 0
+                        && m_sc6_round_reset_snapshot_seq[round_idx]
+                            <= m_sc6_seek_job.target_tick)
+                    {
+                        origin_tick =
+                            m_sc6_round_reset_snapshot_seq[round_idx];
+                        origin_seq =
+                            m_sc6_round_reset_snapshot_seq[round_idx];
+                        origin_master =
+                            m_sc6_round_reset_snapshot_master[round_idx];
+                    }
+                }
+                reset_report.reset_source = reset_source;
+                reset_report.origin_tick = origin_tick;
+                reset_report.origin_seq = origin_seq;
+                reset_report.origin_master = origin_master;
+                reset_report.reset_snapshot_read_ok = reset_read;
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .integer("round", m_sc6_seek_job.target_round)
+                     .integer("target_master",
+                              m_sc6_seek_job.target_master)
+                     .string("reset_source", reset_source)
+                     .hex("dst", reset_dst)
+                     .integer("origin_seq", origin_seq)
+                     .integer("origin_master", origin_master)
+                     .boolean("ok", reset_read);
+                    if (reset_read)
+                        f.hash("reset_hash", round_start.data(),
+                               round_start.size())
+                         .uinteger("reset_size", round_start.size());
+                    ReplayDebugTrace::instance().event(
+                        "sc6_reset_source_chosen", f);
+                }
+                if (!reset_read)
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.sc6seek] reset source unavailable "
+                        "label={} seq={} round={} rp=0x{:X} "
+                        "stateReset=0x{:X} stateResetOk={} "
+                        "capturedResetOk={} totalRounds={}\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        m_sc6_seek_job.requested_seq,
+                        m_sc6_seek_job.target_round,
+                        ctx.replay_player, ctx.state_reset_data,
+                        ctx.state_reset_data_ok ? 1 : 0,
+                        has_captured_round_reset_snapshot(
+                            m_sc6_seek_job.target_round) ? 1 : 0,
+                        ctx.total_rounds);
+                    fail_sc6_exact_seek_reset(
+                        NativeSeekFailure::RoundResetDataUnavailable,
+                        reset_report);
+                    return;
+                }
+                reset_report.reset_source_ok = true;
+                if (!SafeWriteBytes(reinterpret_cast<void*>(reset_dst),
+                                    round_start.data(),
+                                    round_start.size()))
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .hex("dst", reset_dst)
+                     .uinteger("bytes", round_start.size())
+                     .boolean("ok", false);
+                    ReplayDebugTrace::instance().event(
+                        "sc6_reset_snapshot_write", f);
+                    fail_sc6_exact_seek_reset(
+                        NativeSeekFailure::Sc6ResetSnapshotWriteFailed,
+                        reset_report);
+                    return;
+                }
+                reset_report.reset_snapshot_write_ok = true;
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .hex("dst", reset_dst)
+                     .uinteger("bytes", round_start.size())
+                     .hash("reset_hash", round_start.data(),
+                           round_start.size())
+                     .boolean("ok", true);
+                    ReplayDebugTrace::instance().event(
+                        "sc6_reset_snapshot_write", f);
+                }
+
+                const uint8_t* il_blob = m_il_store.gather(
+                    static_cast<size_t>(origin_tick));
+                const uint8_t* rdb_blob = m_rdb_store.gather(
+                    static_cast<size_t>(origin_tick));
+                const bool il_ok = restore_input_cache(il_blob);
+                const bool rdb_ok = restore_replay_data_block(rdb_blob);
+                reset_report.input_log_restore_ok = il_ok;
+                reset_report.rdb_restore_ok = rdb_ok;
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("origin_seq", origin_seq)
+                     .integer("origin_master", origin_master)
+                     .boolean("ok", il_ok)
+                     .uinteger("bytes", kIL_CaptureBytes);
+                    if (il_blob) f.hash("hash", il_blob, kIL_CaptureBytes);
+                    ReplayDebugTrace::instance().event(
+                        "sc6_input_log_restore", f);
+                }
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("origin_seq", origin_seq)
+                     .integer("origin_master", origin_master)
+                     .boolean("ok", rdb_ok)
+                     .uinteger("bytes", kRDB_Bytes);
+                    if (rdb_blob) f.hash("hash", rdb_blob, kRDB_Bytes);
+                    ReplayDebugTrace::instance().event(
+                        "sc6_rdb_restore", f);
+                }
+                if (!il_ok)
+                {
+                    fail_sc6_exact_seek_reset(
+                        NativeSeekFailure::Sc6InputLogRestoreFailed,
+                        reset_report);
+                    return;
+                }
+                if (!rdb_ok)
+                {
+                    fail_sc6_exact_seek_reset(
+                        NativeSeekFailure::Sc6ReplayDataBlockRestoreFailed,
+                        reset_report);
+                    return;
+                }
+
+                int32_t start_last_frame_id = 0;
+                if (il_blob)
+                    std::memcpy(&start_last_frame_id,
+                                il_blob + (kIL_nLastFrameID_Off
+                                           - kIL_CaptureStart_Off),
+                                sizeof(start_last_frame_id));
+                reset_report.origin_last_frame_id = start_last_frame_id;
+
+                if (!safe_call_battle_manager_set_move_state(
+                        ctx.battle_manager, 4))
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .hex("bm", ctx.battle_manager)
+                     .integer("move_state", 4)
+                     .boolean("ok", false);
+                    ReplayDebugTrace::instance().add_fault_fields(
+                        f, m_last_set_move_state_fault);
+                    ReplayDebugTrace::instance().event(
+                        "sc6_set_move_state", f);
+                    fail_sc6_exact_seek_reset(
+                        NativeSeekFailure::Sc6SetMoveStateFaulted,
+                        reset_report);
+                    return;
+                }
+                reset_report.set_move_state_ok = true;
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .hex("bm", ctx.battle_manager)
+                     .integer("move_state", 4)
+                     .boolean("ok", true);
+                    ReplayDebugTrace::instance().event(
+                        "sc6_set_move_state", f);
+                }
+
+                if (!write_replay_cursors(origin_master,
+                                          start_last_frame_id,
+                                          ctx.battle_manager))
+                {
+                    fail_sc6_exact_seek_reset(
+                        NativeSeekFailure::Sc6ReplayCursorWriteFailed,
+                        reset_report);
+                    return;
+                }
+                reset_report.replay_cursor_write_ok = true;
+
+                if (!write_replay_player_cursor(
+                        m_sc6_seek_job.target_round,
+                        origin_master,
+                        static_cast<float>(origin_master) / 60.0f,
+                        true,
+                        ctx.replay_player))
+                {
+                    fail_sc6_exact_seek_reset(
+                        NativeSeekFailure::Sc6ReplayPlayerCursorWriteFailed,
+                        reset_report);
+                    return;
+                }
+                reset_report.replay_player_cursor_write_ok = true;
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("input_master", origin_master)
+                     .integer("battle_master", origin_master)
+                     .integer("replay_round",
+                              m_sc6_seek_job.target_round)
+                     .boolean("cursor_write",
+                              reset_report.replay_cursor_write_ok)
+                     .boolean("rp_cursor_write",
+                              reset_report.replay_player_cursor_write_ok);
+                    ReplayDebugTrace::instance().event(
+                        "sc6_cursor_write", f);
+                }
+
+                m_sc6_seek_job.last_live_master =
+                    read_engine_master_clock();
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub.sc6seek] reset dispatched label={} seq={} "
+                    "round={} target_master={} bm=0x{:X} inputLog=0x{:X} "
+                    "irs=bm+AA120=0x{:X} round_start_seq={} "
+                    "round_start_master={} reset_source={} il_restore={} "
+                    "rdb_restore={}\n"),
+                    RC::to_generic_string(m_sc6_seek_job.label
+                        ? m_sc6_seek_job.label : "?"),
+                    m_sc6_seek_job.requested_seq,
+                    m_sc6_seek_job.target_round,
+                    m_sc6_seek_job.target_master, ctx.battle_manager,
+                    ctx.input_log, ctx.interactive_replay,
+                    origin_seq,
+                    origin_master,
+                    RC::to_generic_string(reset_source),
+                    il_ok ? 1 : 0, rdb_ok ? 1 : 0);
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .integer("round", m_sc6_seek_job.target_round)
+                     .integer("target_master",
+                              m_sc6_seek_job.target_master)
+                     .hex("bm", ctx.battle_manager)
+                     .hex("input_log", ctx.input_log)
+                     .hex("interactive_replay", ctx.interactive_replay)
+                     .integer("origin_seq", origin_seq)
+                     .integer("origin_master", origin_master)
+                     .string("reset_source", reset_source)
+                     .boolean("il_restore", il_ok)
+                     .boolean("rdb_restore", rdb_ok);
+                    ReplayDebugTrace::instance().event(
+                        "sc6_reset_dispatched", f);
+                }
+
+                const int32_t live_round_after_reset =
+                    read_current_round();
+                if ((live_round_after_reset >= 0
+                        && live_round_after_reset
+                            != m_sc6_seek_job.target_round)
+                    || m_sc6_seek_job.last_live_master < 0
+                    || m_sc6_seek_job.last_live_master
+                        > m_sc6_seek_job.target_master)
+                {
+                    fail_sc6_exact_seek(
+                        NativeSeekFailure::
+                            InteractiveReplayRoundSelectFailed);
+                    return;
+                }
+                m_sc6_seek_job.phase =
+                    (m_sc6_seek_job.last_live_master
+                     >= m_sc6_seek_job.target_master)
+                        ? Sc6ExactSeekPhase::Verify
+                        : Sc6ExactSeekPhase::FastForward;
+                m_sc6_seek_job.native_step_requested_master =
+                    m_sc6_seek_job.last_live_master;
+                m_sc6_seek_job.native_step_last_observed_master =
+                    m_sc6_seek_job.last_live_master;
+                m_sc6_seek_job.native_step_requested_credits = 0;
+                m_sc6_seek_job.native_step_granted_credits =
+                    m_sc6_native_step_granted.load(
+                        std::memory_order_acquire);
+                m_sc6_seek_job.native_step_observed_credits =
+                    m_sc6_seek_job.native_step_granted_credits;
+                m_sc6_seek_job.native_step_stall_count = 0;
+                m_sc6_seek_job.native_step_wait_services = 0;
+                m_sc6_seek_job.native_step_waiting = false;
+            }
+
+            if (m_sc6_seek_job.phase == Sc6ExactSeekPhase::FastForward)
+            {
+                int32_t live_master = read_engine_master_clock();
+                int32_t live_round = read_current_round();
+                const SeekCommandKind pending_kind =
+                    static_cast<SeekCommandKind>(
+                        m_seek_command_kind.load(
+                            std::memory_order_acquire));
+                if (pending_kind != SeekCommandKind::None)
+                    return;
+                if (m_sc6_seek_job.generation != m_seek_generation)
+                {
+                    fail_sc6_exact_seek(NativeSeekFailure::InvalidTarget);
+                    return;
+                }
+                if (live_round >= 0
+                    && live_round != m_sc6_seek_job.target_round)
+                {
+                    fail_sc6_exact_seek(
+                        NativeSeekFailure::
+                            InteractiveReplayTargetPastMatchEnd);
+                    return;
+                }
+                if (live_master < 0)
+                {
+                    fail_sc6_exact_seek(
+                        NativeSeekFailure::
+                            InteractiveReplayFastForwardStalled);
+                    return;
+                }
+                if (live_master >= m_sc6_seek_job.target_master)
+                {
+                    m_sc6_seek_job.phase = Sc6ExactSeekPhase::Verify;
+                }
+                else if (m_sc6_seek_job.native_step_waiting)
+                {
+                    const int32_t granted_total =
+                        m_sc6_native_step_granted.load(
+                            std::memory_order_acquire);
+                    if (granted_total
+                        <= m_sc6_seek_job.native_step_observed_credits)
+                        return;
+
+                    // frame_step_apply grants the credit before the
+                    // native actor/replay-clock path has necessarily run
+                    // for this UE frame.  Wait for one more cockpit service
+                    // before judging whether the master clock advanced.
+                    if (m_sc6_seek_job.native_step_wait_services <= 0)
+                    {
+                        m_sc6_seek_job.native_step_wait_services = 1;
+                        return;
+                    }
+
+                    const int32_t before =
+                        m_sc6_seek_job.native_step_requested_master;
+                    const int32_t observed_credits =
+                        granted_total
+                        - m_sc6_seek_job.native_step_observed_credits;
+                    m_sc6_seek_job.native_step_observed_credits =
+                        granted_total;
+                    m_sc6_seek_job.native_step_granted_credits =
+                        granted_total;
+                    m_sc6_seek_job.frames_advanced +=
+                        observed_credits > 0 ? observed_credits : 1;
+                    m_sc6_seek_job.native_step_last_observed_master =
+                        live_master;
+                    m_sc6_seek_job.native_step_waiting = false;
+                    m_sc6_seek_job.native_step_wait_services = 0;
+
+                    if (live_master > before)
+                    {
+                        m_sc6_seek_job.stall_count = 0;
+                        m_sc6_seek_job.native_step_stall_count = 0;
+                    }
+                    else
+                    {
+                        ++m_sc6_seek_job.stall_count;
+                        ++m_sc6_seek_job.native_step_stall_count;
+                    }
+
+                    ++m_sc6_seek_job.slices_serviced;
+                    const bool default_log =
+                        live_master > before
+                        || m_sc6_seek_job.native_step_stall_count > 0
+                        || (m_sc6_seek_job.slices_serviced % 30) == 0;
+                    if (default_log)
+                    {
+                        RC::Output::send<RC::LogLevel::Default>(STR(
+                            "[ReplayScrub.sc6seek] native step observed "
+                            "label={} master {} -> {} target={} credits={} "
+                            "frames_advanced={} stalls={}\n"),
+                            RC::to_generic_string(m_sc6_seek_job.label
+                                ? m_sc6_seek_job.label : "?"),
+                            before, live_master,
+                            m_sc6_seek_job.target_master,
+                            observed_credits,
+                            m_sc6_seek_job.frames_advanced,
+                            m_sc6_seek_job.native_step_stall_count);
+                    }
+                    else
+                    {
+                        RC::Output::send<RC::LogLevel::Verbose>(STR(
+                            "[ReplayScrub.sc6seek] native step observed "
+                            "label={} master {} -> {} target={} credits={} "
+                            "frames_advanced={} stalls={}\n"),
+                            RC::to_generic_string(m_sc6_seek_job.label
+                                ? m_sc6_seek_job.label : "?"),
+                            before, live_master,
+                            m_sc6_seek_job.target_master,
+                            observed_credits,
+                            m_sc6_seek_job.frames_advanced,
+                            m_sc6_seek_job.native_step_stall_count);
+                    }
+                    {
+                        ReplayTraceFields f;
+                        f.string("label", m_sc6_seek_job.label
+                                     ? m_sc6_seek_job.label : "?")
+                         .integer("requested_seq",
+                                  m_sc6_seek_job.requested_seq)
+                         .integer("target_round",
+                                  m_sc6_seek_job.target_round)
+                         .integer("target_master",
+                                  m_sc6_seek_job.target_master)
+                         .integer("master_before", before)
+                         .integer("master_after", live_master)
+                         .integer("credits", observed_credits)
+                         .integer("frames_total",
+                                  m_sc6_seek_job.frames_advanced)
+                         .integer("stall_count",
+                                  m_sc6_seek_job.native_step_stall_count);
+                        ReplayDebugTrace::instance().event(
+                            "sc6_native_step_observed", f);
+                    }
+
+                    if (m_sc6_seek_job.frames_advanced
+                            > kSc6SeekMaxFrames
+                        || m_sc6_seek_job.native_step_stall_count
+                            > kSc6NativeStepMaxStalls)
+                    {
+                        RC::Output::send<RC::LogLevel::Warning>(STR(
+                            "[ReplayScrub.sc6seek] native step stalled "
+                            "label={} master={} target={} stalls={}\n"),
+                            RC::to_generic_string(m_sc6_seek_job.label
+                                ? m_sc6_seek_job.label : "?"),
+                            live_master,
+                            m_sc6_seek_job.target_master,
+                            m_sc6_seek_job.native_step_stall_count);
+                        fail_sc6_exact_seek(
+                            NativeSeekFailure::
+                                InteractiveReplayFastForwardStalled);
+                        return;
+                    }
+
+                    if (live_master >= m_sc6_seek_job.target_master)
+                        m_sc6_seek_job.phase = Sc6ExactSeekPhase::Verify;
+                    else
+                        return;
+                }
+                else
+                {
+                    m_sc6_seek_job.native_step_requested_master =
+                        live_master;
+                    m_sc6_seek_job.native_step_requested_credits =
+                        kSc6NativeStepCreditsPerRequest;
+                    m_sc6_seek_job.native_step_granted_credits =
+                        m_sc6_native_step_granted.load(
+                            std::memory_order_acquire);
+                    m_sc6_seek_job.native_step_wait_services = 0;
+                    m_sc6_seek_job.native_step_waiting = true;
+                    m_sc6_native_step_request.store(
+                        kSc6NativeStepCreditsPerRequest,
+                        std::memory_order_release);
+                    RC::Output::send<RC::LogLevel::Verbose>(STR(
+                        "[ReplayScrub.sc6seek] native step requested "
+                        "label={} master={} target={} credits={}\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        live_master,
+                        m_sc6_seek_job.target_master,
+                        kSc6NativeStepCreditsPerRequest);
+                    {
+                        ReplayTraceFields f;
+                        f.string("label", m_sc6_seek_job.label
+                                     ? m_sc6_seek_job.label : "?")
+                         .integer("requested_seq",
+                                  m_sc6_seek_job.requested_seq)
+                         .integer("target_round",
+                                  m_sc6_seek_job.target_round)
+                         .integer("target_master",
+                                  m_sc6_seek_job.target_master)
+                         .integer("master_before", live_master)
+                         .integer("credits",
+                                  kSc6NativeStepCreditsPerRequest)
+                         .integer("stall_count",
+                                  m_sc6_seek_job.native_step_stall_count);
+                        ReplayDebugTrace::instance().event(
+                            "sc6_native_step_requested", f);
+                    }
+                    return;
+                }
+            }
+
+            if (m_sc6_seek_job.phase == Sc6ExactSeekPhase::Verify)
+            {
+                if (m_sc6_seek_job.authority
+                        == Sc6SeekAuthority::CapturedSnapshotValidated
+                    && !m_sc6_seek_job.snapshot_validation_ok)
+                {
+                    fail_sc6_exact_seek(
+                        NativeSeekFailure::CapturedSnapshotCompareFailed);
+                    return;
+                }
+                Sc6SeekVerifyReport report{};
+                if (!verify_sc6_exact_landing(m_sc6_seek_job, report))
+                {
+                    fail_sc6_exact_seek(
+                        NativeSeekFailure::InteractiveReplayVerifyFailed,
+                        &report);
+                    return;
+                }
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .integer("target_round",
+                              m_sc6_seek_job.target_round)
+                     .integer("target_master",
+                              m_sc6_seek_job.target_master)
+                     .integer("live_round", report.live_round)
+                     .integer("replay_player_round",
+                              report.replay_player_round)
+                     .integer("input_master", report.input_master)
+                     .integer("battle_master", report.battle_master)
+                     .integer("battle_master_delta",
+                              report.battle_master_delta)
+                     .boolean("cache_checked", report.cache_checked)
+                     .integer("checked_slots", report.checked_slots)
+                     .integer("cache_slot", report.cache_slot)
+                     .integer("cache_frame_id", report.cache_frame_id)
+                     .integer("cache_expected_frame_id",
+                              report.cache_expected_frame_id)
+                     .integer("cache_frame_index",
+                              report.cache_frame_index)
+                     .hex("cache_input_value", report.cache_input_value)
+                     .hex("current_input_value",
+                          report.current_input_value)
+                     .integer("cache_filled", report.cache_filled)
+                     .boolean("ok", true)
+                     .string("reason", report.reason
+                                 ? report.reason : "ok");
+                    ReplayDebugTrace::instance().event("sc6_verify", f);
+                }
+
+                m_last_seek_target.store(m_sc6_seek_job.requested_seq,
+                                         std::memory_order_release);
+                m_last_seek_master_tag.store(
+                    m_sc6_seek_job.target_master,
+                    std::memory_order_release);
+                m_native.adjusted_seq = m_sc6_seek_job.requested_seq;
+                m_native.round = m_sc6_seek_job.target_round;
+                m_native.master = m_sc6_seek_job.target_master;
+                m_native.target_ms = -1;
+                m_sc6_seek_job.phase = Sc6ExactSeekPhase::Landed;
+                m_sc6_native_step_request.store(
+                    0, std::memory_order_release);
+                m_hold_kind.store(
+                    static_cast<int32_t>(
+                        ReplayScrubHoldKind::RestoredFrameHold),
+                    std::memory_order_release);
+                publish_native_status(NativeSeekStatus::Landed);
+                publish_mode(ScrubMode::NativeSeekLanded);
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub.sc6seek] captured seek landed label={} "
+                    "seq={} round={} master={} validation={} "
+                    "frames_advanced={} bm_master={} cache_checked={} "
+                    "checked_slots={}\n"),
+                    RC::to_generic_string(m_sc6_seek_job.label
+                        ? m_sc6_seek_job.label : "?"),
+                    m_sc6_seek_job.requested_seq,
+                    m_sc6_seek_job.target_round,
+                    m_sc6_seek_job.target_master,
+                    RC::to_generic_string(
+                        captured_seek_validation_mode_name(
+                            m_sc6_seek_job.validation_mode)),
+                    m_sc6_seek_job.frames_advanced,
+                    report.battle_master,
+                    report.cache_checked ? 1 : 0,
+                    report.checked_slots);
+                {
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .integer("target_round",
+                              m_sc6_seek_job.target_round)
+                     .integer("target_master",
+                              m_sc6_seek_job.target_master)
+                     .string("validation_mode",
+                             captured_seek_validation_mode_name(
+                                 m_sc6_seek_job.validation_mode))
+                     .integer("frames_advanced",
+                              m_sc6_seek_job.frames_advanced)
+                     .integer("battle_master", report.battle_master)
+                     .boolean("cache_checked", report.cache_checked)
+                     .integer("checked_slots", report.checked_slots);
+                    ReplayDebugTrace::instance().event(
+                        "captured_seek_landed", f);
+                }
+                if (m_ui_wants_play.load(std::memory_order_acquire)
+                    && m_auto_resume_on_release.load(
+                        std::memory_order_acquire))
+                {
+                    m_ui_wants_play.store(false,
+                                          std::memory_order_release);
+                    m_paused.store(false, std::memory_order_release);
+                    m_hold_kind.store(
+                        static_cast<int32_t>(ReplayScrubHoldKind::None),
+                        std::memory_order_release);
+                    publish_mode(ScrubMode::Playing);
+                }
+            }
+        }
+
+        // DIAGNOSTIC LEGACY ONLY. This whole section contains the old
+        // snapshot/DemoNetDriver seek machinery, including round-boundary
+        // adjustment. It is compiled out in normal builds because strict
+        // replay accuracy must never retarget the user's selected seq.
+#if HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG
+        SeekApplyStatus apply_sc6_exact_seek(size_t target_tick,
+                                             int32_t seq_tag,
+                                             int32_t round_tag,
+                                             int32_t master_tag) noexcept
+        {
+            if (round_tag < 0 || master_tag < 0)
+                return SeekApplyStatus::Failed;
+
+            Sc6ReplaySeekContext ctx{};
+            if (!resolve_sc6_replay_seek_context(ctx))
+            {
+                publish_native_failure_reason(
+                    NativeSeekFailure::InteractiveReplayContextUnresolved);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.sc6seek] context unresolved for "
+                    "seq={} round={} master={}\n"),
+                    seq_tag, round_tag, master_tag);
+                return SeekApplyStatus::Failed;
+            }
+
+            if (round_tag >= ctx.total_rounds)
+            {
+                publish_native_failure_reason(
+                    NativeSeekFailure::InvalidTarget);
+                return SeekApplyStatus::Failed;
+            }
+
+            const int32_t round_start_tick =
+                find_first_slot_for_round(round_tag);
+            if (round_start_tick < 0
+                || static_cast<size_t>(round_start_tick) > target_tick)
+            {
+                publish_native_failure_reason(
+                    NativeSeekFailure::InvalidTarget);
+                return SeekApplyStatus::Failed;
+            }
+
+            int32_t round_start_seq = -1, round_start_round = -1,
+                    round_start_wall = -1, round_start_master = -1;
+            if (!m_tags.get(static_cast<size_t>(round_start_tick),
+                            round_start_seq, round_start_round,
+                            round_start_wall, round_start_master))
+            {
+                publish_native_failure_reason(
+                    NativeSeekFailure::InvalidTarget);
+                return SeekApplyStatus::Failed;
+            }
+
+            const uintptr_t reset_src =
+                ctx.state_reset_data
+                + static_cast<uintptr_t>(round_tag) * kRoundStartDataBytes;
+            const uintptr_t reset_dst =
+                ctx.battle_manager + kBM_pReplayCharaSnapshot_Off;
+            std::array<uint8_t, kRoundStartDataBytes> round_start{};
+            if (!SafeReadBytes(reinterpret_cast<const void*>(reset_src),
+                               round_start.data(), round_start.size())
+                || !SafeWriteBytes(reinterpret_cast<void*>(reset_dst),
+                                   round_start.data(),
+                                   round_start.size()))
+            {
+                publish_native_failure_reason(
+                    NativeSeekFailure::InteractiveReplayResetFaulted);
+                return SeekApplyStatus::Failed;
+            }
+
+            const uint8_t* il_blob =
+                m_il_store.gather(static_cast<size_t>(round_start_tick));
+            const uint8_t* rdb_blob =
+                m_rdb_store.gather(static_cast<size_t>(round_start_tick));
+            const bool il_ok = restore_input_cache(il_blob);
+            const bool rdb_ok = restore_replay_data_block(rdb_blob);
+
+            int32_t start_last_frame_id = 0;
+            if (il_blob)
+            {
+                std::memcpy(&start_last_frame_id,
+                            il_blob + (kIL_nLastFrameID_Off
+                                       - kIL_CaptureStart_Off),
+                            sizeof(start_last_frame_id));
+            }
+            write_replay_cursors(round_start_master, start_last_frame_id);
+            write_replay_player_cursor(
+                round_tag, round_start_master,
+                static_cast<float>(round_start_master) / 60.0f,
+                true);
+
+#if HORSEMOD_REPLAY_ENABLE_INTERACTIVE_RESET_DIAG
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayScrub.sc6seek] DIAGNOSTIC InteractiveReplay_Reset "
+                "path used seq={} round={} master={} irs=0x{:X}\n"),
+                seq_tag, round_tag, master_tag, ctx.interactive_replay);
+            if (!diagnostic_safe_call_interactive_replay_reset(
+                    ctx.interactive_replay))
+            {
+                publish_native_failure_reason(
+                    NativeSeekFailure::
+                        Sc6InteractiveReplayResetFaultedDiagnostic);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.sc6seek] InteractiveReplay_Reset "
+                    "faulted irs=0x{:X} bm=0x{:X}\n"),
+                    ctx.interactive_replay, ctx.battle_manager);
+                return SeekApplyStatus::Failed;
+            }
+#endif
+
+            if (!safe_call_battle_manager_set_move_state(
+                    ctx.battle_manager, 4))
+            {
+                publish_native_failure_reason(
+                    NativeSeekFailure::InteractiveReplayResetFaulted);
+                return SeekApplyStatus::Failed;
+            }
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.sc6seek] start seq={} round={} master={} "
+                "bm=0x{:X} inputLog=0x{:X} sub=0x{:X} "
+                "irs=bm+AA120=0x{:X} round_start_seq={} "
+                "round_start_master={} il_restore={} rdb_restore={}\n"),
+                seq_tag, round_tag, master_tag, ctx.battle_manager,
+                ctx.input_log, ctx.sub_driver, ctx.interactive_replay,
+                round_start_seq, round_start_master,
+                il_ok ? 1 : 0, rdb_ok ? 1 : 0);
+
+            int32_t live_round = read_current_round();
+            int32_t live_master = read_engine_master_clock();
+            if (live_round != round_tag || live_master < 0
+                || live_master > master_tag)
+            {
+                publish_native_failure_reason(
+                    NativeSeekFailure::InteractiveReplayRoundSelectFailed);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.sc6seek] round-start verify failed: "
+                    "target round={} master={} live_round={} "
+                    "live_master={} start_master={}\n"),
+                    round_tag, master_tag, live_round, live_master,
+                    round_start_master);
+                return SeekApplyStatus::Failed;
+            }
+
+            constexpr int32_t kSc6SeekFramesPerSlice = 240;
+            constexpr int32_t kSc6SeekStallLimit = 8;
+            constexpr int32_t kSc6SeekMaxFrames = 20000;
+            int32_t frames_advanced = 0;
+            int32_t stall_count = 0;
+
+            while (live_master < master_tag)
+            {
+                const int32_t before = live_master;
+                int32_t remaining = master_tag - live_master;
+                if (remaining > kSc6SeekFramesPerSlice)
+                    remaining = kSc6SeekFramesPerSlice;
+                for (int32_t i = 0; i < remaining; ++i)
+                {
+                    if (!invoke_direct_sc6_frame_once())
+                    {
+                        publish_native_failure_reason(
+                            NativeSeekFailure::
+                                InteractiveReplayFastForwardStalled);
+                        return SeekApplyStatus::Failed;
+                    }
+                    ++frames_advanced;
+                    if (frames_advanced > kSc6SeekMaxFrames)
+                    {
+                        publish_native_failure_reason(
+                            NativeSeekFailure::
+                                InteractiveReplayFastForwardStalled);
+                        return SeekApplyStatus::Failed;
+                    }
+                }
+
+                live_round = read_current_round();
+                live_master = read_engine_master_clock();
+                if (live_round != round_tag)
+                {
+                    publish_native_failure_reason(
+                        NativeSeekFailure::
+                            InteractiveReplayTargetPastMatchEnd);
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.sc6seek] fast-forward crossed "
+                        "round: target round={} master={} live_round={} "
+                        "live_master={} frames_advanced={}\n"),
+                        round_tag, master_tag, live_round, live_master,
+                        frames_advanced);
+                    return SeekApplyStatus::Failed;
+                }
+                if (live_master <= before)
+                {
+                    ++stall_count;
+                    if (stall_count > kSc6SeekStallLimit)
+                    {
+                        publish_native_failure_reason(
+                            NativeSeekFailure::
+                                InteractiveReplayFastForwardStalled);
+                        RC::Output::send<RC::LogLevel::Warning>(STR(
+                            "[ReplayScrub.sc6seek] fast-forward stalled: "
+                            "master {} -> {} target={} stalls={} "
+                            "frames_advanced={}\n"),
+                            before, live_master, master_tag, stall_count,
+                            frames_advanced);
+                        return SeekApplyStatus::Failed;
+                    }
+                }
+                else
+                {
+                    stall_count = 0;
+                }
+
+                RC::Output::send<RC::LogLevel::Verbose>(STR(
+                    "[ReplayScrub.sc6seek] fast-forward slice master "
+                    "{} -> {} target={} frames_advanced={}\n"),
+                    before, live_master, master_tag, frames_advanced);
+            }
+
+            const int32_t battle_master = read_battle_manager_master_clock();
+            const int32_t master_delta =
+                (battle_master >= master_tag)
+                    ? (battle_master - master_tag)
+                    : (master_tag - battle_master);
+            if (live_round != round_tag
+                || live_master != master_tag
+                || battle_master < 0
+                || master_delta > 1)
+            {
+                publish_native_failure_reason(
+                    NativeSeekFailure::InteractiveReplayVerifyFailed);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.sc6seek] verify failed seq={} "
+                    "target round={} master={} live_round={} "
+                    "input_master={} bm_master={} master_delta={}\n"),
+                    seq_tag, round_tag, master_tag, live_round,
+                    live_master, battle_master, master_delta);
+                return SeekApplyStatus::Failed;
+            }
+
+            m_last_seek_target.store(seq_tag, std::memory_order_release);
+            m_last_seek_master_tag.store(master_tag,
+                                         std::memory_order_release);
+            m_native.adjusted_seq = seq_tag;
+            m_native.round = round_tag;
+            m_native.master = master_tag;
+            m_native.target_ms = -1;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.sc6seek] landed exact seq={} round={} "
+                "master={} frames_advanced={} input_master={} "
+                "bm_master={}\n"),
+                seq_tag, round_tag, master_tag, frames_advanced,
+                live_master, battle_master);
+            return SeekApplyStatus::AppliedSc6Exact;
+        }
+#endif
+
         // -----------------------------------------------------------------
         // Empirical-validation probe (2026-05-14).
         //
@@ -5085,6 +10655,146 @@ namespace Horse
             }
         }
 
+        bool capture_input_ring_state(
+            uintptr_t base,
+            uint8_t* dst) noexcept
+        {
+            if (!base || !dst) return false;
+
+            // Ghidra confirms g_LuxBattle_PerPlayerInputRing is the
+            // contiguous ring entry storage itself.  The reset/cinematic
+            // path clears it by walking qwords from 0x14485E750 for
+            // 2 * 0x3D entries; it is not an array of heap pointers.
+            const bool entries_ok =
+                SafeReadBytes(reinterpret_cast<const void*>(
+                                  base + kRVA_PerPlayerInputRing),
+                              dst + kExtras_Off_InputRingEntries,
+                              kExtras_InputRingEntries_Bytes);
+            if (!entries_ok)
+                m_last_extras_failure = "input-ring-entries";
+
+            const bool cursor_ok =
+                SafeReadBytes(reinterpret_cast<const void*>(
+                                  base + kRVA_PerPlayerInputCursor),
+                              dst + kExtras_Off_InputRingCursor,
+                              kExtras_InputRingCursor_Bytes);
+            if (entries_ok && !cursor_ok)
+                m_last_extras_failure = "input-ring-cursor";
+
+            const bool base_ok =
+                SafeReadBytes(reinterpret_cast<const void*>(
+                                  base + kRVA_InputRingBaseOffset),
+                              dst + kExtras_Off_InputRingBase,
+                              kExtras_InputRingBase_Bytes);
+            if (entries_ok && cursor_ok && !base_ok)
+                m_last_extras_failure = "input-ring-base";
+
+            return entries_ok && cursor_ok && base_ok;
+        }
+
+        bool restore_input_ring_state(
+            uintptr_t base,
+            const uint8_t* src) noexcept
+        {
+            if (!base || !src) return false;
+
+            bool ok = true;
+            ok &= SafeWriteBytes(reinterpret_cast<void*>(
+                                     base + kRVA_PerPlayerInputRing),
+                                 src + kExtras_Off_InputRingEntries,
+                                 kExtras_InputRingEntries_Bytes);
+            ok &= SafeWriteBytes(reinterpret_cast<void*>(
+                                     base + kRVA_PerPlayerInputCursor),
+                                 src + kExtras_Off_InputRingCursor,
+                                 kExtras_InputRingCursor_Bytes);
+            ok &= SafeWriteBytes(reinterpret_cast<void*>(
+                                     base + kRVA_InputRingBaseOffset),
+                                 src + kExtras_Off_InputRingBase,
+                                 kExtras_InputRingBase_Bytes);
+            return ok;
+        }
+
+        bool capture_required_rollback_globals(
+            uintptr_t base,
+            uint8_t* dst) noexcept
+        {
+            if (!base || !dst) return false;
+
+            m_last_extras_failure = "none";
+            bool ok = true;
+            auto require = [&](bool step_ok, const char* reason) noexcept
+            {
+                if (!step_ok)
+                {
+                    ok = false;
+                    if (m_last_extras_failure == nullptr
+                        || std::strcmp(m_last_extras_failure, "none") == 0)
+                    {
+                        m_last_extras_failure = reason;
+                    }
+                }
+            };
+
+            require(SafeReadBytes(reinterpret_cast<const void*>(
+                                      base + kRVA_LatestEngineInput),
+                                  dst + kExtras_Off_LatestEngineInput,
+                                  kExtras_LatestEngineInput_Bytes),
+                    "latest-engine-input");
+            require(SafeReadBytes(reinterpret_cast<const void*>(
+                                      base + kRVA_PerFrameCameraArgs),
+                                  dst + kExtras_Off_PerFrameCameraArgs,
+                                  kExtras_PerFrameCameraArgs_Bytes),
+                    "per-frame-camera-args");
+            require(capture_input_ring_state(base, dst), "input-ring");
+            require(SafeReadBytes(reinterpret_cast<const void*>(
+                                      base + kRVA_LfsrState),
+                                  dst + kExtras_Off_LfsrState,
+                                  kExtras_LfsrState_Bytes),
+                    "lfsr-state");
+            require(SafeReadBytes(reinterpret_cast<const void*>(
+                                      base + kRVA_LfsrIndex),
+                                  dst + kExtras_Off_LfsrIndex,
+                                  kExtras_LfsrIndex_Bytes),
+                    "lfsr-index");
+            require(SafeReadBytes(reinterpret_cast<const void*>(
+                                      base + kRVA_CCpuCommandArray),
+                                  dst + kExtras_Off_CCpuCommandArray,
+                                  kExtras_CCpuCommandArray_Bytes),
+                    "cpu-command-array");
+            return ok;
+        }
+
+        bool restore_required_rollback_globals(
+            uintptr_t base,
+            const uint8_t* src) noexcept
+        {
+            if (!base || !src) return false;
+
+            bool ok = true;
+            ok &= SafeWriteBytes(reinterpret_cast<void*>(
+                                     base + kRVA_LatestEngineInput),
+                                 src + kExtras_Off_LatestEngineInput,
+                                 kExtras_LatestEngineInput_Bytes);
+            ok &= SafeWriteBytes(reinterpret_cast<void*>(
+                                     base + kRVA_PerFrameCameraArgs),
+                                 src + kExtras_Off_PerFrameCameraArgs,
+                                 kExtras_PerFrameCameraArgs_Bytes);
+            ok &= restore_input_ring_state(base, src);
+            ok &= SafeWriteBytes(reinterpret_cast<void*>(
+                                     base + kRVA_LfsrState),
+                                 src + kExtras_Off_LfsrState,
+                                 kExtras_LfsrState_Bytes);
+            ok &= SafeWriteBytes(reinterpret_cast<void*>(
+                                     base + kRVA_LfsrIndex),
+                                 src + kExtras_Off_LfsrIndex,
+                                 kExtras_LfsrIndex_Bytes);
+            ok &= SafeWriteBytes(reinterpret_cast<void*>(
+                                     base + kRVA_CCpuCommandArray),
+                                 src + kExtras_Off_CCpuCommandArray,
+                                 kExtras_CCpuCommandArray_Bytes);
+            return ok;
+        }
+
         // Capture BlockInteractiveOps + cinematic head + BM state bytes +
         // FrameInput / per-chara replay state into `dst` (the extras
         // region's staging buffer, kExtras_Bytes).  The blob layout is
@@ -5096,16 +10806,17 @@ namespace Horse
         // MasterModeFlag next tick, gating PerFrameTick's chara input
         // tick OFF via the BattleAdvanceFlag check.  Captures the live
         // state of all four sub-fields; restores them surgically on seek.
-        void capture_extras(uint8_t* dst) noexcept
+        bool capture_extras(uint8_t* dst) noexcept
         {
-            if (!dst) return;
+            if (!dst) return false;
             // Pre-zero the whole staging blob: capture_extras fills only
             // specific sub-ranges and the rest must read back as zero.
             // The old per-slot ring was alloc-zeroed once; staging
             // buffers are reused tick-to-tick so they are zeroed here.
             std::memset(dst, 0, kExtras_Bytes);
             const uintptr_t base = NativeBinding::imageBase();
-            if (!base) return;
+            if (!base) return false;
+            bool required_ok = capture_required_rollback_globals(base, dst);
 
             // WorldModePump: NOT captured here (2026-05-16 fix).  The
             // engine's own HgCpuDirect snapshot already captures the mode
@@ -5218,9 +10929,10 @@ namespace Horse
                     // clean blob rather than the prior occupant's bytes.
                     std::memset(dst + kExtras_Off_FrameInput_Slots, 0,
                                 kFI_SlotRecords_Bytes);
-                    SafeReadBytes(fi + kFI_SlotRecords_Start,
-                                  dst + kExtras_Off_FrameInput_Slots,
-                                  kFI_SlotRecords_Bytes);
+                    required_ok &= SafeReadBytes(
+                        fi + kFI_SlotRecords_Start,
+                        dst + kExtras_Off_FrameInput_Slots,
+                        kFI_SlotRecords_Bytes);
 
                     static std::atomic<bool> s_fi_capture_logged{false};
                     if (!s_fi_capture_logged.exchange(
@@ -5326,33 +11038,43 @@ namespace Horse
             // any of them.  Sample at captures 1, 60, 600, 1800 (~0s,
             // 1s, 10s, 30s).  Cheap, single-shot per sample.
             chara_probe_log_if_due();
+            return required_ok;
         }
 
-        // Restore the round-end-fix extras blob into the engine.  Called
-        // from do_seek_to_seq AFTER the HgCpuDirect + IL + RDB restores.
-        // Surgical writes to four distinct memory locations.
-        void restore_extras(const uint8_t* src) noexcept
+        // Restore the captured extras blob into the engine.  The default
+        // legacy/probe mode writes only the historically safe minimum.  The
+        // captured seek path passes `full_for_validated_seek=true` and then
+        // validates the restored state byte-for-byte before enabling Play.
+        bool restore_extras(
+            const uint8_t* src,
+            bool full_for_validated_seek = false) noexcept
         {
-            if (!src) return;
-            const uintptr_t base = NativeBinding::imageBase();
-            if (!base) return;
+            if (!src) return false;
 
-            // 2026-05-15 SAFETY GATE: speculative restores caused crashes
-            // on un-pause after seek (PRA bits with garbage values,
-            // bIsPlayingBack=0x5F being a packed-bool container, etc.).
-            // The "safe baseline" was: HgCpuDirect chara restore + IL
-            // window + RDB cursors + BM cursor pair only.
-            //
-            // 2026-05-15 ROUND-STATUS FIX: empirical evidence from
-            // 22:00-22:01 testing showed BM->bStatusByte stayed at 0x3
-            // (round-end) after seeking from late-round to early-round.
-            // This kept the engine in round-end mode -> no input flow,
-            // chars idle.  The 4 BM state bytes (mainState/moveState/
-            // status/enginePause) are PLAIN HEAP WRITES to a valid BM
-            // pointer (we just succeeded restoring IL state through it),
-            // not the crashy ones - PRA bits, ReplayPlayer cursor, and
-            // WorldModePump pointer-write are what caused the crash.
-            // Apply ONLY the 4 BM bytes always; gate the rest.
+            const uintptr_t base = NativeBinding::imageBase();
+            bool ok = true;
+            if (full_for_validated_seek)
+                ok &= restore_required_rollback_globals(base, src);
+            if (full_for_validated_seek && base)
+            {
+                SafeWriteBytes(reinterpret_cast<void*>(
+                                   base + kRVA_BlockInteractiveOps),
+                               src + kExtras_Off_BlockInteractive, 4);
+
+                void* session_ptr = nullptr;
+                SafeReadPtr(reinterpret_cast<const void*>(
+                                base + kRVA_ActiveSessionDataPtr),
+                            &session_ptr);
+                if (session_ptr)
+                {
+                    uint8_t* cin =
+                        reinterpret_cast<uint8_t*>(session_ptr)
+                        + kCinematic_State_Off;
+                    SafeWriteBytes(cin, src + kExtras_Off_CinematicHead,
+                                   kExtras_CinematicHead_Bytes);
+                }
+            }
+
             RC::Unreal::UObject* bm_obj_minimal = m_bm_ptr.get(L"LuxBattleManager");
             if (bm_obj_minimal)
             {
@@ -5373,65 +11095,24 @@ namespace Horse
                         static_cast<unsigned>(src[kExtras_Off_BM_StatusByte]),
                         static_cast<unsigned>(src[kExtras_Off_BM_EnginePause]));
                 }
-            }
 
-            // 2026-05-15 (ultrathink): restore chara replay-state fields
-            // at chara+0x43F4..+0x4428.  These are plain heap writes to
-            // valid chara structs (we just restored chara state via
-            // HgCpuDirect through these same pointers, just at lower
-            // offsets).
-            //
-            // Historical experiment: Stage 2 appeared to read chara+0x4414
-            // while validating decoded packets, so this path restored
-            // chara+0x43F4..0x4428.  The 2026-05-18 repro showed captured
-            // values here can be float-looking/stale in match replay, and
-            // enabling this restore preceded a crash.  The setter now keeps
-            // m_enable_chara_4400_restore false; leave the code in place only
-            // as an intentionally disabled diagnostic path.
-            if (m_enable_chara_4400_restore.load(std::memory_order_acquire))
-            {
-                const uintptr_t base = NativeBinding::imageBase();
-                if (base)
+                if (full_for_validated_seek)
                 {
-                    for (int pi = 0; pi < 2; ++pi)
+                    void* pra_raw = nullptr;
+                    if (SafeReadPtr(bm + kBM_PlayerRecordArray_Off,
+                                    &pra_raw) && pra_raw)
                     {
-                        const uintptr_t slot_rva = (pi == 0)
-                            ? ReplayScrubDiag::kRVA_CharaSlotP1
-                            : ReplayScrubDiag::kRVA_CharaSlotP2;
-                        void* chara_raw = nullptr;
-                        if (!SafeReadPtr(
-                                reinterpret_cast<const void*>(base + slot_rva),
-                                &chara_raw) || !chara_raw)
-                            continue;
-                        uint8_t* c = reinterpret_cast<uint8_t*>(chara_raw);
-                        const size_t blob_off = (pi == 0)
-                            ? kExtras_Off_P1_CharaReplay
-                            : kExtras_Off_P2_CharaReplay;
-                        SafeWriteBytes(c + kChara_ReplayState_Start,
-                                       src + blob_off,
-                                       kExtras_CharaReplay_Bytes);
-                    }
-
-                    static std::atomic<bool> s_logged_chara_replay{false};
-                    if (!s_logged_chara_replay.exchange(
-                            true, std::memory_order_relaxed))
-                    {
-                        uint32_t p1_target = 0, p2_target = 0;
-                        std::memcpy(&p1_target,
-                                    src + kExtras_Off_P1_CharaReplay +
-                                          (0x4414 - kChara_ReplayState_Start),
-                                    4);
-                        std::memcpy(&p2_target,
-                                    src + kExtras_Off_P2_CharaReplay +
-                                          (0x4414 - kChara_ReplayState_Start),
-                                    4);
-                        RC::Output::send<RC::LogLevel::Default>(
-                            STR("[ReplayScrub] first chara replay-state "
-                                "restore: P1 nFrameTarget=0x{:X} "
-                                "P2 nFrameTarget=0x{:X} "
-                                "({} bytes/chara)\n"),
-                            p1_target, p2_target,
-                            static_cast<unsigned>(kExtras_CharaReplay_Bytes));
+                        uint8_t* pra = reinterpret_cast<uint8_t*>(pra_raw);
+                        SafeWriteBytes(pra + kPRA_FieldAt394_Off,
+                                       src + kExtras_Off_PRA_P0_394, 4);
+                        SafeWriteBytes(pra + kPRA_FieldAt398_Off,
+                                       src + kExtras_Off_PRA_P0_398, 4);
+                        SafeWriteBytes(pra + kPRA_PlayerStride
+                                           + kPRA_FieldAt394_Off,
+                                       src + kExtras_Off_PRA_P1_394, 4);
+                        SafeWriteBytes(pra + kPRA_PlayerStride
+                                           + kPRA_FieldAt398_Off,
+                                       src + kExtras_Off_PRA_P1_398, 4);
                     }
                 }
             }
@@ -5459,9 +11140,12 @@ namespace Horse
                         && fi_raw)
                     {
                         uint8_t* fi = reinterpret_cast<uint8_t*>(fi_raw);
-                        SafeWriteBytes(fi + kFI_SlotRecords_Start,
-                                       src + kExtras_Off_FrameInput_Slots,
-                                       kFI_SlotRecords_Bytes);
+                        const bool fi_write_ok = SafeWriteBytes(
+                            fi + kFI_SlotRecords_Start,
+                            src + kExtras_Off_FrameInput_Slots,
+                            kFI_SlotRecords_Bytes);
+                        if (full_for_validated_seek)
+                            ok &= fi_write_ok;
 
                         static std::atomic<bool> s_logged_fi_restore{false};
                         if (!s_logged_fi_restore.exchange(
@@ -5482,182 +11166,42 @@ namespace Horse
                                 static_cast<unsigned>(kFI_SlotRecords_Bytes));
                         }
                     }
-                }
-            }
-
-            // Risky speculative writes (WorldModePump pointer, PRA bits,
-            // captured ReplayPlayer cursor) stay gated.  These caused the
-            // 2026-05-15 crash and the 2026-05-18 post-generate crash repro.
-            if (!m_enable_speculative_restore.load(std::memory_order_acquire))
-            {
-                static std::atomic<bool> s_logged_skip{false};
-                if (!s_logged_skip.exchange(true, std::memory_order_relaxed))
-                {
-                    RC::Output::send<RC::LogLevel::Default>(
-                        STR("[ReplayScrub] restore_extras: applied 4 BM "
-                            "state bytes; SKIPPED risky writes (WorldModePump "
-                            "ptr, PRA bits, ReplayPlayer cursor) due to "
-                            "safety gate closed after 2026-05-15 crash.\n"));
-                }
-                return;
-            }
-
-            // Snapshot the captured WorldModePump's current-mode pointer
-            // BEFORE writing so the first-fire log can show the value.
-            // This is the field whose corruption / staleness causes the
-            // "round-end stuck" symptom; logging it once per session
-            // lets the user verify the captured pointer is sensible.
-            void* captured_mode_ptr = nullptr;
-            std::memcpy(&captured_mode_ptr,
-                        src + kExtras_Off_WorldModePump,
-                        sizeof(captured_mode_ptr));
-
-            // Snapshot LIVE values pre-write for the first-fire log.
-            void* live_mode_ptr = nullptr;
-            uint32_t live_block_interactive = 0xFFFFFFFFu;
-            SafeReadPtr(reinterpret_cast<const void*>(base + kRVA_WorldModePump),
-                        &live_mode_ptr);
-            SafeReadUInt32(reinterpret_cast<const void*>(base + kRVA_BlockInteractiveOps),
-                           &live_block_interactive);
-
-            // WorldModePump struct.  Writing the mode pointer puts the
-            // state machine back at the captured mid-round mode object;
-            // next AdvanceWorldModePump tick publishes that mode's
-            // GetModeType() to MasterModeFlag, un-gating PerFrameTick.
-            SafeWriteBytes(reinterpret_cast<void*>(base + kRVA_WorldModePump),
-                           src + kExtras_Off_WorldModePump,
-                           kExtras_WorldModePump_Bytes);
-
-            // BlockInteractiveOps.  Cleared at capture-time if we
-            // captured mid-round (interactive ops were allowed), so
-            // restoring the captured value un-blocks chara controls
-            // even if the live engine had set it to 1 during the
-            // round-end cinematic.
-            SafeWriteBytes(reinterpret_cast<void*>(base + kRVA_BlockInteractiveOps),
-                           src + kExtras_Off_BlockInteractive, 4);
-
-            // Cinematic state head.
-            void* session_ptr = nullptr;
-            SafeReadPtr(reinterpret_cast<const void*>(base + kRVA_ActiveSessionDataPtr),
-                        &session_ptr);
-            if (session_ptr)
-            {
-                uint8_t* cin = reinterpret_cast<uint8_t*>(session_ptr) + kCinematic_State_Off;
-                SafeWriteBytes(cin,
-                               src + kExtras_Off_CinematicHead,
-                               kExtras_CinematicHead_Bytes);
-            }
-
-            // BM state bytes already written above (always applied).
-            // Below we only do the speculative-gate-open writes (PRA + RP).
-            RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
-            if (bm_obj)
-            {
-                uint8_t* bm = reinterpret_cast<uint8_t*>(bm_obj);
-
-            // PlayerRecordArray gate bits restore.  Direct dword writes to
-            // live PRA fields are unsafe as a general seek fix: 2026-05-18
-            // testing crashed after this gated path was enabled.  Keep this
-            // under the disabled speculative gate until the real writer/control
-            // path is identified.
-                void* pra_raw = nullptr;
-                if (SafeReadPtr(bm + kBM_PlayerRecordArray_Off, &pra_raw) && pra_raw)
-                {
-                    uint8_t* pra = reinterpret_cast<uint8_t*>(pra_raw);
-                    SafeWriteBytes(pra + kPRA_FieldAt394_Off,
-                                   src + kExtras_Off_PRA_P0_394, 4);
-                    SafeWriteBytes(pra + kPRA_FieldAt398_Off,
-                                   src + kExtras_Off_PRA_P0_398, 4);
-                    SafeWriteBytes(pra + kPRA_PlayerStride + kPRA_FieldAt394_Off,
-                                   src + kExtras_Off_PRA_P1_394, 4);
-                    SafeWriteBytes(pra + kPRA_PlayerStride + kPRA_FieldAt398_Off,
-                                   src + kExtras_Off_PRA_P1_398, 4);
-
-                    // First-fire log: surface the captured forward/rewind
-                    // bits so the user can see if the captured snapshot
-                    // had a valid forward-play state.
-                    static std::atomic<bool> s_pra_logged{false};
-                    if (!s_pra_logged.exchange(true, std::memory_order_relaxed))
+                    else if (full_for_validated_seek)
                     {
-                        uint32_t p0_398 = 0, p1_398 = 0;
-                        std::memcpy(&p0_398, src + kExtras_Off_PRA_P0_398, 4);
-                        std::memcpy(&p1_398, src + kExtras_Off_PRA_P1_398, 4);
-                        RC::Output::send<RC::LogLevel::Default>(
-                            STR("[ReplayScrub] first PRA restore: "
-                                "P0+0x398=0x{:X} (rewind={} forward={}) "
-                                "P1+0x398=0x{:X} (rewind={} forward={})\n"),
-                            p0_398,
-                            (p0_398 & kPRA_RewindBit)  ? 1 : 0,
-                            (p0_398 & kPRA_ForwardBit) ? 1 : 0,
-                            p1_398,
-                            (p1_398 & kPRA_RewindBit)  ? 1 : 0,
-                            (p1_398 & kPRA_ForwardBit) ? 1 : 0);
+                        ok = false;
                     }
                 }
+                else if (full_for_validated_seek)
+                {
+                    ok = false;
+                }
             }
 
-            // Captured ALuxBattleReplayPlayer cursor restore.  Do not use as
-            // the normal seek path: after Generate Timeline completes these
-            // captured values can be final-edge/stale.  The safe seek path is
-            // write_replay_player_cursor(), which derives CurrentRound and
-            // CurrentTime from the selected snapshot tags and forces playback
-            // active without replaying stale captured extras.
-            float   captured_rp_time  = 0.0f;
-            int32_t captured_rp_round = 0;
-            uint8_t captured_rp_play  = 0;
-            std::memcpy(&captured_rp_time,  src + kExtras_Off_RP_CurrentTime,  4);
-            std::memcpy(&captured_rp_round, src + kExtras_Off_RP_CurrentRound, 4);
-            captured_rp_play = src[kExtras_Off_RP_IsPlayingBack];
-
-            float   live_rp_time  = -1.0f;
-            int32_t live_rp_round = -1;
-            uint8_t live_rp_play  = 0;
-            if (RC::Unreal::UObject* rp_obj =
-                    ReplayScrubDiag::replay_player_ptr().get(
-                        L"LuxBattleReplayPlayer"))
+            if (full_for_validated_seek && base)
             {
-                uint8_t* a = reinterpret_cast<uint8_t*>(rp_obj);
-                SafeReadFloat(a + kRP_CurrentTime_Off,   &live_rp_time);
-                SafeReadInt32(a + kRP_CurrentRound_Off,  &live_rp_round);
-                SafeReadUInt8(a + kRP_IsPlayingBack_Off, &live_rp_play);
-                // Restore captured values verbatim.  Don't force
-                // bIsPlayingBack=1 unconditionally - if the capture
-                // had it 1 (normal case), we write 1; if for some
-                // reason it had 0, we preserve that.
-                SafeWriteBytes(a + kRP_CurrentTime_Off,   src + kExtras_Off_RP_CurrentTime,   4);
-                SafeWriteBytes(a + kRP_CurrentRound_Off,  src + kExtras_Off_RP_CurrentRound,  4);
-                SafeWriteBytes(a + kRP_IsPlayingBack_Off, src + kExtras_Off_RP_IsPlayingBack, 1);
+                for (int pi = 0; pi < 2; ++pi)
+                {
+                    const uintptr_t slot_rva = (pi == 0)
+                        ? ReplayScrubDiag::kRVA_CharaSlotP1
+                        : ReplayScrubDiag::kRVA_CharaSlotP2;
+                    void* chara_raw = nullptr;
+                    if (!SafeReadPtr(reinterpret_cast<const void*>(
+                                         base + slot_rva),
+                                     &chara_raw) || !chara_raw)
+                    {
+                        ok = false;
+                        continue;
+                    }
+                    uint8_t* c = reinterpret_cast<uint8_t*>(chara_raw);
+                    const size_t blob_off = (pi == 0)
+                        ? kExtras_Off_P1_CharaReplay
+                        : kExtras_Off_P2_CharaReplay;
+                    ok &= SafeWriteBytes(c + kChara_ReplayState_Start,
+                                         src + blob_off,
+                                         kExtras_CharaReplay_Bytes);
+                }
             }
-
-            // First-fire log: confirm the round-end-fix path fires + show
-            // captured vs live mode-pointer values so a stale/invalid
-            // capture is visible at a glance.  Single-shot per session
-            // to avoid log spam.
-            static std::atomic<bool> s_logged{false};
-            if (!s_logged.exchange(true, std::memory_order_relaxed))
-            {
-                RC::Output::send<RC::LogLevel::Default>(
-                    STR("[ReplayScrub] first extras restore: "
-                        "WorldModePump.pCurrentMode live=0x{:X} -> "
-                        "captured=0x{:X}, BlockInteractiveOps live={} -> "
-                        "captured={}, BM_State[main=0x{:X} move=0x{:X} "
-                        "status=0x{:X} ePause=0x{:X}], "
-                        "ReplayPlayer[CurrentTime live={:.4f} -> captured={:.4f}, "
-                        "CurrentRound live={} -> captured={}, "
-                        "bIsPlayingBack live={} -> captured={}]\n"),
-                    reinterpret_cast<uintptr_t>(live_mode_ptr),
-                    reinterpret_cast<uintptr_t>(captured_mode_ptr),
-                    live_block_interactive,
-                    *reinterpret_cast<const uint32_t*>(src + kExtras_Off_BlockInteractive),
-                    static_cast<unsigned>(src[kExtras_Off_BM_MainState]),
-                    static_cast<unsigned>(src[kExtras_Off_BM_MoveState]),
-                    static_cast<unsigned>(src[kExtras_Off_BM_StatusByte]),
-                    static_cast<unsigned>(src[kExtras_Off_BM_EnginePause]),
-                    live_rp_time, captured_rp_time,
-                    live_rp_round, captured_rp_round,
-                    static_cast<unsigned>(live_rp_play),
-                    static_cast<unsigned>(captured_rp_play));
-            }
+            return ok;
         }
 
         // Map a timeline seq to its tick index.  Capture is append-only
@@ -5704,6 +11248,7 @@ namespace Horse
         // points: SC6 has just rebased replay clocks and is rebuilding
         // round-local state.  Return either the original tick or a nearby
         // tick safely inside the same round.
+#if HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG
         int32_t adjust_seek_tick_away_from_round_boundary(
             int32_t tick) const noexcept
         {
@@ -5805,6 +11350,210 @@ namespace Horse
 
             return static_cast<int32_t>(adjusted);
         }
+#endif
+
+        bool native_demo_time_is_trusted_for_seek(
+            size_t tick,
+            int32_t demo_ms,
+            int32_t seq_tag,
+            int32_t master_tag) noexcept
+        {
+            if (demo_ms < 0) return false;
+
+            int32_t min_ms = -1;
+            int32_t max_ms = -1;
+            size_t valid_count = 0;
+            const bool have_stats =
+                m_tags.demo_time_stats(min_ms, max_ms, valid_count);
+            const size_t total_count = m_tags.count();
+            const int32_t span_ms =
+                have_stats && max_ms >= min_ms ? (max_ms - min_ms) : -1;
+
+            // A real UDemoNetDriver's DemoCurrentTime is absolute replay
+            // time and must advance over a generated match.  A plain
+            // UWorld.NetDriver in SC6 has readable zeros at the same offsets;
+            // accepting that false-positive turns every target into
+            // demo.GotoTimeInSeconds 0.000 and lets the parked replay run out
+            // while the settle window is open.
+            const bool mature_timeline = total_count >= 300;
+            const bool progressed =
+                have_stats
+                && valid_count >= (mature_timeline ? total_count / 2 : 1)
+                && span_ms >= (mature_timeline ? 500 : 0);
+            const bool zero_late_target =
+                demo_ms == 0 && (master_tag > 60 || tick > 60);
+            if (progressed && !zero_late_target)
+                return true;
+
+            static std::atomic<bool> s_warned_untrusted_demo_time{false};
+            if (!s_warned_untrusted_demo_time.exchange(
+                    true, std::memory_order_relaxed))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] timeline native demo timestamps are "
+                    "untrusted; native seek is blocked so pause gates stay "
+                    "closed (seq={} tick={} master={} demo_ms={} "
+                    "valid={} count={} min_ms={} max_ms={} span_ms={})\n"),
+                    seq_tag, tick, master_tag, demo_ms, valid_count,
+                    total_count, min_ms, max_ms, span_ms);
+            }
+            return false;
+        }
+
+        PreviewStatus apply_preview_snapshot(int32_t target_seq,
+                                             uint32_t generation) noexcept
+        {
+            (void)target_seq;
+            (void)generation;
+            if (!kEnableLegacySnapshotPreview)
+            {
+                publish_preview_status(PreviewStatus::SkippedUnsafe);
+                return PreviewStatus::SkippedUnsafe;
+            }
+#if HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG
+            if (!is_initialized() || !m_exec_read)
+            {
+                publish_preview_status(PreviewStatus::Failed,
+                                       NativeSeekFailure::InvalidTarget);
+                return PreviewStatus::Failed;
+            }
+            int32_t tick = find_slot_for_seq(target_seq);
+            if (tick < 0)
+            {
+                publish_preview_status(PreviewStatus::Failed,
+                                       NativeSeekFailure::InvalidTarget);
+                return PreviewStatus::Failed;
+            }
+
+            tick = adjust_seek_tick_away_from_round_boundary(tick);
+            int32_t seq_tag = -1, round_tag = -1,
+                    wall_tag = -1, master_tag = -1;
+            if (!m_tags.get(static_cast<size_t>(tick),
+                            seq_tag, round_tag, wall_tag, master_tag))
+            {
+                publish_preview_status(PreviewStatus::Failed,
+                                       NativeSeekFailure::InvalidTarget);
+                return PreviewStatus::Failed;
+            }
+            if (generation != m_seek_generation)
+                return PreviewStatus::SkippedUnsafe;
+            if (m_ui_requested_seq.load(std::memory_order_acquire)
+                != target_seq)
+                return PreviewStatus::SkippedUnsafe;
+
+            const uint8_t* sim_blob =
+                m_sim_store.gather(static_cast<size_t>(tick));
+            if (!sim_blob)
+            {
+                publish_preview_status(PreviewStatus::Failed,
+                                       NativeSeekFailure::InvalidTarget);
+                return PreviewStatus::Failed;
+            }
+
+            publish_preview_status(PreviewStatus::Requested);
+            m_shim.retarget(const_cast<uint8_t*>(sim_blob), kSnapshotStride);
+            if (!SafeInvokeExec(m_exec_read, &m_shim))
+            {
+                m_preview.seq = seq_tag;
+                m_preview.round = round_tag;
+                publish_preview_status(PreviewStatus::Failed,
+                                       NativeSeekFailure::CallFaulted);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] preview failed: snapshot restore faulted "
+                    "(seq={} tick={} round={} master={})\n"),
+                    seq_tag, tick, round_tag, master_tag);
+                return PreviewStatus::Failed;
+            }
+
+            const uint8_t* il_blob =
+                m_il_store.gather(static_cast<size_t>(tick));
+            restore_input_cache(il_blob);
+            restore_replay_data_block(
+                m_rdb_store.gather(static_cast<size_t>(tick)));
+            restore_extras(m_extras_store.gather(static_cast<size_t>(tick)));
+
+            m_preview.seq = seq_tag;
+            m_preview.round = round_tag;
+            publish_preview_status(PreviewStatus::Applied);
+            if (generation == m_seek_generation
+                && m_ui_requested_seq.load(std::memory_order_acquire)
+                    == target_seq)
+            {
+                publish_ui_target(seq_tag);
+            }
+            if (m_verbose_diag.load(std::memory_order_acquire))
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] preview applied seq={} round={} "
+                    "master={} (visual-only; native status={})\n"),
+                    seq_tag, round_tag, master_tag,
+                    m_native_status.load(std::memory_order_acquire));
+            }
+            return PreviewStatus::Applied;
+#else
+            publish_preview_status(PreviewStatus::SkippedUnsafe);
+            return PreviewStatus::SkippedUnsafe;
+#endif
+        }
+
+#if HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG
+        SeekApplyStatus start_native_seek_for_seq(int32_t target_seq) noexcept
+        {
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayScrub] DIAGNOSTIC LEGACY seek wrapper used "
+                "target_seq={} - this path cannot enable Play\n"),
+                target_seq);
+            const SeekApplyStatus status = do_seek_to_seq(target_seq);
+            switch (status)
+            {
+            case SeekApplyStatus::Submitted:
+                if (m_native_demo_seek_settle_ticks.load(
+                        std::memory_order_acquire) > 0)
+                {
+                    publish_native_status(NativeSeekStatus::Settling);
+                    publish_mode(ScrubMode::NativeSeekSettling);
+                }
+                else
+                {
+                    publish_native_status(NativeSeekStatus::Submitted);
+                    publish_mode(ScrubMode::NativeSeekSubmitted);
+                }
+                break;
+            case SeekApplyStatus::Pending:
+            {
+                NativeSeekFailure reason = m_native.failure;
+                if (reason == NativeSeekFailure::None)
+                    reason = m_native.direct_driver_available
+                        ? NativeSeekFailure::DriverBusy
+                        : NativeSeekFailure::DriverUnresolved;
+                publish_native_status(NativeSeekStatus::Queued, reason);
+                publish_mode(ScrubMode::NativeSeekQueued);
+                break;
+            }
+            case SeekApplyStatus::AppliedLegacy:
+            case SeekApplyStatus::AppliedSc6Exact:
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] DIAGNOSTIC LEGACY seek produced an "
+                    "applied status, but diagnostic paths cannot mark "
+                    "native Landed or enable Play\n"));
+                publish_native_status(NativeSeekStatus::Failed,
+                                      NativeSeekFailure::NotLanded);
+                publish_mode(ScrubMode::NativeSeekFailed);
+                break;
+            case SeekApplyStatus::Failed:
+            default:
+            {
+                NativeSeekFailure reason = m_native.failure;
+                if (reason == NativeSeekFailure::None)
+                    reason = NativeSeekFailure::InvalidTarget;
+                publish_native_status(NativeSeekStatus::Failed, reason);
+                publish_mode(ScrubMode::NativeSeekFailed);
+                break;
+            }
+            }
+            return status;
+        }
+#endif
 
         // Restore the simulation from the captured tick `target_seq`
         // (clamped to the timeline).  Does NOT touch m_paused - pause
@@ -5822,11 +11571,18 @@ namespace Horse
         // closes the race: the UI's last action wins.
         //
         // No-op if the timeline is empty.
-        void do_seek_to_seq(int32_t target_seq) noexcept
+#if HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG
+        SeekApplyStatus do_seek_to_seq(int32_t target_seq) noexcept
         {
-            if (!is_initialized() || !m_exec_read) return;
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayScrub] DIAGNOSTIC LEGACY seek path used "
+                "target_seq={} - may adjust for inspection only and "
+                "cannot be replay authority\n"),
+                target_seq);
+            if (!is_initialized() || !m_exec_read)
+                return SeekApplyStatus::Failed;
             int32_t tick = find_slot_for_seq(target_seq);
-            if (tick < 0) return;
+            if (tick < 0) return SeekApplyStatus::Failed;
             const int32_t requested_tick = tick;
             int32_t requested_seq = -1, requested_round = -1,
                     requested_wall = -1, requested_master = -1;
@@ -5855,7 +11611,19 @@ namespace Horse
                     wall_tag = -1, master_tag = -1;
             if (!m_tags.get(static_cast<size_t>(tick),
                             seq_tag, round_tag, wall_tag, master_tag))
-                return;
+                return SeekApplyStatus::Failed;
+            const int32_t visible_requested =
+                m_ui_requested_seq.load(std::memory_order_acquire);
+            if (visible_requested != target_seq
+                && visible_requested != seq_tag)
+            {
+                return SeekApplyStatus::Pending;
+            }
+            if (visible_requested == target_seq && seq_tag != target_seq)
+            {
+                publish_ui_target(seq_tag);
+                m_native.requested_seq = seq_tag;
+            }
 
             // Defence in depth: capture_snapshot never commits a tick
             // whose master clock was unreadable, so this should never
@@ -5868,26 +11636,19 @@ namespace Horse
                         "has master_tag=-1 (capture-time master clock "
                         "was unreadable)\n"),
                     tick, wall_tag);
-                return;
+                return SeekApplyStatus::Failed;
             }
 
             const int32_t demo_ms = m_tags.demo_time_ms(
                 static_cast<size_t>(tick));
-            const bool rp_cursor_seek =
-                m_use_replay_player_seek.load(std::memory_order_acquire);
-            const bool native_demo_seek =
-                m_use_demo_goto_time_seek.load(std::memory_order_acquire);
-            const bool auto_resume_after_seek =
-                m_resume_after_seek.load(std::memory_order_acquire)
-                && m_auto_resume_on_release.load(std::memory_order_acquire);
+            constexpr bool rp_cursor_seek = false;
+            constexpr bool native_demo_seek = kEnableLegacySeekDiagnostics;
             const bool has_native_demo_time = (demo_ms >= 0);
             const int32_t native_target_ms =
-                has_native_demo_time
-                    ? demo_ms
-                    : static_cast<int32_t>(
-                          (static_cast<int64_t>(seq_tag) * 1000 + 30) / 60);
+                has_native_demo_time ? demo_ms : -1;
             const float replay_player_seconds =
                 static_cast<float>(master_tag) / 60.0f;
+            const uint32_t seek_generation = m_native.generation;
 
             // Seek diagnostics (verbose-only).  At scrub-drag rates a
             // seek fires every frame, so unconditional PRE/POST_SEEK
@@ -5926,63 +11687,87 @@ namespace Horse
             // cockpit ticks.
             if (native_demo_seek)
             {
-                if (!has_native_demo_time)
+                const bool trusted_native_demo_time =
+                    has_native_demo_time
+                    && native_demo_time_is_trusted_for_seek(
+                        static_cast<size_t>(tick), demo_ms, seq_tag,
+                        master_tag);
+                if (!trusted_native_demo_time)
                 {
-                    static std::atomic<bool> s_warned_missing_demo_time{false};
-                    if (!s_warned_missing_demo_time.exchange(
+                    static std::atomic<bool> s_logged_sc6_exact{false};
+                    if (!s_logged_sc6_exact.exchange(
                             true, std::memory_order_relaxed))
                     {
                         RC::Output::send<RC::LogLevel::Warning>(STR(
-                            "[ReplayScrub] timeline has no captured "
-                            "DemoCurrentTime; falling back to seq/60 for "
-                            "native DemoNetDriver seek. Regenerate the "
-                            "timeline with this build for exact native "
-                            "demo timestamps.\n"));
+                            "[ReplayScrub] UDemoNetDriver time is absent or "
+                            "untrusted in this SC6 replay viewer path; using "
+                            "native SC6 round reset + deterministic "
+                            "PerFrameTick fast-forward. Play remains blocked "
+                            "until round/master verify exactly.\n"));
                     }
+                    m_native.direct_driver_available = false;
+                    m_native.cvar_submitted = false;
+                    m_native.requested_seq = target_seq;
+                    m_native.adjusted_seq = seq_tag;
+                    m_native.target_ms = -1;
+                    m_native.round = round_tag;
+                    m_native.master = master_tag;
+                    return apply_sc6_exact_seek(
+                        static_cast<size_t>(tick), seq_tag, round_tag,
+                        master_tag);
                 }
-
-                const bool direct_driver_available =
-                    ReplayScrubDiag::read_demo_net_driver().readable;
-                const bool native_submitted =
-                    request_demo_goto_time_seek_ms(native_target_ms,
-                                                   master_tag, round_tag,
-                                                   seq_tag);
-
-                if (native_submitted)
+                else
                 {
-                    begin_native_demo_seek_settle(
-                        native_target_ms, !auto_resume_after_seek);
-                    if (verbose)
+
+                    const bool direct_driver_available =
+                        ReplayScrubDiag::read_demo_net_driver().readable;
+                    m_native.direct_driver_available =
+                        direct_driver_available;
+                    m_native.cvar_submitted = false;
+                    m_native.requested_seq = target_seq;
+                    m_native.adjusted_seq = seq_tag;
+                    m_native.target_ms = native_target_ms;
+                    m_native.round = round_tag;
+                    m_native.master = master_tag;
+                    const bool native_submitted =
+                        request_demo_goto_time_seek_ms(native_target_ms,
+                                                       master_tag, round_tag,
+                                                       seq_tag,
+                                                       seek_generation);
+
+                    if (native_submitted)
                     {
-                        dump_replay_state("POST_NATIVE_SEEK_REQUEST", seq_tag);
-                        ReplayScrubDiag::dump_full("POST_NATIVE_SEEK_REQUEST");
-                        m_post_seek_countdown.store(kDefaultPostSeekDumpFrames,
-                                                    std::memory_order_release);
-                        m_last_movevm_p1 =
-                            ReplayScrubDiag::read_chara_movevm(0);
-                        m_last_movevm_p2 =
-                            ReplayScrubDiag::read_chara_movevm(1);
-                        uint32_t cur_seed = 0;
-                        read_frame_counter(cur_seed);
-                        m_diag_last_wall   = cur_seed;
-                        m_diag_last_master = master_tag;
-                        m_diag_last_paused =
-                            m_paused.load(std::memory_order_acquire);
+                        if (verbose)
+                        {
+                            dump_replay_state(
+                                "POST_NATIVE_SEEK_REQUEST", seq_tag);
+                            ReplayScrubDiag::dump_full(
+                                "POST_NATIVE_SEEK_REQUEST");
+                            m_post_seek_countdown.store(
+                                kDefaultPostSeekDumpFrames,
+                                std::memory_order_release);
+                            m_last_movevm_p1 =
+                                ReplayScrubDiag::read_chara_movevm(0);
+                            m_last_movevm_p2 =
+                                ReplayScrubDiag::read_chara_movevm(1);
+                            uint32_t cur_seed = 0;
+                            read_frame_counter(cur_seed);
+                            m_diag_last_wall   = cur_seed;
+                            m_diag_last_master = master_tag;
+                            m_diag_last_paused =
+                                m_paused.load(std::memory_order_acquire);
+                        }
+                        return SeekApplyStatus::Submitted;
                     }
-                    return;
-                }
 
-                // Keep the newest native request pending and do not write
-                // legacy state over the replay driver.  A visual snapshot
-                // preview can make a broken native seek look fixed while
-                // the engine's real playback cursor is still wrong; the
-                // default path must either queue UDemoNetDriver work or
-                // remain visibly unresolved.
-                if (direct_driver_available)
-                {
-                    return;
+                    // Keep the newest native request pending and do not write
+                    // legacy state over the replay driver.  A visual snapshot
+                    // preview can make a broken native seek look fixed while
+                    // the engine's real playback cursor is still wrong; the
+                    // default path must either queue UDemoNetDriver work or
+                    // remain visibly unresolved.
+                    return SeekApplyStatus::Pending;
                 }
-                return;
             }
 
             // Legacy snapshot restore path.  This remains available only
@@ -5994,7 +11779,7 @@ namespace Horse
                 RC::Output::send<RC::LogLevel::Warning>(STR(
                     "[ReplayScrub] legacy seek refused: battle context not "
                     "live (BM/InputLog/chara torn down)\n"));
-                return;
+                return SeekApplyStatus::Failed;
             }
 
             const int32_t live_round = read_current_round();
@@ -6014,7 +11799,7 @@ namespace Horse
             // the shim reads ~80-100 KB of it back into the engine.
             const uint8_t* sim_blob =
                 m_sim_store.gather(static_cast<size_t>(tick));
-            if (!sim_blob) return;
+            if (!sim_blob) return SeekApplyStatus::Failed;
             m_shim.retarget(const_cast<uint8_t*>(sim_blob), kSnapshotStride);
             // SEH-guarded: if the restore faults (captured state vs. live
             // context mismatch) abort the seek instead of crashing.
@@ -6023,7 +11808,7 @@ namespace Horse
                 RC::Output::send<RC::LogLevel::Warning>(STR(
                     "[ReplayScrub] seek aborted: snapshot restore faulted "
                     "(tick={}) - engine state left as-is\n"), tick);
-                return;
+                return SeekApplyStatus::Failed;
             }
 
             // Step 2: Restore the captured InputLog state window
@@ -6087,7 +11872,7 @@ namespace Horse
             }
             write_replay_cursors(master_tag, snapshot_last_frame_id);
             write_replay_player_cursor(round_tag, master_tag,
-                                       replay_player_seconds);
+                                       replay_player_seconds, true);
 
             // Step 6 (EXPERIMENTAL): rewind the UE4-level playback
             // Step 6 moved out of restore_extras after the 2026-05-18
@@ -6100,29 +11885,25 @@ namespace Horse
             // UI playhead can extrapolate forward as master advances.
             m_last_seek_master_tag.store(master_tag, std::memory_order_release);
 
-            // Force bIsPlayingBack = 1 on ReplayPlayer.  Tells engine
-            // "we're playing back; don't end the replay".
-            if (m_force_isplayingback_on_seek.load(std::memory_order_acquire))
+            const int32_t live_round_after = read_current_round();
+            const int32_t live_master_after = read_engine_master_clock();
+            const int32_t master_delta =
+                (live_master_after >= master_tag)
+                    ? (live_master_after - master_tag)
+                    : (master_tag - live_master_after);
+            if (live_round_after != round_tag
+                || live_master_after < 0
+                || master_delta > 1)
             {
-                if (RC::Unreal::UObject* rp_obj =
-                        ReplayScrubDiag::replay_player_ptr().get(
-                            L"LuxBattleReplayPlayer"))
-                {
-                    uint8_t* a = reinterpret_cast<uint8_t*>(rp_obj);
-                    const uint8_t one = 1;
-                    // RP+0x3D0 = bIsPlayingBack (BoolProperty, 1 byte).
-                    // Verified via ALuxBattleReplayPlayer_RegisterProperties
-                    // @ 0x14097beb0.
-                    SafeWriteBytes(a + 0x3D0, &one, 1);
-                    static std::atomic<bool> s_logged_force_play{false};
-                    if (!s_logged_force_play.exchange(
-                            true, std::memory_order_relaxed))
-                    {
-                        RC::Output::send<RC::LogLevel::Default>(
-                            STR("[ReplayScrub] first force-write of "
-                                "bIsPlayingBack=1 on seek\n"));
-                    }
-                }
+                publish_native_failure_reason(
+                    NativeSeekFailure::LegacyVerifyFailed);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] SC6 replay-state seek verification "
+                    "failed: seq={} round {}->{} master {}->{} "
+                    "master_delta={} tick={}\n"),
+                    seq_tag, live_round_after, round_tag,
+                    live_master_after, master_tag, master_delta, tick);
+                return SeekApplyStatus::Failed;
             }
 
             if (verbose)
@@ -6160,7 +11941,9 @@ namespace Horse
                     m_paused.load(std::memory_order_acquire) ? 1 : 0,
                     kDefaultPostSeekDumpFrames);
             }
+            return SeekApplyStatus::AppliedLegacy;
         }
+#endif
 
         // -----------------------------------------------------------------
         // Diagnostic dump - logs the full replay-system state to
@@ -6429,22 +12212,30 @@ namespace Horse
         // See the GetCachedRoundValue_ByIndex @ 0x1403F0720 plate +
         // LuxBattleManager_Tick_SimulationLoop_UpdateInputAndRoundState
         // @ 0x1403FE520 plate for the full contract.
-        void write_replay_cursors(int32_t master_clock,
-                                  int32_t last_frame_id) noexcept
+        bool write_replay_cursors(int32_t master_clock,
+                                  int32_t last_frame_id,
+                                  uintptr_t battle_manager = 0) noexcept
         {
             // Resolve BM via UObjectGlobals (cached in m_bm_ptr after
             // first call).  Returns null if the battle manager isn't
             // alive yet (between matches).
-            RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
-            if (!bm_obj) return;
-            uint8_t* bm = reinterpret_cast<uint8_t*>(bm_obj);
+            if (!battle_manager)
+            {
+                RC::Unreal::UObject* bm_obj =
+                    m_bm_ptr.get(L"LuxBattleManager");
+                battle_manager = reinterpret_cast<uintptr_t>(bm_obj);
+            }
+            if (!battle_manager) return false;
+            uint8_t* bm = reinterpret_cast<uint8_t*>(battle_manager);
 
             // BM-side writes.  Plain stores - the BM struct lives in
             // ordinary heap memory; no SEH wrapping needed.
-            *reinterpret_cast<int32_t*>(bm + kBM_nReplayLastApplied_Off) =
-                master_clock;
-            *reinterpret_cast<int32_t*>(bm + kBM_nReplayLastFrameID_Off) =
-                last_frame_id;
+            if (!SafeWriteBytes(bm + kBM_nReplayLastApplied_Off,
+                                &master_clock, sizeof(master_clock))
+                || !SafeWriteBytes(bm + kBM_nReplayLastFrameID_Off,
+                                   &last_frame_id,
+                                   sizeof(last_frame_id)))
+                return false;
 
             // First-fire log so the user can confirm the cursor sync
             // path is alive.
@@ -6458,31 +12249,38 @@ namespace Horse
                     master_clock, last_frame_id,
                     reinterpret_cast<uintptr_t>(bm));
             }
+            return true;
         }
 
-        void write_replay_player_cursor(int32_t round_tag,
+        bool write_replay_player_cursor(int32_t round_tag,
                                         int32_t master_clock,
-                                        float current_time_seconds) noexcept
+                                        float current_time_seconds,
+                                        bool force = false,
+                                        uintptr_t replay_player = 0) noexcept
         {
-            if (!m_use_replay_player_seek.load(std::memory_order_acquire))
-                return;
-            if (round_tag < 0 || master_clock < 0) return;
+            if (!force) return true;
+            if (round_tag < 0 || master_clock < 0) return false;
 
-            RC::Unreal::UObject* rp_obj =
-                ReplayScrubDiag::replay_player_ptr().get(
-                    L"LuxBattleReplayPlayer");
-            if (!rp_obj) return;
+            if (!replay_player)
+            {
+                RC::Unreal::UObject* rp_obj =
+                    ReplayScrubDiag::replay_player_ptr().get(
+                        L"LuxBattleReplayPlayer");
+                replay_player = reinterpret_cast<uintptr_t>(rp_obj);
+            }
+            if (!replay_player) return true;
 
-            uint8_t* rp = reinterpret_cast<uint8_t*>(rp_obj);
+            uint8_t* rp = reinterpret_cast<uint8_t*>(replay_player);
             const uint8_t is_playing = 1;
 
-            SafeWriteBytes(rp + kRP_CurrentRound_Off,
-                           &round_tag, sizeof(round_tag));
-            SafeWriteBytes(rp + kRP_CurrentTime_Off,
-                           &current_time_seconds,
-                           sizeof(current_time_seconds));
-            SafeWriteBytes(rp + kRP_IsPlayingBack_Off,
-                           &is_playing, sizeof(is_playing));
+            if (!SafeWriteBytes(rp + kRP_CurrentRound_Off,
+                                &round_tag, sizeof(round_tag))
+                || !SafeWriteBytes(rp + kRP_CurrentTime_Off,
+                                   &current_time_seconds,
+                                   sizeof(current_time_seconds))
+                || !SafeWriteBytes(rp + kRP_IsPlayingBack_Off,
+                                   &is_playing, sizeof(is_playing)))
+                return false;
 
             static std::atomic<bool> s_logged{false};
             if (!s_logged.exchange(true, std::memory_order_relaxed))
@@ -6493,6 +12291,7 @@ namespace Horse
                     "bIsPlayingBack=1 (round-local master_clock={})\n"),
                     round_tag, current_time_seconds, master_clock);
             }
+            return true;
         }
 
         static bool demo_driver_has_pending_goto(
@@ -6504,20 +12303,22 @@ namespace Horse
         }
 
         void begin_native_demo_seek_settle(int32_t target_ms,
-                                           bool refreeze_after) noexcept
+                                           int32_t seq_tag,
+                                           int32_t master_clock,
+                                           uint32_t generation) noexcept
         {
-            if (!refreeze_after)
-            {
-                m_native_demo_seek_settle_ticks.store(
-                    0, std::memory_order_release);
-                m_native_demo_seek_settle_ms.store(
-                    target_ms, std::memory_order_release);
-                return;
-            }
             m_native_demo_seek_settle_ms.store(target_ms,
                                                std::memory_order_release);
+            m_native_demo_seek_settle_seq.store(seq_tag,
+                                                std::memory_order_release);
+            m_native_demo_seek_settle_master.store(master_clock,
+                                                   std::memory_order_release);
+            m_native_demo_seek_settle_generation.store(
+                generation, std::memory_order_release);
             m_native_demo_seek_settle_ticks.store(
                 kNativeDemoSeekSettleTicks, std::memory_order_release);
+            publish_native_status(NativeSeekStatus::Settling);
+            publish_mode(ScrubMode::NativeSeekSettling);
             if (m_paused.load(std::memory_order_acquire))
             {
                 RC::Output::send<RC::LogLevel::Default>(STR(
@@ -6542,26 +12343,45 @@ namespace Horse
             const float target_seconds =
                 static_cast<float>(target_ms) / 1000.0f;
 
+            ReplayScrubDiag::DemoTimeSourceSnap time_source =
+                ReplayScrubDiag::read_demo_time_source_fast();
+            if (!time_source.readable)
+                time_source = ReplayScrubDiag::read_demo_time_source();
+
             ReplayScrubDiag::DemoNetDriverSnap d =
                 ReplayScrubDiag::read_demo_net_driver_fast();
             if (!d.readable)
                 d = ReplayScrubDiag::read_demo_net_driver();
 
-            if (d.readable)
-            {
-                const bool busy = demo_driver_has_pending_goto(d)
-                    || d.raw_loading_794 != 0;
-                const float delta =
-                    d.raw_demo_cur_time > target_seconds
-                        ? d.raw_demo_cur_time - target_seconds
-                        : target_seconds - d.raw_demo_cur_time;
-                const bool time_close =
-                    target_ms < 0
-                    || !ReplayScrubDiag::demo_snap_time_is_sane(d)
-                    || delta <= 0.250f
-                    || d.raw_demo_cur_time >= target_seconds - 0.050f;
-                landed = !busy && time_close;
-            }
+            const bool busy = d.readable
+                && (demo_driver_has_pending_goto(d)
+                    || d.raw_loading_794 != 0);
+            const float delta =
+                time_source.raw_demo_cur_time > target_seconds
+                    ? time_source.raw_demo_cur_time - target_seconds
+                    : target_seconds - time_source.raw_demo_cur_time;
+            const bool time_close =
+                time_source.readable
+                && time_source.time_sane
+                && target_ms >= 0
+                && delta <= kNativeSeekTimeToleranceSeconds;
+            const int32_t live_round = read_current_round();
+            const int32_t live_master = read_engine_master_clock();
+            const int32_t target_round = m_native.round;
+            const int32_t target_master =
+                m_native_demo_seek_settle_master.load(
+                    std::memory_order_acquire);
+            const int32_t master_delta =
+                (live_master >= target_master)
+                    ? (live_master - target_master)
+                    : (target_master - live_master);
+            const bool round_exact =
+                target_round >= 0 && live_round >= 0
+                && live_round == target_round;
+            const bool master_exact =
+                target_master >= 0 && live_master >= 0
+                && master_delta <= 1;
+            landed = !busy && time_close && round_exact && master_exact;
 
             if (landed || ticks <= 1)
             {
@@ -6569,13 +12389,91 @@ namespace Horse
                     0, std::memory_order_release);
                 RC::Output::send<RC::LogLevel::Default>(STR(
                     "[ReplayScrub] native seek settle {} after {} frame(s) "
-                    "(driver=0x{:X} cur={:.3f}s target={:.3f}s busy={} "
-                    "tasks={} current_task=0x{:X})\n"),
-                    RC::to_generic_string(landed ? "landed" : "timed out"),
+                    "(seq={} generation={} current_generation={} "
+                    "time_source=0x{:X} cur={:.3f}s target={:.3f}s "
+                    "delta={:.6f}s tolerance={:.6f}s round {}->{} "
+                    "master {}->{} master_delta={} driver=0x{:X} "
+                    "busy={} tasks={} current_task=0x{:X})\n"),
+                    RC::to_generic_string(landed
+                        ? "landed exact" : "timed out"),
                     kNativeDemoSeekSettleTicks - ticks + 1,
-                    d.driver_ptr, d.raw_demo_cur_time, target_seconds,
-                    d.readable && demo_driver_has_pending_goto(d) ? 1 : 0,
+                    m_native_demo_seek_settle_seq.load(
+                        std::memory_order_acquire),
+                    m_native_demo_seek_settle_generation.load(
+                        std::memory_order_acquire),
+                    m_seek_generation,
+                    time_source.source_ptr,
+                    time_source.raw_demo_cur_time,
+                    target_seconds,
+                    delta,
+                    kNativeSeekTimeToleranceSeconds,
+                    live_round,
+                    target_round,
+                    live_master,
+                    target_master,
+                    master_delta,
+                    d.driver_ptr,
+                    busy ? 1 : 0,
                     d.raw_task_count_7b0, d.raw_current_task_7b8);
+                const int32_t settle_seq =
+                    m_native_demo_seek_settle_seq.load(
+                        std::memory_order_acquire);
+                const int32_t settle_master =
+                    m_native_demo_seek_settle_master.load(
+                        std::memory_order_acquire);
+                const uint32_t settle_generation =
+                    m_native_demo_seek_settle_generation.load(
+                        std::memory_order_acquire);
+                const int32_t requested =
+                    m_ui_requested_seq.load(std::memory_order_acquire);
+                if (landed && settle_generation == m_seek_generation
+                    && settle_seq == requested)
+                {
+                    m_last_seek_target.store(settle_seq,
+                                             std::memory_order_release);
+                    m_last_seek_master_tag.store(settle_master,
+                                                 std::memory_order_release);
+                    m_native.adjusted_seq = settle_seq;
+                    m_native.master = settle_master;
+                    publish_native_status(NativeSeekStatus::Landed);
+                    publish_mode(ScrubMode::NativeSeekLanded);
+                    if (m_ui_wants_play.load(std::memory_order_acquire)
+                        && m_auto_resume_on_release.load(
+                            std::memory_order_acquire))
+                    {
+                        m_ui_wants_play.store(false,
+                                              std::memory_order_release);
+                        m_paused.store(false, std::memory_order_release);
+                        m_hold_kind.store(
+                            static_cast<int32_t>(ReplayScrubHoldKind::None),
+                            std::memory_order_release);
+                        publish_mode(ScrubMode::Playing);
+                    }
+                }
+                else if (landed)
+                {
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub] ignored stale native seek land: "
+                        "settle_seq={} requested_seq={} generation={} "
+                        "current_generation={}\n"),
+                        settle_seq, requested, settle_generation,
+                        m_seek_generation);
+                }
+                else if (settle_generation == m_seek_generation
+                         && settle_seq == requested)
+                {
+                    if (!time_source.readable)
+                    {
+                        publish_native_status(
+                            NativeSeekStatus::Failed,
+                            NativeSeekFailure::NativeTimeSourceUnresolved);
+                        publish_mode(ScrubMode::NativeSeekFailed);
+                        return;
+                    }
+                    publish_native_status(NativeSeekStatus::Failed,
+                                          NativeSeekFailure::SettleTimedOut);
+                    publish_mode(ScrubMode::NativeSeekFailed);
+                }
                 return;
             }
 
@@ -6607,7 +12505,8 @@ namespace Horse
         bool request_demo_goto_time_seek_ms(int32_t target_ms,
                                             int32_t master_clock,
                                             int32_t round_tag,
-                                            int32_t seq_tag) noexcept
+                                            int32_t seq_tag,
+                                            uint32_t generation) noexcept
         {
             const bool had_pending =
                 m_pending_demo_seek_ms.load(std::memory_order_acquire) >= 0;
@@ -6619,6 +12518,8 @@ namespace Horse
                                           std::memory_order_release);
             m_pending_demo_seek_round.store(round_tag,
                                             std::memory_order_release);
+            m_pending_demo_seek_generation.store(
+                generation, std::memory_order_release);
             if (!had_pending)
                 m_pending_demo_seek_retry_ticks = 0;
             if (m_pending_demo_seek_retry_ticks <= 0)
@@ -6643,6 +12544,9 @@ namespace Horse
                 m_pending_demo_seek_seq.load(std::memory_order_acquire);
             const int32_t round_tag =
                 m_pending_demo_seek_round.load(std::memory_order_acquire);
+            const uint32_t generation =
+                m_pending_demo_seek_generation.load(
+                    std::memory_order_acquire);
             const float target_seconds =
                 static_cast<float>(target_ms) / 1000.0f;
 
@@ -6658,7 +12562,11 @@ namespace Horse
                                               std::memory_order_release);
                 m_pending_demo_seek_round.store(-1,
                                                 std::memory_order_release);
+                m_pending_demo_seek_generation.store(
+                    0, std::memory_order_release);
                 m_pending_demo_seek_retry_ticks = 0;
+                begin_native_demo_seek_settle(
+                    target_ms, seq_tag, master_clock, generation);
                 return true;
             }
             else
@@ -6675,36 +12583,67 @@ namespace Horse
                                                    int32_t seq_tag,
                                                    bool log_wait) noexcept
         {
-            if (!m_use_demo_goto_time_seek.load(std::memory_order_acquire))
-                return true;
+            if (!kEnableLegacySeekDiagnostics) return true;
             if (target_seconds < 0.0f) return true;
             if (!m_demo_goto_time)
             {
-                if (try_queue_demo_goto_time_seek_cvar(
-                        target_seconds, master_clock, round_tag, seq_tag))
+                publish_native_failure_reason(
+                    NativeSeekFailure::FunctionUnresolved);
+                if (kAllowUnobservedDemoGotoCVarFallback)
                 {
-                    return true;
+                    if (try_queue_demo_goto_time_seek_cvar(
+                            target_seconds, master_clock, round_tag,
+                            seq_tag))
+                    {
+                        m_native.cvar_submitted = true;
+                        m_native.direct_driver_available = false;
+                        return true;
+                    }
                 }
                 if (log_wait)
                     RC::Output::send<RC::LogLevel::Warning>(STR(
                         "[ReplayScrub] native DemoNetDriver seek pending: "
-                        "direct function pointer unresolved and CVar "
-                        "fallback unavailable (seq={} master_clock={} "
-                        "target={:.3f}s)\n"),
-                        seq_tag, master_clock, target_seconds);
+                        "direct function pointer unresolved; unobserved CVar "
+                        "fallback is disabled for strict replay accuracy "
+                        "(seq={} master_clock={} "
+                        "target={:.3f}s rva=0x{:X} image_base=0x{:X})\n"),
+                        seq_tag, master_clock, target_seconds,
+                        kRVA_DemoGotoTimeInSeconds,
+                        NativeBinding::imageBase());
                 return false;
             }
-
+            const ReplayScrubDiag::DemoDriverResolveReport resolve_report =
+                ReplayScrubDiag::resolve_demo_net_driver_report(true);
             const ReplayScrubDiag::DemoNetDriverSnap before =
-                ReplayScrubDiag::read_demo_net_driver();
+                resolve_report.snap;
             if (!before.readable)
             {
+                publish_native_failure_reason(
+                    NativeSeekFailure::DriverUnresolved);
+                m_native.direct_driver_available = false;
+                m_native.driver_ptr = 0;
                 if (log_wait)
+                {
+                    ReplayScrubDiag::log_demo_driver_resolve_report_once(
+                        "SEEK_UNRESOLVED", resolve_report);
                     RC::Output::send<RC::LogLevel::Warning>(STR(
                         "[ReplayScrub] native DemoNetDriver seek pending: "
                         "direct driver unresolved "
-                        "(seq={} master_clock={} target={:.3f}s)\n"),
-                        seq_tag, master_clock, target_seconds);
+                        "(seq={} master_clock={} target={:.3f}s "
+                        "source={} attempts={})\n"),
+                        seq_tag, master_clock, target_seconds,
+                        RC::to_generic_string(
+                            ReplayScrubDiag::demo_driver_source_name(
+                                resolve_report.source)),
+                        resolve_report.attempt_count);
+                }
+                if (kAllowUnobservedDemoGotoCVarFallback
+                    && try_queue_demo_goto_time_seek_cvar(
+                           target_seconds, master_clock, round_tag, seq_tag))
+                {
+                    m_native.cvar_submitted = true;
+                    return true;
+                }
                 return false;
             }
 
@@ -6714,14 +12653,20 @@ namespace Horse
             // the newest requested target pending and retry later.
             if (demo_driver_has_pending_goto(before))
             {
+                publish_native_failure_reason(
+                    NativeSeekFailure::DriverBusy);
                 if (log_wait)
                     RC::Output::send<RC::LogLevel::Default>(STR(
                         "[ReplayScrub] native DemoNetDriver seek deferred: "
                         "driver busy seq={} target={:.3f}s "
-                        "[+791=0x{:02X} +7B0={} +7B8=0x{:X}]\n"),
+                        "[+791=0x{:02X} +794=0x{:02X} +7A8=0x{:X} "
+                        "+7B0={} +7B4={} +7B8=0x{:X}]\n"),
                         seq_tag, target_seconds,
                         static_cast<unsigned>(before.raw_busy_791),
+                        static_cast<unsigned>(before.raw_loading_794),
+                        before.raw_task_data_7a8,
                         before.raw_task_count_7b0,
+                        before.raw_task_max_7b4,
                         before.raw_current_task_7b8);
                 return false;
             }
@@ -6730,8 +12675,12 @@ namespace Horse
                     reinterpret_cast<void*>(before.driver_ptr),
                     target_seconds))
             {
+                publish_native_failure_reason(
+                    NativeSeekFailure::CallFaulted);
                 return false;
             }
+            m_native.direct_driver_available = true;
+            m_native.driver_ptr = before.driver_ptr;
 
             ReplayScrubDiag::DemoNetDriverSnap after{};
             const bool after_readable =
@@ -6745,33 +12694,43 @@ namespace Horse
                     || after.raw_busy_791 != before.raw_busy_791);
             if (!task_observed)
             {
+                publish_native_failure_reason(
+                    NativeSeekFailure::TaskNotObserved);
                 RC::Output::send<RC::LogLevel::Warning>(STR(
                     "[ReplayScrub] native DemoNetDriver seek call returned "
                     "but no FGotoTimeInSecondsTask was observed; retrying "
                     "later (seq={} master_clock={} target={:.3f}s "
-                    "driver=0x{:X} before[+791=0x{:02X} +7B0={} "
-                    "+7B8=0x{:X}] after_readable={} after[+791=0x{:02X} "
-                    "+7B0={} +7B8=0x{:X}])\n"),
+                    "driver=0x{:X} before[+791=0x{:02X} +794=0x{:02X} "
+                    "+7A8=0x{:X} +7B0={} +7B4={} +7B8=0x{:X}] "
+                    "after_readable={} after[+791=0x{:02X} +794=0x{:02X} "
+                    "+7A8=0x{:X} +7B0={} +7B4={} +7B8=0x{:X}])\n"),
                     seq_tag, master_clock, target_seconds, before.driver_ptr,
                     static_cast<unsigned>(before.raw_busy_791),
-                    before.raw_task_count_7b0, before.raw_current_task_7b8,
+                    static_cast<unsigned>(before.raw_loading_794),
+                    before.raw_task_data_7a8,
+                    before.raw_task_count_7b0,
+                    before.raw_task_max_7b4,
+                    before.raw_current_task_7b8,
                     after_readable ? 1 : 0,
                     static_cast<unsigned>(after.raw_busy_791),
-                    after.raw_task_count_7b0, after.raw_current_task_7b8);
+                    static_cast<unsigned>(after.raw_loading_794),
+                    after.raw_task_data_7a8,
+                        after.raw_task_count_7b0,
+                        after.raw_task_max_7b4,
+                        after.raw_current_task_7b8);
+                if (kAllowUnobservedDemoGotoCVarFallback
+                    && try_queue_demo_goto_time_seek_cvar(
+                           target_seconds, master_clock, round_tag, seq_tag))
+                {
+                    m_native.cvar_submitted = true;
+                    m_native.direct_driver_available = false;
+                    return true;
+                }
                 return false;
             }
 
-            if (m_use_replay_player_seek.load(std::memory_order_acquire))
-            {
-                write_replay_player_cursor(
-                    round_tag, master_clock,
-                    static_cast<float>(master_clock) / 60.0f);
-            }
             m_native_demo_seek_guard_ticks.store(
                 kNativeDemoSeekGuardTicks, std::memory_order_release);
-            m_last_seek_target.store(seq_tag, std::memory_order_release);
-            m_last_seek_master_tag.store(master_clock,
-                                         std::memory_order_release);
 
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayScrub] native DemoNetDriver::GotoTimeInSeconds "
@@ -6780,14 +12739,18 @@ namespace Horse
                 "driver=0x{:X} rawCur {:.3f}->{:.3f} "
                 "raw+791 0x{:02X}->0x{:02X} "
                 "raw+794 0x{:02X}->0x{:02X} "
-                "tasks {}->{} currentTask 0x{:X}->0x{:X}\n"),
+                "taskData 0x{:X}->0x{:X} "
+                "tasks {}->{} max {}->{} "
+                "currentTask 0x{:X}->0x{:X}\n"),
                 seq_tag, master_clock, target_seconds, after.driver_ptr,
                 before.raw_demo_cur_time, after.raw_demo_cur_time,
                 static_cast<unsigned>(before.raw_busy_791),
                 static_cast<unsigned>(after.raw_busy_791),
                 static_cast<unsigned>(before.raw_loading_794),
                 static_cast<unsigned>(after.raw_loading_794),
+                before.raw_task_data_7a8, after.raw_task_data_7a8,
                 before.raw_task_count_7b0, after.raw_task_count_7b0,
+                before.raw_task_max_7b4, after.raw_task_max_7b4,
                 before.raw_current_task_7b8,
                 after.raw_current_task_7b8);
             return true;
@@ -6812,9 +12775,6 @@ namespace Horse
 
             m_native_demo_seek_guard_ticks.store(
                 kNativeDemoSeekGuardTicks, std::memory_order_release);
-            m_last_seek_target.store(seq_tag, std::memory_order_release);
-            m_last_seek_master_tag.store(master_clock,
-                                         std::memory_order_release);
 
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayScrub] native demo.GotoTimeInSeconds CVar "

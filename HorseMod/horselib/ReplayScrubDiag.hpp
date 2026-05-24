@@ -284,28 +284,315 @@ namespace Horse
             float     raw_demo_cur_time   {-1.0f}; // Ghidra: +0x418
             uint8_t   raw_busy_791        {0};
             uint8_t   raw_loading_794     {0};
+            uintptr_t raw_task_data_7a8   {0};
             int32_t   raw_task_count_7b0  {0};
+            int32_t   raw_task_max_7b4    {0};
             uintptr_t raw_current_task_7b8 {0};
             bool      readable       {false};
+            bool      raw_fields_readable {false};
+            bool      time_fields_readable {false};
+            bool      task_fields_readable {false};
         };
 
-        // Ghidra: Z_Construct_UClass_UWorld @ 0x1428A5B90 registers
-        // UWorld.DemoNetDriver at +0xB8.  The UObject-array class search
-        // can miss the active driver, but the current world owns the
-        // authoritative pointer the engine itself uses for demo scrubbing.
+        enum class DemoDriverResolveSource : int
+        {
+            None = 0,
+            Cached,
+            ReplayPlayerGetWorld,
+            GWorld,
+            GEngineGameViewportWorld,
+            GEngineWorldContext,
+            UWorldDemoNetDriver,
+            UWorldNetDriver,
+            UWorldLevelCollection,
+            FLevelCollectionNetDriver,
+            WorldContextActiveNetDrivers,
+            ObjectArrayProbe,
+            ReflectedProperty,
+        };
+
+        struct DemoTimeSourceSnap
+        {
+            uintptr_t source_ptr {0};
+            DemoDriverResolveSource source {DemoDriverResolveSource::None};
+            float raw_demo_total_time {-1.0f};
+            float raw_demo_cur_time {-1.0f};
+            bool readable {false};
+            bool time_fields_readable {false};
+            bool time_sane {false};
+        };
+
+        enum class DemoDriverResolveFailure : int
+        {
+            None = 0,
+            NullWorld,
+            WorldReadFailed,
+            NullCandidate,
+            CandidateRawReadFailed,
+            CandidateTaskFieldsInvalid,
+            CandidateClassInvalid,
+            GWorldUnavailable,
+            ReplayPlayerUnavailable,
+            PropertyUnavailable,
+            SlowProbeUnavailable,
+        };
+
+        struct DemoDriverResolveAttempt
+        {
+            DemoDriverResolveSource source {DemoDriverResolveSource::None};
+            uintptr_t world {0};
+            uintptr_t container {0};
+            uintptr_t candidate_driver {0};
+            float raw_demo_cur_time {-1.0f};
+            float raw_demo_total_time {-1.0f};
+            uintptr_t raw_task_data_7a8 {0};
+            int32_t raw_task_count_7b0 {0};
+            int32_t raw_task_max_7b4 {0};
+            uintptr_t raw_current_task_7b8 {0};
+            bool world_readable {false};
+            bool candidate_readable {false};
+            bool class_valid {false};
+            bool task_fields_readable {false};
+            bool time_fields_readable {false};
+            int32_t failure_reason {
+                static_cast<int32_t>(DemoDriverResolveFailure::None)};
+        };
+
+        struct DemoDriverResolveReport
+        {
+            static constexpr int32_t kMaxAttempts = 64;
+            DemoNetDriverSnap snap {};
+            DemoDriverResolveSource source {DemoDriverResolveSource::None};
+            DemoDriverResolveAttempt attempts[kMaxAttempts] {};
+            int32_t attempt_count {0};
+        };
+
+        struct DemoTimeSourceReport
+        {
+            static constexpr int32_t kMaxAttempts =
+                DemoDriverResolveReport::kMaxAttempts;
+            DemoTimeSourceSnap snap {};
+            DemoDriverResolveSource source {DemoDriverResolveSource::None};
+            DemoDriverResolveAttempt attempts[kMaxAttempts] {};
+            int32_t attempt_count {0};
+        };
+
+        // Ghidra-verified world / engine traversal constants.
         static constexpr uintptr_t kRVA_GWorld = 0x43B4DB8;
+        static constexpr uintptr_t kRVA_GEngine = 0x43B3068;
+        static constexpr uintptr_t kUEngine_WorldContexts_Data_Off = 0xBE8;
+        static constexpr uintptr_t kUEngine_WorldContexts_Count_Off = 0xBF0;
+        static constexpr uintptr_t kUEngine_GameViewport_Off = 0x618;
+        static constexpr uintptr_t kFWorldContext_CurrentWorld_Off = 0x298;
+        static constexpr uintptr_t kUWorld_NetDriver_Off = 0x30;
         static constexpr uintptr_t kUWorld_DemoNetDriver_Off = 0xB8;
         static constexpr uintptr_t kUWorld_LevelCollections_Off = 0x120;
         static constexpr size_t    kFLevelCollection_Stride = 0x80;
+        static constexpr uintptr_t kFLevelCollection_NetDriver_Off = 0x10;
         static constexpr uintptr_t kFLevelCollection_DemoNetDriver_Off = 0x18;
+        static constexpr int32_t   kMaxWorldContexts = 16;
 
         inline GlobalPtr& replay_player_ptr() noexcept;
+        inline GlobalPtr& demo_net_driver_ptr() noexcept;
+        inline bool read_gworld_ptr(void** world_raw) noexcept;
+        inline RC::Unreal::UObject* find_demo_net_driver_probed() noexcept;
+
+        inline const char* demo_driver_source_name(
+            DemoDriverResolveSource source) noexcept
+        {
+            switch (source)
+            {
+            case DemoDriverResolveSource::Cached: return "Cached";
+            case DemoDriverResolveSource::ReplayPlayerGetWorld:
+                return "ReplayPlayer->GetWorld";
+            case DemoDriverResolveSource::GWorld: return "GWorld";
+            case DemoDriverResolveSource::GEngineGameViewportWorld:
+                return "GEngine.GameViewport->GetWorld";
+            case DemoDriverResolveSource::GEngineWorldContext:
+                return "GEngine.WorldContexts";
+            case DemoDriverResolveSource::UWorldDemoNetDriver:
+                return "UWorld.DemoNetDriver";
+            case DemoDriverResolveSource::UWorldNetDriver:
+                return "UWorld.NetDriver";
+            case DemoDriverResolveSource::UWorldLevelCollection:
+                return "FLevelCollection.DemoNetDriver";
+            case DemoDriverResolveSource::FLevelCollectionNetDriver:
+                return "FLevelCollection.NetDriver";
+            case DemoDriverResolveSource::WorldContextActiveNetDrivers:
+                return "WorldContext.ActiveNetDrivers";
+            case DemoDriverResolveSource::ObjectArrayProbe:
+                return "ObjectArrayProbe";
+            case DemoDriverResolveSource::ReflectedProperty:
+                return "ReflectedProperty";
+            case DemoDriverResolveSource::None:
+            default:
+                return "None";
+            }
+        }
+
+        inline void add_demo_driver_attempt(
+            DemoDriverResolveReport* report,
+            const DemoDriverResolveAttempt& attempt) noexcept
+        {
+            if (!report) return;
+            if (report->attempt_count < DemoDriverResolveReport::kMaxAttempts)
+            {
+                report->attempts[report->attempt_count++] = attempt;
+            }
+        }
+
+        inline void add_demo_time_source_attempt(
+            DemoTimeSourceReport* report,
+            const DemoDriverResolveAttempt& attempt) noexcept
+        {
+            if (!report) return;
+            if (report->attempt_count < DemoTimeSourceReport::kMaxAttempts)
+            {
+                report->attempts[report->attempt_count++] = attempt;
+            }
+        }
+
+        inline DemoDriverResolveSource last_success_source(
+            const DemoDriverResolveReport& report,
+            DemoDriverResolveSource fallback) noexcept
+        {
+            for (int32_t i = report.attempt_count - 1; i >= 0; --i)
+            {
+                if (report.attempts[i].candidate_readable)
+                    return report.attempts[i].source;
+            }
+            return fallback;
+        }
+
+        inline DemoDriverResolveSource last_time_source_success_source(
+            const DemoTimeSourceReport& report,
+            DemoDriverResolveSource fallback) noexcept
+        {
+            for (int32_t i = report.attempt_count - 1; i >= 0; --i)
+            {
+                if (report.attempts[i].candidate_readable)
+                    return report.attempts[i].source;
+            }
+            return fallback;
+        }
+
+        inline std::atomic<uintptr_t>& cached_demo_world_ptr() noexcept
+        {
+            static std::atomic<uintptr_t> s_cached{0};
+            return s_cached;
+        }
+
+        inline std::atomic<uintptr_t>& cached_demo_time_source_ptr() noexcept
+        {
+            static std::atomic<uintptr_t> s_cached{0};
+            return s_cached;
+        }
+
+        inline std::atomic<uintptr_t>& cached_demo_time_source_world_ptr()
+            noexcept
+        {
+            static std::atomic<uintptr_t> s_cached{0};
+            return s_cached;
+        }
+
+        inline std::atomic<int32_t>& cached_world_demo_driver_off() noexcept
+        {
+            static std::atomic<int32_t> s_off{-2};
+            return s_off;
+        }
+
+        inline std::atomic<int32_t>& cached_world_level_collections_off() noexcept
+        {
+            static std::atomic<int32_t> s_off{-2};
+            return s_off;
+        }
+
+        inline std::atomic<int32_t>& cached_demo_cur_time_off() noexcept
+        {
+            static std::atomic<int32_t> s_off{-2};
+            return s_off;
+        }
+
+        inline std::atomic<int32_t>& cached_demo_total_time_off() noexcept
+        {
+            static std::atomic<int32_t> s_off{-2};
+            return s_off;
+        }
+
+        template <class T>
+        inline int32_t reflected_offset_of(RC::Unreal::UObject* obj,
+                                           const wchar_t* property) noexcept
+        {
+            if (!obj) return -1;
+            __try
+            {
+                T* ptr = obj->GetValuePtrByPropertyNameInChain<T>(property);
+                if (!ptr) return -1;
+                const uintptr_t base = reinterpret_cast<uintptr_t>(obj);
+                const uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
+                if (p < base || p - base > 0x100000) return -1;
+                return static_cast<int32_t>(p - base);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return -1;
+            }
+        }
+
+        inline int32_t get_world_demo_driver_offset(void* world_raw,
+                                                    bool allow_reflection)
+            noexcept
+        {
+            int32_t off = cached_world_demo_driver_off().load(
+                std::memory_order_acquire);
+            if (off != -2) return off;
+            if (allow_reflection && world_raw)
+            {
+                off = reflected_offset_of<RC::Unreal::UObject*>(
+                    reinterpret_cast<RC::Unreal::UObject*>(world_raw),
+                    L"DemoNetDriver");
+                if (off >= 0)
+                {
+                    cached_world_demo_driver_off().store(
+                        off, std::memory_order_release);
+                    return off;
+                }
+            }
+            return static_cast<int32_t>(kUWorld_DemoNetDriver_Off);
+        }
+
+        inline int32_t get_world_level_collections_offset(
+            void* world_raw,
+            bool allow_reflection) noexcept
+        {
+            int32_t off = cached_world_level_collections_off().load(
+                std::memory_order_acquire);
+            if (off != -2) return off;
+            if (allow_reflection && world_raw)
+            {
+                off = reflected_offset_of<TArrHdr>(
+                    reinterpret_cast<RC::Unreal::UObject*>(world_raw),
+                    L"LevelCollections");
+                if (off >= 0)
+                {
+                    cached_world_level_collections_off().store(
+                        off, std::memory_order_release);
+                    return off;
+                }
+            }
+            return static_cast<int32_t>(kUWorld_LevelCollections_Off);
+        }
 
         inline bool demo_snap_task_state_is_sane(
             const DemoNetDriverSnap& s) noexcept
         {
             return s.raw_task_count_7b0 >= 0
-                && s.raw_task_count_7b0 < 128;
+                && s.raw_task_count_7b0 < 128
+                && s.raw_task_max_7b4 >= 0
+                && (s.raw_task_max_7b4 >= s.raw_task_count_7b0
+                    || (s.raw_task_count_7b0 == 0
+                        && s.raw_task_data_7a8 == 0))
+                && s.raw_task_max_7b4 < 1024;
         }
 
         inline bool demo_snap_time_is_sane(
@@ -313,10 +600,55 @@ namespace Horse
         {
             return s.raw_demo_total_time == s.raw_demo_total_time
                 && s.raw_demo_cur_time == s.raw_demo_cur_time
-                && s.raw_demo_total_time >= 0.0f
+                && s.raw_demo_total_time > 0.001f
                 && s.raw_demo_total_time < 86400.0f
                 && s.raw_demo_cur_time >= 0.0f
                 && s.raw_demo_cur_time <= s.raw_demo_total_time + 5.0f;
+        }
+
+        inline void copy_demo_snap_raw_to_attempt(
+            DemoDriverResolveAttempt& attempt,
+            const DemoNetDriverSnap& snap) noexcept
+        {
+            attempt.raw_demo_cur_time = snap.raw_demo_cur_time;
+            attempt.raw_demo_total_time = snap.raw_demo_total_time;
+            attempt.raw_task_data_7a8 = snap.raw_task_data_7a8;
+            attempt.raw_task_count_7b0 = snap.raw_task_count_7b0;
+            attempt.raw_task_max_7b4 = snap.raw_task_max_7b4;
+            attempt.raw_current_task_7b8 = snap.raw_current_task_7b8;
+        }
+
+        inline bool read_demo_time_source_raw(
+            void* candidate_raw,
+            DemoTimeSourceSnap& s) noexcept
+        {
+            if (!candidate_raw) return false;
+            const uintptr_t a = reinterpret_cast<uintptr_t>(candidate_raw);
+            DemoTimeSourceSnap t{};
+            t.source_ptr = a;
+
+            int32_t total_off = cached_demo_total_time_off().load(
+                std::memory_order_acquire);
+            int32_t cur_off = cached_demo_cur_time_off().load(
+                std::memory_order_acquire);
+            if (total_off < 0) total_off = 0x414;
+            if (cur_off < 0) cur_off = 0x418;
+
+            t.time_fields_readable =
+                SafeReadFloat(reinterpret_cast<const void*>(a + total_off),
+                              &t.raw_demo_total_time)
+                && SafeReadFloat(reinterpret_cast<const void*>(a + cur_off),
+                                 &t.raw_demo_cur_time);
+            t.time_sane = t.time_fields_readable
+                && t.raw_demo_total_time == t.raw_demo_total_time
+                && t.raw_demo_cur_time == t.raw_demo_cur_time
+                && t.raw_demo_total_time > 0.001f
+                && t.raw_demo_total_time < 86400.0f
+                && t.raw_demo_cur_time >= 0.0f
+                && t.raw_demo_cur_time <= t.raw_demo_total_time + 5.0f;
+            t.readable = t.time_sane;
+            s = t;
+            return t.readable;
         }
 
         inline bool read_demo_driver_raw(
@@ -327,23 +659,53 @@ namespace Horse
             const uintptr_t a = reinterpret_cast<uintptr_t>(driver_raw);
             DemoNetDriverSnap t{};
             t.driver_ptr = a;
-            bool ok = true;
-            ok = ok && SafeReadFloat(reinterpret_cast<const void*>(a + 0x414),
-                                     &t.raw_demo_total_time);
-            ok = ok && SafeReadFloat(reinterpret_cast<const void*>(a + 0x418),
-                                     &t.raw_demo_cur_time);
-            ok = ok && SafeReadUInt8(reinterpret_cast<const void*>(a + 0x791),
-                                     &t.raw_busy_791);
-            ok = ok && SafeReadUInt8(reinterpret_cast<const void*>(a + 0x794),
-                                     &t.raw_loading_794);
-            ok = ok && SafeReadInt32(reinterpret_cast<const void*>(a + 0x7B0),
-                                     &t.raw_task_count_7b0);
+            bool task_ok = true;
+
+            int32_t total_off = cached_demo_total_time_off().load(
+                std::memory_order_acquire);
+            int32_t cur_off = cached_demo_cur_time_off().load(
+                std::memory_order_acquire);
+            if (total_off < 0) total_off = 0x414;
+            if (cur_off < 0) cur_off = 0x418;
+            const bool time_ok =
+                SafeReadFloat(reinterpret_cast<const void*>(a + total_off),
+                              &t.raw_demo_total_time)
+                && SafeReadFloat(reinterpret_cast<const void*>(a + cur_off),
+                                 &t.raw_demo_cur_time);
+
+            task_ok = task_ok
+                && SafeReadUInt8(reinterpret_cast<const void*>(a + 0x791),
+                                 &t.raw_busy_791);
+            task_ok = task_ok
+                && SafeReadUInt8(reinterpret_cast<const void*>(a + 0x794),
+                                 &t.raw_loading_794);
+            void* task_data = nullptr;
+            if (SafeReadPtr(reinterpret_cast<const void*>(a + 0x7A8),
+                            &task_data))
+            {
+                t.raw_task_data_7a8 =
+                    reinterpret_cast<uintptr_t>(task_data);
+            }
+            else
+            {
+                task_ok = false;
+            }
+            task_ok = task_ok
+                && SafeReadInt32(reinterpret_cast<const void*>(a + 0x7B0),
+                                 &t.raw_task_count_7b0);
+            task_ok = task_ok
+                && SafeReadInt32(reinterpret_cast<const void*>(a + 0x7B4),
+                                 &t.raw_task_max_7b4);
             void* current_task = nullptr;
             if (SafeReadPtr(reinterpret_cast<const void*>(a + 0x7B8),
                             &current_task))
             {
                 t.raw_current_task_7b8 =
                     reinterpret_cast<uintptr_t>(current_task);
+            }
+            else
+            {
+                task_ok = false;
             }
             // Do not reject the UWorld-owned driver just because its
             // timing fields are temporarily odd.  Ghidra shows
@@ -352,41 +714,172 @@ namespace Horse
             // diagnostic/capture data.  Treat them as optional so a stale
             // or uninitialised DemoTotalTime cannot turn every seek into a
             // visual-only fallback.
-            if (!ok || !demo_snap_task_state_is_sane(t))
+            t.time_fields_readable = time_ok;
+            t.task_fields_readable = task_ok && demo_snap_task_state_is_sane(t);
+            t.raw_fields_readable = time_ok || task_ok;
+            if (!t.task_fields_readable)
+            {
+                s = t;
                 return false;
+            }
             t.readable = true;
             s = t;
             return true;
         }
 
+        inline bool probe_demo_driver_candidate(
+            DemoDriverResolveReport* report,
+            DemoDriverResolveSource source,
+            uintptr_t world,
+            uintptr_t container,
+            void* driver_raw,
+            DemoNetDriverSnap& s) noexcept
+        {
+            DemoDriverResolveAttempt attempt{};
+            attempt.source = source;
+            attempt.world = world;
+            attempt.container = container;
+            attempt.world_readable = world != 0;
+            attempt.candidate_driver =
+                reinterpret_cast<uintptr_t>(driver_raw);
+
+            if (!driver_raw)
+            {
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::NullCandidate);
+                add_demo_driver_attempt(report, attempt);
+                return false;
+            }
+
+            DemoNetDriverSnap probe{};
+            if (read_demo_driver_raw(driver_raw, probe))
+            {
+                attempt.candidate_readable = true;
+                attempt.task_fields_readable = probe.task_fields_readable;
+                attempt.time_fields_readable = probe.time_fields_readable;
+                copy_demo_snap_raw_to_attempt(attempt, probe);
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::None);
+                add_demo_driver_attempt(report, attempt);
+                s = probe;
+                return true;
+            }
+
+            attempt.task_fields_readable = probe.task_fields_readable;
+            attempt.time_fields_readable = probe.time_fields_readable;
+            copy_demo_snap_raw_to_attempt(attempt, probe);
+            attempt.failure_reason = static_cast<int32_t>(
+                probe.raw_fields_readable
+                    ? DemoDriverResolveFailure::CandidateTaskFieldsInvalid
+                    : DemoDriverResolveFailure::CandidateRawReadFailed);
+            add_demo_driver_attempt(report, attempt);
+            return false;
+        }
+
+        inline void add_pointer_read_failure_attempt(
+            DemoDriverResolveReport* report,
+            DemoDriverResolveSource source,
+            uintptr_t world,
+            uintptr_t container) noexcept
+        {
+            DemoDriverResolveAttempt attempt{};
+            attempt.source = source;
+            attempt.world = world;
+            attempt.container = container;
+            attempt.world_readable = world != 0;
+            attempt.failure_reason = static_cast<int32_t>(
+                DemoDriverResolveFailure::WorldReadFailed);
+            add_demo_driver_attempt(report, attempt);
+        }
+
         inline bool read_level_collection_demo_driver(
             void* world_raw,
-            DemoNetDriverSnap& s) noexcept
+            DemoNetDriverSnap& s,
+            DemoDriverResolveReport* report = nullptr,
+            bool allow_reflection = false) noexcept
         {
             if (!world_raw) return false;
             uint8_t* world = static_cast<uint8_t*>(world_raw);
             void* collections = nullptr;
             int32_t num = 0;
-            if (!SafeReadPtr(world + kUWorld_LevelCollections_Off,
-                             &collections) || !collections)
+            const int32_t collections_off =
+                get_world_level_collections_offset(world_raw,
+                                                   allow_reflection);
+            DemoDriverResolveAttempt header_attempt{};
+            header_attempt.source =
+                DemoDriverResolveSource::UWorldLevelCollection;
+            header_attempt.world = reinterpret_cast<uintptr_t>(world_raw);
+            header_attempt.world_readable = true;
+            if (!SafeReadPtr(world + collections_off, &collections)
+                || !collections)
+            {
+                header_attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::WorldReadFailed);
+                add_demo_driver_attempt(report, header_attempt);
                 return false;
-            if (!SafeReadInt32(world + kUWorld_LevelCollections_Off + 0x8,
-                               &num))
+            }
+            header_attempt.container =
+                reinterpret_cast<uintptr_t>(collections);
+            if (!SafeReadInt32(world + collections_off + 0x8, &num))
+            {
+                header_attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::WorldReadFailed);
+                add_demo_driver_attempt(report, header_attempt);
                 return false;
+            }
+            add_demo_driver_attempt(report, header_attempt);
             if (num <= 0 || num > 16)
                 return false;
 
             auto* base = static_cast<uint8_t*>(collections);
             for (int32_t i = 0; i < num; ++i)
             {
+                const size_t collection_off = static_cast<size_t>(i)
+                    * kFLevelCollection_Stride;
+                const uintptr_t collection =
+                    reinterpret_cast<uintptr_t>(collections)
+                    + static_cast<uintptr_t>(collection_off);
                 void* driver_raw = nullptr;
-                const size_t off = static_cast<size_t>(i)
-                    * kFLevelCollection_Stride
+
+                const size_t demo_off = collection_off
                     + kFLevelCollection_DemoNetDriver_Off;
-                if (SafeReadPtr(base + off, &driver_raw)
-                    && read_demo_driver_raw(driver_raw, s))
+                if (SafeReadPtr(base + demo_off, &driver_raw))
                 {
-                    return true;
+                    if (probe_demo_driver_candidate(
+                            report,
+                            DemoDriverResolveSource::UWorldLevelCollection,
+                            reinterpret_cast<uintptr_t>(world_raw),
+                            collection, driver_raw, s))
+                        return true;
+                }
+                else
+                {
+                    add_pointer_read_failure_attempt(
+                        report,
+                        DemoDriverResolveSource::UWorldLevelCollection,
+                        reinterpret_cast<uintptr_t>(world_raw),
+                        collection);
+                }
+
+                driver_raw = nullptr;
+                const size_t net_off = collection_off
+                    + kFLevelCollection_NetDriver_Off;
+                if (SafeReadPtr(base + net_off, &driver_raw))
+                {
+                    if (probe_demo_driver_candidate(
+                            report,
+                            DemoDriverResolveSource::FLevelCollectionNetDriver,
+                            reinterpret_cast<uintptr_t>(world_raw),
+                            collection, driver_raw, s))
+                        return true;
+                }
+                else
+                {
+                    add_pointer_read_failure_attempt(
+                        report,
+                        DemoDriverResolveSource::FLevelCollectionNetDriver,
+                        reinterpret_cast<uintptr_t>(world_raw),
+                        collection);
                 }
             }
             return false;
@@ -394,18 +887,267 @@ namespace Horse
 
         inline bool read_world_demo_driver(
             void* world_raw,
-            DemoNetDriverSnap& s) noexcept
+            DemoNetDriverSnap& s,
+            DemoDriverResolveReport* report = nullptr,
+            bool allow_reflection = false) noexcept
         {
             if (!world_raw) return false;
             void* driver_raw = nullptr;
-            if (SafeReadPtr(static_cast<uint8_t*>(world_raw)
-                                + kUWorld_DemoNetDriver_Off,
-                            &driver_raw)
-                && read_demo_driver_raw(driver_raw, s))
+            const uintptr_t world = reinterpret_cast<uintptr_t>(world_raw);
+            const int32_t demo_off =
+                get_world_demo_driver_offset(world_raw, allow_reflection);
+            if (SafeReadPtr(static_cast<uint8_t*>(world_raw) + demo_off,
+                            &driver_raw))
             {
+                if (probe_demo_driver_candidate(
+                        report, DemoDriverResolveSource::UWorldDemoNetDriver,
+                        world, 0, driver_raw, s))
+                    return true;
+            }
+            else
+            {
+                add_pointer_read_failure_attempt(
+                    report, DemoDriverResolveSource::UWorldDemoNetDriver,
+                    world, 0);
+            }
+
+            driver_raw = nullptr;
+            if (SafeReadPtr(static_cast<uint8_t*>(world_raw)
+                                + kUWorld_NetDriver_Off,
+                            &driver_raw))
+            {
+                if (probe_demo_driver_candidate(
+                        report, DemoDriverResolveSource::UWorldNetDriver,
+                        world, 0, driver_raw, s))
+                    return true;
+            }
+            else
+            {
+                add_pointer_read_failure_attempt(
+                    report, DemoDriverResolveSource::UWorldNetDriver,
+                    world, 0);
+            }
+
+            return read_level_collection_demo_driver(
+                world_raw, s, report, allow_reflection);
+        }
+
+        inline bool probe_demo_time_source_candidate(
+            DemoTimeSourceReport* report,
+            DemoDriverResolveSource source,
+            uintptr_t world,
+            uintptr_t container,
+            void* candidate_raw,
+            DemoTimeSourceSnap& snap) noexcept
+        {
+            DemoDriverResolveAttempt attempt{};
+            attempt.source = source;
+            attempt.world = world;
+            attempt.container = container;
+            attempt.world_readable = world != 0;
+            attempt.candidate_driver =
+                reinterpret_cast<uintptr_t>(candidate_raw);
+
+            if (!candidate_raw)
+            {
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::NullCandidate);
+                add_demo_time_source_attempt(report, attempt);
+                return false;
+            }
+
+            DemoNetDriverSnap raw_probe{};
+            if (report)
+            {
+                (void)read_demo_driver_raw(candidate_raw, raw_probe);
+                attempt.task_fields_readable =
+                    raw_probe.task_fields_readable;
+                attempt.time_fields_readable =
+                    raw_probe.time_fields_readable;
+                copy_demo_snap_raw_to_attempt(attempt, raw_probe);
+            }
+
+            DemoTimeSourceSnap time_probe{};
+            if (read_demo_time_source_raw(candidate_raw, time_probe))
+            {
+                time_probe.source = source;
+                attempt.candidate_readable = true;
+                attempt.time_fields_readable = true;
+                attempt.raw_demo_cur_time = time_probe.raw_demo_cur_time;
+                attempt.raw_demo_total_time = time_probe.raw_demo_total_time;
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::None);
+                add_demo_time_source_attempt(report, attempt);
+                snap = time_probe;
                 return true;
             }
-            return read_level_collection_demo_driver(world_raw, s);
+
+            attempt.time_fields_readable =
+                time_probe.time_fields_readable;
+            attempt.raw_demo_cur_time = time_probe.raw_demo_cur_time;
+            attempt.raw_demo_total_time = time_probe.raw_demo_total_time;
+            attempt.failure_reason = static_cast<int32_t>(
+                time_probe.time_fields_readable
+                    ? DemoDriverResolveFailure::CandidateTaskFieldsInvalid
+                    : DemoDriverResolveFailure::CandidateRawReadFailed);
+            add_demo_time_source_attempt(report, attempt);
+            return false;
+        }
+
+        inline void add_pointer_read_failure_time_source_attempt(
+            DemoTimeSourceReport* report,
+            DemoDriverResolveSource source,
+            uintptr_t world,
+            uintptr_t container) noexcept
+        {
+            DemoDriverResolveAttempt attempt{};
+            attempt.source = source;
+            attempt.world = world;
+            attempt.container = container;
+            attempt.world_readable = world != 0;
+            attempt.failure_reason = static_cast<int32_t>(
+                DemoDriverResolveFailure::WorldReadFailed);
+            add_demo_time_source_attempt(report, attempt);
+        }
+
+        inline bool read_level_collection_demo_time_source(
+            void* world_raw,
+            DemoTimeSourceSnap& snap,
+            DemoTimeSourceReport* report = nullptr,
+            bool allow_reflection = false) noexcept
+        {
+            if (!world_raw) return false;
+            uint8_t* world = static_cast<uint8_t*>(world_raw);
+            void* collections = nullptr;
+            int32_t num = 0;
+            const int32_t collections_off =
+                get_world_level_collections_offset(world_raw,
+                                                   allow_reflection);
+            DemoDriverResolveAttempt header_attempt{};
+            header_attempt.source =
+                DemoDriverResolveSource::UWorldLevelCollection;
+            header_attempt.world = reinterpret_cast<uintptr_t>(world_raw);
+            header_attempt.world_readable = true;
+            if (!SafeReadPtr(world + collections_off, &collections)
+                || !collections)
+            {
+                header_attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::WorldReadFailed);
+                add_demo_time_source_attempt(report, header_attempt);
+                return false;
+            }
+            header_attempt.container =
+                reinterpret_cast<uintptr_t>(collections);
+            if (!SafeReadInt32(world + collections_off + 0x8, &num))
+            {
+                header_attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::WorldReadFailed);
+                add_demo_time_source_attempt(report, header_attempt);
+                return false;
+            }
+            add_demo_time_source_attempt(report, header_attempt);
+            if (num <= 0 || num > 16)
+                return false;
+
+            auto* base = static_cast<uint8_t*>(collections);
+            for (int32_t i = 0; i < num; ++i)
+            {
+                const size_t collection_off = static_cast<size_t>(i)
+                    * kFLevelCollection_Stride;
+                const uintptr_t collection =
+                    reinterpret_cast<uintptr_t>(collections)
+                    + static_cast<uintptr_t>(collection_off);
+                void* candidate_raw = nullptr;
+
+                const size_t demo_off = collection_off
+                    + kFLevelCollection_DemoNetDriver_Off;
+                if (SafeReadPtr(base + demo_off, &candidate_raw))
+                {
+                    if (probe_demo_time_source_candidate(
+                            report,
+                            DemoDriverResolveSource::UWorldLevelCollection,
+                            reinterpret_cast<uintptr_t>(world_raw),
+                            collection, candidate_raw, snap))
+                        return true;
+                }
+                else
+                {
+                    add_pointer_read_failure_time_source_attempt(
+                        report,
+                        DemoDriverResolveSource::UWorldLevelCollection,
+                        reinterpret_cast<uintptr_t>(world_raw),
+                        collection);
+                }
+
+                candidate_raw = nullptr;
+                const size_t net_off = collection_off
+                    + kFLevelCollection_NetDriver_Off;
+                if (SafeReadPtr(base + net_off, &candidate_raw))
+                {
+                    if (probe_demo_time_source_candidate(
+                            report,
+                            DemoDriverResolveSource::FLevelCollectionNetDriver,
+                            reinterpret_cast<uintptr_t>(world_raw),
+                            collection, candidate_raw, snap))
+                        return true;
+                }
+                else
+                {
+                    add_pointer_read_failure_time_source_attempt(
+                        report,
+                        DemoDriverResolveSource::FLevelCollectionNetDriver,
+                        reinterpret_cast<uintptr_t>(world_raw),
+                        collection);
+                }
+            }
+            return false;
+        }
+
+        inline bool read_world_demo_time_source(
+            void* world_raw,
+            DemoTimeSourceSnap& snap,
+            DemoTimeSourceReport* report = nullptr,
+            bool allow_reflection = false) noexcept
+        {
+            if (!world_raw) return false;
+            void* candidate_raw = nullptr;
+            const uintptr_t world = reinterpret_cast<uintptr_t>(world_raw);
+            const int32_t demo_off =
+                get_world_demo_driver_offset(world_raw, allow_reflection);
+            if (SafeReadPtr(static_cast<uint8_t*>(world_raw) + demo_off,
+                            &candidate_raw))
+            {
+                if (probe_demo_time_source_candidate(
+                        report, DemoDriverResolveSource::UWorldDemoNetDriver,
+                        world, 0, candidate_raw, snap))
+                    return true;
+            }
+            else
+            {
+                add_pointer_read_failure_time_source_attempt(
+                    report, DemoDriverResolveSource::UWorldDemoNetDriver,
+                    world, 0);
+            }
+
+            candidate_raw = nullptr;
+            if (SafeReadPtr(static_cast<uint8_t*>(world_raw)
+                                + kUWorld_NetDriver_Off,
+                            &candidate_raw))
+            {
+                if (probe_demo_time_source_candidate(
+                        report, DemoDriverResolveSource::UWorldNetDriver,
+                        world, 0, candidate_raw, snap))
+                    return true;
+            }
+            else
+            {
+                add_pointer_read_failure_time_source_attempt(
+                    report, DemoDriverResolveSource::UWorldNetDriver,
+                    world, 0);
+            }
+
+            return read_level_collection_demo_time_source(
+                world_raw, snap, report, allow_reflection);
         }
 
         inline std::atomic<uintptr_t>& cached_demo_driver_ptr() noexcept
@@ -417,6 +1159,28 @@ namespace Horse
         inline void clear_cached_demo_driver() noexcept
         {
             cached_demo_driver_ptr().store(0, std::memory_order_release);
+            cached_demo_world_ptr().store(0, std::memory_order_release);
+            demo_net_driver_ptr().invalidate();
+        }
+
+        inline void clear_cached_demo_time_source() noexcept
+        {
+            cached_demo_time_source_ptr().store(
+                0, std::memory_order_release);
+            cached_demo_time_source_world_ptr().store(
+                0, std::memory_order_release);
+        }
+
+        inline void cache_demo_time_source(
+            const DemoTimeSourceSnap& snap,
+            void* world_raw) noexcept
+        {
+            if (!snap.readable || !snap.source_ptr) return;
+            cached_demo_time_source_ptr().store(
+                snap.source_ptr, std::memory_order_release);
+            cached_demo_time_source_world_ptr().store(
+                reinterpret_cast<uintptr_t>(world_raw),
+                std::memory_order_release);
         }
 
         inline bool safe_get_world(RC::Unreal::UObject* obj,
@@ -435,6 +1199,726 @@ namespace Horse
             }
         }
 
+        inline bool safe_get_world_vfunc_138(void* obj,
+                                             void** world_raw) noexcept
+        {
+            if (!obj || !world_raw) return false;
+            __try
+            {
+                void** vtbl = *reinterpret_cast<void***>(obj);
+                if (!vtbl || !vtbl[0x138 / sizeof(void*)])
+                {
+                    *world_raw = nullptr;
+                    return false;
+                }
+                using GetWorldFn = void* (__fastcall*)(void*);
+                auto fn = reinterpret_cast<GetWorldFn>(
+                    vtbl[0x138 / sizeof(void*)]);
+                *world_raw = fn(obj);
+                return *world_raw != nullptr;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                *world_raw = nullptr;
+                return false;
+            }
+        }
+
+        inline bool safe_get_world_context_object(RC::Unreal::UObject* obj,
+                                                  void** world_raw) noexcept
+        {
+            if (!obj || !world_raw) return false;
+
+            // UE4's GetWorldFromContextObject dispatches the UObject virtual
+            // GetWorld slot at vtable+0x138.  UE4SS UObject::GetWorld() is a
+            // useful fallback, but is not equivalent on every SC6 context
+            // object we use for replay authority discovery.
+            if (safe_get_world_vfunc_138(reinterpret_cast<void*>(obj),
+                                         world_raw))
+                return true;
+            return safe_get_world(obj, world_raw);
+        }
+
+        inline bool read_gengine_ptr(void** engine_raw) noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base || !engine_raw) return false;
+            return SafeReadPtr(reinterpret_cast<const void*>(
+                                   base + kRVA_GEngine),
+                               engine_raw)
+                && *engine_raw;
+        }
+
+        inline void cache_demo_driver(const DemoNetDriverSnap& snap,
+                                      void* world_raw) noexcept
+        {
+            if (!snap.readable || !snap.driver_ptr) return;
+            cached_demo_driver_ptr().store(snap.driver_ptr,
+                                           std::memory_order_release);
+            cached_demo_world_ptr().store(
+                reinterpret_cast<uintptr_t>(world_raw),
+                std::memory_order_release);
+        }
+
+        inline void populate_driver_reflected_offsets(
+            DemoNetDriverSnap& snap,
+            bool allow_reflection) noexcept
+        {
+            if (!allow_reflection || !snap.driver_ptr) return;
+            auto* driver =
+                reinterpret_cast<RC::Unreal::UObject*>(snap.driver_ptr);
+            const int32_t cur = reflected_offset_of<float>(
+                driver, L"DemoCurrentTime");
+            const int32_t total = reflected_offset_of<float>(
+                driver, L"DemoTotalTime");
+            if (cur >= 0)
+                cached_demo_cur_time_off().store(
+                    cur, std::memory_order_release);
+            if (total >= 0)
+                cached_demo_total_time_off().store(
+                    total, std::memory_order_release);
+            if (cur >= 0 || total >= 0)
+            {
+                DemoNetDriverSnap refreshed{};
+                if (read_demo_driver_raw(
+                        reinterpret_cast<void*>(snap.driver_ptr),
+                        refreshed))
+                {
+                    snap = refreshed;
+                }
+            }
+        }
+
+        inline bool read_gengine_game_viewport_demo_driver(
+            DemoNetDriverSnap& snap,
+            DemoDriverResolveReport* report,
+            bool allow_reflection) noexcept
+        {
+            DemoDriverResolveAttempt attempt{};
+            attempt.source =
+                DemoDriverResolveSource::GEngineGameViewportWorld;
+
+            void* engine_raw = nullptr;
+            if (!read_gengine_ptr(&engine_raw))
+            {
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::GWorldUnavailable);
+                add_demo_driver_attempt(report, attempt);
+                return false;
+            }
+
+            void* viewport_raw = nullptr;
+            if (!SafeReadPtr(static_cast<uint8_t*>(engine_raw)
+                                + kUEngine_GameViewport_Off,
+                             &viewport_raw) || !viewport_raw)
+            {
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::NullCandidate);
+                add_demo_driver_attempt(report, attempt);
+                return false;
+            }
+
+            attempt.container = reinterpret_cast<uintptr_t>(viewport_raw);
+            void* world_raw = nullptr;
+            if (!safe_get_world_vfunc_138(viewport_raw, &world_raw)
+                && !safe_get_world(
+                    reinterpret_cast<RC::Unreal::UObject*>(viewport_raw),
+                    &world_raw))
+            {
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::WorldReadFailed);
+                add_demo_driver_attempt(report, attempt);
+                return false;
+            }
+
+            attempt.world = reinterpret_cast<uintptr_t>(world_raw);
+            attempt.world_readable = true;
+            add_demo_driver_attempt(report, attempt);
+            return read_world_demo_driver(world_raw, snap, report,
+                                          allow_reflection);
+        }
+
+        inline bool read_gengine_game_viewport_demo_time_source(
+            DemoTimeSourceSnap& snap,
+            DemoTimeSourceReport* report,
+            bool allow_reflection) noexcept
+        {
+            DemoDriverResolveAttempt attempt{};
+            attempt.source =
+                DemoDriverResolveSource::GEngineGameViewportWorld;
+
+            void* engine_raw = nullptr;
+            if (!read_gengine_ptr(&engine_raw))
+            {
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::GWorldUnavailable);
+                add_demo_time_source_attempt(report, attempt);
+                return false;
+            }
+
+            void* viewport_raw = nullptr;
+            if (!SafeReadPtr(static_cast<uint8_t*>(engine_raw)
+                                + kUEngine_GameViewport_Off,
+                             &viewport_raw) || !viewport_raw)
+            {
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::NullCandidate);
+                add_demo_time_source_attempt(report, attempt);
+                return false;
+            }
+
+            attempt.container = reinterpret_cast<uintptr_t>(viewport_raw);
+            void* world_raw = nullptr;
+            if (!safe_get_world_vfunc_138(viewport_raw, &world_raw)
+                && !safe_get_world(
+                    reinterpret_cast<RC::Unreal::UObject*>(viewport_raw),
+                    &world_raw))
+            {
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::WorldReadFailed);
+                add_demo_time_source_attempt(report, attempt);
+                return false;
+            }
+
+            attempt.world = reinterpret_cast<uintptr_t>(world_raw);
+            attempt.world_readable = true;
+            add_demo_time_source_attempt(report, attempt);
+            return read_world_demo_time_source(world_raw, snap, report,
+                                               allow_reflection);
+        }
+
+        inline bool read_gengine_world_context_demo_driver(
+            DemoNetDriverSnap& snap,
+            DemoDriverResolveReport* report,
+            bool allow_reflection) noexcept
+        {
+            void* engine_raw = nullptr;
+            if (!read_gengine_ptr(&engine_raw))
+            {
+                DemoDriverResolveAttempt attempt{};
+                attempt.source = DemoDriverResolveSource::GEngineWorldContext;
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::GWorldUnavailable);
+                add_demo_driver_attempt(report, attempt);
+                return false;
+            }
+
+            auto* engine = static_cast<uint8_t*>(engine_raw);
+            void* contexts_raw = nullptr;
+            int32_t count = 0;
+            if (!SafeReadPtr(engine + kUEngine_WorldContexts_Data_Off,
+                             &contexts_raw)
+                || !contexts_raw
+                || !SafeReadInt32(engine + kUEngine_WorldContexts_Count_Off,
+                                  &count))
+            {
+                DemoDriverResolveAttempt attempt{};
+                attempt.source = DemoDriverResolveSource::GEngineWorldContext;
+                attempt.container = reinterpret_cast<uintptr_t>(engine_raw);
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::WorldReadFailed);
+                add_demo_driver_attempt(report, attempt);
+                return false;
+            }
+
+            if (count <= 0 || count > kMaxWorldContexts)
+            {
+                DemoDriverResolveAttempt attempt{};
+                attempt.source = DemoDriverResolveSource::GEngineWorldContext;
+                attempt.container = reinterpret_cast<uintptr_t>(contexts_raw);
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::WorldReadFailed);
+                add_demo_driver_attempt(report, attempt);
+                return false;
+            }
+
+            auto** contexts = reinterpret_cast<void**>(contexts_raw);
+            for (int32_t i = 0; i < count; ++i)
+            {
+                void* context_raw = nullptr;
+                if (!SafeReadPtr(contexts + i, &context_raw) || !context_raw)
+                {
+                    DemoDriverResolveAttempt attempt{};
+                    attempt.source =
+                        DemoDriverResolveSource::GEngineWorldContext;
+                    attempt.container =
+                        reinterpret_cast<uintptr_t>(contexts_raw)
+                        + static_cast<uintptr_t>(i * sizeof(void*));
+                    attempt.failure_reason = static_cast<int32_t>(
+                        DemoDriverResolveFailure::WorldReadFailed);
+                    add_demo_driver_attempt(report, attempt);
+                    continue;
+                }
+
+                void* world_raw = nullptr;
+                DemoDriverResolveAttempt attempt{};
+                attempt.source = DemoDriverResolveSource::GEngineWorldContext;
+                attempt.container = reinterpret_cast<uintptr_t>(context_raw);
+                if (!SafeReadPtr(
+                        static_cast<uint8_t*>(context_raw)
+                            + kFWorldContext_CurrentWorld_Off,
+                        &world_raw) || !world_raw)
+                {
+                    attempt.failure_reason = static_cast<int32_t>(
+                        DemoDriverResolveFailure::NullWorld);
+                    add_demo_driver_attempt(report, attempt);
+                    continue;
+                }
+
+                attempt.world = reinterpret_cast<uintptr_t>(world_raw);
+                attempt.world_readable = true;
+                add_demo_driver_attempt(report, attempt);
+                if (read_world_demo_driver(world_raw, snap, report,
+                                           allow_reflection))
+                    return true;
+            }
+
+            return false;
+        }
+
+        inline bool read_gengine_world_context_demo_time_source(
+            DemoTimeSourceSnap& snap,
+            DemoTimeSourceReport* report,
+            bool allow_reflection) noexcept
+        {
+            void* engine_raw = nullptr;
+            if (!read_gengine_ptr(&engine_raw))
+            {
+                DemoDriverResolveAttempt attempt{};
+                attempt.source = DemoDriverResolveSource::GEngineWorldContext;
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::GWorldUnavailable);
+                add_demo_time_source_attempt(report, attempt);
+                return false;
+            }
+
+            auto* engine = static_cast<uint8_t*>(engine_raw);
+            void* contexts_raw = nullptr;
+            int32_t count = 0;
+            if (!SafeReadPtr(engine + kUEngine_WorldContexts_Data_Off,
+                             &contexts_raw)
+                || !contexts_raw
+                || !SafeReadInt32(engine + kUEngine_WorldContexts_Count_Off,
+                                  &count))
+            {
+                DemoDriverResolveAttempt attempt{};
+                attempt.source = DemoDriverResolveSource::GEngineWorldContext;
+                attempt.container = reinterpret_cast<uintptr_t>(engine_raw);
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::WorldReadFailed);
+                add_demo_time_source_attempt(report, attempt);
+                return false;
+            }
+
+            if (count <= 0 || count > kMaxWorldContexts)
+            {
+                DemoDriverResolveAttempt attempt{};
+                attempt.source = DemoDriverResolveSource::GEngineWorldContext;
+                attempt.container = reinterpret_cast<uintptr_t>(contexts_raw);
+                attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::WorldReadFailed);
+                add_demo_time_source_attempt(report, attempt);
+                return false;
+            }
+
+            auto** contexts = reinterpret_cast<void**>(contexts_raw);
+            for (int32_t i = 0; i < count; ++i)
+            {
+                void* context_raw = nullptr;
+                if (!SafeReadPtr(contexts + i, &context_raw) || !context_raw)
+                {
+                    DemoDriverResolveAttempt attempt{};
+                    attempt.source =
+                        DemoDriverResolveSource::GEngineWorldContext;
+                    attempt.container =
+                        reinterpret_cast<uintptr_t>(contexts_raw)
+                        + static_cast<uintptr_t>(i * sizeof(void*));
+                    attempt.failure_reason = static_cast<int32_t>(
+                        DemoDriverResolveFailure::WorldReadFailed);
+                    add_demo_time_source_attempt(report, attempt);
+                    continue;
+                }
+
+                void* world_raw = nullptr;
+                DemoDriverResolveAttempt attempt{};
+                attempt.source = DemoDriverResolveSource::GEngineWorldContext;
+                attempt.container = reinterpret_cast<uintptr_t>(context_raw);
+                if (!SafeReadPtr(
+                        static_cast<uint8_t*>(context_raw)
+                            + kFWorldContext_CurrentWorld_Off,
+                        &world_raw) || !world_raw)
+                {
+                    attempt.failure_reason = static_cast<int32_t>(
+                        DemoDriverResolveFailure::NullWorld);
+                    add_demo_time_source_attempt(report, attempt);
+                    continue;
+                }
+
+                attempt.world = reinterpret_cast<uintptr_t>(world_raw);
+                attempt.world_readable = true;
+                add_demo_time_source_attempt(report, attempt);
+                if (read_world_demo_time_source(world_raw, snap, report,
+                                                allow_reflection))
+                    return true;
+            }
+
+            return false;
+        }
+
+        inline DemoTimeSourceReport resolve_demo_time_source_report(
+            bool allow_slow_probe) noexcept
+        {
+            DemoTimeSourceReport report{};
+            DemoTimeSourceSnap snap{};
+
+            const uintptr_t cached =
+                cached_demo_time_source_ptr().load(
+                    std::memory_order_acquire);
+            if (cached)
+            {
+                if (probe_demo_time_source_candidate(
+                        &report, DemoDriverResolveSource::Cached, 0, 0,
+                        reinterpret_cast<void*>(cached), snap))
+                {
+                    report.snap = snap;
+                    report.source = DemoDriverResolveSource::Cached;
+                    return report;
+                }
+                clear_cached_demo_time_source();
+            }
+
+            void* world_raw = nullptr;
+            if (allow_slow_probe)
+            {
+                RC::Unreal::UObject* rp = replay_player_ptr().get(
+                    L"LuxBattleReplayPlayer");
+                DemoDriverResolveAttempt rp_attempt{};
+                rp_attempt.source =
+                    DemoDriverResolveSource::ReplayPlayerGetWorld;
+                rp_attempt.candidate_driver =
+                    reinterpret_cast<uintptr_t>(rp);
+                if (rp && safe_get_world_context_object(rp, &world_raw))
+                {
+                    rp_attempt.world =
+                        reinterpret_cast<uintptr_t>(world_raw);
+                    rp_attempt.world_readable = true;
+                    add_demo_time_source_attempt(&report, rp_attempt);
+                    if (read_world_demo_time_source(world_raw, snap, &report,
+                                                    true))
+                    {
+                        cache_demo_time_source(snap, world_raw);
+                        report.snap = snap;
+                        report.source = last_time_source_success_source(
+                            report,
+                            DemoDriverResolveSource::ReplayPlayerGetWorld);
+                        report.snap.source = report.source;
+                        return report;
+                    }
+                }
+                else
+                {
+                    rp_attempt.failure_reason = static_cast<int32_t>(
+                        rp ? DemoDriverResolveFailure::WorldReadFailed
+                           : DemoDriverResolveFailure::ReplayPlayerUnavailable);
+                    add_demo_time_source_attempt(&report, rp_attempt);
+                }
+            }
+
+            const uintptr_t cached_world =
+                cached_demo_time_source_world_ptr().load(
+                    std::memory_order_acquire);
+            if (cached_world)
+            {
+                world_raw = reinterpret_cast<void*>(cached_world);
+                DemoDriverResolveAttempt world_attempt{};
+                world_attempt.source = DemoDriverResolveSource::GWorld;
+                world_attempt.world = cached_world;
+                world_attempt.world_readable = true;
+                add_demo_time_source_attempt(&report, world_attempt);
+                if (read_world_demo_time_source(world_raw, snap, &report,
+                                                allow_slow_probe))
+                {
+                    cache_demo_time_source(snap, world_raw);
+                    report.snap = snap;
+                    report.source = last_time_source_success_source(
+                        report, DemoDriverResolveSource::GWorld);
+                    report.snap.source = report.source;
+                    return report;
+                }
+            }
+
+            world_raw = nullptr;
+            DemoDriverResolveAttempt gworld_attempt{};
+            gworld_attempt.source = DemoDriverResolveSource::GWorld;
+            if (read_gworld_ptr(&world_raw))
+            {
+                gworld_attempt.world = reinterpret_cast<uintptr_t>(world_raw);
+                gworld_attempt.world_readable = true;
+                add_demo_time_source_attempt(&report, gworld_attempt);
+                if (read_world_demo_time_source(world_raw, snap, &report,
+                                                allow_slow_probe))
+                {
+                    cache_demo_time_source(snap, world_raw);
+                    report.snap = snap;
+                    report.source = last_time_source_success_source(
+                        report, DemoDriverResolveSource::GWorld);
+                    report.snap.source = report.source;
+                    return report;
+                }
+            }
+            else
+            {
+                gworld_attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::GWorldUnavailable);
+                add_demo_time_source_attempt(&report, gworld_attempt);
+            }
+
+            if (allow_slow_probe)
+            {
+                if (read_gengine_game_viewport_demo_time_source(
+                        snap, &report, allow_slow_probe))
+                {
+                    cache_demo_time_source(
+                        snap, reinterpret_cast<void*>(
+                            report.attempt_count > 0
+                                ? report.attempts[
+                                    report.attempt_count - 1].world
+                                : 0));
+                    report.snap = snap;
+                    report.source = last_time_source_success_source(
+                        report,
+                        DemoDriverResolveSource::GEngineGameViewportWorld);
+                    report.snap.source = report.source;
+                    return report;
+                }
+
+                if (read_gengine_world_context_demo_time_source(
+                        snap, &report, allow_slow_probe))
+                {
+                    cache_demo_time_source(
+                        snap, reinterpret_cast<void*>(
+                            report.attempt_count > 0
+                                ? report.attempts[
+                                    report.attempt_count - 1].world
+                                : 0));
+                    report.snap = snap;
+                    report.source = last_time_source_success_source(
+                        report,
+                        DemoDriverResolveSource::GEngineWorldContext);
+                    report.snap.source = report.source;
+                    return report;
+                }
+
+                RC::Unreal::UObject* d = demo_net_driver_ptr().get(
+                    L"DemoNetDriver");
+                if (!d) d = find_demo_net_driver_probed();
+                if (d && probe_demo_time_source_candidate(
+                            &report,
+                            DemoDriverResolveSource::ObjectArrayProbe,
+                            0, 0, d, snap))
+                {
+                    cache_demo_time_source(snap, nullptr);
+                    report.snap = snap;
+                    report.source =
+                        DemoDriverResolveSource::ObjectArrayProbe;
+                    report.snap.source = report.source;
+                    return report;
+                }
+                if (!d)
+                {
+                    DemoDriverResolveAttempt probe_attempt{};
+                    probe_attempt.source =
+                        DemoDriverResolveSource::ObjectArrayProbe;
+                    probe_attempt.failure_reason = static_cast<int32_t>(
+                        DemoDriverResolveFailure::SlowProbeUnavailable);
+                    add_demo_time_source_attempt(&report, probe_attempt);
+                }
+            }
+
+            return report;
+        }
+
+        inline DemoDriverResolveReport resolve_demo_net_driver_report(
+            bool allow_slow_probe) noexcept
+        {
+            DemoDriverResolveReport report{};
+            DemoNetDriverSnap snap{};
+
+            const uintptr_t cached =
+                cached_demo_driver_ptr().load(std::memory_order_acquire);
+            if (cached)
+            {
+                if (probe_demo_driver_candidate(
+                        &report, DemoDriverResolveSource::Cached, 0, 0,
+                        reinterpret_cast<void*>(cached), snap))
+                {
+                    report.snap = snap;
+                    report.source = DemoDriverResolveSource::Cached;
+                    return report;
+                }
+                clear_cached_demo_driver();
+            }
+
+            void* world_raw = nullptr;
+            if (allow_slow_probe)
+            {
+                RC::Unreal::UObject* rp = replay_player_ptr().get(
+                    L"LuxBattleReplayPlayer");
+                DemoDriverResolveAttempt rp_attempt{};
+                rp_attempt.source =
+                    DemoDriverResolveSource::ReplayPlayerGetWorld;
+                rp_attempt.candidate_driver =
+                    reinterpret_cast<uintptr_t>(rp);
+                if (rp && safe_get_world_context_object(rp, &world_raw))
+                {
+                    rp_attempt.world =
+                        reinterpret_cast<uintptr_t>(world_raw);
+                    rp_attempt.world_readable = true;
+                    add_demo_driver_attempt(&report, rp_attempt);
+                    if (read_world_demo_driver(world_raw, snap, &report,
+                                               true))
+                    {
+                        populate_driver_reflected_offsets(
+                            snap, allow_slow_probe);
+                        cache_demo_driver(snap, world_raw);
+                        report.snap = snap;
+                        report.source =
+                            last_success_source(
+                                report,
+                                DemoDriverResolveSource::ReplayPlayerGetWorld);
+                        return report;
+                    }
+                }
+                else
+                {
+                    rp_attempt.failure_reason = static_cast<int32_t>(
+                        rp ? DemoDriverResolveFailure::WorldReadFailed
+                           : DemoDriverResolveFailure::ReplayPlayerUnavailable);
+                    add_demo_driver_attempt(&report, rp_attempt);
+                }
+            }
+
+            const uintptr_t cached_world =
+                cached_demo_world_ptr().load(std::memory_order_acquire);
+            if (cached_world)
+            {
+                world_raw = reinterpret_cast<void*>(cached_world);
+                DemoDriverResolveAttempt world_attempt{};
+                world_attempt.source = DemoDriverResolveSource::GWorld;
+                world_attempt.world = cached_world;
+                world_attempt.world_readable = true;
+                add_demo_driver_attempt(&report, world_attempt);
+                if (read_world_demo_driver(world_raw, snap, &report,
+                                           allow_slow_probe))
+                {
+                    populate_driver_reflected_offsets(
+                        snap, allow_slow_probe);
+                    cache_demo_driver(snap, world_raw);
+                    report.snap = snap;
+                    report.source = last_success_source(
+                        report, DemoDriverResolveSource::GWorld);
+                    return report;
+                }
+            }
+
+            world_raw = nullptr;
+            DemoDriverResolveAttempt gworld_attempt{};
+            gworld_attempt.source = DemoDriverResolveSource::GWorld;
+            if (read_gworld_ptr(&world_raw))
+            {
+                gworld_attempt.world = reinterpret_cast<uintptr_t>(world_raw);
+                gworld_attempt.world_readable = true;
+                add_demo_driver_attempt(&report, gworld_attempt);
+                if (read_world_demo_driver(world_raw, snap, &report,
+                                           allow_slow_probe))
+                {
+                    populate_driver_reflected_offsets(
+                        snap, allow_slow_probe);
+                    cache_demo_driver(snap, world_raw);
+                    report.snap = snap;
+                    report.source = last_success_source(
+                        report, DemoDriverResolveSource::GWorld);
+                    return report;
+                }
+            }
+            else
+            {
+                gworld_attempt.failure_reason = static_cast<int32_t>(
+                    DemoDriverResolveFailure::GWorldUnavailable);
+                add_demo_driver_attempt(&report, gworld_attempt);
+            }
+
+            if (allow_slow_probe)
+            {
+                if (read_gengine_game_viewport_demo_driver(
+                        snap, &report, allow_slow_probe))
+                {
+                    populate_driver_reflected_offsets(
+                        snap, allow_slow_probe);
+                    cache_demo_driver(
+                        snap, reinterpret_cast<void*>(
+                            report.attempt_count > 0
+                                ? report.attempts[
+                                    report.attempt_count - 1].world
+                                : 0));
+                    report.snap = snap;
+                    report.source =
+                        last_success_source(
+                            report,
+                            DemoDriverResolveSource::GEngineGameViewportWorld);
+                    return report;
+                }
+
+                if (read_gengine_world_context_demo_driver(
+                        snap, &report, allow_slow_probe))
+                {
+                    populate_driver_reflected_offsets(
+                        snap, allow_slow_probe);
+                    cache_demo_driver(
+                        snap, reinterpret_cast<void*>(
+                            report.attempt_count > 0
+                                ? report.attempts[report.attempt_count - 1].world
+                                : 0));
+                    report.snap = snap;
+                    report.source =
+                        last_success_source(
+                            report,
+                            DemoDriverResolveSource::GEngineWorldContext);
+                    return report;
+                }
+            }
+
+            if (allow_slow_probe)
+            {
+                RC::Unreal::UObject* d = demo_net_driver_ptr().get(
+                    L"DemoNetDriver");
+                if (!d) d = find_demo_net_driver_probed();
+                if (d && probe_demo_driver_candidate(
+                            &report,
+                            DemoDriverResolveSource::ObjectArrayProbe,
+                            0, 0, d, snap))
+                {
+                    populate_driver_reflected_offsets(
+                        snap, allow_slow_probe);
+                    cache_demo_driver(snap, nullptr);
+                    report.snap = snap;
+                    report.source = DemoDriverResolveSource::ObjectArrayProbe;
+                    return report;
+                }
+                if (!d)
+                {
+                    DemoDriverResolveAttempt probe_attempt{};
+                    probe_attempt.source =
+                        DemoDriverResolveSource::ObjectArrayProbe;
+                    probe_attempt.failure_reason = static_cast<int32_t>(
+                        DemoDriverResolveFailure::SlowProbeUnavailable);
+                    add_demo_driver_attempt(&report, probe_attempt);
+                }
+            }
+
+            return report;
+        }
+
         inline RC::Unreal::UObject*
         find_demo_net_driver_from_world() noexcept
         {
@@ -445,7 +1929,7 @@ namespace Horse
             if (RC::Unreal::UObject* rp = replay_player_ptr().get(
                     L"LuxBattleReplayPlayer"))
             {
-                (void)safe_get_world(rp, &world_raw);
+                (void)safe_get_world_context_object(rp, &world_raw);
             }
             if (!world_raw)
             {
@@ -510,6 +1994,147 @@ namespace Horse
             }
         }
 
+        inline void log_demo_driver_resolve_report_once(
+            const char* label,
+            const DemoDriverResolveReport& report) noexcept
+        {
+            static std::atomic<bool> s_logged_generation{false};
+            static std::atomic<bool> s_logged_seek{false};
+            static std::atomic<bool> s_logged_other{false};
+            std::atomic<bool>* gate = &s_logged_other;
+            if (label && std::strstr(label, "GEN"))
+                gate = &s_logged_generation;
+            else if (label && std::strstr(label, "SEEK"))
+                gate = &s_logged_seek;
+            if (gate->exchange(true, std::memory_order_relaxed))
+                return;
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.diag] demo driver resolve report [{}]: "
+                "source={} readable={} driver=0x{:X} cur={:.3f}s "
+                "total={:.3f}s time_ok={} task_ok={} "
+                "raw[+791=0x{:02X} +794=0x{:02X} +7A8=0x{:X} "
+                "+7B0={} +7B4={} +7B8=0x{:X}] attempts={}\n"),
+                RC::to_generic_string(label ? label : "?"),
+                RC::to_generic_string(
+                    demo_driver_source_name(report.source)),
+                report.snap.readable ? 1 : 0,
+                report.snap.driver_ptr,
+                report.snap.raw_demo_cur_time,
+                report.snap.raw_demo_total_time,
+                report.snap.time_fields_readable ? 1 : 0,
+                report.snap.task_fields_readable ? 1 : 0,
+                static_cast<unsigned>(report.snap.raw_busy_791),
+                static_cast<unsigned>(report.snap.raw_loading_794),
+                report.snap.raw_task_data_7a8,
+                report.snap.raw_task_count_7b0,
+                report.snap.raw_task_max_7b4,
+                report.snap.raw_current_task_7b8,
+                report.attempt_count);
+
+            for (int32_t i = 0; i < report.attempt_count; ++i)
+            {
+                const DemoDriverResolveAttempt& a = report.attempts[i];
+                const bool attempt_time_sane =
+                    a.raw_demo_total_time == a.raw_demo_total_time
+                    && a.raw_demo_cur_time == a.raw_demo_cur_time
+                    && a.raw_demo_total_time >= 0.0f
+                    && a.raw_demo_total_time < 86400.0f
+                    && a.raw_demo_cur_time >= 0.0f
+                    && a.raw_demo_cur_time <= a.raw_demo_total_time + 5.0f;
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub.diag]   attempt {} source={} world=0x{:X} "
+                    "container=0x{:X} candidate=0x{:X} world_ok={} "
+                    "candidate_ok={} class_ok={} task_ok={} time_ok={} "
+                    "time_sane={} cur={:.3f}s total={:.3f}s "
+                    "raw[+7A8=0x{:X} +7B0={} +7B4={} +7B8=0x{:X}] "
+                    "failure={}\n"),
+                    i,
+                    RC::to_generic_string(
+                        demo_driver_source_name(a.source)),
+                    a.world, a.container, a.candidate_driver,
+                    a.world_readable ? 1 : 0,
+                    a.candidate_readable ? 1 : 0,
+                    a.class_valid ? 1 : 0,
+                    a.task_fields_readable ? 1 : 0,
+                    a.time_fields_readable ? 1 : 0,
+                    attempt_time_sane ? 1 : 0,
+                    a.raw_demo_cur_time,
+                    a.raw_demo_total_time,
+                    a.raw_task_data_7a8,
+                    a.raw_task_count_7b0,
+                    a.raw_task_max_7b4,
+                    a.raw_current_task_7b8,
+                    a.failure_reason);
+            }
+        }
+
+        inline void log_demo_time_source_report_once(
+            const char* label,
+            const DemoTimeSourceReport& report) noexcept
+        {
+            static std::atomic<bool> s_logged_generation{false};
+            static std::atomic<bool> s_logged_seek{false};
+            static std::atomic<bool> s_logged_other{false};
+            std::atomic<bool>* gate = &s_logged_other;
+            if (label && std::strstr(label, "GEN"))
+                gate = &s_logged_generation;
+            else if (label && std::strstr(label, "SEEK"))
+                gate = &s_logged_seek;
+            if (gate->exchange(true, std::memory_order_relaxed))
+                return;
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.diag] demo time source report [{}]: "
+                "source={} readable={} ptr=0x{:X} cur={:.3f}s "
+                "total={:.3f}s time_ok={} time_sane={} attempts={}\n"),
+                RC::to_generic_string(label ? label : "?"),
+                RC::to_generic_string(
+                    demo_driver_source_name(report.source)),
+                report.snap.readable ? 1 : 0,
+                report.snap.source_ptr,
+                report.snap.raw_demo_cur_time,
+                report.snap.raw_demo_total_time,
+                report.snap.time_fields_readable ? 1 : 0,
+                report.snap.time_sane ? 1 : 0,
+                report.attempt_count);
+
+            for (int32_t i = 0; i < report.attempt_count; ++i)
+            {
+                const DemoDriverResolveAttempt& a = report.attempts[i];
+                const bool attempt_time_sane =
+                    a.raw_demo_total_time == a.raw_demo_total_time
+                    && a.raw_demo_cur_time == a.raw_demo_cur_time
+                    && a.raw_demo_total_time >= 0.0f
+                    && a.raw_demo_total_time < 86400.0f
+                    && a.raw_demo_cur_time >= 0.0f
+                    && a.raw_demo_cur_time <= a.raw_demo_total_time + 5.0f;
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub.diag]   time attempt {} source={} "
+                    "world=0x{:X} container=0x{:X} candidate=0x{:X} "
+                    "world_ok={} candidate_ok={} task_ok={} time_ok={} "
+                    "time_sane={} cur={:.3f}s total={:.3f}s "
+                    "raw[+7A8=0x{:X} +7B0={} +7B4={} +7B8=0x{:X}] "
+                    "failure={}\n"),
+                    i,
+                    RC::to_generic_string(
+                        demo_driver_source_name(a.source)),
+                    a.world, a.container, a.candidate_driver,
+                    a.world_readable ? 1 : 0,
+                    a.candidate_readable ? 1 : 0,
+                    a.task_fields_readable ? 1 : 0,
+                    a.time_fields_readable ? 1 : 0,
+                    attempt_time_sane ? 1 : 0,
+                    a.raw_demo_cur_time,
+                    a.raw_demo_total_time,
+                    a.raw_task_data_7a8,
+                    a.raw_task_count_7b0,
+                    a.raw_task_max_7b4,
+                    a.raw_current_task_7b8,
+                    a.failure_reason);
+            }
+        }
+
         // Hot capture path helper.  This intentionally avoids UE4SS object
         // reflection, UObject::IsReal(), and FindFirstOf(): those walk large
         // engine object tables and are far too expensive to call once per
@@ -517,34 +2142,14 @@ namespace Horse
         // an absent/torn-down demo driver simply returns readable=false.
         inline DemoNetDriverSnap read_demo_net_driver_fast() noexcept
         {
-            DemoNetDriverSnap s{};
-            if (!NativeBinding::imageBase()) return s;
+            if (!NativeBinding::imageBase()) return {};
+            return resolve_demo_net_driver_report(false).snap;
+        }
 
-            if (RC::Unreal::UObject* rp = replay_player_ptr().get(
-                    L"LuxBattleReplayPlayer"))
-            {
-                void* world_raw = nullptr;
-                if (safe_get_world(rp, &world_raw))
-                {
-                    if (read_world_demo_driver(world_raw, s))
-                    {
-                        cache_and_log_fast_demo_driver(
-                            s, "ReplayPlayer->GetWorld");
-                        return s;
-                    }
-                }
-            }
-
-            void* world_raw = nullptr;
-            if (!read_gworld_ptr(&world_raw))
-                return s;
-
-            if (read_world_demo_driver(world_raw, s))
-            {
-                cache_and_log_fast_demo_driver(s, "GWorld");
-                return s;
-            }
-            return s;
+        inline DemoTimeSourceSnap read_demo_time_source_fast() noexcept
+        {
+            if (!NativeBinding::imageBase()) return {};
+            return resolve_demo_time_source_report(false).snap;
         }
 
         // GlobalPtr cache for the demo net driver.  get() throttles its
@@ -623,15 +2228,12 @@ namespace Horse
 
         inline DemoNetDriverSnap read_demo_net_driver() noexcept
         {
-            DemoNetDriverSnap s{};
-            // Prefer the live UWorld-owned pointer Ghidra identified;
-            // fall back to UObject-array class probes for older logs /
-            // unexpected world states.
-            RC::Unreal::UObject* d = find_demo_net_driver_from_world();
-            if (!d) d = demo_net_driver_ptr().get(L"DemoNetDriver");
-            if (!d) d = find_demo_net_driver_probed();
-            if (!d) return s;
-            s.driver_ptr = reinterpret_cast<uintptr_t>(d);
+            DemoDriverResolveReport report =
+                resolve_demo_net_driver_report(true);
+            DemoNetDriverSnap s = report.snap;
+            if (!s.readable) return s;
+            auto* d = reinterpret_cast<RC::Unreal::UObject*>(s.driver_ptr);
+            if (!RC::Unreal::UObject::IsReal(d)) return s;
             Obj o{d};
             s.demo_cur_time   = o.getValueOr<float>(L"DemoCurrentTime", -1.0f);
             s.demo_total_time = o.getValueOr<float>(L"DemoTotalTime",   -1.0f);
@@ -643,24 +2245,13 @@ namespace Horse
             s.bIsRecording    = o.getValueOr<bool>(L"bIsRecording", false);
             s.bIsSavingCheckpoint =
                 o.getValueOr<bool>(L"bSavingCheckpoint", false);
-            const uintptr_t a = reinterpret_cast<uintptr_t>(d);
-            SafeReadFloat(reinterpret_cast<const void*>(a + 0x414),
-                          &s.raw_demo_total_time);
-            SafeReadFloat(reinterpret_cast<const void*>(a + 0x418),
-                          &s.raw_demo_cur_time);
-            SafeReadUInt8(reinterpret_cast<const void*>(a + 0x791),
-                          &s.raw_busy_791);
-            SafeReadUInt8(reinterpret_cast<const void*>(a + 0x794),
-                          &s.raw_loading_794);
-            SafeReadInt32(reinterpret_cast<const void*>(a + 0x7B0),
-                          &s.raw_task_count_7b0);
-            void* current_task = nullptr;
-            if (SafeReadPtr(reinterpret_cast<const void*>(a + 0x7B8),
-                            &current_task))
-                s.raw_current_task_7b8 =
-                    reinterpret_cast<uintptr_t>(current_task);
             s.readable = true;
             return s;
+        }
+
+        inline DemoTimeSourceSnap read_demo_time_source() noexcept
+        {
+            return resolve_demo_time_source_report(true).snap;
         }
 
         inline void log_demo_net_driver(const char* label,
@@ -681,7 +2272,8 @@ namespace Horse
                     "DemoFrameNum={} bIsPlaying={} bIsRecording={} "
                     "bSavingCheckpoint={} raw[+414 total={:.3f}s "
                     "+418 cur={:.3f}s +791=0x{:02X} +794=0x{:02X} "
-                    "+7B0 taskCount={} +7B8 curTask=0x{:X}]\n"),
+                    "+7A8 taskData=0x{:X} +7B0 taskCount={} "
+                    "+7B4 taskMax={} +7B8 curTask=0x{:X}]\n"),
                 RC::to_generic_string(label), s.driver_ptr,
                 s.demo_cur_time, s.demo_total_time, s.demo_frame_num,
                 s.bIsPlaying ? 1 : 0, s.bIsRecording ? 1 : 0,
@@ -689,7 +2281,8 @@ namespace Horse
                 s.raw_demo_total_time, s.raw_demo_cur_time,
                 static_cast<unsigned>(s.raw_busy_791),
                 static_cast<unsigned>(s.raw_loading_794),
-                s.raw_task_count_7b0, s.raw_current_task_7b8);
+                s.raw_task_data_7a8, s.raw_task_count_7b0,
+                s.raw_task_max_7b4, s.raw_current_task_7b8);
         }
 
         // -------------------------------------------------------------
