@@ -53,10 +53,10 @@ export interface Cell {
   // ELuxBattleAttackFlags enum (Ghidra-verified).
   // `isBreakAttack`: still blockable, but the block reaction is the
   //   stagger variant (engine reaction 3 + chara+0x88=1).
-  // `isGiImmune`: cell has bit 0x200 set â€” defender cannot Guard Impact
+  // `isGiImmune`: cell has bit 0x200 set - defender cannot Guard Impact
   //   this attack. Most true Unblockables also set this; Break Attacks
   //   set this AND have block bits.
-  // `isGuardBypass`: cell has BlockBypass_GuardBreak (bit 0x004) â€”
+  // `isGuardBypass`: cell has BlockBypass_GuardBreak (bit 0x004) -
   //   bypasses block when defender is in guard-broken substate
   //   (engine reaction 7 path).
   isBreakAttack: boolean;
@@ -77,16 +77,50 @@ export interface SlotBytecodeSummary {
   lengthBytes: number;
   truncated: boolean;
   callconds: Record<string, number>;
+  facingEffects: MoveEffectEvent[];
 }
 
 export interface Slot {
   idx: number;
   animationIndex: number;
   animLength: number;
+  totalFrames: number;
   hitWindowStart: number;
   cellVariants: number[];
+  attackCellRefs: number[];
+  throwCellRefs: number[];
   bytecodeOffset: number;
   bytecode: SlotBytecodeSummary | null;
+}
+
+export interface ThrowCell {
+  idx: number;
+  damage: number;
+  aux: number;
+  scaling: number;
+}
+
+export interface EventRecord {
+  idx: number;
+  offset: number;
+  packedMoveId: number;
+  resolvedSlot: number | null;
+  eventKind: number;
+  eventKindName: string;
+  field08: number;
+  shapeFlags: number;
+  offsetX: number;
+  offsetY: number;
+  offsetZ: number;
+  field1C: number;
+  field20: number;
+  field24: number;
+  radiusScale: number;
+  field2C: number;
+  // Compatibility aliases retained by the exporter.
+  key: number;
+  typeTag: number;
+  typeName: string;
 }
 
 export interface HitRecord {
@@ -148,16 +182,30 @@ export interface FlatMove {
 
 export interface KhdPayload {
   magic: string;
+  moveCount: number;
+  movelistId: number;
   sectionOffsets: number[];
+  attackBlockOffset: number;
+  throwBlockOffset: number;
+  eventRecordTableOffset: number;
+  eventRecordCount: number;
+  parsedEventRecordCount: number;
+  eventRecordPrefixBytes: number;
+  miscBlockOffset: number;
+  firstCancelOffset: number;
   totalCells: number;
+  throwCount: number;
   attackCount: number;
   headerCount: number;
   sentinelCount: number;
   nonDamagingCount: number;
   cells: Cell[];
+  throws: ThrowCell[];
+  eventRecords: EventRecord[];
   slotCount: number;
   slots: Slot[];
   cellToSlots: Record<string, [number, number][]>; // cellIdx -> [slotIdx, variant][]
+  throwToSlots: Record<string, [number, number][]>; // throwIdx -> [slotIdx, variant][]
   slotEdges: SlotEdge[];
   stanceRoots: StanceRoot[];
   flatMoves: FlatMove[];
@@ -179,18 +227,18 @@ export interface CharData {
   movelist?: Movelist;
 }
 
-// In-game canonical movelist â€” sourced from UE4 DataAsset
+// In-game canonical movelist - sourced from UE4 DataAsset
 // (DA_MovePlayData_<cid>.uexp) + Game.archive localization.
 export interface MovelistCommandSet {
-  mainIndex: number;       // raw DA_MovePlayData field â€” indexes the
+  mainIndex: number;       // raw DA_MovePlayData field - indexes the
                            // movelist-DEMO command player, NOT a cell
-  // Raw CommandSet.IntroIndex â€” the move's LEAD-IN cell: 8-Way Run
+  // Raw CommandSet.IntroIndex - the move's LEAD-IN cell: 8-Way Run
   // direction, While-crouching/rising state, or stance entry. Shared
   // across every move with the same lead-in; it is NOT one of the
   // move's hits (a 1-hit move still has one). The UI does not read it
-  // â€” the lead-in is already conveyed by `condition` + `command`.
+  // - the lead-in is already conveyed by `condition` + `command`.
   introIndex: number;
-  // LEGACY MainIndex resolution â€” UNRELIABLE (the cell it picks is sometimes wrong).
+  // LEGACY MainIndex resolution - UNRELIABLE (the cell it picks is sometimes wrong).
   // Kept only as a navigation fallback. Prefer commandSet candidates
   // with real Attack-role cells from this payload when rendering stats.
   cellIdx: number;         // resolved attack-cell index (-1 if none)
@@ -204,10 +252,41 @@ export interface MovelistCommandSet {
     | "slot-no-cell"
     | "movement-only"
     | "none";
+  tracking: MoveTrackingSummary;
+}
+
+export interface MoveEffectEvent {
+  opcode: number | null;
+  opcodeHex: string | null;
+  kind: string;
+  args: (number | null)[];
+  callcond: number;
+  pc: number;
+  isFacingRelated: boolean;
+  targetWeight: number | null;
+  rampSelector: number | null;
+}
+
+export interface MoveTrackingSummary {
+  hasFacingCommit: boolean;
+  hasRetrackRamp: boolean;
+  maxTargetWeight: number | null;
+  events: MoveEffectEvent[];
+}
+
+export interface CommunityFrameData {
+  source: "community";
+  startup: number | null;
+  damage: number[];
+  onBlock: string;
+  onHit: string;
+  onCounterHit: string;
+  guardBurst: number | null;
+  notes: string;
 }
 
 // One direction-modified alternate cell found by the exporter's
-// dispatcher-sibling lookup. Heuristic only â€” see
+// dispatcher-sibling lookup. Heuristic only - see
 // `_find_dispatcher_variants` in export_webui_data.py. Predicate hints
 // like "(back+forward)" are NOT exact-match labels for "4B+K vs 6B+K";
 // the engine's direction predicates are too loose to pin a variant to
@@ -234,7 +313,7 @@ export interface MovelistMove {
   fullCommand: string;     // condition + input joined ("During Mist B.B.B.B")
   inputMarkup: string;     // raw {cmd_X} markup from the game's archive
   note: string;            // usage hint (often empty)
-  // True when the input is direction-only (no A/B/K/G) â€” sidesteps,
+  // True when the input is direction-only (no A/B/K/G) - sidesteps,
   // backsteps, stance entries, dashes. The exporter clears the
   // commandSets' cellIdx for these so we don't pretend the slot's
   // borrowed attack-cell is the move's hit. UI should render without
@@ -243,13 +322,15 @@ export interface MovelistMove {
   // True when the localization presents this entry with `|`-separated
   // alternative inputs (e.g. "B+K|6B+K|4B+K"). Bandai groups these
   // under one MoveListItem, but the engine dispatcher routes each
-  // direction to a different cell with different stats â€” the
+  // direction to a different cell with different stats - the
   // `inputVariants` array carries those alternate cells when found.
   hasInputAlternatives: boolean;
   inputVariants: MovelistInputVariant[];
+  tracking: MoveTrackingSummary;
+  communityFrame: CommunityFrameData | null;
   // True when the canonical input contains `+G` (e.g. A+G, 6A+G,
   // 46A+G). The resolved cell is typically the STRIKE-PHASE / whiff
-  // cell, not the throw cinematic damage cell â€” the actual throw cell
+  // cell, not the throw cinematic damage cell - the actual throw cell
   // is reached via engine-mediated yarareId state transitions that
   // aren't visible in static bytecode edges. UI should surface a
   // "Throw" hint so users don't read the strike-phase stats as the
@@ -258,17 +339,17 @@ export interface MovelistMove {
   // ---- DA_MoveListTable metadata (authoritative; the in-game movelist
   // UI's own per-move data) -------------------------------------------
   // `attributeTag`: raw per-hit class string, e.g. "M.M.M" or "H.M".
-  // `hitClasses`: parsed list â€” ["Mid","Mid","Mid"]. Length = hit count.
+  // `hitClasses`: parsed list - ["Mid","Mid","Mid"]. Length = hit count.
   // `effectTags`: property icons the in-game movelist shows. Each is
-  //   { code, label } â€” codes: LH (Lethal Hit), BA (Break Attack),
+  //   { code, label } - codes: LH (Lethal Hit), BA (Break Attack),
   //   GI (Guard Impact), UA (Unblockable Attack), RE (Reversal Edge),
   //   TH (Throw), SC (Soul Charge), SS (Stance Shift),
   //   SGF/SGH/SGQ (Soul Gauge Full/Half/Quarter requirement).
   //   This is more reliable than deriving class from cell flags.
   // `mainTip`: a gameplay hint string ("Combo starter", "Knocks down
-  //   opponent", ...) â€” empty for most moves.
+  //   opponent", ...) - empty for most moves.
   // `lethalHitCondition`: the Lethal Hit trigger text, e.g. "Triggers
-  //   upon impact counter" â€” only set for LH moves.
+  //   upon impact counter" - only set for LH moves.
   attributeTag: string;
   hitClasses: string[];
   effectTags: { code: string; label: string }[];

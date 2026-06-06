@@ -612,13 +612,9 @@ private:
     // tick (game thread); no atomic needed.
     uint32_t m_prev_frame_counter_value = 0;
     bool     m_prev_frame_counter_seen  = false;
-    // Last `target` value pushed into m_speed_control.set_value() by
-    // frame_step_apply().  Used to dedupe redundant writes when the
-    // requested speedval doesn't change (perf audit, 2026-04).  Init
-    // and reset-on-disable to NaN so the first write of any active
-    // span is always forced (NaN != anything is always true).  Read
-    // and written exclusively from the cockpit-tick caller - no
-    // atomic needed.
+    // Legacy SpeedControl write-dedupe state. Current time controls keep
+    // SpeedControl disabled and drive WorldTickGate/ReplayClockGate/
+    // ActorTickGate instead.
     float m_last_speed_target =
         std::numeric_limits<float>::quiet_NaN();
 
@@ -689,7 +685,7 @@ private:
     Horse::StageVisualSuppressor m_stage_visuals{};
     std::atomic<bool> m_hide_stage_visuals{false};
 
-    // ---- Freeze frame (REWORKED - drives Horse::SpeedControl) ---------------
+    // ---- Freeze frame (WorldTickGate-driven) --------------------------------
     // Replaces the broken Horse::GamePause helper (which patched a chara
     // audio-flag bit at +0x394, not a world-pause).  The actual world-
     // tick pause in SC6 is the master VM-freeze byte at 0x1448462D0:
@@ -697,14 +693,9 @@ private:
     // every per-frame integrator (animation, opcode-stream, hit timing)
     // sees dt=0 and halts.  See the plate on g_LuxBattle_VMFreezeByte.
     //
-    // SpeedControl already overrides GetTimeDilationScalar at the source
-    // (site 3 of its 5 patches), so we just write `speedval = 0.0f` to
-    // freeze the world by the EXACT same mechanism the engine itself
-    // uses for hitstop.  Frame-step is just "set speedval = 1.0f for
-    // one cockpit tick, then back to 0.0f".
-    //
-    // No new patches; no new race conditions.  The existing SpeedControl
-    // patches do all the work - this UI block just toggles the value.
+    // Current implementation uses WorldTickGate plus replay/actor/time
+    // sibling gates. Legacy SpeedControl remains disabled because several
+    // replay AOBs are stale and their duties moved to the dedicated gates.
     //
     // Interaction with the Slow-motion checkbox:
     //   * Freeze ON     -> speedval = 0.0  (highest priority)
@@ -1263,7 +1254,6 @@ private:
         // not a session-scoped behaviour.
         S.set("online_policy",
               static_cast<int>(Horse::OnlineRules::instance().current_policy()));
-
         // GameMode "Auto disable online" - see load path for the
         // default rationale.
         S.set("gamemode_auto_disable_online",
@@ -2204,31 +2194,17 @@ private:
     }
 
     // ---- Frame-step + freeze-frame driver -------------------------------
-    // Called every cockpit tick.  Computes the target speedval from the
-    // user's Freeze and Slow-mo toggles, plus any pending step-frame
-    // requests, and pushes it into Horse::SpeedControl.  Lazily
-    // resolves+enables the SpeedControl patches on first need; lazily
-    // disables them when nothing's forcing speed (so the engine runs at
-    // native rate without our overhead).
+    // Called every cockpit tick. Computes gate policy from the user's Freeze
+    // and Slow-mo toggles, plus pending step-frame requests, and publishes it
+    // to WorldTickGate plus replay/actor/time sibling gates.
     //
     // ==========================================================================
     // STEP PROTOCOL (current state, 2026-05)
     // ==========================================================================
-    // The cockpit pre-hook fires on the UMG widget tick - AFTER the world
-    // tick of the same UE4 frame (UWorld::Tick ? FTickTaskManager ? SlateApp
-    // ? UMG ? render).  So any speedval write here takes effect on the NEXT
-    // UE4 frame's actor ticks.  That timing constraint dictates the 2-tick
-    // step state machine below.
-    //
-    // STEP TICK A (pre-hook fires; world will tick at speedval=1.0 next):
-    //   write speedval = 1.0
-    //   clear VMFreezeByte if HorseMod owns it
-    //   set m_step_expecting = true
-    //
-    // STEP TICK B (next pre-hook; world will be frozen on next world tick):
-    //   write speedval = 0.0
-    //   set VMFreezeByte = 1 if not currently owned
-    //   pending--, m_step_expecting = false
+    // The cockpit pre-hook fires on the UMG widget tick. Current stepping no
+    // longer depends on cockpit timing or speedval writes: m_step_pending is
+    // drained into WorldTickGate credits, and PerFrameTick consumes exactly
+    // one credit per native game frame.
     //
     // KNOWN OPEN ISSUES (2026-05):
     //   * Multi-hit moves only register the FIRST hit when frame-stepped
@@ -2243,22 +2219,15 @@ private:
     //   * Held inputs may not refresh correctly during step.  Likely
     //     related to the multi-hit miss above (shared upstream cause).
     //   * GetTimeDilationScalar Path A (chara+0x3510 < 0 = super-freeze /
-    //     soul-charge cinematic / KO replay) bypasses speedval.  Stepping
-    //     during these phases advances at engine-controlled rates instead
-    //     of 1.0 - PlaybackSpeed.
+    //     soul-charge cinematic / KO replay) is engine-controlled.
     //   * AdvanceLaneFrameStep advances by dt - pLane[+0x30] (PlaybackSpeed).
     //     Moves with non-unity playback speed advance by != 1.0 anim
     //     frames per step.  Matches native gameplay; by-engine design.
     //
-    // State machine (2-tick cycle):
-    //
-    //   click(F6)  m_step_pending++             (sets target=1.0 next tick)
-    //   tick A     expecting=false: target=1.0; expecting=true
-    //   tick B     expecting=true:  target=base; counter--; expecting=false
-    //
-    // Two cockpit ticks per advanced game frame because the engine reads
-    // speedval inside its world tick - we lift the freeze, world ticks
-    // once at full speed, we re-apply the freeze.
+    // State machine:
+    //   click(F6)  m_step_pending++
+    //   cockpit    add m_step_pending to WorldTickGate credits
+    //   PerFrameTick consumes one credit and runs once at native dt
 
     // Snapshot the step-mode world-tick witness (per-lane tick counters
     // at lane+0x04 for both charas).  Returns true if at least one
@@ -2356,15 +2325,15 @@ private:
         // WorldTickGate-driven path.  Field removal is proposal step 4-5.)
 
         // -------------------------------------------------------------------
-        // Compute target speedval for this cockpit tick.
+        // Compute gate policy for this cockpit tick.
         //
         // Priority chain (highest first):
         //   1. Frame-step in flight        - alternate 1.0 / base over 2 ticks
-        //   2. Freeze                       - target = 0.0
-        //   3. Frame-stepped slow-motion    - target = 0.0 or 1.0 per tick
+        //   2. Freeze                       - gate policy = frozen
+        //   3. Frame-stepped slow-motion    - gate policy = run/stop cadence
         //                                     (controlled by m_slow_mo_accumulator;
         //                                      see member's plate for rationale)
-        //   4. Otherwise                    - target = 1.0 (native speed)
+        //   4. Otherwise                    - gates disabled (native speed)
         //
         // The frame-stepped slow-mo replaces the old dt-scale slow-mo
         // (which used to write fractional speedvals like 0.5).  Every
@@ -2373,8 +2342,6 @@ private:
         // exactly like they would at native speed.  See the member's
         // plate for the trade-off discussion.
         // -------------------------------------------------------------------
-        float target;
-        bool  need_active;
         bool  gate_drives_this_tick = false;
         bool  desired_world_gate = false;
         bool  desired_replay_clock_gate = false;
@@ -2510,8 +2477,6 @@ private:
             m_slow_mo_accumulator = 0.0f;
 
             // SpeedControl stays out of the picture while the gate drives.
-            target                = 1.0f;
-            need_active           = false;
             gate_drives_this_tick = true;
         }
         else if (slow_mo)
@@ -2543,9 +2508,7 @@ private:
                 // Run at full speed, gate stays disabled so the engine's
                 // PerFrameTick prologue runs unconditionally (= no per-
                 // tick patch flipping in the steady state).
-                target                  = 1.0f;
                 m_slow_mo_accumulator   = 0.0f;
-                need_active             = false;
             }
             else
             {
@@ -2612,8 +2575,6 @@ private:
                 else
                     m_world_tick_gate.set_frozen();
 
-                target                = 1.0f;       // never write speedval=0
-                need_active           = false;
                 gate_drives_this_tick = true;
                 desired_world_gate = true;
                 desired_replay_clock_gate = true;
@@ -2624,9 +2585,7 @@ private:
         else
         {
             // No freeze, no slow-mo, no step queued - native speed.
-            target                  = 1.0f;
             m_slow_mo_accumulator   = 0.0f;
-            need_active             = false;
         }
 
         // ---- World-tick gate disengage --------------------------------
@@ -2727,37 +2686,9 @@ private:
                                    std::memory_order_release);
         }
 
-        if (need_active)
-        {
-            if (!m_speed_control.is_enabled())
-            {
-                if (!m_speed_control.is_resolved())
-                    m_speed_control.resolve();
-                m_speed_control.enable();
-            }
-            // Skip the codecave write when the requested speedval is
-            // unchanged from last tick (perf audit, 2026-04).  Steady-
-            // state freeze (target=0) and steady-state slow-mo at a
-            // fixed slider value would otherwise re-write the same
-            // float ~60-/s.  Cheap individually but cumulative noise.
-            // First tick after enable() carries m_last_speed_target =
-            // NaN, and `NaN != target` is always true, so the first
-            // write is forced.
-            if (target != m_last_speed_target)
-            {
-                m_speed_control.set_value(target);
-                m_last_speed_target = target;
-            }
-        }
-        else
-        {
-            if (m_speed_control.is_enabled())
-                m_speed_control.disable();
-            // Reset to NaN so the next entry into need_active forces
-            // a fresh push, even if `target` happens to match the last
-            // value we wrote before disabling.
-            m_last_speed_target = std::numeric_limits<float>::quiet_NaN();
-        }
+        if (m_speed_control.is_enabled())
+            m_speed_control.disable();
+        m_last_speed_target = std::numeric_limits<float>::quiet_NaN();
 
         // ---- SC6 NATIVE VM-FREEZE BYTE driver (2026-04 / 2026-05) -----
         // Engages SC6's INTERNAL VM freeze (the same mechanism hit-stop
@@ -2812,8 +2743,8 @@ private:
             // Gate-driven freeze: engage VMFreezeByte iff policy slot is
             // currently 0 (no step credits pending).  Step-credit-armed
             // ticks leave the byte clear so PerFrameTick can advance at
-            // native dt.  Non-gate-driven path keeps the historical
-            // target==0 check.
+            // native dt.  Non-gate-driven paths no longer use legacy
+            // SpeedControl speedval, so they never request this byte here.
             // ReplayScrub uses the same world/replay gate policy to hold a
             // restored frame, but using SC6's global VMFreezeByte here made
             // post-generation replay review crawl at about one cockpit tick
@@ -2825,7 +2756,7 @@ private:
                        && ((freeze || pending > 0 || slow_mo)
                                && !scrub_gate_requested
                            || scrub_policy.vm_freeze_byte))
-                    : (target == 0.0f);
+                    : false;
             const bool currently_owned = m_vm_freeze_byte_we_set.load();
             if ((want_freeze || currently_owned) &&
                 want_freeze != currently_owned)
@@ -5261,11 +5192,9 @@ private:
     }
 
     // ==================================================================
-    // Time tab - Freeze frame (drives SpeedControl speedval=0 for a
-    // hard world-tick stop), Step 1 / Step N buttons for deterministic
-    // frame-stepping under freeze, and the Slow-motion slider + preset
-    // buttons (0.001x..1.0x).  Both toggles are independent; Freeze
-    // wins while held and releases back to Slow-mo's value.
+    // Time tab - Freeze frame (WorldTickGate hard stop), Step 1 / Step N
+    // buttons for deterministic frame-stepping under freeze, and the
+    // gate-driven Slow-motion slider + preset buttons (0.001x..1.0x).
     // ==================================================================
     void render_time_tab()
     {
@@ -5320,13 +5249,11 @@ private:
 
         ImGui::Separator();
 
-            // --- Freeze frame (REWORKED - drives Horse::SpeedControl) --
-            // Sets the SpeedControl speedval to 0 to freeze the world,
-            // back to its base value (Slow-mo slider or 1.0) on
-            // unfreeze.  Frame-step temporarily lifts the freeze for
-            // one cockpit-tick cycle - see frame_step_apply.  The old
-            // chara+0x394 bytepatch approach was wrong (audio bit, not
-            // world pause); see plate on g_LuxBattle_VMFreezeByte.
+            // --- Freeze frame (WorldTickGate-driven) ------------------
+            // frame_step_apply() resolves/enables WorldTickGate and sibling
+            // gates on the next cockpit tick. Frame-step adds gate credits;
+            // it no longer writes SpeedControl speedval or resolves legacy
+            // SpeedControl replay AOBs.
             const bool time_online_locked =
                 Horse::GameMode::instance().should_force_disable_features();
             bool ff = m_freeze_frame.load();
@@ -5389,23 +5316,18 @@ private:
                     "makes sense when the world is paused.");
             }
 
-            // Status line - "paused" / "stepping" / unresolved.
-            if (m_speed_control.is_resolved())
+            // Status line - "paused" / "stepping" / arming.
+            if (const int q = m_step_pending.load(); q > 0)
             {
-                if (const int q = m_step_pending.load(); q > 0)
-                {
-                    ImGui::TextDisabled("(advancing %d more frame%s-)",
-                                        q, q == 1 ? "" : "s");
-                }
-                else if (ff)
-                {
-                    ImGui::TextDisabled("(paused - press F6 to advance one frame)");
-                }
+                ImGui::TextDisabled("(advancing %d more frame%s)",
+                                    q, q == 1 ? "" : "s");
             }
             else if (ff)
             {
                 ImGui::TextDisabled(
-                    "(couldn't hook the game's timing - see UE4SS.log)");
+                    m_world_tick_gate.is_resolved()
+                        ? "(paused - press F6 to advance one frame)"
+                        : "(arming WorldTickGate on next cockpit tick)");
             }
 
             // ---- Per-step diagnostic logger (debug aid) ----------------
@@ -5459,18 +5381,16 @@ private:
             // machine, this gates ALL dt-driven subsystems (animation,
             // hit timing, particles within the MoveVM scope).
             //
-            // First click on the checkbox installs the patches lazily;
-            // subsequent slider drags just live-update the float.  The
-            // preset buttons use common analysis values; type any value
-            // 0.0..2.0 in the slider for fine tuning.
+            // Slow-motion is implemented as a WorldTickGate cadence.  The
+            // checkbox flips desired state; frame_step_apply resolves/enables
+            // the actual gates on the next cockpit tick.
             {
                 // The whole slow-motion block (checkbox + slider +
                 // preset buttons) is locked while the online gate is
                 // engaged - disabling just the checkbox would leave
                 // the slider/presets clickable, and clicking a preset
-                // would still mutate m_speed_value (harmless because
-                // m_speed_control.is_enabled() would be false, but
-                // confusing UI).  Wrapping the whole block keeps the
+                // would still mutate m_speed_value (harmless while locked,
+                // but confusing UI).  Wrapping the whole block keeps the
                 // visual state honest.
                 const bool sm_online_locked =
                     Horse::GameMode::instance().should_force_disable_features();
@@ -5480,17 +5400,7 @@ private:
                 if (ImGui::Checkbox("Slow-motion", &sc_on))
                 {
                     m_speed_enabled.store(sc_on);
-                    if (sc_on && !m_speed_control.is_enabled())
-                    {
-                        if (!m_speed_control.is_resolved())
-                            m_speed_control.resolve();
-                        // Push current slider value into speedval BEFORE
-                        // enabling so the first frame after enable reads
-                        // the right rate (default 1.0 = no-op).
-                        m_speed_control.set_value(m_speed_value.load());
-                        m_speed_control.enable();
-                    }
-                    else if (!sc_on)
+                    if (!sc_on && m_speed_control.is_enabled())
                     {
                         m_speed_control.disable();
                     }
@@ -5581,9 +5491,9 @@ private:
                         ImGui::SetTooltip("%s", hover_text);
                 }
 
-                // Slider only meaningful when the patches are live; we
-                // still allow drag while off so the user can pre-set
-                // their target value before flipping on.
+                // Slider controls the WorldTickGate cadence.  We still allow
+                // drag while off so the user can pre-set their target value
+                // before flipping on.
                 //
                 // Range capped at 1.0 because the frame-stepped
                 // implementation can't tick the world MORE than once
@@ -5604,8 +5514,6 @@ private:
                     if (sv < 0.0f) sv = 0.0f;
                     if (sv > 1.0f) sv = 1.0f;
                     m_speed_value.store(sv);
-                    if (m_speed_control.is_enabled())
-                        m_speed_control.set_value(sv);
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                     "Effective game-frame rate as a fraction of\n"
@@ -5676,8 +5584,6 @@ private:
                     if (ImGui::SmallButton(p.label))
                     {
                         m_speed_value.store(p.value);
-                        if (m_speed_control.is_enabled())
-                            m_speed_control.set_value(p.value);
                     }
                     ImGui::SameLine();
                 }
@@ -5685,15 +5591,11 @@ private:
 
                 if (sm_online_locked) ImGui::EndDisabled();
 
-                if (!m_speed_control.is_resolved() && sc_on)
+                if (sc_on)
                 {
                     ImGui::TextDisabled(
-                        "(couldn't hook the game's timing - see UE4SS.log)");
-                }
-                else if (m_speed_control.is_enabled())
-                {
-                    ImGui::TextDisabled("(running at %.3fx speed)",
-                                        m_speed_value.load());
+                        "(gate-driven cadence at %.3fx; SpeedControl idle)",
+                        m_speed_value.load());
                 }
             }
 
@@ -5901,7 +5803,7 @@ private:
         case Reason::InteractiveReplayFastForwardStalled:
             return "SC6 fast-forward stalled";
         case Reason::InteractiveReplayVerifyFailed:
-            return "SC6 exact verify failed";
+            return "selected frame input check failed";
         case Reason::InteractiveReplayTargetPastMatchEnd:
             return "SC6 target past match end";
         case Reason::RoundResetDataUnavailable:
@@ -5930,8 +5832,26 @@ private:
             return "selected frame could not be verified";
         case Reason::CapturedSnapshotValidationStepFailed:
             return "selected frame validation step failed";
+        case Reason::CapturedSnapshotSemanticRepairFailed:
+            return "selected frame repair failed";
+        case Reason::CapturedRestoreProbeMismatch:
+            return "selected frame restore probe mismatch";
+        case Reason::CapturedGameplayStepFailed:
+            return "selected frame gameplay check failed";
+        case Reason::SemanticMismatch:
+            return "Play blocked: selected frame semantic mismatch";
+        case Reason::CrossRoundResetContextUnavailable:
+            return "round reset context unavailable";
+        case Reason::CrossRoundResetDispatchFailed:
+            return "round reset dispatch failed";
+        case Reason::OracleFieldOffsetUnproven:
+            return "selected frame field unproven";
+        case Reason::TimelineIncomplete:
+            return "timeline incomplete - let Generate finish";
         case Reason::NotLanded:
             return "selected frame not verified";
+        case Reason::BattleManagerStatusNotActive:
+            return "SC6 battle state not active yet";
         case Reason::None:
         default:
             return "selected frame not verified";
@@ -5984,6 +5904,21 @@ private:
 
         if (show_timeline_ui)
         {
+        const bool timeline_ready =
+            scrub.is_timeline_generation_locked_complete();
+        if (!timeline_ready)
+        {
+            const bool generation_running =
+                scrub.timeline_gen_state()
+                    == Horse::ReplayScrub::TimelineGenState::Generating;
+            ImGui::TextColored(
+                ImVec4(0.95f, 0.75f, 0.35f, 1.0f),
+                generation_running
+                    ? "Timeline is still generating. Wait for Done before seeking or playing."
+                    : "Timeline is incomplete. Generate must finish before seeking or playing.");
+            ImGui::Spacing();
+            ImGui::BeginDisabled(true);
+        }
 
         // -----------------------------------------------------------------
         // Time display row
@@ -6108,30 +6043,32 @@ private:
         // click-and-hold-then-release semantics.
         const bool drag_start = ImGui::IsItemActivated();
         const bool drag_end   = ImGui::IsItemDeactivated();
-
-        if (drag_start)
-        {
-            scrub.ui_begin_drag();
-        }
-        if (drag_end)
-        {
-            scrub.ui_end_drag();
-        }
-
-        if (active)
-        {
+        auto timeline_target_from_mouse = [&]() {
             const float mx    = ImGui::GetIO().MousePos.x;
             const float frac  = (bar_w > 0.0f)
                                 ? (mx - bar_pos.x) / bar_w : 0.0f;
             const float clmp  = (frac < 0.0f) ? 0.0f
                               : (frac > 1.0f) ? 1.0f : frac;
-            const int   target = earl
-                              + static_cast<int>(clmp * (latst - earl) + 0.5f);
-            if (target != playhead)
+            return earl
+                 + static_cast<int>(clmp * (latst - earl) + 0.5f);
+        };
+
+        if (drag_start)
+        {
+            scrub.ui_begin_drag();
+        }
+        if (active || drag_start || drag_end)
+        {
+            const int target = timeline_target_from_mouse();
+            if (target != playhead || drag_start || drag_end)
             {
                 playhead = target;
                 scrub.ui_drag_to_seq(target);
             }
+        }
+        if (drag_end)
+        {
+            scrub.ui_end_drag();
         }
 
         // Playhead glyph: vertical line + circle at center.
@@ -6192,6 +6129,11 @@ private:
         if (ImGui::Button("<-1##rs_b1"))         step_seek(playhead - 1);
         ImGui::SameLine();
 
+        timeline_view = scrub.timeline_view();
+        paused = timeline_view.paused;
+        play_block_reason =
+            replay_scrub_block_reason_text(timeline_view.block_reason);
+
         // Play / Pause toggle in the middle.  Pure pause flag flip -
         // no seek needed.  When pausing while playing, the engine
         // state IS the latest captured frame (capture and pause read
@@ -6231,6 +6173,9 @@ private:
             "Jump to most recent captured frame (pauses at live edge)");
 
         ImGui::Spacing();
+
+        if (!timeline_ready)
+            ImGui::EndDisabled();
 
         }  // end of: if (show_timeline_ui)
 
@@ -6459,35 +6404,11 @@ private:
             "tick.  Works regardless of verbose mode -- useful for\n"
             "capturing a snapshot of engine state at a precise moment.");
 
-        bool write_trace = Horse::ReplayDebugTrace::instance().enabled();
-        if (ImGui::Checkbox("Write replay trace##rs_trace", &write_trace))
-            Horse::ReplayDebugTrace::instance().set_enabled(write_trace);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "Writes one JSON object per line for replay generation and\n"
-            "SC6 exact seek phases. This does not change replay behavior.");
-        ImGui::SameLine(0.0f, 20.0f);
         if (ImGui::Button("New trace file##rs_trace_new"))
             Horse::ReplayDebugTrace::instance().open_new_session(L"ui");
-        ImGui::SameLine();
-        if (ImGui::Button("Close trace##rs_trace_close"))
-            Horse::ReplayDebugTrace::instance().close_session();
-
-        bool mirror_trace =
-            Horse::ReplayDebugTrace::instance().mirror_to_log();
-        if (ImGui::Checkbox("Mirror trace to UE4SS.log##rs_trace_mirror",
-                            &mirror_trace))
-        {
-            Horse::ReplayDebugTrace::instance().set_mirror_to_log(
-                mirror_trace);
-        }
-        bool verbose_slices =
-            Horse::ReplayDebugTrace::instance().verbose_slices();
-        if (ImGui::Checkbox("Verbose seek slices##rs_trace_slices",
-                            &verbose_slices))
-        {
-            Horse::ReplayDebugTrace::instance().set_verbose_slices(
-                verbose_slices);
-        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Replay trace is always on. This starts a fresh JSONL file.\n"
+            "Critical restore failures are also written to UE4SS.log.");
         const std::string trace_path =
             Horse::ReplayDebugTrace::instance().current_path_utf8();
         if (!trace_path.empty())

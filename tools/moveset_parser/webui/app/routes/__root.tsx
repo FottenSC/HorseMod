@@ -9,10 +9,10 @@ function RootComponent() {
     <div className="app">
       <header className="app-header">
         <h1>
-          <Link to="/">SC6 Moveset Browser</Link>
+          <Link to="/">SC6 Frame Data</Link>
         </h1>
         <div className="breadcrumbs muted">
-          Soulcalibur VI &middot; parsed from <code>dump/Battle</code>
+          Soulcalibur VI move browser
         </div>
       </header>
       <main className="app-main">

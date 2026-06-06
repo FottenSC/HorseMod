@@ -76,6 +76,16 @@ Thumbs.db
 *.log
 tmp/
 
+# --- Moveset parser comparison artifacts -----------------------------------
+tools/moveset_parser/community_framedata.json
+tools/moveset_parser/community_framedata.xlsx
+tools/moveset_parser/comparison_*.json
+tools/moveset_parser/.tmp_*.json
+tools/moveset_parser/.tmp_*.py
+tools/moveset_parser/_tmp_*.json
+tools/moveset_parser/tmp_*.json
+tools/moveset_parser/tmp_*.py
+
 # --- Release artifacts ------------------------------------------------------
 # Output of build_release_github.bat / build_release_thunderstore.bat —
 # the zips are uploaded to GitHub Releases / Thunderstore, not committed

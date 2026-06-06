@@ -1305,7 +1305,7 @@ def analyze(dump_battle: Path, full_dump_battle: Path, copy_missing: bool) -> di
                 errors.append({"cid": cid, "error": "missing matching chr*.mot"})
 
             sections = bank.sections
-            non_attack_count = len(sections[1].non_attack_descriptors) if len(sections) > 1 else 0
+            non_attack_count = len(sections[1].throw_cells) if len(sections) > 1 else 0
             attack_count = len(sections[0].entries) if sections else 0
             mot_nonempty = sum(1 for s in mot.sizes if s > 0) if mot else 0
             mot_empty = sum(1 for s in mot.sizes if s == 0) if mot else 0

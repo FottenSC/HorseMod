@@ -112,6 +112,17 @@ python validate.py --verbose      # per-file detail
 python validate.py --root <path>  # use a different dump root
 ```
 
+Community frame-data spreadsheet handling is comparison-only. Keep local
+downloads and generated comparison reports out of source control:
+
+```sh
+# Compare exported parser/webui JSON against a downloaded community sheet.
+python compare_community_vs_parsed.py --community-xlsx path\to\community_framedata.xlsx
+
+# Or compare against a pre-parsed local JSON snapshot.
+python compare_community_vs_parsed.py --community-json path\to\community_framedata.json
+```
+
 Programmatic use:
 
 ```python

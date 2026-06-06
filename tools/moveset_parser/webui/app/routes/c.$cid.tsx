@@ -33,12 +33,10 @@ function CharLayout() {
           </h1>
           <div className="char-page-subtitle">
             <code className="mono">{char.cid}</code> · {char.kind}
-            {char.khd ? (
+            {char.movelist ? (
               <>
                 {" · "}
-                <strong>{char.khd.attackCount}</strong> attacks
-                {" · "}
-                <strong>{char.khd.slotCount}</strong> move slots
+                <strong>{char.movelist.moves.length}</strong> moves
               </>
             ) : null}
           </div>

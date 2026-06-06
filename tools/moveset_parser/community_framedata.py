@@ -14,15 +14,15 @@ spreadsheet:
 
     https://docs.google.com/spreadsheets/d/1R3I_LXfqhvFjlHTuj-wSWwwqYmlUf299a3VY9pVyGEw
 
-`community_framedata.xlsx` in this directory is a download of that
-sheet. This module parses it into `community_framedata.json` — a clean,
-diffable, per-character payload the webui exporter joins against.
+`community_framedata.xlsx` is a local download of that sheet. This module
+parses it into a clean, per-character payload for the comparison tool only.
+It is intentionally not part of the parser/exporter data model.
 
 Run directly to (re)build the JSON:
 
-    python community_framedata.py            # xlsx -> community_framedata.json
+    python community_framedata.py            # local xlsx -> local json
 
-`load()` returns the parsed data for `export_webui_data.py`.
+`load()` returns the parsed data for `compare_community_vs_parsed.py`.
 """
 
 from __future__ import annotations
@@ -206,21 +206,21 @@ def parse_xlsx(path: str = XLSX_PATH) -> dict[str, Any]:
     }
 
 
-def load() -> dict[str, Any]:
+def load(json_path: str = JSON_PATH, xlsx_path: str = XLSX_PATH) -> dict[str, Any]:
     """Return the community dataset.
 
-    Preferred source is the committed `community_framedata.json`; falls back to
+    Preferred source is a local `community_framedata.json`; falls back to
     parsing the xlsx directly if the JSON is absent. Returns an empty
-    payload (no crash) if neither is available — the exporter then just
-    ignores this reference and keeps parser output unchanged.
+    payload (no crash) if neither is available, so parser/exporter output
+    remains independent from the spreadsheet.
     """
-    if os.path.isfile(JSON_PATH):
-        with open(JSON_PATH, encoding="utf-8") as f:
+    if os.path.isfile(json_path):
+        with open(json_path, encoding="utf-8") as f:
             return json.load(f)
-    if os.path.isfile(XLSX_PATH):
-        print("  community_framedata.json missing — parsing xlsx directly",
+    if os.path.isfile(xlsx_path):
+        print("  community frame-data json missing — parsing xlsx directly",
               file=sys.stderr)
-        return parse_xlsx()
+        return parse_xlsx(xlsx_path)
     print("  WARN: no community frame data found (no .json, no .xlsx)",
           file=sys.stderr)
     return {

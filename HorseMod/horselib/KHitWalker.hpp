@@ -1064,9 +1064,10 @@ namespace Horse
         // Quicker alternative: draw two lines — WP1→WP2 (spine) and
         // WP1→WP3 (side).  Matches authored intent.
         //
-        // HorseMod rendering uses these engine-updated native world fields
-        // directly: sphere at +0x50/r=+0x70, Area buffers at +0x50/+0x60
-        // and +0x70/+0x80, FixArea reference points at +0x60/+0x70/+0x80.
+        // HorseMod rendering anchors Sphere and Area through authored
+        // bone-local points plus UE render-space bone matrices. Area native
+        // buffers are collision scratch only. FixArea rendering uses the
+        // authored three-point shape through the UE bone matrix as well.
         constexpr uintptr_t SphereBoneLocalCenter   = 0x30;  // FVector
         constexpr uintptr_t SphereWorldCenterCur    = 0x50;  // FVector
         constexpr uintptr_t SphereWorldCenterPrev   = 0x60;  // FVector
@@ -1223,7 +1224,7 @@ namespace Horse
     // ------------------------------------------------------------------
     constexpr float kLuxCmToUE = 100.0f;
 
-    // Box         — KHitArea native current/previous spine endpoints,
+    // Box         — KHitArea render-space current/previous spine endpoints,
     //               drawn as a swept-quad outline.
     // Sphere      — centre + radius (KHitSphere).
     // FixAreaTri  — KHitFixArea's 3 reference points (P1/P2/P3 world).
@@ -3741,10 +3742,11 @@ namespace Horse
 
                 // Build geometry per subclass.
                 //
-                // The native KHit buffers are battle-space scratch fields.
-                // For render-world placement we anchor points through
-                // ALuxBattleChara_GetBoneTransformForPose; area buffers are
-                // only used for current/previous motion deltas.
+                // Anchor all render geometry through
+                // ALuxBattleChara_GetBoneTransformForPose. Native KHitArea
+                // buffers are battle-space collision scratch, not UE render
+                // coordinates; previous Area endpoints come from the
+                // render-space per-node cache in buildAreaWorld().
                 bool ok = false;
                 // Skip reason codes:
                 //   0 = not skipped
@@ -3765,7 +3767,7 @@ namespace Horse
                         break;
                     case 1:
                         ok = buildAreaWorld(chara, poseSelector,
-                                            nbytes, boneId, d);
+                                            nbytes, listKind, d);
                         if (!ok) skip_code = 2;
                         break;
                     case 2:
@@ -4006,10 +4008,12 @@ namespace Horse
         }
 
         static bool resolveAreaBoneTransforms(void* chara,
-                                              uint32_t poseSelector,
-                                              const uint8_t* node,
-                                              FMatrix64& outA,
-                                              FMatrix64& outB)
+                                               uint32_t poseSelector,
+                                               const uint8_t* node,
+                                               uint32_t& outBoneA,
+                                               uint32_t& outBoneB,
+                                               FMatrix64& outA,
+                                               FMatrix64& outB)
         {
             uint32_t ueBoneA = 0xFFFFFFFFu;
             uint32_t ueBoneB = 0xFFFFFFFFu;
@@ -4019,6 +4023,8 @@ namespace Horse
             if (!SafeReadUInt32(node + KHitOffsets::Area_UE4BoneIndexB,
                                 &ueBoneB))
                 return false;
+            outBoneA = ueBoneA;
+            outBoneB = ueBoneB;
             if (!fetchBoneMatrix(chara, poseSelector, ueBoneA, outA))
                 return false;
             if (!fetchBoneMatrix(chara, poseSelector, ueBoneB, outB))
@@ -4045,25 +4051,143 @@ namespace Horse
             return TransformPoint(bone, scaled);
         }
 
-        static FVec3 BattleDeltaToUE(const FVec3& newer,
-                                     const FVec3& older) noexcept
+        static bool sameVec3(const FVec3& a, const FVec3& b) noexcept
         {
-            const FVec3 d{ older.X - newer.X,
-                           older.Y - newer.Y,
-                           older.Z - newer.Z };
-            return FVec3{ d.Z * kLuxCmToUE,
-                          d.X * kLuxCmToUE,
-                          d.Y * kLuxCmToUE };
+            return a.X == b.X && a.Y == b.Y && a.Z == b.Z;
         }
 
-        static bool readAreaDoubleBufferToggle(uint32_t& outToggle) noexcept
+        static bool readGameFrameCounter(uint32_t& outFrame) noexcept
         {
-            constexpr uintptr_t kAreaDoubleBufferToggleRVA = 0x470DEC4;
+            constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
             const uintptr_t base = NativeBinding::imageBase();
             if (!base) return false;
             return SafeReadUInt32(reinterpret_cast<const void*>(
-                                      base + kAreaDoubleBufferToggleRVA),
-                                  &outToggle);
+                                      base + kFrameCounterRVA),
+                                  &outFrame);
+        }
+
+        struct AreaRenderCacheEntry
+        {
+            bool      used = false;
+            uintptr_t node = 0;
+            uint32_t  pose = 0;
+            uint8_t   list = 0;
+            uint32_t  boneA = 0xFFFFFFFFu;
+            uint32_t  boneB = 0xFFFFFFFFu;
+            FVec3     localP1{};
+            FVec3     localP2{};
+            bool      haveFrame = false;
+            uint32_t  frame = 0;
+            FVec3     curP1{};
+            FVec3     curP2{};
+            FVec3     prevP1{};
+            FVec3     prevP2{};
+            bool      hasPrev = false;
+            uint32_t  lastUse = 0;
+        };
+
+        static inline AreaRenderCacheEntry s_area_render_cache[512] = {};
+        static inline uint32_t s_area_render_cache_clock = 0;
+
+        static bool areaCacheKeyMatches(const AreaRenderCacheEntry& e,
+                                        uintptr_t nodeAddr,
+                                        uint32_t pose,
+                                        KHitList listKind,
+                                        uint32_t boneA,
+                                        uint32_t boneB,
+                                        const FVec3& localP1,
+                                        const FVec3& localP2) noexcept
+        {
+            return e.used &&
+                   e.node == nodeAddr &&
+                   e.pose == pose &&
+                   e.list == static_cast<uint8_t>(listKind) &&
+                   e.boneA == boneA &&
+                   e.boneB == boneB &&
+                   sameVec3(e.localP1, localP1) &&
+                   sameVec3(e.localP2, localP2);
+        }
+
+        static AreaRenderCacheEntry& findAreaCacheEntry(
+            uintptr_t nodeAddr,
+            uint32_t pose,
+            KHitList listKind,
+            uint32_t boneA,
+            uint32_t boneB,
+            const FVec3& localP1,
+            const FVec3& localP2) noexcept
+        {
+            AreaRenderCacheEntry* lru = &s_area_render_cache[0];
+            for (AreaRenderCacheEntry& e : s_area_render_cache)
+            {
+                if (areaCacheKeyMatches(e, nodeAddr, pose, listKind,
+                                        boneA, boneB, localP1, localP2))
+                    return e;
+                if (!e.used) return e;
+                if (e.lastUse < lru->lastUse) lru = &e;
+            }
+            return *lru;
+        }
+
+        static void applyAreaRenderCache(uintptr_t nodeAddr,
+                                         uint32_t pose,
+                                         KHitList listKind,
+                                         uint32_t boneA,
+                                         uint32_t boneB,
+                                         const FVec3& localP1,
+                                         const FVec3& localP2,
+                                         KHitDraw& out) noexcept
+        {
+            uint32_t frame = 0;
+            const bool haveFrame = readGameFrameCounter(frame);
+            AreaRenderCacheEntry& e = findAreaCacheEntry(
+                nodeAddr, pose, listKind, boneA, boneB, localP1, localP2);
+            const bool matched = areaCacheKeyMatches(e, nodeAddr, pose,
+                                                     listKind, boneA, boneB,
+                                                     localP1, localP2);
+            e.lastUse = ++s_area_render_cache_clock;
+
+            if (matched && haveFrame && e.haveFrame)
+            {
+                if (frame == e.frame)
+                {
+                    out.prev_p1_world  = e.prevP1;
+                    out.prev_p2_world  = e.prevP2;
+                    out.has_prev_spine = e.hasPrev;
+                    e.curP1 = out.spine_p1_world;
+                    e.curP2 = out.spine_p2_world;
+                    return;
+                }
+                if (frame == e.frame + 1u)
+                {
+                    out.prev_p1_world  = e.curP1;
+                    out.prev_p2_world  = e.curP2;
+                    out.has_prev_spine = true;
+                    e.prevP1 = out.prev_p1_world;
+                    e.prevP2 = out.prev_p2_world;
+                    e.curP1 = out.spine_p1_world;
+                    e.curP2 = out.spine_p2_world;
+                    e.frame = frame;
+                    e.hasPrev = true;
+                    return;
+                }
+            }
+
+            e.used = true;
+            e.node = nodeAddr;
+            e.pose = pose;
+            e.list = static_cast<uint8_t>(listKind);
+            e.boneA = boneA;
+            e.boneB = boneB;
+            e.localP1 = localP1;
+            e.localP2 = localP2;
+            e.haveFrame = haveFrame;
+            e.frame = frame;
+            e.curP1 = out.spine_p1_world;
+            e.curP2 = out.spine_p2_world;
+            e.prevP1 = out.spine_p1_world;
+            e.prevP2 = out.spine_p2_world;
+            e.hasPrev = false;
         }
 
         // KHitSphere: render from the bone-local center through the UE
@@ -4093,10 +4217,10 @@ namespace Horse
             return true;
         }
 
-        // KHitArea: anchor the current endpoints through the UE pose
-        // matrix, then use the native double buffers only for the
-        // current/previous motion delta.  This keeps actor placement in
-        // render space while preserving the engine-updated sweep direction.
+        // KHitArea: anchor current and previous endpoints through UE render
+        // pose matrices.  The native double buffers remain collision-truth
+        // but are battle-space scratch, so they cannot be mixed with render-
+        // space endpoints without skewing the swept outline.
         // The engine's overlap test
         // (KHitArea::OverlapTest @ 0x14030E4E0) reads them as the
         // endpoints of the attacker's spine, then builds the actual hit
@@ -4122,10 +4246,10 @@ namespace Horse
         //
         // What we render now
         // -------------------
-        // Current spine endpoints come from the same authored local points
-        // passed through the UE render-space bone matrix. The native
-        // battle-space double buffers only provide the previous-vs-current
-        // delta for the swept outline.
+        // Current spine endpoints come from the authored local points passed
+        // through the UE render-space bone matrix. Previous endpoints come
+        // from a one-game-frame-old render-space snapshot for the same node,
+        // player, list, bones, and authored local endpoints.
         //
         // Stationary attacks: prev ≈ cur, quad collapses to a near-
         // single line.  Moving attacks: quad opens up, visually
@@ -4135,16 +4259,21 @@ namespace Horse
         //
         // Native-buffer caveat
         // --------------------
-        // The collision path consumes the native buffers, but those values
-        // are not UE render-world coordinates. Drawing them as absolute
-        // positions pins boxes near the stage origin.
+        // The collision path consumes native buffers, but those values are
+        // not UE render-world coordinates. Drawing them as absolute positions
+        // pins boxes near the stage origin; converting native deltas and
+        // adding them to render points mixes coordinate spaces. The cache
+        // avoids both failure modes.
         static bool buildAreaWorld(void* chara, uint32_t pose,
-                                   const uint8_t* node,
-                                   uint8_t /*internalBoneId*/,
-                                   KHitDraw& out)
+                                    const uint8_t* node,
+                                    KHitList listKind,
+                                    KHitDraw& out)
         {
             FMatrix64 boneA{}, boneB{};
-            if (!resolveAreaBoneTransforms(chara, pose, node, boneA, boneB))
+            uint32_t ueBoneA = 0xFFFFFFFFu;
+            uint32_t ueBoneB = 0xFFFFFFFFu;
+            if (!resolveAreaBoneTransforms(chara, pose, node, ueBoneA,
+                                           ueBoneB, boneA, boneB))
                 return false;
 
             FVec3 localP1, localP2;
@@ -4159,37 +4288,9 @@ namespace Horse
             out.prev_p1_world  = out.spine_p1_world;
             out.prev_p2_world  = out.spine_p2_world;
             out.has_prev_spine = false;
-
-            FVec3 bufA_P1, bufA_P2, bufB_P1, bufB_P2;
-            if (!readVec3(node + KHitOffsets::AreaWorldBufA + 0x00,
-                          bufA_P1))
-                return true;
-            if (!readVec3(node + KHitOffsets::AreaWorldBufA + 0x10, bufA_P2))
-                return true;
-            if (!readVec3(node + KHitOffsets::AreaWorldBufB + 0x00, bufB_P1))
-                return true;
-            if (!readVec3(node + KHitOffsets::AreaWorldBufB + 0x10, bufB_P2))
-                return true;
-
-            uint32_t areaToggle = 0;
-            if (!readAreaDoubleBufferToggle(areaToggle))
-                return true;
-
-            const bool bufferBIsCurrent = (areaToggle & 1u) != 0;
-            const FVec3& curP1  = bufferBIsCurrent ? bufB_P1 : bufA_P1;
-            const FVec3& curP2  = bufferBIsCurrent ? bufB_P2 : bufA_P2;
-            const FVec3& prevP1 = bufferBIsCurrent ? bufA_P1 : bufB_P1;
-            const FVec3& prevP2 = bufferBIsCurrent ? bufA_P2 : bufB_P2;
-
-            const FVec3 p1Delta = BattleDeltaToUE(curP1, prevP1);
-            const FVec3 p2Delta = BattleDeltaToUE(curP2, prevP2);
-            out.prev_p1_world = FVec3{ out.spine_p1_world.X + p1Delta.X,
-                                       out.spine_p1_world.Y + p1Delta.Y,
-                                       out.spine_p1_world.Z + p1Delta.Z };
-            out.prev_p2_world = FVec3{ out.spine_p2_world.X + p2Delta.X,
-                                       out.spine_p2_world.Y + p2Delta.Y,
-                                       out.spine_p2_world.Z + p2Delta.Z };
-            out.has_prev_spine = true;
+            applyAreaRenderCache(reinterpret_cast<uintptr_t>(node), pose,
+                                 listKind, ueBoneA, ueBoneB,
+                                 localP1, localP2, out);
             return true;
         }
 
@@ -4253,16 +4354,16 @@ namespace Horse
     {
         if (d.kind == KHitKind::Box)
         {
-            // KHitArea — engine-truth native buffers + swept-quad outline. The
+            // KHitArea — render-space current/previous spine snapshots. The
             // engine treats P1/P2 as 1D spine endpoints; the actual hit
             // shape is built at overlap-test time from THREE points
-            // (one buffer's spine plus the other buffer's tip / hilt as the
+            // (one frame's spine plus the other frame's tip / hilt as the
             // side reference, see KHitDraw::spine_p1_world docs).  We
             // render the SOURCE DATA:
             //
-            //   * Buffer A spine: spine_p1_world -> spine_p2_world
-            //   * Buffer B spine: prev_p1_world  -> prev_p2_world
-            //   * Two connectors close the swept quad between buffers.
+            //   * Current spine: spine_p1_world -> spine_p2_world
+            //   * Previous spine: prev_p1_world -> prev_p2_world
+            //   * Two connectors close the swept quad between frames.
             //
             // Stationary attacks: A ≈ B, quad collapses to one
             // line — engine-truth (zero-motion ⇒ zero cross-section).
@@ -4270,10 +4371,8 @@ namespace Horse
             // the swept envelope that the engine hit-tested this
             // tick.
             // All 4 quad edges use the caller's color uniformly. The native
-            // scratch builder consumes both spines and one cross-buffer side
-            // reference; the remaining connector is a courtesy closure. All
-            // 4 share the same endpoints the engine reads, so together they
-            // outline the swept region the engine's two OBBs effectively cover.
+            // scratch builder consumes both spines and one cross-frame side
+            // reference; the remaining connector is a courtesy closure.
             overlay.drawLine(d.spine_p1_world, d.spine_p2_world,
                              color, thickness);
             if (d.has_prev_spine)

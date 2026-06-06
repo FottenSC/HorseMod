@@ -11,6 +11,7 @@ from stackvm import StackVMInstruction, StackVMScript
 from stackvm_emulate import (
     Concrete, VarRef, Unknown,
     PredicateEvent,
+    _decode_lux_fp16_literal,
     _decode_button_mask,
     _decode_direction,
     _decode_input_mask,
@@ -274,3 +275,39 @@ class TestEmulator:
         assert len(result.transitions) == 2
         assert result.transitions[0].predicate is not None
         assert result.transitions[1].predicate is None
+
+    def test_effect_event_facing_commit(self):
+        script = StackVMScript(bytecode_offset=0, instructions=[
+            _push_imm(0x001A, pc=0),
+            _push_imm(0x00BB, pc=3),
+            _push_imm(0xFFFF, pc=6),
+            _callcond(0x03, 3, pc=9),
+            _ret(pc=12),
+        ])
+        result = emulate(script, slot_idx=12)
+        assert len(result.effects) == 1
+        e = result.effects[0]
+        assert e.opcode == 0x1A
+        assert e.kind == "facing_commit"
+        assert e.is_facing_related
+        assert e.concrete_args == [0x1A, 0xBB, 0xFFFF]
+
+    def test_effect_event_retrack_weight(self):
+        script = StackVMScript(bytecode_offset=0, instructions=[
+            _push_imm(0x003C, pc=0),
+            _push_imm(0x5640, pc=3),
+            _callcond(0x03, 2, pc=6),
+            _ret(pc=9),
+        ])
+        result = emulate(script, slot_idx=13)
+        e = result.effects[0]
+        assert e.opcode == 0x3C
+        assert e.kind == "retrack_ramp_mode1"
+        assert e.ramp_selector == 0
+        assert e.target_weight == pytest.approx(100.0 / 60.0)
+
+
+def test_lux_fp16_literal_decode():
+    assert _decode_lux_fp16_literal(0) == 0.0
+    assert _decode_lux_fp16_literal(0x5640) == pytest.approx(100.0)
+    assert _decode_lux_fp16_literal(0xBE00) == pytest.approx(-3.0)

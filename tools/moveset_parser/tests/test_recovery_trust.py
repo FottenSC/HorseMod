@@ -105,6 +105,8 @@ def test_no_frame_edges_reports_unknown():
     bank = KhdFile(
         magic=b"KHD\x00",
         field_0c=0,
+        move_count=0,
+        movelist_id=0,
         section_offsets=[],
         trailer_data=b"",
         sections=[],

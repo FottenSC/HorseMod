@@ -469,57 +469,64 @@ def khd_section(cid: str, sec: int):
             f'</tr>'
             + "".join(rows) + "</table>"
         )
-    elif s.non_attack_descriptors:
-        # Section B — LuxBattleNonAttackMoveDescr array (6-byte stride)
+    elif s.throw_cells:
+        # Section B — throw damage/scaling cells (6-byte stride). The older
+        # non_attack_descriptors alias is still populated for compatibility.
         rows = []
-        for i, d in enumerate(s.non_attack_descriptors):
+        for i, d in enumerate(s.throw_cells):
             tag_str = (
                 "<span class=\"tag tag-bootstrap\">default 0xFFFD</span>"
-                if d.nSPassthroughTag == -3
-                else f"0x{d.nSPassthroughTag & 0xFFFF:04X}"
+                if d.nAux == -3
+                else f"0x{d.nAux & 0xFFFF:04X}"
             )
             rows.append(
                 f'<tr><td>{i}</td>'
-                f'<td class="num">{d.nSDamageMultiplier}</td>'
+                f'<td class="num">{d.wDamage}</td>'
                 f'<td>{tag_str}</td>'
-                f'<td class="num">{d.nSDuration60ths}</td></tr>'
+                f'<td class="num">{d.nScaling}</td></tr>'
             )
         body_parts.append(
-            f"<h2>LuxBattleNonAttackMoveDescr array ({len(s.non_attack_descriptors)} entries)</h2>"
+            f"<h2>LuxBattleThrowCell array ({len(s.throw_cells)} entries)</h2>"
             f"<table><tr><th>idx</th>"
-            f'<th>damage_mult</th><th>passthrough_tag</th><th>duration (60ths)</th></tr>'
+            f'<th>damage</th><th>aux</th><th>scaling</th></tr>'
             + "".join(rows) + "</table>"
         )
-    elif s.c_prefix_records:
-        # Section C header-record prefix (typed 0x30-byte records)
+    elif s.event_records:
+        # Section C — FLuxMoveBankEventRecord[] (0x30-byte stride), validated
+        # against LuxMoveVM_BuildMoveBankEventRecordTree.
         rows = []
-        for r in s.c_prefix_records:
+        for r in s.event_records:
             tag_class = (
                 "tag-sentinel" if r.type_tag == 0xFF else "tag-bootstrap"
             )
             rows.append(
                 f'<tr><td>{r.record_index}</td>'
                 f'<td>0x{r.byte_offset:X}</td>'
+                f'<td>0x{r.dwPackedMoveId:08X}</td>'
+                f'<td>{r.dwEventKind}</td>'
+                f'<td>0x{r.dwShapeFlags:08X}</td>'
+                f'<td>{r.flOffsetX:.3f}, {r.flOffsetY:.3f}, {r.flOffsetZ:.3f}</td>'
+                f'<td>{r.flRadiusScale:.3f}</td>'
                 f'<td><span class="tag {tag_class}">0x{r.type_tag:02X}</span> {r.type_name}</td>'
-                f'<td>{r.subtype}</td>'
-                f'<td>{r.index}</td>'
-                f'<td class="hex">{r.raw[8:].hex(" ")}</td>'
+                f'<td class="hex">{r.raw.hex(" ")}</td>'
                 f'</tr>'
             )
-        payload_size = s.size - s.c_prefix_end
+        payload_size = s.size - s.event_records_end
         body_parts.append(
-            f"<h2>Section C header-record prefix ({len(s.c_prefix_records)} records, "
-            f"{s.c_prefix_end} bytes)</h2>"
-            f"<table><tr><th>idx</th><th>offset</th><th>type</th>"
-            f"<th>subtype</th><th>index</th><th>payload (bytes +0x08..+0x2F)</th></tr>"
+            f"<h2>FLuxMoveBankEventRecord array ({len(s.event_records)} records, "
+            f"{s.event_records_end} bytes)</h2>"
+            f"<p>Legacy typed-prefix scan matched {len(s.c_prefix_records)} records. "
+            f"The full Ghidra-validated event table uses the header count at +0x0E.</p>"
+            f"<table><tr><th>idx</th><th>offset</th><th>packed move</th><th>event kind</th>"
+            f"<th>shape flags</th><th>offset xyz</th><th>radius scale</th>"
+            f"<th>legacy low byte</th><th>raw record</th></tr>"
             + "".join(rows) + "</table>"
-            f"<h3>Opaque payload after header-record prefix</h3>"
+            f"<h3>Per-slot cancel / MoveVM bytecode after event-record table</h3>"
             f"<p>{payload_size:,} bytes ({payload_size*100//s.size}% of section). "
-            f"This is hit-cell / animation-curve / per-move data the engine "
-            f"reads via in-memory pointer fixups done by the UE4 asset loader. "
-            f"Not yet decoded.</p>"
-            + hex_block(s.raw[s.c_prefix_end : s.c_prefix_end + 512],
-                        base_offset=s.offset + s.c_prefix_end, max_bytes=512)
+            f"The first bytecode offset observed in slot+0x38 aligns with this boundary "
+            f"across shipped KH11 files.</p>"
+            + hex_block(s.raw[s.event_records_end : s.event_records_end + 512],
+                        base_offset=s.offset + s.event_records_end, max_bytes=512)
         )
     elif s.detected_stride:
         # Sections B / C — show records as hex rows

@@ -119,20 +119,28 @@ namespace Horse
             }
 
             // Site R1: the unconditional advancer.  AOB locks the prologue
-            // through the first vtable call (`call [rax+0x650]`).  The
-            // sibling Site R2 starts the same first 6 bytes (push rbx + sub
-            // rsp,0x20) but then has `cmp byte [rcx+0x4404],0` instead of
-            // `mov rax,[rcx]` at byte 6 — including bytes 6..11 unambiguously
-            // disambiguates from the sibling.
+            // through the replay-clock INC at +0x2A.  A shorter prefix ending
+            // at `call [rax+0x650]` also matches an unrelated engine helper,
+            // so include the full vtable-call chain and semantic target INC.
             //
-            // 18-byte AOB:
+            // 48-byte AOB:
             //   40 53                push rbx
             //   48 83 EC 20          sub  rsp, 0x20
             //   48 8B 01             mov  rax, [rcx]
             //   48 8B D9             mov  rbx, rcx
             //   FF 90 50 06 00 00    call [rax+0x650]
+            //   48 8B 03             mov  rax, [rbx]
+            //   48 8B CB             mov  rcx, rbx
+            //   FF 90 40 06 00 00    call [rax+0x640]
+            //   48 8B 03             mov  rax, [rbx]
+            //   48 8B CB             mov  rcx, rbx
+            //   FF 90 48 06 00 00    call [rax+0x648]
+            //   FF 83 A4 03 00 00    inc  dword [rbx+0x3A4]
             void* site_r1_entry = sig_scan_sc6(
-                "40 53 48 83 EC 20 48 8B 01 48 8B D9 FF 90 50 06 00 00",
+                "40 53 48 83 EC 20 48 8B 01 48 8B D9 FF 90 50 06 00 00 "
+                "48 8B 03 48 8B CB FF 90 40 06 00 00 "
+                "48 8B 03 48 8B CB FF 90 48 06 00 00 "
+                "FF 83 A4 03 00 00",
                 "ReplayClockGate Site R1 (VTable648_TickAndAdvanceReplayClock)");
             if (!site_r1_entry) return false;
 

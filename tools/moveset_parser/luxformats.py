@@ -7,8 +7,8 @@ This module parses the per-character data files dumped from
 `Battle/{hdr,mot,cpu,hit}/` inside the game's PAK:
 
     .khd  -> moveset bank (KH11 magic). Engine type: FLuxMoveBank.
-             Contains 3 sub-arrays: attack cells, non-attack descriptors,
-             event records.
+             Contains move slots, attack cells, throw cells, and per-slot
+             cancel/MoveVM bytecode.
     .mot  -> per-character motion / animation table (chr*.mot)
     .dtp  -> CPU AI personality + decision-weight table (cpuai*.dtp)
     .dat  -> hit-volume i16-tagged stream (atkhit / bodyhit / yararehit)
@@ -32,7 +32,7 @@ References (Ghidra addresses against SoulcaliburVI.exe v2.31):
 Engine struct sizes (from Ghidra):
     FLuxMoveBank                48 bytes (THE .khd header)
     LuxBattleAttackCell        112 bytes (Section A entry)
-    LuxBattleNonAttackMoveDescr  6 bytes (Section B entry)
+    LuxBattleThrowCell           6 bytes (Section B entry)
     FLuxMoveBankSlotView        72 bytes (slot view, indexed by bank slot id)
     FLuxKHitNode               160 bytes (in-memory KHit linked-list node)
 """
@@ -225,8 +225,8 @@ def parse_lpb(data: bytes) -> LpbBlock:
 # sub-arrays inside the same file:
 #
 #     dwAttackCellArrayOffset     -> LuxBattleAttackCell[]      (Section A)
-#     dwNonAttackDescTableOffset  -> LuxBattleNonAttackMoveDescr[] (Section B)
-#     dwEventRecordTableOffset    -> "event records" (Section C — partly opaque)
+#     dwThrowCellArrayOffset      -> LuxBattleThrowCell[]          (Section B)
+#     dwMiscOrBytecodeOffset      -> resizers / per-slot bytecode   (Section C)
 #
 # Verified by `LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100`
 # which dereferences pBank->dwAttackCellArrayOffset and indexes into it
@@ -814,18 +814,47 @@ MOVE_TYPE_NAMES = {
 
 @dataclass
 class LuxBattleNonAttackMoveDescr:
-    """One 6-byte non-attack-move descriptor from KHD Section B.
+    """Legacy name for one 6-byte KHD Section B record.
 
-    Engine type: `LuxBattleNonAttackMoveDescr` (Ghidra).
+    Earlier parser revisions called Section B `LuxBattleNonAttackMoveDescr`.
+    Scuffle's runtime movelist parser and the slot-reference high bit show the
+    same records are throw damage cells: slot attack indexes with bit 0x1000
+    reference this table after clearing that bit.
     """
     nSDamageMultiplier: int   # +0x00 — i16 damage multiplier (or scaled)
     nSPassthroughTag: int     # +0x02 — i16, usually 0xFFFD (default-reaction marker)
     nSDuration60ths: int      # +0x04 — i16 duration in 60ths of a second
 
 
+@dataclass
+class LuxBattleThrowCell:
+    """One 6-byte throw damage/scaling record from KHD Section B.
+
+    Layout matches Scuffle's `Throw` parser:
+        +0x00  ushort  damage
+        +0x02  short   auxiliary value, commonly -3 / 0xFFFD
+        +0x04  short   damage scaling percent-like value
+    """
+    wDamage: int
+    nAux: int
+    nScaling: int
+    raw: bytes = field(repr=False, default=b"")
+
+
 def parse_non_attack_descriptor(buf: bytes, off: int) -> LuxBattleNonAttackMoveDescr:
     a, b, c = struct.unpack_from("<3h", buf, off)
     return LuxBattleNonAttackMoveDescr(a, b, c)
+
+
+def parse_throw_cell(buf: bytes, off: int) -> LuxBattleThrowCell:
+    damage = struct.unpack_from("<H", buf, off)[0]
+    aux, scaling = struct.unpack_from("<2h", buf, off + 2)
+    return LuxBattleThrowCell(
+        wDamage=damage,
+        nAux=aux,
+        nScaling=scaling,
+        raw=buf[off : off + 6],
+    )
 
 
 @dataclass
@@ -841,11 +870,62 @@ class KhdSection:
     detected_count: int = 0
     # Section 1 ("B"): LuxBattleNonAttackMoveDescr array (6-byte stride).
     non_attack_descriptors: list[LuxBattleNonAttackMoveDescr] = field(default_factory=list)
-    # Section 2 ("C") only: typed header-record prefix (see parse_khd_section_c_prefix).
+    # Section 1 ("B"): throw damage/scaling records (same 6-byte stride).
+    throw_cells: list[LuxBattleThrowCell] = field(default_factory=list)
+    # Section 2 ("C") only: Ghidra-validated 0x30-byte event records.
+    event_records: list["KhdEventRecord"] = field(default_factory=list)
+    event_records_end: int = 0
+    # Compatibility alias: older code called the initial shape-matched subset
+    # a typed header-record prefix (see parse_khd_section_c_prefix).
     c_prefix_records: list["KhdCRecord"] = field(default_factory=list)
     # Section 2 ("C") only: byte offset (within section) where the typed prefix ends.
     # Bytes after this are the opaque payload (not yet decoded).
     c_prefix_end: int = 0
+
+
+@dataclass
+class KhdEventRecord:
+    """One 0x30-byte FLuxMoveBank event record from Section C.
+
+    Ghidra validation: LuxMoveVM_BuildMoveBankEventRecordTree walks exactly
+    FLuxMoveBank+0x0E records from bank + dwEventRecordTableOffset and advances
+    by 0x30 bytes. The first dword is the runtime tree key / packed move id.
+    """
+    record_index: int
+    byte_offset: int
+    dwPackedMoveId: int
+    dwEventKind: int
+    dwField08: int
+    dwShapeFlags: int
+    flOffsetX: float
+    flOffsetY: float
+    flOffsetZ: float
+    dwField1C: int
+    dwField20: int
+    dwField24: int
+    flRadiusScale: float
+    dwField2C: int
+    raw: bytes = field(repr=False)
+
+    @property
+    def dwKey(self) -> int:
+        """Compatibility alias for older code that named +0x00 `dwKey`."""
+        return self.dwPackedMoveId
+
+    @property
+    def type_tag(self) -> int:
+        """Compatibility alias: low byte of the packed move id."""
+        return self.dwPackedMoveId & 0xFF
+
+    @property
+    def event_kind_name(self) -> str:
+        return f"EventKind_{self.dwEventKind}"
+
+    @property
+    def type_name(self) -> str:
+        if self.type_tag == 0xD6:
+            return "Header_CountMarker"
+        return MOVE_TYPE_NAMES.get(self.type_tag, f"Unknown_0x{self.type_tag:02X}")
 
 
 # Section C header-record tag values that ARE in the FLuxMoveDataEntry enum
@@ -856,7 +936,7 @@ KHD_SECTION_C_VALID_TAGS = frozenset(list(range(0, 0x1F)) + [0xD6, 0xFF])
 
 @dataclass
 class KhdCRecord:
-    """One 0x30-byte typed record from Section C's header-record prefix.
+    """One shape-matched typed record from Section C's legacy prefix scan.
 
     Layout (inferred from byte patterns, validated across all 24 shipped charas):
         +0x00  u8   type_tag       FLuxMoveDataEntry typeTag enum (0..0x1E)
@@ -891,7 +971,7 @@ class KhdCRecord:
 
 
 def parse_khd_section_c_prefix(buf: bytes, sec_off: int, sec_end: int) -> tuple[list[KhdCRecord], int]:
-    """Walk the typed header-record prefix of Section C.
+    """Walk the legacy shape-matched typed prefix of Section C.
 
     Section C of a .khd file is a mixed-format block: it starts with a
     sequence of 0x30-byte typed records (variable count per chara, 3..597
@@ -930,6 +1010,38 @@ def parse_khd_section_c_prefix(buf: bytes, sec_off: int, sec_end: int) -> tuple[
     return records, o
 
 
+def parse_khd_event_records(buf: bytes, sec_off: int, sec_end: int, count: int) -> tuple[list[KhdEventRecord], int]:
+    """Walk Ghidra-validated Section-C FLuxMoveBankEventRecord entries."""
+    records: list[KhdEventRecord] = []
+    max_count = max(0, min(count, (sec_end - sec_off) // 0x30))
+    for i in range(max_count):
+        o = sec_off + i * 0x30
+        raw = buf[o : o + 0x30]
+        dw_packed_move_id, dw_event_kind, dw_field_08, dw_shape_flags = struct.unpack_from("<4I", raw, 0)
+        fl_offset_x, fl_offset_y, fl_offset_z = struct.unpack_from("<3f", raw, 0x10)
+        dw_field_1c, dw_field_20, dw_field_24 = struct.unpack_from("<3I", raw, 0x1C)
+        fl_radius_scale = struct.unpack_from("<f", raw, 0x28)[0]
+        dw_field_2c = struct.unpack_from("<I", raw, 0x2C)[0]
+        records.append(KhdEventRecord(
+            record_index=i,
+            byte_offset=o,
+            dwPackedMoveId=dw_packed_move_id,
+            dwEventKind=dw_event_kind,
+            dwField08=dw_field_08,
+            dwShapeFlags=dw_shape_flags,
+            flOffsetX=fl_offset_x,
+            flOffsetY=fl_offset_y,
+            flOffsetZ=fl_offset_z,
+            dwField1C=dw_field_1c,
+            dwField20=dw_field_20,
+            dwField24=dw_field_24,
+            flRadiusScale=fl_radius_scale,
+            dwField2C=dw_field_2c,
+            raw=raw,
+        ))
+    return records, sec_off + len(records) * 0x30
+
+
 @dataclass
 class FLuxMoveBankSlotView:
     """One 0x48-byte slot record from the bank's slot table at bank+0x30.
@@ -958,11 +1070,28 @@ class FLuxMoveBankSlotView:
     # Decoded bytecode (filled by parse_khd when bytecode_off is in-range).
     bytecode: Optional["StackVMScript"] = None  # type: ignore
 
+    @property
+    def total_frames(self) -> int:
+        """Total authored animation frames from slot+0x34."""
+        return self.nAnimLengthFlag_34 & 0xFFFF
+
+    @property
+    def attack_cell_indices(self) -> list[int]:
+        """Slot variant refs that point into the attack-cell table."""
+        return [i for i in self.nCellBoneIndexPerVariant if 0 <= i < 0x1000]
+
+    @property
+    def throw_cell_indices(self) -> list[int]:
+        """Slot variant refs that point into the Section-B throw table."""
+        return [(i ^ 0x1000) for i in self.nCellBoneIndexPerVariant if i >= 0 and (i & 0x1000)]
+
 
 @dataclass
 class KhdFile:
     magic: bytes
     field_0c: int
+    move_count: int
+    movelist_id: int
     section_offsets: list[int]
     trailer_data: bytes
     sections: list[KhdSection]
@@ -976,6 +1105,24 @@ class KhdFile:
     # Reverse index: cell_idx -> list of (slot_idx, variant_index).
     # Built by parse_khd from nCellBoneIndexPerVariant scans.
     cell_to_slots: dict[int, list] = field(default_factory=dict)
+    # Reverse index for Section-B throw refs: throw_idx -> list of (slot_idx, variant_index).
+    throw_to_slots: dict[int, list] = field(default_factory=dict)
+    # First per-slot bytecode/cancel-block offset found from slot+0x38.
+    first_cancel_offset: int = 0
+
+    @property
+    def event_record_count(self) -> int:
+        """FLuxMoveBank+0x0E event-record count.
+
+        Kept separate from the historical `movelist_id` name used by older
+        parser/export code; both currently read the same header word.
+        """
+        return self.movelist_id
+
+    @property
+    def event_record_table_offset(self) -> int:
+        """FLuxMoveBank+0x18 bank-relative Section-C event-record offset."""
+        return self.section_offsets[2] if len(self.section_offsets) > 2 else 0
 
     def resolve_packed_slot(self, packed_move_id: int) -> int | None:
         bucket_idx = (packed_move_id >> 12) & 0xF
@@ -1058,6 +1205,7 @@ def parse_khd(data: bytes) -> KhdFile:
     if data[:4] != b"KH11":
         raise ValueError(f"bad KH11 magic: {data[:4]!r}")
     field_0c = struct.unpack_from("<I", data, 0x0C)[0]
+    move_count, movelist_id = struct.unpack_from("<HH", data, 0x0C)
     s_offs = list(struct.unpack_from("<3I", data, 0x10))
     for o in s_offs:
         if o >= len(data):
@@ -1081,13 +1229,24 @@ def parse_khd(data: bytes) -> KhdFile:
                 entries.append(parse_attack_cell(data, array_off + j * 0x70))
         stride, scount = _detect_record_stride(sec_bytes) if n == 0 else (0x70, n)
 
-        # Section index 1 ("Section B") is LuxBattleNonAttackMoveDescr[].
+        # Section index 1 ("Section B") is LuxBattleThrowCell[]. Keep the
+        # previous non_attack_descriptors alias populated for existing reports.
         non_attack_descs: list[LuxBattleNonAttackMoveDescr] = []
+        throw_cells: list[LuxBattleThrowCell] = []
         if i == 1 and size % 6 == 0:
             for j in range(size // 6):
                 non_attack_descs.append(parse_non_attack_descriptor(data, off + j * 6))
+                throw_cells.append(parse_throw_cell(data, off + j * 6))
 
-        # Section index 2 ("Section C") gets the tagged-stream walker.
+        # Section index 2 ("Section C") begins with FLuxMoveBankEventRecord[].
+        event_records: list[KhdEventRecord] = []
+        event_records_end_abs = 0
+        if i == 2:
+            event_records, event_records_end_abs = parse_khd_event_records(
+                data, off, sec_end, movelist_id
+            )
+
+        # Keep the older tagged-stream walker for compatibility and research.
         c_records: list[KhdCRecord] = []
         c_end_abs = 0
         if i == 2:
@@ -1102,6 +1261,9 @@ def parse_khd(data: bytes) -> KhdFile:
             detected_stride=stride,
             detected_count=scount,
             non_attack_descriptors=non_attack_descs,
+            throw_cells=throw_cells,
+            event_records=event_records,
+            event_records_end=(event_records_end_abs - off) if event_records else 0,
             c_prefix_records=c_records,
             c_prefix_end=(c_end_abs - off) if c_records else 0,
         ))
@@ -1175,21 +1337,32 @@ def parse_khd(data: bytes) -> KhdFile:
     khd = KhdFile(
         magic=data[:4],
         field_0c=field_0c,
+        move_count=move_count,
+        movelist_id=movelist_id,
         section_offsets=s_offs,
         trailer_data=trailer,
         sections=sections,
         raw=data,
         slots=slot_records,
         slot_buckets=buckets,
+        first_cancel_offset=min((s.dwBytecodeOffset_38 for s in slot_records if s.dwBytecodeOffset_38), default=0),
     )
     # Build a reverse index: cell_idx -> list of (slot_idx, variant)
     # that reference that cell via nCellBoneIndexPerVariant.
     cell_to_slots: dict[int, list[tuple[int, int]]] = {}
+    throw_to_slots: dict[int, list[tuple[int, int]]] = {}
+    local_cell_count = len(sections[0].entries) if sections else 0
+    local_throw_count = len(sections[1].throw_cells) if len(sections) > 1 else 0
     for sv in slot_records:
         for variant, cell_idx in enumerate(sv.nCellBoneIndexPerVariant):
-            if cell_idx >= 0:
+            if 0 <= cell_idx < local_cell_count:
                 cell_to_slots.setdefault(cell_idx, []).append((sv.slot_index, variant))
+            elif cell_idx >= 0 and (cell_idx & 0x1000):
+                throw_idx = cell_idx ^ 0x1000
+                if 0 <= throw_idx < local_throw_count:
+                    throw_to_slots.setdefault(throw_idx, []).append((sv.slot_index, variant))
     khd.cell_to_slots = cell_to_slots  # type: ignore[attr-defined]
+    khd.throw_to_slots = throw_to_slots  # type: ignore[attr-defined]
     return khd
 
 

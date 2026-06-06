@@ -296,7 +296,26 @@ def create_struct_if_missing(client: McpClient, struct: dict[str, Any]) -> None:
         return
     if isinstance(existing, dict) and existing.get("exists"):
         return
+
+    root_name = data_type_base_name(name)
+    if root_name != name and not struct.get("allow_duplicate_type_name"):
+        root_existing = client.get("/validate_data_type_exists", type_name=root_name)
+        if isinstance(root_existing, str) and "does not exist" not in root_existing.lower():
+            raise ValueError(
+                f"refusing to create namespaced duplicate {name!r}; "
+                f"canonical root type {root_name!r} already exists"
+            )
+        if isinstance(root_existing, dict) and root_existing.get("exists"):
+            raise ValueError(
+                f"refusing to create namespaced duplicate {name!r}; "
+                f"canonical root type {root_name!r} already exists"
+            )
+
     client.post("/create_struct", {"name": name, "fields": struct.get("fields", [])})
+
+
+def data_type_base_name(name: str) -> str:
+    return name.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
 
 
 def required(obj: dict[str, Any], key: str) -> str:

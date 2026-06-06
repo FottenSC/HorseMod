@@ -86,6 +86,7 @@ namespace Horse
         constexpr uintptr_t kChara_flMoveVelocity_Y_Off   = 0x144;
         constexpr uintptr_t kChara_flMoveVelocity_Z_Off   = 0x148;
         constexpr uintptr_t kChara_nCurrentMoveId_Off     = 0x324;
+        constexpr uintptr_t kChara_flCurrentClipFrame_Off  = 0x2B47C;
         // wVfxStateCheckA at +0x252 - 2-byte VFX-side state mirror.
         // Useful as a "is the engine ticking?" canary even though it's
         // not the move state per se.
@@ -127,6 +128,9 @@ namespace Horse
         // because most are NOT registered as UProperties.
         constexpr uintptr_t kIL_dwForwardReverseBitfield_Off = 0x394;
         constexpr uintptr_t kIL_bEnable_Off                  = 0x398;
+        // +0x39C is an active-slot mask in the offline cache/current-input
+        // paths used by replay seek diagnostics. Older notes called this a
+        // playback cursor; keep that out of new authority decisions.
         constexpr uintptr_t kIL_dwPlaybackCursor_Off         = 0x39C;
         constexpr uintptr_t kIL_nLastFrameID_Off             = 0x3A0;
         constexpr uintptr_t kIL_nMasterClock_Off             = 0x3A4;
@@ -154,6 +158,8 @@ namespace Horse
         {
             uintptr_t chara_ptr   {0};
             uint32_t  current_move_id {0xFFFFFFFFu};
+            uint32_t  current_move_frame {0};
+            float     current_clip_frame {0.0f};
             uint16_t  vfx_state_check_a {0xFFFF};
             float     pos_x {0.0f}, pos_y {0.0f}, pos_z {0.0f};
             float     vel_x {0.0f}, vel_y {0.0f}, vel_z {0.0f};
@@ -172,6 +178,8 @@ namespace Horse
             {
                 return chara_ptr          != prev.chara_ptr
                     || current_move_id    != prev.current_move_id
+                    || current_move_frame != prev.current_move_frame
+                    || current_clip_frame != prev.current_clip_frame
                     || vfx_state_check_a  != prev.vfx_state_check_a
                     || pos_x              != prev.pos_x
                     || pos_y              != prev.pos_y
@@ -201,6 +209,13 @@ namespace Horse
             uint8_t* c = reinterpret_cast<uint8_t*>(chara_raw);
 
             SafeReadUInt32(c + kChara_nCurrentMoveId_Off,    &s.current_move_id);
+            float clip_frame = 0.0f;
+            if (SafeReadFloat(c + kChara_flCurrentClipFrame_Off, &clip_frame)
+                && clip_frame >= 0.0f)
+            {
+                s.current_clip_frame = clip_frame;
+                s.current_move_frame = static_cast<uint32_t>(clip_frame);
+            }
             SafeReadUInt16(c + kChara_wVfxStateCheckA_Off,   &s.vfx_state_check_a);
             SafeReadFloat (c + kChara_flSelfPos_X_Off,       &s.pos_x);
             SafeReadFloat (c + kChara_flSelfPos_Y_Off,       &s.pos_y);
@@ -238,6 +253,7 @@ namespace Horse
             RC::Output::send<RC::LogLevel::Default>(
                 STR("[ReplayScrub.diag] {} P{} chara=0x{:X} "
                     "moveID=0x{:X} vfxState=0x{:X} "
+                    "moveFrame={} "
                     "pos=({:.2f},{:.2f},{:.2f}) vel=({:.2f},{:.2f},{:.2f}) "
                     "face={:.2f} hp={:.1f} "
                     "vmPaused={} inputFreeze={} hitstun={} blockstun={} "
@@ -245,6 +261,7 @@ namespace Horse
                 RC::to_generic_string(label), player_idx + 1, s.chara_ptr,
                 static_cast<unsigned>(s.current_move_id),
                 static_cast<unsigned>(s.vfx_state_check_a),
+                static_cast<unsigned>(s.current_move_frame),
                 s.pos_x, s.pos_y, s.pos_z,
                 s.vel_x, s.vel_y, s.vel_z,
                 s.facing, s.health,

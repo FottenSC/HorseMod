@@ -340,14 +340,31 @@ namespace Horse
                                      FTransform64& out)
         {
             if (!s_get_bone_transform || !chara) return false;
-            s_get_bone_transform(&out, chara, poseSelector, ue4BoneIdx);
-            return true;
+            bool ok = true;
+            __try
+            {
+                s_get_bone_transform(&out, chara, poseSelector, ue4BoneIdx);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                ok = false;
+            }
+            return ok;
         }
 
         static int32_t remapBoneId(uint8_t internalBoneId)
         {
             if (!s_bone_index_remap) return -1;
-            return s_bone_index_remap(internalBoneId);
+            int32_t out = -1;
+            __try
+            {
+                out = s_bone_index_remap(internalBoneId);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                out = -1;
+            }
+            return out;
         }
 
         // Calls the engine's own teleport helper.  This is the canonical
@@ -364,8 +381,16 @@ namespace Horse
         static bool setCharaStartPosition(void* chara, float x, float y, float z)
         {
             if (!s_set_start_position || !chara) return false;
-            s_set_start_position(chara, x, y, z);
-            return true;
+            bool ok = true;
+            __try
+            {
+                s_set_start_position(chara, x, y, z);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                ok = false;
+            }
+            return ok;
         }
 
         // ---- Online rules: launcher + setter wrappers --------------------
@@ -378,27 +403,42 @@ namespace Horse
         static void setSlipOutMode(void* launcher, bool bEnable)
         {
             if (s_set_slipout_mode && launcher)
-                s_set_slipout_mode(launcher, bEnable);
+            {
+                __try { s_set_slipout_mode(launcher, bEnable); }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
         }
         static void setEndlessMode(void* launcher, bool bEnable)
         {
             if (s_set_endless_mode && launcher)
-                s_set_endless_mode(launcher, bEnable);
+            {
+                __try { s_set_endless_mode(launcher, bEnable); }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
         }
         static void setDamageUpMode(void* launcher, bool bEnable)
         {
             if (s_set_damage_up_mode && launcher)
-                s_set_damage_up_mode(launcher, bEnable);
+            {
+                __try { s_set_damage_up_mode(launcher, bEnable); }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
         }
         static void setNoRingOutMode(void* launcher, bool bEnable)
         {
             if (s_set_no_ringout_mode && launcher)
-                s_set_no_ringout_mode(launcher, bEnable);
+            {
+                __try { s_set_no_ringout_mode(launcher, bEnable); }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
         }
         static void setBlowUpMode(void* launcher, bool bEnable)
         {
             if (s_set_blowup_mode && launcher)
-                s_set_blowup_mode(launcher, bEnable);
+            {
+                __try { s_set_blowup_mode(launcher, bEnable); }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
         }
         static uintptr_t launcherStartAddress()
         {
@@ -422,7 +462,10 @@ namespace Horse
         static void markRenderStateDirty(void* component)
         {
             if (s_mark_render_state_dirty && component)
-                s_mark_render_state_dirty(component);
+            {
+                __try { s_mark_render_state_dirty(component); }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
         }
 
         // Call LuxMoveVM_GetCharaEffectiveHeight on the given chara.
@@ -433,7 +476,16 @@ namespace Horse
         static int getCharaEffectiveHeight(void* chara)
         {
             if (!s_get_chara_effective_height || !chara) return 0;
-            return s_get_chara_effective_height(chara);
+            int out = 0;
+            __try
+            {
+                out = s_get_chara_effective_height(chara);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                out = 0;
+            }
+            return out;
         }
 
         static bool hasGetCharaEffectiveHeight()

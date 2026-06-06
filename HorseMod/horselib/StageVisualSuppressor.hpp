@@ -31,6 +31,16 @@ namespace Horse
     public:
         void tick(bool hideEnabled)
         {
+            if (!hideEnabled)
+            {
+                if (m_lastAppliedHidden)
+                    restoreCapturedObjects();
+                clearCache();
+                m_lastRequestedHidden = false;
+                m_lastAppliedHidden = false;
+                return;
+            }
+
             Obj manager = battleStageActorManager();
             auto* rawManager = manager.raw();
             if (!rawManager)
@@ -62,10 +72,7 @@ namespace Horse
             if (changed || rebuilt || newDynamicTargets > 0)
             {
                 validateCacheObjects();
-                if (hideEnabled)
-                    applyHidden(true);
-                else
-                    restoreCapturedObjects();
+                applyHidden(true);
                 m_lastAppliedHidden = hideEnabled;
             }
             m_lastRequestedHidden = hideEnabled;

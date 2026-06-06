@@ -37,7 +37,10 @@ def test_mitsurugi_json_shape():
     assert "name" in data and data["name"] == "Mitsurugi"
     assert "khd" in data
     khd = data["khd"]
-    for f in ("cells", "slots", "slotEdges", "stanceRoots", "flatMoves"):
+    for f in ("cells", "throws", "eventRecords", "slots", "slotEdges", "stanceRoots", "flatMoves"):
+        assert f in khd, f"missing field {f!r} in khd payload"
+    for f in ("moveCount", "throwCount", "eventRecordTableOffset", "eventRecordCount",
+              "parsedEventRecordCount", "eventRecordPrefixBytes", "firstCancelOffset"):
         assert f in khd, f"missing field {f!r} in khd payload"
     # No dead/leftover fields
     assert "moveTrees" not in khd, "dead moveTrees field still being exported"
@@ -50,9 +53,19 @@ def test_mitsurugi_json_shape():
 
     # Slots have the expected shape
     slot = khd["slots"][0]
-    for f in ("idx", "animationIndex", "animLength", "cellVariants",
-              "bytecodeOffset"):
+    for f in ("idx", "animationIndex", "animLength", "totalFrames", "cellVariants",
+              "attackCellRefs", "throwCellRefs", "bytecodeOffset"):
         assert f in slot
+    if slot.get("bytecode") is not None:
+        assert "facingEffects" in slot["bytecode"]
+
+    if khd["eventRecords"]:
+        event = khd["eventRecords"][0]
+        for f in ("idx", "offset", "packedMoveId", "resolvedSlot", "eventKind",
+                  "eventKindName", "field08", "shapeFlags", "offsetX", "offsetY",
+                  "offsetZ", "field1C", "field20", "field24", "radiusScale",
+                  "field2C", "key", "typeTag", "typeName"):
+            assert f in event, f"missing field {f!r} in event record payload"
 
     # SlotEdges have the expected shape
     if khd["slotEdges"]:
@@ -109,6 +122,13 @@ def test_mitsurugi_movelist_payload_shape():
         cs = m["commandSets"][0]
         for f in ("mainIndex", "introIndex", "cellIdx", "slotIdx", "resolution"):
             assert f in cs, f"missing {f!r} in move {m['name']!r}"
+        assert "tracking" in cs, f"missing tracking in move {m['name']!r}"
+        for f in ("hasFacingCommit", "hasRetrackRamp", "maxTargetWeight", "events"):
+            assert f in cs["tracking"], f"missing tracking.{f!r} in move {m['name']!r}"
+        assert "communityFrame" in m, f"missing communityFrame in move {m['name']!r}"
+        if m["communityFrame"] is not None:
+            for f in ("source", "onBlock", "onHit", "onCounterHit"):
+                assert f in m["communityFrame"], f"missing communityFrame.{f!r} in move {m['name']!r}"
         # No "none" should survive — we drop them at export time
         assert cs["resolution"] != "none", f"unresolved CommandSet in {m['name']!r}"
 

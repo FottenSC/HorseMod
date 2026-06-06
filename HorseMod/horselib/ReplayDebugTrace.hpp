@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -250,6 +251,17 @@ namespace Horse
             return *this;
         }
 
+        ReplayTraceFields& real(const char* key, double value)
+        {
+            char buf[64]{};
+            if (std::isfinite(value))
+                std::snprintf(buf, sizeof(buf), "%.9g", value);
+            else
+                std::snprintf(buf, sizeof(buf), "null");
+            m_fields.emplace_back(std::string(key) + "\":" + buf);
+            return *this;
+        }
+
         ReplayTraceFields& hex(const char* key, uintptr_t value)
         {
             char buf[64]{};
@@ -328,8 +340,10 @@ namespace Horse
 
         void set_enabled(bool enabled) noexcept
         {
-            m_enabled.store(enabled, std::memory_order_release);
-            if (!enabled) close_session();
+            // Keep trace collection always available; this setter remains for
+            // older UI/config paths but no longer disables diagnostics.
+            m_enabled.store(true, std::memory_order_release);
+            if (!enabled) open_new_session(L"forced-on");
         }
 
         bool enabled() const noexcept
@@ -622,6 +636,9 @@ namespace Horse
              .string("function_map_path",
                      narrow(m_function_map.loaded_path()));
             write_event_locked("session_start", f);
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayTrace] writing {}\n"),
+                RC::to_generic_string(narrow(m_current_path)));
             return true;
         }
 
@@ -669,7 +686,7 @@ namespace Horse
             line += std::to_string(GetCurrentThreadId());
             line += ",\"event\":\"";
             line += event_name ? event_name : "?";
-            line += "\",\"build\":\"replay-accuracy-v10l\"";
+            line += "\",\"build\":\"replay-accuracy-v12i\"";
             line += ",\"image_base\":\"";
             char buf[64]{};
             std::snprintf(buf, sizeof(buf), "0x%llX",
@@ -700,7 +717,7 @@ namespace Horse
             }
         }
 
-        std::atomic<bool> m_enabled {false};
+        std::atomic<bool> m_enabled {true};
         std::atomic<bool> m_mirror_to_log {false};
         std::atomic<bool> m_verbose_slices {false};
         mutable std::mutex m_mutex;

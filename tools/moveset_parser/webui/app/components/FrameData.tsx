@@ -2,7 +2,7 @@
 
 /**
  * Compact frame-data notation for a cell. Examples:
- *   i11 Ã¢Â· Mid Ã¢Â· 12 dmg Ã¢Â· +31 on hit Ã¢Â· +21 on block Ã¢Â· close
+ *   i11 - Mid - 12 dmg - +31 on hit - +21 on block - close
  *
  * The "+N" frame values are RAW STUN frames from the cell (defender side).
  * True frame advantage = stun - attacker_recovery; we can't compute that
@@ -14,13 +14,13 @@ export function FrameDataLine({ cell }: { cell: Cell }) {
   return (
     <span className="framedata">
       i{startup}
-      <span className="muted"> Ã¢Â· </span>
+      <span className="muted"> - </span>
       <span>{cell.damage} dmg</span>
-      <span className="muted"> Ã¢Â· </span>
+      <span className="muted"> - </span>
       <span>active <strong>{cell.activeFrames}f</strong></span>
-      <span className="muted"> Ã¢Â· </span>
+      <span className="muted"> - </span>
       <span>hit <strong>{cell.onHitStanding}f</strong></span>
-      <span className="muted"> Ã¢Â· </span>
+      <span className="muted"> - </span>
       <span>blk <strong>{cell.onBlock}f</strong></span>
     </span>
   );

@@ -7,6 +7,7 @@ asserts structural invariants, and reports anomalies.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import re
 import struct
@@ -37,6 +38,13 @@ def validate_khd(path: str, data: bytes) -> tuple[bool, list[str], dict]:
 
     if len(k.section_offsets) != 3:
         issues.append(f"expected 3 section offsets, got {len(k.section_offsets)}")
+    stats["move_count"] = k.move_count
+    stats["movelist_id"] = k.movelist_id
+    stats["event_record_count"] = k.event_record_count
+    stats["slot_count"] = len(k.slots)
+    stats["first_cancel_offset"] = k.first_cancel_offset
+    if k.move_count and len(k.slots) != k.move_count:
+        issues.append(f"slot count {len(k.slots)} != header move count {k.move_count}")
     if k.section_offsets != sorted(k.section_offsets):
         issues.append(f"section offsets not monotonic: {k.section_offsets}")
     for i, off in enumerate(k.section_offsets):
@@ -71,7 +79,11 @@ def validate_khd(path: str, data: bytes) -> tuple[bool, list[str], dict]:
         # Active-frame windows must be ordered (start <= end)
         bad_window = [
             e for e in real_cells
-            if e.wI16MasterWindowEnd < e.wI16MasterWindowStart
+            if e.cell_role == "Attack"
+            # Setsuka hdr022 cell 166 is authored as 26..25 (one frame before
+            # start). Treat that as a zero-length/special window, not parser
+            # corruption; larger inversions are suspicious.
+            if e.wI16MasterWindowEnd + 1 < e.wI16MasterWindowStart
             and e.wI16MasterWindowStart != 0
         ]
         if bad_window:
@@ -91,16 +103,57 @@ def validate_khd(path: str, data: bytes) -> tuple[bool, list[str], dict]:
     else:
         n_b = sec_b.size // 6
         stats["section_B_records"] = n_b
+        stats["section_B_throw_records"] = len(sec_b.throw_cells)
         if n_b > 0:
             field2 = Counter(
                 struct.unpack_from("<H", sec_b.raw, i * 6 + 2)[0] for i in range(n_b)
             )
             stats["section_B_field2_distribution"] = dict(field2.most_common(3))
+            max_throw_damage = max((t.wDamage for t in sec_b.throw_cells), default=0)
+            stats["section_B_throw_damage_max"] = max_throw_damage
+            if max_throw_damage > 500:
+                issues.append(f"section B: max throw damage {max_throw_damage} is implausible")
+
+    if k.throw_to_slots:
+        max_throw_ref = max(k.throw_to_slots)
+        if len(k.sections) > 1 and max_throw_ref >= len(k.sections[1].throw_cells):
+            issues.append(f"throw refs exceed Section B count: {max_throw_ref}")
 
     sec_c = k.sections[2]
     stats["section_C_size"] = sec_c.size
-    stats["section_C_prefix_records"] = len(sec_c.c_prefix_records)
-    stats["section_C_prefix_bytes"] = sec_c.c_prefix_end
+    stats["section_C_event_records"] = len(sec_c.event_records)
+    stats["section_C_event_record_bytes"] = sec_c.event_records_end
+    if len(sec_c.event_records) != k.event_record_count:
+        issues.append(
+            f"section C event record count {len(sec_c.event_records)} != header {k.event_record_count}"
+        )
+    if sec_c.event_records_end > sec_c.size:
+        issues.append("section C event records exceed section size")
+    if sec_c.event_records:
+        stats["section_C_event_tag_distribution"] = dict(
+            Counter(r.type_tag for r in sec_c.event_records)
+        )
+        event_kinds = Counter(r.dwEventKind for r in sec_c.event_records)
+        stats["section_C_event_kind_distribution"] = dict(event_kinds)
+        bad_kinds = sorted(k for k in event_kinds if k not in range(1, 7))
+        if bad_kinds:
+            issues.append(f"section C: unexpected event kinds {bad_kinds}")
+        unresolved = [
+            r.dwPackedMoveId for r in sec_c.event_records
+            if k.resolve_packed_slot(r.dwPackedMoveId) is None
+        ]
+        stats["section_C_unresolved_packed_move_ids"] = len(unresolved)
+        if unresolved:
+            sample = ", ".join(f"0x{x:X}" for x in unresolved[:5])
+            issues.append(f"section C: {len(unresolved)} packed move ids do not resolve ({sample})")
+        bad_float_count = sum(
+            1 for r in sec_c.event_records
+            if not all(math.isfinite(v) for v in (r.flOffsetX, r.flOffsetY, r.flOffsetZ, r.flRadiusScale))
+        )
+        if bad_float_count:
+            issues.append(f"section C: {bad_float_count} records have non-finite float fields")
+    stats["section_C_legacy_prefix_records"] = len(sec_c.c_prefix_records)
+    stats["section_C_legacy_prefix_bytes"] = sec_c.c_prefix_end
     if sec_c.c_prefix_records:
         tag_set = Counter(r.type_tag for r in sec_c.c_prefix_records)
         # Every tag must be in the known valid set
@@ -114,7 +167,7 @@ def validate_khd(path: str, data: bytes) -> tuple[bool, list[str], dict]:
                 f"section C prefix doesn't start with D6 marker "
                 f"(starts with 0x{sec_c.c_prefix_records[0].type_tag:02X})"
             )
-        stats["section_C_prefix_tag_distribution"] = dict(tag_set)
+        stats["section_C_legacy_prefix_tag_distribution"] = dict(tag_set)
 
     sum_sections = sum(s.size for s in k.sections)
     expected = sum_sections + (k.section_offsets[0])
@@ -331,24 +384,34 @@ def run(root: str, verbose: bool = False) -> int:
         print(f"  {cls:<20}: {ct}")
     print()
 
-    print("KHD section C header-record prefix per chara:")
-    prefix_counts = []
+    print("KHD section C event records per chara:")
+    event_counts = []
     agg_c_tags: Counter = Counter()
+    agg_event_kinds: Counter = Counter()
+    unresolved_total = 0
     for cid in all_chars:
         c = chars[cid]
-        if c.khd and "section_C_prefix_records" in c.khd:
-            n = c.khd["section_C_prefix_records"]
-            nb = c.khd["section_C_prefix_bytes"]
-            prefix_counts.append(n)
+        if c.khd and "section_C_event_records" in c.khd:
+            n = c.khd["section_C_event_records"]
+            nb = c.khd["section_C_event_record_bytes"]
+            event_counts.append(n)
+            unresolved_total += c.khd.get("section_C_unresolved_packed_move_ids", 0)
             print(f"  {cid}: {n:>3} records ({nb:>5} bytes / "
                   f"{nb*100//c.khd['section_C_size']:>2}% of section C)")
-            for t, ct in c.khd.get("section_C_prefix_tag_distribution", {}).items():
+            for t, ct in c.khd.get("section_C_event_tag_distribution", {}).items():
                 agg_c_tags[t] += ct
-    if prefix_counts:
-        print(f"  -> min={min(prefix_counts)}, max={max(prefix_counts)}, "
-              f"avg={sum(prefix_counts)//len(prefix_counts)}")
+            for k, ct in c.khd.get("section_C_event_kind_distribution", {}).items():
+                agg_event_kinds[k] += ct
+    if event_counts:
+        print(f"  -> min={min(event_counts)}, max={max(event_counts)}, "
+              f"avg={sum(event_counts)//len(event_counts)}")
+        print(f"  -> unresolved packed move ids={unresolved_total}")
     print()
-    print("Section C prefix - aggregate type-tag distribution:")
+    print("Section C event records - aggregate event-kind distribution:")
+    for kind, ct in sorted(agg_event_kinds.items()):
+        print(f"  {kind}: {ct}")
+    print()
+    print("Section C event records - aggregate low-byte tag distribution:")
     for tag, ct in sorted(agg_c_tags.items()):
         name = "Header_CountMarker" if tag == 0xD6 else MOVE_TYPE_NAMES.get(tag, f"Unknown_0x{tag:02X}")
         print(f"  0x{tag:02X} ({name:<22}): {ct}")

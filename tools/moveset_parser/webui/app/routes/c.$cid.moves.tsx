@@ -1,6 +1,6 @@
-﻿import { createFileRoute, useNavigate } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { AttackClassBadge, AttackModifierBadges, EffectTagBadges, MoveClassBadge } from "../components/AttackClassBadge";
+import { AttackModifierBadges, EffectTagBadges } from "../components/AttackClassBadge";
 import type { CharData, Cell, MovelistMove } from "../data/types";
 
 export const Route = createFileRoute("/c/$cid/moves")({
@@ -12,8 +12,9 @@ export const Route = createFileRoute("/c/$cid/moves")({
   component: MovesTab,
 });
 
-type SortKey = "order" | "from" | "input" | "name" | "damage" | "startup" | "onBlock" | "onHit" | "class";
+type SortKey = "order" | "stance" | "command" | "damage" | "impact" | "onBlock" | "onHit" | "class";
 type SortDir = "asc" | "desc";
+type PresetFilter = "punishable" | "fast" | "plus" | "launch" | "gi" | null;
 
 function pickPrimaryCell(move: MovelistMove, cells: Cell[]): {
   cellIdx: number;
@@ -36,13 +37,117 @@ function pickPrimaryCell(move: MovelistMove, cells: Cell[]): {
   return { cellIdx, cell, navSlot };
 }
 
+function parseFrameValue(value: string | number | null | undefined): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (!value) return null;
+  const match = String(value).match(/[+-]?\d+/);
+  return match ? Number(match[0]) : null;
+}
+
+function displayFrame(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "number") return value > 0 ? `+${value}` : String(value);
+  return String(value);
+}
+
+function frameClass(value: string | number | null | undefined): string {
+  const text = String(value ?? "").toUpperCase();
+  if (text === "KND" || text === "LNC" || text === "STN") return "frame-pill special";
+  const n = parseFrameValue(value);
+  if (n === null) return "frame-pill empty";
+  if (n < 0) return "frame-pill neg-bg";
+  if (n > 0) return "frame-pill pos-bg";
+  return "frame-pill zero-bg";
+}
+
+function getImpact(move: MovelistMove, cell: Cell | null): number | null {
+  return move.communityFrame?.startup ?? (cell?.role === "Attack" ? cell.activeStart : null);
+}
+
+function getDamage(move: MovelistMove, cell: Cell | null): number | null {
+  const communityDamage = move.communityFrame?.damage ?? [];
+  if (communityDamage.length > 0) return communityDamage.reduce((sum, n) => sum + n, 0);
+  return cell?.role === "Attack" ? cell.damage : null;
+}
+
+function getBlock(move: MovelistMove, cell: Cell | null): string | number | null {
+  return move.communityFrame?.onBlock || (cell?.role === "Attack" ? cell.onBlock : null);
+}
+
+function getHit(move: MovelistMove, cell: Cell | null): string | number | null {
+  return move.communityFrame?.onHit || (cell?.role === "Attack" ? cell.onHitStanding : null);
+}
+
+function getCounterHit(move: MovelistMove): string | null {
+  return move.communityFrame?.onCounterHit || null;
+}
+
+function getGuardBurst(move: MovelistMove): string | number | null {
+  return move.communityFrame?.guardBurst ?? null;
+}
+
+const DIR_SYMBOLS: Record<string, string> = {
+  "1": "↙",
+  "2": "↓",
+  "3": "↘",
+  "4": "←",
+  "6": "→",
+  "7": "↖",
+  "8": "↑",
+  "9": "↗",
+};
+
+function CommandChips({ input }: { input: string }) {
+  if (!input) return <span className="muted">-</span>;
+  return (
+    <span className="command-chips" aria-label={input}>
+      {Array.from(input).map((ch, idx) => {
+        if (DIR_SYMBOLS[ch]) return <span key={idx} className="cmd-dir">{DIR_SYMBOLS[ch]}</span>;
+        if (/[ABKG]/.test(ch)) return <span key={idx} className="cmd-button">{ch}</span>;
+        if (ch === "+") return <span key={idx} className="cmd-plus">+</span>;
+        if (ch === ".") return <span key={idx} className="cmd-dot">.</span>;
+        return <span key={idx}>{ch}</span>;
+      })}
+    </span>
+  );
+}
+
+function HitLevelDots({ move, cell }: { move: MovelistMove; cell: Cell | null }) {
+  const levels = move.hitClasses.length > 0
+    ? move.hitClasses
+    : cell?.role === "Attack"
+      ? [cell.class]
+      : [];
+  if (levels.length === 0) return <span className="muted">-</span>;
+  return (
+    <span className="hit-levels" title={levels.join(" / ")}>
+      {levels.slice(0, 4).map((level, idx) => {
+        const short = level.includes("High") ? "H"
+          : level.includes("Low") ? "L"
+            : level.includes("Mid") ? "M"
+              : level.includes("Throw") ? "T"
+                : level.slice(0, 1).toUpperCase();
+        const cls = short === "H" ? "high" : short === "L" ? "low" : short === "T" ? "throw" : "mid";
+        return <span key={`${level}-${idx}`} className={`level-dot ${cls}`}>{short}</span>;
+      })}
+      {levels.length > 4 && <span className="level-more">+{levels.length - 4}</span>}
+    </span>
+  );
+}
+
+function FramePill({ value }: { value: string | number | null | undefined }) {
+  const display = displayFrame(value);
+  if (display === "-") return <span className="muted">-</span>;
+  return <span className={frameClass(value)}>{display}</span>;
+}
+
 function MovesTab() {
   const char = Route.useLoaderData();
-  const navigate = useNavigate();
   const movelist = char.movelist;
   const cells = useMemo(() => char.khd?.cells ?? [], [char.khd]);
 
   const [search, setSearch] = useState("");
+  const [presetFilter, setPresetFilter] = useState<PresetFilter>(null);
   const [classFilter, setClassFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<number | null>(null);
   const [conditionFilter, setConditionFilter] = useState<string | null>(null);
@@ -54,6 +159,12 @@ function MovesTab() {
     cellIdx: number;
     navSlot: number;         // slot the row navigates to
     classKey: string;        // first hit class, for filter/sort
+    impact: number | null;
+    damageTotal: number | null;
+    blockValue: string | number | null;
+    hitValue: string | number | null;
+    counterHitValue: string | null;
+    guardBurstValue: string | number | null;
   };
 
   const enriched = useMemo<EnrichedMove[]>(() => {
@@ -61,7 +172,19 @@ function MovesTab() {
     return movelist.moves.map((m) => {
       const { cellIdx, cell, navSlot } = pickPrimaryCell(m, cells);
       const classKey = m.hitClasses[0] ?? cell?.class ?? "";
-      return { ...m, cell, cellIdx, navSlot, classKey };
+      return {
+        ...m,
+        cell,
+        cellIdx,
+        navSlot,
+        classKey,
+        impact: getImpact(m, cell),
+        damageTotal: getDamage(m, cell),
+        blockValue: getBlock(m, cell),
+        hitValue: getHit(m, cell),
+        counterHitValue: getCounterHit(m),
+        guardBurstValue: getGuardBurst(m),
+      };
     });
   }, [movelist, cells]);
 
@@ -72,7 +195,7 @@ function MovesTab() {
   }, [enriched]);
 
   // Distinct "From" / condition prefixes with counts, for the filter chip strip.
-  // "(none)" is the implicit no-condition bucket â€” most moves fall into it.
+  // "(none)" is the implicit no-condition bucket - most moves fall into it.
   const conditionChoices = useMemo(() => {
     const counts = new Map<string, number>();
     for (const m of enriched) {
@@ -89,6 +212,11 @@ function MovesTab() {
     return enriched.filter((m) => {
       if (categoryFilter !== null && m.category !== categoryFilter) return false;
       if (classFilter && m.classKey !== classFilter) return false;
+      if (presetFilter === "punishable" && (parseFrameValue(m.blockValue) ?? 999) > -10) return false;
+      if (presetFilter === "fast" && ((m.impact ?? 999) > 10)) return false;
+      if (presetFilter === "plus" && ((parseFrameValue(m.blockValue) ?? -999) <= 0)) return false;
+      if (presetFilter === "launch" && !/LNC|KND/i.test(`${m.hitValue ?? ""} ${m.counterHitValue ?? ""}`)) return false;
+      if (presetFilter === "gi" && !m.effectTags.some((tag) => tag.code === "GI")) return false;
       if (conditionFilter !== null) {
         if (conditionFilter === "(none)") {
           if (m.condition) return false;
@@ -97,43 +225,35 @@ function MovesTab() {
         }
       }
       if (q) {
-        const blob = `${m.name} ${m.condition} ${m.input} ${m.note}`.toLowerCase();
+        const blob = `${m.name} ${m.condition} ${m.input} ${m.fullCommand} ${m.note} ${m.mainTip}`.toLowerCase();
         if (!blob.includes(q)) return false;
       }
       return true;
     });
-  }, [enriched, search, classFilter, categoryFilter, conditionFilter]);
+  }, [enriched, search, presetFilter, classFilter, categoryFilter, conditionFilter]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
     arr.sort((a, b) => {
       let cmp = 0;
-      const fa = a.cell;
-      const fb = b.cell;
       switch (sortKey) {
         case "order": cmp = a.order - b.order; break;
-        case "from": cmp = a.condition.localeCompare(b.condition); break;
-        case "input": cmp = a.input.localeCompare(b.input); break;
-        case "name": cmp = a.name.localeCompare(b.name); break;
+        case "stance": cmp = a.condition.localeCompare(b.condition); break;
+        case "command": cmp = a.input.localeCompare(b.input); break;
         case "class": cmp = a.classKey.localeCompare(b.classKey); break;
         case "damage":
-          cmp = (fa?.damage ?? -1) - (fb?.damage ?? -1); break;
-        case "startup":
-          cmp = (fa?.activeStart ?? 9999) - (fb?.activeStart ?? 9999); break;
+          cmp = (a.damageTotal ?? -1) - (b.damageTotal ?? -1); break;
+        case "impact":
+          cmp = (a.impact ?? 9999) - (b.impact ?? 9999); break;
         case "onBlock":
-          cmp = (fa?.onBlock ?? -9999) - (fb?.onBlock ?? -9999); break;
+          cmp = (parseFrameValue(a.blockValue) ?? -9999) - (parseFrameValue(b.blockValue) ?? -9999); break;
         case "onHit":
-          cmp = (fa?.onHitStanding ?? -9999) - (fb?.onHitStanding ?? -9999); break;
+          cmp = (parseFrameValue(a.hitValue) ?? -9999) - (parseFrameValue(b.hitValue) ?? -9999); break;
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
     return arr;
   }, [filtered, sortKey, sortDir]);
-
-  const withParsedCell = useMemo(
-    () => enriched.filter((m) => m.cell?.role === "Attack").length,
-    [enriched],
-  );
 
   const setSort = (k: SortKey) => {
     if (sortKey === k) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -159,279 +279,239 @@ function MovesTab() {
 
   return (
     <>
-      <div className="filters">
+      <section className="moves-toolbar" aria-label="Move list controls">
         <input
           type="search"
-          placeholder="Search by name or input (e.g. 'Heaven', '236A')"
+          placeholder="Quick search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={{
-            flex: "1 1 240px",
-            minWidth: 240,
-            padding: "6px 10px",
-            background: "#181b22",
-            border: "1px solid #2a2e38",
-            color: "#e6e8eb",
-            borderRadius: 6,
-            fontFamily: "inherit",
-            fontSize: 13,
-          }}
+          className="moves-search"
         />
-      </div>
+        <div className="moves-toolbar-meta">
+          <span>{sorted.length} moves</span>
+          {sorted.length !== enriched.length && <span>{enriched.length} total</span>}
+        </div>
+      </section>
 
-      <div className="filters" style={{ marginTop: 6 }}>
-        <span className="filter-label">Category:</span>
-        <button
-          className={`chip ${categoryFilter === null ? "active" : ""}`}
-          onClick={() => setCategoryFilter(null)}
-        >
-          all
-        </button>
-        {movelist.categories.map((cat) =>
-          cat.itemOrders.length > 0 ? (
-            <button
-              key={cat.index}
-              className={`chip ${categoryFilter === cat.index ? "active" : ""}`}
-              onClick={() => setCategoryFilter(categoryFilter === cat.index ? null : cat.index)}
-              title={`${cat.name} â€” ${cat.itemOrders.length} moves. "Main Attacks" re-lists picks from the type-specific tabs.`}
-            >
-              {cat.name}
-              <span className="muted" style={{ marginLeft: 4, fontSize: 11 }}>
-                ({cat.itemOrders.length})
-              </span>
-            </button>
-          ) : null,
-        )}
-      </div>
-
-      <div className="filters" style={{ marginTop: 4 }}>
-        <span className="filter-label">Class:</span>
-        <button
-          className={`chip ${classFilter === null ? "active" : ""}`}
-          onClick={() => setClassFilter(null)}
-        >
-          all
-        </button>
-        {classChoices.map((c) => (
+      <div className="preset-filters" aria-label="Quick filters">
+        {([
+          ["punishable", "Punishable"],
+          ["fast", "i10+"],
+          ["plus", "Plus on block"],
+          ["launch", "Launch on hit"],
+          ["gi", "is a GI"],
+        ] as const).map(([value, label]) => (
           <button
-            key={c}
-            className={`chip ${classFilter === c ? "active" : ""}`}
-            onClick={() => setClassFilter(classFilter === c ? null : c)}
+            key={value}
+            type="button"
+            className={`preset-chip ${presetFilter === value ? "active" : ""}`}
+            onClick={() => setPresetFilter(presetFilter === value ? null : value)}
           >
-            {c}
+            {label}
           </button>
         ))}
       </div>
 
-      {conditionChoices.length > 1 && (
-        <div className="filters" style={{ marginTop: 4 }}>
-          <span className="filter-label">From:</span>
+      <details className="advanced-move-filters">
+        <summary>Advanced filters</summary>
+        <div className="filters advanced-filter-row">
+          <span className="filter-label">Category:</span>
           <button
-            className={`chip ${conditionFilter === null ? "active" : ""}`}
-            onClick={() => setConditionFilter(null)}
+            type="button"
+            className={`chip ${categoryFilter === null ? "active" : ""}`}
+            onClick={() => setCategoryFilter(null)}
           >
             all
           </button>
-          {conditionChoices.slice(0, 16).map((c) => (
+          {movelist.categories.map((cat) =>
+            cat.itemOrders.length > 0 ? (
+              <button
+                key={cat.index}
+                type="button"
+                className={`chip ${categoryFilter === cat.index ? "active" : ""}`}
+                onClick={() => setCategoryFilter(categoryFilter === cat.index ? null : cat.index)}
+                title={`${cat.name} - ${cat.itemOrders.length} moves`}
+              >
+                {cat.name}
+                <span className="muted" style={{ marginLeft: 4, fontSize: 11 }}>
+                  ({cat.itemOrders.length})
+                </span>
+              </button>
+            ) : null,
+          )}
+        </div>
+
+        <div className="filters advanced-filter-row">
+          <span className="filter-label">Class:</span>
+          <button
+            type="button"
+            className={`chip ${classFilter === null ? "active" : ""}`}
+            onClick={() => setClassFilter(null)}
+          >
+            all
+          </button>
+          {classChoices.map((c) => (
             <button
-              key={c.condition}
-              className={`chip ${conditionFilter === c.condition ? "active" : ""}`}
-              onClick={() => setConditionFilter(conditionFilter === c.condition ? null : c.condition)}
-              title={`${c.count} moves`}
+              key={c}
+              type="button"
+              className={`chip ${classFilter === c ? "active" : ""}`}
+              onClick={() => setClassFilter(classFilter === c ? null : c)}
             >
-              {c.condition === "(none)" ? "neutral" : c.condition}
-              <span className="muted" style={{ marginLeft: 4, fontSize: 11 }}>
-                ({c.count})
-              </span>
+              {c}
             </button>
           ))}
         </div>
-      )}
 
-      <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>
-        {sorted.length} {sorted.length === 1 ? "move" : "moves"}
-        {sorted.length !== enriched.length && <> of {enriched.length}</>}
-        {" â€¢ "}
-        <span title="Stats come from parsed khd cells only (no community frame-data join).
-        {withParsedCell} moves currently resolve to an Attack-role cell."}>
-          {withParsedCell} with parsed-cell stats
-        </span>
-      </p>
+        {conditionChoices.length > 1 && (
+          <div className="filters advanced-filter-row">
+            <span className="filter-label">Stance:</span>
+            <button
+              type="button"
+              className={`chip ${conditionFilter === null ? "active" : ""}`}
+              onClick={() => setConditionFilter(null)}
+            >
+              all
+            </button>
+            {conditionChoices.slice(0, 16).map((c) => (
+              <button
+                key={c.condition}
+                type="button"
+                className={`chip ${conditionFilter === c.condition ? "active" : ""}`}
+                onClick={() => setConditionFilter(conditionFilter === c.condition ? null : c.condition)}
+                title={`${c.count} moves`}
+              >
+                {c.condition === "(none)" ? "neutral" : c.condition}
+                <span className="muted" style={{ marginLeft: 4, fontSize: 11 }}>
+                  ({c.count})
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </details>
 
-      <table className="moves-table">
+      <div className="moves-table-wrap">
+      <table className="moves-table frame-table">
         <thead>
           <tr>
+            <th className="col-details">Details</th>
             <th
-              className={sortClass("from")}
-              onClick={() => setSort("from")}
-              title="From / stance / state prerequisite for the move â€” e.g. 'During Mist'"
+              className={sortClass("stance")}
+              onClick={() => setSort("stance")}
             >
-              From
+              Stance
             </th>
             <th
-              className={sortClass("input")}
-              onClick={() => setSort("input")}
-              title="Canonical input notation. [X] = hold; (X) = press+hold same direction; X|Y = alternatives"
+              className={sortClass("command")}
+              onClick={() => setSort("command")}
             >
-              Input
-            </th>
-            <th
-              className={sortClass("name")}
-              onClick={() => setSort("name")}
-            >
-              Name
+              Command
             </th>
             <th
               className={sortClass("class")}
               onClick={() => setSort("class")}
-              title="Attack class from DA_MoveListTable (authoritative), or parsed attack-cell class if missing"
             >
-              Class
+              Hit Level
+            </th>
+            <th
+              className={sortClass("impact")}
+              onClick={() => setSort("impact")}
+            >
+              Impact
             </th>
             <th
               className={sortClass("damage")}
               onClick={() => setSort("damage")}
-              title="Base damage from parsed khd cell"
             >
-              Dmg
-            </th>
-            <th
-              className={sortClass("startup")}
-              onClick={() => setSort("startup")}
-              title="Startup / impact frame from parsed khd cell"
-            >
-              Startup
+              Damage
             </th>
             <th
               className={sortClass("onBlock")}
               onClick={() => setSort("onBlock")}
-              title="Block stun from parsed khd cell (raw stun frames)"
             >
-              On Block
+              Block
             </th>
             <th
               className={sortClass("onHit")}
               onClick={() => setSort("onHit")}
-              title="Hit stun from parsed khd cell (raw stun frames)"
             >
-              On Hit
+              Hit
             </th>
-            <th title="Not parsed from khd by this exporter">On CH</th>
-            <th title="Number of active hit frames from the matched khd cell (activeEnd âˆ’ activeStart + 1)">
-              Active
-            </th>
-            <th title="Stand-stance reach band of the matched khd cell, in engine units. âˆž = sentinel âˆ’127 (no range gate).">
-              Range
-            </th>
+            <th>CH</th>
+            <th>GB</th>
+            <th>Properties</th>
+            <th>Notes</th>
           </tr>
         </thead>
         <tbody>
           {sorted.map((m) => {
             const c = m.cell;
-            const range = !c ? "â€”"
-              : (c.rangeStandMin === -127 && c.rangeStandMax === -127)
-                ? "âˆž"
-                : `${c.rangeStandMin}..${c.rangeStandMax}`;
-            const hasAttack = c?.role === "Attack";
+            const detailSearch = { move: m.moveId, order: m.order };
+            const notes = [m.note, m.lethalHitCondition ? `LH: ${m.lethalHitCondition}` : "", m.mainTip]
+              .filter(Boolean)
+              .join(" · ");
             return (
-              <tr
-                key={m.order}
-                onClick={() => {
-                  if (m.navSlot >= 0) {
-                    navigate({
-                      to: "/c/$cid/moves/$slot",
-                      params: { cid: char.cid, slot: String(m.navSlot) },
-                      search: { move: m.moveId, order: m.order },
-                    });
-                  } else if (m.cellIdx >= 0) {
-                    navigate({
-                      to: "/c/$cid/cells/$idx",
-                      params: { cid: char.cid, idx: String(m.cellIdx) },
-                    });
-                  }
-                }}
-              >
-                <td className="col-from">
-                  {m.condition || <span style={{ opacity: 0.35 }}>â€”</span>}
+              <tr key={m.order}>
+                <td className="col-details">
+                  {m.navSlot >= 0 ? (
+                    <Link
+                      className="details-link"
+                      to="/c/$cid/moves/$slot"
+                      params={{ cid: char.cid, slot: String(m.navSlot) }}
+                      search={detailSearch}
+                    >
+                      Details
+                    </Link>
+                  ) : m.cellIdx >= 0 ? (
+                    <Link
+                      className="details-link"
+                      to="/c/$cid/cells/$idx"
+                      params={{ cid: char.cid, idx: String(m.cellIdx) }}
+                    >
+                      Details
+                    </Link>
+                  ) : (
+                    <span className="muted">-</span>
+                  )}
                 </td>
-                <td className="col-input mono">
-                  {m.input || <span className="muted">â€”</span>}
+                <td className="col-stance">
+                  {m.condition || <span style={{ opacity: 0.35 }}>-</span>}
+                </td>
+                <td className="col-command">
+                  <CommandChips input={m.input} />
                   {m.hasInputAlternatives && m.inputVariants.length > 0 && (
                     <span
                       className="variant-mark"
-                      title={`Bandai's data groups several inputs under this one entry. ${m.inputVariants.length} candidate alternate cell(s) found via dispatcher-sibling lookup. open the move to see them.`}
+                      title={`${m.inputVariants.length} alternate input route(s). Open details to compare variants.`}
                     >
                       +{m.inputVariants.length}
                     </span>
                   )}
                 </td>
-                <td className="col-name">
-                  <div className="move-name">
-                    {m.name}
-                    {m.effectTags.length > 0 && (
-                      <span style={{ marginLeft: 6 }}>
-                        <EffectTagBadges tags={m.effectTags} />
-                      </span>
-                    )}
-                  </div>
-                  {m.note && <div className="move-note">{m.note}</div>}
-                  {m.lethalHitCondition && (
-                    <div className="move-lh" title="Lethal Hit trigger condition">
-                      LH: {m.lethalHitCondition}
-                    </div>
-                  )}
+                <td className="col-level">
+                  <HitLevelDots move={m} cell={c} />
                 </td>
-                <td className="col-class">
-                  {m.hitClasses.length > 0 ? (
-                    // Authoritative DA_MoveListTable class.
-                    <>
-                      <MoveClassBadge hitClasses={m.hitClasses} />
-                      {c?.role === "Attack" && <AttackModifierBadges cell={c} />}
-                    </>
-                  ) : c?.role === "Attack" ? (
-                    <>
-                      <AttackClassBadge value={c.class} />
-                      <AttackModifierBadges cell={c} />
-                      {m.isThrowInput && (
-                        <span
-                          className="badge badge-throw-hint"
-                          style={{ marginLeft: 4 }}
-                          title="Throw-style input (+G)."
-                        >
-                          Throw
-                        </span>
-                      )}
-                    </>
-                  ) : m.isMovementOnly ? (
-                    <span
-                      className="badge badge-movement"
-                      title="Movement / stance entry â€” pure-direction input, no hit cell"
-                    >
-                      Movement
-                    </span>
-                  ) : m.isThrowInput ? (
-                    <span
-                      className="badge badge-throw"
-                      title="Throw-style input (+G)."
-                    >
-                      Throw
-                    </span>
-                  ) : (
-                    <span className="muted">{c?.role ?? "â€”"}</span>
-                  )}
+                <td className="num mono">{m.impact ?? "-"}</td>
+                <td className="num mono">{m.damageTotal ?? "-"}</td>
+                <td className="num"><FramePill value={m.blockValue} /></td>
+                <td className="num"><FramePill value={m.hitValue} /></td>
+                <td className="num"><FramePill value={m.counterHitValue} /></td>
+                <td className="num"><FramePill value={m.guardBurstValue} /></td>
+                <td className="col-properties">
+                  {m.effectTags.length > 0 ? <EffectTagBadges tags={m.effectTags} /> : null}
+                  {c?.role === "Attack" && <AttackModifierBadges cell={c} />}
+                  {m.isThrowInput && <span className="badge badge-eff badge-eff-th">TH</span>}
+                  {m.effectTags.length === 0 && c?.role !== "Attack" && !m.isThrowInput && <span className="muted">-</span>}
                 </td>
-                <td className="num mono">{hasAttack ? c!.damage : "â€”"}</td>
-                <td className="num">{hasAttack ? `i${c!.activeStart}` : "â€”"}</td>
-                <td className="num">{hasAttack ? c!.onBlock : "â€”"}</td>
-                <td className="num">{hasAttack ? c!.onHitStanding : "â€”"}</td>
-                <td className="num">â€”</td>
-                <td className="num muted">{hasAttack ? `${c!.activeFrames}f` : "â€”"}</td>
-                <td className="num mono muted" style={{ fontSize: 12 }}>{range}</td>
+                <td className="col-notes" title={m.name || undefined}>
+                  {notes || <span className="muted">-</span>}
+                </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      </div>
     </>
   );
 }

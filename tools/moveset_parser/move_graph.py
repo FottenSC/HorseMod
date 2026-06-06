@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from stackvm import walk_stackvm
-from stackvm_emulate import emulate, decode_predicate, DecodedInput, Concrete
+from stackvm_emulate import emulate, decode_predicate, DecodedInput, Concrete, EffectEvent
 from luxformats import KhdFile
 
 
@@ -59,6 +59,7 @@ class SlotGraph:
     user_in_count: dict[int, int] = field(default_factory=dict)
     user_out_count: dict[int, int] = field(default_factory=dict)
     distinct_user_inputs_out: dict[int, set[str]] = field(default_factory=dict)
+    effects_by_src: dict[int, list[EffectEvent]] = field(default_factory=dict)
 
 
 def build_slot_graph(bank: KhdFile, file_bytes: bytes) -> SlotGraph:
@@ -73,6 +74,7 @@ def build_slot_graph(bank: KhdFile, file_bytes: bytes) -> SlotGraph:
         except Exception:
             continue
         result = emulate(script, slot.slot_index)
+        g.effects_by_src[slot.slot_index] = result.effects
         edges: list[SlotEdge] = []
         for t in result.transitions:
             if t.next_move_slot is None:
@@ -213,6 +215,21 @@ def serialize_edge(e: SlotEdge) -> dict:
         "indirect": e.is_indirect,
         "callcond": e.callcond_idx,
         "pc": e.source_pc,
+    }
+
+
+def serialize_effect(e: EffectEvent) -> dict:
+    """Plain-JSON-able effect event for export_webui_data.py."""
+    return {
+        "opcode": e.opcode,
+        "opcodeHex": f"0x{e.opcode:04X}" if e.opcode is not None else None,
+        "kind": e.kind,
+        "args": e.concrete_args,
+        "callcond": e.callcond_idx,
+        "pc": e.source_pc,
+        "isFacingRelated": e.is_facing_related,
+        "targetWeight": e.target_weight,
+        "rampSelector": e.ramp_selector,
     }
 
 

@@ -949,6 +949,8 @@ def compare_character(
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR), help="Directory containing webui/public/data")
+    p.add_argument("--community-json", help="Optional parsed community frame-data JSON")
+    p.add_argument("--community-xlsx", help="Optional downloaded community frame-data spreadsheet")
     p.add_argument("--cid", action="append", help="CID(s) to compare (default: all with both sides)")
     p.add_argument(
         "--limit", type=int, default=60, help="Number of mismatch examples to keep per CID"
@@ -978,8 +980,30 @@ def main() -> int:
     if args.cid:
         cids = [c for c in args.cid if c in cids]
 
-    comm = load_community()
+    comm = load_community(
+        json_path=args.community_json or str(ROOT / "community_framedata.json"),
+        xlsx_path=args.community_xlsx or str(ROOT / "community_framedata.xlsx"),
+    )
     compare_raw_stun = args.compare_on_block_raw or args.compare_on_hit_raw
+
+    if not comm.get("chars"):
+        empty_totals = {
+            "chars": 0,
+            "communityMoves": 0,
+            "movelistMoves": 0,
+            "matched": 0,
+            "matchedWithCell": 0,
+            "unmatched": 0,
+            "ambiguous": 0,
+            "noCell": 0,
+            "missingReference": 0,
+            "diff": {"startup": 0, "damage": 0, "onBlock": 0, "onHit": 0},
+        }
+        if args.json:
+            print(json.dumps({"totals": empty_totals, "characters": []}, indent=2))
+        else:
+            print("No community frame data supplied; pass --community-xlsx or --community-json.")
+        return 0
 
     all_reports = []
     global_totals = {
@@ -1000,8 +1024,6 @@ def main() -> int:
         if not payload_path.exists():
             continue
         payload = _read_json(payload_path)
-        if "chars" not in comm and not comm.get("chars"):
-            continue
         rep = compare_character(
             cid,
             payload,

@@ -72,6 +72,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional, Union
+import struct
 
 from stackvm import StackVMInstruction, StackVMScript
 
@@ -116,6 +117,13 @@ CALLCOND_EVAL_IF = {0x00, 0x01, 0x25}
 CALLCOND_TRANSITION_AUTHOR = {0x05, 0x06, 0x07, 0x08}
 CALLCOND_SCHEDULE_TRANSITION = {0x15}
 CALLCOND_EXEC_BANK_SLOT = {0x0D}
+CALLCOND_EFFECT_DISPATCH = {0x02, 0x03}
+
+FACING_EFFECT_OPCODES = {
+    0x1A: "facing_commit",
+    0x3B: "retrack_ramp_mode0",
+    0x3C: "retrack_ramp_mode1",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -224,11 +232,62 @@ class TransitionEvent:
 
 
 @dataclass
+class EffectEvent:
+    """A captured MoveVM effect-dispatch CALLCOND."""
+    callcond_idx: int             # 0x02 / 0x03 DispatchEffectOp aliases
+    args: list[StackVal]
+    source_pc: int
+
+    @property
+    def opcode(self) -> Optional[int]:
+        if not self.args:
+            return None
+        v = self.args[0]
+        return v.value if isinstance(v, Concrete) else None
+
+    @property
+    def concrete_args(self) -> list[Optional[int]]:
+        return [a.value if isinstance(a, Concrete) else None for a in self.args]
+
+    @property
+    def kind(self) -> str:
+        op = self.opcode
+        if op is None:
+            return "effect_indirect"
+        return FACING_EFFECT_OPCODES.get(op, f"effect_0x{op:04X}")
+
+    @property
+    def is_facing_related(self) -> bool:
+        op = self.opcode
+        return op in FACING_EFFECT_OPCODES if op is not None else False
+
+    @property
+    def target_weight(self) -> Optional[float]:
+        """Decoded retrack target for opcodes 0x3B/0x3C, after engine /60."""
+        op = self.opcode
+        if op not in (0x3B, 0x3C) or len(self.args) < 2:
+            return None
+        v = self.args[1]
+        if not isinstance(v, Concrete):
+            return None
+        return _decode_lux_fp16_literal(v.value) / 60.0
+
+    @property
+    def ramp_selector(self) -> Optional[int]:
+        """Opcode arg2: nonzero asks native code to use lane timing as ramp duration."""
+        if len(self.args) < 3:
+            return 0
+        v = self.args[2]
+        return v.value if isinstance(v, Concrete) else None
+
+
+@dataclass
 class SlotTransitions:
     """All transition events extracted from one slot's bytecode."""
     slot_idx: int
     bytecode_offset: int
     transitions: list[TransitionEvent] = field(default_factory=list)
+    effects: list[EffectEvent] = field(default_factory=list)
     # Counts of CALLCOND sub-opcode kinds used (a coarse fingerprint).
     callcond_summary: dict[int, int] = field(default_factory=dict)
 
@@ -396,6 +455,15 @@ def emulate(script: StackVMScript, slot_idx: int) -> SlotTransitions:
                 # The transition's gate has been consumed.
                 last_predicate = None
                 state.acc = Unknown(source_pc=inst.pc)
+            elif fn_idx in CALLCOND_EFFECT_DISPATCH:
+                out.effects.append(
+                    EffectEvent(
+                        callcond_idx=fn_idx,
+                        args=args,
+                        source_pc=inst.pc,
+                    )
+                )
+                state.acc = Unknown(source_pc=inst.pc)
             else:
                 state.acc = Unknown(source_pc=inst.pc)
             # last_predicate is invalidated by TransitionAuthor fire only
@@ -416,6 +484,18 @@ def emulate(script: StackVMScript, slot_idx: int) -> SlotTransitions:
             state.push(state.acc)
 
     return out
+
+
+def _decode_lux_fp16_literal(value: int) -> float:
+    """Decode LuxMoveVM's packed half-float literal into Python float."""
+    value &= 0xFFFF
+    signed_value = value - 0x10000 if value & 0x8000 else value
+    if signed_value == 0:
+        return 0.0
+    sign_bit = 0x80000000 if signed_value < 0 else 0
+    mag = abs(signed_value)
+    bits = ((mag & 0x7C00) * 0x2000 + 0x38000000) | ((mag & 0x03FF) << 13) | sign_bit
+    return struct.unpack("<f", struct.pack("<I", bits))[0]
 
 
 # ---------------------------------------------------------------------------

@@ -26,11 +26,12 @@ from luxformats import (
 from move_graph import (
     build_slot_graph, identify_stance_roots,
     build_flat_moves,
-    serialize_edge, serialize_root, serialize_flat_move,
+    serialize_edge, serialize_effect, serialize_root, serialize_flat_move,
     USER_INPUT_KINDS,
 )
 import uassetparse
 import locales
+import community_framedata
 
 BATTLE_ROOT_DEFAULT = r"E:\myMods\dump\Battle"
 OUT_DIR_DEFAULT = os.path.join(
@@ -50,6 +51,7 @@ ARCHIVE_PATH = os.path.join(
     UE4_DUMP_ROOT, "Localization", "Game", "Steam", "en", "Game.archive"
 )
 HAVE_UE4_DATA = os.path.isdir(STYLE_ROOT) and os.path.isfile(ARCHIVE_PATH)
+_COMMUNITY_FRAME_DATA: dict[str, Any] | None = None
 
 
 def load_movelist_for_chara(
@@ -95,7 +97,68 @@ def load_movelist_for_chara(
     movelist_idx = locales.build_movelist_index(archive, cid)
     move_meta = _load_move_table_metadata(cid, archive)
 
-    return _build_movelist_payload(data, movelist_idx, khd, slot_graph, move_meta)
+    community_index = _community_frame_index(cid)
+    return _build_movelist_payload(data, movelist_idx, khd, slot_graph, move_meta, community_index)
+
+
+def _load_community_frame_data() -> dict[str, Any]:
+    global _COMMUNITY_FRAME_DATA
+    if _COMMUNITY_FRAME_DATA is None:
+        _COMMUNITY_FRAME_DATA = community_framedata.load()
+    return _COMMUNITY_FRAME_DATA
+
+
+def _community_frame_index(cid: str) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    data = _load_community_frame_data()
+    moves = data.get("chars", {}).get(cid, {}).get("moves", [])
+    out: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for move in moves:
+        key = (
+            community_framedata.norm_name(move.get("name", "")),
+            community_framedata.norm_input_key(move.get("command", "")),
+        )
+        out.setdefault(key, []).append(move)
+    return out
+
+
+def _community_frame_for_move(
+    name: str,
+    button_input: str,
+    condition: str,
+    community_index: dict[tuple[str, str], list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    key = (
+        community_framedata.norm_name(name),
+        community_framedata.norm_input_key(button_input),
+    )
+    candidates = community_index.get(key, [])
+    if not candidates:
+        return None
+
+    cond_key = community_framedata.norm_name(condition)
+    def score(move: dict[str, Any]) -> int:
+        stance_key = community_framedata.norm_name(move.get("stance", ""))
+        if not cond_key and not stance_key:
+            return 3
+        if cond_key == stance_key:
+            return 3
+        if stance_key and stance_key in cond_key:
+            return 2
+        if cond_key and cond_key in stance_key:
+            return 1
+        return 0
+
+    best = max(candidates, key=score)
+    return {
+        "source": "community",
+        "startup": best.get("startup"),
+        "damage": best.get("damage", []),
+        "onBlock": best.get("block", ""),
+        "onHit": best.get("hit", ""),
+        "onCounterHit": best.get("counterHit", ""),
+        "guardBurst": best.get("guardBurst"),
+        "notes": best.get("notes", ""),
+    }
 
 
 # Per-hit attack-class abbreviations used in DA_MoveListTable's
@@ -608,14 +671,48 @@ def _find_dispatcher_variants(
     return variants
 
 
+def _tracking_for_slot(slot_idx: int, slot_graph: Any = None) -> dict[str, Any]:
+    """Facing/tracking MoveVM effect events authored on one slot's bytecode."""
+    if slot_idx < 0 or slot_graph is None:
+        events = []
+    else:
+        events = [
+            serialize_effect(e)
+            for e in slot_graph.effects_by_src.get(slot_idx, [])
+            if e.is_facing_related
+        ]
+    weights = [e["targetWeight"] for e in events if e.get("targetWeight") is not None]
+    return {
+        "hasFacingCommit": any(e.get("opcode") == 0x1A for e in events),
+        "hasRetrackRamp": any(e.get("opcode") in (0x3B, 0x3C) for e in events),
+        "maxTargetWeight": max(weights) if weights else None,
+        "events": events,
+    }
+
+
+def _merge_tracking(command_sets: list[dict[str, Any]]) -> dict[str, Any]:
+    events: list[dict[str, Any]] = []
+    for cs in command_sets:
+        events.extend(cs.get("tracking", {}).get("events", []))
+    weights = [e["targetWeight"] for e in events if e.get("targetWeight") is not None]
+    return {
+        "hasFacingCommit": any(e.get("opcode") == 0x1A for e in events),
+        "hasRetrackRamp": any(e.get("opcode") in (0x3B, 0x3C) for e in events),
+        "maxTargetWeight": max(weights) if weights else None,
+        "events": events,
+    }
+
+
 def _build_movelist_payload(
     data: dict[str, Any],
     movelist_idx: dict[int, Any],
     khd: KhdFile | None,
     slot_graph: Any = None,
     move_meta: dict[int, dict[str, Any]] | None = None,
+    community_index: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     move_meta = move_meta or {}
+    community_index = community_index or {}
     categories: list[dict[str, Any]] = []
     moves: list[dict[str, Any]] = []
     item_order = 0
@@ -644,6 +741,7 @@ def _build_movelist_payload(
                     "candidateCount": resolved["candidateCount"],
                     "candidateBestRank": resolved["candidateBestRank"],
                     "candidateScore": resolved["candidateScore"],
+                    "tracking": _tracking_for_slot(resolved["slotIdx"], slot_graph),
                 })
             if not command_sets:
                 continue
@@ -685,6 +783,12 @@ def _build_movelist_payload(
                 )
             # DA_MoveListTable per-move metadata, keyed by MoveListID.
             _meta = move_meta.get(move_id, {})
+            community_frame = _community_frame_for_move(
+                entry.name if entry else "",
+                button_input,
+                condition,
+                community_index,
+            )
             moves.append({
                 "moveId": move_id,
                 "category": cat_idx,
@@ -710,6 +814,8 @@ def _build_movelist_payload(
                 # sibling lookup.
                 "hasInputAlternatives": has_input_alternatives,
                 "inputVariants": input_variants,
+                "tracking": _merge_tracking(command_sets),
+                "communityFrame": community_frame,
                 # Throw-input marker — input contains `+G`. The resolved
                 # cell is usually the STRIKE-PHASE / whiff cell, not the
                 # actual throw cinematic damage cell. UI should show a
@@ -864,18 +970,60 @@ def cell_to_dict(c: LuxBattleAttackCell, idx: int) -> dict[str, Any]:
     }
 
 
-def slot_to_dict(s) -> dict[str, Any]:
+def throw_to_dict(t, idx: int) -> dict[str, Any]:
+    """Compact JSON record for one Section-B throw damage cell."""
+    return {
+        "idx": idx,
+        "damage": t.wDamage,
+        "aux": t.nAux,
+        "scaling": t.nScaling,
+    }
+
+
+def event_record_to_dict(r, resolved_slot: int | None = None) -> dict[str, Any]:
+    """Compact JSON record for one Section-C event-tree record."""
+    return {
+        "idx": r.record_index,
+        "offset": r.byte_offset,
+        "packedMoveId": r.dwPackedMoveId,
+        "resolvedSlot": resolved_slot,
+        "eventKind": r.dwEventKind,
+        "eventKindName": r.event_kind_name,
+        "field08": r.dwField08,
+        "shapeFlags": r.dwShapeFlags,
+        "offsetX": round(r.flOffsetX, 6),
+        "offsetY": round(r.flOffsetY, 6),
+        "offsetZ": round(r.flOffsetZ, 6),
+        "field1C": r.dwField1C,
+        "field20": r.dwField20,
+        "field24": r.dwField24,
+        "radiusScale": round(r.flRadiusScale, 6),
+        "field2C": r.dwField2C,
+        # Compatibility aliases retained for existing reports/UI consumers.
+        "key": r.dwKey,
+        "typeTag": r.type_tag,
+        "typeName": r.type_name,
+    }
+
+
+def slot_to_dict(s, effect_events: list[Any] | None = None) -> dict[str, Any]:
     """Compact slot record. Bytecode is left as opcode counts + length only
     (full disassembly is power-user, fetched separately if needed)."""
     bc = s.bytecode
     if bc is not None:
         callconds = bc.callcond_summary
+        facing_effects = [
+            serialize_effect(e)
+            for e in (effect_events or [])
+            if e.is_facing_related
+        ]
         bc_summary = {
             "offset": bc.bytecode_offset,
             "instructionCount": len(bc.instructions),
             "lengthBytes": bc.length_bytes,
             "truncated": bc.truncated,
             "callconds": {f"0x{k:02X}": v for k, v in sorted(callconds.items())},
+            "facingEffects": facing_effects,
         }
     else:
         bc_summary = None
@@ -883,8 +1031,11 @@ def slot_to_dict(s) -> dict[str, Any]:
         "idx": s.slot_index,
         "animationIndex": s.wAnimationIndex_00,
         "animLength": round(s.flAnimLength_30, 3),
+        "totalFrames": s.total_frames,
         "hitWindowStart": s.nHitWindowStart_36,
         "cellVariants": list(s.nCellBoneIndexPerVariant),
+        "attackCellRefs": s.attack_cell_indices,
+        "throwCellRefs": s.throw_cell_indices,
         "bytecodeOffset": s.dwBytecodeOffset_38,
         "bytecode": bc_summary,
     }
@@ -928,11 +1079,16 @@ def export_char(cid: str, paths: dict[str, str], out_path: str) -> None:
         try:
             k = parse_auto(paths["khd"])
             cells = [cell_to_dict(c, i) for i, c in enumerate(k.sections[0].entries)]
-            slots = [slot_to_dict(s) for s in k.slots]
+            throws = [throw_to_dict(t, i) for i, t in enumerate(k.sections[1].throw_cells)] if len(k.sections) > 1 else []
+            event_records = [
+                event_record_to_dict(r, k.resolve_packed_slot(r.dwPackedMoveId))
+                for r in k.sections[2].event_records
+            ] if len(k.sections) > 2 else []
             # Build the slot transition graph + user-facing move trees.
             with open(paths["khd"], "rb") as f:
                 khd_bytes = f.read()
             graph = build_slot_graph(k, khd_bytes)
+            slots = [slot_to_dict(s, graph.effects_by_src.get(s.slot_index, [])) for s in k.slots]
             all_edges = []
             for src, edges in graph.edges_by_src.items():
                 for e in edges:
@@ -943,17 +1099,34 @@ def export_char(cid: str, paths: dict[str, str], out_path: str) -> None:
             flat_moves = build_flat_moves(k, graph, roots, max_input_steps=5)
             payload["khd"] = {
                 "magic": k.magic.decode("ascii", errors="replace"),
+                "moveCount": k.move_count,
+                "movelistId": k.movelist_id,
                 "sectionOffsets": k.section_offsets,
+                "attackBlockOffset": k.section_offsets[0],
+                "throwBlockOffset": k.section_offsets[1],
+                "eventRecordTableOffset": k.event_record_table_offset,
+                "eventRecordCount": k.event_record_count,
+                "parsedEventRecordCount": len(event_records),
+                "eventRecordPrefixBytes": k.sections[2].event_records_end if len(k.sections) > 2 else 0,
+                # Compatibility alias for older UI/report consumers.
+                "miscBlockOffset": k.section_offsets[2],
+                "firstCancelOffset": k.first_cancel_offset,
                 "totalCells": len(cells),
+                "throwCount": len(throws),
                 "attackCount": sum(1 for c in cells if c["role"] == "Attack"),
                 "headerCount": sum(1 for c in cells if c["role"] == "Header"),
                 "sentinelCount": sum(1 for c in cells if c["role"] == "Sentinel"),
                 "nonDamagingCount": sum(1 for c in cells if c["role"] == "NonDamaging"),
                 "cells": cells,
+                "throws": throws,
+                "eventRecords": event_records,
                 "slotCount": len(slots),
                 "slots": slots,
                 "cellToSlots": {
                     str(cell_idx): refs for cell_idx, refs in k.cell_to_slots.items()
+                },
+                "throwToSlots": {
+                    str(throw_idx): refs for throw_idx, refs in k.throw_to_slots.items()
                 },
                 "slotEdges": all_edges,
                 "stanceRoots": [serialize_root(r) for r in roots],
