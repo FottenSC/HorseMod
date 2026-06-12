@@ -78,7 +78,12 @@
 #include "NativeBinding.hpp"
 #include "ReplayDebugTrace.hpp"
 #include "ReplayScrubDiag.hpp"
+#include "RngTraceHook.hpp"
 #include "SafeMemoryRead.hpp"
+#include "VitalTraceHook.hpp"
+
+#include <commdlg.h>
+#pragma comment(lib, "Comdlg32.lib")
 
 #ifndef HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG
 #define HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG 0
@@ -89,18 +94,23 @@
 #endif
 
 #include <DynamicOutput/DynamicOutput.hpp>
+#include <Unreal/FString.hpp>
 
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <cwchar>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Horse
@@ -1204,15 +1214,18 @@ namespace Horse
     // body that also needs C++ object unwinding (see SafeMemoryRead.hpp).
     static inline bool SafeInvokeExec(
         void* (__fastcall* fn)(HgCpuBufferShim*),
-        HgCpuBufferShim* shim) noexcept
+        HgCpuBufferShim* shim,
+        NativeCallFault* fault = nullptr) noexcept
     {
+        if (fault) *fault = NativeCallFault{};
         if (!fn || !shim) return false;
         __try
         {
             fn(shim);
             return true;
         }
-        __except (EXCEPTION_EXECUTE_HANDLER)
+        __except (CaptureNativeCallFault(
+            GetExceptionCode(), GetExceptionInformation(), fault))
         {
             return false;
         }
@@ -1400,6 +1413,7 @@ namespace Horse
             bool actor_tick_gate {false};
             bool time_dilation_gate {false};
             bool vm_freeze_byte {false};
+            bool wind_rng_gate {false};
             const char* reason {"None"};
         };
 
@@ -1471,6 +1485,59 @@ namespace Horse
             bool direct_driver_available {false};
             bool cvar_submitted {false};
             uint32_t generation {0};
+        };
+
+        enum class ReplaySeekTestPhase : int
+        {
+            Idle = 0,
+            WaitReplayContext,
+            WaitGeneration,
+            WaitGenerationPark,
+            StartCase,
+            WaitSeek,
+            StartResume,
+            WaitResume,
+            Complete,
+        };
+
+        struct ReplaySeekTestCase
+        {
+            std::string label;
+            int32_t requested_seq {-1};
+            double percent {-1.0};
+            int32_t expected_round {-1};
+            std::string validation_mode;
+            int32_t resume_frames {0};
+
+            int32_t target_seq {-1};
+            int32_t target_tick {-1};
+            int32_t target_round {-1};
+            int32_t target_master {-1};
+            int32_t live_round_after_seek {-1};
+            int32_t live_master_after_seek {-1};
+            int32_t resume_start_master {-1};
+            int32_t resume_observed_frames {0};
+            bool landed {false};
+            bool blocked {false};
+            bool passed {false};
+            std::string failure;
+            std::string oracle_failure;
+            std::string raw_mismatch_first_offsets;
+            std::string pass_fail_reason;
+        };
+
+        struct ReplaySeekTestState
+        {
+            bool active {false};
+            std::string run_id;
+            std::string generate_mode {"battle_step"};
+            int32_t timeout_seconds {600};
+            std::vector<ReplaySeekTestCase> cases;
+            size_t case_index {0};
+            ReplaySeekTestPhase phase {ReplaySeekTestPhase::Idle};
+            std::chrono::steady_clock::time_point deadline {};
+            int32_t passed_cases {0};
+            int32_t failed_cases {0};
         };
 
         enum class Sc6ContextFailure : int
@@ -1618,11 +1685,30 @@ namespace Horse
             int32_t native_step_requested_credits {0};
             int32_t native_step_granted_credits {0};
             int32_t native_step_observed_credits {0};
+            int32_t native_step_drained_credits {0};
             int32_t native_step_stall_count {0};
             int32_t native_step_wait_services {0};
+            int32_t native_step_last_grant_gate_policy_before {-1};
+            int32_t native_step_last_grant_gate_policy_after {-1};
+            int32_t native_step_last_drain_gate_policy_before {-1};
+            int32_t native_step_last_drain_gate_policy_after {-1};
+            uint32_t native_step_last_drain_frame_counter_before {0};
+            uint32_t native_step_last_drain_frame_counter_after {0};
+            bool native_step_last_drain_frame_counter_valid {false};
             NativeSeekFailure failure {NativeSeekFailure::None};
             NativeSeekFailure restore_target_block_failure {
                 NativeSeekFailure::None};
+            int32_t restore_target_block_compare_seq {-1};
+            int32_t restore_target_block_compare_master {-1};
+            int32_t restore_target_block_expected_round {-1};
+            int32_t restore_target_block_player {-1};
+            const char* restore_target_block_field {"none"};
+            const char* restore_target_block_reason {"none"};
+            uint64_t restore_target_block_expected_u64 {0};
+            uint64_t restore_target_block_live_u64 {0};
+            float restore_target_block_expected_float {0.0f};
+            float restore_target_block_live_float {0.0f};
+            bool restore_target_block_oracle_valid {false};
             const char* label {"USER"};
             CapturedSeekValidationMode validation_mode {
                 CapturedSeekValidationMode::None};
@@ -1631,6 +1717,7 @@ namespace Horse
             bool snapshot_validation_ok {false};
             bool needs_cross_round_reset {false};
             bool cross_round_reset_applied {false};
+            bool direct_validation_attempted {false};
         };
 
         struct CapturedFrameRestoreReport
@@ -1710,6 +1797,9 @@ namespace Horse
             int32_t master {-1};
             int32_t last_round_result {0};
             uint64_t rng_state {0};
+            uint64_t rng_lfsr_hash {0};
+            uint32_t rng_lfsr_index {0};
+            bool rng_readable {false};
             ReplayScrubDiag::CharaMoveVmSnap p1 {};
             ReplayScrubDiag::CharaMoveVmSnap p2 {};
             uint64_t p1_input {0};
@@ -1737,6 +1827,9 @@ namespace Horse
             bool p2_match {false};
             bool input_match {false};
             bool rng_match {false};
+            bool rng_head_match {false};
+            bool rng_lfsr_hash_match {false};
+            bool rng_lfsr_index_match {false};
             bool last_round_result_match {false};
             bool ok {false};
         };
@@ -1815,6 +1908,7 @@ namespace Horse
             uintptr_t input_log {0};
             uintptr_t replay_player {0};
             uintptr_t state_reset_data {0};
+            uintptr_t state_reset_src {0};
             uintptr_t reset_dst {0};
             int32_t target_round {-1};
             int32_t target_master {-1};
@@ -1825,6 +1919,9 @@ namespace Horse
             const char* reset_source {"none"};
             NativeSeekFailure failure {NativeSeekFailure::None};
             bool context_ok {false};
+            bool state_reset_candidate_ok {false};
+            bool captured_reset_available {false};
+            bool interactive_replay_ok {false};
             bool reset_source_ok {false};
             bool reset_snapshot_read_ok {false};
             bool reset_snapshot_write_ok {false};
@@ -1880,6 +1977,9 @@ namespace Horse
         static constexpr uintptr_t kRVA_PerPlayerInputCursor  = 0x485EB20;
         static constexpr uintptr_t kRVA_LfsrState             = 0x485EB30;
         static constexpr uintptr_t kRVA_LfsrIndex             = 0x485EB94;
+        static constexpr uintptr_t kRVA_StageWindRootPtr      = 0x470E038;
+        static constexpr uintptr_t kRVA_StageWindEmitterList  = 0x470F1C0;
+        static constexpr uintptr_t kRVA_StageWindEmitterCount = 0x470F1C8;
         static constexpr uintptr_t kRVA_DemoGotoTimeInSeconds = 0x1E0ECA0;
 
         static constexpr uintptr_t kWorldModePump_BattleManager_Off = 0x30;
@@ -1995,6 +2095,8 @@ namespace Horse
             // only additionally publishes m_initialized.
             drop_ring();
             m_have_last_counter = false;
+            (void)RngTraceHook::instance().install();
+            (void)VitalTraceHook::instance().install();
 
             m_initialized.store(true, std::memory_order_release);
             RC::Output::send<RC::LogLevel::Default>(
@@ -2004,7 +2106,7 @@ namespace Horse
                 kSnapshotStride, kIL_CaptureBytes, kRDB_Bytes, kExtras_Bytes,
                 kMaxStoreBytes / (1024ull * 1024ull));
                 RC::Output::send<RC::LogLevel::Default>(
-                STR("[ReplayScrub] build replay-accuracy-v12i "
+                STR("[ReplayScrub] build replay-accuracy-v13f "
                     "strict_sc6_exact=1 captured_seek_validate=1 "
                     "native_round_replay_diag=0 legacy_seek={} "
                     "legacy_preview={} cache_diag_only=1 "
@@ -2032,15 +2134,22 @@ namespace Horse
                     "restore_probe=1 final_semantic_repair=1 "
                     "gameplay_step_oracle=1 "
                     "cross_round_reset_context=1 "
-                    "no_raw_byte_gate=1\n"),
+                    "no_raw_byte_gate=1 replay_file_io=1 "
+                    "replay_file_dialog=1 raw_bin_load=1 "
+                    "replay_file_ui_top=1 replay_file_start=1 "
+                    "rng_u32_callers=1 wind_gate_default=0 "
+                    "native_step_drain_event=1 "
+                    "pending_native_step_terminal_trace=1 "
+                    "exec_fault_trace=1 "
+                    "stage_wind_graph_restore=logical_alloc_emitters\n"),
                 kEnableLegacySeekDiagnostics ? 1 : 0,
                 kEnableLegacySnapshotPreview ? 1 : 0);
             RC::Output::send<RC::LogLevel::Default>(
-                STR("[ReplayScrub] deployment check: v12i loaded from "
+                    STR("[ReplayScrub] deployment check: v13f loaded from "
                     "HorseMod main.dll\n"));
             {
                 ReplayTraceFields f;
-                 f.string("build", "replay-accuracy-v12i")
+                 f.string("build", "replay-accuracy-v13f")
                  .boolean("strict_sc6_exact", true)
                  .boolean("captured_seek_validate", true)
                  .boolean("native_round_replay_diag", false)
@@ -2076,7 +2185,18 @@ namespace Horse
                  .boolean("final_semantic_repair", true)
                  .boolean("gameplay_step_oracle", true)
                  .boolean("cross_round_reset_context", true)
-                 .boolean("no_raw_byte_gate", true);
+                 .boolean("no_raw_byte_gate", true)
+                 .boolean("replay_file_io", true)
+                 .boolean("replay_file_dialog", true)
+                 .boolean("raw_bin_load", true)
+                   .boolean("replay_file_ui_top", true)
+                   .boolean("replay_file_start", true)
+                   .boolean("rng_u32_callers", true)
+                   .boolean("wind_gate_default", false)
+                   .boolean("native_step_drain_event", true)
+                   .boolean("pending_native_step_terminal_trace", true)
+                   .boolean("exec_fault_trace", true)
+                   .string("stage_wind_graph_restore", "logical_alloc_emitters");
                 ReplayDebugTrace::instance().event(
                     "replay_scrub_initialized", f);
             }
@@ -2086,6 +2206,9 @@ namespace Horse
         // Tear down at module shutdown.
         void shutdown()
         {
+            trace_pending_native_step_event(
+                "sc6_validation_step_abandoned", "shutdown");
+
             // Restore the engine frame cap + screen percentage + redraw
             // hook first - none of them must outlive the module if
             // generation was still running at unload.
@@ -2706,11 +2829,20 @@ namespace Horse
         void service_pre_frame_gate()
         {
             if (!is_initialized()) return;
+            service_replay_file_load_request();
+            service_replay_file_start_request();
             service_ui_command();
             service_playback_result_guard();
             service_drag_preview();
             service_sc6_exact_seek_job();
             service_pending_demo_goto_time_seek(false);
+        }
+
+        // Start requests may be made from the main menu, before ReplayScrub
+        // is initialized.  Call only from a known game-thread context.
+        void service_replay_file_start_request() noexcept
+        {
+            service_replay_file_start_request_impl();
         }
 
         // Post-gate service runs after frame_step_apply().  The seek job's
@@ -2724,6 +2856,7 @@ namespace Horse
             service_native_demo_seek_settle();
             service_playback_progress_diag();
             publish_timeline_state();
+            service_replay_seek_test();
         }
 
         // Back-compat wrapper for any older call sites.
@@ -3528,6 +3661,7 @@ namespace Horse
                  .hex("state_reset_data", ready.state_reset_data);
                 ReplayDebugTrace::instance().event("generate_start", f);
             }
+            begin_rng_u32_trace_window();
         }
 
         void start_generate_timeline_battle_step() noexcept
@@ -3744,6 +3878,7 @@ namespace Horse
                  .hex("state_reset_data", ready.state_reset_data);
                 ReplayDebugTrace::instance().event("generate_start", f);
             }
+            begin_rng_u32_trace_window();
         }
 
         bool validate_generated_timeline_seek_data() noexcept
@@ -4098,6 +4233,10 @@ namespace Horse
 
             if (was_generating)
             {
+                emit_rng_u32_trace_window(
+                    "generation-stop", reason ? reason : "?", -1, -1,
+                    m_timeline_gen_last_master.load(
+                        std::memory_order_acquire));
                 const int32_t start = m_timeline_gen_start_master.load(
                     std::memory_order_acquire);
                 const int32_t last = m_timeline_gen_last_master.load(
@@ -4718,7 +4857,7 @@ namespace Horse
                        std::memory_order_acquire) <= 0;
         }
 
-        ReplayScrubGatePolicy replay_gate_policy() const noexcept
+        ReplayScrubGatePolicy replay_gate_policy() noexcept
         {
             ReplayScrubGatePolicy p{};
 
@@ -4742,19 +4881,22 @@ namespace Horse
             if (sc6_exact_seek_phase_active(m_sc6_seek_job.phase)
                 || hold == ReplayScrubHoldKind::ValidationStep)
             {
-                const bool validation_step_tick =
-                    m_sc6_seek_job.phase
-                    == Sc6ExactSeekPhase::ValidateStepToTarget;
                 p.world_tick_gate = true;
                 p.replay_clock_gate = true;
-                // The validation step must reproduce the captured full tick
-                // graph. ActorTickGate shares WorldTickGate's policy slot and
-                // can RET actor ticks that land after PerFrameTick consumes
-                // the single validation credit, producing raw snapshot drift
-                // even when the replay clock lands on the expected frame.
-                p.actor_tick_gate = !validation_step_tick;
-                p.reason = validation_step_tick
-                    ? "ValidationStepNoActorGate"
+                // Stage-wind consumes shared battle RNG as part of normal
+                // replay frames. Capture/restore its root, node graph, and
+                // emitter records instead of suppressing those expected draws.
+                p.wind_rng_gate = false;
+                // Keep ActorTickGate enabled during validation. The shared
+                // WorldTickGate policy slot is positive for the credited UE4
+                // frame, so sibling actor ticks still run as part of that
+                // frame. ReplayScrub observes the step only after dllmain's
+                // frame_step_apply reports the policy credit drained back to
+                // zero; until then, the frame is still considered open.
+                p.actor_tick_gate = true;
+                p.reason = m_sc6_seek_job.phase
+                    == Sc6ExactSeekPhase::ValidateStepToTarget
+                    ? "ValidationStepActorGate"
                     : "ValidationStep";
                 return p;
             }
@@ -4846,18 +4988,89 @@ namespace Horse
         }
 
         void notify_sc6_seek_native_step_granted(
-            int32_t credits) noexcept
+            int32_t credits,
+            int32_t gate_policy_before,
+            int32_t gate_policy_after,
+            bool world_gate_enabled,
+            bool replay_gate_enabled,
+            bool actor_gate_enabled,
+            bool time_gate_enabled,
+            bool wind_gate_enabled) noexcept
         {
             if (credits <= 0) return;
+            const bool validation_active = has_active_validation_step();
             const int32_t total =
                 m_sc6_native_step_granted.fetch_add(
                     credits, std::memory_order_acq_rel)
                 + credits;
+            if (validation_active)
+            {
+                m_sc6_seek_job.native_step_last_grant_gate_policy_before =
+                    gate_policy_before;
+                m_sc6_seek_job.native_step_last_grant_gate_policy_after =
+                    gate_policy_after;
+            }
             ReplayTraceFields f;
             f.integer("credits", credits)
-             .integer("granted_total", total);
+             .integer("granted_total", total)
+             .integer("gate_policy_before", gate_policy_before)
+             .integer("gate_policy_after", gate_policy_after)
+             .boolean("world_gate_enabled", world_gate_enabled)
+             .boolean("replay_gate_enabled", replay_gate_enabled)
+             .boolean("actor_gate_enabled", actor_gate_enabled)
+             .boolean("time_gate_enabled", time_gate_enabled)
+             .boolean("wind_gate_enabled", wind_gate_enabled)
+             .boolean("validation_active", validation_active);
             ReplayDebugTrace::instance().event(
                 "sc6_native_step_granted", f);
+        }
+
+        void notify_sc6_seek_native_step_drained(
+            int32_t credits,
+            uint32_t frame_counter_before,
+            uint32_t frame_counter_after,
+            int32_t gate_policy_before,
+            int32_t gate_policy_after,
+            bool world_gate_enabled,
+            bool replay_gate_enabled,
+            bool actor_gate_enabled,
+            bool time_gate_enabled,
+            bool wind_gate_enabled) noexcept
+        {
+            if (credits <= 0) return;
+            const bool validation_active = has_active_validation_step();
+            const int32_t total =
+                m_sc6_native_step_drained.fetch_add(
+                    credits, std::memory_order_acq_rel)
+                + credits;
+            if (validation_active)
+            {
+                m_sc6_seek_job.native_step_last_drain_gate_policy_before =
+                    gate_policy_before;
+                m_sc6_seek_job.native_step_last_drain_gate_policy_after =
+                    gate_policy_after;
+                m_sc6_seek_job.native_step_last_drain_frame_counter_before =
+                    frame_counter_before;
+                m_sc6_seek_job.native_step_last_drain_frame_counter_after =
+                    frame_counter_after;
+                m_sc6_seek_job.native_step_last_drain_frame_counter_valid =
+                    true;
+            }
+            ReplayTraceFields f;
+            f.integer("credits", credits)
+             .integer("drained_total", total)
+             .uinteger("frame_counter_before", frame_counter_before)
+             .uinteger("frame_counter_after", frame_counter_after)
+             .integer("gate_policy_before", gate_policy_before)
+             .integer("gate_policy_after", gate_policy_after)
+             .boolean("world_gate_enabled", world_gate_enabled)
+             .boolean("replay_gate_enabled", replay_gate_enabled)
+             .boolean("actor_gate_enabled", actor_gate_enabled)
+             .boolean("time_gate_enabled", time_gate_enabled)
+             .boolean("wind_gate_enabled", wind_gate_enabled)
+             .boolean("validation_active", validation_active);
+            ReplayDebugTrace::instance().event(
+                "sc6_native_step_drained", f);
         }
 
         bool sc6_exact_seek_active() const noexcept
@@ -4997,6 +5210,8 @@ namespace Horse
             const size_t  cnt_before = m_tags.count();
             const int32_t last_seek  =
                 m_last_seek_target.load(std::memory_order_relaxed);
+            trace_pending_native_step_event(
+                "sc6_validation_step_abandoned", reason ? reason : "reset");
             drop_ring();
             m_have_last_counter      = false;
             m_last_bm_obj            = nullptr;
@@ -5194,6 +5409,244 @@ namespace Horse
             return out;
         }
 
+        struct ReplayFileMetadata
+        {
+            int32_t total_rounds {-1};
+            int32_t current_round {-1};
+            float current_time {-1.0f};
+            int32_t total_recorded_frames {-1};
+            int32_t stage_index {-1};
+            int32_t left_chara_id {-1};
+            int32_t right_chara_id {-1};
+            uint64_t timestamp_unix {0};
+        };
+
+        std::string replay_file_status_text() const
+        {
+            std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+            return m_replay_file_status;
+        }
+
+        std::string default_replay_load_name() const
+        {
+            std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+            return narrow_path(replay_file_basename(m_replay_file_last_path));
+        }
+
+        bool has_pending_replay_file_load() const noexcept
+        {
+            return m_replay_file_load_pending.load(std::memory_order_acquire);
+        }
+
+        bool has_pending_replay_file_start() const noexcept
+        {
+            return m_replay_file_start_pending.load(std::memory_order_acquire);
+        }
+
+        void export_current_replay_file() noexcept
+        {
+            std::vector<uint8_t> payload;
+            ReplayFileMetadata meta{};
+            std::string reason;
+            std::wstring out_path;
+
+            set_replay_file_status("Export Replay", false, false,
+                                   L"", 0, meta, "starting");
+            if (!read_live_replay_payload(payload, meta, reason))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] export failure: {}\n"),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Export Replay", true, false,
+                                       L"", 0, meta, reason.c_str());
+                return;
+            }
+
+            out_path = make_replay_export_path();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] export start path='{}' bytes={} "
+                "rounds={} current_round={} frames={} stage={} "
+                "charL={} charR={} timestamp={}\n"),
+                RC::to_generic_string(narrow_path(out_path)),
+                payload.size(), meta.total_rounds, meta.current_round,
+                meta.total_recorded_frames, meta.stage_index,
+                meta.left_chara_id, meta.right_chara_id,
+                static_cast<unsigned long long>(meta.timestamp_unix));
+
+            if (out_path.empty()
+                || !write_replay_file(out_path, payload, meta, reason))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] export failure path='{}' bytes={} "
+                    "reason={}\n"),
+                    RC::to_generic_string(narrow_path(out_path)),
+                    payload.size(), RC::to_generic_string(reason));
+                set_replay_file_status("Export Replay", true, false,
+                                       out_path, payload.size(), meta,
+                                       reason.c_str());
+                return;
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                m_replay_file_last_path = out_path;
+            }
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] export success path='{}' bytes={} "
+                "rounds={} current_round={} frames={} stage={} "
+                "charL={} charR={} timestamp={}\n"),
+                RC::to_generic_string(narrow_path(out_path)),
+                payload.size(), meta.total_rounds, meta.current_round,
+                meta.total_recorded_frames, meta.stage_index,
+                meta.left_chara_id, meta.right_chara_id,
+                static_cast<unsigned long long>(meta.timestamp_unix));
+            set_replay_file_status("Export Replay", true, true,
+                                   out_path, payload.size(), meta,
+                                   "success");
+        }
+
+        bool request_load_replay_file(const char* user_name) noexcept
+        {
+            std::wstring path;
+            std::string reason;
+            if (!resolve_user_replay_file_path(user_name, path, reason))
+            {
+                ReplayFileMetadata meta{};
+                const std::string input = user_name ? user_name : "";
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] load failure input='{}' reason={}\n"),
+                    RC::to_generic_string(input),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Load Replay File", true, false,
+                                       L"", 0, meta, reason.c_str());
+                return false;
+            }
+
+            return queue_replay_file_load(path);
+        }
+
+        bool request_start_replay_file(const char* user_name) noexcept
+        {
+            std::wstring path;
+            std::string reason;
+            if (!resolve_user_replay_file_path(user_name, path, reason))
+            {
+                ReplayFileMetadata meta{};
+                const std::string input = user_name ? user_name : "";
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] start failure input='{}' reason={}\n"),
+                    RC::to_generic_string(input),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Start Replay File", true, false,
+                                       L"", 0, meta, reason.c_str());
+                return false;
+            }
+
+            return queue_replay_file_start(path);
+        }
+
+        bool browse_and_request_load_replay_file() noexcept
+        {
+            wchar_t file_name[MAX_PATH]{};
+            OPENFILENAMEW ofn{};
+            ofn.lStructSize = sizeof(ofn);
+            ofn.hwndOwner = nullptr;
+            ofn.lpstrFile = file_name;
+            ofn.nMaxFile = MAX_PATH;
+            ofn.lpstrFilter =
+                L"Replay files (*.hmreplay;*.bin)\0*.hmreplay;*.bin\0"
+                L"HorseMod replay wrapper (*.hmreplay)\0*.hmreplay\0"
+                L"Native replay payload (*.bin)\0*.bin\0"
+                L"All files (*.*)\0*.*\0";
+            ofn.nFilterIndex = 1;
+            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
+                        OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
+
+            if (!GetOpenFileNameW(&ofn))
+            {
+                const DWORD err = CommDlgExtendedError();
+                if (err != 0)
+                {
+                    ReplayFileMetadata meta{};
+                    char detail[64]{};
+                    std::snprintf(detail, sizeof(detail),
+                                  "file dialog failed 0x%lX", err);
+                    set_replay_file_status("Load Replay File", true, false,
+                                           L"", 0, meta, detail);
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayFile] load failure: {}\n"),
+                        RC::to_generic_string(detail));
+                }
+                return false;
+            }
+
+            std::wstring path = file_name;
+            std::string reason;
+            if (!validate_absolute_replay_path(path, reason))
+            {
+                ReplayFileMetadata meta{};
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] load failure path='{}' reason={}\n"),
+                    RC::to_generic_string(narrow_path(path)),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Load Replay File", true, false,
+                                       path, 0, meta, reason.c_str());
+                return false;
+            }
+            return queue_replay_file_load(path);
+        }
+
+        bool browse_and_request_start_replay_file() noexcept
+        {
+            wchar_t file_name[MAX_PATH]{};
+            OPENFILENAMEW ofn{};
+            ofn.lStructSize = sizeof(ofn);
+            ofn.hwndOwner = nullptr;
+            ofn.lpstrFile = file_name;
+            ofn.nMaxFile = MAX_PATH;
+            ofn.lpstrFilter =
+                L"Replay files (*.hmreplay;*.bin)\0*.hmreplay;*.bin\0"
+                L"HorseMod replay wrapper (*.hmreplay)\0*.hmreplay\0"
+                L"Native replay payload (*.bin)\0*.bin\0"
+                L"All files (*.*)\0*.*\0";
+            ofn.nFilterIndex = 1;
+            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
+                        OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
+
+            if (!GetOpenFileNameW(&ofn))
+            {
+                const DWORD err = CommDlgExtendedError();
+                if (err != 0)
+                {
+                    ReplayFileMetadata meta{};
+                    char detail[64]{};
+                    std::snprintf(detail, sizeof(detail),
+                                  "file dialog failed 0x%lX", err);
+                    set_replay_file_status("Start Replay File", true, false,
+                                           L"", 0, meta, detail);
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayFile] start failure: {}\n"),
+                        RC::to_generic_string(detail));
+                }
+                return false;
+            }
+
+            std::wstring path = file_name;
+            std::string reason;
+            if (!validate_absolute_replay_path(path, reason))
+            {
+                ReplayFileMetadata meta{};
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] start failure path='{}' reason={}\n"),
+                    RC::to_generic_string(narrow_path(path)),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Start Replay File", true, false,
+                                       path, 0, meta, reason.c_str());
+                return false;
+            }
+            return queue_replay_file_start(path);
+        }
+
     private:
         ReplayScrub() = default;
         // shutdown() (not just free_ring()) so a hot-unload mid-
@@ -5236,12 +5689,51 @@ namespace Horse
         NativeCallFault m_last_set_move_state_fault {};
         const void* m_frame_counter_addr {nullptr};
 
+        struct ReplayFileHeader
+        {
+            char magic[8];
+            uint32_t version {1};
+            uint32_t header_bytes {0};
+            uint64_t payload_bytes {0};
+            uint64_t timestamp_unix {0};
+            uint64_t payload_hash {0};
+            int32_t total_rounds {-1};
+            int32_t current_round {-1};
+            float current_time {-1.0f};
+            int32_t total_recorded_frames {-1};
+            int32_t stage_index {-1};
+            int32_t left_chara_id {-1};
+            int32_t right_chara_id {-1};
+            int32_t reserved {-1};
+        };
+        static_assert(sizeof(ReplayFileHeader) == 72,
+                      "ReplayFileHeader layout changed");
+        static constexpr char kReplayFileMagic[8] = {
+            'H', 'M', 'R', 'P', 'L', 'Y', '1', '\0'
+        };
+        static constexpr uint32_t kReplayFileVersion = 1;
+        static constexpr size_t kReplayFileMaxPayloadBytes =
+            64ull * 1024ull * 1024ull;
+
         // Single shim, re-targeted onto each ring slot in turn.  The
         // engine treats the buffer as opaque so we can repurpose it
         // freely between calls.  Storing it as a member rather than
         // on-stack means the vtable pointer's lifetime matches the
         // tracker's, which matches the ring's.
         HgCpuBufferShim m_shim {};
+
+        mutable std::mutex m_replay_file_mutex;
+        std::string m_replay_file_status;
+        std::wstring m_replay_file_last_path;
+        std::wstring m_replay_file_pending_path;
+        std::wstring m_replay_file_start_pending_path;
+        std::wstring m_replay_file_launch_path;
+        std::vector<uint8_t> m_loaded_replay_payload;
+        std::atomic<bool> m_replay_file_load_pending {false};
+        std::atomic<bool> m_replay_file_start_pending {false};
+        Fn m_fn_gi_get_battle_setup;
+        Fn m_fn_gi_apply_replay_to_battle_setup;
+        Fn m_fn_gi_manual_launch_battle;
 
         // Cached BM lookup for the post-restore replay-cursor write.
         // GlobalPtr::get() throttles its O(N) revalidation scan (see
@@ -5443,6 +5935,8 @@ namespace Horse
         //   [0x674..0x678) g_dwLuxBattleLfsrIndex
         //   [0x678..0x738) g_LuxBattle_CCpuCommandArray
         //   [0x738..0x73C) BM+0x1490 nFrameAdvanceCounter
+        //   [0x73C..0x93C) stage wind root bytes +0x00..+0x200
+        //   [0x93C..0x2B5C) stage wind graph nodes (bounded, pointer-safe)
         //
         // The ReplayPlayer state at the end IS THE PLAYBACK CURSOR (2026-05-15
         // user reframing): the BP-level replay menu reads CurrentTime each
@@ -5554,7 +6048,94 @@ namespace Horse
         static constexpr size_t kExtras_Off_CCpuCommandArray  = 0x678;
         static constexpr size_t kExtras_CCpuCommandArray_Bytes = 0xC0;
         static constexpr size_t kExtras_Off_BM_FrameAdvance   = 0x738;
-        static constexpr size_t kExtras_Bytes                 = 0x73C;
+        static constexpr size_t kExtras_Off_StageWindRoot     = 0x73C;
+        static constexpr size_t kExtras_StageWindRoot_Bytes   = 0x200;
+        static constexpr size_t kStageWindRoot_RestoreOffset  = 0x08;
+        static constexpr size_t kStageWindRoot_RestoreBytes =
+            kExtras_StageWindRoot_Bytes - kStageWindRoot_RestoreOffset;
+        static constexpr size_t kStageWindRoot_Head_Off       = 0x00;
+        static constexpr size_t kStageWindRoot_Scalar_Off     = 0x08;
+        static constexpr size_t kStageWindRoot_SceneTick_Off  = 0x0C;
+        static constexpr size_t kStageWindRoot_ActiveBank_Off = 0x98;
+        static constexpr size_t kStageWindRoot_PendingCount_Off = 0x9C;
+
+        // Stage wind node graph capture.  Capture stores the live list as a
+        // logical ordered node set. Restore remaps those bytes onto freshly
+        // UE-allocator-backed nodes because captured heap addresses can be
+        // stale or reused by the time a manual seek occurs.
+        static constexpr size_t kStageWindGraph_MaxNodes      = 16;
+        static constexpr size_t kStageWindNode_MaxBytes       = 0x200;
+        static constexpr size_t kStageWindNode_RestoreOffset  = 0x30;
+        static constexpr size_t kStageWindGraph_HeaderBytes   = 0x20;
+        static constexpr size_t kStageWindGraph_EntryBytes =
+            0x20 + kStageWindNode_MaxBytes;
+        static constexpr size_t kStageWindGraph_Bytes =
+            kStageWindGraph_HeaderBytes
+            + kStageWindGraph_MaxNodes * kStageWindGraph_EntryBytes;
+        static constexpr size_t kExtras_Off_StageWindGraph =
+            kExtras_Off_StageWindRoot + kExtras_StageWindRoot_Bytes;
+
+        // Stage wind emitters drive LuxBattle_SpawnStageWindParticles.  Their
+        // reload timers/spawn counts decide whether the next frame consumes
+        // wind RNG and allocates a node, so they must be restored with the
+        // wind graph rather than gating the spawn/update functions.
+        static constexpr size_t kStageWindEmitter_MaxCount   = 32;
+        static constexpr size_t kStageWindEmitter_RecordBytes = 0xA8;
+        static constexpr size_t kStageWindEmitter_HeaderBytes = 0x20;
+        static constexpr size_t kStageWindEmitter_EntryBytes =
+            0x20 + kStageWindEmitter_RecordBytes;
+        static constexpr size_t kStageWindEmitters_Bytes =
+            kStageWindEmitter_HeaderBytes
+            + kStageWindEmitter_MaxCount * kStageWindEmitter_EntryBytes;
+        static constexpr size_t kExtras_Off_StageWindEmitters =
+            kExtras_Off_StageWindGraph + kStageWindGraph_Bytes;
+        static constexpr size_t kExtras_Bytes =
+            kExtras_Off_StageWindEmitters + kStageWindEmitters_Bytes;
+        static constexpr uint32_t kStageWindGraph_Magic = 0x57494752; // WIGR
+        static constexpr uint32_t kStageWindGraph_Version = 3;
+        static constexpr uint32_t kStageWindEmitter_Magic = 0x5749454D; // WIEM
+        static constexpr uint32_t kStageWindEmitter_Version = 1;
+        static constexpr uintptr_t kRVA_IwWindParallelVTable = 0x3E88C88;
+        static constexpr uintptr_t kRVA_IwWindRingOutVTable  = 0x3E88CB8;
+        static constexpr uintptr_t kRVA_IwWindRingInVTable   = 0x3E88CE8;
+        static constexpr uintptr_t kRVA_IwWindShockWaveVTable = 0x3E88D18;
+        static constexpr size_t kStageWindGraph_Off_Magic      = 0x00;
+        static constexpr size_t kStageWindGraph_Off_Version    = 0x04;
+        static constexpr size_t kStageWindGraph_Off_Count      = 0x08;
+        static constexpr size_t kStageWindGraph_Off_Truncated  = 0x0C;
+        static constexpr size_t kStageWindGraph_Off_Hash       = 0x10;
+        static constexpr size_t kStageWindGraph_Off_Flags      = 0x18;
+        static constexpr size_t kStageWindGraph_Off_BadVtableRva = 0x1C;
+        static constexpr uint32_t kStageWindGraphFlag_Restorable = 0x00000001;
+        static constexpr uint32_t kStageWindGraphFlag_EnumTruncated = 0x00000002;
+        static constexpr uint32_t kStageWindGraphFlag_UnknownVtable = 0x00000004;
+        static constexpr uint32_t kStageWindGraphFlag_ReadFailed = 0x00000008;
+        static constexpr uint32_t kStageWindGraphFlag_BadSize = 0x00000010;
+        static constexpr uint32_t kStageWindEmitterFlag_Restorable = 0x00000001;
+        static constexpr uint32_t kStageWindEmitterFlag_EnumTruncated = 0x00000002;
+        static constexpr uint32_t kStageWindEmitterFlag_NullEmitter = 0x00000004;
+        static constexpr uint32_t kStageWindEmitterFlag_ReadFailed = 0x00000008;
+        static constexpr size_t kStageWindGraphEntry_Off_Addr  = 0x00;
+        static constexpr size_t kStageWindGraphEntry_Off_Vtable = 0x08;
+        static constexpr size_t kStageWindGraphEntry_Off_Bytes = 0x10;
+        static constexpr size_t kStageWindGraphEntry_Off_Flags = 0x14;
+        static constexpr size_t kStageWindGraphEntry_Off_Hash  = 0x18;
+        static constexpr size_t kStageWindGraphEntry_Off_Data  = 0x20;
+        static constexpr size_t kStageWindEmitter_Off_Magic    = 0x00;
+        static constexpr size_t kStageWindEmitter_Off_Version  = 0x04;
+        static constexpr size_t kStageWindEmitter_Off_Count    = 0x08;
+        static constexpr size_t kStageWindEmitter_Off_Truncated = 0x0C;
+        static constexpr size_t kStageWindEmitter_Off_Hash     = 0x10;
+        static constexpr size_t kStageWindEmitter_Off_Flags    = 0x18;
+        static constexpr size_t kStageWindEmitterEntry_Off_Node = 0x00;
+        static constexpr size_t kStageWindEmitterEntry_Off_Emitter = 0x08;
+        static constexpr size_t kStageWindEmitterEntry_Off_Bytes = 0x10;
+        static constexpr size_t kStageWindEmitterEntry_Off_Flags = 0x14;
+        static constexpr size_t kStageWindEmitterEntry_Off_Hash = 0x18;
+        static constexpr size_t kStageWindEmitterEntry_Off_Data = 0x20;
+        static constexpr size_t kIwWindEmitter_nActive_Off = 0x50;
+        static constexpr size_t kIwWindEmitter_nSpawnRemaining_Off = 0x54;
+        static constexpr size_t kIwWindEmitter_flReloadTimer_Off = 0x5C;
 
         // Chara replay-state field range (NOT in HgCpuDirect snapshot).
         static constexpr uintptr_t kChara_ReplayState_Start = 0x43F4;
@@ -5735,9 +6316,13 @@ namespace Horse
         PreviewState    m_preview {};
         NativeSeekState m_native {};
         Sc6ExactSeekJob m_sc6_seek_job {};
+        ReplaySeekTestState m_replay_seek_test {};
+        int32_t m_replay_seek_test_poll_ticks {0};
+        std::string m_replay_seek_test_last_raw_mismatch;
         uint32_t        m_seek_generation {0};
         std::atomic<int32_t> m_sc6_native_step_request {0};
         std::atomic<int32_t> m_sc6_native_step_granted {0};
+        std::atomic<int32_t> m_sc6_native_step_drained {0};
 
         std::atomic<int32_t> m_seek_command_kind {
             static_cast<int32_t>(SeekCommandKind::None)};
@@ -5796,7 +6381,9 @@ namespace Horse
             HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG != 0;
         static constexpr bool kEnableLegacySnapshotPreview = false;
         static constexpr int32_t kSc6NativeStepCreditsPerRequest = 1;
+        static constexpr bool kEnableDirectTargetToNextValidation = false;
         static constexpr int32_t kSc6NativeStepMaxStalls = 16;
+        static constexpr int32_t kSc6NativeStepMaxDrainWaitServices = 120;
         static constexpr int32_t kSc6SeekMaxFrames = 20000;
 
         // Set to N (default 600 = 10 seconds @ 60fps) right after a
@@ -6344,6 +6931,1634 @@ namespace Horse
             {
                 publish_mode(ScrubMode::Generated);
             }
+        }
+
+        static const char* replay_seek_test_build_marker() noexcept
+        {
+            return "replay-accuracy-v13f";
+        }
+
+        static const char* native_seek_status_name(
+            NativeSeekStatus status) noexcept
+        {
+            switch (status)
+            {
+            case NativeSeekStatus::Idle: return "Idle";
+            case NativeSeekStatus::Queued: return "Queued";
+            case NativeSeekStatus::DeferredBusy: return "DeferredBusy";
+            case NativeSeekStatus::Submitted: return "Submitted";
+            case NativeSeekStatus::Settling: return "Settling";
+            case NativeSeekStatus::ClockLanded: return "ClockLanded";
+            case NativeSeekStatus::Landed: return "Landed";
+            case NativeSeekStatus::Failed: return "Failed";
+            default: return "Unknown";
+            }
+        }
+
+        static bool replay_seek_test_read_file(
+            const std::wstring& path,
+            std::string& out) noexcept
+        {
+            HANDLE h = CreateFileW(path.c_str(), GENERIC_READ,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   nullptr, OPEN_EXISTING,
+                                   FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+                return false;
+
+            LARGE_INTEGER size{};
+            if (!GetFileSizeEx(h, &size) || size.QuadPart <= 0
+                || size.QuadPart > 64ll * 1024ll)
+            {
+                CloseHandle(h);
+                return false;
+            }
+
+            out.resize(static_cast<size_t>(size.QuadPart));
+            DWORD got = 0;
+            const BOOL ok = ReadFile(h, out.data(),
+                                     static_cast<DWORD>(out.size()),
+                                     &got, nullptr);
+            CloseHandle(h);
+            if (!ok) return false;
+            out.resize(static_cast<size_t>(got));
+            return true;
+        }
+
+        static std::wstring replay_seek_test_mod_root_dir() noexcept
+        {
+            HMODULE h = nullptr;
+            if (!GetModuleHandleExW(
+                    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                    GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    reinterpret_cast<LPCWSTR>(&ReplayScrub::instance),
+                    &h) || !h)
+                return {};
+
+            wchar_t buf[MAX_PATH]{};
+            const DWORD n = GetModuleFileNameW(h, buf, MAX_PATH);
+            if (n == 0 || n >= MAX_PATH) return {};
+            wchar_t* last_slash = std::wcsrchr(buf, L'\\');
+            if (!last_slash) return {};
+            *(last_slash + 1) = L'\0';
+            std::wstring p = buf;
+            if (!p.ends_with(L"\\dlls\\") && !p.ends_with(L"\\dlls/"))
+                return p;
+            if (!p.empty() && (p.back() == L'\\' || p.back() == L'/'))
+                p.pop_back();
+            last_slash = std::wcsrchr(p.data(), L'\\');
+            if (!last_slash) return {};
+            *(last_slash + 1) = L'\0';
+            p.resize(std::wcslen(p.c_str()));
+            return p;
+        }
+
+        static std::wstring replay_seek_test_request_path() noexcept
+        {
+            std::wstring root = replay_seek_test_mod_root_dir();
+            if (root.empty()) return {};
+            root += L"Saved\\";
+            CreateDirectoryW(root.c_str(), nullptr);
+            root += L"replay_seek_test_request.json";
+            return root;
+        }
+
+        static size_t json_value_pos(const std::string& text,
+                                     const char* key) noexcept
+        {
+            std::string needle = std::string("\"") + key + "\"";
+            const size_t key_pos = text.find(needle);
+            if (key_pos == std::string::npos) return std::string::npos;
+            const size_t colon = text.find(':', key_pos + needle.size());
+            if (colon == std::string::npos) return std::string::npos;
+            size_t p = colon + 1;
+            while (p < text.size()
+                   && std::isspace(static_cast<unsigned char>(text[p])))
+                ++p;
+            return p;
+        }
+
+        static bool json_get_bool(const std::string& text,
+                                  const char* key,
+                                  bool& out) noexcept
+        {
+            const size_t p = json_value_pos(text, key);
+            if (p == std::string::npos) return false;
+            if (text.compare(p, 4, "true") == 0)
+            {
+                out = true;
+                return true;
+            }
+            if (text.compare(p, 5, "false") == 0)
+            {
+                out = false;
+                return true;
+            }
+            return false;
+        }
+
+        static bool json_get_int(const std::string& text,
+                                 const char* key,
+                                 int32_t& out) noexcept
+        {
+            const size_t p = json_value_pos(text, key);
+            if (p == std::string::npos) return false;
+            char* end = nullptr;
+            const long v = std::strtol(text.c_str() + p, &end, 10);
+            if (!end || end == text.c_str() + p) return false;
+            out = static_cast<int32_t>(v);
+            return true;
+        }
+
+        static bool json_get_double(const std::string& text,
+                                    const char* key,
+                                    double& out) noexcept
+        {
+            const size_t p = json_value_pos(text, key);
+            if (p == std::string::npos) return false;
+            char* end = nullptr;
+            const double v = std::strtod(text.c_str() + p, &end);
+            if (!end || end == text.c_str() + p) return false;
+            out = v;
+            return true;
+        }
+
+        static bool json_get_string(const std::string& text,
+                                    const char* key,
+                                    std::string& out)
+        {
+            const size_t p = json_value_pos(text, key);
+            if (p == std::string::npos || p >= text.size()
+                || text[p] != '"')
+                return false;
+            std::string value;
+            for (size_t i = p + 1; i < text.size(); ++i)
+            {
+                const char c = text[i];
+                if (c == '"')
+                {
+                    out = value;
+                    return true;
+                }
+                if (c == '\\' && i + 1 < text.size())
+                {
+                    const char e = text[++i];
+                    if (e == 'n') value.push_back('\n');
+                    else if (e == 'r') value.push_back('\r');
+                    else if (e == 't') value.push_back('\t');
+                    else value.push_back(e);
+                    continue;
+                }
+                value.push_back(c);
+            }
+            return false;
+        }
+
+        static bool replay_seek_test_parse_cases(
+            const std::string& text,
+            std::vector<ReplaySeekTestCase>& out)
+        {
+            const size_t cases_pos = text.find("\"cases\"");
+            if (cases_pos == std::string::npos) return false;
+            size_t p = text.find('[', cases_pos);
+            if (p == std::string::npos) return false;
+            ++p;
+
+            while (p < text.size())
+            {
+                while (p < text.size()
+                       && std::isspace(static_cast<unsigned char>(text[p])))
+                    ++p;
+                if (p >= text.size() || text[p] == ']') break;
+                if (text[p] == ',') { ++p; continue; }
+                if (text[p] != '{') return false;
+
+                int depth = 0;
+                bool in_string = false;
+                bool escaped = false;
+                size_t end = p;
+                for (; end < text.size(); ++end)
+                {
+                    const char c = text[end];
+                    if (in_string)
+                    {
+                        if (escaped) escaped = false;
+                        else if (c == '\\') escaped = true;
+                        else if (c == '"') in_string = false;
+                        continue;
+                    }
+                    if (c == '"') in_string = true;
+                    else if (c == '{') ++depth;
+                    else if (c == '}')
+                    {
+                        --depth;
+                        if (depth == 0) { ++end; break; }
+                    }
+                }
+                if (depth != 0 || end <= p) return false;
+
+                const std::string obj = text.substr(p, end - p);
+                ReplaySeekTestCase c{};
+                if (!json_get_string(obj, "label", c.label))
+                {
+                    char buf[32]{};
+                    std::snprintf(buf, sizeof(buf), "case_%u",
+                                  static_cast<unsigned>(out.size() + 1));
+                    c.label = buf;
+                }
+                (void)json_get_int(obj, "seq", c.requested_seq);
+                if (c.requested_seq < 0)
+                    (void)json_get_int(obj, "target_seq", c.requested_seq);
+                (void)json_get_double(obj, "percent", c.percent);
+                if (c.percent < 0.0)
+                    (void)json_get_double(obj, "percent_of_timeline",
+                                          c.percent);
+                (void)json_get_int(obj, "expected_round", c.expected_round);
+                (void)json_get_string(obj, "validation_mode",
+                                      c.validation_mode);
+                (void)json_get_int(obj, "resume_frames", c.resume_frames);
+                if (c.resume_frames < 0) c.resume_frames = 0;
+                if (c.requested_seq >= 0 || c.percent >= 0.0)
+                    out.push_back(std::move(c));
+                p = end;
+            }
+            return !out.empty();
+        }
+
+        bool replay_seek_test_load_request(ReplaySeekTestState& out)
+        {
+            const std::wstring path = replay_seek_test_request_path();
+            if (path.empty()) return false;
+            std::string text;
+            if (!replay_seek_test_read_file(path, text)) return false;
+
+            bool enabled = true;
+            (void)json_get_bool(text, "enabled", enabled);
+            if (!enabled)
+            {
+                DeleteFileW(path.c_str());
+                return false;
+            }
+
+            ReplaySeekTestState parsed{};
+            (void)json_get_string(text, "run_id", parsed.run_id);
+            if (parsed.run_id.empty()) parsed.run_id = "manual";
+            (void)json_get_string(text, "generate_mode",
+                                  parsed.generate_mode);
+            (void)json_get_int(text, "timeout_seconds",
+                               parsed.timeout_seconds);
+            if (parsed.timeout_seconds < 30) parsed.timeout_seconds = 30;
+            if (!replay_seek_test_parse_cases(text, parsed.cases))
+            {
+                ReplayTraceFields f;
+                f.string("build", replay_seek_test_build_marker())
+                 .string("run_id", parsed.run_id.c_str())
+                 .string("failure", "no_test_cases")
+                 .string("request_path", "Saved\\replay_seek_test_request.json");
+                ReplayDebugTrace::instance().event(
+                    "replay_seek_test_summary", f);
+                DeleteFileW(path.c_str());
+                return false;
+            }
+
+            DeleteFileW(path.c_str());
+            parsed.active = true;
+            parsed.phase = ReplaySeekTestPhase::WaitReplayContext;
+            parsed.deadline = std::chrono::steady_clock::now()
+                + std::chrono::seconds(parsed.timeout_seconds);
+            out = std::move(parsed);
+            return true;
+        }
+
+        void replay_seek_test_set_deadline()
+        {
+            m_replay_seek_test.deadline = std::chrono::steady_clock::now()
+                + std::chrono::seconds(m_replay_seek_test.timeout_seconds);
+        }
+
+        bool replay_seek_test_timed_out() const noexcept
+        {
+            return std::chrono::steady_clock::now()
+                > m_replay_seek_test.deadline;
+        }
+
+        void replay_seek_test_emit_start()
+        {
+            ReplayTraceFields f;
+            f.string("build", replay_seek_test_build_marker())
+             .string("run_id", m_replay_seek_test.run_id.c_str())
+             .string("generate_mode", m_replay_seek_test.generate_mode.c_str())
+             .integer("case_count",
+                      static_cast<int64_t>(m_replay_seek_test.cases.size()))
+             .integer("timeout_seconds",
+                      m_replay_seek_test.timeout_seconds);
+            ReplayDebugTrace::instance().event("replay_seek_test_start", f);
+        }
+
+        bool replay_seek_test_resolve_case(ReplaySeekTestCase& c)
+        {
+            int32_t target = c.requested_seq;
+            const int32_t first = earliest_seq();
+            const int32_t last = latest_seq();
+            if (target < 0 && c.percent >= 0.0 && first >= 0 && last >= first)
+            {
+                double pct = c.percent;
+                if (pct < 0.0) pct = 0.0;
+                if (pct > 1.0) pct = 1.0;
+                target = first + static_cast<int32_t>(
+                    ((last - first) * pct) + 0.5);
+            }
+            target = clamp_seq_to_timeline(target);
+            const int32_t tick = find_slot_for_seq(target);
+            if (tick < 0)
+            {
+                c.failure = "InvalidTarget";
+                c.pass_fail_reason = "target_unresolved";
+                return false;
+            }
+
+            int32_t seq = -1, round = -1, wall = -1, master = -1;
+            if (!m_tags.get(static_cast<size_t>(tick), seq, round, wall,
+                            master))
+            {
+                c.failure = "InvalidTarget";
+                c.pass_fail_reason = "target_tag_unreadable";
+                return false;
+            }
+            c.target_seq = seq;
+            c.target_tick = tick;
+            c.target_round = round;
+            c.target_master = master;
+            return true;
+        }
+
+        void replay_seek_test_emit_case_start(const ReplaySeekTestCase& c)
+        {
+            ReplayTraceFields f;
+            f.string("build", replay_seek_test_build_marker())
+             .string("run_id", m_replay_seek_test.run_id.c_str())
+             .string("label", c.label.c_str())
+             .integer("case_index",
+                      static_cast<int64_t>(m_replay_seek_test.case_index))
+             .integer("requested_seq", c.requested_seq)
+             .real("percent", c.percent)
+             .integer("target_seq", c.target_seq)
+             .integer("target_tick", c.target_tick)
+             .integer("target_round", c.target_round)
+             .integer("target_master", c.target_master)
+             .integer("expected_round", c.expected_round)
+             .string("validation_mode", c.validation_mode.c_str())
+             .integer("resume_frames_requested", c.resume_frames);
+            ReplayDebugTrace::instance().event(
+                "replay_seek_test_case_start", f);
+        }
+
+        void replay_seek_test_emit_case_result(
+            const ReplaySeekTestCase& c)
+        {
+            ReplayTraceFields f;
+            f.string("build", replay_seek_test_build_marker())
+             .string("run_id", m_replay_seek_test.run_id.c_str())
+             .string("label", c.label.c_str())
+             .integer("case_index",
+                      static_cast<int64_t>(m_replay_seek_test.case_index))
+             .integer("target_seq", c.target_seq)
+             .integer("target_tick", c.target_tick)
+             .integer("target_round", c.target_round)
+             .integer("target_master", c.target_master)
+             .boolean("landed", c.landed)
+             .boolean("blocked", c.blocked)
+             .string("native_status", native_seek_status_name(
+                         static_cast<NativeSeekStatus>(
+                             m_native_status.load(
+                                 std::memory_order_acquire))))
+             .string("failure", c.failure.c_str())
+             .string("oracle_failure", c.oracle_failure.c_str())
+             .string("raw_mismatch_first_offsets",
+                     c.raw_mismatch_first_offsets.c_str())
+             .integer("live_round_after_seek", c.live_round_after_seek)
+             .integer("live_master_after_seek", c.live_master_after_seek)
+             .integer("resume_frames_requested", c.resume_frames)
+             .integer("resume_frames_observed", c.resume_observed_frames)
+             .boolean("passed", c.passed)
+             .string("pass_fail_reason", c.pass_fail_reason.c_str());
+            ReplayDebugTrace::instance().event(
+                "replay_seek_test_case_result", f);
+        }
+
+        void replay_seek_test_emit_summary(const char* reason)
+        {
+            ReplayTraceFields f;
+            f.string("build", replay_seek_test_build_marker())
+             .string("run_id", m_replay_seek_test.run_id.c_str())
+             .string("reason", reason ? reason : "complete")
+             .integer("case_count",
+                      static_cast<int64_t>(m_replay_seek_test.cases.size()))
+             .integer("passed_cases", m_replay_seek_test.passed_cases)
+             .integer("failed_cases", m_replay_seek_test.failed_cases)
+             .boolean("passed", m_replay_seek_test.failed_cases == 0
+                      && !m_replay_seek_test.cases.empty());
+            ReplayDebugTrace::instance().event(
+                "replay_seek_test_summary", f);
+        }
+
+        void replay_seek_test_finish_case(ReplaySeekTestCase& c,
+                                          bool passed,
+                                          const char* reason)
+        {
+            c.passed = passed;
+            if (c.pass_fail_reason.empty())
+                c.pass_fail_reason = reason ? reason : (passed ? "ok" : "failed");
+            if (c.failure.empty()) c.failure = passed ? "None" : c.pass_fail_reason;
+            if (c.oracle_failure.empty()) c.oracle_failure = "None";
+            if (c.raw_mismatch_first_offsets.empty())
+                c.raw_mismatch_first_offsets = "none";
+            replay_seek_test_emit_case_result(c);
+            if (passed) ++m_replay_seek_test.passed_cases;
+            else ++m_replay_seek_test.failed_cases;
+            ++m_replay_seek_test.case_index;
+            m_replay_seek_test.phase = ReplaySeekTestPhase::StartCase;
+            replay_seek_test_set_deadline();
+        }
+
+        void service_replay_seek_test()
+        {
+            if (!m_replay_seek_test.active)
+            {
+                if (++m_replay_seek_test_poll_ticks < 60) return;
+                m_replay_seek_test_poll_ticks = 0;
+                ReplaySeekTestState loaded{};
+                if (!replay_seek_test_load_request(loaded)) return;
+                m_replay_seek_test = std::move(loaded);
+                replay_seek_test_emit_start();
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub.test] replay seek test started run_id={} "
+                    "cases={} mode={}\n"),
+                    RC::to_generic_string(m_replay_seek_test.run_id),
+                    m_replay_seek_test.cases.size(),
+                    RC::to_generic_string(m_replay_seek_test.generate_mode));
+            }
+
+            if (m_replay_seek_test.phase == ReplaySeekTestPhase::WaitReplayContext)
+            {
+                if (GameMode::instance().current_presence()
+                    != GamePresence::Replay)
+                {
+                    if (replay_seek_test_timed_out())
+                    {
+                        replay_seek_test_emit_summary("replay_context_timeout");
+                        m_replay_seek_test = ReplaySeekTestState{};
+                    }
+                    return;
+                }
+
+                if (has_context_valid_completed_timeline())
+                {
+                    m_replay_seek_test.phase =
+                        ReplaySeekTestPhase::WaitGenerationPark;
+                    replay_seek_test_set_deadline();
+                    return;
+                }
+
+                if (m_replay_seek_test.generate_mode == "normal")
+                    request_generate_timeline();
+                else if (m_replay_seek_test.generate_mode == "experimental")
+                    request_generate_timeline_experimental();
+                else
+                    request_generate_timeline_experimental_battle_step();
+                m_replay_seek_test.phase = ReplaySeekTestPhase::WaitGeneration;
+                replay_seek_test_set_deadline();
+                return;
+            }
+
+            if (m_replay_seek_test.phase == ReplaySeekTestPhase::WaitGeneration)
+            {
+                if (has_context_valid_completed_timeline())
+                {
+                    m_replay_seek_test.phase =
+                        ReplaySeekTestPhase::WaitGenerationPark;
+                    replay_seek_test_set_deadline();
+                    return;
+                }
+                if (replay_seek_test_timed_out())
+                {
+                    replay_seek_test_emit_summary("generation_timeout");
+                    m_replay_seek_test = ReplaySeekTestState{};
+                }
+                return;
+            }
+
+            if (m_replay_seek_test.phase == ReplaySeekTestPhase::WaitGenerationPark)
+            {
+                if (has_context_valid_completed_timeline()
+                    && !has_pending_native_seek())
+                {
+                    m_replay_seek_test.phase = ReplaySeekTestPhase::StartCase;
+                    replay_seek_test_set_deadline();
+                    return;
+                }
+                if (replay_seek_test_timed_out())
+                {
+                    replay_seek_test_emit_summary("generation_park_timeout");
+                    m_replay_seek_test = ReplaySeekTestState{};
+                }
+                return;
+            }
+
+            if (m_replay_seek_test.phase == ReplaySeekTestPhase::StartCase)
+            {
+                if (m_replay_seek_test.case_index
+                    >= m_replay_seek_test.cases.size())
+                {
+                    replay_seek_test_emit_summary("complete");
+                    m_replay_seek_test = ReplaySeekTestState{};
+                    return;
+                }
+                ReplaySeekTestCase& c =
+                    m_replay_seek_test.cases[m_replay_seek_test.case_index];
+                if (!replay_seek_test_resolve_case(c))
+                {
+                    replay_seek_test_finish_case(c, false,
+                                                 c.pass_fail_reason.c_str());
+                    return;
+                }
+                replay_seek_test_emit_case_start(c);
+                request_seek(c.target_seq);
+                m_replay_seek_test_last_raw_mismatch.clear();
+                m_replay_seek_test.phase = ReplaySeekTestPhase::WaitSeek;
+                replay_seek_test_set_deadline();
+                return;
+            }
+
+            if (m_replay_seek_test.phase == ReplaySeekTestPhase::WaitSeek)
+            {
+                ReplaySeekTestCase& c =
+                    m_replay_seek_test.cases[m_replay_seek_test.case_index];
+                const NativeSeekStatus status = static_cast<NativeSeekStatus>(
+                    m_native_status.load(std::memory_order_acquire));
+                c.raw_mismatch_first_offsets =
+                    m_replay_seek_test_last_raw_mismatch;
+                c.live_round_after_seek = read_current_round();
+                c.live_master_after_seek = read_engine_master_clock();
+
+                if (status == NativeSeekStatus::Landed
+                    && m_last_seek_target.load(std::memory_order_acquire)
+                        == c.target_seq)
+                {
+                    c.landed = true;
+                    c.failure = "None";
+                    if (c.expected_round >= 0
+                        && c.live_round_after_seek != c.expected_round)
+                    {
+                        replay_seek_test_finish_case(
+                            c, false, "expected_round_mismatch");
+                        return;
+                    }
+                    if (c.resume_frames > 0)
+                    {
+                        m_replay_seek_test.phase =
+                            ReplaySeekTestPhase::StartResume;
+                        replay_seek_test_set_deadline();
+                        return;
+                    }
+                    replay_seek_test_finish_case(c, true, "ok");
+                    return;
+                }
+
+                if (status == NativeSeekStatus::ClockLanded
+                    || status == NativeSeekStatus::Failed)
+                {
+                    c.blocked = true;
+                    c.failure = native_seek_failure_name(m_native.failure);
+                    if (m_native.failure == NativeSeekFailure::SemanticMismatch
+                        || m_native.failure
+                            == NativeSeekFailure::OracleFieldOffsetUnproven)
+                        c.oracle_failure = c.failure;
+                    replay_seek_test_finish_case(c, false, c.failure.c_str());
+                    return;
+                }
+
+                if (replay_seek_test_timed_out())
+                {
+                    c.blocked = true;
+                    c.failure = "seek_timeout";
+                    replay_seek_test_finish_case(c, false, "seek_timeout");
+                    return;
+                }
+                return;
+            }
+
+            if (m_replay_seek_test.phase == ReplaySeekTestPhase::StartResume)
+            {
+                ReplaySeekTestCase& c =
+                    m_replay_seek_test.cases[m_replay_seek_test.case_index];
+                c.resume_start_master = read_engine_master_clock();
+                if (c.resume_start_master < 0)
+                    c.resume_start_master = c.target_master;
+                ui_request_play();
+                m_replay_seek_test.phase = ReplaySeekTestPhase::WaitResume;
+                replay_seek_test_set_deadline();
+                return;
+            }
+
+            if (m_replay_seek_test.phase == ReplaySeekTestPhase::WaitResume)
+            {
+                ReplaySeekTestCase& c =
+                    m_replay_seek_test.cases[m_replay_seek_test.case_index];
+                const int32_t live_master = read_engine_master_clock();
+                c.live_round_after_seek = read_current_round();
+                c.live_master_after_seek = live_master;
+                if (live_master >= c.resume_start_master)
+                    c.resume_observed_frames =
+                        live_master - c.resume_start_master;
+                if (c.resume_observed_frames >= c.resume_frames)
+                {
+                    replay_seek_test_finish_case(c, true, "ok");
+                    return;
+                }
+                const NativeSeekFailure block = static_cast<NativeSeekFailure>(
+                    m_play_block_reason.load(std::memory_order_acquire));
+                if (is_paused() && block != NativeSeekFailure::None)
+                {
+                    c.blocked = true;
+                    c.failure = native_seek_failure_name(block);
+                    replay_seek_test_finish_case(c, false,
+                                                 "resume_blocked");
+                    return;
+                }
+                if (replay_seek_test_timed_out())
+                {
+                    c.failure = "resume_timeout";
+                    replay_seek_test_finish_case(c, false,
+                                                 "resume_timeout");
+                    return;
+                }
+                return;
+            }
+        }
+
+        static std::string narrow_path(const std::wstring& in)
+        {
+            if (in.empty()) return {};
+            const int need = WideCharToMultiByte(
+                CP_UTF8, 0, in.c_str(), -1, nullptr, 0, nullptr, nullptr);
+            if (need <= 1) return {};
+            std::string out(static_cast<size_t>(need - 1), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, in.c_str(), -1, out.data(),
+                                need, nullptr, nullptr);
+            return out;
+        }
+
+        static std::wstring widen_path(const char* in)
+        {
+            if (!in || !*in) return {};
+            const int need = MultiByteToWideChar(
+                CP_UTF8, 0, in, -1, nullptr, 0);
+            if (need <= 1) return {};
+            std::wstring out(static_cast<size_t>(need - 1), L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, in, -1, out.data(), need);
+            return out;
+        }
+
+        static std::wstring replay_file_basename(
+            const std::wstring& path) noexcept
+        {
+            const size_t p = path.find_last_of(L"\\/");
+            if (p == std::wstring::npos) return path;
+            return path.substr(p + 1);
+        }
+
+        static uint64_t replay_payload_hash(
+            const std::vector<uint8_t>& payload) noexcept
+        {
+            uint64_t h = 1469598103934665603ull;
+            for (uint8_t b : payload)
+            {
+                h ^= static_cast<uint64_t>(b);
+                h *= 1099511628211ull;
+            }
+            return h;
+        }
+
+        static uint64_t unix_timestamp_now() noexcept
+        {
+            using namespace std::chrono;
+            return static_cast<uint64_t>(duration_cast<seconds>(
+                system_clock::now().time_since_epoch()).count());
+        }
+
+        static std::wstring replay_files_dir() noexcept
+        {
+            std::wstring root = replay_seek_test_mod_root_dir();
+            if (root.empty()) return {};
+            root += L"Saved\\";
+            CreateDirectoryW(root.c_str(), nullptr);
+            root += L"ReplayFiles\\";
+            CreateDirectoryW(root.c_str(), nullptr);
+            return root;
+        }
+
+        static std::wstring make_replay_export_path() noexcept
+        {
+            std::wstring dir = replay_files_dir();
+            if (dir.empty()) return {};
+            SYSTEMTIME st{};
+            GetLocalTime(&st);
+            wchar_t name[128]{};
+            std::swprintf(name, 128,
+                          L"replay_%04u%02u%02u_%02u%02u%02u.hmreplay",
+                          st.wYear, st.wMonth, st.wDay,
+                          st.wHour, st.wMinute, st.wSecond);
+            return dir + name;
+        }
+
+        static bool replay_file_name_is_safe(
+            const std::wstring& name) noexcept
+        {
+            if (name.empty() || name.size() > 240) return false;
+            if (name.find(L"..") != std::wstring::npos) return false;
+            for (wchar_t c : name)
+            {
+                if (c == L'\\' || c == L'/' || c == L':' || c == L'|' ||
+                    c == L'<' || c == L'>' || c == L'"' || c == L'*' ||
+                    c == L'?')
+                    return false;
+                if (c < 0x20) return false;
+            }
+            return true;
+        }
+
+        static wchar_t lower_ascii_w(wchar_t c) noexcept
+        {
+            return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c + 32) : c;
+        }
+
+        static bool replay_path_has_supported_extension(
+            const std::wstring& path) noexcept
+        {
+            const size_t dot = path.find_last_of(L'.');
+            if (dot == std::wstring::npos) return false;
+            std::wstring ext = path.substr(dot);
+            for (wchar_t& c : ext) c = lower_ascii_w(c);
+            return ext == L".hmreplay" || ext == L".bin";
+        }
+
+        static bool replay_path_is_raw_bin(
+            const std::wstring& path) noexcept
+        {
+            const size_t dot = path.find_last_of(L'.');
+            if (dot == std::wstring::npos) return false;
+            std::wstring ext = path.substr(dot);
+            for (wchar_t& c : ext) c = lower_ascii_w(c);
+            return ext == L".bin";
+        }
+
+        static bool replay_path_is_absolute(
+            const std::wstring& path) noexcept
+        {
+            return path.size() >= 3 && path[1] == L':' &&
+                   (path[2] == L'\\' || path[2] == L'/');
+        }
+
+        static bool replay_path_chars_are_safe(
+            const std::wstring& path) noexcept
+        {
+            if (path.empty()) return false;
+            for (wchar_t c : path)
+            {
+                if (c == L'|' || c == L'<' || c == L'>' || c == L'"' ||
+                    c == L'*' || c == L'?')
+                    return false;
+                if (c < 0x20) return false;
+            }
+            return true;
+        }
+
+        static bool canonicalize_replay_path(
+            const std::wstring& in,
+            std::wstring& out,
+            std::string& reason) noexcept
+        {
+            wchar_t buf[MAX_PATH]{};
+            const DWORD n = GetFullPathNameW(in.c_str(), MAX_PATH, buf, nullptr);
+            if (n == 0 || n >= MAX_PATH)
+            {
+                reason = "path canonicalization failed";
+                return false;
+            }
+            out = buf;
+            return true;
+        }
+
+        static bool validate_absolute_replay_path(
+            std::wstring& path,
+            std::string& reason) noexcept
+        {
+            std::wstring full;
+            if (!canonicalize_replay_path(path, full, reason)) return false;
+            if (!replay_path_is_absolute(full))
+            {
+                reason = "absolute path expected";
+                return false;
+            }
+            if (!replay_path_chars_are_safe(full) ||
+                full.find(L"..") != std::wstring::npos)
+            {
+                reason = "unsafe path";
+                return false;
+            }
+            if (!replay_path_has_supported_extension(full))
+            {
+                reason = "unsupported replay extension";
+                return false;
+            }
+            const DWORD attrs = GetFileAttributesW(full.c_str());
+            if (attrs == INVALID_FILE_ATTRIBUTES)
+            {
+                reason = "file missing or not a regular file";
+                return false;
+            }
+            if ((attrs & FILE_ATTRIBUTE_DIRECTORY) != 0)
+            {
+                reason =
+                    "path is a directory; enter one .hmreplay/.bin file path"
+                    " (use Browse to pick the file)";
+                return false;
+            }
+            path = full;
+            return true;
+        }
+
+        bool resolve_user_replay_file_path(
+            const char* user_name,
+            std::wstring& out,
+            std::string& reason) const
+        {
+            std::wstring name = widen_path(user_name);
+            while (!name.empty() && (name.front() == L' ' ||
+                                     name.front() == L'\t' ||
+                                     name.front() == L'"'))
+                name.erase(name.begin());
+            while (!name.empty() && (name.back() == L' ' ||
+                                    name.back() == L'\t' ||
+                                    name.back() == L'"'))
+                name.pop_back();
+            if (name.empty())
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                name = replay_file_basename(m_replay_file_last_path);
+            }
+            if (replay_path_is_absolute(name))
+            {
+                out = name;
+                return validate_absolute_replay_path(out, reason);
+            }
+            if (!replay_file_name_is_safe(name))
+            {
+                reason = "unsafe filename or path";
+                return false;
+            }
+            if (!replay_path_has_supported_extension(name))
+            {
+                reason = "unsupported replay extension";
+                return false;
+            }
+            std::wstring dir = replay_files_dir();
+            if (dir.empty())
+            {
+                reason = "Saved\\ReplayFiles directory unavailable";
+                return false;
+            }
+            out = dir + name;
+            return validate_absolute_replay_path(out, reason);
+        }
+
+        bool queue_replay_file_load(const std::wstring& path) noexcept
+        {
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                m_replay_file_pending_path = path;
+            }
+            m_replay_file_load_pending.store(true, std::memory_order_release);
+            ReplayFileMetadata meta{};
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] load start path='{}'\n"),
+                RC::to_generic_string(narrow_path(path)));
+            set_replay_file_status("Load Replay File", false, false,
+                                   path, 0, meta, "queued");
+            return true;
+        }
+
+        bool queue_replay_file_start(const std::wstring& path) noexcept
+        {
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                m_replay_file_start_pending_path = path;
+            }
+            m_replay_file_start_pending.store(true, std::memory_order_release);
+            ReplayFileMetadata meta{};
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] start queued path='{}'\n"),
+                RC::to_generic_string(narrow_path(path)));
+            set_replay_file_status("Start Replay File", false, false,
+                                   path, 0, meta, "queued");
+            return true;
+        }
+
+        void set_replay_file_status(const char* op,
+                                    bool done,
+                                    bool ok,
+                                    const std::wstring& path,
+                                    size_t bytes,
+                                    const ReplayFileMetadata& meta,
+                                    const char* detail)
+        {
+            char buf[1024]{};
+            std::snprintf(
+                buf, sizeof(buf),
+                "%s %s%s%s%s | bytes=%zu | path=%s | rounds=%d "
+                "current_round=%d frames=%d stage=%d charL=%d charR=%d "
+                "timestamp=%llu",
+                op ? op : "Replay file",
+                done ? (ok ? "success" : "failed") : "pending",
+                detail && *detail ? " (" : "",
+                detail && *detail ? detail : "",
+                detail && *detail ? ")" : "",
+                bytes,
+                narrow_path(path).c_str(),
+                meta.total_rounds,
+                meta.current_round,
+                meta.total_recorded_frames,
+                meta.stage_index,
+                meta.left_chara_id,
+                meta.right_chara_id,
+                static_cast<unsigned long long>(meta.timestamp_unix));
+            std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+            m_replay_file_status = buf;
+        }
+
+        bool read_live_replay_payload(std::vector<uint8_t>& out,
+                                      ReplayFileMetadata& meta,
+                                      std::string& reason) noexcept
+        {
+            if (GameMode::instance().current_presence()
+                    != GamePresence::Replay)
+            {
+                reason = "not in Replay presence";
+                return false;
+            }
+
+            const ReplayScrubDiag::ReplayPlayerSnap rp =
+                ReplayScrubDiag::read_replay_player();
+            if (!rp.readable)
+            {
+                reason = "LuxBattleReplayPlayer unavailable";
+                return false;
+            }
+            meta.total_rounds = rp.total_rounds;
+            meta.current_round = rp.current_round;
+            meta.current_time = rp.current_time;
+            meta.timestamp_unix = unix_timestamp_now();
+
+            RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
+            if (!bm_obj)
+            {
+                reason = "LuxBattleManager unavailable";
+                return false;
+            }
+            uint8_t* bm = reinterpret_cast<uint8_t*>(bm_obj);
+            void* rdb_raw = nullptr;
+            if (!SafeReadPtr(bm + kBM_pReplayDataBlock_Off, &rdb_raw) ||
+                !rdb_raw)
+            {
+                reason = "ReplayDataBlock unavailable";
+                return false;
+            }
+            uint8_t* rdb = reinterpret_cast<uint8_t*>(rdb_raw);
+            void* payload_ptr = nullptr;
+            int32_t payload_size = 0;
+            if (!SafeReadPtr(rdb + 0x3C8, &payload_ptr) || !payload_ptr ||
+                !SafeReadInt32(rdb + 0x3D0, &payload_size))
+            {
+                reason = "native replay file buffer unreadable";
+                return false;
+            }
+            if (payload_size <= 0 ||
+                static_cast<size_t>(payload_size) > kReplayFileMaxPayloadBytes)
+            {
+                reason = "native replay file buffer size invalid";
+                return false;
+            }
+
+            void* il_raw = nullptr;
+            if (SafeReadPtr(bm + kBM_BattleFrameInputLog_Off, &il_raw) && il_raw)
+            {
+                int32_t frames = -1;
+                if (SafeReadInt32(reinterpret_cast<uint8_t*>(il_raw) +
+                                      kIL_nTotalRecordedFrames_Off,
+                                  &frames))
+                    meta.total_recorded_frames = frames;
+            }
+
+            out.assign(static_cast<size_t>(payload_size), 0);
+            if (!SafeReadBytes(payload_ptr, out.data(), out.size()))
+            {
+                out.clear();
+                reason = "native replay file buffer copy failed";
+                return false;
+            }
+            return true;
+        }
+
+        bool write_replay_file(const std::wstring& path,
+                               const std::vector<uint8_t>& payload,
+                               const ReplayFileMetadata& meta,
+                               std::string& reason) const noexcept
+        {
+            if (path.empty())
+            {
+                reason = "empty export path";
+                return false;
+            }
+            if (payload.empty() || payload.size() > kReplayFileMaxPayloadBytes)
+            {
+                reason = "payload size invalid";
+                return false;
+            }
+            ReplayFileHeader h{};
+            std::memcpy(h.magic, kReplayFileMagic, sizeof(h.magic));
+            h.version = kReplayFileVersion;
+            h.header_bytes = sizeof(h);
+            h.payload_bytes = payload.size();
+            h.timestamp_unix = meta.timestamp_unix;
+            h.payload_hash = replay_payload_hash(payload);
+            h.total_rounds = meta.total_rounds;
+            h.current_round = meta.current_round;
+            h.current_time = meta.current_time;
+            h.total_recorded_frames = meta.total_recorded_frames;
+            h.stage_index = meta.stage_index;
+            h.left_chara_id = meta.left_chara_id;
+            h.right_chara_id = meta.right_chara_id;
+
+            HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                                      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                      nullptr);
+            if (file == INVALID_HANDLE_VALUE)
+            {
+                reason = "CreateFileW failed";
+                return false;
+            }
+            DWORD wrote = 0;
+            BOOL ok = WriteFile(file, &h, sizeof(h), &wrote, nullptr);
+            if (!ok || wrote != sizeof(h))
+            {
+                CloseHandle(file);
+                DeleteFileW(path.c_str());
+                reason = "header write failed";
+                return false;
+            }
+            ok = WriteFile(file, payload.data(),
+                           static_cast<DWORD>(payload.size()),
+                           &wrote, nullptr);
+            CloseHandle(file);
+            if (!ok || wrote != payload.size())
+            {
+                DeleteFileW(path.c_str());
+                reason = "payload write failed";
+                return false;
+            }
+            return true;
+        }
+
+        bool read_replay_file(const std::wstring& path,
+                              std::vector<uint8_t>& payload,
+                              ReplayFileMetadata& meta,
+                              std::string& reason) const noexcept
+        {
+            HANDLE file = CreateFileW(path.c_str(), GENERIC_READ,
+                                      FILE_SHARE_READ, nullptr,
+                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                                      nullptr);
+            if (file == INVALID_HANDLE_VALUE)
+            {
+                reason = "file missing or unreadable";
+                return false;
+            }
+            LARGE_INTEGER size{};
+            if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0)
+            {
+                CloseHandle(file);
+                reason = "file is empty or size unreadable";
+                return false;
+            }
+            if (size.QuadPart > static_cast<LONGLONG>(
+                    sizeof(ReplayFileHeader) + kReplayFileMaxPayloadBytes) ||
+                size.QuadPart > static_cast<LONGLONG>(0x7fffffff))
+            {
+                CloseHandle(file);
+                reason = "file too large";
+                return false;
+            }
+
+            std::vector<uint8_t> file_bytes(static_cast<size_t>(size.QuadPart));
+            DWORD got = 0;
+            if (!ReadFile(file, file_bytes.data(),
+                          static_cast<DWORD>(file_bytes.size()),
+                          &got, nullptr) || got != file_bytes.size())
+            {
+                CloseHandle(file);
+                reason = "file read failed";
+                return false;
+            }
+            CloseHandle(file);
+
+            ReplayFileHeader h{};
+            const bool has_wrapper_header =
+                file_bytes.size() >= sizeof(ReplayFileHeader) &&
+                std::memcmp(file_bytes.data(), kReplayFileMagic,
+                            sizeof(kReplayFileMagic)) == 0;
+            if (!has_wrapper_header)
+            {
+                if (!replay_path_is_raw_bin(path))
+                {
+                    reason = "invalid HorseMod replay wrapper";
+                    return false;
+                }
+                payload = std::move(file_bytes);
+                meta.timestamp_unix = unix_timestamp_now();
+                reason = "raw native replay payload";
+                return true;
+            }
+
+            std::memcpy(&h, file_bytes.data(), sizeof(h));
+            if (std::memcmp(h.magic, kReplayFileMagic, sizeof(h.magic)) != 0 ||
+                h.version != kReplayFileVersion ||
+                h.header_bytes != sizeof(ReplayFileHeader) ||
+                h.payload_bytes == 0 ||
+                h.payload_bytes > kReplayFileMaxPayloadBytes ||
+                file_bytes.size() != sizeof(ReplayFileHeader) + h.payload_bytes)
+            {
+                reason = "invalid HorseMod replay wrapper";
+                return false;
+            }
+
+            payload.assign(static_cast<size_t>(h.payload_bytes), 0);
+            std::memcpy(payload.data(),
+                        file_bytes.data() + sizeof(ReplayFileHeader),
+                        payload.size());
+            if (replay_payload_hash(payload) != h.payload_hash)
+            {
+                payload.clear();
+                reason = "payload hash mismatch";
+                return false;
+            }
+            meta.total_rounds = h.total_rounds;
+            meta.current_round = h.current_round;
+            meta.current_time = h.current_time;
+            meta.total_recorded_frames = h.total_recorded_frames;
+            meta.stage_index = h.stage_index;
+            meta.left_chara_id = h.left_chara_id;
+            meta.right_chara_id = h.right_chara_id;
+            meta.timestamp_unix = h.timestamp_unix;
+            return true;
+        }
+
+        bool apply_loaded_replay_payload(
+            const std::vector<uint8_t>& payload,
+            const ReplayFileMetadata& meta,
+            std::string& reason) noexcept
+        {
+            if (GameMode::instance().current_presence()
+                    != GamePresence::Replay)
+            {
+                reason = "enter Replay viewer before loading a replay file";
+                return false;
+            }
+            if (payload.empty() || payload.size() > kReplayFileMaxPayloadBytes)
+            {
+                reason = "payload size invalid";
+                return false;
+            }
+            RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
+            if (!bm_obj)
+            {
+                reason = "LuxBattleManager unavailable";
+                return false;
+            }
+            uint8_t* bm = reinterpret_cast<uint8_t*>(bm_obj);
+            void* rdb_raw = nullptr;
+            if (!SafeReadPtr(bm + kBM_pReplayDataBlock_Off, &rdb_raw) ||
+                !rdb_raw)
+            {
+                reason = "ReplayDataBlock unavailable";
+                return false;
+            }
+
+            m_loaded_replay_payload = payload;
+            uint8_t* rdb = reinterpret_cast<uint8_t*>(rdb_raw);
+            void* payload_ptr = m_loaded_replay_payload.data();
+            const int32_t payload_size = static_cast<int32_t>(
+                m_loaded_replay_payload.size());
+            const uint64_t payload_limit = m_loaded_replay_payload.size();
+            const uint64_t zero64 = 0;
+            const uint16_t zero16 = 0;
+            const uint8_t running = 1;
+            bool ok = true;
+            ok &= SafeWriteBytes(rdb + 0x3B8, &zero64, sizeof(zero64));
+            ok &= SafeWriteBytes(rdb + 0x3C0, &zero64, sizeof(zero64));
+            ok &= SafeWriteBytes(rdb + 0x3C8, &payload_ptr, sizeof(payload_ptr));
+            ok &= SafeWriteBytes(rdb + 0x3D0, &payload_size, sizeof(payload_size));
+            ok &= SafeWriteBytes(rdb + 0x3D8, &payload_limit, sizeof(payload_limit));
+            ok &= SafeWriteBytes(rdb + 0x3E0, &zero64, sizeof(zero64));
+            ok &= SafeWriteBytes(rdb + 0x3F0, &zero16, sizeof(zero16));
+            ok &= SafeWriteBytes(rdb + 0x3F2, &zero16, sizeof(zero16));
+            ok &= SafeWriteBytes(rdb + 0x3F4, &zero16, sizeof(zero16));
+            ok &= SafeWriteBytes(rdb + 0x3F6, &zero16, sizeof(zero16));
+            ok &= SafeWriteBytes(rdb + 0x3FC, &running, sizeof(running));
+            if (!ok)
+            {
+                reason = "ReplayDataBlock write failed";
+                return false;
+            }
+
+            (void)write_replay_cursors(0, 0,
+                                       reinterpret_cast<uintptr_t>(bm_obj), 0);
+            (void)write_replay_player_cursor(0, 0, 0.0f, true);
+            reset_for_new_replay("loaded local replay file");
+            m_capture_enabled.store(true, std::memory_order_release);
+            reason = "success";
+            (void)meta;
+            return true;
+        }
+
+        static bool safe_process_event(RC::Unreal::UObject* obj,
+                                       RC::Unreal::UFunction* fn,
+                                       void* params) noexcept
+        {
+            if (!obj || !fn) return false;
+            __try
+            {
+                obj->ProcessEvent(fn, params);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        bool resolve_active_game_instance(RC::Unreal::UObject*& out,
+                                          std::string& reason) noexcept
+        {
+            out = nullptr;
+            void* engine_raw = nullptr;
+            if (!ReplayScrubDiag::read_gengine_ptr(&engine_raw))
+            {
+                reason = "GEngine unavailable";
+                return false;
+            }
+
+            void* viewport_raw = nullptr;
+            if (!SafeReadPtr(static_cast<uint8_t*>(engine_raw) +
+                                 ReplayScrubDiag::kUEngine_GameViewport_Off,
+                             &viewport_raw) || !viewport_raw)
+            {
+                reason = "GameViewport unavailable";
+                return false;
+            }
+
+            void* world_raw = nullptr;
+            if (!ReplayScrubDiag::safe_get_world_vfunc_138(viewport_raw,
+                                                           &world_raw) &&
+                !ReplayScrubDiag::safe_get_world(
+                    reinterpret_cast<RC::Unreal::UObject*>(viewport_raw),
+                    &world_raw))
+            {
+                reason = "UWorld unavailable";
+                return false;
+            }
+
+            __try
+            {
+                auto* world_obj = reinterpret_cast<RC::Unreal::UObject*>(
+                    world_raw);
+                auto** gi = world_obj
+                    ? world_obj->GetValuePtrByPropertyNameInChain<
+                          RC::Unreal::UObject*>(L"OwningGameInstance")
+                    : nullptr;
+                if (gi && *gi)
+                {
+                    out = *gi;
+                    return true;
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+            }
+
+            reason = "OwningGameInstance unavailable";
+            return false;
+        }
+
+        static std::wstring make_replay_start_payload_path() noexcept
+        {
+            std::wstring dir = replay_files_dir();
+            if (dir.empty()) return L"";
+            return dir + L"HorseMod_StartReplay.bin";
+        }
+
+        bool write_raw_replay_payload(const std::wstring& path,
+                                      const std::vector<uint8_t>& payload,
+                                      std::string& reason) const noexcept
+        {
+            if (path.empty())
+            {
+                reason = "empty launch path";
+                return false;
+            }
+            if (payload.empty() || payload.size() > kReplayFileMaxPayloadBytes)
+            {
+                reason = "payload size invalid";
+                return false;
+            }
+
+            HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                                      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                      nullptr);
+            if (file == INVALID_HANDLE_VALUE)
+            {
+                reason = "CreateFileW failed";
+                return false;
+            }
+            DWORD wrote = 0;
+            const BOOL ok = WriteFile(file, payload.data(),
+                                      static_cast<DWORD>(payload.size()),
+                                      &wrote, nullptr);
+            CloseHandle(file);
+            if (!ok || wrote != payload.size())
+            {
+                DeleteFileW(path.c_str());
+                reason = "payload write failed";
+                return false;
+            }
+            return true;
+        }
+
+        static uint8_t* safe_get_battle_replay_ptr(
+            RC::Unreal::UObject* battle_setup) noexcept
+        {
+            if (!battle_setup) return nullptr;
+            __try
+            {
+                return battle_setup->GetValuePtrByPropertyNameInChain<
+                    uint8_t>(L"BattleReplay");
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return nullptr;
+            }
+        }
+
+        struct LuxBattleReplayParamNativeLayout
+        {
+            // Native FLuxBattleReplayParam layout inferred from UHT field order:
+            //   bool bRecording; FString RecordingPath; bool bPlayingBack;
+            //   FString PlayingBackPath; bool bIgnoreSetup.
+            // FString alignment accounts for the gaps after each bool.
+            static constexpr size_t bRecordingOff = 0x00;
+            static constexpr size_t recordingPathOff = 0x08;
+            static constexpr size_t bPlayingBackOff = 0x18;
+            static constexpr size_t playingBackPathOff = 0x20;
+            static constexpr size_t bIgnoreSetupOff = 0x30;
+        };
+
+        static bool safe_set_replay_launch_flags(uint8_t* replay) noexcept
+        {
+            if (!replay) return false;
+            __try
+            {
+                *reinterpret_cast<bool*>(
+                    replay + LuxBattleReplayParamNativeLayout::bRecordingOff) =
+                    false;
+                *reinterpret_cast<bool*>(
+                    replay + LuxBattleReplayParamNativeLayout::bPlayingBackOff) =
+                    true;
+                *reinterpret_cast<bool*>(
+                    replay + LuxBattleReplayParamNativeLayout::bIgnoreSetupOff) =
+                    false;
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        bool start_native_replay_file(const std::wstring& launch_path,
+                                      std::string& reason) noexcept
+        {
+            RC::Unreal::UObject* gi = nullptr;
+            if (!resolve_active_game_instance(gi, reason)) return false;
+
+            auto* get_setup_fn = m_fn_gi_get_battle_setup.on(
+                gi, L"GetBattleSetup");
+            struct GetBattleSetupParams
+            {
+                RC::Unreal::UObject* ReturnValue = nullptr;
+            } get_setup{};
+            if (!safe_process_event(gi, get_setup_fn, &get_setup) ||
+                !get_setup.ReturnValue)
+            {
+                reason = "ULuxGameInstance.GetBattleSetup failed";
+                return false;
+            }
+
+            uint8_t* replay = safe_get_battle_replay_ptr(
+                get_setup.ReturnValue);
+            if (!replay)
+            {
+                reason = "ULuxBattleSetup.BattleReplay unavailable";
+                return false;
+            }
+
+            if (!safe_set_replay_launch_flags(replay))
+            {
+                reason = "BattleReplay flag write failed";
+                return false;
+            }
+
+            auto* recording_path = reinterpret_cast<RC::Unreal::FString*>(
+                replay + LuxBattleReplayParamNativeLayout::recordingPathOff);
+            auto* playing_path = reinterpret_cast<RC::Unreal::FString*>(
+                replay + LuxBattleReplayParamNativeLayout::playingBackPathOff);
+            RC::Unreal::FString empty_path(L"");
+            RC::Unreal::FString path_value(launch_path.c_str());
+            *recording_path = empty_path;
+            *playing_path = path_value;
+
+            char no_params[1]{};
+            auto* apply_fn = m_fn_gi_apply_replay_to_battle_setup.on(
+                gi, L"ApplyReplayToBattleSetup");
+            if (!safe_process_event(gi, apply_fn, no_params))
+            {
+                reason = "ApplyReplayToBattleSetup failed";
+                return false;
+            }
+
+            auto* launch_fn = m_fn_gi_manual_launch_battle.on(
+                gi, L"ManualLaunchBattle");
+            if (!safe_process_event(gi, launch_fn, no_params))
+            {
+                reason = "ManualLaunchBattle failed";
+                return false;
+            }
+
+            reason = "launch requested";
+            return true;
+        }
+
+        void service_replay_file_start_request_impl() noexcept
+        {
+            if (!m_replay_file_start_pending.exchange(false,
+                    std::memory_order_acq_rel))
+                return;
+
+            std::wstring path;
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                path = m_replay_file_start_pending_path;
+            }
+
+            ReplayFileMetadata meta{};
+            std::vector<uint8_t> payload;
+            std::string reason;
+            if (!read_replay_file(path, payload, meta, reason))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] start failure path='{}' reason={}\n"),
+                    RC::to_generic_string(narrow_path(path)),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Start Replay File", true, false,
+                                       path, 0, meta, reason.c_str());
+                return;
+            }
+
+            const std::wstring launch_path = make_replay_start_payload_path();
+            if (!write_raw_replay_payload(launch_path, payload, reason))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] start failure path='{}' bytes={} "
+                    "reason={}\n"),
+                    RC::to_generic_string(narrow_path(path)), payload.size(),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Start Replay File", true, false,
+                                       path, payload.size(), meta,
+                                       reason.c_str());
+                return;
+            }
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] start request path='{}' launch_path='{}' "
+                "bytes={} rounds={} current_round={} frames={} stage={} "
+                "charL={} charR={} timestamp={}\n"),
+                RC::to_generic_string(narrow_path(path)),
+                RC::to_generic_string(narrow_path(launch_path)),
+                payload.size(), meta.total_rounds, meta.current_round,
+                meta.total_recorded_frames, meta.stage_index,
+                meta.left_chara_id, meta.right_chara_id,
+                static_cast<unsigned long long>(meta.timestamp_unix));
+
+            if (!start_native_replay_file(launch_path, reason))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] start failure path='{}' launch_path='{}' "
+                    "bytes={} reason={}\n"),
+                    RC::to_generic_string(narrow_path(path)),
+                    RC::to_generic_string(narrow_path(launch_path)),
+                    payload.size(), RC::to_generic_string(reason));
+                set_replay_file_status("Start Replay File", true, false,
+                                       path, payload.size(), meta,
+                                       reason.c_str());
+                return;
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                m_replay_file_last_path = path;
+                m_replay_file_launch_path = launch_path;
+            }
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] start success path='{}' launch_path='{}' "
+                "bytes={} detail={}\n"),
+                RC::to_generic_string(narrow_path(path)),
+                RC::to_generic_string(narrow_path(launch_path)),
+                payload.size(), RC::to_generic_string(reason));
+            set_replay_file_status("Start Replay File", true, true,
+                                   path, payload.size(), meta,
+                                   reason.c_str());
+        }
+
+        void service_replay_file_load_request() noexcept
+        {
+            if (!m_replay_file_load_pending.exchange(false,
+                    std::memory_order_acq_rel))
+                return;
+            std::wstring path;
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                path = m_replay_file_pending_path;
+            }
+
+            ReplayFileMetadata meta{};
+            std::vector<uint8_t> payload;
+            std::string reason;
+            if (!read_replay_file(path, payload, meta, reason))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] load failure path='{}' reason={}\n"),
+                    RC::to_generic_string(narrow_path(path)),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Load Replay File", true, false,
+                                       path, 0, meta, reason.c_str());
+                return;
+            }
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] load start path='{}' bytes={} "
+                "rounds={} current_round={} frames={} stage={} "
+                "charL={} charR={} timestamp={}\n"),
+                RC::to_generic_string(narrow_path(path)), payload.size(),
+                meta.total_rounds, meta.current_round,
+                meta.total_recorded_frames, meta.stage_index,
+                meta.left_chara_id, meta.right_chara_id,
+                static_cast<unsigned long long>(meta.timestamp_unix));
+
+            if (!apply_loaded_replay_payload(payload, meta, reason))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] load failure path='{}' bytes={} "
+                    "reason={}\n"),
+                    RC::to_generic_string(narrow_path(path)), payload.size(),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Load Replay File", true, false,
+                                       path, payload.size(), meta,
+                                       reason.c_str());
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                m_replay_file_last_path = path;
+            }
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] load success path='{}' bytes={} "
+                "rounds={} current_round={} frames={} stage={} "
+                "charL={} charR={} timestamp={}\n"),
+                RC::to_generic_string(narrow_path(path)), payload.size(),
+                meta.total_rounds, meta.current_round,
+                meta.total_recorded_frames, meta.stage_index,
+                meta.left_chara_id, meta.right_chara_id,
+                static_cast<unsigned long long>(meta.timestamp_unix));
+            set_replay_file_status("Load Replay File", true, true,
+                                   path, payload.size(), meta, "success");
         }
 
         bool resolve_natives() noexcept
@@ -7211,6 +9426,8 @@ namespace Horse
                 (void)commit_oracle_frame(seq_tag, round_tag, wall_tag,
                                           master_tag);
                 if (profile_generation)
+                    emit_generation_rng_u32_trace(seq_tag, master_tag);
+                if (profile_generation)
                 {
                     const auto t_total1 = std::chrono::steady_clock::now();
                     add_generation_profile_sample(
@@ -7266,17 +9483,25 @@ namespace Horse
             const uintptr_t base = NativeBinding::imageBase();
             if (base)
             {
-                uint32_t rng0 = 0;
-                uint32_t rng1 = 0;
-                SafeReadUInt32(reinterpret_cast<const void*>(base + kRVA_LfsrState),
-                               &rng0);
-                SafeReadUInt32(reinterpret_cast<const void*>(base + kRVA_LfsrState + 4),
-                               &rng1);
-                s.rng_state = static_cast<uint64_t>(rng0)
-                    | (static_cast<uint64_t>(rng1) << 32);
+                std::array<uint8_t, kExtras_LfsrState_Bytes> lfsr{};
+                const bool lfsr_ok = SafeReadBytes(
+                    reinterpret_cast<const void*>(base + kRVA_LfsrState),
+                    lfsr.data(), lfsr.size());
+                const bool index_ok = SafeReadUInt32(
+                    reinterpret_cast<const void*>(base + kRVA_LfsrIndex),
+                    &s.rng_lfsr_index);
+                if (lfsr_ok && index_ok)
+                {
+                    std::memcpy(&s.rng_state, lfsr.data(),
+                                sizeof(s.rng_state));
+                    s.rng_lfsr_hash = hash_bytes64(lfsr.data(),
+                                                   lfsr.size());
+                    s.rng_readable = true;
+                }
             }
             s.valid = s.round >= 0 && s.master >= 0
-                && s.p1.readable && s.p2.readable && input.readable;
+                && s.p1.readable && s.p2.readable && input.readable
+                && s.rng_readable;
             return s;
         }
 
@@ -7292,11 +9517,160 @@ namespace Horse
              .integer("master", snap.master)
              .integer("last_round_result", snap.last_round_result)
              .uinteger("rng_state", snap.rng_state)
+             .hex("rng_lfsr_hash", snap.rng_lfsr_hash)
+             .integer("rng_lfsr_index", snap.rng_lfsr_index)
+             .boolean("rng_readable", snap.rng_readable)
              .boolean("valid", snap.valid);
             add_oracle_player_fields(f, "p1", snap.p1, snap.p1_input);
             add_oracle_player_fields(f, "p2", snap.p2, snap.p2_input);
             ReplayDebugTrace::instance().event(
                 event_name ? event_name : "oracle_frame", f);
+        }
+
+        void trace_rng_restore_contract(
+            const char* phase,
+            int32_t tick,
+            const char* label,
+            int32_t seq) noexcept
+        {
+            if (!ReplayDebugTrace::instance().enabled()) return;
+
+            const uint8_t* expected_extras = nullptr;
+            if (tick >= 0)
+                expected_extras = m_extras_store.gather(
+                    static_cast<size_t>(tick));
+            const ReplayFrameOracleSnap* expected_oracle = nullptr;
+            if (tick >= 0
+                && static_cast<size_t>(tick) < m_oracle_frames.size())
+                expected_oracle = &m_oracle_frames[static_cast<size_t>(tick)];
+
+            uint64_t expected_lfsr_head = 0;
+            uint64_t expected_lfsr_hash = 0;
+            uint32_t expected_lfsr_index = 0;
+            const bool expected_extras_ok = expected_extras != nullptr;
+            if (expected_extras_ok)
+            {
+                std::memcpy(&expected_lfsr_head,
+                            expected_extras + kExtras_Off_LfsrState,
+                            sizeof(expected_lfsr_head));
+                expected_lfsr_hash = hash_bytes64(
+                    expected_extras + kExtras_Off_LfsrState,
+                    kExtras_LfsrState_Bytes);
+                std::memcpy(&expected_lfsr_index,
+                            expected_extras + kExtras_Off_LfsrIndex,
+                            sizeof(expected_lfsr_index));
+            }
+
+            std::array<uint8_t, kExtras_LfsrState_Bytes> live_lfsr{};
+            uint32_t live_lfsr_index = 0;
+            const uintptr_t base = NativeBinding::imageBase();
+            const bool live_lfsr_ok = base
+                && SafeReadBytes(reinterpret_cast<const void*>(
+                                     base + kRVA_LfsrState),
+                                 live_lfsr.data(), live_lfsr.size());
+            const bool live_index_ok = base
+                && SafeReadUInt32(reinterpret_cast<const void*>(
+                                      base + kRVA_LfsrIndex),
+                                  &live_lfsr_index);
+            uint64_t live_lfsr_head = 0;
+            uint64_t live_lfsr_hash = 0;
+            if (live_lfsr_ok)
+            {
+                std::memcpy(&live_lfsr_head, live_lfsr.data(),
+                            sizeof(live_lfsr_head));
+                live_lfsr_hash = hash_bytes64(live_lfsr.data(),
+                                              live_lfsr.size());
+            }
+
+            const bool oracle_valid = expected_oracle
+                && expected_oracle->valid;
+            const uint64_t expected_oracle_rng = oracle_valid
+                ? expected_oracle->rng_state : expected_lfsr_head;
+            const bool readable = expected_extras_ok && live_lfsr_ok
+                && live_index_ok;
+
+            ReplayTraceFields f;
+            f.string("label", label ? label : "?")
+             .string("phase", phase ? phase : "?")
+             .integer("requested_seq", m_sc6_seek_job.requested_seq)
+             .integer("seq", seq)
+             .integer("tick", tick)
+             .integer("target_seq", m_sc6_seek_job.target_seq)
+             .integer("target_round", m_sc6_seek_job.target_round)
+             .integer("target_master", m_sc6_seek_job.target_master)
+             .integer("compare_seq", m_sc6_seek_job.validation_compare_seq)
+             .integer("compare_master",
+                      m_sc6_seek_job.validation_compare_master)
+             .string("validation_mode",
+                     captured_seek_validation_mode_name(
+                         m_sc6_seek_job.validation_mode))
+             .integer("live_round", read_current_round())
+             .integer("live_master", read_engine_master_clock())
+             .boolean("expected_extras_ok", expected_extras_ok)
+             .boolean("expected_oracle_valid", oracle_valid)
+             .boolean("live_lfsr_ok", live_lfsr_ok)
+             .boolean("live_index_ok", live_index_ok)
+             .hex("expected_oracle_rng", expected_oracle_rng)
+             .hex("expected_lfsr_head", expected_lfsr_head)
+             .hex("live_lfsr_head", live_lfsr_head)
+             .hex("expected_lfsr_hash", expected_lfsr_hash)
+             .hex("live_lfsr_hash", live_lfsr_hash)
+             .integer("expected_lfsr_index", expected_lfsr_index)
+             .integer("live_lfsr_index", live_lfsr_index)
+             .boolean("rng_value_match",
+                      expected_oracle_rng == live_lfsr_head)
+             .boolean("lfsr_hash_match",
+                      expected_lfsr_hash == live_lfsr_hash)
+             .boolean("lfsr_index_match",
+                      expected_lfsr_index == live_lfsr_index)
+             .boolean("ok", readable
+                      && expected_oracle_rng == live_lfsr_head
+                      && expected_lfsr_hash == live_lfsr_hash
+                      && expected_lfsr_index == live_lfsr_index);
+            ReplayDebugTrace::instance().event(
+                "captured_rng_restore_contract", f);
+        }
+
+        void begin_rng_u32_trace_window() noexcept
+        {
+            RngTraceHook::instance().begin_window();
+        }
+
+        void emit_rng_u32_trace_window(const char* phase,
+                                       const char* label,
+                                       int32_t requested_seq,
+                                       int32_t seq,
+                                       int32_t master,
+                                       int32_t compare_seq = -1,
+                                       int32_t compare_master = -1) noexcept
+        {
+            RngTraceHook::instance().end_window_and_emit(
+                phase, label, requested_seq, seq, master,
+                compare_seq, compare_master);
+        }
+
+        void emit_generation_rng_u32_trace(int32_t seq_tag,
+                                           int32_t master_tag) noexcept
+        {
+            emit_rng_u32_trace_window("generation", "oracle-frame",
+                                      seq_tag, seq_tag, master_tag);
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                == static_cast<int>(TimelineGenState::Generating))
+                begin_rng_u32_trace_window();
+        }
+
+        void emit_validation_rng_u32_trace(const char* label,
+                                           const char* phase) noexcept
+        {
+            emit_rng_u32_trace_window(
+                phase ? phase : "validation",
+                label ? label : (m_sc6_seek_job.label
+                    ? m_sc6_seek_job.label : "?"),
+                m_sc6_seek_job.requested_seq,
+                m_sc6_seek_job.target_seq,
+                m_sc6_seek_job.target_master,
+                m_sc6_seek_job.validation_compare_seq,
+                m_sc6_seek_job.validation_compare_master);
         }
 
         bool commit_oracle_frame(int32_t seq_tag, int32_t round_tag,
@@ -7353,7 +9727,13 @@ namespace Horse
              .real(key("_pos_y").c_str(), s.pos_y)
              .real(key("_pos_z").c_str(), s.pos_z)
              .real(key("_facing").c_str(), s.facing)
-             .integer(key("_life").c_str(), static_cast<int32_t>(s.health))
+             .real(key("_vm_decay").c_str(), s.vm_decay_counter)
+             .real(key("_vital_scale").c_str(), s.vital_scale)
+             .real(key("_vital_candidate").c_str(), s.vital_candidate)
+             .real(key("_vital_ko_gate").c_str(), s.vital_ko_gate)
+             .real(key("_vital_displayed").c_str(), s.vital_displayed)
+             .hex(key("_vital_category_bits").c_str(), s.vital_category_bits)
+             .integer(key("_vital_state").c_str(), s.vital_state)
              .uinteger(key("_move_id").c_str(), s.current_move_id)
              .uinteger(key("_move_frame").c_str(), s.current_move_frame)
              .real(key("_clip_frame").c_str(), s.current_clip_frame)
@@ -7480,8 +9860,23 @@ namespace Horse
                 return fail_float("vel-z", expected.vel_z, live.vel_z);
             if (!oracle_float_equal(expected.facing, live.facing))
                 return fail_float("facing", expected.facing, live.facing);
-            if (!oracle_float_equal(expected.health, live.health))
-                return fail_float("health", expected.health, live.health);
+            // +0x1364 is not health/life, and +0x43E** vital fields still
+            // need HUD/KO validation. Keep them out of the play gate.
+            diag_float("vm-decay-counter", expected.vm_decay_counter,
+                       live.vm_decay_counter);
+            diag_float("vital-scale", expected.vital_scale,
+                       live.vital_scale);
+            diag_float("vital-candidate", expected.vital_candidate,
+                       live.vital_candidate);
+            diag_float("vital-ko-gate", expected.vital_ko_gate,
+                       live.vital_ko_gate);
+            diag_float("vital-displayed", expected.vital_displayed,
+                       live.vital_displayed);
+            diag_u64("vital-category-bits", expected.vital_category_bits,
+                     live.vital_category_bits);
+            diag_u64("vital-state",
+                     static_cast<uint16_t>(expected.vital_state),
+                     static_cast<uint16_t>(live.vital_state));
             if (expected.vm_paused != live.vm_paused)
                 return fail_u64("vm-paused", expected.vm_paused,
                                 live.vm_paused);
@@ -7501,7 +9896,8 @@ namespace Horse
 
         bool compare_oracle_to_captured_tick(
             int32_t expected_tick,
-            CapturedFrameOracleCompareReport& out) noexcept
+            CapturedFrameOracleCompareReport& out,
+            bool use_captured_extras_rng = false) noexcept
         {
             out = CapturedFrameOracleCompareReport{};
             out.expected_tick = expected_tick;
@@ -7565,13 +9961,67 @@ namespace Horse
                 out.reason = "last-round-result";
                 return false;
             }
-            out.rng_match = expected.rng_state == live.rng_state;
-            if (!out.rng_match)
+            uint64_t expected_rng_state = expected.rng_state;
+            uint64_t expected_rng_lfsr_hash = expected.rng_lfsr_hash;
+            uint32_t expected_rng_lfsr_index = expected.rng_lfsr_index;
+            bool expected_rng_readable = expected.rng_readable;
+            if (use_captured_extras_rng)
+            {
+                const uint8_t* expected_extras = m_extras_store.gather(
+                    static_cast<size_t>(expected_tick));
+                expected_rng_readable = expected_extras != nullptr;
+                if (expected_rng_readable)
+                {
+                    std::memcpy(&expected_rng_state,
+                                expected_extras + kExtras_Off_LfsrState,
+                                sizeof(expected_rng_state));
+                    expected_rng_lfsr_hash = hash_bytes64(
+                        expected_extras + kExtras_Off_LfsrState,
+                        kExtras_LfsrState_Bytes);
+                    std::memcpy(&expected_rng_lfsr_index,
+                                expected_extras + kExtras_Off_LfsrIndex,
+                                sizeof(expected_rng_lfsr_index));
+                }
+            }
+            if (!expected_rng_readable || !live.rng_readable)
+            {
+                out.field = "rng-readable";
+                out.expected_u64 = expected_rng_readable ? 1ull : 0ull;
+                out.live_u64 = live.rng_readable ? 1ull : 0ull;
+                out.reason = use_captured_extras_rng
+                    ? "rng-extras-readable" : "rng-readable";
+                return false;
+            }
+            out.rng_head_match = expected_rng_state == live.rng_state;
+            out.rng_lfsr_hash_match =
+                expected_rng_lfsr_hash == live.rng_lfsr_hash;
+            out.rng_lfsr_index_match =
+                expected_rng_lfsr_index == live.rng_lfsr_index;
+            out.rng_match = out.rng_head_match
+                && out.rng_lfsr_hash_match
+                && out.rng_lfsr_index_match;
+            if (!out.rng_head_match)
             {
                 out.field = "rng-state";
-                out.expected_u64 = expected.rng_state;
+                out.expected_u64 = expected_rng_state;
                 out.live_u64 = live.rng_state;
                 out.reason = "rng-state";
+                return false;
+            }
+            if (!out.rng_lfsr_hash_match)
+            {
+                out.field = "rng-lfsr-state";
+                out.expected_u64 = expected_rng_lfsr_hash;
+                out.live_u64 = live.rng_lfsr_hash;
+                out.reason = "rng-lfsr-state";
+                return false;
+            }
+            if (!out.rng_lfsr_index_match)
+            {
+                out.field = "rng-lfsr-index";
+                out.expected_u64 = expected_rng_lfsr_index;
+                out.live_u64 = live.rng_lfsr_index;
+                out.reason = "rng-lfsr-index";
                 return false;
             }
             out.p1_match = compare_oracle_player(
@@ -7611,9 +10061,14 @@ namespace Horse
              .boolean("live_valid", report.live_valid)
              .boolean("p1_match", report.p1_match)
              .boolean("p2_match", report.p2_match)
-             .boolean("input_match", report.input_match)
-             .boolean("rng_match", report.rng_match)
-             .boolean("last_round_result_match",
+              .boolean("input_match", report.input_match)
+              .boolean("rng_match", report.rng_match)
+              .boolean("rng_head_match", report.rng_head_match)
+              .boolean("rng_lfsr_hash_match",
+                       report.rng_lfsr_hash_match)
+              .boolean("rng_lfsr_index_match",
+                       report.rng_lfsr_index_match)
+              .boolean("last_round_result_match",
                       report.last_round_result_match)
              .boolean("ok", report.ok);
             ReplayDebugTrace::instance().event(
@@ -8448,15 +10903,265 @@ namespace Horse
                       m_sc6_seek_job.native_step_requested_credits)
              .integer("native_step_granted_credits",
                       m_sc6_seek_job.native_step_granted_credits)
+              .integer("native_step_observed_credits",
+                       m_sc6_seek_job.native_step_observed_credits)
+              .integer("native_step_drained_credits",
+                       m_sc6_seek_job.native_step_drained_credits)
+              .integer("native_step_stall_count",
+                       m_sc6_seek_job.native_step_stall_count)
+              .integer("native_step_last_grant_gate_policy_before",
+                       m_sc6_seek_job
+                           .native_step_last_grant_gate_policy_before)
+              .integer("native_step_last_grant_gate_policy_after",
+                       m_sc6_seek_job
+                           .native_step_last_grant_gate_policy_after)
+              .integer("native_step_last_drain_gate_policy_before",
+                       m_sc6_seek_job
+                           .native_step_last_drain_gate_policy_before)
+              .integer("native_step_last_drain_gate_policy_after",
+                       m_sc6_seek_job
+                           .native_step_last_drain_gate_policy_after)
+              .boolean("native_step_last_drain_frame_counter_valid",
+                       m_sc6_seek_job
+                           .native_step_last_drain_frame_counter_valid)
+              .uinteger("native_step_last_drain_frame_counter_before",
+                        m_sc6_seek_job
+                            .native_step_last_drain_frame_counter_before)
+              .uinteger("native_step_last_drain_frame_counter_after",
+                        m_sc6_seek_job
+                            .native_step_last_drain_frame_counter_after)
+              .boolean("native_step_waiting",
+                      m_sc6_seek_job.native_step_waiting)
+             .string("failure", native_seek_failure_name(
+                          m_sc6_seek_job.failure));
+            ReplayDebugTrace::instance().event(event_name, f);
+        }
+
+        bool has_pending_native_step_for_trace() const noexcept
+        {
+            if (!sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
+                return false;
+            const int32_t pending_request =
+                m_sc6_native_step_request.load(std::memory_order_acquire);
+            const int32_t granted_total =
+                m_sc6_native_step_granted.load(std::memory_order_acquire);
+            const int32_t drained_total =
+                m_sc6_native_step_drained.load(std::memory_order_acquire);
+            return m_sc6_seek_job.native_step_waiting
+                || pending_request > 0
+                || granted_total
+                    > m_sc6_seek_job.native_step_observed_credits
+                || drained_total < m_sc6_seek_job.native_step_drained_credits;
+        }
+
+        void trace_pending_native_step_event(
+            const char* event_name,
+            const char* reason,
+            const Sc6ReplaySeekContext* ctx_override = nullptr,
+            bool force = false) noexcept
+        {
+            if (!force && !has_pending_native_step_for_trace())
+                return;
+
+            Sc6ReplaySeekContext ctx{};
+            if (ctx_override)
+            {
+                ctx = *ctx_override;
+            }
+            else
+            {
+                (void)resolve_sc6_replay_seek_context(ctx);
+            }
+
+            uint32_t frame_counter = 0;
+            const bool frame_counter_ok = read_frame_counter(frame_counter);
+
+            uint8_t bm_main_state = 0;
+            uint8_t bm_move_state = 0;
+            uint8_t bm_skip_catchup = 0;
+            uint8_t bm_status = 0;
+            uint8_t il_double_tick_guard = 0;
+            int32_t bm_last_frame_id = -1;
+            int32_t bm_last_applied = -1;
+            int32_t bm_frame_advance = -1;
+            uint32_t il_playback_cursor = 0;
+            int32_t il_last_frame_id = -1;
+            int32_t il_master = -1;
+
+            const bool bm_main_state_ok = ctx.battle_manager_ok
+                && SafeReadUInt8(reinterpret_cast<const void*>(
+                       ctx.battle_manager + kBM_bMainStateMachineByte_Off),
+                   &bm_main_state);
+            const bool bm_move_state_ok = ctx.battle_manager_ok
+                && SafeReadUInt8(reinterpret_cast<const void*>(
+                       ctx.battle_manager + kBM_bMoveStateByte_Off),
+                   &bm_move_state);
+            const bool bm_skip_catchup_ok = ctx.battle_manager_ok
+                && SafeReadUInt8(reinterpret_cast<const void*>(
+                       ctx.battle_manager + kBM_bSkipReplayCatchUp_Off),
+                   &bm_skip_catchup);
+            const bool bm_status_ok = ctx.battle_manager_ok
+                && SafeReadUInt8(reinterpret_cast<const void*>(
+                       ctx.battle_manager + kBM_bStatusByte_Off),
+                   &bm_status);
+            const bool bm_last_frame_id_ok = ctx.battle_manager_ok
+                && SafeReadInt32(reinterpret_cast<const void*>(
+                       ctx.battle_manager + kBM_nReplayLastFrameID_Off),
+                   &bm_last_frame_id);
+            const bool bm_last_applied_ok = ctx.battle_manager_ok
+                && SafeReadInt32(reinterpret_cast<const void*>(
+                       ctx.battle_manager + kBM_nReplayLastApplied_Off),
+                   &bm_last_applied);
+            const bool bm_frame_advance_ok = ctx.battle_manager_ok
+                && SafeReadInt32(reinterpret_cast<const void*>(
+                       ctx.battle_manager + kBM_nFrameAdvanceCounter_Off),
+                   &bm_frame_advance);
+
+            const bool il_playback_cursor_ok = ctx.input_log_ok
+                && SafeReadUInt32(reinterpret_cast<const void*>(
+                       ctx.input_log + kIL_dwPlaybackCursor_Off),
+                   &il_playback_cursor);
+            const bool il_last_frame_id_ok = ctx.input_log_ok
+                && SafeReadInt32(reinterpret_cast<const void*>(
+                       ctx.input_log + kIL_nLastFrameID_Off),
+                   &il_last_frame_id);
+            const bool il_master_ok = ctx.input_log_ok
+                && SafeReadInt32(reinterpret_cast<const void*>(
+                       ctx.input_log + kIL_nMasterClock_Off),
+                   &il_master);
+            const bool il_double_tick_guard_ok = ctx.input_log_ok
+                && SafeReadUInt8(reinterpret_cast<const void*>(
+                       ctx.input_log + kIL_bDoubleTickGuard_Off),
+                   &il_double_tick_guard);
+
+            int32_t bm_replay_delta = -1;
+            const bool bm_replay_delta_ok = bm_last_applied_ok
+                && il_master_ok;
+            if (bm_replay_delta_ok)
+            {
+                const int32_t capped_applied =
+                    bm_last_applied < il_master
+                        ? bm_last_applied : il_master;
+                bm_replay_delta = il_master - capped_applied;
+            }
+
+            const int32_t granted_total =
+                m_sc6_native_step_granted.load(std::memory_order_acquire);
+            const int32_t drained_total =
+                m_sc6_native_step_drained.load(std::memory_order_acquire);
+            const int32_t pending_request =
+                m_sc6_native_step_request.load(std::memory_order_acquire);
+
+            ReplayTraceFields f;
+            f.string("label", m_sc6_seek_job.label
+                         ? m_sc6_seek_job.label : "?")
+             .string("reason", reason ? reason : "?")
+             .string("phase", sc6_exact_seek_phase_name(
+                         m_sc6_seek_job.phase))
+             .string("authority", sc6_seek_authority_name(
+                         m_sc6_seek_job.authority))
+             .integer("job_generation", m_sc6_seek_job.generation)
+             .integer("requested_seq", m_sc6_seek_job.requested_seq)
+             .integer("target_seq", m_sc6_seek_job.target_seq)
+             .integer("target_round", m_sc6_seek_job.target_round)
+             .integer("target_master", m_sc6_seek_job.target_master)
+             .integer("origin_seq", m_sc6_seek_job.validation_origin_seq)
+             .integer("origin_master",
+                      m_sc6_seek_job.validation_origin_master)
+             .integer("compare_seq", m_sc6_seek_job.validation_compare_seq)
+             .integer("compare_master",
+                      m_sc6_seek_job.validation_compare_master)
+             .string("validation_mode", captured_seek_validation_mode_name(
+                         m_sc6_seek_job.validation_mode))
+             .integer("frames_advanced", m_sc6_seek_job.frames_advanced)
+             .integer("slices_serviced", m_sc6_seek_job.slices_serviced)
+             .integer("stall_count", m_sc6_seek_job.stall_count)
+             .integer("native_step_requested_master",
+                      m_sc6_seek_job.native_step_requested_master)
+             .integer("native_step_last_observed_master",
+                      m_sc6_seek_job.native_step_last_observed_master)
+             .integer("native_step_requested_credits",
+                      m_sc6_seek_job.native_step_requested_credits)
+             .integer("native_step_granted_credits",
+                      m_sc6_seek_job.native_step_granted_credits)
              .integer("native_step_observed_credits",
                       m_sc6_seek_job.native_step_observed_credits)
+             .integer("native_step_drained_credits",
+                      m_sc6_seek_job.native_step_drained_credits)
+             .integer("native_step_granted_total", granted_total)
+             .integer("native_step_drained_total", drained_total)
+             .integer("native_step_pending_request", pending_request)
+             .integer("native_step_wait_services",
+                      m_sc6_seek_job.native_step_wait_services)
              .integer("native_step_stall_count",
                       m_sc6_seek_job.native_step_stall_count)
              .boolean("native_step_waiting",
                       m_sc6_seek_job.native_step_waiting)
+             .integer("native_step_last_grant_gate_policy_before",
+                      m_sc6_seek_job
+                          .native_step_last_grant_gate_policy_before)
+             .integer("native_step_last_grant_gate_policy_after",
+                      m_sc6_seek_job
+                          .native_step_last_grant_gate_policy_after)
+             .integer("native_step_last_drain_gate_policy_before",
+                      m_sc6_seek_job
+                          .native_step_last_drain_gate_policy_before)
+             .integer("native_step_last_drain_gate_policy_after",
+                      m_sc6_seek_job
+                          .native_step_last_drain_gate_policy_after)
+             .boolean("native_step_last_drain_frame_counter_valid",
+                      m_sc6_seek_job
+                          .native_step_last_drain_frame_counter_valid)
+             .uinteger("native_step_last_drain_frame_counter_before",
+                       m_sc6_seek_job
+                           .native_step_last_drain_frame_counter_before)
+             .uinteger("native_step_last_drain_frame_counter_after",
+                       m_sc6_seek_job
+                           .native_step_last_drain_frame_counter_after)
+             .boolean("frame_counter_ok", frame_counter_ok)
+             .uinteger("frame_counter", frame_counter)
+             .integer("live_master", read_engine_master_clock())
+             .integer("live_round", read_current_round())
+             .integer("hold_kind",
+                      m_hold_kind.load(std::memory_order_acquire))
+             .boolean("paused",
+                      m_paused.load(std::memory_order_acquire))
+             .boolean("ui_wants_play",
+                      m_ui_wants_play.load(std::memory_order_acquire))
+             .boolean("ctx_readable", ctx.readable)
+             .string("ctx_failure", sc6_context_failure_name(ctx.failure))
+             .hex("bm", ctx.battle_manager)
+             .hex("input_log", ctx.input_log)
+             .integer("ctx_input_master", ctx.input_master)
+             .integer("ctx_battle_master", ctx.battle_master)
+             .boolean("bm_main_state_ok", bm_main_state_ok)
+             .integer("bm_main_state", bm_main_state)
+             .boolean("bm_move_state_ok", bm_move_state_ok)
+             .integer("bm_move_state", bm_move_state)
+             .boolean("bm_skip_catchup_ok", bm_skip_catchup_ok)
+             .integer("bm_skip_catchup", bm_skip_catchup)
+             .boolean("bm_status_ok", bm_status_ok)
+             .integer("bm_status", bm_status)
+             .boolean("bm_last_frame_id_ok", bm_last_frame_id_ok)
+             .integer("bm_last_frame_id", bm_last_frame_id)
+             .boolean("bm_last_applied_ok", bm_last_applied_ok)
+             .integer("bm_last_applied", bm_last_applied)
+             .boolean("bm_frame_advance_ok", bm_frame_advance_ok)
+             .integer("bm_frame_advance", bm_frame_advance)
+             .boolean("il_playback_cursor_ok", il_playback_cursor_ok)
+             .uinteger("il_playback_cursor", il_playback_cursor)
+             .boolean("il_last_frame_id_ok", il_last_frame_id_ok)
+             .integer("il_last_frame_id", il_last_frame_id)
+             .boolean("il_master_ok", il_master_ok)
+             .integer("il_master", il_master)
+             .boolean("il_double_tick_guard_ok", il_double_tick_guard_ok)
+             .integer("il_double_tick_guard", il_double_tick_guard)
+             .boolean("bm_replay_delta_ok", bm_replay_delta_ok)
+             .integer("bm_replay_delta", bm_replay_delta)
              .string("failure", native_seek_failure_name(
                          m_sc6_seek_job.failure));
-            ReplayDebugTrace::instance().event(event_name, f);
+            ReplayDebugTrace::instance().event(
+                event_name ? event_name : "sc6_pending_native_step", f);
         }
 
         bool has_captured_round_reset_snapshot(int32_t round) const noexcept
@@ -8836,6 +11541,131 @@ namespace Horse
                 reinterpret_cast<uintptr_t>(camera_args)
             };
             return SafeInvokePerFrameTick(m_per_frame_tick_bypass, args);
+        }
+
+        bool invoke_direct_sc6_frame_once_from_captured_extras(
+            int32_t tick,
+            uintptr_t battle_manager,
+            uintptr_t input_log,
+            const char* label,
+            const char* phase) noexcept
+        {
+            if (tick < 0 || !resolve_natives()
+                || !resolve_per_frame_tick_bypass()
+                || !battle_manager || !input_log)
+                return false;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            const uint8_t* extras_blob = m_extras_store.gather(
+                static_cast<size_t>(tick));
+            if (!base || !extras_blob) return false;
+
+            int32_t input_master_before = -1;
+            int32_t input_master_after_advancer = -1;
+            int32_t input_master_after_force = -1;
+            int32_t battle_master_before = read_engine_master_clock();
+            int32_t battle_master_after_loop = -1;
+            int32_t battle_master_after_frame = -1;
+            const bool input_master_before_ok = SafeReadInt32(
+                reinterpret_cast<const void*>(
+                    input_log + kIL_nMasterClock_Off),
+                &input_master_before);
+
+            uint64_t input[2] = {};
+            uint8_t camera_args[kExtras_PerFrameCameraArgs_Bytes] = {};
+            std::memcpy(input,
+                        extras_blob + kExtras_Off_LatestEngineInput,
+                        sizeof(input));
+            std::memcpy(camera_args,
+                        extras_blob + kExtras_Off_PerFrameCameraArgs,
+                        sizeof(camera_args));
+
+            const bool input_write_ok = SafeWriteBytes(
+                reinterpret_cast<void*>(base + kRVA_LatestEngineInput),
+                input, sizeof(input));
+            const bool camera_write_ok = SafeWriteBytes(
+                reinterpret_cast<void*>(base + kRVA_PerFrameCameraArgs),
+                camera_args, sizeof(camera_args));
+
+            const bool advancer_ok = input_write_ok && camera_write_ok
+                && SafeInvokeNativeVoidPtr(
+                    m_frame_input_log_advance_replay_clock,
+                    reinterpret_cast<void*>(input_log));
+            const bool input_master_after_advancer_ok = SafeReadInt32(
+                reinterpret_cast<const void*>(
+                    input_log + kIL_nMasterClock_Off),
+                &input_master_after_advancer);
+            bool input_master_force_ok = true;
+            if (advancer_ok && input_master_before_ok
+                && (!input_master_after_advancer_ok
+                    || input_master_after_advancer <= input_master_before))
+            {
+                input_master_after_force = input_master_before + 1;
+                input_master_force_ok = SafeWriteBytes(
+                    reinterpret_cast<void*>(
+                        input_log + kIL_nMasterClock_Off),
+                    &input_master_after_force,
+                    sizeof(input_master_after_force));
+            }
+            else
+            {
+                input_master_after_force = input_master_after_advancer;
+            }
+
+            const bool simulation_loop_ok = advancer_ok
+                && input_master_force_ok
+                && SafeInvokeNativeVoidPtr(
+                    m_battle_manager_simulation_loop,
+                    reinterpret_cast<void*>(battle_manager));
+            battle_master_after_loop = read_engine_master_clock();
+
+            uintptr_t args[3] = {
+                reinterpret_cast<uintptr_t>(&input[0]),
+                reinterpret_cast<uintptr_t>(&input[1]),
+                reinterpret_cast<uintptr_t>(camera_args)
+            };
+            const bool step_ok = simulation_loop_ok
+                && SafeInvokePerFrameTick(m_per_frame_tick_bypass, args);
+            battle_master_after_frame = read_engine_master_clock();
+
+            ReplayTraceFields f;
+            f.string("label", label ? label : "?")
+             .string("phase", phase ? phase : "?")
+             .integer("requested_seq", m_sc6_seek_job.requested_seq)
+             .integer("tick", tick)
+             .integer("target_seq", m_sc6_seek_job.target_seq)
+             .integer("target_master", m_sc6_seek_job.target_master)
+             .integer("compare_seq", m_sc6_seek_job.validation_compare_seq)
+             .integer("compare_master",
+                      m_sc6_seek_job.validation_compare_master)
+             .hex("input_p1", input[0])
+             .hex("input_p2", input[1])
+             .hex("input_hash", hash_bytes64(
+                 extras_blob + kExtras_Off_LatestEngineInput,
+                 kExtras_LatestEngineInput_Bytes))
+             .hex("camera_args_hash", hash_bytes64(
+                 extras_blob + kExtras_Off_PerFrameCameraArgs,
+                 kExtras_PerFrameCameraArgs_Bytes))
+             .integer("input_master_before", input_master_before)
+             .integer("input_master_after_advancer",
+                      input_master_after_advancer)
+             .integer("input_master_after_force",
+                      input_master_after_force)
+             .integer("battle_master_before", battle_master_before)
+             .integer("battle_master_after_loop", battle_master_after_loop)
+             .integer("battle_master_after_frame", battle_master_after_frame)
+             .boolean("input_master_before_ok", input_master_before_ok)
+             .boolean("input_master_after_advancer_ok",
+                      input_master_after_advancer_ok)
+             .boolean("input_write_ok", input_write_ok)
+             .boolean("camera_write_ok", camera_write_ok)
+             .boolean("advancer_ok", advancer_ok)
+             .boolean("input_master_force_ok", input_master_force_ok)
+             .boolean("simulation_loop_ok", simulation_loop_ok)
+             .boolean("step_ok", step_ok);
+            ReplayDebugTrace::instance().event(
+                "captured_seek_direct_validation_step", f);
+            return step_ok;
         }
 
         bool invoke_direct_sc6_replay_frame_once(
@@ -9342,9 +12172,11 @@ namespace Horse
         static constexpr int32_t kHgCpuSelfPointerBlockStart = 0x5670;
         static constexpr int32_t kHgCpuLaneStateBlockStart = 0x56A0;
         static constexpr int32_t kHgCpuLaneHelperBlockStart = 0x63D8;
-        static constexpr int32_t kHgCpuVfxEffectAnchorBlockStart = 0x6708;
-        static constexpr int32_t kHgCpuFacingRetrackRampStart = 0x78F8;
-        static constexpr int32_t kHgCpuAiResetSlotBlockStart = 0x790C;
+        static constexpr int32_t kHgCpuVfxEffectAnchorBlockStart = 0x6748;
+        static constexpr int32_t kHgCpuFacingRetrackRampStart = 0x7938;
+        static constexpr int32_t kHgCpuAiResetSlotBlockStart = 0x794C;
+        static constexpr int32_t kHgCpuAiResetSlotBlockEnd =
+            kHgCpuAiResetSlotBlockStart + 0x60;
 
         static int32_t hgcpu_snapshot_local_for_chara_offset(
             uintptr_t chara_off) noexcept
@@ -9817,6 +12649,45 @@ namespace Horse
                 }
             };
 
+            auto trace_overlay_write = [this, label, seq, tick](
+                int player,
+                uintptr_t chara,
+                uintptr_t chara_off,
+                size_t bytes,
+                const char* field,
+                uint64_t oracle_value,
+                bool write_ok,
+                bool read_ok,
+                uint64_t live_value,
+                double oracle_float,
+                double live_float,
+                bool include_float) noexcept
+            {
+                ReplayTraceFields f;
+                f.string("label", label ? label : "?")
+                 .integer("seq", seq)
+                 .integer("tick", tick)
+                 .integer("player", player + 1)
+                 .string("field", field ? field : "?")
+                 .hex("chara", chara)
+                 .integer("chara_offset",
+                          static_cast<int64_t>(chara_off))
+                 .integer("bytes", static_cast<int64_t>(bytes))
+                 .boolean("write_ok", write_ok)
+                 .boolean("read_ok", read_ok)
+                 .hex("oracle_value", oracle_value)
+                 .hex("live_value", live_value)
+                 .boolean("live_matches_oracle",
+                          read_ok && live_value == oracle_value);
+                if (include_float)
+                {
+                    f.real("oracle_float", oracle_float)
+                     .real("live_float", live_float);
+                }
+                ReplayDebugTrace::instance().event(
+                    "oracle_semantic_overlay_write", f);
+            };
+
             for (int pi = 0; pi < 2; ++pi)
             {
                 const ReplayScrubDiag::CharaMoveVmSnap& s = *snaps[pi];
@@ -9842,17 +12713,54 @@ namespace Horse
                     sizeof(s.current_move_id), "move-id",
                     s.current_move_id);
 
+                uint32_t clip_bits = 0;
+                std::memcpy(&clip_bits, &s.current_clip_frame,
+                            sizeof(clip_bits));
+                trace_source_u64(
+                    pi, ReplayScrubDiag::kChara_flCurrentClipFrame_Off,
+                    sizeof(clip_bits), "clip-frame", clip_bits);
+
                 // Keep the oracle overlay conservative.  The first runtime
                 // test proved HgCpuDirect's serialized P2 scalar layout does
                 // not agree with the live oracle for broad MoveVM fields
-                // (position, health, flags).  Writing those fields made the
+                // (position, vital/VM-decay counters, flags). Writing those fields made the
                 // seek pass verification but left gameplay suspect and the
-                // process later died during validation.  Only patch the field
-                // that originally blocked Play; let the native snapshot own
-                // the rest of the gameplay state.
-                ok &= SafeWriteUInt32(
+                // process later died during validation.  Patch only proven
+                // scalar replay-phase fields: move id and clip frame.  The
+                // native snapshot still owns broad position/vital/pointers.
+                const bool move_write_ok = SafeWriteUInt32(
                     c + ReplayScrubDiag::kChara_nCurrentMoveId_Off,
                     s.current_move_id);
+                uint32_t live_move_id = 0;
+                const bool move_read_ok = SafeReadUInt32(
+                    c + ReplayScrubDiag::kChara_nCurrentMoveId_Off,
+                    &live_move_id);
+                trace_overlay_write(
+                    pi, reinterpret_cast<uintptr_t>(chara_raw),
+                    ReplayScrubDiag::kChara_nCurrentMoveId_Off,
+                    sizeof(s.current_move_id), "move-id",
+                    s.current_move_id, move_write_ok, move_read_ok,
+                    live_move_id, 0.0, 0.0, false);
+                ok &= move_write_ok;
+
+                const bool clip_write_ok = SafeWriteFloat(
+                    c + ReplayScrubDiag::kChara_flCurrentClipFrame_Off,
+                    s.current_clip_frame);
+                float live_clip_frame = 0.0f;
+                const bool clip_read_ok = SafeReadFloat(
+                    c + ReplayScrubDiag::kChara_flCurrentClipFrame_Off,
+                    &live_clip_frame);
+                uint32_t live_clip_bits = 0;
+                if (clip_read_ok)
+                    std::memcpy(&live_clip_bits, &live_clip_frame,
+                                sizeof(live_clip_bits));
+                trace_overlay_write(
+                    pi, reinterpret_cast<uintptr_t>(chara_raw),
+                    ReplayScrubDiag::kChara_flCurrentClipFrame_Off,
+                    sizeof(clip_bits), "clip-frame", clip_bits,
+                    clip_write_ok, clip_read_ok, live_clip_bits,
+                    s.current_clip_frame, live_clip_frame, true);
+                ok &= clip_write_ok;
             }
 
             ReplayTraceFields f;
@@ -10061,8 +12969,28 @@ namespace Horse
                             ReplayScrubDiag::kChara_flBodyFacing_Off,
                             "facing", s.facing, true);
                 trace_float(pi, s,
-                            ReplayScrubDiag::kChara_flCurHealth_Off,
-                            "health", s.health, true);
+                            ReplayScrubDiag::kChara_flVmDecayCounter_Off,
+                            "vm-decay-counter", s.vm_decay_counter, false);
+                trace_float(pi, s,
+                            ReplayScrubDiag::kChara_flVitalScale_Off,
+                            "vital-scale", s.vital_scale, false);
+                trace_float(pi, s,
+                            ReplayScrubDiag::kChara_flVitalCandidate_Off,
+                            "vital-candidate", s.vital_candidate, false);
+                trace_float(pi, s,
+                            ReplayScrubDiag::kChara_flVitalKoGate_Off,
+                            "vital-ko-gate", s.vital_ko_gate, false);
+                trace_float(pi, s,
+                            ReplayScrubDiag::kChara_flVitalDisplayed_Off,
+                            "vital-displayed", s.vital_displayed, false);
+                trace_u64(pi, s,
+                          ReplayScrubDiag::kChara_dwVitalCategoryBits_Off,
+                          sizeof(s.vital_category_bits),
+                          "vital-category-bits",
+                          s.vital_category_bits, false);
+                trace_u64(pi, s, ReplayScrubDiag::kChara_wVitalState_Off,
+                          sizeof(s.vital_state), "vital-state",
+                          static_cast<uint16_t>(s.vital_state), false);
                 trace_u64(pi, s, ReplayScrubDiag::kChara_bVMPaused_Off,
                           sizeof(s.vm_paused), "vm-paused",
                           s.vm_paused, true);
@@ -10208,7 +13136,8 @@ namespace Horse
             bool sim_blob_ok,
             bool input_log_blob_ok,
             bool rdb_blob_ok,
-            bool extras_blob_ok) noexcept
+            bool extras_blob_ok,
+            const NativeCallFault* fault = nullptr) noexcept
         {
             const int32_t live_round = read_current_round();
             const int32_t live_master = read_engine_master_clock();
@@ -10272,6 +13201,8 @@ namespace Horse
              .boolean("replay_player_ok", ctx.replay_player_ok)
              .boolean("state_reset_data_ok", ctx.state_reset_data_ok)
              .boolean("interactive_replay_ok", ctx.interactive_replay_ok);
+            if (fault)
+                ReplayDebugTrace::instance().add_fault_fields(f, *fault);
             ReplayDebugTrace::instance().event(
                 "captured_seek_restore_failed_detail", f);
 
@@ -10368,17 +13299,21 @@ namespace Horse
                     rdb_blob != nullptr, extras_blob != nullptr);
                 return false;
             }
+            trace_rng_restore_contract("before-restore", tick, label,
+                                       out.seq);
 
             m_shim.retarget(const_cast<uint8_t*>(sim_blob),
                             kSnapshotStride);
-            out.sim_restore_ok = SafeInvokeExec(m_exec_read, &m_shim);
+            NativeCallFault exec_read_fault{};
+            out.sim_restore_ok = SafeInvokeExec(
+                m_exec_read, &m_shim, &exec_read_fault);
             if (!out.sim_restore_ok)
             {
                 out.failure =
                     NativeSeekFailure::CapturedSnapshotRestoreFailed;
                 trace_captured_restore_failure(
                     label, out, "sim-exec-read", "exec-finalize-and-post",
-                    tick, true, true, true, true, true);
+                    tick, true, true, true, true, true, &exec_read_fault);
                 return false;
             }
             (void)trace_restore_probe_chara_fields(
@@ -10449,6 +13384,8 @@ namespace Horse
             trace_semantic_authority_for_tick(
                 "after-extras-restore", sim_blob, out.tick,
                 label, out.seq);
+            trace_rng_restore_contract("after-extras-restore", tick, label,
+                                       out.seq);
             reset_round_result_cinematic_ring_after_seek(
                 label, out.seq, out.round, out.master);
             (void)trace_restore_probe_chara_fields(
@@ -10523,6 +13460,8 @@ namespace Horse
             trace_semantic_authority_for_tick(
                 "after-final-semantic-repair", sim_blob, out.tick,
                 label, out.seq);
+            trace_rng_restore_contract("after-final-semantic-repair", tick,
+                                       label, out.seq);
             if (!restore_oracle_semantic_overlay_for_tick(
                     out.tick, label, out.seq))
             {
@@ -10712,7 +13651,7 @@ namespace Horse
             static constexpr int32_t kReadFixedSelfPtrLocalStart = 0x5670;
             static constexpr int32_t kReadFixedLanePtrsLocalStartA = 0x5778;
             static constexpr int32_t kReadFixedLanePtrsLocalStartB = 0x5BE0;
-            static constexpr int32_t kVfxEffectAnchorLocalStart = 0x6708;
+            static constexpr int32_t kVfxEffectAnchorLocalStart = 0x6748;
             static constexpr int32_t kVfxEffectAnchorLocalSize = 0x11F0;
             static constexpr CapturedCompareIgnoreRange kRanges[] = {
                 {0, kMotionInputLocalStart, kMotionInputLocalSize,
@@ -10779,6 +13718,15 @@ namespace Horse
                 {3, static_cast<int32_t>(kExtras_Off_CinematicHead),
                  static_cast<int32_t>(kExtras_CinematicHead_Bytes),
                  "round-result cinematic metadata is reset after seek"},
+                {3, static_cast<int32_t>(kExtras_Off_StageWindRoot),
+                  static_cast<int32_t>(kExtras_StageWindRoot_Bytes),
+                  "stage wind root is traced separately during RNG validation"},
+                {3, static_cast<int32_t>(kExtras_Off_StageWindGraph),
+                 static_cast<int32_t>(kStageWindGraph_Bytes),
+                  "stage wind graph is traced separately during RNG validation"},
+                {3, static_cast<int32_t>(kExtras_Off_StageWindEmitters),
+                 static_cast<int32_t>(kStageWindEmitters_Bytes),
+                 "stage wind emitters are traced separately during RNG validation"},
             };
             for (const CapturedCompareIgnoreRange& range : kRanges)
             {
@@ -10967,7 +13915,7 @@ namespace Horse
                               player, local,
                               local - kHgCpuFacingRetrackRampStart);
             }
-            else if (local < 0x796C)
+            else if (local < kHgCpuAiResetSlotBlockEnd)
             {
                 std::snprintf(buf, sizeof(buf),
                               "P%d HgCpuDirect local=0x%X live_chara+0x971E8+0x%X "
@@ -11286,10 +14234,30 @@ namespace Horse
                 f.string("sim_offset_hint", sim_hint.c_str());
             ReplayDebugTrace::instance().event(
                 "captured_snapshot_mismatch_detail", f);
+            if (m_replay_seek_test.active
+                && m_replay_seek_test.phase == ReplaySeekTestPhase::WaitSeek
+                && m_replay_seek_test_last_raw_mismatch.empty())
+            {
+                char buf[160]{};
+                std::snprintf(buf, sizeof(buf),
+                              "%s:0x%X%s%s%s",
+                              region,
+                              static_cast<unsigned>(detail_offset),
+                              sim_hint.empty() ? "" : " ",
+                              sim_hint.empty() ? "" : sim_hint.c_str(),
+                              using_ignored ? " ignored_by_policy" : "");
+                m_replay_seek_test_last_raw_mismatch = buf;
+            }
         }
 
         void cancel_sc6_exact_seek(const char* reason) noexcept
         {
+            if (m_sc6_seek_job.phase == Sc6ExactSeekPhase::ValidateStepToTarget)
+                emit_validation_rng_u32_trace(
+                    m_sc6_seek_job.label, reason ? reason : "cancelled");
+            trace_pending_native_step_event(
+                "sc6_validation_step_abandoned",
+                reason ? reason : "cancelled");
             if (sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
             {
                 RC::Output::send<RC::LogLevel::Default>(STR(
@@ -11374,6 +14342,71 @@ namespace Horse
                                : "None")));
         }
 
+        bool find_nearest_playable_tick_in_round(
+            int32_t tick,
+            int32_t round,
+            int32_t& out_tick,
+            int32_t& out_seq,
+            int32_t& out_wall,
+            int32_t& out_master,
+            int32_t& out_direction) noexcept
+        {
+            out_tick = -1;
+            out_seq = -1;
+            out_wall = -1;
+            out_master = -1;
+            out_direction = 0;
+            if (tick < 0 || round < 0) return false;
+
+            auto playable_at = [&](int32_t candidate,
+                                   int32_t direction) noexcept -> bool
+            {
+                int32_t seq = -1, r = -1, wall = -1, master = -1;
+                if (!m_tags.get(static_cast<size_t>(candidate),
+                                seq, r, wall, master))
+                    return false;
+                if (r != round) return false;
+
+                uint8_t main_state = 0;
+                uint8_t status = 0;
+                if (read_captured_bm_play_gate_for_tick(
+                        candidate, main_state, status)
+                    && main_state == kBM_MainStateActiveBattle
+                    && status == kBM_StatusActiveBattle)
+                {
+                    out_tick = candidate;
+                    out_seq = seq;
+                    out_wall = wall;
+                    out_master = master;
+                    out_direction = direction;
+                    return seq >= 0 && master >= 0;
+                }
+                return false;
+            };
+
+            for (int32_t candidate = tick - 1; candidate >= 0; --candidate)
+            {
+                int32_t seq = -1, r = -1, wall = -1, master = -1;
+                if (!m_tags.get(static_cast<size_t>(candidate),
+                                seq, r, wall, master))
+                    break;
+                if (r != round) break;
+                if (playable_at(candidate, -1)) return true;
+            }
+
+            const int32_t latest = latest_seq();
+            for (int32_t candidate = tick + 1; candidate <= latest; ++candidate)
+            {
+                int32_t seq = -1, r = -1, wall = -1, master = -1;
+                if (!m_tags.get(static_cast<size_t>(candidate),
+                                seq, r, wall, master))
+                    break;
+                if (r != round) break;
+                if (playable_at(candidate, 1)) return true;
+            }
+            return false;
+        }
+
         bool queue_sc6_exact_seek(int32_t requested_seq,
                                   const char* label) noexcept
         {
@@ -11453,36 +14486,91 @@ namespace Horse
                 || captured_main_state != kBM_MainStateActiveBattle
                 || captured_status != kBM_StatusActiveBattle)
             {
-                RC::Output::send<RC::LogLevel::Warning>(STR(
-                    "[ReplayScrub.sc6seek] target is not a playable exact "
-                    "state label={} requested_seq={} target_seq={} round={} "
-                    "master={} bm.main=0x{:X} bm.status=0x{:X} "
-                    "required_main=0x{:X} required_status=0x{:X}\n"),
-                    RC::to_generic_string(label ? label : "USER"),
-                    original_requested_seq, seq_tag, round_tag, master_tag,
-                    static_cast<unsigned>(captured_main_state),
-                    static_cast<unsigned>(captured_status),
-                    static_cast<unsigned>(kBM_MainStateActiveBattle),
-                    static_cast<unsigned>(kBM_StatusActiveBattle));
-                ReplayTraceFields f;
-                f.string("label", label ? label : "USER")
-                 .integer("requested_seq", original_requested_seq)
-                 .integer("target_seq", seq_tag)
-                 .integer("target_tick", tick)
-                 .integer("target_round", round_tag)
-                 .integer("target_master", master_tag)
-                 .uinteger("captured_main_state", captured_main_state)
-                 .uinteger("captured_status", captured_status)
-                 .uinteger("required_main_state", kBM_MainStateActiveBattle)
-                 .uinteger("required_status", kBM_StatusActiveBattle)
-                 .string("failure", native_seek_failure_name(
-                     NativeSeekFailure::BattleManagerStatusNotActive));
-                ReplayDebugTrace::instance().event(
-                    "captured_seek_target_not_playable", f);
-                finish_failed_seek_queue(
-                    NativeSeekFailure::BattleManagerStatusNotActive,
-                    requested_seq, label);
-                return false;
+                const int32_t unclamped_tick = tick;
+                const int32_t unclamped_seq = seq_tag;
+                const int32_t unclamped_master = master_tag;
+                const uint8_t unclamped_main_state = captured_main_state;
+                const uint8_t unclamped_status = captured_status;
+                int32_t clamped_tick = -1, clamped_seq = -1;
+                int32_t clamped_wall = -1, clamped_master = -1;
+                int32_t clamp_direction = 0;
+                if (find_nearest_playable_tick_in_round(
+                        tick, round_tag, clamped_tick, clamped_seq,
+                        clamped_wall, clamped_master, clamp_direction))
+                {
+                    tick = clamped_tick;
+                    seq_tag = clamped_seq;
+                    wall_tag = clamped_wall;
+                    master_tag = clamped_master;
+                    captured_main_state = kBM_MainStateActiveBattle;
+                    captured_status = kBM_StatusActiveBattle;
+
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub.sc6seek] clamped non-playable "
+                        "target label={} requested_seq={} target_seq={} "
+                        "target_master={} clamped_seq={} clamped_master={} "
+                        "direction={} "
+                        "bm.main=0x{:X} bm.status=0x{:X}\n"),
+                        RC::to_generic_string(label ? label : "USER"),
+                        original_requested_seq, unclamped_seq,
+                        unclamped_master, seq_tag, master_tag,
+                        clamp_direction,
+                        static_cast<unsigned>(unclamped_main_state),
+                        static_cast<unsigned>(unclamped_status));
+                    ReplayTraceFields f;
+                    f.string("label", label ? label : "USER")
+                     .integer("requested_seq", original_requested_seq)
+                     .integer("target_seq", unclamped_seq)
+                     .integer("target_tick", unclamped_tick)
+                     .integer("target_round", round_tag)
+                      .integer("target_master", unclamped_master)
+                      .integer("clamped_seq", seq_tag)
+                      .integer("clamped_tick", tick)
+                      .integer("clamped_master", master_tag)
+                      .integer("clamp_direction", clamp_direction)
+                      .uinteger("captured_main_state", unclamped_main_state)
+                     .uinteger("captured_status", unclamped_status)
+                     .uinteger("required_main_state",
+                               kBM_MainStateActiveBattle)
+                     .uinteger("required_status", kBM_StatusActiveBattle);
+                    ReplayDebugTrace::instance().event(
+                        "captured_seek_clamped_non_playable", f);
+                }
+                else
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.sc6seek] target is not a playable "
+                        "exact state label={} requested_seq={} target_seq={} "
+                        "round={} master={} bm.main=0x{:X} bm.status=0x{:X} "
+                        "required_main=0x{:X} required_status=0x{:X}\n"),
+                        RC::to_generic_string(label ? label : "USER"),
+                        original_requested_seq, seq_tag, round_tag,
+                        master_tag,
+                        static_cast<unsigned>(captured_main_state),
+                        static_cast<unsigned>(captured_status),
+                        static_cast<unsigned>(kBM_MainStateActiveBattle),
+                        static_cast<unsigned>(kBM_StatusActiveBattle));
+                    ReplayTraceFields f;
+                    f.string("label", label ? label : "USER")
+                     .integer("requested_seq", original_requested_seq)
+                     .integer("target_seq", seq_tag)
+                     .integer("target_tick", tick)
+                     .integer("target_round", round_tag)
+                     .integer("target_master", master_tag)
+                     .uinteger("captured_main_state", captured_main_state)
+                     .uinteger("captured_status", captured_status)
+                     .uinteger("required_main_state",
+                               kBM_MainStateActiveBattle)
+                     .uinteger("required_status", kBM_StatusActiveBattle)
+                     .string("failure", native_seek_failure_name(
+                         NativeSeekFailure::BattleManagerStatusNotActive));
+                    ReplayDebugTrace::instance().event(
+                        "captured_seek_target_not_playable", f);
+                    finish_failed_seek_queue(
+                        NativeSeekFailure::BattleManagerStatusNotActive,
+                        requested_seq, label);
+                    return false;
+                }
             }
 
             const int32_t live_round_before_seek = read_current_round();
@@ -11522,6 +14610,11 @@ namespace Horse
             }
             m_sc6_seek_job.native_step_observed_credits =
                 m_sc6_native_step_granted.load(
+                    std::memory_order_acquire);
+            m_sc6_seek_job.native_step_granted_credits =
+                m_sc6_seek_job.native_step_observed_credits;
+            m_sc6_seek_job.native_step_drained_credits =
+                m_sc6_native_step_drained.load(
                     std::memory_order_acquire);
             m_sc6_native_step_request.store(
                 0, std::memory_order_release);
@@ -12157,6 +15250,9 @@ namespace Horse
                                      nullptr) noexcept
         {
             const Sc6ExactSeekPhase failed_phase = m_sc6_seek_job.phase;
+            if (failed_phase == Sc6ExactSeekPhase::ValidateStepToTarget)
+                emit_validation_rng_u32_trace(
+                    m_sc6_seek_job.label, "validation-failed");
             m_sc6_seek_job.failure = failure;
             m_sc6_seek_job.phase = Sc6ExactSeekPhase::Failed;
             m_ui_wants_play.store(false, std::memory_order_release);
@@ -12311,6 +15407,9 @@ namespace Horse
                 failure = NativeSeekFailure::SemanticMismatch;
 
             const Sc6ExactSeekPhase blocked_phase = m_sc6_seek_job.phase;
+            if (blocked_phase == Sc6ExactSeekPhase::ValidateStepToTarget)
+                emit_validation_rng_u32_trace(
+                    m_sc6_seek_job.label, "validation-blocked");
             m_sc6_seek_job.failure = failure;
             m_sc6_seek_job.phase = Sc6ExactSeekPhase::ClockLandedPlayBlocked;
             m_ui_wants_play.store(false, std::memory_order_release);
@@ -12367,8 +15466,11 @@ namespace Horse
                       oracle_report ? oracle_report->expected_seq
                                     : m_sc6_seek_job.validation_compare_seq)
              .integer("compare_master",
-                      oracle_report ? oracle_report->expected_master
-                                    : m_sc6_seek_job.validation_compare_master)
+                       oracle_report ? oracle_report->expected_master
+                                     : m_sc6_seek_job.validation_compare_master)
+             .string("validation_mode",
+                     captured_seek_validation_mode_name(
+                         m_sc6_seek_job.validation_mode))
              .string("phase", sc6_exact_seek_phase_name(blocked_phase))
              .string("status", "ClockLanded")
              .string("failure", native_seek_failure_name(failure))
@@ -12410,6 +15512,31 @@ namespace Horse
                 m_sc6_seek_job.target_master;
             m_sc6_seek_job.restore_target_block_failure =
                 block_after_restore;
+            m_sc6_seek_job.restore_target_block_compare_seq =
+                previous_compare_seq;
+            m_sc6_seek_job.restore_target_block_compare_master =
+                previous_compare_master;
+            m_sc6_seek_job.restore_target_block_expected_round =
+                oracle_report ? oracle_report->expected_round : -1;
+            m_sc6_seek_job.restore_target_block_player =
+                oracle_report ? oracle_report->player : -1;
+            m_sc6_seek_job.restore_target_block_field =
+                oracle_report && oracle_report->field
+                    ? oracle_report->field : "none";
+            m_sc6_seek_job.restore_target_block_reason =
+                oracle_report && oracle_report->reason
+                    ? oracle_report->reason : "none";
+            m_sc6_seek_job.restore_target_block_expected_u64 =
+                oracle_report ? oracle_report->expected_u64 : 0;
+            m_sc6_seek_job.restore_target_block_live_u64 =
+                oracle_report ? oracle_report->live_u64 : 0;
+            m_sc6_seek_job.restore_target_block_expected_float =
+                oracle_report ? oracle_report->expected_float : 0.0f;
+            m_sc6_seek_job.restore_target_block_live_float =
+                oracle_report ? oracle_report->live_float : 0.0f;
+            m_sc6_seek_job.restore_target_block_oracle_valid =
+                block_after_restore != NativeSeekFailure::None
+                && oracle_report != nullptr;
             m_sc6_seek_job.phase =
                 Sc6ExactSeekPhase::RestoreTargetAfterValidation;
 
@@ -12462,10 +15589,13 @@ namespace Horse
             RC::Output::send<RC::LogLevel::Warning>(STR(
                 "[ReplayScrub.sc6seek] failed label={} seq={} "
                 "phase=ResetRound reason={} bm=0x{:X} inputLog=0x{:X} "
-                "rp=0x{:X} stateReset=0x{:X} resetDst=0x{:X} "
+                "rp=0x{:X} stateReset=0x{:X} stateSrc=0x{:X} "
+                "resetDst=0x{:X} "
                 "target_round={} target_master={} origin_tick={} "
                 "origin_seq={} origin_master={} origin_last_frame_id={} "
-                "reset_source={} context_ok={} reset_source_ok={} "
+                "reset_source={} context_ok={} irs_ok={} "
+                "state_candidate_ok={} captured_reset_available={} "
+                "reset_source_ok={} "
                 "snapshot_read={} snapshot_write={} il_restore={} "
                 "rdb_restore={} set_move_state={} cursor_write={} "
                 "rp_cursor_write={}\n"),
@@ -12475,13 +15605,16 @@ namespace Horse
                 RC::to_generic_string(native_seek_failure_name(failure)),
                 report.battle_manager, report.input_log,
                 report.replay_player, report.state_reset_data,
-                report.reset_dst, report.target_round,
+                report.state_reset_src, report.reset_dst, report.target_round,
                 report.target_master, report.origin_tick,
                 report.origin_seq, report.origin_master,
                 report.origin_last_frame_id,
                 RC::to_generic_string(report.reset_source
                     ? report.reset_source : "none"),
                 report.context_ok ? 1 : 0,
+                report.interactive_replay_ok ? 1 : 0,
+                report.state_reset_candidate_ok ? 1 : 0,
+                report.captured_reset_available ? 1 : 0,
                 report.reset_source_ok ? 1 : 0,
                 report.reset_snapshot_read_ok ? 1 : 0,
                 report.reset_snapshot_write_ok ? 1 : 0,
@@ -12500,6 +15633,7 @@ namespace Horse
              .hex("input_log", report.input_log)
              .hex("replay_player", report.replay_player)
              .hex("state_reset_data", report.state_reset_data)
+             .hex("state_reset_src", report.state_reset_src)
              .hex("reset_dst", report.reset_dst)
              .integer("target_round", report.target_round)
              .integer("target_master", report.target_master)
@@ -12508,10 +15642,15 @@ namespace Horse
              .integer("origin_master", report.origin_master)
              .integer("origin_last_frame_id",
                       report.origin_last_frame_id)
-             .string("reset_source", report.reset_source
-                         ? report.reset_source : "none")
-             .boolean("context_ok", report.context_ok)
-             .boolean("reset_source_ok", report.reset_source_ok)
+              .string("reset_source", report.reset_source
+                          ? report.reset_source : "none")
+              .boolean("context_ok", report.context_ok)
+              .boolean("interactive_replay_ok", report.interactive_replay_ok)
+              .boolean("state_reset_candidate_ok",
+                       report.state_reset_candidate_ok)
+              .boolean("captured_reset_available",
+                       report.captured_reset_available)
+              .boolean("reset_source_ok", report.reset_source_ok)
              .boolean("reset_snapshot_read",
                       report.reset_snapshot_read_ok)
              .boolean("reset_snapshot_write",
@@ -12537,16 +15676,76 @@ namespace Horse
             reset_report.state_reset_data = ctx.state_reset_data;
             reset_report.target_round = m_sc6_seek_job.target_round;
             reset_report.target_master = m_sc6_seek_job.target_master;
-            reset_report.reset_dst =
-                ctx.battle_manager + kBM_pReplayCharaSnapshot_Off;
+            reset_report.reset_dst = ctx.battle_manager
+                ? ctx.battle_manager + kBM_pReplayCharaSnapshot_Off : 0;
+            reset_report.interactive_replay_ok = ctx.interactive_replay_ok;
+            reset_report.captured_reset_available =
+                has_captured_round_reset_snapshot(
+                    m_sc6_seek_job.target_round);
+            reset_report.state_reset_candidate_ok =
+                ctx.state_reset_data_ok
+                && m_sc6_seek_job.target_round >= 0
+                && (ctx.total_rounds <= 0
+                    || m_sc6_seek_job.target_round < ctx.total_rounds);
+            if (reset_report.state_reset_candidate_ok)
+            {
+                reset_report.state_reset_src =
+                    ctx.state_reset_data
+                    + static_cast<uintptr_t>(m_sc6_seek_job.target_round)
+                        * kRoundStartDataBytes;
+            }
             reset_report.context_ok =
                 ctx.battle_manager_ok && ctx.input_log_ok
-                && ctx.interactive_replay_ok;
+                && ctx.replay_player_ok;
+
+            auto trace_reset_source = [&, this](
+                const char* stage,
+                bool state_reset_read_ok,
+                bool captured_reset_read_ok,
+                const std::array<uint8_t, kRoundStartDataBytes>* snap)
+                noexcept
+            {
+                ReplayTraceFields f;
+                f.string("label", m_sc6_seek_job.label
+                             ? m_sc6_seek_job.label : "?")
+                 .string("stage", stage ? stage : "?")
+                 .integer("requested_seq", m_sc6_seek_job.requested_seq)
+                 .integer("target_round", m_sc6_seek_job.target_round)
+                 .integer("target_master", m_sc6_seek_job.target_master)
+                 .hex("bm", ctx.battle_manager)
+                 .hex("input_log", ctx.input_log)
+                 .hex("replay_player", ctx.replay_player)
+                 .hex("state_reset_data", ctx.state_reset_data)
+                 .hex("state_reset_src", reset_report.state_reset_src)
+                 .hex("reset_dst", reset_report.reset_dst)
+                 .boolean("context_ok", reset_report.context_ok)
+                 .boolean("bm_ok", ctx.battle_manager_ok)
+                 .boolean("input_log_ok", ctx.input_log_ok)
+                 .boolean("replay_player_ok", ctx.replay_player_ok)
+                 .boolean("interactive_replay_ok", ctx.interactive_replay_ok)
+                 .boolean("state_reset_candidate_ok",
+                          reset_report.state_reset_candidate_ok)
+                 .boolean("state_reset_read_ok", state_reset_read_ok)
+                 .boolean("captured_reset_available",
+                          reset_report.captured_reset_available)
+                 .boolean("captured_reset_read_ok", captured_reset_read_ok)
+                 .string("reset_source", reset_report.reset_source
+                             ? reset_report.reset_source : "none")
+                 .string("failure", native_seek_failure_name(
+                             reset_report.failure));
+                if (snap)
+                    f.hash("reset_hash", snap->data(), snap->size())
+                     .uinteger("reset_size", snap->size());
+                ReplayDebugTrace::instance().event(
+                    "cross_round_reset_source", f);
+            };
 
             if (!reset_report.context_ok)
             {
                 reset_report.failure =
                     NativeSeekFailure::CrossRoundResetContextUnavailable;
+                trace_reset_source("context-unavailable", false, false,
+                                   nullptr);
                 return false;
             }
 
@@ -12578,37 +15777,38 @@ namespace Horse
 
             std::array<uint8_t, kRoundStartDataBytes> round_start{};
             bool reset_read = false;
+            bool state_reset_read = false;
+            bool captured_reset_read = false;
             const char* reset_source = "none";
-            if (ctx.state_reset_data_ok
-                && m_sc6_seek_job.target_round >= 0
-                && (ctx.total_rounds <= 0
-                    || m_sc6_seek_job.target_round < ctx.total_rounds))
+            if (reset_report.state_reset_candidate_ok)
             {
-                const uintptr_t reset_src =
-                    ctx.state_reset_data
-                    + static_cast<uintptr_t>(m_sc6_seek_job.target_round)
-                        * kRoundStartDataBytes;
-                reset_read = SafeReadBytes(
-                    reinterpret_cast<const void*>(reset_src),
+                state_reset_read = SafeReadBytes(
+                    reinterpret_cast<const void*>(
+                        reset_report.state_reset_src),
                     round_start.data(), round_start.size());
-                if (reset_read) reset_source = "StateResetData";
+                reset_read = state_reset_read;
+                if (state_reset_read) reset_source = "StateResetData";
             }
-            if (!reset_read
-                && has_captured_round_reset_snapshot(
-                    m_sc6_seek_job.target_round))
+            if (!reset_read && reset_report.captured_reset_available)
             {
                 round_start =
                     m_sc6_round_reset_snapshots[
                         static_cast<size_t>(m_sc6_seek_job.target_round)];
-                reset_read = true;
+                captured_reset_read = true;
+                reset_read = captured_reset_read;
                 reset_source = "CapturedBM1360";
             }
             reset_report.reset_source = reset_source;
             reset_report.reset_snapshot_read_ok = reset_read;
             if (!reset_read)
-            {
                 reset_report.failure =
                     NativeSeekFailure::RoundResetDataUnavailable;
+            trace_reset_source(
+                reset_read ? "source-selected" : "source-unavailable",
+                state_reset_read, captured_reset_read,
+                reset_read ? &round_start : nullptr);
+            if (!reset_read)
+            {
                 return false;
             }
             reset_report.reset_source_ok = true;
@@ -12708,7 +15908,18 @@ namespace Horse
              .hex("input_log", ctx.input_log)
              .hex("replay_player", ctx.replay_player)
              .hex("state_reset_data", ctx.state_reset_data)
+             .hex("state_reset_src", reset_report.state_reset_src)
              .string("reset_source", reset_source)
+             .boolean("context_ok", reset_report.context_ok)
+             .boolean("interactive_replay_ok",
+                      reset_report.interactive_replay_ok)
+             .boolean("state_reset_candidate_ok",
+                      reset_report.state_reset_candidate_ok)
+             .boolean("captured_reset_available",
+                      reset_report.captured_reset_available)
+             .boolean("state_reset_read_ok", state_reset_read)
+             .boolean("captured_reset_read_ok", captured_reset_read)
+             .hash("reset_hash", round_start.data(), round_start.size())
              .boolean("reset_snapshot_write", true)
              .boolean("il_restore", reset_report.input_log_restore_ok)
              .boolean("rdb_restore", reset_report.rdb_restore_ok)
@@ -12884,6 +16095,9 @@ namespace Horse
                         std::memory_order_acquire);
                 m_sc6_seek_job.native_step_observed_credits =
                     m_sc6_seek_job.native_step_granted_credits;
+                m_sc6_seek_job.native_step_drained_credits =
+                    m_sc6_native_step_drained.load(
+                        std::memory_order_acquire);
                 m_sc6_seek_job.native_step_stall_count = 0;
                 m_sc6_seek_job.native_step_wait_services = 0;
                 m_sc6_seek_job.native_step_waiting = false;
@@ -12911,49 +16125,52 @@ namespace Horse
                 if (pending_kind != SeekCommandKind::None)
                     return;
 
-                if (m_sc6_seek_job.native_step_waiting)
+                if (kEnableDirectTargetToNextValidation
+                    && m_sc6_seek_job.validation_mode
+                        == CapturedSeekValidationMode::TargetToNext
+                    && m_sc6_seek_job.validation_origin_tick
+                        == m_sc6_seek_job.target_tick
+                    && !m_sc6_seek_job.native_step_waiting
+                    && !m_sc6_seek_job.direct_validation_attempted)
                 {
-                    const int32_t granted_total =
+                    const int32_t before = read_engine_master_clock();
+                    m_sc6_seek_job.direct_validation_attempted = true;
+                    m_sc6_seek_job.native_step_requested_master = before;
+                    m_sc6_seek_job.native_step_requested_credits = 0;
+                    m_sc6_seek_job.native_step_granted_credits =
                         m_sc6_native_step_granted.load(
                             std::memory_order_acquire);
-                    if (granted_total
-                        <= m_sc6_seek_job.native_step_observed_credits)
-                        return;
-                    if (m_sc6_seek_job.native_step_wait_services <= 0)
-                    {
-                        m_sc6_seek_job.native_step_wait_services = 1;
-                        return;
-                    }
+                    m_sc6_seek_job.native_step_drained_credits =
+                        m_sc6_native_step_drained.load(
+                            std::memory_order_acquire);
+                    m_sc6_seek_job.native_step_last_observed_master = before;
+                    begin_rng_u32_trace_window();
 
-                    const int32_t before =
-                        m_sc6_seek_job.native_step_requested_master;
-                    const int32_t live_master =
-                        read_engine_master_clock();
+                    const bool step_ok =
+                        invoke_direct_sc6_frame_once_from_captured_extras(
+                            m_sc6_seek_job.validation_origin_tick,
+                            ctx.battle_manager,
+                            ctx.input_log,
+                            m_sc6_seek_job.label,
+                            "target-to-next-direct-validation");
+                    const int32_t live_master = read_engine_master_clock();
                     const int32_t live_round = read_current_round();
-                    const int32_t observed_credits =
-                        granted_total
-                        - m_sc6_seek_job.native_step_observed_credits;
-                    m_sc6_seek_job.native_step_observed_credits =
-                        granted_total;
-                    m_sc6_seek_job.native_step_granted_credits =
-                        granted_total;
-                    m_sc6_seek_job.frames_advanced +=
-                        observed_credits > 0 ? observed_credits : 1;
+                    m_sc6_seek_job.frames_advanced += 1;
                     m_sc6_seek_job.native_step_last_observed_master =
                         live_master;
-                    m_sc6_seek_job.native_step_waiting = false;
                     m_sc6_seek_job.native_step_wait_services = 0;
+                    m_sc6_seek_job.native_step_waiting = false;
 
                     RC::Output::send<RC::LogLevel::Default>(STR(
-                        "[ReplayScrub.sc6seek] captured validation step "
-                        "observed label={} master {} -> {} expected={} "
-                        "round={} target_round={} credits={}\n"),
+                        "[ReplayScrub.sc6seek] captured direct validation "
+                        "step label={} master {} -> {} expected={} "
+                        "round={} target_round={} ok={}\n"),
                         RC::to_generic_string(m_sc6_seek_job.label
                             ? m_sc6_seek_job.label : "?"),
                         before, live_master,
                         m_sc6_seek_job.validation_compare_master,
                         live_round, m_sc6_seek_job.validation_compare_round,
-                        observed_credits);
+                        step_ok ? 1 : 0);
                     {
                         ReplayTraceFields f;
                         f.string("label", m_sc6_seek_job.label
@@ -12971,11 +16188,313 @@ namespace Horse
                          .integer("master_before", before)
                          .integer("master_after", live_master)
                          .integer("live_round", live_round)
-                         .integer("credits", observed_credits)
+                         .integer("credits", 0)
+                         .integer("granted_total",
+                                  m_sc6_seek_job.native_step_granted_credits)
+                         .integer("observed_total_before",
+                                  m_sc6_seek_job.native_step_observed_credits)
+                         .integer("observed_total_after",
+                                  m_sc6_seek_job.native_step_observed_credits)
+                         .boolean("direct_step", true)
+                         .boolean("step_ok", step_ok);
+                        ReplayDebugTrace::instance().event(
+                            "captured_seek_validation_step_observed", f);
+                    }
+                    emit_validation_rng_u32_trace(
+                        m_sc6_seek_job.label,
+                        "direct-validation-step-observed");
+                    trace_rng_restore_contract(
+                        "after-direct-validation-step",
+                        m_sc6_seek_job.validation_compare_tick,
+                        m_sc6_seek_job.label, m_sc6_seek_job.requested_seq);
+                    {
+                        const uint8_t* compare_sim_blob = nullptr;
+                        if (m_sc6_seek_job.validation_compare_tick >= 0)
+                        {
+                            compare_sim_blob = m_sim_store.gather(
+                                static_cast<size_t>(
+                                    m_sc6_seek_job.validation_compare_tick));
+                        }
+                        trace_semantic_authority_for_tick(
+                            "after-direct-validation-step", compare_sim_blob,
+                            m_sc6_seek_job.validation_compare_tick,
+                            m_sc6_seek_job.label,
+                            m_sc6_seek_job.validation_compare_seq);
+                    }
+                    {
+                        const uint8_t* expected_extras = nullptr;
+                        if (m_sc6_seek_job.validation_compare_tick >= 0)
+                        {
+                            expected_extras = m_extras_store.gather(
+                                static_cast<size_t>(
+                                    m_sc6_seek_job.validation_compare_tick));
+                        }
+                        trace_stage_wind_root_state(
+                            "after-direct-validation-step",
+                            m_sc6_seek_job.label
+                                ? m_sc6_seek_job.label : "?",
+                            m_sc6_seek_job.validation_compare_tick,
+                            m_sc6_seek_job.validation_compare_seq,
+                            expected_extras);
+                        trace_stage_wind_graph_state(
+                            "after-direct-validation-step",
+                            m_sc6_seek_job.label
+                                ? m_sc6_seek_job.label : "?",
+                            m_sc6_seek_job.validation_compare_tick,
+                            m_sc6_seek_job.validation_compare_seq,
+                            expected_extras);
+                        trace_stage_wind_emitter_state(
+                            "after-direct-validation-step",
+                            m_sc6_seek_job.label
+                                ? m_sc6_seek_job.label : "?",
+                            m_sc6_seek_job.validation_compare_tick,
+                            m_sc6_seek_job.validation_compare_seq,
+                            expected_extras);
+                    }
+
+                    const bool direct_round_ok = live_round < 0
+                        || live_round
+                            == m_sc6_seek_job.validation_compare_round;
+                    const bool direct_master_ok = live_master
+                        == m_sc6_seek_job.validation_compare_master;
+                    if (!step_ok || !direct_round_ok || !direct_master_ok)
+                    {
+                        ReplayTraceFields f;
+                        f.string("label", m_sc6_seek_job.label
+                                     ? m_sc6_seek_job.label : "?")
+                         .integer("requested_seq",
+                                  m_sc6_seek_job.requested_seq)
+                         .integer("target_seq", m_sc6_seek_job.target_seq)
+                         .integer("target_master",
+                                  m_sc6_seek_job.target_master)
+                         .integer("compare_seq",
+                                  m_sc6_seek_job.validation_compare_seq)
+                         .integer("compare_master",
+                                  m_sc6_seek_job.validation_compare_master)
+                         .integer("master_before", before)
+                         .integer("master_after", live_master)
+                         .integer("live_round", live_round)
+                         .boolean("step_ok", step_ok)
+                         .boolean("round_ok", direct_round_ok)
+                         .boolean("master_ok", direct_master_ok)
+                         .string("fallback", "gate-driven-validation");
+                        ReplayDebugTrace::instance().event(
+                            "captured_seek_direct_validation_fallback", f);
+
+                        CapturedFrameRestoreReport restore{};
+                        if (!restore_captured_frame_for_seek(
+                                m_sc6_seek_job.validation_origin_tick,
+                                m_sc6_seek_job.label, restore))
+                        {
+                            fail_sc6_exact_seek(
+                                restore.failure == NativeSeekFailure::None
+                                    ? NativeSeekFailure::
+                                        CapturedSnapshotRestoreFailed
+                                    : restore.failure);
+                            return;
+                        }
+
+                        m_sc6_seek_job.native_step_requested_master =
+                            restore.master;
+                        m_sc6_seek_job.native_step_last_observed_master =
+                            restore.master;
+                        m_sc6_seek_job.native_step_requested_credits = 0;
+                        m_sc6_seek_job.native_step_granted_credits =
+                            m_sc6_native_step_granted.load(
+                                std::memory_order_acquire);
+                        m_sc6_seek_job.native_step_observed_credits =
+                            m_sc6_seek_job.native_step_granted_credits;
+                        m_sc6_seek_job.native_step_drained_credits =
+                            m_sc6_native_step_drained.load(
+                                std::memory_order_acquire);
+                        m_sc6_seek_job.native_step_stall_count = 0;
+                        m_sc6_seek_job.native_step_wait_services = 0;
+                        m_sc6_seek_job.native_step_waiting = false;
+                        return;
+                    }
+                    m_sc6_seek_job.phase =
+                        Sc6ExactSeekPhase::CompareTargetSnapshot;
+                }
+                else if (m_sc6_seek_job.native_step_waiting)
+                {
+                    const int32_t granted_total =
+                        m_sc6_native_step_granted.load(
+                            std::memory_order_acquire);
+                    const int32_t drained_total =
+                        m_sc6_native_step_drained.load(
+                            std::memory_order_acquire);
+                    const int32_t granted_total_before =
+                        m_sc6_seek_job.native_step_observed_credits;
+                    const int32_t drained_total_before =
+                        m_sc6_seek_job.native_step_drained_credits;
+                    if (granted_total
+                        <= granted_total_before)
+                        return;
+                    if (drained_total <= drained_total_before)
+                    {
+                        ++m_sc6_seek_job.native_step_wait_services;
+                        if (m_sc6_seek_job.native_step_wait_services
+                            > kSc6NativeStepMaxDrainWaitServices)
+                        {
+                            trace_pending_native_step_event(
+                                "captured_seek_validation_step_drain_timeout_detail",
+                                "drain-timeout", &ctx, true);
+                            ReplayTraceFields f;
+                            f.string("label", m_sc6_seek_job.label
+                                         ? m_sc6_seek_job.label : "?")
+                             .integer("requested_seq",
+                                      m_sc6_seek_job.requested_seq)
+                             .integer("target_round",
+                                      m_sc6_seek_job.target_round)
+                             .integer("target_master",
+                                      m_sc6_seek_job.target_master)
+                             .integer("compare_seq",
+                                      m_sc6_seek_job.validation_compare_seq)
+                             .integer("compare_master",
+                                      m_sc6_seek_job.validation_compare_master)
+                             .integer("granted_total", granted_total)
+                             .integer("granted_total_before",
+                                      granted_total_before)
+                             .integer("drained_total", drained_total)
+                             .integer("drained_total_before",
+                                      drained_total_before)
+                             .integer("wait_services",
+                                      m_sc6_seek_job.native_step_wait_services);
+                            ReplayDebugTrace::instance().event(
+                                "captured_seek_validation_step_drain_timeout",
+                                f);
+                            if (m_sc6_seek_job.validation_compare_tick
+                                != m_sc6_seek_job.target_tick)
+                                schedule_target_restore_after_validation(
+                                    "validation-step-drain-timeout",
+                                    nullptr,
+                                    NativeSeekFailure::
+                                        CapturedGameplayStepFailed);
+                            else
+                                fail_sc6_exact_seek(NativeSeekFailure::
+                                    CapturedGameplayStepFailed);
+                        }
+                        return;
+                    }
+
+                    const int32_t before =
+                        m_sc6_seek_job.native_step_requested_master;
+                    const int32_t live_master =
+                        read_engine_master_clock();
+                    const int32_t live_round = read_current_round();
+                    const int32_t wait_services_before =
+                        m_sc6_seek_job.native_step_wait_services;
+                    const int32_t observed_credits =
+                        granted_total - granted_total_before;
+                    const int32_t drained_credits =
+                        drained_total - drained_total_before;
+                    m_sc6_seek_job.native_step_observed_credits =
+                        granted_total;
+                    m_sc6_seek_job.native_step_granted_credits =
+                        granted_total;
+                    m_sc6_seek_job.native_step_drained_credits =
+                        drained_total;
+                    m_sc6_seek_job.frames_advanced +=
+                        drained_credits > 0 ? drained_credits : 1;
+                    m_sc6_seek_job.native_step_last_observed_master =
+                        live_master;
+                    m_sc6_seek_job.native_step_waiting = false;
+                    m_sc6_seek_job.native_step_wait_services = 0;
+
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub.sc6seek] captured validation step "
+                        "observed label={} master {} -> {} expected={} "
+                        "round={} target_round={} credits={}\n"),
+                        RC::to_generic_string(m_sc6_seek_job.label
+                            ? m_sc6_seek_job.label : "?"),
+                        before, live_master,
+                        m_sc6_seek_job.validation_compare_master,
+                        live_round, m_sc6_seek_job.validation_compare_round,
+                        drained_credits);
+                    {
+                        ReplayTraceFields f;
+                        f.string("label", m_sc6_seek_job.label
+                                     ? m_sc6_seek_job.label : "?")
+                         .integer("requested_seq",
+                                  m_sc6_seek_job.requested_seq)
+                         .integer("target_round",
+                                  m_sc6_seek_job.target_round)
+                         .integer("target_master",
+                                  m_sc6_seek_job.target_master)
+                         .integer("compare_seq",
+                                  m_sc6_seek_job.validation_compare_seq)
+                         .integer("compare_master",
+                                  m_sc6_seek_job.validation_compare_master)
+                         .integer("master_before", before)
+                         .integer("master_after", live_master)
+                         .integer("live_round", live_round)
+                         .integer("credits", drained_credits)
+                         .integer("granted_credits", observed_credits)
+                         .integer("drained_credits", drained_credits)
+                         .integer("granted_total", granted_total)
+                         .integer("observed_total_before",
+                                  granted_total_before)
+                         .integer("observed_total_after",
+                                  m_sc6_seek_job.native_step_observed_credits)
+                         .integer("drained_total_before",
+                                  drained_total_before)
+                         .integer("drained_total_after",
+                                  m_sc6_seek_job.native_step_drained_credits)
+                         .integer("wait_services", wait_services_before)
                          .integer("stall_count",
                                   m_sc6_seek_job.native_step_stall_count);
                         ReplayDebugTrace::instance().event(
                             "captured_seek_validation_step_observed", f);
+                    }
+                    emit_validation_rng_u32_trace(
+                        m_sc6_seek_job.label, "validation-step-observed");
+                    trace_rng_restore_contract(
+                        "after-validation-step",
+                        m_sc6_seek_job.validation_compare_tick,
+                        m_sc6_seek_job.label, m_sc6_seek_job.requested_seq);
+                    {
+                        const uint8_t* compare_sim_blob = nullptr;
+                        if (m_sc6_seek_job.validation_compare_tick >= 0)
+                        {
+                            compare_sim_blob = m_sim_store.gather(
+                                static_cast<size_t>(
+                                    m_sc6_seek_job.validation_compare_tick));
+                        }
+                        trace_semantic_authority_for_tick(
+                            "after-validation-step", compare_sim_blob,
+                            m_sc6_seek_job.validation_compare_tick,
+                            m_sc6_seek_job.label,
+                            m_sc6_seek_job.validation_compare_seq);
+                    }
+                    {
+                        const uint8_t* expected_extras = nullptr;
+                        if (m_sc6_seek_job.validation_compare_tick >= 0)
+                        {
+                            expected_extras = m_extras_store.gather(
+                                static_cast<size_t>(
+                                    m_sc6_seek_job.validation_compare_tick));
+                        }
+                        trace_stage_wind_root_state(
+                            "after-validation-step",
+                            m_sc6_seek_job.label
+                                ? m_sc6_seek_job.label : "?",
+                            m_sc6_seek_job.validation_compare_tick,
+                            m_sc6_seek_job.validation_compare_seq,
+                            expected_extras);
+                        trace_stage_wind_graph_state(
+                            "after-validation-step",
+                            m_sc6_seek_job.label
+                                ? m_sc6_seek_job.label : "?",
+                            m_sc6_seek_job.validation_compare_tick,
+                            m_sc6_seek_job.validation_compare_seq,
+                            expected_extras);
+                        trace_stage_wind_emitter_state(
+                            "after-validation-step",
+                            m_sc6_seek_job.label
+                                ? m_sc6_seek_job.label : "?",
+                            m_sc6_seek_job.validation_compare_tick,
+                            m_sc6_seek_job.validation_compare_seq,
+                            expected_extras);
                     }
 
                     if (live_round >= 0
@@ -13070,8 +16589,14 @@ namespace Horse
                     m_sc6_seek_job.native_step_granted_credits =
                         m_sc6_native_step_granted.load(
                             std::memory_order_acquire);
+                    m_sc6_seek_job.native_step_observed_credits =
+                        m_sc6_seek_job.native_step_granted_credits;
+                    m_sc6_seek_job.native_step_drained_credits =
+                        m_sc6_native_step_drained.load(
+                            std::memory_order_acquire);
                     m_sc6_seek_job.native_step_wait_services = 0;
                     m_sc6_seek_job.native_step_waiting = true;
+                    begin_rng_u32_trace_window();
                     m_sc6_native_step_request.store(
                         kSc6NativeStepCreditsPerRequest,
                         std::memory_order_release);
@@ -13089,8 +16614,14 @@ namespace Horse
                      .integer("compare_master",
                               m_sc6_seek_job.validation_compare_master)
                      .integer("master_before", live_master)
-                     .integer("credits",
-                              kSc6NativeStepCreditsPerRequest);
+                      .integer("granted_total_before",
+                               m_sc6_seek_job.native_step_granted_credits)
+                      .integer("observed_total_before",
+                               m_sc6_seek_job.native_step_observed_credits)
+                      .integer("drained_total_before",
+                               m_sc6_seek_job.native_step_drained_credits)
+                      .integer("credits",
+                               kSc6NativeStepCreditsPerRequest);
                     ReplayDebugTrace::instance().event(
                         "captured_seek_validation_step_requested", f);
                     return;
@@ -13137,9 +16668,12 @@ namespace Horse
                 }
 
                 CapturedFrameOracleCompareReport oracle_report{};
+                const bool use_captured_extras_rng =
+                    m_sc6_seek_job.validation_mode
+                        != CapturedSeekValidationMode::StaticTarget;
                 const bool oracle_ok = compare_oracle_to_captured_tick(
                     m_sc6_seek_job.validation_compare_tick,
-                    oracle_report);
+                    oracle_report, use_captured_extras_rng);
                 trace_captured_oracle_compare(oracle_report);
                 if (m_sc6_seek_job.validation_mode
                     != CapturedSeekValidationMode::StaticTarget)
@@ -13262,6 +16796,39 @@ namespace Horse
                     {
                         if (m_sc6_seek_job.validation_compare_tick
                             != m_sc6_seek_job.target_tick)
+                        {
+                            ReplayTraceFields f;
+                            f.string("label", m_sc6_seek_job.label
+                                         ? m_sc6_seek_job.label : "?")
+                             .integer("requested_seq",
+                                      m_sc6_seek_job.requested_seq)
+                             .integer("target_seq",
+                                      m_sc6_seek_job.target_seq)
+                             .integer("target_master",
+                                      m_sc6_seek_job.target_master)
+                             .integer("compare_seq",
+                                      m_sc6_seek_job.validation_compare_seq)
+                             .integer("compare_master",
+                                      m_sc6_seek_job.validation_compare_master)
+                             .string("validation_mode",
+                                     captured_seek_validation_mode_name(
+                                         m_sc6_seek_job.validation_mode))
+                             .string("field", oracle_report.field
+                                         ? oracle_report.field : "none")
+                             .integer("player", oracle_report.player)
+                             .hex("expected", oracle_report.expected_u64)
+                             .hex("live", oracle_report.live_u64)
+                             .real("expected_f",
+                                   oracle_report.expected_float)
+                             .real("live_f", oracle_report.live_float)
+                             .string("reason", oracle_report.reason
+                                         ? oracle_report.reason : "?");
+                            ReplayDebugTrace::instance().event(
+                                "captured_seek_compare_frame_semantic_failed",
+                                f);
+                        }
+                        if (m_sc6_seek_job.validation_compare_tick
+                            != m_sc6_seek_job.target_tick)
                             schedule_target_restore_after_validation(
                                 "compare-frame-semantic-mismatch",
                                 &oracle_report,
@@ -13335,6 +16902,10 @@ namespace Horse
                 if (m_sc6_seek_job.needs_cross_round_reset)
                     trace_sc6_replay_state_checkpoint(
                         "after-cross-round-target-restore", ctx);
+                trace_rng_restore_contract("after-target-restore",
+                                           m_sc6_seek_job.target_tick,
+                                           m_sc6_seek_job.label,
+                                           m_sc6_seek_job.target_seq);
 
                 LiveCapturedFrameScratch live{};
                 CapturedFrameCompareReport report{};
@@ -13438,10 +17009,40 @@ namespace Horse
                 {
                     const NativeSeekFailure failure =
                         m_sc6_seek_job.restore_target_block_failure;
+                    CapturedFrameOracleCompareReport preserved_report{};
+                    const CapturedFrameOracleCompareReport* block_report =
+                        &oracle_report;
+                    if (m_sc6_seek_job.restore_target_block_oracle_valid)
+                    {
+                        preserved_report.expected_seq =
+                            m_sc6_seek_job.restore_target_block_compare_seq;
+                        preserved_report.expected_tick =
+                            m_sc6_seek_job.restore_target_block_compare_seq;
+                        preserved_report.expected_round =
+                            m_sc6_seek_job.restore_target_block_expected_round;
+                        preserved_report.expected_master =
+                            m_sc6_seek_job.restore_target_block_compare_master;
+                        preserved_report.player =
+                            m_sc6_seek_job.restore_target_block_player;
+                        preserved_report.field =
+                            m_sc6_seek_job.restore_target_block_field;
+                        preserved_report.reason =
+                            m_sc6_seek_job.restore_target_block_reason;
+                        preserved_report.expected_u64 =
+                            m_sc6_seek_job.restore_target_block_expected_u64;
+                        preserved_report.live_u64 =
+                            m_sc6_seek_job.restore_target_block_live_u64;
+                        preserved_report.expected_float =
+                            m_sc6_seek_job.restore_target_block_expected_float;
+                        preserved_report.live_float =
+                            m_sc6_seek_job.restore_target_block_live_float;
+                        block_report = &preserved_report;
+                    }
                     m_sc6_seek_job.restore_target_block_failure =
                         NativeSeekFailure::None;
+                    m_sc6_seek_job.restore_target_block_oracle_valid = false;
                     block_sc6_exact_seek_after_clock_landed(
-                        failure, &oracle_report);
+                        failure, block_report);
                     return;
                 }
                 m_sc6_seek_job.snapshot_validation_ok = true;
@@ -13844,6 +17445,9 @@ namespace Horse
                         std::memory_order_acquire);
                 m_sc6_seek_job.native_step_observed_credits =
                     m_sc6_seek_job.native_step_granted_credits;
+                m_sc6_seek_job.native_step_drained_credits =
+                    m_sc6_native_step_drained.load(
+                        std::memory_order_acquire);
                 m_sc6_seek_job.native_step_stall_count = 0;
                 m_sc6_seek_job.native_step_wait_services = 0;
                 m_sc6_seek_job.native_step_waiting = false;
@@ -14034,17 +17638,55 @@ namespace Horse
                     const int32_t granted_total =
                         m_sc6_native_step_granted.load(
                             std::memory_order_acquire);
+                    const int32_t drained_total =
+                        m_sc6_native_step_drained.load(
+                            std::memory_order_acquire);
+                    const int32_t granted_total_before =
+                        m_sc6_seek_job.native_step_observed_credits;
+                    const int32_t drained_total_before =
+                        m_sc6_seek_job.native_step_drained_credits;
                     if (granted_total
-                        <= m_sc6_seek_job.native_step_observed_credits)
+                        <= granted_total_before)
                         return;
 
-                    // frame_step_apply grants the credit before the
-                    // native actor/replay-clock path has necessarily run
-                    // for this UE frame.  Wait for one more cockpit service
-                    // before judging whether the master clock advanced.
-                    if (m_sc6_seek_job.native_step_wait_services <= 0)
+                    // The grant only opens the native frame.  Observe it
+                    // after frame_step_apply has drained the credit back to
+                    // frozen so actor/replay side effects cannot race the
+                    // compare or fast-forward decision.
+                    if (drained_total <= drained_total_before)
                     {
-                        m_sc6_seek_job.native_step_wait_services = 1;
+                        ++m_sc6_seek_job.native_step_wait_services;
+                        if (m_sc6_seek_job.native_step_wait_services
+                            > kSc6NativeStepMaxDrainWaitServices)
+                        {
+                            trace_pending_native_step_event(
+                                "sc6_native_step_drain_timeout_detail",
+                                "drain-timeout", &ctx, true);
+                            ReplayTraceFields f;
+                            f.string("label", m_sc6_seek_job.label
+                                         ? m_sc6_seek_job.label : "?")
+                             .integer("requested_seq",
+                                      m_sc6_seek_job.requested_seq)
+                             .integer("target_round",
+                                      m_sc6_seek_job.target_round)
+                             .integer("target_master",
+                                      m_sc6_seek_job.target_master)
+                             .integer("master_before",
+                                      m_sc6_seek_job.native_step_requested_master)
+                             .integer("master_after", live_master)
+                             .integer("granted_total", granted_total)
+                             .integer("granted_total_before",
+                                      granted_total_before)
+                             .integer("drained_total", drained_total)
+                             .integer("drained_total_before",
+                                      drained_total_before)
+                             .integer("wait_services",
+                                      m_sc6_seek_job.native_step_wait_services);
+                            ReplayDebugTrace::instance().event(
+                                "sc6_native_step_drain_timeout", f);
+                            fail_sc6_exact_seek(NativeSeekFailure::
+                                InteractiveReplayFastForwardStalled);
+                        }
                         return;
                     }
 
@@ -14052,13 +17694,17 @@ namespace Horse
                         m_sc6_seek_job.native_step_requested_master;
                     const int32_t observed_credits =
                         granted_total
-                        - m_sc6_seek_job.native_step_observed_credits;
+                        - granted_total_before;
+                    const int32_t drained_credits =
+                        drained_total - drained_total_before;
                     m_sc6_seek_job.native_step_observed_credits =
                         granted_total;
                     m_sc6_seek_job.native_step_granted_credits =
                         granted_total;
+                    m_sc6_seek_job.native_step_drained_credits =
+                        drained_total;
                     m_sc6_seek_job.frames_advanced +=
-                        observed_credits > 0 ? observed_credits : 1;
+                        drained_credits > 0 ? drained_credits : 1;
                     m_sc6_seek_job.native_step_last_observed_master =
                         live_master;
                     m_sc6_seek_job.native_step_waiting = false;
@@ -14090,7 +17736,7 @@ namespace Horse
                                 ? m_sc6_seek_job.label : "?"),
                             before, live_master,
                             m_sc6_seek_job.target_master,
-                            observed_credits,
+                            drained_credits,
                             m_sc6_seek_job.frames_advanced,
                             m_sc6_seek_job.native_step_stall_count);
                     }
@@ -14104,7 +17750,7 @@ namespace Horse
                                 ? m_sc6_seek_job.label : "?"),
                             before, live_master,
                             m_sc6_seek_job.target_master,
-                            observed_credits,
+                            drained_credits,
                             m_sc6_seek_job.frames_advanced,
                             m_sc6_seek_job.native_step_stall_count);
                     }
@@ -14120,7 +17766,15 @@ namespace Horse
                                   m_sc6_seek_job.target_master)
                          .integer("master_before", before)
                          .integer("master_after", live_master)
-                         .integer("credits", observed_credits)
+                         .integer("credits", drained_credits)
+                         .integer("granted_credits", observed_credits)
+                         .integer("drained_credits", drained_credits)
+                         .integer("granted_total", granted_total)
+                         .integer("drained_total", drained_total)
+                         .integer("granted_total_before",
+                                  granted_total_before)
+                         .integer("drained_total_before",
+                                  drained_total_before)
                          .integer("frames_total",
                                   m_sc6_seek_job.frames_advanced)
                          .integer("stall_count",
@@ -14162,6 +17816,11 @@ namespace Horse
                     m_sc6_seek_job.native_step_granted_credits =
                         m_sc6_native_step_granted.load(
                             std::memory_order_acquire);
+                    m_sc6_seek_job.native_step_observed_credits =
+                        m_sc6_seek_job.native_step_granted_credits;
+                    m_sc6_seek_job.native_step_drained_credits =
+                        m_sc6_native_step_drained.load(
+                            std::memory_order_acquire);
                     m_sc6_seek_job.native_step_wait_services = 0;
                     m_sc6_seek_job.native_step_waiting = true;
                     m_sc6_native_step_request.store(
@@ -14188,6 +17847,12 @@ namespace Horse
                          .integer("master_before", live_master)
                          .integer("credits",
                                   kSc6NativeStepCreditsPerRequest)
+                         .integer("granted_total_before",
+                                  m_sc6_seek_job.native_step_granted_credits)
+                         .integer("observed_total_before",
+                                  m_sc6_seek_job.native_step_observed_credits)
+                         .integer("drained_total_before",
+                                  m_sc6_seek_job.native_step_drained_credits)
                          .integer("stall_count",
                                   m_sc6_seek_job.native_step_stall_count);
                         ReplayDebugTrace::instance().event(
@@ -14856,6 +18521,1225 @@ namespace Horse
             return ok;
         }
 
+        static bool bytes_any_nonzero(const uint8_t* p,
+                                      size_t bytes) noexcept
+        {
+            if (!p) return false;
+            for (size_t i = 0; i < bytes; ++i)
+            {
+                if (p[i] != 0) return true;
+            }
+            return false;
+        }
+
+        static void blob_write_u32(uint8_t* p,
+                                   size_t off,
+                                   uint32_t v) noexcept
+        {
+            if (p) std::memcpy(p + off, &v, sizeof(v));
+        }
+
+        static void blob_write_u64(uint8_t* p,
+                                   size_t off,
+                                   uint64_t v) noexcept
+        {
+            if (p) std::memcpy(p + off, &v, sizeof(v));
+        }
+
+        static uint32_t blob_read_u32(const uint8_t* p,
+                                      size_t off) noexcept
+        {
+            uint32_t v = 0;
+            if (p) std::memcpy(&v, p + off, sizeof(v));
+            return v;
+        }
+
+        static uint64_t blob_read_u64(const uint8_t* p,
+                                      size_t off) noexcept
+        {
+            uint64_t v = 0;
+            if (p) std::memcpy(&v, p + off, sizeof(v));
+            return v;
+        }
+
+        static uint64_t hash_combine64(uint64_t seed,
+                                       uint64_t value) noexcept
+        {
+            seed ^= value + 0x9E3779B97F4A7C15ull + (seed << 6) + (seed >> 2);
+            return seed;
+        }
+
+        struct StageWindNodeInfo
+        {
+            uintptr_t addr = 0;
+            uintptr_t vtable = 0;
+            uint32_t bytes = 0;
+            uint64_t mutable_hash = 0;
+        };
+
+        struct StageWindEmitterInfo
+        {
+            uintptr_t node = 0;
+            uintptr_t emitter = 0;
+            uint32_t bytes = 0;
+            uint64_t hash = 0;
+        };
+
+        size_t stage_wind_node_copy_bytes(uintptr_t base,
+                                          uintptr_t vtable) noexcept
+        {
+            if (!base || vtable < base) return 0;
+            const uintptr_t rva = vtable - base;
+            if (rva == kRVA_IwWindParallelVTable) return 0x130;
+            if (rva == kRVA_IwWindRingOutVTable)  return 0x130;
+            if (rva == kRVA_IwWindRingInVTable)   return 0x1E0;
+            if (rva == kRVA_IwWindShockWaveVTable) return 0x180;
+            return 0;
+        }
+
+        static uint32_t stage_wind_vtable_rva32(uintptr_t base,
+                                                uintptr_t vtable) noexcept
+        {
+            if (!base || vtable < base) return 0;
+            const uintptr_t rva = vtable - base;
+            return rva <= 0xFFFFFFFFull ? static_cast<uint32_t>(rva) : 0;
+        }
+
+        void trace_stage_wind_graph_restore_failure(
+            const char* reason,
+            uint32_t index,
+            uintptr_t expected_addr,
+            uintptr_t expected_vtable,
+            uintptr_t live_vtable,
+            uint32_t expected_count,
+            uint32_t live_count) noexcept
+        {
+            ReplayTraceFields f;
+            f.string("label", m_sc6_seek_job.label ? m_sc6_seek_job.label : "?")
+             .integer("tick", m_sc6_seek_job.target_tick)
+             .integer("seq", m_sc6_seek_job.target_seq)
+             .string("reason", reason ? reason : "?")
+             .integer("index", index)
+             .hex("expected_addr", expected_addr)
+             .hex("expected_vtable", expected_vtable)
+             .hex("live_vtable", live_vtable)
+             .integer("expected_count", expected_count)
+             .integer("live_count", live_count);
+            ReplayDebugTrace::instance().event(
+                "stage_wind_graph_restore_failure", f);
+        }
+
+        static uint8_t* stage_wind_graph_entry(uint8_t* graph,
+                                               size_t index) noexcept
+        {
+            return graph + kStageWindGraph_HeaderBytes
+                + index * kStageWindGraph_EntryBytes;
+        }
+
+        static const uint8_t* stage_wind_graph_entry(const uint8_t* graph,
+                                                     size_t index) noexcept
+        {
+            return graph + kStageWindGraph_HeaderBytes
+                + index * kStageWindGraph_EntryBytes;
+        }
+
+        bool enumerate_stage_wind_nodes(
+            uintptr_t base,
+            StageWindNodeInfo* nodes,
+            size_t max_nodes,
+            uint32_t& count,
+            bool& truncated) noexcept
+        {
+            count = 0;
+            truncated = false;
+            if (!base || !nodes || max_nodes == 0) return false;
+
+            uint8_t* root = nullptr;
+            if (!read_stage_wind_root_ptr(base, &root))
+                return false;
+
+            void* head_raw = nullptr;
+            if (!SafeReadPtr(root + kStageWindRoot_Head_Off, &head_raw))
+                return false;
+
+            uintptr_t cur = reinterpret_cast<uintptr_t>(head_raw);
+            for (size_t guard = 0; cur != 0 && guard < max_nodes + 1; ++guard)
+            {
+                if (count >= max_nodes)
+                {
+                    truncated = true;
+                    return true;
+                }
+
+                void* vt_raw = nullptr;
+                void* next_raw = nullptr;
+                if (!SafeReadPtr(reinterpret_cast<const void*>(cur), &vt_raw)
+                    || !SafeReadPtr(reinterpret_cast<const void*>(cur + 0x10),
+                                    &next_raw))
+                    return false;
+
+                StageWindNodeInfo& n = nodes[count++];
+                n.addr = cur;
+                n.vtable = reinterpret_cast<uintptr_t>(vt_raw);
+                n.bytes = static_cast<uint32_t>(
+                    stage_wind_node_copy_bytes(base, n.vtable));
+                n.mutable_hash = 0;
+
+                const uintptr_t next = reinterpret_cast<uintptr_t>(next_raw);
+                if (next == cur)
+                {
+                    truncated = true;
+                    return true;
+                }
+                cur = next;
+            }
+
+            if (cur != 0) truncated = true;
+            return true;
+        }
+
+        bool capture_stage_wind_graph(uintptr_t base,
+                                      uint8_t* dst) noexcept
+        {
+            if (!dst) return false;
+            uint8_t* graph = dst + kExtras_Off_StageWindGraph;
+            std::memset(graph, 0, kStageWindGraph_Bytes);
+
+            StageWindNodeInfo nodes[kStageWindGraph_MaxNodes]{};
+            uint32_t count = 0;
+            bool truncated = false;
+            if (!enumerate_stage_wind_nodes(
+                    base, nodes, kStageWindGraph_MaxNodes, count, truncated))
+                return false;
+
+            blob_write_u32(graph, kStageWindGraph_Off_Magic,
+                           kStageWindGraph_Magic);
+            blob_write_u32(graph, kStageWindGraph_Off_Version,
+                           kStageWindGraph_Version);
+            blob_write_u32(graph, kStageWindGraph_Off_Count, count);
+            blob_write_u32(graph, kStageWindGraph_Off_Truncated,
+                           truncated ? 1u : 0u);
+
+            uint64_t graph_hash = 0xCBF29CE484222325ull;
+            uint32_t graph_flags = truncated
+                ? kStageWindGraphFlag_EnumTruncated : 0u;
+            uint32_t bad_vtable_rva = 0;
+            bool ok = !truncated;
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                StageWindNodeInfo& n = nodes[i];
+                uint8_t* e = stage_wind_graph_entry(graph, i);
+                blob_write_u64(e, kStageWindGraphEntry_Off_Addr,
+                               static_cast<uint64_t>(n.addr));
+                blob_write_u64(e, kStageWindGraphEntry_Off_Vtable,
+                               static_cast<uint64_t>(n.vtable));
+                blob_write_u32(e, kStageWindGraphEntry_Off_Bytes, n.bytes);
+                blob_write_u32(e, kStageWindGraphEntry_Off_Flags,
+                               n.bytes ? 1u : 0u);
+
+                if (n.bytes == 0 || n.bytes > kStageWindNode_MaxBytes)
+                {
+                    graph_flags |= n.bytes == 0
+                        ? kStageWindGraphFlag_UnknownVtable
+                        : kStageWindGraphFlag_BadSize;
+                    if (n.bytes == 0 && bad_vtable_rva == 0)
+                        bad_vtable_rva = stage_wind_vtable_rva32(base,
+                                                                 n.vtable);
+                    ok = false;
+                }
+                else if (!SafeReadBytes(
+                              reinterpret_cast<const void*>(n.addr),
+                             e + kStageWindGraphEntry_Off_Data,
+                              n.bytes))
+                {
+                    graph_flags |= kStageWindGraphFlag_ReadFailed;
+                    ok = false;
+                }
+                else
+                {
+                    const size_t h_off = n.bytes > kStageWindNode_RestoreOffset
+                        ? kStageWindNode_RestoreOffset : 0;
+                    const size_t h_bytes = n.bytes - h_off;
+                    n.mutable_hash = hash_bytes64(
+                        e + kStageWindGraphEntry_Off_Data + h_off, h_bytes);
+                    blob_write_u64(e, kStageWindGraphEntry_Off_Hash,
+                                   n.mutable_hash);
+                }
+                graph_hash = hash_combine64(graph_hash, n.vtable);
+                graph_hash = hash_combine64(graph_hash, n.bytes);
+                graph_hash = hash_combine64(graph_hash, n.mutable_hash);
+            }
+            if (ok) graph_flags |= kStageWindGraphFlag_Restorable;
+            blob_write_u32(graph, kStageWindGraph_Off_Flags, graph_flags);
+            blob_write_u32(graph, kStageWindGraph_Off_BadVtableRva,
+                           bad_vtable_rva);
+            blob_write_u64(graph, kStageWindGraph_Off_Hash, graph_hash);
+            return ok;
+        }
+
+        static uint8_t* stage_wind_emitter_entry(uint8_t* table,
+                                                 size_t index) noexcept
+        {
+            return table + kStageWindEmitter_HeaderBytes
+                + index * kStageWindEmitter_EntryBytes;
+        }
+
+        static const uint8_t* stage_wind_emitter_entry(
+            const uint8_t* table,
+            size_t index) noexcept
+        {
+            return table + kStageWindEmitter_HeaderBytes
+                + index * kStageWindEmitter_EntryBytes;
+        }
+
+        void trace_stage_wind_emitter_restore_failure(
+            const char* reason,
+            uint32_t index,
+            uintptr_t expected_emitter,
+            uintptr_t live_emitter,
+            uint32_t expected_count,
+            uint32_t live_count) noexcept
+        {
+            ReplayTraceFields f;
+            f.string("label", m_sc6_seek_job.label ? m_sc6_seek_job.label : "?")
+             .integer("tick", m_sc6_seek_job.target_tick)
+             .integer("seq", m_sc6_seek_job.target_seq)
+             .string("reason", reason ? reason : "?")
+             .integer("index", index)
+             .hex("expected_emitter", expected_emitter)
+             .hex("live_emitter", live_emitter)
+             .integer("expected_count", expected_count)
+             .integer("live_count", live_count);
+            ReplayDebugTrace::instance().event(
+                "stage_wind_emitter_restore_failure", f);
+        }
+
+        bool read_stage_wind_emitter_list_header(
+            uintptr_t base,
+            uintptr_t& sentinel,
+            uintptr_t& first_node,
+            uint64_t& native_count) noexcept
+        {
+            sentinel = 0;
+            first_node = 0;
+            native_count = 0;
+            if (!base) return false;
+
+            void* sentinel_raw = nullptr;
+            if (!SafeReadPtr(reinterpret_cast<const void*>(
+                                 base + kRVA_StageWindEmitterList),
+                             &sentinel_raw)
+                || !sentinel_raw)
+                return false;
+            sentinel = reinterpret_cast<uintptr_t>(sentinel_raw);
+
+            void* first_raw = nullptr;
+            if (!SafeReadPtr(reinterpret_cast<const void*>(sentinel),
+                             &first_raw))
+                return false;
+            first_node = reinterpret_cast<uintptr_t>(first_raw);
+
+            SafeReadUInt64(reinterpret_cast<const void*>(
+                               base + kRVA_StageWindEmitterCount),
+                           &native_count);
+            return true;
+        }
+
+        bool enumerate_stage_wind_emitters(
+            uintptr_t base,
+            StageWindEmitterInfo* emitters,
+            size_t max_emitters,
+            uint32_t& count,
+            bool& truncated) noexcept
+        {
+            count = 0;
+            truncated = false;
+            if (!base || !emitters || max_emitters == 0) return false;
+
+            uintptr_t sentinel = 0;
+            uintptr_t cur = 0;
+            uint64_t native_count = 0;
+            if (!read_stage_wind_emitter_list_header(
+                    base, sentinel, cur, native_count))
+                return false;
+
+            for (size_t guard = 0;
+                 cur != 0 && cur != sentinel && guard < max_emitters + 1;
+                 ++guard)
+            {
+                if (count >= max_emitters)
+                {
+                    truncated = true;
+                    return true;
+                }
+
+                void* next_raw = nullptr;
+                void* emitter_raw = nullptr;
+                if (!SafeReadPtr(reinterpret_cast<const void*>(cur),
+                                 &next_raw)
+                    || !SafeReadPtr(reinterpret_cast<const void*>(cur + 0x10),
+                                    &emitter_raw))
+                    return false;
+
+                StageWindEmitterInfo& info = emitters[count++];
+                info.node = cur;
+                info.emitter = reinterpret_cast<uintptr_t>(emitter_raw);
+                info.bytes = info.emitter
+                    ? static_cast<uint32_t>(kStageWindEmitter_RecordBytes)
+                    : 0;
+                info.hash = 0;
+
+                const uintptr_t next = reinterpret_cast<uintptr_t>(next_raw);
+                if (next == cur)
+                {
+                    truncated = true;
+                    return true;
+                }
+                cur = next;
+            }
+
+            if (cur != sentinel) truncated = true;
+            return true;
+        }
+
+        bool capture_stage_wind_emitters(uintptr_t base,
+                                         uint8_t* dst) noexcept
+        {
+            if (!dst) return false;
+            uint8_t* table = dst + kExtras_Off_StageWindEmitters;
+            std::memset(table, 0, kStageWindEmitters_Bytes);
+
+            StageWindEmitterInfo emitters[kStageWindEmitter_MaxCount]{};
+            uint32_t count = 0;
+            bool truncated = false;
+            if (!enumerate_stage_wind_emitters(
+                    base, emitters, kStageWindEmitter_MaxCount,
+                    count, truncated))
+                return false;
+
+            blob_write_u32(table, kStageWindEmitter_Off_Magic,
+                           kStageWindEmitter_Magic);
+            blob_write_u32(table, kStageWindEmitter_Off_Version,
+                           kStageWindEmitter_Version);
+            blob_write_u32(table, kStageWindEmitter_Off_Count, count);
+            blob_write_u32(table, kStageWindEmitter_Off_Truncated,
+                           truncated ? 1u : 0u);
+
+            uint64_t table_hash = 0xCBF29CE484222325ull;
+            uint32_t table_flags = truncated
+                ? kStageWindEmitterFlag_EnumTruncated : 0u;
+            bool ok = !truncated;
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                StageWindEmitterInfo& info = emitters[i];
+                uint8_t* entry = stage_wind_emitter_entry(table, i);
+                blob_write_u64(entry, kStageWindEmitterEntry_Off_Node,
+                               static_cast<uint64_t>(info.node));
+                blob_write_u64(entry, kStageWindEmitterEntry_Off_Emitter,
+                               static_cast<uint64_t>(info.emitter));
+                blob_write_u32(entry, kStageWindEmitterEntry_Off_Bytes,
+                               info.bytes);
+                blob_write_u32(entry, kStageWindEmitterEntry_Off_Flags,
+                               info.emitter ? 1u : 0u);
+
+                if (!info.emitter)
+                {
+                    table_flags |= kStageWindEmitterFlag_NullEmitter;
+                    ok = false;
+                }
+                else if (!SafeReadBytes(
+                             reinterpret_cast<const void*>(info.emitter),
+                             entry + kStageWindEmitterEntry_Off_Data,
+                             kStageWindEmitter_RecordBytes))
+                {
+                    table_flags |= kStageWindEmitterFlag_ReadFailed;
+                    ok = false;
+                }
+                else
+                {
+                    info.hash = hash_bytes64(
+                        entry + kStageWindEmitterEntry_Off_Data,
+                        kStageWindEmitter_RecordBytes);
+                    blob_write_u64(entry, kStageWindEmitterEntry_Off_Hash,
+                                   info.hash);
+                }
+                table_hash = hash_combine64(table_hash, info.bytes);
+                table_hash = hash_combine64(table_hash, info.hash);
+            }
+            if (ok) table_flags |= kStageWindEmitterFlag_Restorable;
+            blob_write_u32(table, kStageWindEmitter_Off_Flags, table_flags);
+            blob_write_u64(table, kStageWindEmitter_Off_Hash, table_hash);
+            return ok;
+        }
+
+        bool restore_stage_wind_emitters(uintptr_t base,
+                                         const uint8_t* src) noexcept
+        {
+            if (!src) return false;
+            const uint8_t* table = src + kExtras_Off_StageWindEmitters;
+            if (blob_read_u32(table, kStageWindEmitter_Off_Magic)
+                    != kStageWindEmitter_Magic
+                || blob_read_u32(table, kStageWindEmitter_Off_Version)
+                    != kStageWindEmitter_Version)
+                return true;
+
+            const uint32_t expected_count = blob_read_u32(
+                table, kStageWindEmitter_Off_Count);
+            const uint32_t expected_truncated = blob_read_u32(
+                table, kStageWindEmitter_Off_Truncated);
+            const uint32_t expected_flags = blob_read_u32(
+                table, kStageWindEmitter_Off_Flags);
+            if (expected_count > kStageWindEmitter_MaxCount)
+            {
+                trace_stage_wind_emitter_restore_failure(
+                    "captured-count-overflow", 0, 0, 0,
+                    expected_count, 0);
+                return false;
+            }
+            if (expected_truncated != 0
+                || (expected_flags & kStageWindEmitterFlag_Restorable) == 0)
+            {
+                trace_stage_wind_emitter_restore_failure(
+                    "captured-not-restorable", 0, 0, 0,
+                    expected_count, 0);
+                return false;
+            }
+
+            StageWindEmitterInfo live[kStageWindEmitter_MaxCount]{};
+            uint32_t live_count = 0;
+            bool live_truncated = false;
+            if (!enumerate_stage_wind_emitters(
+                    base, live, kStageWindEmitter_MaxCount,
+                    live_count, live_truncated))
+            {
+                trace_stage_wind_emitter_restore_failure(
+                    "live-enum-failed", 0, 0, 0,
+                    expected_count, live_count);
+                return false;
+            }
+            if (live_truncated)
+            {
+                trace_stage_wind_emitter_restore_failure(
+                    "live-list-truncated", 0, 0, 0,
+                    expected_count, live_count);
+                return false;
+            }
+            if (live_count != expected_count)
+            {
+                trace_stage_wind_emitter_restore_failure(
+                    "live-count-mismatch", 0, 0, 0,
+                    expected_count, live_count);
+                return false;
+            }
+
+            for (uint32_t i = 0; i < expected_count; ++i)
+            {
+                const uint8_t* entry = stage_wind_emitter_entry(table, i);
+                const uint32_t expected_bytes = blob_read_u32(
+                    entry, kStageWindEmitterEntry_Off_Bytes);
+                const uintptr_t expected_emitter = static_cast<uintptr_t>(
+                    blob_read_u64(entry,
+                                  kStageWindEmitterEntry_Off_Emitter));
+                if (expected_bytes != kStageWindEmitter_RecordBytes
+                    || !expected_emitter || !live[i].emitter)
+                {
+                    trace_stage_wind_emitter_restore_failure(
+                        "emitter-entry-invalid", i, expected_emitter,
+                        live[i].emitter, expected_count, live_count);
+                    return false;
+                }
+                if (!SafeWriteBytes(
+                        reinterpret_cast<void*>(live[i].emitter),
+                        entry + kStageWindEmitterEntry_Off_Data,
+                        kStageWindEmitter_RecordBytes))
+                {
+                    trace_stage_wind_emitter_restore_failure(
+                        "write-failed", i, expected_emitter,
+                        live[i].emitter, expected_count, live_count);
+                    return false;
+                }
+            }
+
+            ReplayTraceFields f;
+            f.string("label", m_sc6_seek_job.label ? m_sc6_seek_job.label : "?")
+             .integer("tick", m_sc6_seek_job.target_tick)
+             .integer("seq", m_sc6_seek_job.target_seq)
+             .integer("captured_count", expected_count)
+             .integer("live_count", live_count)
+             .hex("first_live_emitter", live_count ? live[0].emitter : 0)
+             .hex("first_captured_emitter", expected_count
+                  ? static_cast<uintptr_t>(blob_read_u64(
+                        stage_wind_emitter_entry(table, 0),
+                        kStageWindEmitterEntry_Off_Emitter))
+                  : 0);
+            ReplayDebugTrace::instance().event(
+                "stage_wind_emitter_restore_map", f);
+            return true;
+        }
+
+        bool restore_stage_wind_graph(uintptr_t base,
+                                      const uint8_t* src) noexcept
+        {
+            if (!src) return false;
+            const uint8_t* graph = src + kExtras_Off_StageWindGraph;
+            if (blob_read_u32(graph, kStageWindGraph_Off_Magic)
+                    != kStageWindGraph_Magic
+                || blob_read_u32(graph, kStageWindGraph_Off_Version)
+                    != kStageWindGraph_Version)
+                return true;
+
+            const uint32_t expected_count = blob_read_u32(
+                graph, kStageWindGraph_Off_Count);
+            const uint32_t expected_truncated = blob_read_u32(
+                graph, kStageWindGraph_Off_Truncated);
+            const uint32_t expected_flags = blob_read_u32(
+                graph, kStageWindGraph_Off_Flags);
+            if (expected_count > kStageWindGraph_MaxNodes)
+            {
+                trace_stage_wind_graph_restore_failure(
+                    "captured-count-overflow", 0, 0, 0, 0,
+                    expected_count, 0);
+                return false;
+            }
+            if (expected_truncated != 0
+                || (expected_flags & kStageWindGraphFlag_Restorable) == 0)
+            {
+                trace_stage_wind_graph_restore_failure(
+                    "captured-not-restorable", 0, 0, 0, 0,
+                    expected_count, 0);
+                return false;
+            }
+
+            uint8_t* root = nullptr;
+            if (!read_stage_wind_root_ptr(base, &root))
+            {
+                trace_stage_wind_graph_restore_failure(
+                    "root-unreadable", 0, 0, 0, 0, expected_count, 0);
+                return false;
+            }
+
+            StageWindNodeInfo live[kStageWindGraph_MaxNodes]{};
+            uint32_t live_count = 0;
+            bool live_truncated = false;
+            if (!enumerate_stage_wind_nodes(
+                    base, live, kStageWindGraph_MaxNodes, live_count,
+                    live_truncated))
+            {
+                trace_stage_wind_graph_restore_failure(
+                    "live-enum-failed", 0, 0, 0, 0,
+                    expected_count, live_count);
+                return false;
+            }
+            if (live_truncated)
+            {
+                trace_stage_wind_graph_restore_failure(
+                    "live-list-truncated", 0, 0, 0, 0,
+                    expected_count, live_count);
+                return false;
+            }
+            for (uint32_t i = 0; i < live_count; ++i)
+            {
+                if (live[i].bytes == 0
+                    || live[i].bytes > kStageWindNode_MaxBytes)
+                {
+                    trace_stage_wind_graph_restore_failure(
+                        "live-node-unknown-vtable", i, live[i].addr, 0,
+                        live[i].vtable, expected_count, live_count);
+                    return false;
+                }
+            }
+
+            using RC::Unreal::GMalloc;
+            if ((expected_count > 0 || live_count > 0)
+                && (!GMalloc || !*GMalloc))
+            {
+                trace_stage_wind_graph_restore_failure(
+                    "gmalloc-unavailable", 0, 0, 0, 0,
+                    expected_count, live_count);
+                return false;
+            }
+
+            const uint8_t* root_blob = src + kExtras_Off_StageWindRoot;
+            const uintptr_t expected_head = static_cast<uintptr_t>(
+                blob_read_u64(root_blob, kStageWindRoot_Head_Off));
+            if ((expected_count == 0 && expected_head != 0)
+                || (expected_count > 0
+                    && expected_head != static_cast<uintptr_t>(blob_read_u64(
+                           stage_wind_graph_entry(graph, 0),
+                           kStageWindGraphEntry_Off_Addr))))
+            {
+                trace_stage_wind_graph_restore_failure(
+                    "captured-head-mismatch", 0, expected_head, 0, 0,
+                    expected_count, live_count);
+                return false;
+            }
+
+            for (uint32_t i = 0; i < expected_count; ++i)
+            {
+                const uint8_t* e = stage_wind_graph_entry(graph, i);
+                const uint8_t* data = e + kStageWindGraphEntry_Off_Data;
+                const uintptr_t expected_addr = static_cast<uintptr_t>(
+                    blob_read_u64(e, kStageWindGraphEntry_Off_Addr));
+                const uintptr_t expected_vtable = static_cast<uintptr_t>(
+                    blob_read_u64(e, kStageWindGraphEntry_Off_Vtable));
+                const uint32_t expected_bytes = blob_read_u32(
+                    e, kStageWindGraphEntry_Off_Bytes);
+                const uint32_t mapped_bytes = static_cast<uint32_t>(
+                    stage_wind_node_copy_bytes(base, expected_vtable));
+
+                if (!expected_addr || !expected_vtable
+                    || expected_bytes == 0
+                    || expected_bytes > kStageWindNode_MaxBytes
+                    || mapped_bytes != expected_bytes
+                    || blob_read_u64(data, 0) != expected_vtable)
+                {
+                    trace_stage_wind_graph_restore_failure(
+                        "captured-node-invalid", i, expected_addr,
+                        expected_vtable, 0, expected_count, live_count);
+                    return false;
+                }
+
+                for (uint32_t j = i + 1; j < expected_count; ++j)
+                {
+                    const uintptr_t other_addr = static_cast<uintptr_t>(
+                        blob_read_u64(stage_wind_graph_entry(graph, j),
+                                      kStageWindGraphEntry_Off_Addr));
+                    if (other_addr == expected_addr)
+                    {
+                        trace_stage_wind_graph_restore_failure(
+                            "captured-node-duplicate", i, expected_addr,
+                            expected_vtable, 0, expected_count, live_count);
+                        return false;
+                    }
+                }
+
+                const uintptr_t expected_next = i + 1 < expected_count
+                    ? static_cast<uintptr_t>(blob_read_u64(
+                          stage_wind_graph_entry(graph, i + 1),
+                          kStageWindGraphEntry_Off_Addr))
+                    : 0;
+                const uintptr_t expected_prev = i > 0
+                    ? static_cast<uintptr_t>(blob_read_u64(
+                          stage_wind_graph_entry(graph, i - 1),
+                          kStageWindGraphEntry_Off_Addr))
+                    : 0;
+                if (blob_read_u64(data, 0x10) != expected_next
+                    || blob_read_u64(data, 0x18) != expected_prev
+                    || blob_read_u64(data, 0x28)
+                        != reinterpret_cast<uintptr_t>(root))
+                {
+                    trace_stage_wind_graph_restore_failure(
+                        "captured-chain-invalid", i, expected_addr,
+                        expected_vtable, 0, expected_count, live_count);
+                    return false;
+                }
+            }
+
+            uintptr_t new_nodes[kStageWindGraph_MaxNodes]{};
+            auto free_new_nodes = [&]() noexcept
+            {
+                if (!GMalloc || !*GMalloc) return;
+                for (uint32_t i = 0; i < expected_count; ++i)
+                {
+                    if (new_nodes[i])
+                    {
+                        (*GMalloc)->Free(
+                            reinterpret_cast<void*>(new_nodes[i]));
+                        new_nodes[i] = 0;
+                    }
+                }
+            };
+
+            for (uint32_t i = 0; i < expected_count; ++i)
+            {
+                const uint8_t* e = stage_wind_graph_entry(graph, i);
+                const uint32_t expected_bytes = blob_read_u32(
+                    e, kStageWindGraphEntry_Off_Bytes);
+                void* node = (*GMalloc)->Realloc(
+                    nullptr, expected_bytes, 16);
+                if (!node)
+                {
+                    trace_stage_wind_graph_restore_failure(
+                        "alloc-failed", i, 0,
+                        static_cast<uintptr_t>(blob_read_u64(
+                            e, kStageWindGraphEntry_Off_Vtable)),
+                        0, expected_count, live_count);
+                    free_new_nodes();
+                    return false;
+                }
+                new_nodes[i] = reinterpret_cast<uintptr_t>(node);
+
+                const uint8_t* data = e + kStageWindGraphEntry_Off_Data;
+                std::memcpy(node, data, expected_bytes);
+            }
+
+            uint32_t remapped_pointer_count = 0;
+            auto remap_captured_node_pointer = [&](uintptr_t value) noexcept
+                -> uintptr_t
+            {
+                if (!value) return value;
+                for (uint32_t j = 0; j < expected_count; ++j)
+                {
+                    const uintptr_t captured_addr = static_cast<uintptr_t>(
+                        blob_read_u64(stage_wind_graph_entry(graph, j),
+                                      kStageWindGraphEntry_Off_Addr));
+                    if (value == captured_addr)
+                    {
+                        ++remapped_pointer_count;
+                        return new_nodes[j];
+                    }
+                }
+                return value;
+            };
+
+            for (uint32_t i = 0; i < expected_count; ++i)
+            {
+                uint8_t* node = reinterpret_cast<uint8_t*>(new_nodes[i]);
+                const uint8_t* e = stage_wind_graph_entry(graph, i);
+                const uint32_t expected_bytes = blob_read_u32(
+                    e, kStageWindGraphEntry_Off_Bytes);
+                for (uint32_t off = 0;
+                     off + sizeof(uintptr_t) <= expected_bytes;
+                     off += sizeof(uintptr_t))
+                {
+                    uintptr_t value = 0;
+                    std::memcpy(&value, node + off, sizeof(value));
+                    const uintptr_t mapped = remap_captured_node_pointer(value);
+                    if (mapped != value)
+                        std::memcpy(node + off, &mapped, sizeof(mapped));
+                }
+            }
+
+            for (uint32_t i = 0; i < expected_count; ++i)
+            {
+                uint8_t* node = reinterpret_cast<uint8_t*>(new_nodes[i]);
+                const uint8_t* e = stage_wind_graph_entry(graph, i);
+                const uintptr_t expected_vtable = static_cast<uintptr_t>(
+                    blob_read_u64(e, kStageWindGraphEntry_Off_Vtable));
+                const uintptr_t next = i + 1 < expected_count
+                    ? new_nodes[i + 1] : 0;
+                const uintptr_t prev = i > 0 ? new_nodes[i - 1] : 0;
+                const uintptr_t root_value = reinterpret_cast<uintptr_t>(root);
+                blob_write_u64(node, 0x00, expected_vtable);
+                blob_write_u64(node, 0x10, next);
+                blob_write_u64(node, 0x18, prev);
+                blob_write_u64(node, 0x28, root_value);
+            }
+
+            uintptr_t null_head = 0;
+            if (!SafeWriteBytes(root + kStageWindRoot_Head_Off,
+                                &null_head, sizeof(null_head)))
+            {
+                trace_stage_wind_graph_restore_failure(
+                    "write-failed", 0, expected_head, 0, 0,
+                    expected_count, live_count);
+                free_new_nodes();
+                return false;
+            }
+
+            uint32_t freed_count = 0;
+            for (uint32_t i = 0; i < live_count; ++i)
+            {
+                if (live[i].addr)
+                {
+                    (*GMalloc)->Free(reinterpret_cast<void*>(live[i].addr));
+                    ++freed_count;
+                }
+            }
+
+            const uintptr_t new_head = expected_count > 0 ? new_nodes[0] : 0;
+            if (!SafeWriteBytes(root + kStageWindRoot_Head_Off,
+                                &new_head, sizeof(new_head)))
+            {
+                trace_stage_wind_graph_restore_failure(
+                    "write-failed", 0, new_head, 0, 0,
+                    expected_count, live_count);
+                free_new_nodes();
+                return false;
+            }
+            {
+                ReplayTraceFields f;
+                f.string("label", m_sc6_seek_job.label ? m_sc6_seek_job.label : "?")
+                 .integer("tick", m_sc6_seek_job.target_tick)
+                 .integer("seq", m_sc6_seek_job.target_seq)
+                 .integer("captured_count", expected_count)
+                 .integer("live_count", live_count)
+                 .integer("allocated_count", expected_count)
+                 .integer("freed_count", freed_count)
+                 .integer("remapped_pointer_count", remapped_pointer_count)
+                 .hex("old_head", live_count > 0 ? live[0].addr : 0)
+                 .hex("new_head", new_head)
+                 .hex("root", reinterpret_cast<uintptr_t>(root));
+                ReplayDebugTrace::instance().event(
+                    "stage_wind_graph_restore_map", f);
+            }
+            return true;
+        }
+
+        bool read_stage_wind_root_ptr(uintptr_t base,
+                                      uint8_t** out) noexcept
+        {
+            if (out) *out = nullptr;
+            if (!base || !out) return false;
+            void* root_raw = nullptr;
+            if (!SafeReadPtr(reinterpret_cast<const void*>(
+                                 base + kRVA_StageWindRootPtr),
+                             &root_raw) || !root_raw)
+                return false;
+            *out = reinterpret_cast<uint8_t*>(root_raw);
+            return true;
+        }
+
+        bool capture_stage_wind_root(uintptr_t base,
+                                     uint8_t* dst) noexcept
+        {
+            if (!dst) return false;
+            std::memset(dst + kExtras_Off_StageWindRoot, 0,
+                        kExtras_StageWindRoot_Bytes);
+            uint8_t* root = nullptr;
+            if (!read_stage_wind_root_ptr(base, &root))
+                return false;
+            return SafeReadBytes(root,
+                                 dst + kExtras_Off_StageWindRoot,
+                                 kExtras_StageWindRoot_Bytes);
+        }
+
+        bool restore_stage_wind_root(uintptr_t base,
+                                     const uint8_t* src) noexcept
+        {
+            if (!src || !bytes_any_nonzero(src + kExtras_Off_StageWindRoot,
+                                           kExtras_StageWindRoot_Bytes))
+                return true;
+
+            uint8_t* root = nullptr;
+            if (!read_stage_wind_root_ptr(base, &root))
+                return false;
+
+            // Do not overwrite the live intrusive-list head at +0x00.
+            // The first deterministic fields seen in Ghidra start at +0x08.
+            return SafeWriteBytes(
+                root + kStageWindRoot_RestoreOffset,
+                src + kExtras_Off_StageWindRoot
+                    + kStageWindRoot_RestoreOffset,
+                kStageWindRoot_RestoreBytes);
+        }
+
+        void trace_stage_wind_root_state(
+            const char* stage,
+            const char* label,
+            int32_t tick,
+            int32_t seq,
+            const uint8_t* expected_extras) noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            uint8_t* root = nullptr;
+            const bool root_ok = read_stage_wind_root_ptr(base, &root);
+
+            std::array<uint8_t, kExtras_StageWindRoot_Bytes> live{};
+            const bool live_ok = root_ok
+                && SafeReadBytes(root, live.data(), live.size());
+            const uint8_t* expected = expected_extras
+                ? expected_extras + kExtras_Off_StageWindRoot
+                : nullptr;
+            const bool expected_ok = expected
+                && bytes_any_nonzero(expected, kExtras_StageWindRoot_Bytes);
+
+            auto read_u8 = [](const uint8_t* p, size_t off) noexcept -> uint64_t
+            {
+                return p ? static_cast<uint64_t>(p[off]) : 0;
+            };
+            auto read_u32 = [](const uint8_t* p, size_t off) noexcept -> uint64_t
+            {
+                uint32_t v = 0;
+                if (p) std::memcpy(&v, p + off, sizeof(v));
+                return static_cast<uint64_t>(v);
+            };
+            auto read_u64 = [](const uint8_t* p, size_t off) noexcept -> uint64_t
+            {
+                uint64_t v = 0;
+                if (p) std::memcpy(&v, p + off, sizeof(v));
+                return v;
+            };
+
+            const uint64_t live_hash = live_ok
+                ? hash_bytes64(live.data(), live.size()) : 0;
+            const uint64_t expected_hash = expected_ok
+                ? hash_bytes64(expected, kExtras_StageWindRoot_Bytes) : 0;
+            const uint64_t live_mutable_hash = live_ok
+                ? hash_bytes64(live.data() + kStageWindRoot_RestoreOffset,
+                               kStageWindRoot_RestoreBytes)
+                : 0;
+            const uint64_t expected_mutable_hash = expected_ok
+                ? hash_bytes64(expected + kStageWindRoot_RestoreOffset,
+                               kStageWindRoot_RestoreBytes)
+                : 0;
+
+            ReplayTraceFields f;
+            f.string("stage", stage ? stage : "?")
+             .string("label", label ? label : "?")
+             .integer("tick", tick)
+             .integer("seq", seq)
+             .hex("root", reinterpret_cast<uintptr_t>(root))
+             .boolean("root_ok", root_ok)
+             .boolean("live_ok", live_ok)
+             .boolean("expected_ok", expected_ok)
+             .hex("expected_hash", expected_hash)
+             .hex("live_hash", live_hash)
+             .hex("expected_mutable_hash", expected_mutable_hash)
+             .hex("live_mutable_hash", live_mutable_hash)
+             .hex("expected_head", read_u64(expected, 0x00))
+             .hex("live_head", live_ok ? read_u64(live.data(), 0x00) : 0)
+              .hex("expected_scalar_tick",
+                   read_u64(expected, kStageWindRoot_Scalar_Off))
+              .hex("live_scalar_tick",
+                   live_ok ? read_u64(live.data(),
+                                      kStageWindRoot_Scalar_Off) : 0)
+              .integer("expected_active_bank",
+                       read_u32(expected, kStageWindRoot_ActiveBank_Off))
+              .integer("live_active_bank",
+                       live_ok ? read_u32(live.data(),
+                                          kStageWindRoot_ActiveBank_Off) : 0)
+              .integer("expected_child_count",
+                       read_u32(expected, kStageWindRoot_PendingCount_Off))
+              .integer("live_child_count",
+                       live_ok ? read_u32(live.data(),
+                                          kStageWindRoot_PendingCount_Off) : 0);
+            ReplayDebugTrace::instance().event("stage_wind_root_state", f);
+        }
+
+        void trace_stage_wind_graph_state(
+            const char* stage,
+            const char* label,
+            int32_t tick,
+            int32_t seq,
+            const uint8_t* expected_extras) noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            StageWindNodeInfo live[kStageWindGraph_MaxNodes]{};
+            uint32_t live_count = 0;
+            bool live_truncated = false;
+            const bool live_ok = enumerate_stage_wind_nodes(
+                base, live, kStageWindGraph_MaxNodes, live_count,
+                live_truncated);
+
+            uint64_t live_hash = 0xCBF29CE484222325ull;
+            for (uint32_t i = 0; live_ok && i < live_count; ++i)
+            {
+                std::array<uint8_t, kStageWindNode_MaxBytes> node{};
+                if (live[i].bytes > 0
+                    && live[i].bytes <= kStageWindNode_MaxBytes
+                    && SafeReadBytes(reinterpret_cast<const void*>(
+                                         live[i].addr),
+                                     node.data(), live[i].bytes))
+                {
+                    const size_t h_off = live[i].bytes
+                        > kStageWindNode_RestoreOffset
+                            ? kStageWindNode_RestoreOffset : 0;
+                    const uint64_t node_hash = hash_bytes64(
+                        node.data() + h_off, live[i].bytes - h_off);
+                    live_hash = hash_combine64(live_hash, live[i].vtable);
+                    live_hash = hash_combine64(live_hash, live[i].bytes);
+                    live_hash = hash_combine64(live_hash, node_hash);
+                }
+            }
+
+            const uint8_t* graph = expected_extras
+                ? expected_extras + kExtras_Off_StageWindGraph
+                : nullptr;
+            const bool expected_ok = graph
+                && blob_read_u32(graph, kStageWindGraph_Off_Magic)
+                    == kStageWindGraph_Magic
+                && blob_read_u32(graph, kStageWindGraph_Off_Version)
+                    == kStageWindGraph_Version;
+            const uint32_t expected_count = expected_ok
+                ? blob_read_u32(graph, kStageWindGraph_Off_Count) : 0;
+            const uint32_t expected_truncated = expected_ok
+                ? blob_read_u32(graph, kStageWindGraph_Off_Truncated) : 0;
+            const uint32_t expected_flags = expected_ok
+                ? blob_read_u32(graph, kStageWindGraph_Off_Flags) : 0;
+            const uint32_t expected_bad_vtable_rva = expected_ok
+                ? blob_read_u32(graph, kStageWindGraph_Off_BadVtableRva) : 0;
+            const uint64_t expected_hash = expected_ok
+                ? blob_read_u64(graph, kStageWindGraph_Off_Hash) : 0;
+            const uint64_t expected_vtable0 = expected_ok && expected_count > 0
+                ? blob_read_u64(stage_wind_graph_entry(graph, 0),
+                                kStageWindGraphEntry_Off_Vtable)
+                : 0;
+            const uint64_t live_vtable0 = live_ok && live_count > 0
+                ? static_cast<uint64_t>(live[0].vtable) : 0;
+
+            ReplayTraceFields f;
+            f.string("stage", stage ? stage : "?")
+             .string("label", label ? label : "?")
+             .integer("tick", tick)
+             .integer("seq", seq)
+             .boolean("expected_ok", expected_ok)
+             .boolean("live_ok", live_ok)
+             .integer("expected_count", expected_count)
+              .integer("live_count", live_count)
+              .boolean("expected_truncated", expected_truncated != 0)
+              .hex("expected_flags", expected_flags)
+              .boolean("expected_restorable",
+                       (expected_flags & kStageWindGraphFlag_Restorable) != 0)
+              .hex("expected_bad_vtable_rva", expected_bad_vtable_rva)
+              .boolean("live_truncated", live_truncated)
+              .hex("expected_hash", expected_hash)
+             .hex("live_hash", live_hash)
+             .hex("expected_vtable0", expected_vtable0)
+             .hex("live_vtable0", live_vtable0)
+              .boolean("shape_ok",
+                       expected_ok && live_ok
+                       && expected_truncated == 0 && !live_truncated
+                       && (expected_flags & kStageWindGraphFlag_Restorable) != 0
+                       && expected_count == live_count
+                       && expected_vtable0 == live_vtable0);
+            ReplayDebugTrace::instance().event("stage_wind_graph_state", f);
+        }
+
+        void trace_stage_wind_emitter_state(
+            const char* stage,
+            const char* label,
+            int32_t tick,
+            int32_t seq,
+            const uint8_t* expected_extras) noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            uintptr_t list_sentinel = 0;
+            uintptr_t list_first_node = 0;
+            uint64_t list_native_count = 0;
+            const bool list_header_ok = read_stage_wind_emitter_list_header(
+                base, list_sentinel, list_first_node, list_native_count);
+
+            StageWindEmitterInfo live[kStageWindEmitter_MaxCount]{};
+            uint32_t live_count = 0;
+            bool live_truncated = false;
+            const bool live_enum_ok = enumerate_stage_wind_emitters(
+                base, live, kStageWindEmitter_MaxCount, live_count,
+                live_truncated);
+
+            uint64_t live_hash = 0xCBF29CE484222325ull;
+            bool live_read_ok = live_enum_ok;
+            uint32_t live_active0 = 0;
+            uint32_t live_spawn_remaining0 = 0;
+            uint32_t live_reload_timer_bits0 = 0;
+            for (uint32_t i = 0; live_enum_ok && i < live_count; ++i)
+            {
+                std::array<uint8_t, kStageWindEmitter_RecordBytes> bytes{};
+                if (!live[i].emitter
+                    || !SafeReadBytes(reinterpret_cast<const void*>(
+                                          live[i].emitter),
+                                      bytes.data(), bytes.size()))
+                {
+                    live_read_ok = false;
+                    continue;
+                }
+
+                const uint64_t h = hash_bytes64(bytes.data(), bytes.size());
+                live_hash = hash_combine64(
+                    live_hash,
+                    static_cast<uint32_t>(kStageWindEmitter_RecordBytes));
+                live_hash = hash_combine64(live_hash, h);
+                if (i == 0)
+                {
+                    std::memcpy(&live_active0,
+                                bytes.data() + kIwWindEmitter_nActive_Off,
+                                sizeof(live_active0));
+                    std::memcpy(&live_spawn_remaining0,
+                                bytes.data()
+                                    + kIwWindEmitter_nSpawnRemaining_Off,
+                                sizeof(live_spawn_remaining0));
+                    std::memcpy(&live_reload_timer_bits0,
+                                bytes.data()
+                                    + kIwWindEmitter_flReloadTimer_Off,
+                                sizeof(live_reload_timer_bits0));
+                }
+            }
+
+            const uint8_t* table = expected_extras
+                ? expected_extras + kExtras_Off_StageWindEmitters
+                : nullptr;
+            const bool expected_ok = table
+                && blob_read_u32(table, kStageWindEmitter_Off_Magic)
+                    == kStageWindEmitter_Magic
+                && blob_read_u32(table, kStageWindEmitter_Off_Version)
+                    == kStageWindEmitter_Version;
+            const uint32_t expected_count = expected_ok
+                ? blob_read_u32(table, kStageWindEmitter_Off_Count) : 0;
+            const uint32_t expected_truncated = expected_ok
+                ? blob_read_u32(table, kStageWindEmitter_Off_Truncated) : 0;
+            const uint32_t expected_flags = expected_ok
+                ? blob_read_u32(table, kStageWindEmitter_Off_Flags) : 0;
+            const uint64_t expected_hash = expected_ok
+                ? blob_read_u64(table, kStageWindEmitter_Off_Hash) : 0;
+
+            const uint8_t* expected_entry0 = expected_ok && expected_count > 0
+                ? stage_wind_emitter_entry(table, 0) : nullptr;
+            const uint8_t* expected_data0 = expected_entry0
+                ? expected_entry0 + kStageWindEmitterEntry_Off_Data : nullptr;
+            uint32_t expected_active0 = 0;
+            uint32_t expected_spawn_remaining0 = 0;
+            uint32_t expected_reload_timer_bits0 = 0;
+            if (expected_data0)
+            {
+                std::memcpy(&expected_active0,
+                            expected_data0 + kIwWindEmitter_nActive_Off,
+                            sizeof(expected_active0));
+                std::memcpy(&expected_spawn_remaining0,
+                            expected_data0
+                                + kIwWindEmitter_nSpawnRemaining_Off,
+                            sizeof(expected_spawn_remaining0));
+                std::memcpy(&expected_reload_timer_bits0,
+                            expected_data0
+                                + kIwWindEmitter_flReloadTimer_Off,
+                            sizeof(expected_reload_timer_bits0));
+            }
+
+            ReplayTraceFields f;
+            f.string("stage", stage ? stage : "?")
+             .string("label", label ? label : "?")
+             .integer("tick", tick)
+             .integer("seq", seq)
+             .boolean("expected_ok", expected_ok)
+             .boolean("list_header_ok", list_header_ok)
+             .hex("list_sentinel", list_sentinel)
+             .hex("list_first_node", list_first_node)
+             .uinteger("list_native_count", list_native_count)
+             .boolean("live_enum_ok", live_enum_ok)
+             .boolean("live_read_ok", live_read_ok)
+             .integer("expected_count", expected_count)
+             .integer("live_count", live_count)
+             .boolean("expected_truncated", expected_truncated != 0)
+             .boolean("live_truncated", live_truncated)
+             .hex("expected_flags", expected_flags)
+             .boolean("expected_restorable",
+                      (expected_flags & kStageWindEmitterFlag_Restorable) != 0)
+             .hex("expected_hash", expected_hash)
+             .hex("live_hash", live_hash)
+             .hex("expected_emitter0", expected_entry0
+                  ? static_cast<uintptr_t>(blob_read_u64(
+                        expected_entry0,
+                        kStageWindEmitterEntry_Off_Emitter))
+                  : 0)
+             .hex("live_emitter0", live_count ? live[0].emitter : 0)
+             .integer("expected_active0", expected_active0)
+             .integer("live_active0", live_active0)
+             .integer("expected_spawn_remaining0",
+                      expected_spawn_remaining0)
+             .integer("live_spawn_remaining0", live_spawn_remaining0)
+             .hex("expected_reload_timer_bits0",
+                  expected_reload_timer_bits0)
+             .hex("live_reload_timer_bits0", live_reload_timer_bits0)
+             .boolean("state_ok",
+                      expected_ok && live_enum_ok && live_read_ok
+                      && expected_truncated == 0 && !live_truncated
+                      && (expected_flags
+                          & kStageWindEmitterFlag_Restorable) != 0
+                      && expected_count == live_count
+                      && expected_hash == live_hash);
+            ReplayDebugTrace::instance().event(
+                "stage_wind_emitter_state", f);
+        }
+
         // Capture BlockInteractiveOps + cinematic head + BM state bytes +
         // FrameInput / per-chara replay state into `dst` (the extras
         // region's staging buffer, kExtras_Bytes).  The blob layout is
@@ -15104,6 +19988,9 @@ namespace Horse
             // any of them.  Sample at captures 1, 60, 600, 1800 (~0s,
             // 1s, 10s, 30s).  Cheap, single-shot per sample.
             chara_probe_log_if_due();
+            capture_stage_wind_root(base, dst);
+            capture_stage_wind_graph(base, dst);
+            capture_stage_wind_emitters(base, dst);
             return required_ok;
         }
 
@@ -15123,6 +20010,25 @@ namespace Horse
                 ok &= restore_required_rollback_globals(base, src);
             if (full_for_validated_seek && base)
             {
+                trace_stage_wind_root_state(
+                    "before-restore",
+                    m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
+                    m_sc6_seek_job.target_tick,
+                    m_sc6_seek_job.target_seq,
+                    src);
+                trace_stage_wind_graph_state(
+                    "before-restore",
+                    m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
+                    m_sc6_seek_job.target_tick,
+                    m_sc6_seek_job.target_seq,
+                    src);
+                trace_stage_wind_emitter_state(
+                    "before-restore",
+                    m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
+                    m_sc6_seek_job.target_tick,
+                    m_sc6_seek_job.target_seq,
+                    src);
+
                 SafeWriteBytes(reinterpret_cast<void*>(
                                    base + kRVA_BlockInteractiveOps),
                                src + kExtras_Off_BlockInteractive, 4);
@@ -15139,6 +20045,28 @@ namespace Horse
                     SafeWriteBytes(cin, src + kExtras_Off_CinematicHead,
                                    kExtras_CinematicHead_Bytes);
                 }
+
+                ok &= restore_stage_wind_root(base, src);
+                ok &= restore_stage_wind_graph(base, src);
+                ok &= restore_stage_wind_emitters(base, src);
+                trace_stage_wind_root_state(
+                    "after-restore",
+                    m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
+                    m_sc6_seek_job.target_tick,
+                    m_sc6_seek_job.target_seq,
+                    src);
+                trace_stage_wind_graph_state(
+                    "after-restore",
+                    m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
+                    m_sc6_seek_job.target_tick,
+                    m_sc6_seek_job.target_seq,
+                    src);
+                trace_stage_wind_emitter_state(
+                    "after-restore",
+                    m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
+                    m_sc6_seek_job.target_tick,
+                    m_sc6_seek_job.target_seq,
+                    src);
             }
 
             RC::Unreal::UObject* bm_obj_minimal = m_bm_ptr.get(L"LuxBattleManager");

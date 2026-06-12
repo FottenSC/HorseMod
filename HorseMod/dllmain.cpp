@@ -101,6 +101,7 @@
 #include "horselib/ReplayDebugTrace.hpp"
 #include "horselib/ActorTickGate.hpp"
 #include "horselib/TimeDilationGate.hpp"
+#include "horselib/WindRngGate.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
 // swap detour on IDXGISwapChain::Present.  This keeps Steam overlay
@@ -202,6 +203,8 @@
 #include <Unreal/UObject.hpp>
 #include <Unreal/CoreUObject/UObject/Class.hpp>
 #include <Unreal/UFunctionStructs.hpp>
+#include <Unreal/UnrealInitializer.hpp>
+#include <Unreal/Hooks/Hooks.hpp>
 #include <Input/KeyDef.hpp>
 #include <Input/Handler.hpp>
 
@@ -604,6 +607,7 @@ private:
     // tick dilation.  See horselib/TimeDilationGate.hpp for the full
     // plate.
     Horse::TimeDilationGate m_time_dilation_gate{};
+    Horse::WindRngGate m_wind_rng_gate{};
     // Previous-cockpit-tick snapshot of g_LuxBattle_FrameCounter.  Read
     // at the top of frame_step_apply() to detect whether PerFrameTick
     // ran since our last call - drives WorldTickGate's step-credit
@@ -1330,6 +1334,9 @@ private:
     // unregister_tab on teardown.
     uint64_t m_gameimgui_tab_token = 0;
 
+    RC::Unreal::Hook::GlobalCallbackId m_engine_tick_callback_id{
+        RC::Unreal::Hook::ERROR_ID};
+
     // Nav-bootstrap flag: set to true when the overlay transitions from
     // hidden?shown, consumed by render_hitboxes_tab which then calls
     // ImGui::SetKeyboardFocusHere() on the master F5 toggle.  Forces
@@ -1510,6 +1517,16 @@ public:
         // Zero instance pointer FIRST so any in-flight hook sees null.
         s_instance.store(nullptr);
 
+        if (m_engine_tick_callback_id != RC::Unreal::Hook::ERROR_ID)
+        {
+            (void)RC::Unreal::Hook::UnregisterCallback(
+                m_engine_tick_callback_id);
+            Output::send<LogLevel::Verbose>(STR(
+                "[HorseMod] dtor unregistered engine tick callback id={}\n"),
+                m_engine_tick_callback_id);
+            m_engine_tick_callback_id = RC::Unreal::Hook::ERROR_ID;
+        }
+
         // Tear down the in-game ImGui overlay BEFORE unregistering the
         // cockpit hook.  Order matters only loosely here, but calling
         // shutdown() synchronises: it unHooks the DXGI vtable (Present
@@ -1605,6 +1622,24 @@ public:
         }
         m_gameimgui_tab_token = Horse::GameImGui::register_tab(
             L"HorseMod", [this] { this->render_tab_impl(); });
+
+        RC::Unreal::Hook::FCallbackOptions replay_start_tick_opts{};
+        replay_start_tick_opts.bReadonly = true;
+        replay_start_tick_opts.OwnerModName = STR("HorseMod");
+        replay_start_tick_opts.HookName = STR("ReplayFileStartService");
+        m_engine_tick_callback_id =
+            RC::Unreal::Hook::RegisterEngineTickPostCallback(
+                [](RC::Unreal::Hook::TCallbackIterationData<void>&,
+                   RC::Unreal::UEngine*, float, bool) {
+                    HorseMod* self = s_instance.load(std::memory_order_acquire);
+                    if (!self) return;
+                    auto& scrub = Horse::ReplayScrub::instance();
+                    if (scrub.has_pending_replay_file_start())
+                        scrub.service_replay_file_start_request();
+                }, replay_start_tick_opts);
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] engine tick replay-start service registered id={}\n"),
+            m_engine_tick_callback_id);
 
         // Resolve SC6 native function RVAs now that the game image is loaded:
         //   ALuxBattleChara_GetBoneTransformForPose @ image + 0x462760
@@ -1704,6 +1739,8 @@ public:
         }
 
         service_presence_transition_safety("update");
+        if (RC::Unreal::IsInGameThread())
+            Horse::ReplayScrub::instance().service_replay_file_start_request();
 
         const bool all_reset_registered = std::all_of(
             m_reset_slots.begin(), m_reset_slots.end(),
@@ -2010,6 +2047,8 @@ private:
             m_actor_tick_gate.disable();
         if (m_time_dilation_gate.is_enabled())
             m_time_dilation_gate.disable();
+        if (m_wind_rng_gate.is_enabled())
+            m_wind_rng_gate.disable();
         if (m_world_tick_gate.is_enabled())
             m_world_tick_gate.disable();
     }
@@ -2129,6 +2168,8 @@ private:
             m_actor_tick_gate.disable();
         if (m_time_dilation_gate.is_enabled())
             m_time_dilation_gate.disable();
+        if (m_wind_rng_gate.is_enabled())
+            m_wind_rng_gate.disable();
         if (m_world_tick_gate.is_enabled())
         {
             // Don't double-log if the freeze-frame branch above already
@@ -2299,7 +2340,56 @@ private:
                 // PerFrameTick ran (counter advanced) ? drain one credit.
                 // Wraparound at uint32 max takes years at 60Hz; ignore it.
                 if (cur_frame != m_prev_frame_counter_value)
+                {
+                    const bool validation_gate_active =
+                        Horse::ReplayScrub::instance()
+                            .has_active_validation_step();
+                    const int32_t policy_before = m_world_tick_gate.policy();
                     m_world_tick_gate.consume_one_credit();
+                    const int32_t policy_after = m_world_tick_gate.policy();
+                    const int32_t drained_credits =
+                        policy_before > policy_after
+                            ? policy_before - policy_after
+                            : 0;
+                    if (validation_gate_active && drained_credits > 0)
+                    {
+                        Horse::ReplayScrub::instance()
+                            .notify_sc6_seek_native_step_drained(
+                                drained_credits,
+                                m_prev_frame_counter_value,
+                                cur_frame,
+                                policy_before,
+                                policy_after,
+                                m_world_tick_gate.is_enabled(),
+                                m_replay_clock_gate.is_enabled(),
+                                m_actor_tick_gate.is_enabled(),
+                                m_time_dilation_gate.is_enabled(),
+                                m_wind_rng_gate.is_enabled());
+                    }
+                    if (validation_gate_active)
+                    {
+                        Horse::ReplayTraceFields f;
+                        f.string("stage", "frame-counter-advanced")
+                         .uinteger("frame_counter_before",
+                                   m_prev_frame_counter_value)
+                         .uinteger("frame_counter_after", cur_frame)
+                         .integer("gate_policy_before", policy_before)
+                         .integer("gate_policy_after", policy_after)
+                         .integer("drained_credits", drained_credits)
+                         .boolean("world_gate_enabled",
+                                  m_world_tick_gate.is_enabled())
+                         .boolean("replay_gate_enabled",
+                                  m_replay_clock_gate.is_enabled())
+                         .boolean("actor_gate_enabled",
+                                  m_actor_tick_gate.is_enabled())
+                         .boolean("time_gate_enabled",
+                                  m_time_dilation_gate.is_enabled())
+                         .boolean("wind_gate_enabled",
+                                  m_wind_rng_gate.is_enabled());
+                        Horse::ReplayDebugTrace::instance().event(
+                            "sc6_validation_gate_state", f);
+                    }
+                }
             }
             if (ok)
             {
@@ -2315,7 +2405,8 @@ private:
             || scrub_policy.replay_clock_gate
             || scrub_policy.actor_tick_gate
             || scrub_policy.time_dilation_gate
-            || scrub_policy.vm_freeze_byte;
+            || scrub_policy.vm_freeze_byte
+            || scrub_policy.wind_rng_gate;
 
         const bool freeze     = m_freeze_frame.load();
         const bool slow_mo    = m_speed_enabled.load();
@@ -2347,6 +2438,7 @@ private:
         bool  desired_replay_clock_gate = false;
         bool  desired_actor_tick_gate = false;
         bool  desired_time_dilation_gate = false;
+        bool  desired_wind_rng_gate = false;
 
         if (pending > 0 || freeze || scrub_gate_requested)
         {
@@ -2392,6 +2484,7 @@ private:
                 manual_gate_request || scrub_policy.actor_tick_gate;
             desired_time_dilation_gate =
                 manual_gate_request || scrub_policy.time_dilation_gate;
+            desired_wind_rng_gate = scrub_policy.wind_rng_gate;
 
             if (desired_world_gate && !m_world_tick_gate.is_resolved())
                 m_world_tick_gate.resolve();
@@ -2434,6 +2527,13 @@ private:
                 !m_time_dilation_gate.is_enabled())
                 m_time_dilation_gate.enable();
 
+            if (desired_wind_rng_gate && !m_wind_rng_gate.is_resolved())
+                m_wind_rng_gate.resolve();
+            if (desired_wind_rng_gate
+                && m_wind_rng_gate.is_resolved()
+                && !m_wind_rng_gate.is_enabled())
+                m_wind_rng_gate.enable();
+
             if (pending > 0)
             {
                 // Move ALL pending presses into the gate at once.  add_step
@@ -2450,10 +2550,19 @@ private:
                     .consume_sc6_seek_native_step_request();
             if (sc6_step_credits > 0)
             {
+                const int32_t policy_before = m_world_tick_gate.policy();
                 m_world_tick_gate.add_step(sc6_step_credits);
+                const int32_t policy_after = m_world_tick_gate.policy();
                 Horse::ReplayScrub::instance()
                     .notify_sc6_seek_native_step_granted(
-                        sc6_step_credits);
+                        sc6_step_credits,
+                        policy_before,
+                        policy_after,
+                        m_world_tick_gate.is_enabled(),
+                        m_replay_clock_gate.is_enabled(),
+                        m_actor_tick_gate.is_enabled(),
+                        m_time_dilation_gate.is_enabled(),
+                        m_wind_rng_gate.is_enabled());
             }
             // else: pure freeze with no NEW presses this tick.  Do NOT write
             // 0 to the slot - the slot is the LIVE step-credit counter (the
@@ -2579,8 +2688,8 @@ private:
                 desired_world_gate = true;
                 desired_replay_clock_gate = true;
                 desired_actor_tick_gate = true;
-                desired_time_dilation_gate = true;
-            }
+            desired_time_dilation_gate = true;
+        }
         }
         else
         {
@@ -2618,12 +2727,14 @@ private:
             static bool s_last_replay = false;
             static bool s_last_actor = false;
             static bool s_last_time = false;
+            static bool s_last_wind = false;
             static const char* s_last_reason = "";
             if (!s_gate_diag_valid
                 || s_last_world != desired_world_gate
                 || s_last_replay != desired_replay_clock_gate
                 || s_last_actor != desired_actor_tick_gate
                 || s_last_time != desired_time_dilation_gate
+                || s_last_wind != desired_wind_rng_gate
                 || s_last_reason != gate_log_reason)
             {
                 s_gate_diag_valid = true;
@@ -2631,26 +2742,31 @@ private:
                 s_last_replay = desired_replay_clock_gate;
                 s_last_actor = desired_actor_tick_gate;
                 s_last_time = desired_time_dilation_gate;
+                s_last_wind = desired_wind_rng_gate;
                 s_last_reason = gate_log_reason;
                 if (scrub_gate_requested
                     || desired_world_gate || desired_replay_clock_gate
                     || desired_actor_tick_gate || desired_time_dilation_gate
+                    || desired_wind_rng_gate
                     || (gate_log_reason && gate_log_reason[0] != 'N'))
                 {
                     RC::Output::send<RC::LogLevel::Default>(STR(
                         "[ReplayScrub.gates] reason={} world={} replay={} "
-                        "actor={} time={} vm={}\n"),
+                        "actor={} time={} vm={} wind={}\n"),
                         RC::to_generic_string(gate_log_reason
                             ? gate_log_reason : "?"),
                         desired_world_gate ? 1 : 0,
                         desired_replay_clock_gate ? 1 : 0,
                         desired_actor_tick_gate ? 1 : 0,
                         desired_time_dilation_gate ? 1 : 0,
-                        scrub_policy.vm_freeze_byte ? 1 : 0);
+                        scrub_policy.vm_freeze_byte ? 1 : 0,
+                        desired_wind_rng_gate ? 1 : 0);
                 }
             }
         }
 
+        if (!desired_wind_rng_gate && m_wind_rng_gate.is_enabled())
+            m_wind_rng_gate.disable();
         if (!desired_replay_clock_gate && m_replay_clock_gate.is_enabled())
             m_replay_clock_gate.disable();
         if (!desired_actor_tick_gate && m_actor_tick_gate.is_enabled())
@@ -3734,6 +3850,19 @@ private:
         // the same frame, which would visually misrepresent the state
         // of a move and confuse a viewer.
         if (!m_backend_hit.isReady() || !m_backend_hurt.isReady()) return;
+
+        if (Horse::ResetOverride::instance().consume_trail_clear_request())
+        {
+            if (m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hit.clearLines();
+            if (m_backend_hurt.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hurt.clearLines();
+
+            // Restart trail cadence so the first post-teleport cockpit tick
+            // appends a fresh entry even if the game frame counter has not
+            // advanced since the last pre-teleport draw.
+            m_have_trail_game_frame = false;
+        }
 
         uint32_t trail_game_frame = 0;
         bool have_trail_game_frame = false;
@@ -5861,16 +5990,103 @@ private:
     void render_replay_tab()
     {
         auto& scrub = Horse::ReplayScrub::instance();
+        const auto presence = Horse::GameMode::instance().current_presence();
+        const bool in_replay = (presence == Horse::GamePresence::Replay);
+
+        auto render_replay_file_controls = [&]() {
+            // -------------------------------------------------------------
+            // Replay file export/load.  These are explicit user actions
+            // only: no file I/O runs on the per-frame capture path.
+            // Kept above the ReplayScrub init gate so Browse is visible
+            // from the main menu while the user is choosing a file.
+            // -------------------------------------------------------------
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextDisabled("Replay files");
+            if (!in_replay || !scrub.is_initialized())
+                ImGui::BeginDisabled(true);
+            if (ImGui::Button("Export Replay##rs_file_export"))
+                scrub.export_current_replay_file();
+            if (!in_replay || !scrub.is_initialized())
+                ImGui::EndDisabled();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Write the currently loaded native replay input payload to\n"
+                "HorseMod's Saved\\ReplayFiles folder. Metadata is logged\n"
+                "when available; unknown fields are written as -1.");
+
+            static char s_replay_load_name[260]{};
+            if (s_replay_load_name[0] == '\0')
+            {
+                const std::string def = scrub.default_replay_load_name();
+                if (!def.empty())
+                {
+                    std::snprintf(s_replay_load_name,
+                                  sizeof(s_replay_load_name),
+                                  "%s", def.c_str());
+                }
+            }
+            ImGui::SetNextItemWidth(320.0f);
+            ImGui::InputText("Replay File##rs_file_load_name",
+                             s_replay_load_name,
+                             sizeof(s_replay_load_name));
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Replay file to load. Accepts exported .hmreplay filenames\n"
+                "inside Saved\\ReplayFiles, absolute .hmreplay paths, or\n"
+                "raw native replay payload .bin paths. Enter a full file\n"
+                "path (not a folder): e.g. E:\\myMods\\ReplayExample\\file.bin.\n"
+                "Traversal and unsafe characters are rejected.");
+            ImGui::SameLine();
+            const bool load_busy = scrub.has_pending_replay_file_load();
+            const bool start_busy = scrub.has_pending_replay_file_start();
+            const bool file_busy = load_busy || start_busy;
+            if (file_busy) ImGui::BeginDisabled(true);
+            if (ImGui::Button("Browse...##rs_file_browse"))
+                scrub.browse_and_request_load_replay_file();
+            if (file_busy) ImGui::EndDisabled();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Open a Windows file picker for .hmreplay or .bin replay files.");
+            ImGui::SameLine();
+            if (file_busy) ImGui::BeginDisabled(true);
+            if (ImGui::Button("Load Replay File##rs_file_load"))
+                scrub.request_load_replay_file(s_replay_load_name);
+            if (file_busy) ImGui::EndDisabled();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Queue the selected file. It is applied once SC6 has an\n"
+                "active Replay viewer context for HorseMod to patch.");
+            ImGui::SameLine();
+            if (file_busy) ImGui::BeginDisabled(true);
+            if (ImGui::Button("Start Replay File##rs_file_start"))
+                scrub.request_start_replay_file(s_replay_load_name);
+            if (file_busy) ImGui::EndDisabled();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Ask SC6 to start the selected local replay file. HorseMod\n"
+                "writes a raw launch copy into Saved\\ReplayFiles, sets\n"
+                "BattleReplay.PlayingBackPath, then calls the game's native\n"
+                "replay setup and manual battle launch UFunctions.");
+            ImGui::SameLine();
+            if (file_busy) ImGui::BeginDisabled(true);
+            if (ImGui::Button("Browse + Start...##rs_file_browse_start"))
+                scrub.browse_and_request_start_replay_file();
+            if (file_busy) ImGui::EndDisabled();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Open a Windows file picker and immediately request native\n"
+                "startup of the selected .hmreplay or .bin replay file.");
+            const std::string replay_file_status =
+                scrub.replay_file_status_text();
+            if (!replay_file_status.empty())
+                ImGui::TextWrapped("%s", replay_file_status.c_str());
+        };
+
+        render_replay_file_controls();
 
         if (!scrub.is_initialized())
         {
             ImGui::TextDisabled(
-                "(replay scrubber not initialised - check UE4SS.log)");
+                "(replay scrubber not initialised yet. File selection above "
+                "is available; replay patching starts after entering the "
+                "Replay viewer.)");
             return;
         }
-
-        const auto presence = Horse::GameMode::instance().current_presence();
-        const bool in_replay = (presence == Horse::GamePresence::Replay);
 
         const size_t  cnt    = scrub.ring_count();
         const int32_t earl   = scrub.earliest_seq();

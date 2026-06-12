@@ -255,6 +255,15 @@ def _load_move_table_metadata(
     return out
 
 
+def _is_revenge_attack_note(note: str) -> bool:
+    """Derived movelist marker for the localized "Revenge attack" note.
+
+    No dedicated DA_MoveListTable EffectTag or parsed KHD cell flag has been
+    found for this property; keep it separate from `RE` (Reversal Edge).
+    """
+    return "revenge attack" in note.casefold()
+
+
 def _resolve_main_index(
     main_index: int,
     khd: KhdFile | None,
@@ -755,6 +764,7 @@ def _build_movelist_payload(
                 cs["commandSetIndex"] = i
             entry = movelist_idx.get(move_id)
             full_cmd = entry.command if entry else ""
+            note = entry.note if entry else ""
             condition, button_input = locales.split_condition_and_input(full_cmd)
             # Pure-direction inputs (sidesteps, stance entries, runs)
             # don't actually hit — null out the resolved cellIdx so the
@@ -803,7 +813,10 @@ def _build_movelist_payload(
                 # the original combined string.
                 "fullCommand": full_cmd,
                 "inputMarkup": entry.command_markup if entry else "",
-                "note": entry.note if entry else "",
+                "note": note,
+                # Derived from localized NoteTextID text. This is not a
+                # DA_MoveListTable EffectTag; `RE` remains Reversal Edge.
+                "isRevengeAttack": _is_revenge_attack_note(note),
                 # Flag for the UI — movement-only moves should render
                 # without the frame-data columns rather than showing
                 # the borrowed-cell stats as if they belonged to the move.

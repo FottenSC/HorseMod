@@ -313,6 +313,10 @@ export interface MovelistMove {
   fullCommand: string;     // condition + input joined ("During Mist B.B.B.B")
   inputMarkup: string;     // raw {cmd_X} markup from the game's archive
   note: string;            // usage hint (often empty)
+  // Derived from localized NoteTextID text containing "Revenge attack".
+  // There is no observed DA_MoveListTable EffectTag for this; `RE` means
+  // Reversal Edge, not Revenge.
+  isRevengeAttack: boolean;
   // True when the input is direction-only (no A/B/K/G) - sidesteps,
   // backsteps, stance entries, dashes. The exporter clears the
   // commandSets' cellIdx for these so we don't pretend the slot's

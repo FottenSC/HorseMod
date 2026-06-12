@@ -1,0 +1,8 @@
+{
+  "description": "Example only. Tune the key sequence for the current SC6 menu state, controller/keyboard bindings, language, and installed replay list. The runner sends these keys to the SoulcaliburVI window before writing the replay seek test request.",
+  "steps": [
+    { "wait": 15 },
+    { "key": "ENTER", "repeat": 1, "delay": 1.0 },
+    { "key": "ENTER", "repeat": 1, "delay": 1.0 }
+  ]
+}

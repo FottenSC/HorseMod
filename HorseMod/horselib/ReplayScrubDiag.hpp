@@ -97,7 +97,18 @@ namespace Horse
         constexpr uintptr_t kChara_bInHitstunFlag_Off     = 0x16DB;
         constexpr uintptr_t kChara_bInBlockstunFlag_Off   = 0x16DC;
         constexpr uintptr_t kChara_pActiveAttackCell_Off  = 0x44048;
-        constexpr uintptr_t kChara_flCurHealth_Off        = 0x1364;
+        // Not life/HP. Ghidra shows +0x1364 is a VM decay/counter field;
+        // keep it only as diagnostic drift telemetry.
+        constexpr uintptr_t kChara_flVmDecayCounter_Off   = 0x1364;
+        // Native vital candidates from LuxBattleChara_AccumulateDamageTaken
+        // and LuxBattleChara_UpdateLethalHitGauge. These are diagnostic until
+        // live traces prove exact HUD/KO semantics.
+        constexpr uintptr_t kChara_flVitalScale_Off       = 0x43E00;
+        constexpr uintptr_t kChara_flVitalCandidate_Off   = 0x43E08;
+        constexpr uintptr_t kChara_flVitalKoGate_Off      = 0x43E10;
+        constexpr uintptr_t kChara_flVitalDisplayed_Off   = 0x43E14;
+        constexpr uintptr_t kChara_dwVitalCategoryBits_Off = 0x43E18;
+        constexpr uintptr_t kChara_wVitalState_Off        = 0x3D0;
 
         // RVAs for the chara slot pointers (mirrored from ReplayScrub).
         constexpr uintptr_t kRVA_CharaSlotP1 = 0x470DE90;
@@ -164,7 +175,13 @@ namespace Horse
             float     pos_x {0.0f}, pos_y {0.0f}, pos_z {0.0f};
             float     vel_x {0.0f}, vel_y {0.0f}, vel_z {0.0f};
             float     facing {0.0f};
-            float     health {0.0f};
+            float     vm_decay_counter {0.0f};
+            float     vital_scale {0.0f};
+            float     vital_candidate {0.0f};
+            float     vital_ko_gate {0.0f};
+            float     vital_displayed {0.0f};
+            uint32_t  vital_category_bits {0};
+            int16_t   vital_state {0};
             uint8_t   vm_paused {0xFF};
             uint8_t   input_freeze_gate {0xFF};
             uint8_t   in_hitstun {0xFF};
@@ -187,6 +204,9 @@ namespace Horse
                     || vel_x              != prev.vel_x
                     || vel_y              != prev.vel_y
                     || vel_z              != prev.vel_z
+                    || vital_candidate    != prev.vital_candidate
+                    || vital_displayed    != prev.vital_displayed
+                    || vital_state        != prev.vital_state
                     || active_attack_cell != prev.active_attack_cell;
             }
         };
@@ -224,7 +244,14 @@ namespace Horse
             SafeReadFloat (c + kChara_flMoveVelocity_Y_Off,  &s.vel_y);
             SafeReadFloat (c + kChara_flMoveVelocity_Z_Off,  &s.vel_z);
             SafeReadFloat (c + kChara_flBodyFacing_Off,      &s.facing);
-            SafeReadFloat (c + kChara_flCurHealth_Off,       &s.health);
+            SafeReadFloat (c + kChara_flVmDecayCounter_Off,  &s.vm_decay_counter);
+            SafeReadFloat (c + kChara_flVitalScale_Off,      &s.vital_scale);
+            SafeReadFloat (c + kChara_flVitalCandidate_Off,  &s.vital_candidate);
+            SafeReadFloat (c + kChara_flVitalKoGate_Off,     &s.vital_ko_gate);
+            SafeReadFloat (c + kChara_flVitalDisplayed_Off,  &s.vital_displayed);
+            SafeReadUInt32(c + kChara_dwVitalCategoryBits_Off,
+                           &s.vital_category_bits);
+            SafeReadInt16 (c + kChara_wVitalState_Off,       &s.vital_state);
             SafeReadUInt8 (c + kChara_bVMPaused_Off,         &s.vm_paused);
             SafeReadUInt8 (c + kChara_bInputFreezeGate_Off,  &s.input_freeze_gate);
             SafeReadUInt8 (c + kChara_bInHitstunFlag_Off,    &s.in_hitstun);
@@ -255,7 +282,9 @@ namespace Horse
                     "moveID=0x{:X} vfxState=0x{:X} "
                     "moveFrame={} "
                     "pos=({:.2f},{:.2f},{:.2f}) vel=({:.2f},{:.2f},{:.2f}) "
-                    "face={:.2f} hp={:.1f} "
+                    "face={:.2f} vmDecay={:.1f} vital={:.1f}/{:.1f} "
+                    "koGate={:.1f} vitalScale={:.3f} vitalBits=0x{:X} "
+                    "vitalState={} "
                     "vmPaused={} inputFreeze={} hitstun={} blockstun={} "
                     "atkCell=0x{:X}\n"),
                 RC::to_generic_string(label), player_idx + 1, s.chara_ptr,
@@ -264,7 +293,11 @@ namespace Horse
                 static_cast<unsigned>(s.current_move_frame),
                 s.pos_x, s.pos_y, s.pos_z,
                 s.vel_x, s.vel_y, s.vel_z,
-                s.facing, s.health,
+                s.facing, s.vm_decay_counter,
+                s.vital_candidate, s.vital_displayed,
+                s.vital_ko_gate, s.vital_scale,
+                s.vital_category_bits,
+                static_cast<int>(s.vital_state),
                 static_cast<int>(s.vm_paused),
                 static_cast<int>(s.input_freeze_gate),
                 static_cast<int>(s.in_hitstun),

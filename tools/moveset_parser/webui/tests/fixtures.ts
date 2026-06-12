@@ -65,6 +65,7 @@ export function makeMovelistMove(
     fullCommand: p.fullCommand ?? p.input ?? "",
     inputMarkup: p.inputMarkup ?? "",
     note: p.note ?? "",
+    isRevengeAttack: p.isRevengeAttack ?? false,
     isMovementOnly: p.isMovementOnly ?? false,
     hasInputAlternatives: p.hasInputAlternatives ?? false,
     inputVariants: p.inputVariants ?? [],

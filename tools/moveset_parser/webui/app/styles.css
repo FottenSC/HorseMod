@@ -157,6 +157,7 @@ h3 { font-size: 13px; font-weight: 600; margin: 0.8em 0 0.3em; color: #98a0a8;
 .badge-eff-gi   { background: #10303a; color: #4ec3d4; }  /* Guard Impact */
 .badge-eff-ua   { background: #3a1212; color: #e85c5c; }  /* Unblockable */
 .badge-eff-re   { background: #2a1030; color: #b06ed4; }  /* Reversal Edge */
+.badge-eff-rv   { background: #34141c; color: #e07d90; }  /* Revenge attack */
 .badge-eff-th   { background: #2a1a3a; color: #a06ec9; }  /* Throw */
 .badge-eff-sc   { background: #103a2a; color: #4ec990; }  /* Soul Charge */
 .badge-eff-ss   { background: #1c2438; color: #8aabd6; }  /* Stance Shift */

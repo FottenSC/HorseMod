@@ -1,6 +1,6 @@
 ﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { AttackClassBadge, AttackModifierBadges, EffectTagBadges } from "../components/AttackClassBadge";
+import { AttackClassBadge, AttackModifierBadges, EffectTagBadges, RevengeAttackBadge } from "../components/AttackClassBadge";
 import type { CharData, SlotEdge, FlatMove } from "../data/types";
 import { findInputVariations } from "../lib/moves";
 
@@ -162,6 +162,7 @@ function MoveSlotDetail() {
             {movelistEntry && movelistEntry.effectTags.length > 0 && (
               <EffectTagBadges tags={movelistEntry.effectTags} />
             )}
+            {movelistEntry?.isRevengeAttack && <RevengeAttackBadge />}
             {primaryCell?.role === "Attack" && (
               <>
                 <AttackClassBadge value={primaryCell.class} />

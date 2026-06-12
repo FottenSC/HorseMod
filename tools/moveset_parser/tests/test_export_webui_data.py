@@ -126,6 +126,7 @@ def test_mitsurugi_movelist_payload_shape():
         for f in ("hasFacingCommit", "hasRetrackRamp", "maxTargetWeight", "events"):
             assert f in cs["tracking"], f"missing tracking.{f!r} in move {m['name']!r}"
         assert "communityFrame" in m, f"missing communityFrame in move {m['name']!r}"
+        assert "isRevengeAttack" in m, f"missing isRevengeAttack in move {m['name']!r}"
         if m["communityFrame"] is not None:
             for f in ("source", "onBlock", "onHit", "onCounterHit"):
                 assert f in m["communityFrame"], f"missing communityFrame.{f!r} in move {m['name']!r}"

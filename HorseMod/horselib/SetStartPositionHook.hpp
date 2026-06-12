@@ -383,11 +383,7 @@ namespace Horse
 
             auto& ro = ResetOverride::instance();
 
-            // Fast path: override disabled.  Forward to trampoline
-            // unchanged.  Side-effect-free w.r.t. XMM0 — the trampoline
-            // itself doesn't touch XMM0, and the stub restores it after
-            // we return.
-            if (!ro.enabled() || !chara || !orig)
+            if (!chara || !orig)
             {
                 if (orig) orig(chara, x, y, z);
                 return;
@@ -411,6 +407,22 @@ namespace Horse
             if (matched_player < 0)
             {
                 if (orig) orig(chara, x, y, z);
+                return;
+            }
+
+            // This is an incoming player-chara teleport.  Clear persistent
+            // hit/hurt trail history regardless of whether reset-position
+            // override is enabled; stale pre-teleport trails are misleading
+            // even when the engine's vanilla reset target is used.
+            ro.request_trail_clear();
+
+            // Fast path: override disabled.  Forward to trampoline
+            // unchanged.  Side-effect-free w.r.t. XMM0 — the trampoline
+            // itself doesn't touch XMM0, and the stub restores it after
+            // we return.
+            if (!ro.enabled())
+            {
+                orig(chara, x, y, z);
                 return;
             }
 

@@ -125,6 +125,17 @@ export function EffectTagBadges(
   );
 }
 
+export function RevengeAttackBadge() {
+  return (
+    <span
+      className="badge badge-eff badge-eff-rv"
+      title="Revenge attack - derived from localized movelist note text, not DA_MoveListTable EffectTag"
+    >
+      RV
+    </span>
+  );
+}
+
 export function CellRoleBadge({ value }: { value: CellRole }) {
   const map: Record<CellRole, string> = {
     Attack: "badge-mid",

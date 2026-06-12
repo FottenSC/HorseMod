@@ -1,6 +1,6 @@
 ﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { AttackModifierBadges, EffectTagBadges } from "../components/AttackClassBadge";
+import { AttackModifierBadges, EffectTagBadges, RevengeAttackBadge } from "../components/AttackClassBadge";
 import type { CharData, Cell, MovelistMove } from "../data/types";
 
 export const Route = createFileRoute("/c/$cid/moves")({
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/c/$cid/moves")({
 
 type SortKey = "order" | "stance" | "command" | "damage" | "impact" | "onBlock" | "onHit" | "class";
 type SortDir = "asc" | "desc";
-type PresetFilter = "punishable" | "fast" | "plus" | "launch" | "gi" | null;
+type PresetFilter = "punishable" | "fast" | "plus" | "launch" | "gi" | "revenge" | null;
 
 function pickPrimaryCell(move: MovelistMove, cells: Cell[]): {
   cellIdx: number;
@@ -217,6 +217,7 @@ function MovesTab() {
       if (presetFilter === "plus" && ((parseFrameValue(m.blockValue) ?? -999) <= 0)) return false;
       if (presetFilter === "launch" && !/LNC|KND/i.test(`${m.hitValue ?? ""} ${m.counterHitValue ?? ""}`)) return false;
       if (presetFilter === "gi" && !m.effectTags.some((tag) => tag.code === "GI")) return false;
+      if (presetFilter === "revenge" && !m.isRevengeAttack) return false;
       if (conditionFilter !== null) {
         if (conditionFilter === "(none)") {
           if (m.condition) return false;
@@ -300,6 +301,7 @@ function MovesTab() {
           ["plus", "Plus on block"],
           ["launch", "Launch on hit"],
           ["gi", "is a GI"],
+          ["revenge", "Revenge"],
         ] as const).map(([value, label]) => (
           <button
             key={value}
@@ -499,9 +501,10 @@ function MovesTab() {
                 <td className="num"><FramePill value={m.guardBurstValue} /></td>
                 <td className="col-properties">
                   {m.effectTags.length > 0 ? <EffectTagBadges tags={m.effectTags} /> : null}
+                  {m.isRevengeAttack && <RevengeAttackBadge />}
                   {c?.role === "Attack" && <AttackModifierBadges cell={c} />}
                   {m.isThrowInput && <span className="badge badge-eff badge-eff-th">TH</span>}
-                  {m.effectTags.length === 0 && c?.role !== "Attack" && !m.isThrowInput && <span className="muted">-</span>}
+                  {m.effectTags.length === 0 && c?.role !== "Attack" && !m.isThrowInput && !m.isRevengeAttack && <span className="muted">-</span>}
                 </td>
                 <td className="col-notes" title={m.name || undefined}>
                   {notes || <span className="muted">-</span>}

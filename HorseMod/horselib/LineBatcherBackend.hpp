@@ -304,6 +304,27 @@ namespace Horse
             if (m_lbc) Horse::NativeBinding::markRenderStateDirty(m_lbc);
         }
 
+        int32_t clearLines()
+        {
+            if (!isReady()) return 0;
+
+            auto* arr = batchedLinesHeader();
+            if (!saneBatchedLinesHeader(arr))
+            {
+                logInvalidHeader(arr, L"clearLines");
+                invalidate();
+                return 0;
+            }
+
+            const int32_t cleared = arr->Num;
+            if (cleared != 0)
+            {
+                arr->Num = 0;
+                Horse::NativeBinding::markRenderStateDirty(m_lbc);
+            }
+            return cleared;
+        }
+
         void hideAll() override
         {
             // Appended lines expire naturally after m_lifetime seconds.

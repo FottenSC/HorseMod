@@ -258,6 +258,17 @@ namespace Horse
             m_apply_delay.store(2, std::memory_order_release);
         }
 
+        void request_trail_clear() noexcept
+        {
+            m_trail_clear_requested.store(true, std::memory_order_release);
+        }
+
+        bool consume_trail_clear_request() noexcept
+        {
+            return m_trail_clear_requested.exchange(
+                false, std::memory_order_acq_rel);
+        }
+
         // Called once per cockpit pre-hook (game thread, UMG tick —
         // AFTER the world tick has run).  Drains the deferred-apply
         // counter set by apply_to_charas() and, when it elapses, runs
@@ -674,5 +685,12 @@ namespace Horse
         // game thread (UFunction post-hook) and tick() runs on the
         // UMG-tick game thread (cockpit pre-hook).
         std::atomic<int>   m_apply_delay{0};
+
+        // Coalesced request set by the native SetStartPosition hook when
+        // a player chara teleport is about to happen.  The cockpit renderer
+        // drains it after priming the line-batcher backends so old
+        // PersistentLineBatcher trail entries are removed before the first
+        // post-teleport boxes are drawn.
+        std::atomic<bool>  m_trail_clear_requested{false};
     };
 }
