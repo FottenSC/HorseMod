@@ -18,9 +18,10 @@
 //   g_LuxBattle_FrameBoundsGridB              @ image+0x4845E80
 //
 // Frame-bounds grid summary:
-//   grid+0x00                  metadata pointer
-//   grid+0x08 + cellIndex*0x08 cell bucket pointer
-//   metadata+0x28              int16 cell count
+//   grid+0x00                  row-0 FLuxFrameBoundsAxisSpan pointer
+//   grid+0x08 + cellIndex*0x08 row-0 cell bucket pointer table
+//   axisSpan+0x28              int16 cell count
+//   grid+0x408                 terrain-entry array pointer used by state mutators
 //   grid+0x410                 valid byte
 //
 // Cell bucket summary:
@@ -89,10 +90,11 @@ namespace Horse
 
         static constexpr uintptr_t kLegacyBarrierValidRVA = 0x484406C;
 
-        static constexpr uintptr_t kGridMetaPtr        = 0x000;
+        static constexpr uintptr_t kGridAxisSpanPtr    = 0x000;
         static constexpr uintptr_t kGridFirstCellPtr   = 0x008;
+        static constexpr uintptr_t kGridCellTableEnd   = 0x400;
         static constexpr uintptr_t kGridValid          = 0x410;
-        static constexpr uintptr_t kGridMetaCellCount  = 0x028;
+        static constexpr uintptr_t kAxisSpanCellCount  = 0x028;
 
         static constexpr uintptr_t kCellListA          = 0x000;
         static constexpr uintptr_t kCellListACount     = 0x008;
@@ -107,7 +109,9 @@ namespace Horse
         static constexpr uintptr_t kFrameTransformTerrainBase = 0x820;
         static constexpr uintptr_t kFrameTransformStride = 0x10;
 
-        static constexpr int kMaxCells             = 4096;
+        static constexpr int kMaxCells =
+            static_cast<int>((kGridCellTableEnd - kGridFirstCellPtr) /
+                             sizeof(void*));
         static constexpr int kMaxBucketsPerCell    = 256;
         static constexpr int kMaxTrianglesPerBucket = 512;
         static constexpr int kMaxTerrainTriangles  = 2048;
@@ -280,15 +284,15 @@ namespace Horse
             if (!grid) return 0;
 
             uint8_t valid = 0;
-            void* meta = nullptr;
+            void* axisSpan = nullptr;
             if (!SafeReadUInt8(grid + kGridValid, &valid) || valid == 0)
                 return 0;
-            if (!SafeReadPtr(grid + kGridMetaPtr, &meta) || !meta)
+            if (!SafeReadPtr(grid + kGridAxisSpanPtr, &axisSpan) || !axisSpan)
                 return 0;
 
             int16_t cellCount16 = 0;
-            if (!SafeReadInt16(static_cast<const uint8_t*>(meta) +
-                                   kGridMetaCellCount,
+            if (!SafeReadInt16(static_cast<const uint8_t*>(axisSpan) +
+                                   kAxisSpanCellCount,
                                &cellCount16))
                 return 0;
             if (cellCount16 <= 0 || cellCount16 > kMaxCells)
@@ -493,6 +497,8 @@ namespace Horse
             if (!SafeReadUInt32(tri + kTriFlagsPrimary, &primaryFlags))
                 return 0;
             if (!SafeReadUInt32(tri + kTriFlagsSecondary, &secondaryFlags))
+                return 0;
+            if ((secondaryFlags & 0xF00u) == 0x400u)
                 return 0;
 
             FVec3 a{}, b{}, c{};

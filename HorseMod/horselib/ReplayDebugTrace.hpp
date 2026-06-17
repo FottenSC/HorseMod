@@ -686,7 +686,7 @@ namespace Horse
             line += std::to_string(GetCurrentThreadId());
             line += ",\"event\":\"";
             line += event_name ? event_name : "?";
-            line += "\",\"build\":\"replay-accuracy-v13f\"";
+            line += "\",\"build\":\"replay-accuracy-v13dn\"";
             line += ",\"image_base\":\"";
             char buf[64]{};
             std::snprintf(buf, sizeof(buf), "0x%llX",

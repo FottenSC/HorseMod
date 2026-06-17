@@ -84,12 +84,14 @@
 
 #include "NativeBinding.hpp"
 #include "KHitWalker.hpp"
+#include "ReplayDebugTrace.hpp"
 #include "SafeMemoryRead.hpp"
 
 #include <polyhook2/Detour/x64Detour.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 
 #include <atomic>
+#include <cstdio>
 #include <cstdint>
 #include <memory>
 
@@ -107,6 +109,8 @@ namespace Horse
         static constexpr uintptr_t kRVA_ExecuteOpStream     = 0x2FDEA0;
         static constexpr uintptr_t kRVA_TickHitStateSM      = 0x308EC0;
         static constexpr uintptr_t kRVA_FinalizePose        = 0x305B50;
+        static constexpr uintptr_t kRVA_UpdateOpponentAngles = 0x305E50;
+        static constexpr uintptr_t kRVA_SolveBonePose       = 0x2EDB90;
         static constexpr uintptr_t kRVA_TickDamageBehavior  = 0x34E900;
         static constexpr uintptr_t kRVA_UpdateBlockState    = 0x34E820;
 
@@ -158,6 +162,14 @@ namespace Horse
                         base + kRVA_FinalizePose,
                         reinterpret_cast<uint64_t>(&detour_finalize),
                         STR("FinalizePose"));
+            install_one(m_detour_update_opponent, m_tramp_update_opponent,
+                        base + kRVA_UpdateOpponentAngles,
+                        reinterpret_cast<uint64_t>(&detour_update_opponent),
+                        STR("UpdateOpponentRelativeAngles"));
+            install_one(m_detour_solve_pose, m_tramp_solve_pose,
+                        base + kRVA_SolveBonePose,
+                        reinterpret_cast<uint64_t>(&detour_solve_pose),
+                        STR("SolveBonePose"));
             install_one(m_detour_damage,     m_tramp_damage,
                         base + kRVA_TickDamageBehavior,
                         reinterpret_cast<uint64_t>(&detour_damage),
@@ -184,6 +196,8 @@ namespace Horse
             if (m_detour_opstream)  { m_detour_opstream->unHook();  m_detour_opstream.reset(); }
             if (m_detour_hitstate)  { m_detour_hitstate->unHook();  m_detour_hitstate.reset(); }
             if (m_detour_finalize)  { m_detour_finalize->unHook();  m_detour_finalize.reset(); }
+            if (m_detour_update_opponent) { m_detour_update_opponent->unHook(); m_detour_update_opponent.reset(); }
+            if (m_detour_solve_pose) { m_detour_solve_pose->unHook(); m_detour_solve_pose.reset(); }
             if (m_detour_damage)    { m_detour_damage->unHook();    m_detour_damage.reset(); }
             if (m_detour_block)     { m_detour_block->unHook();     m_detour_block.reset(); }
         }
@@ -203,6 +217,8 @@ namespace Horse
         std::unique_ptr<PLH::x64Detour> m_detour_opstream;
         std::unique_ptr<PLH::x64Detour> m_detour_hitstate;
         std::unique_ptr<PLH::x64Detour> m_detour_finalize;
+        std::unique_ptr<PLH::x64Detour> m_detour_update_opponent;
+        std::unique_ptr<PLH::x64Detour> m_detour_solve_pose;
         std::unique_ptr<PLH::x64Detour> m_detour_damage;
         std::unique_ptr<PLH::x64Detour> m_detour_block;
 
@@ -213,8 +229,176 @@ namespace Horse
         uint64_t m_tramp_opstream{0};
         uint64_t m_tramp_hitstate{0};
         uint64_t m_tramp_finalize{0};
+        uint64_t m_tramp_update_opponent{0};
+        uint64_t m_tramp_solve_pose{0};
         uint64_t m_tramp_damage{0};
         uint64_t m_tramp_block{0};
+
+        static constexpr uintptr_t kCharaVfxEffectAnchorOffset = 0x95FA0;
+
+        static void* safe_provider_index(void* provider, int index) noexcept
+        {
+            void* vtable = nullptr;
+            void* fn_raw = nullptr;
+            if (!provider || !SafeReadPtr(provider, &vtable) || !vtable
+                || !SafeReadPtr(reinterpret_cast<uint8_t*>(vtable) + 0x28,
+                                &fn_raw) || !fn_raw)
+                return nullptr;
+
+            using Fn = void*(__fastcall*)(void*, int);
+            void* result = nullptr;
+            __try
+            {
+                result = reinterpret_cast<Fn>(fn_raw)(provider, index);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                result = nullptr;
+            }
+            return result;
+        }
+
+        static uint64_t hash_live_bytes(const void* src,
+                                        size_t bytes,
+                                        bool* ok) noexcept
+        {
+            if (ok) *ok = false;
+            if (!src || bytes == 0 || bytes > 0x100) return 0;
+            uint8_t buf[0x100]{};
+            if (!SafeReadBytes(src, buf, bytes)) return 0;
+            if (ok) *ok = true;
+            return ReplayTraceFields::fnv1a64(buf, bytes);
+        }
+
+        static void add_provider_hashes(ReplayTraceFields& f,
+                                        const char* prefix,
+                                        uint8_t* chara) noexcept
+        {
+            if (!prefix || !chara) return;
+
+            auto add_hash = [&](const char* suffix,
+                                const void* ptr,
+                                size_t bytes) noexcept
+            {
+                bool ok = false;
+                const uint64_t h = hash_live_bytes(ptr, bytes, &ok);
+                char key[96]{};
+                std::snprintf(key, sizeof(key), "%s_%s_ok", prefix, suffix);
+                f.boolean(key, ok);
+                std::snprintf(key, sizeof(key), "%s_%s_hash", prefix, suffix);
+                f.hex(key, static_cast<uintptr_t>(h));
+            };
+
+            void* primary_root = safe_provider_index(chara + 0x35A0, 0);
+            void* primary_bone1 = safe_provider_index(chara + 0x35A0, 1);
+            add_hash("primary_root0_matrix", primary_root, 0x40);
+            add_hash("primary_root1_matrix", primary_bone1, 0x40);
+            add_hash("primary_root1_translation",
+                     primary_bone1 ? static_cast<uint8_t*>(primary_bone1) + 0x30
+                                   : nullptr,
+                     0x10);
+            add_hash("primary_delta_5f0",
+                     primary_root ? static_cast<uint8_t*>(primary_root) + 0x5F0
+                                  : nullptr,
+                     0x40);
+            add_hash("primary_sub_de4",
+                     primary_root ? static_cast<uint8_t*>(primary_root) + 0xDE4
+                                  : nullptr,
+                     0x40);
+
+            void* secondary_root = safe_provider_index(chara + 0x27760, 0);
+            void* secondary_bone1 = safe_provider_index(chara + 0x27760, 1);
+            add_hash("secondary_root1_matrix", secondary_bone1, 0x40);
+            add_hash("secondary_delta_5f0",
+                     secondary_root ? static_cast<uint8_t*>(secondary_root) + 0x5F0
+                                    : nullptr,
+                     0x40);
+        }
+
+        static int player_index_for_chara(void* chara) noexcept
+        {
+            if (!chara) return -1;
+            for (uint32_t pi = 0; pi < 2; ++pi)
+            {
+                if (KHitWalker::charaSlotFromGlobal(pi) == chara)
+                    return static_cast<int>(pi);
+            }
+            return -1;
+        }
+
+        static void emit_chara_lifecycle(const char* stage,
+                                         const char* phase,
+                                         void* chara) noexcept
+        {
+            if (!chara) return;
+            uint8_t* c = reinterpret_cast<uint8_t*>(chara);
+            const int pi = player_index_for_chara(chara);
+
+            float pos_x = 0.0f, pos_z = 0.0f, step_x = 0.0f, step_z = 0.0f;
+            float facing = 0.0f, opp_dist = 0.0f, opp_angle = 0.0f;
+            float ground_x = 0.0f, ground_z = 0.0f, one_shot_x = 0.0f;
+            float one_shot_z = 0.0f, root_x = 0.0f, root_z = 0.0f;
+            float clip_frame = 0.0f;
+            uint32_t move_id = 0;
+            int32_t replay_frame = -1, replay_master = -1;
+            (void)SafeReadFloat(c + 0xA0, &pos_x);
+            (void)SafeReadFloat(c + 0xA8, &pos_z);
+            (void)SafeReadFloat(c + 0xC0, &step_x);
+            (void)SafeReadFloat(c + 0xC8, &step_z);
+            (void)SafeReadFloat(c + 0x94, &facing);
+            (void)SafeReadFloat(c + 0x15A0, &opp_dist);
+            (void)SafeReadFloat(c + 0x15A4, &opp_angle);
+            (void)SafeReadFloat(c + 0x140, &ground_x);
+            (void)SafeReadFloat(c + 0x148, &ground_z);
+            (void)SafeReadFloat(c + 0x150, &one_shot_x);
+            (void)SafeReadFloat(c + 0x158, &one_shot_z);
+            (void)SafeReadFloat(c + 0x180, &root_x);
+            (void)SafeReadFloat(c + 0x188, &root_z);
+            (void)SafeReadFloat(c + 0x2B47C, &clip_frame);
+            (void)SafeReadUInt32(c + 0x324, &move_id);
+            (void)SafeReadInt32(c + 0x3A0, &replay_frame);
+            (void)SafeReadInt32(c + 0x3A4, &replay_master);
+
+            ReplayTraceFields f;
+            f.string("stage", stage ? stage : "?")
+             .string("phase", phase ? phase : "?")
+             .integer("player", pi >= 0 ? pi + 1 : 0)
+             .hex("chara", reinterpret_cast<uintptr_t>(chara))
+             .integer("replay_frame", replay_frame)
+             .integer("replay_master", replay_master)
+             .uinteger("move_id", move_id)
+             .real("clip_frame", clip_frame)
+             .real("pos_x", pos_x)
+             .real("pos_z", pos_z)
+             .real("step_x", step_x)
+             .real("step_z", step_z)
+             .real("facing", facing)
+             .real("opponent_distance", opp_dist)
+             .real("opponent_angle", opp_angle)
+             .real("ground_vel_x", ground_x)
+             .real("ground_vel_z", ground_z)
+             .real("one_shot_x", one_shot_x)
+             .real("one_shot_z", one_shot_z)
+             .real("root_delta_x", root_x)
+             .real("root_delta_z", root_z);
+            add_provider_hashes(f, "provider", c);
+            ReplayDebugTrace::instance().event("native_chara_lifecycle", f);
+        }
+
+        static void emit_lifecycle_slots(const char* stage,
+                                         const char* phase) noexcept
+        {
+            for (uint32_t pi = 0; pi < 2; ++pi)
+                emit_chara_lifecycle(stage, phase,
+                                     KHitWalker::charaSlotFromGlobal(pi));
+        }
+
+        static void* read_slot_arg_chara(int64_t* args) noexcept
+        {
+            void* chara = nullptr;
+            if (args) (void)SafeReadPtr(args, &chara);
+            return chara;
+        }
 
         // Read 16EB on both chara slots; return packed (P1<<8 | P2)
         // with -1 sentinel on failure.
@@ -335,6 +519,8 @@ namespace Horse
         // TickCharaMainSimulation: void(longlong* args)
         static void __fastcall detour_mainsim(int64_t* args)
         {
+            void* chara = read_slot_arg_chara(args);
+            emit_chara_lifecycle("TickCharaMainSimulation", "enter", chara);
             LaneSnap lb[2]; capture_lanes(lb);
             const int before = snapshot_16eb();
             using Fn = void(__fastcall*)(int64_t*);
@@ -343,11 +529,13 @@ namespace Horse
             LaneSnap la[2]; capture_lanes(la);
             const int after = snapshot_16eb();
             log_transition(STR("MainSim"), before, after, lb, la);
+            emit_chara_lifecycle("TickCharaMainSimulation", "exit", chara);
         }
 
         // TickHitResolutionAndBodyCollision: void()
         static void __fastcall detour_hitres()
         {
+            emit_lifecycle_slots("TickHitResolutionAndBodyCollision", "enter");
             LaneSnap lb[2]; capture_lanes(lb);
             const int before = snapshot_16eb();
             using Fn = void(__fastcall*)();
@@ -356,6 +544,7 @@ namespace Horse
             LaneSnap la[2]; capture_lanes(la);
             const int after = snapshot_16eb();
             log_transition(STR("HitRes"), before, after, lb, la);
+            emit_lifecycle_slots("TickHitResolutionAndBodyCollision", "exit");
         }
 
         // TickCharaSecondaryAndDecorators: void(longlong*)
@@ -414,6 +603,8 @@ namespace Horse
         // FinalizeTickPoseAndState: void(chara)
         static void __fastcall detour_finalize(int64_t chara)
         {
+            emit_chara_lifecycle("FinalizeTickPoseAndState", "enter",
+                                 reinterpret_cast<void*>(chara));
             LaneSnap lb[2]; capture_lanes(lb);
             const int before = snapshot_16eb();
             using Fn = void(__fastcall*)(int64_t);
@@ -422,6 +613,36 @@ namespace Horse
             LaneSnap la[2]; capture_lanes(la);
             const int after = snapshot_16eb();
             log_transition(STR("FinalizePose"), before, after, lb, la);
+            emit_chara_lifecycle("FinalizeTickPoseAndState", "exit",
+                                 reinterpret_cast<void*>(chara));
+        }
+
+        // UpdateOpponentRelativeAngles: void(chara)
+        static void __fastcall detour_update_opponent(int64_t chara)
+        {
+            emit_chara_lifecycle("UpdateOpponentRelativeAngles", "enter",
+                                 reinterpret_cast<void*>(chara));
+            using Fn = void(__fastcall*)(int64_t);
+            Fn orig = reinterpret_cast<Fn>(instance().m_tramp_update_opponent);
+            orig(chara);
+            emit_chara_lifecycle("UpdateOpponentRelativeAngles", "exit",
+                                 reinterpret_cast<void*>(chara));
+        }
+
+        // SolveBonePose: void(vfxEffectAnchorBlock, primaryProviderBuffer, flags)
+        static void __fastcall detour_solve_pose(int64_t anchor,
+                                                  float* primary,
+                                                  uint32_t flags)
+        {
+            void* chara = anchor
+                ? reinterpret_cast<void*>(
+                    static_cast<uintptr_t>(anchor) - kCharaVfxEffectAnchorOffset)
+                : nullptr;
+            emit_chara_lifecycle("SolveBonePose", "enter", chara);
+            using Fn = void(__fastcall*)(int64_t, float*, uint32_t);
+            Fn orig = reinterpret_cast<Fn>(instance().m_tramp_solve_pose);
+            orig(anchor, primary, flags);
+            emit_chara_lifecycle("SolveBonePose", "exit", chara);
         }
 
         // TickDamageAndBehaviorLock: void(chara, opp)

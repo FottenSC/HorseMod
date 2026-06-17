@@ -91,6 +91,7 @@
 #include "horselib/StageBoundaryOverlay.hpp"
 #include "horselib/StageVisualSuppressor.hpp"
 #include "horselib/NativeBinding.hpp"
+#include "horselib/VitalTraceHook.hpp"
 #include "horselib/CamLock.hpp"
 #include "horselib/FreeCamera.hpp"
 #include "horselib/VFXOff.hpp"
@@ -161,6 +162,7 @@
 // per-match rule set.  Works for every rule regardless of whether the
 // lobby Blueprint itself called the corresponding Set*Mode UFunction.
 #include "horselib/LuxBattleLauncherStartHook.hpp"
+#include "horselib/NativeReplayTraceHook.hpp"
 
 // PolyHook x64Detour on LuxBattleChara_HasSubProviderEntryOfType0x3e
 // (image+0x3F2990).  This is the SlipOut runtime gate that BOTH the
@@ -868,11 +870,11 @@ private:
     std::atomic<float> m_thickness{1.5f};
 
     // Per-feature line-batcher slot.  Hitboxes (Attack list) draw via
-    // m_backend_hit; hurtboxes + body (Hurtbox + Body lists) draw via
-    // m_backend_hurt.  Splitting them lets the user trail hurtboxes
-    // (Persistent) while keeping hitboxes always-on-top (Normal).
-    // Both default to Foreground; Persistent is unsuitable for hitboxes
-    // because the trail accumulates faster than the eye can disambiguate.
+    // m_backend_hit; hurtboxes draw via m_backend_hurt.  When a feature
+    // is set to Persistent, only engine-live hit/hurt boxes are routed
+    // there; inactive boxes in the broad inspection view fall back to
+    // fixed Foreground backends so they show once instead of smearing.
+    // Body boxes are not hit-resolution volumes, so they never trail.
     std::atomic<Horse::LineBatcherSlot> m_slot_hit {Horse::LineBatcherSlot::Foreground};
     std::atomic<Horse::LineBatcherSlot> m_slot_hurt{Horse::LineBatcherSlot::Foreground};
 
@@ -893,6 +895,8 @@ private:
     // counter stops, so persistent lines are neither duplicated nor aged.
     bool     m_have_trail_game_frame{false};
     uint32_t m_last_trail_game_frame{0};
+    bool     m_have_trail_filter_state{false};
+    bool     m_last_trail_only_active{true};
 
     // ---- Retrack-event overlay ----------------------------------------
     // When ON, watches each chara's facing yaw every cockpit tick and
@@ -1050,6 +1054,40 @@ private:
                 return (is_p2 ? m_show_p2_body : m_show_p1_body).load();
         }
         return false;
+    }
+
+    static bool canMatterThisFrame(const Horse::KHitDraw& d)
+    {
+        switch (d.list)
+        {
+            case Horse::KHitList::Attack:
+                return d.is_per_frame_active && d.attacker_can_strike_engine;
+            case Horse::KHitList::Hurtbox:
+                return d.classifier_addressable &&
+                       d.overlap_active &&
+                       d.defender_can_react_engine;
+            case Horse::KHitList::Body:
+                return false;
+        }
+        return false;
+    }
+
+    void clear_persistent_khit_trails()
+    {
+        if (m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
+            (void)m_backend_hit.clearLines();
+        if (m_backend_hurt.slot() == Horse::LineBatcherSlot::Persistent)
+            (void)m_backend_hurt.clearLines();
+        m_have_trail_game_frame = false;
+    }
+
+    void hide_khit_overlay_lines()
+    {
+        m_backend_hit.hideAll();
+        m_backend_hurt.hideAll();
+        m_backend_hit_once.hideAll();
+        m_backend_hurt_once.hideAll();
+        m_have_trail_game_frame = false;
     }
 
     // (Secondary attack-role filter / shouldShowAttackRole was removed
@@ -1273,6 +1311,9 @@ private:
     int                          m_poll_counter = 0;
     int                          m_update_calls = 0;
     int                          m_diag_tick    = 0;
+    int                          m_engine_fallback_last_cockpit_calls = 0;
+    int                          m_engine_fallback_missed_ticks = 0;
+    bool                         m_engine_fallback_logged = false;
 
     // Reset-override UFunction hook bookkeeping.
     //
@@ -1320,13 +1361,13 @@ private:
 
     Horse::Lux                 m_lux;
 
-    // Two backends so the hitbox slot and the hurtbox/body slot can
-    // independently target different UWorld batchers.  Each owns its
-    // own UWorld+LBC pointer caches; both prime each frame from the
-    // same pivot (the cockpit) but resolve to different LBC offsets
-    // (UWorld+0x48 vs UWorld+0x50) per their slot setting.
+    // Configured backends can target Persistent for active hit/hurt trails.
+    // The *_once backends stay Foreground so inactive boxes in broad view
+    // draw for the current frame only instead of entering the trail.
     Horse::LineBatcherBackend  m_backend_hit;
     Horse::LineBatcherBackend  m_backend_hurt;
+    Horse::LineBatcherBackend  m_backend_hit_once;
+    Horse::LineBatcherBackend  m_backend_hurt_once;
     Horse::LineBatcherBackend  m_backend_stage;
 
     // In-game ImGui overlay token (see on_unreal_init / dtor).  Non-zero
@@ -1336,6 +1377,7 @@ private:
 
     RC::Unreal::Hook::GlobalCallbackId m_engine_tick_callback_id{
         RC::Unreal::Hook::ERROR_ID};
+    PVOID m_exception_handler = nullptr;
 
     // Nav-bootstrap flag: set to true when the overlay transitions from
     // hidden?shown, consumed by render_hitboxes_tab which then calls
@@ -1357,6 +1399,95 @@ private:
     bool m_logged_pcm_resolve  = false;
     bool m_logged_pcm_fallback = false;
 
+    static LONG CALLBACK vectored_exception_handler(
+        EXCEPTION_POINTERS* ep) noexcept
+    {
+        if (!ep || !ep->ExceptionRecord)
+            return EXCEPTION_CONTINUE_SEARCH;
+
+        const auto* rec = ep->ExceptionRecord;
+        const DWORD code = rec->ExceptionCode;
+        if (code == EXCEPTION_BREAKPOINT || code == EXCEPTION_SINGLE_STEP)
+            return EXCEPTION_CONTINUE_SEARCH;
+
+        const uintptr_t rip = reinterpret_cast<uintptr_t>(
+            rec->ExceptionAddress);
+        const uintptr_t base = Horse::NativeBinding::imageBase();
+        constexpr uintptr_t kSc6ImageTraceSpan = 0x20000000;
+        const bool in_sc6_image = base && rip >= base
+            && rip < base + kSc6ImageTraceSpan;
+        if (!in_sc6_image
+            || !Horse::ReplayScrub::instance()
+                    .has_pending_sc6_native_step_drain())
+        {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        uint32_t frame_counter = 0;
+        constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
+        const bool frame_counter_ok = base != 0 && Horse::SafeReadUInt32(
+            reinterpret_cast<const void*>(base + kFrameCounterRVA),
+            &frame_counter);
+
+        HorseMod* self = s_instance.load(std::memory_order_acquire);
+        Horse::ReplayTraceFields f;
+        f.hex("exception_code", code)
+         .hex("exception_rip", rip)
+         .hex("exception_rva", rip - base)
+         .uinteger("thread_id", ::GetCurrentThreadId())
+         .boolean("pending_native_step_drain", true)
+         .boolean("frame_counter_ok", frame_counter_ok)
+         .uinteger("frame_counter", frame_counter)
+         .uinteger("exception_flags", rec->ExceptionFlags)
+         .uinteger("exception_parameters", rec->NumberParameters);
+        if (rec->NumberParameters > 0)
+            f.hex("exception_info0", rec->ExceptionInformation[0]);
+        if (rec->NumberParameters > 1)
+            f.hex("exception_info1", rec->ExceptionInformation[1]);
+        if (rec->NumberParameters > 2)
+            f.hex("exception_info2", rec->ExceptionInformation[2]);
+        if (rec->NumberParameters > 3)
+            f.hex("exception_info3", rec->ExceptionInformation[3]);
+        if (self)
+        {
+            f.boolean("world_gate_enabled",
+                     self->m_world_tick_gate.is_enabled())
+             .integer("world_gate_policy", self->m_world_tick_gate.policy())
+             .uinteger("world_gate_entry_counter",
+                       self->m_world_tick_gate.entry_counter())
+             .boolean("replay_gate_enabled",
+                      self->m_replay_clock_gate.is_enabled())
+             .boolean("actor_gate_enabled",
+                      self->m_actor_tick_gate.is_enabled())
+             .boolean("time_gate_enabled",
+                      self->m_time_dilation_gate.is_enabled())
+             .boolean("wind_gate_enabled",
+                      self->m_wind_rng_gate.is_enabled());
+        }
+#if defined(_M_X64)
+        if (ep->ContextRecord)
+        {
+            f.hex("context_rip", ep->ContextRecord->Rip)
+             .hex("context_rsp", ep->ContextRecord->Rsp)
+             .hex("context_rcx", ep->ContextRecord->Rcx)
+             .hex("context_rdx", ep->ContextRecord->Rdx)
+             .hex("context_r8", ep->ContextRecord->R8)
+             .hex("context_r9", ep->ContextRecord->R9);
+        }
+#endif
+        const std::string fn =
+            Horse::ReplayDebugTrace::instance().format_absolute_rip(rip);
+        if (!fn.empty())
+            f.string("exception_function", fn);
+        Horse::ReplayDebugTrace::instance().event(
+            "horsemod_vectored_exception", f);
+        Output::send<LogLevel::Error>(
+            STR("[HorseMod] pending native-step exception code=0x{:X} "
+                "rip=0x{:X} rva=0x{:X}\n"),
+            static_cast<unsigned>(code), rip, rip - base);
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
 public:
     HorseMod() : CppUserModBase()
     {
@@ -1371,6 +1502,12 @@ public:
         // compiled-in defaults - functionally identical to the
         // pre-persistence behaviour on a clean install.
         load_persisted_settings();
+
+        // Materialize a first-run settings.cfg immediately instead of
+        // relying on the later on_update save tick.  This keeps fresh
+        // Thunderstore profiles inspectable even if the user exits from
+        // the title screen before the periodic save runs.
+        save_persisted_settings();
 
         // Populate reset-hook candidate list.  Registration is attempted
         // (and retried) from on_update once each slot's containing class
@@ -1407,10 +1544,9 @@ public:
                 s ? STR("ON") : STR("OFF"));
             if (!s)
             {
-                // Hide on both backends so neither leaves stray lines
-                // when the user toggles the overlay off.
-                m_backend_hit.hideAll();
-                m_backend_hurt.hideAll();
+                // Hide on all KHit backends so neither persistent trails
+                // nor one-frame fallback lines survive overlay-off.
+                hide_khit_overlay_lines();
             }
         });
 
@@ -1496,6 +1632,13 @@ public:
         });
 
         s_instance.store(this);
+        m_exception_handler = ::AddVectoredExceptionHandler(
+            1, &HorseMod::vectored_exception_handler);
+        if (!m_exception_handler)
+        {
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] AddVectoredExceptionHandler failed\n"));
+        }
         Output::send<LogLevel::Verbose>(
             STR("[HorseMod] ctor v0.10.0 (KHit walker)\n"));
     }
@@ -1514,7 +1657,13 @@ public:
         // removed so a graceful unload cannot leave stage actors hidden.
         m_stage_visuals.restoreNow();
 
-        // Zero instance pointer FIRST so any in-flight hook sees null.
+        if (m_exception_handler)
+        {
+            ::RemoveVectoredExceptionHandler(m_exception_handler);
+            m_exception_handler = nullptr;
+        }
+
+        // Zero instance pointer early so any in-flight hook sees null.
         s_instance.store(nullptr);
 
         if (m_engine_tick_callback_id != RC::Unreal::Hook::ERROR_ID)
@@ -1562,6 +1711,13 @@ public:
         // reloaded mod (e.g. dev iteration) doesn't double-hook on its
         // next install.  Idempotent if install never succeeded.
         Horse::SetStartPositionHook::instance().uninstall();
+
+        // Tear down native diagnostic detours installed after image-base
+        // resolution.  Idempotent if install never succeeded.
+        Horse::VitalTraceHook::instance().uninstall();
+
+        // Tear down stock replay-launch trace probes.  Observability only.
+        Horse::NativeReplayTraceHook::instance().uninstall();
 
         // Tear down all online-rules UFunction hooks (SlipOut + any
         // future implemented rules).  Idempotent.
@@ -1634,8 +1790,8 @@ public:
                     HorseMod* self = s_instance.load(std::memory_order_acquire);
                     if (!self) return;
                     auto& scrub = Horse::ReplayScrub::instance();
-                    if (scrub.has_pending_replay_file_start())
-                        scrub.service_replay_file_start_request();
+                    scrub.service_state_snapshot_request();
+                    scrub.service_replay_file_start_request();
                 }, replay_start_tick_opts);
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] engine tick replay-start service registered id={}\n"),
@@ -1649,6 +1805,15 @@ public:
         // world space via the owning chara's bone pose, and by
         // SetStartPositionHook to override the chara teleport target.
         Horse::NativeBinding::resolve();
+
+        // Stock native replay-launch trace probes.  These are the
+        // in-process equivalent of x64dbg breakpoints on the replay save,
+        // battle-setting, asset-request, readiness, and manual-launch path.
+        Horse::NativeReplayTraceHook::instance().install();
+
+        // VitalTraceHook is replay-oracle observability only.  Keep it lazy
+        // (ReplayScrub installs it when needed) so normal startup does not
+        // patch native damage routines before gameplay exists.
 
         // Install the C++-level chara-teleport hook.  This is the
         // workhorse for the "Override reset position" feature: every
@@ -1739,8 +1904,21 @@ public:
         }
 
         service_presence_transition_safety("update");
-        if (RC::Unreal::IsInGameThread())
-            Horse::ReplayScrub::instance().service_replay_file_start_request();
+        // IsInGameThread() throws until UE4SS records the game-thread id;
+        // on_update can run before that during startup. Use only the old
+        // API here so Thunderstore's UE4SS shimloader does not need the
+        // newer IsInGameThreadRaw() export.
+        const bool in_game_thread = []() noexcept {
+            try { return RC::Unreal::IsInGameThread(); }
+            catch (...) { return false; }
+        }();
+        if (in_game_thread)
+        {
+            auto& scrub = Horse::ReplayScrub::instance();
+            scrub.service_state_snapshot_request();
+            scrub.service_replay_file_start_request();
+            service_replay_scrub_update_fallback();
+        }
 
         const bool all_reset_registered = std::all_of(
             m_reset_slots.begin(), m_reset_slots.end(),
@@ -2335,6 +2513,8 @@ private:
             const bool ok = base != 0 && Horse::SafeReadUInt32(
                 reinterpret_cast<const void*>(base + kFrameCounterRVA),
                 &cur_frame);
+            const uint32_t world_entry_counter =
+                m_world_tick_gate.entry_counter();
             if (ok && m_prev_frame_counter_seen)
             {
                 // PerFrameTick ran (counter advanced) ? drain one credit.
@@ -2356,6 +2536,7 @@ private:
                         Horse::ReplayScrub::instance()
                             .notify_sc6_seek_native_step_drained(
                                 drained_credits,
+                                world_entry_counter,
                                 m_prev_frame_counter_value,
                                 cur_frame,
                                 policy_before,
@@ -2370,11 +2551,13 @@ private:
                     {
                         Horse::ReplayTraceFields f;
                         f.string("stage", "frame-counter-advanced")
-                         .uinteger("frame_counter_before",
-                                   m_prev_frame_counter_value)
-                         .uinteger("frame_counter_after", cur_frame)
-                         .integer("gate_policy_before", policy_before)
-                         .integer("gate_policy_after", policy_after)
+                          .uinteger("frame_counter_before",
+                                    m_prev_frame_counter_value)
+                          .uinteger("frame_counter_after", cur_frame)
+                          .uinteger("world_gate_entry_counter",
+                                    world_entry_counter)
+                          .integer("gate_policy_before", policy_before)
+                          .integer("gate_policy_after", policy_after)
                          .integer("drained_credits", drained_credits)
                          .boolean("world_gate_enabled",
                                   m_world_tick_gate.is_enabled())
@@ -2556,6 +2739,7 @@ private:
                 Horse::ReplayScrub::instance()
                     .notify_sc6_seek_native_step_granted(
                         sc6_step_credits,
+                        m_world_tick_gate.entry_counter(),
                         policy_before,
                         policy_after,
                         m_world_tick_gate.is_enabled(),
@@ -3583,9 +3767,52 @@ private:
         m_player_controller.invalidate();
         m_backend_hit.invalidate();
         m_backend_hurt.invalidate();
+        m_backend_hit_once.invalidate();
+        m_backend_hurt_once.invalidate();
         m_backend_stage.invalidate();
         m_stage_boundary.invalidate();
         m_stage_visuals.invalidate();
+    }
+
+    void service_replay_scrub_update_fallback()
+    {
+        auto& scrub = Horse::ReplayScrub::instance();
+        const int cockpit_calls = m_update_calls;
+        if (cockpit_calls != m_engine_fallback_last_cockpit_calls)
+        {
+            m_engine_fallback_last_cockpit_calls = cockpit_calls;
+            m_engine_fallback_missed_ticks = 0;
+            m_engine_fallback_logged = false;
+            return;
+        }
+
+        if (++m_engine_fallback_missed_ticks < 2)
+            return;
+
+        const auto presence = Horse::GameMode::instance().current_presence();
+        const bool relevant = presence == Horse::GamePresence::Replay
+            || scrub.timeline_gen_state()
+                == Horse::ReplayScrub::TimelineGenState::Generating
+            || scrub.has_active_validation_step();
+        if (!relevant)
+            return;
+
+        if (presence == Horse::GamePresence::Replay
+            && !scrub.is_initialized())
+        {
+            (void)scrub.ensure_initialized();
+        }
+
+        if (!m_engine_fallback_logged)
+        {
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] replay scrub update fallback active "
+                "(presence={} cockpit_calls={})\n"),
+                Horse::presence_name(presence), cockpit_calls);
+            m_engine_fallback_logged = true;
+        }
+
+        scrub.service_engine_tick_replay_fallback();
     }
 
     // ------------------------------------------------------------------
@@ -3766,7 +3993,9 @@ private:
                 m_update_calls,
                 m_enabled.load() ? 1 : 0,
                 reinterpret_cast<uintptr_t>(raw_cockpit),
-                (m_backend_hit.isReady() && m_backend_hurt.isReady()) ? 1 : 0,
+                (m_backend_hit.isReady() && m_backend_hurt.isReady() &&
+                 m_backend_hit_once.isReady() &&
+                 m_backend_hurt_once.isReady()) ? 1 : 0,
                 Horse::NativeBinding::isReady() ? 1 : 0);
         }
 #endif
@@ -3805,21 +4034,48 @@ private:
 
         if (!m_enabled.load()) return;
 
-        // Sync each backend's slot with the per-feature ImGui toggles
-        // and prime both this frame.  setSlot() invalidates the cached
-        // LBC pointer when the slot changes; primeFrom() re-resolves it
-        // from the (current) UWorld.  Idempotent when nothing changed.
+        const Horse::LineBatcherSlot desired_hit_slot  = m_slot_hit.load();
+        const Horse::LineBatcherSlot desired_hurt_slot = m_slot_hurt.load();
+        const bool only_active_this_frame = m_only_show_active.load();
+
+        bool trail_filter_changed = false;
+        if (m_have_trail_filter_state)
+        {
+            trail_filter_changed =
+                only_active_this_frame != m_last_trail_only_active;
+        }
+        m_last_trail_only_active = only_active_this_frame;
+        m_have_trail_filter_state = true;
+
+        // Sync each configured backend's slot with the per-feature ImGui
+        // toggles and prime all KHit backends this frame.  *_once backends
+        // are fixed Foreground fallbacks for inactive boxes when the
+        // configured backend is Persistent.
         bool trail_slot_changed = false;
-        if (m_backend_hit.slot()  != m_slot_hit.load())
+        bool clear_hit_trail_after_prime = false;
+        bool clear_hurt_trail_after_prime = false;
+        if (m_backend_hit.slot() != desired_hit_slot)
         {
-            m_backend_hit.setSlot(m_slot_hit.load());
+            if (m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hit.clearLines();
+            m_backend_hit.setSlot(desired_hit_slot);
+            clear_hit_trail_after_prime =
+                desired_hit_slot == Horse::LineBatcherSlot::Persistent;
             trail_slot_changed = true;
         }
-        if (m_backend_hurt.slot() != m_slot_hurt.load())
+        if (m_backend_hurt.slot() != desired_hurt_slot)
         {
-            m_backend_hurt.setSlot(m_slot_hurt.load());
+            if (m_backend_hurt.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hurt.clearLines();
+            m_backend_hurt.setSlot(desired_hurt_slot);
+            clear_hurt_trail_after_prime =
+                desired_hurt_slot == Horse::LineBatcherSlot::Persistent;
             trail_slot_changed = true;
         }
+        if (m_backend_hit_once.slot() != Horse::LineBatcherSlot::Foreground)
+            m_backend_hit_once.setSlot(Horse::LineBatcherSlot::Foreground);
+        if (m_backend_hurt_once.slot() != Horse::LineBatcherSlot::Foreground)
+            m_backend_hurt_once.setSlot(Horse::LineBatcherSlot::Foreground);
         if (trail_slot_changed)
             m_have_trail_game_frame = false;
 
@@ -3833,35 +4089,48 @@ private:
             const float trail_seconds =
                 static_cast<float>(m_trail_frames.load()) / 60.0f;
             m_backend_hit.setLifetime(
-                m_slot_hit.load() == Horse::LineBatcherSlot::Persistent
+                desired_hit_slot == Horse::LineBatcherSlot::Persistent
                     ? trail_seconds
                     : Horse::LineBatcherBackend::kDefaultLifetime);
             m_backend_hurt.setLifetime(
-                m_slot_hurt.load() == Horse::LineBatcherSlot::Persistent
+                desired_hurt_slot == Horse::LineBatcherSlot::Persistent
                     ? trail_seconds
                     : Horse::LineBatcherBackend::kDefaultLifetime);
+            m_backend_hit_once.setLifetime(
+                Horse::LineBatcherBackend::kDefaultLifetime);
+            m_backend_hurt_once.setLifetime(
+                Horse::LineBatcherBackend::kDefaultLifetime);
         }
 
         m_backend_hit.primeFrom(pivot);
         m_backend_hurt.primeFrom(pivot);
+        m_backend_hit_once.primeFrom(pivot);
+        m_backend_hurt_once.primeFrom(pivot);
 
-        // Both must be ready to proceed - partial readiness would let
-        // (e.g.) hitboxes draw without their hurtbox counterparts on
-        // the same frame, which would visually misrepresent the state
-        // of a move and confuse a viewer.
-        if (!m_backend_hit.isReady() || !m_backend_hurt.isReady()) return;
+        // All KHit backends must be ready to proceed - partial readiness
+        // could split active trails from one-frame inactive boxes and
+        // visually misrepresent the current move state.
+        if (!m_backend_hit.isReady() || !m_backend_hurt.isReady() ||
+            !m_backend_hit_once.isReady() || !m_backend_hurt_once.isReady())
+            return;
+
+        if (clear_hit_trail_after_prime || clear_hurt_trail_after_prime ||
+            trail_filter_changed)
+        {
+            if ((clear_hit_trail_after_prime || trail_filter_changed) &&
+                m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hit.clearLines();
+            if ((clear_hurt_trail_after_prime || trail_filter_changed) &&
+                m_backend_hurt.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hurt.clearLines();
+            m_have_trail_game_frame = false;
+        }
 
         if (Horse::ResetOverride::instance().consume_trail_clear_request())
         {
-            if (m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
-                (void)m_backend_hit.clearLines();
-            if (m_backend_hurt.slot() == Horse::LineBatcherSlot::Persistent)
-                (void)m_backend_hurt.clearLines();
-
-            // Restart trail cadence so the first post-teleport cockpit tick
-            // appends a fresh entry even if the game frame counter has not
-            // advanced since the last pre-teleport draw.
-            m_have_trail_game_frame = false;
+            // Clears persistent lines and restarts cadence so the first
+            // post-teleport cockpit tick appends a fresh trail entry.
+            clear_persistent_khit_trails();
         }
 
         uint32_t trail_game_frame = 0;
@@ -3902,6 +4171,8 @@ private:
 
         m_backend_hit.beginFrame();
         m_backend_hurt.beginFrame();
+        m_backend_hit_once.beginFrame();
+        m_backend_hurt_once.beginFrame();
 
         const float T = m_thickness.load();
 
@@ -4085,7 +4356,7 @@ private:
             //
             // Master OFF (only_active==false) draws everything
             // authored on either list regardless of these predicates.
-            const bool only_active = m_only_show_active.load();
+            const bool only_active = only_active_this_frame;
             if (!show_hurt && !show_atk && !show_body) return;
 
             // KHit native buffers are battle-space scratch fields.  The
@@ -4095,6 +4366,7 @@ private:
                 chara.raw(),
                 static_cast<uint32_t>(pi),
                 [&](const Horse::KHitDraw& d) {
+                    const bool matters_this_frame = canMatterThisFrame(d);
                     // Gate by list kind using THIS chara's per-player flags.
                     switch (d.list)
                     {
@@ -4130,10 +4402,7 @@ private:
                             // fire a reaction this frame, so the
                             // OR-of-failures gate matches engine-
                             // truth.
-                            if (only_active &&
-                                (!d.classifier_addressable ||
-                                 !d.overlap_active ||
-                                 !d.defender_can_react_engine))
+                            if (only_active && !matters_this_frame)
                                 return;
                             break;
                         case Horse::KHitList::Attack:
@@ -4163,9 +4432,7 @@ private:
                             // box otherwise looks live, so the
                             // engine-truth filter must include this
                             // gate too.
-                            if (only_active &&
-                                (!d.is_per_frame_active ||
-                                 !d.attacker_can_strike_engine))
+                            if (only_active && !matters_this_frame)
                                 return;
                             break;
                         case Horse::KHitList::Body:
@@ -4174,21 +4441,43 @@ private:
                     }
 
                     const Horse::FLinColor col = colourFor(d, pi);
-                    // Route by list kind so the user can have hitboxes
-                    // and hurtboxes drawn into different UWorld batchers
-                    // (e.g. hurtboxes Persistent for trail, hitboxes
-                    // Foreground for clarity).  Body shares the hurt
-                    // backend because it's logically a defensive volume.
-                    Horse::LineBatcherBackend& b =
-                        (d.list == Horse::KHitList::Attack)
-                            ? m_backend_hit
-                            : m_backend_hurt;
-                    if (b.slot() == Horse::LineBatcherSlot::Persistent &&
+                    // Persistent is reserved for boxes that can affect the
+                    // hit resolver this frame.  Inactive hit/hurt boxes in
+                    // broad inspection mode are drawn through fixed
+                    // Foreground backends so they show once.  Body boxes do
+                    // not participate in hit resolution, so they also fall
+                    // back to Foreground when hurtboxes are set to trail.
+                    Horse::LineBatcherBackend* b = nullptr;
+                    switch (d.list)
+                    {
+                        case Horse::KHitList::Attack:
+                            b = (m_backend_hit.slot() ==
+                                     Horse::LineBatcherSlot::Persistent &&
+                                 !matters_this_frame)
+                                ? &m_backend_hit_once
+                                : &m_backend_hit;
+                            break;
+                        case Horse::KHitList::Hurtbox:
+                            b = (m_backend_hurt.slot() ==
+                                     Horse::LineBatcherSlot::Persistent &&
+                                 !matters_this_frame)
+                                ? &m_backend_hurt_once
+                                : &m_backend_hurt;
+                            break;
+                        case Horse::KHitList::Body:
+                            b = (m_backend_hurt.slot() ==
+                                     Horse::LineBatcherSlot::Persistent)
+                                ? &m_backend_hurt_once
+                                : &m_backend_hurt;
+                            break;
+                    }
+                    if (!b) return;
+                    if (b->slot() == Horse::LineBatcherSlot::Persistent &&
                         !append_persistent_this_tick)
                     {
                         return;
                     }
-                    Horse::DrawKHitDraw(b, d, col, T);
+                    Horse::DrawKHitDraw(*b, d, col, T);
                     ++nodes_drawn;
                 });
         });
@@ -4212,6 +4501,8 @@ private:
 
         m_backend_hit.endFrame();
         m_backend_hurt.endFrame();
+        m_backend_hit_once.endFrame();
+        m_backend_hurt_once.endFrame();
 
         // Once per ~2s: dump a summary so we can tell whether each stage
         // fired.  Parallel to the KHitWalker's shouldLog() throttle.
@@ -4222,7 +4513,9 @@ private:
             Output::send<LogLevel::Verbose>(
                 STR("[HorseMod] frame pivot=0x{:x} backend_ready={} charas={} drawn={}\n"),
                 reinterpret_cast<uintptr_t>(raw_cockpit),
-                (m_backend_hit.isReady() && m_backend_hurt.isReady()) ? 1 : 0,
+                (m_backend_hit.isReady() && m_backend_hurt.isReady() &&
+                 m_backend_hit_once.isReady() &&
+                 m_backend_hurt_once.isReady()) ? 1 : 0,
                 charas_seen,
                 nodes_drawn);
         }
@@ -4847,8 +5140,7 @@ private:
             m_enabled.store(enabled);
             if (!enabled)
             {
-                m_backend_hit.hideAll();
-                m_backend_hurt.hideAll();
+                hide_khit_overlay_lines();
             }
         }
         // Belt-and-suspenders: SetItemDefaultFocus registers the F5
@@ -4868,7 +5160,9 @@ private:
         {
             ImGui::TextDisabled("(waiting for a match to start)");
         }
-        else if (!m_backend_hit.isReady() || !m_backend_hurt.isReady())
+        else if (!m_backend_hit.isReady() || !m_backend_hurt.isReady() ||
+                 !m_backend_hit_once.isReady() ||
+                 !m_backend_hurt_once.isReady())
         {
             ImGui::TextDisabled("(waiting for the battle scene)");
         }
@@ -4934,7 +5228,10 @@ private:
             bool only_active = m_only_show_active.load();
             if (ImGui::Checkbox("Only boxes that can matter this frame",
                                 &only_active))
+            {
                 m_only_show_active.store(only_active);
+                clear_persistent_khit_trails();
+            }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                 "Default analysis view.\n\n"
                 "Hitboxes: shown only on engine damage frames.\n"
@@ -4997,8 +5294,7 @@ private:
                 ImGui::SetTooltip("Line thickness for the wireframes.");
 
             // Per-feature renderer combos.  Two entries each: Persistent
-            // (depth-tested, lines accumulate over time - useful for
-            // tracing a chara's path through a move) and Normal
+            // (depth-tested, engine-live boxes accumulate over time) and Normal
             // (always-on-top, lines clear each frame - clean read of
             // the current state).  The third historical entry "Default"
             // (UWorld+0x40, depth-tested per-frame) was removed because
@@ -5016,24 +5312,24 @@ private:
                 m_slot_hit.store(static_cast<Horse::LineBatcherSlot>(hit_idx));
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Normal: always on top. Persistent: lines "
-                    "accumulate over time.");
+                    "Normal: always on top. Persistent: active "
+                    "hitboxes trail; inactive hitboxes show once when "
+                    "the broad view is enabled.");
 
             int hurt_idx = static_cast<int>(m_slot_hurt.load());
             if (ImGui::Combo("Hurtbox renderer", &hurt_idx, slot_names, 2))
                 m_slot_hurt.store(static_cast<Horse::LineBatcherSlot>(hurt_idx));
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Normal: always on top. Persistent: lines "
-                    "accumulate (useful for tracing a move's path).");
+                    "Normal: always on top. Persistent: active "
+                    "hurtboxes trail; inactive hurtboxes show once when "
+                    "the broad view is enabled.");
 
             // Trail length - only meaningful when at least one renderer
             // is set to Persistent.  Hidden otherwise to keep the UI
-            // free of inert controls.  Works identically with the
-            // engine-live filter enabled: the persistent batcher
-            // accumulates ONLY the active-frame draws, producing a
-            // trail of where the active hit/hurt boxes actually were
-            // - which is the most useful read for move analysis.
+            // free of inert controls.  Persistent batchers accumulate only
+            // engine-live hit/hurt draws; inactive broad-view boxes and body
+            // boxes are routed to one-frame Foreground fallbacks.
             const bool any_persistent =
                 m_slot_hit.load()  == Horse::LineBatcherSlot::Persistent ||
                 m_slot_hurt.load() == Horse::LineBatcherSlot::Persistent;
@@ -5052,9 +5348,8 @@ private:
                     "game frames (60/sec). Lifetime decrements only "
                     "when SC6's game-frame counter advances, so freeze "
                     "holds the trail and F6 step drains one frame. "
-                    "the visible trail. Works with 'Only boxes that can "
-                    "matter this frame' - the trail then shows just the "
-                    "engine-live footprint of each hit/hurt box.");
+                    "Only active hit/hurt boxes enter the trail; inactive "
+                    "broad-view boxes show once in Foreground.");
             }
         }
     }

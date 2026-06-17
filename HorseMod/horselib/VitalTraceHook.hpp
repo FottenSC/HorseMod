@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "NativeBinding.hpp"
 #include "ReplayDebugTrace.hpp"
 #include "ReplayScrubDiag.hpp"
 #include "SafeMemoryRead.hpp"

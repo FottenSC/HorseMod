@@ -70,6 +70,7 @@
 
 #include "NativeBinding.hpp"
 #include "OnlineRules.hpp"
+#include "ReplayDebugTrace.hpp"
 
 #include <polyhook2/Detour/x64Detour.hpp>
 
@@ -197,12 +198,20 @@ namespace Horse
             // from a post-test log.
             static std::atomic<int> s_total_fires{0};
             const int n = s_total_fires.fetch_add(1) + 1;
+            ReplayTraceFields f;
+            f.integer("fire_index", n)
+             .integer("policy", static_cast<int>(policy))
+             .hex("launcher", reinterpret_cast<uintptr_t>(launcher))
+             .hex("start_param", reinterpret_cast<uintptr_t>(InStartParam));
+            ReplayDebugTrace::instance().event(
+                "native_replay_ui_battle_launcher_start", f);
             RC::Output::send<RC::LogLevel::Default>(
                 STR("[LuxBattleLauncherStartHook] fire #{} policy={} "
-                    "launcher=0x{:X}\n"),
+                    "launcher=0x{:X} start_param=0x{:X}\n"),
                 n,
                 static_cast<int>(policy),
-                reinterpret_cast<uintptr_t>(launcher));
+                reinterpret_cast<uintptr_t>(launcher),
+                reinterpret_cast<uintptr_t>(InStartParam));
 
             if (orig) orig(launcher, InStartParam);
         }

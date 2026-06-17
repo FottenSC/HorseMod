@@ -100,19 +100,24 @@ namespace Horse
             m_policy = static_cast<int32_t*>(
                 CodeCave::allocate(sizeof(int32_t), alignof(int32_t)));
             if (!m_policy) return false;
+            m_entry_counter = static_cast<uint32_t*>(
+                CodeCave::allocate(sizeof(uint32_t), alignof(uint32_t)));
+            if (!m_entry_counter) return false;
             // Start at "frozen" (0) so an enable-without-prior-set leaves
             // the engine paused rather than free-running.  The cockpit
             // pre-hook will overwrite this on its first call.
             policy_store_relaxed(0);
+            entry_counter_store_relaxed(0);
 
-            // Trampoline layout (23 bytes):
+            // Trampoline layout (30 bytes):
             //   [0x00] 8B 05 <disp32>           mov eax, [rip+policy]
             //   [0x06] 85 C0                    test eax, eax
-            //   [0x08] 74 0C                    je +0x0C   (-> ret at 0x16)
-            //   [0x0A] 4C 8B DC                 mov r11, rsp        (replicated)
-            //   [0x0D] 49 89 5B 10              mov [r11+0x10], rbx (replicated)
-            //   [0x11] E9 <rel32>               jmp site9+7
-            //   [0x16] C3                       ret
+            //   [0x08] 74 13                    je +0x13   (-> ret at 0x1D)
+            //   [0x0A] F0 FF 05 <disp32>        lock inc [rip+entry_counter]
+            //   [0x11] 4C 8B DC                 mov r11, rsp        (replicated)
+            //   [0x14] 49 89 5B 10              mov [r11+0x10], rbx (replicated)
+            //   [0x18] E9 <rel32>               jmp site9+7
+            //   [0x1D] C3                       ret
             //
             // The trampoline ONLY checks the policy slot — it does NOT
             // decrement.  The decrement is owned by C++-side code that
@@ -136,7 +141,7 @@ namespace Horse
             // instruction (mov r11, rsp).  RSP is exactly as the caller
             // passed it; the function is `void`; bare RET returns straight
             // back to the caller with the stack untouched.
-            constexpr size_t kTrampSize = 23;
+            constexpr size_t kTrampSize = 30;
             void* tramp = CodeCave::allocate(kTrampSize);
             if (!tramp) return false;
 
@@ -160,22 +165,36 @@ namespace Horse
             buf[off++] = 0x85;
             buf[off++] = 0xC0;
 
-            // [0x08] je +0x0C -> ret at offset 0x16
+            // [0x08] je +0x13 -> ret at offset 0x1D
             buf[off++] = 0x74;
-            buf[off++] = 0x0C;
+            buf[off++] = 0x13;
 
-            // [0x0A] mov r11, rsp   (replicated original prologue byte 0..2)
+            // [0x0A] lock inc dword ptr [rip+disp32_entry_counter]
+            buf[off++] = 0xF0;
+            buf[off++] = 0xFF;
+            buf[off++] = 0x05;
+            {
+                const int64_t disp =
+                      reinterpret_cast<int64_t>(m_entry_counter)
+                    - (reinterpret_cast<int64_t>(tramp) + off + 4);
+                if (disp < INT32_MIN || disp > INT32_MAX) return false;
+                const int32_t d32 = static_cast<int32_t>(disp);
+                std::memcpy(&buf[off], &d32, sizeof(d32));
+                off += 4;
+            }
+
+            // [0x11] mov r11, rsp   (replicated original prologue byte 0..2)
             buf[off++] = 0x4C;
             buf[off++] = 0x8B;
             buf[off++] = 0xDC;
 
-            // [0x0D] mov [r11+0x10], rbx   (replicated original prologue byte 3..6)
+            // [0x14] mov [r11+0x10], rbx   (replicated original prologue byte 3..6)
             buf[off++] = 0x49;
             buf[off++] = 0x89;
             buf[off++] = 0x5B;
             buf[off++] = 0x10;
 
-            // [0x11] jmp rel32 -> site9 + 7
+            // [0x18] jmp rel32 -> site9 + 7
             {
                 uint8_t jmp_back[5];
                 void* jmp_at      = static_cast<uint8_t*>(tramp) + off;
@@ -186,7 +205,7 @@ namespace Horse
                 off += 5;
             }
 
-            // [0x16] ret
+            // [0x1D] ret
             buf[off++] = 0xC3;
 
             std::memcpy(tramp, buf, off);
@@ -205,8 +224,9 @@ namespace Horse
             m_resolved_ok = true;
             RC::Output::send<RC::LogLevel::Verbose>(
                 STR("[Horse.WorldTickGate] resolved (policy slot @ 0x{:x}, "
-                    "tramp @ 0x{:x})\n"),
+                    "entry counter @ 0x{:x}, tramp @ 0x{:x})\n"),
                 reinterpret_cast<uintptr_t>(m_policy),
+                reinterpret_cast<uintptr_t>(m_entry_counter),
                 reinterpret_cast<uintptr_t>(tramp));
             return true;
         }
@@ -310,6 +330,13 @@ namespace Horse
                 .load(std::memory_order_acquire);
         }
 
+        uint32_t entry_counter() const noexcept
+        {
+            if (!m_entry_counter) return 0;
+            return std::atomic_ref<uint32_t>(*m_entry_counter)
+                .load(std::memory_order_acquire);
+        }
+
         // Raw pointer to the cave-resident int32_t policy slot.  Exposed
         // so sibling gates (e.g. ReplayClockGate) can build trampolines
         // that read the same atomic without owning their own slot — they
@@ -340,8 +367,16 @@ namespace Horse
                 .store(v, std::memory_order_relaxed);
         }
 
+        void entry_counter_store_relaxed(uint32_t v) noexcept
+        {
+            if (!m_entry_counter) return;
+            std::atomic_ref<uint32_t>(*m_entry_counter)
+                .store(v, std::memory_order_relaxed);
+        }
+
         BytePatch m_patch{};
-        int32_t*  m_policy      = nullptr;
+        int32_t*  m_policy        = nullptr;
+        uint32_t* m_entry_counter = nullptr;
         bool      m_resolved    = false;
         bool      m_resolved_ok = false;
         std::atomic<bool> m_enabled{false};

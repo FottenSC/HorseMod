@@ -28,7 +28,8 @@
 //   * Per-chara MoveVM state:
 //       - nCurrentMoveId (int32) @ chara+0x324 (FLuxBattleChara.nCurrentMoveId)
 //       - flSelfPos_X/Y/Z @ chara+0xA0/+0xA4/+0xA8 (world position)
-//       - flMoveVelocity_X/Y/Z @ chara+0x140/+0x144/+0x148
+//       - flMoveVelocity_X/Y/Z @ chara+0x130/+0x134/+0x138
+//       - flGroundVelocity_X/Y/Z @ chara+0x140/+0x144/+0x148
 //       - bVMPaused / bInputFreezeGate flags @ chara+0x16E6/+0x16E7
 //       - pCurrentActiveAttackCell @ chara+0x44048 (non-null = mid-attack)
 //   * Per-tick deltas: last-seen vs current MoveID/position so we can
@@ -58,6 +59,7 @@
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -79,27 +81,79 @@ namespace Horse
         //
         // bVMPaused: at 0x16E6 per the struct (NOT 0x16E2, which is
         // actually bAirborneFlag).
+        constexpr uintptr_t kChara_nPrimaryHeaderState8C_Off = 0x8C;
         constexpr uintptr_t kChara_flSelfPos_X_Off        = 0xA0;
         constexpr uintptr_t kChara_flSelfPos_Y_Off        = 0xA4;
         constexpr uintptr_t kChara_flSelfPos_Z_Off        = 0xA8;
-        constexpr uintptr_t kChara_flMoveVelocity_X_Off   = 0x140;
-        constexpr uintptr_t kChara_flMoveVelocity_Y_Off   = 0x144;
-        constexpr uintptr_t kChara_flMoveVelocity_Z_Off   = 0x148;
+        constexpr uintptr_t kChara_flPosePos_X_Off        = 0xC0;
+        constexpr uintptr_t kChara_flPosePos_Y_Off        = 0xC4;
+        constexpr uintptr_t kChara_flPosePos_Z_Off        = 0xC8;
+        constexpr uintptr_t kChara_flMoveVelocity_X_Off   = 0x130;
+        constexpr uintptr_t kChara_flMoveVelocity_Y_Off   = 0x134;
+        constexpr uintptr_t kChara_flMoveVelocity_Z_Off   = 0x138;
+        constexpr uintptr_t kChara_flGroundVelocity_X_Off = 0x140;
+        constexpr uintptr_t kChara_flGroundVelocity_Y_Off = 0x144;
+        constexpr uintptr_t kChara_flGroundVelocity_Z_Off = 0x148;
+        constexpr uintptr_t kChara_flOneShotOffset_X_Off  = 0x150;
+        constexpr uintptr_t kChara_flOneShotOffset_Z_Off  = 0x158;
+        constexpr uintptr_t kChara_flExpectedMotion_X_Off = 0x1C0;
+        constexpr uintptr_t kChara_flExpectedMotion_Z_Off = 0x1C8;
+        constexpr uintptr_t kChara_flFrameDelta_X_Off     = 0x1D0;
+        constexpr uintptr_t kChara_flFrameDelta_Z_Off     = 0x1D8;
+        constexpr uintptr_t kChara_dwHitSlideSlot_Off     = 0x1E0;
+        constexpr uintptr_t kChara_dwLatchedHitSlideInputDir_Off = 0x1E4;
+        constexpr uintptr_t kChara_flHitPushback_X_Off    = 0x1F0;
+        constexpr uintptr_t kChara_flHitPushback_Z_Off    = 0x1F8;
+        constexpr uintptr_t kChara_flHitPushbackDecayScale_Off = 0x204;
+        constexpr uintptr_t kChara_dwLookAtBlendFrameCounter_Off = 0x20C;
+        constexpr uintptr_t kChara_flMoveVMTimeDilationScalar_Off = 0x2080;
         constexpr uintptr_t kChara_nCurrentMoveId_Off     = 0x324;
         constexpr uintptr_t kChara_flCurrentClipFrame_Off  = 0x2B47C;
         // wVfxStateCheckA at +0x252 - 2-byte VFX-side state mirror.
         // Useful as a "is the engine ticking?" canary even though it's
         // not the move state per se.
         constexpr uintptr_t kChara_wVfxStateCheckA_Off    = 0x252;
+        constexpr uintptr_t kChara_flLookTarget_X_Off     = 0x300;
+        constexpr uintptr_t kChara_flLookTarget_Y_Off     = 0x304;
+        constexpr uintptr_t kChara_flLookTarget_Z_Off     = 0x308;
+        constexpr uintptr_t kChara_flOppCached_X_Off      = 0x310;
+        constexpr uintptr_t kChara_flOppCached_Facing_Off = 0x314;
+        constexpr uintptr_t kChara_flOppCached_Z_Off      = 0x318;
         constexpr uintptr_t kChara_flBodyFacing_Off       = 0x94;
+        constexpr uintptr_t kChara_flRenderPos_X_Off      = 0x2090;
+        constexpr uintptr_t kChara_flRenderPos_Y_Off      = 0x2094;
+        constexpr uintptr_t kChara_flRenderPos_Z_Off      = 0x2098;
+        constexpr uintptr_t kChara_flOpponentDistance_Off = 0x15A0;
+        constexpr uintptr_t kChara_flOpponentAngle_Off    = 0x15A4;
+        constexpr uintptr_t kChara_flPrevOpponentAngle_Off = 0x15A8;
+        constexpr uintptr_t kChara_flFacingTargetMinusAdditive_Off = 0x15AC;
+        constexpr uintptr_t kChara_flWrappedFacingTarget_Off = 0x15B0;
+        constexpr uintptr_t kChara_flFinalFacingDelta_Off = 0x15B4;
+        constexpr uintptr_t kChara_dwFacingSector_Off     = 0x15C0;
+        constexpr uintptr_t kChara_bMirrorAdjust_16D9_Off = 0x16D9;
+        constexpr uintptr_t kChara_bFallReaction_16E1_Off = 0x16E1;
+        constexpr uintptr_t kChara_bClassifyGate_16E5_Off = 0x16E5;
+        constexpr uintptr_t kChara_FacingRetrackRamp_Off  = 0x971A8;
+        constexpr size_t kChara_FacingRetrackRamp_Bytes    = 0x14;
         constexpr uintptr_t kChara_bVMPaused_Off          = 0x16E6;
         constexpr uintptr_t kChara_bInputFreezeGate_Off   = 0x16E7;
+        constexpr uintptr_t kChara_bSubWindowInhibitorB_16FE_Off = 0x16FE;
+        constexpr uintptr_t kChara_bDampedMotionMode_16FB_Off = 0x16FB;
         constexpr uintptr_t kChara_bInHitstunFlag_Off     = 0x16DB;
         constexpr uintptr_t kChara_bInBlockstunFlag_Off   = 0x16DC;
+        constexpr uintptr_t kChara_bAirborneFlag_16E2_Off  = 0x16E2;
+        constexpr uintptr_t kChara_dwCameraRangeActive_Off = 0x1B0;
+        constexpr uintptr_t kChara_wMoveTransitionState_Off = 0x198C;
+        constexpr uintptr_t kChara_wHitSlideState_Off     = 0x1994;
+        constexpr uintptr_t kChara_wMatchStateSubA_Off     = 0x19EC;
         constexpr uintptr_t kChara_pActiveAttackCell_Off  = 0x44048;
         // Not life/HP. Ghidra shows +0x1364 is a VM decay/counter field;
         // keep it only as diagnostic drift telemetry.
         constexpr uintptr_t kChara_flVmDecayCounter_Off   = 0x1364;
+        constexpr uintptr_t kChara_dwHitRootMotionGate_Off = 0x1390;
+        constexpr uintptr_t kChara_nHitSlideFrameTimer_Off = 0x43D90;
+        constexpr uintptr_t kChara_nHitSlideFrameTimerMirror_Off = 0x43D94;
+        constexpr uintptr_t kChara_dwHitReactionResult_Off = 0x43DA0;
         // Native vital candidates from LuxBattleChara_AccumulateDamageTaken
         // and LuxBattleChara_UpdateLethalHitGauge. These are diagnostic until
         // live traces prove exact HUD/KO semantics.
@@ -152,29 +206,156 @@ namespace Horse
         constexpr uintptr_t kIL_nDrainCursor_Off             = 0x4410;
         constexpr uintptr_t kIL_nMinStoreFrameIndex_Off      = 0x4414;
 
-        // Chara-level replay state offsets (NOT captured by HgCpuDirect,
-        // which only covers chara+0x90..+0x35A0).  These fields are at
-        // +0x4400 and beyond - past the bone matrix region.
+        // Chara-level replay/SC state offsets (NOT captured by HgCpuDirect,
+        // which only covers chara+0x90..+0x35A0).  The replay-tail fields
+        // immediately before +0x43F4 are diagnostics only until runtime
+        // traces prove they need restore authority.
         constexpr uintptr_t kChara_dwReplayLookupKey_Off     = 0x43F4;
+        constexpr uintptr_t kChara_dwReplaySamplePeriod_Off   = 0x43E0;
+        constexpr uintptr_t kChara_dwReplayModeTimeout_Off    = 0x43F0;
         constexpr uintptr_t kChara_dwReplayEnableFlag_Off    = 0x4400;
         constexpr uintptr_t kChara_dwReplayFrameOffset_Off   = 0x440C;
         constexpr uintptr_t kChara_dwReplayFrameTotal_Off    = 0x4410;
         constexpr uintptr_t kChara_dwReplayFrameTarget_Off   = 0x4414;
         constexpr uintptr_t kChara_dwReplayConsumerCursor_Off = 0x4420;
         constexpr uintptr_t kChara_bCharaMode_Off            = 0x4424;
+        constexpr uintptr_t kChara_pSoulChargeProviderTable_Off = 0x470;
+        constexpr uintptr_t kChara_dwSoulChargeProviderI_Off    = 0x478;
+        constexpr uintptr_t kChara_dwSoulChargeProviderJ_Off    = 0x47C;
+        constexpr uintptr_t kChara_bSoulChargeMode_Off          = 0x480;
+        constexpr uintptr_t kChara_bSoulChargeState_Off         = 0x488;
+        constexpr uintptr_t kChara_dwSoulChargeTriggerBits_Off  = 0x490;
+        constexpr uintptr_t kChara_dwSoulChargeKindGroup_Off    = 0x4B8;
+        constexpr uintptr_t kChara_dwSoulChargeMatchCounter_Off = 0x4BC;
+        constexpr uintptr_t kChara_flRootMotionBlendWeight_Off  = 0x3490;
+        constexpr uintptr_t kChara_flMoveTimeScaleA_Off         = 0x3500;
+        constexpr uintptr_t kChara_flMoveTimeScaleB_Off         = 0x3510;
+        constexpr uintptr_t kChara_HitCueSlotBase_Off           = 0x45230;
+        constexpr uintptr_t kChara_HitCueSlotStride             = 0xB0;
+        constexpr size_t kChara_HitCueSlotCount                 = 4;
+        constexpr size_t kChara_HitCueSlotBytes                 = 0xB0;
+        constexpr uintptr_t kHitCueSlot_dwFrameCounter_Off      = 0x04;
+        constexpr uintptr_t kHitCueSlot_wLoopFlag_Off           = 0x08;
+        constexpr uintptr_t kHitCueSlot_wEndReached_Off         = 0x0A;
+        constexpr uintptr_t kHitCueSlot_wActiveCue_Off          = 0x02;
+        constexpr uintptr_t kHitCueSlot_wMultiplierIndex_Off    = 0x16;
+        constexpr uintptr_t kHitCueSlot_flFrame_Off             = 0x20;
+        constexpr uintptr_t kHitCueSlot_flSegmentEnd_Off        = 0x2C;
+        constexpr uintptr_t kHitCueSlot_flLoopSpan_Off          = 0x30;
+        constexpr uintptr_t kHitCueSlot_flPrevFrame_Off         = 0x38;
+        constexpr uintptr_t kHitCueSlot_flWeightGate_Off        = 0x3C;
+        constexpr uintptr_t kHitCueSlot_flBlend_Off             = 0x40;
+        constexpr uintptr_t kHitCueSlot_flBlendTarget_Off       = 0x44;
+        constexpr uintptr_t kHitCueSlot_flBlendStep_Off         = 0x48;
+        constexpr uintptr_t kHitCueSlot_flBlendRate_Off         = 0x4C;
+        constexpr uintptr_t kHitCueSlot_flBlendTimer_Off        = 0x50;
+        constexpr uintptr_t kHitCueSlot_wPoseMode_Off           = 0x56;
+        constexpr uintptr_t kHitCueSlot_flCachedLocalX_Off      = 0x60;
+        constexpr uintptr_t kHitCueSlot_flCachedLocalY_Off      = 0x64;
+        constexpr uintptr_t kHitCueSlot_flCachedLocalZ_Off      = 0x68;
+        constexpr uintptr_t kHitCueSlot_flCachedLocalW_Off      = 0x6C;
+        constexpr uintptr_t kHitCueSlot_flCachedWorldX_Off      = 0x70;
+        constexpr uintptr_t kHitCueSlot_flCachedWorldY_Off      = 0x74;
+        constexpr uintptr_t kHitCueSlot_flCachedWorldZ_Off      = 0x78;
+        constexpr uintptr_t kHitCueSlot_flCachedWorldW_Off      = 0x7C;
+        constexpr uintptr_t kHitCueSlot_CacheBytes_Off          = 0x60;
+        constexpr size_t kHitCueSlot_CacheBytes_Len             = 0x20;
+        constexpr uintptr_t kChara_flHitCueRootWeight_Off       = 0x96364;
+        constexpr uintptr_t kChara_HitCueLaneBase_Off           = 0x444F0;
+        constexpr uintptr_t kChara_HitCueLaneStride             = 0x468;
+        constexpr size_t kChara_HitCueLaneCount                 = 3;
+        constexpr uintptr_t kHitCueLane_dwGate_Off              = 0x2C;
+        constexpr uintptr_t kHitCueLane_flRate_Off              = 0x30;
+        constexpr size_t kHitCueLane_HeaderBytes                = 0x40;
+        // Ghidra: LuxBattleChara_ApplyHitCueRootMotion and
+        // LuxBattleChara_EvaluateHitCueQuaternion sample only
+        // vfxEffectAnchorBlock+0x800..+0xBFF for the 4 hit-cue pose lanes.
+        constexpr uintptr_t kChara_HitCuePosePack_Off           = 0x967A0;
+        constexpr size_t kChara_HitCuePosePackBytes             = 0x400;
 
         // Aggregate of chara MoveVM state we care about for diagnostics.
         // Used both for one-shot dumps and per-tick delta detection.
         struct CharaMoveVmSnap
         {
+            struct HitCueRootMotionSlot
+            {
+                int16_t active_cue {-1};
+                int16_t multiplier_index {-1};
+                int16_t pose_mode {-1};
+                uint32_t frame_counter {0xFFFFFFFFu};
+                int16_t loop_flag {-1};
+                int16_t end_reached {-1};
+                float   node_frame {0.0f};
+                float   node_segment_end {0.0f};
+                float   node_loop_span {0.0f};
+                float   node_prev_frame {0.0f};
+                float   weight_gate {0.0f};
+                float   node_blend {0.0f};
+                float   node_blend_target {0.0f};
+                float   node_blend_step {0.0f};
+                float   node_blend_rate {0.0f};
+                float   node_blend_timer {0.0f};
+                float   cached_local_x {0.0f};
+                float   cached_local_y {0.0f};
+                float   cached_local_z {0.0f};
+                float   cached_local_w {0.0f};
+                float   cached_world_x {0.0f};
+                float   cached_world_y {0.0f};
+                float   cached_world_z {0.0f};
+                float   cached_world_w {0.0f};
+                std::array<uint8_t, kHitCueSlot_CacheBytes_Len> cache_bytes{};
+                std::array<uint8_t, kChara_HitCueSlotBytes> slot_bytes{};
+                std::array<uint8_t, kHitCueLane_HeaderBytes> lane_header{};
+                uint32_t lane_gate {0xFFFFFFFFu};
+                float   lane_rate {0.0f};
+                bool    cache_readable {false};
+                bool    slot_readable {false};
+                bool    lane_readable {false};
+            };
+
             uintptr_t chara_ptr   {0};
+            uint32_t  primary_header_state8c {0};
             uint32_t  current_move_id {0xFFFFFFFFu};
             uint32_t  current_move_frame {0};
             float     current_clip_frame {0.0f};
             uint16_t  vfx_state_check_a {0xFFFF};
             float     pos_x {0.0f}, pos_y {0.0f}, pos_z {0.0f};
+            float     pose_pos_x {0.0f}, pose_pos_y {0.0f}, pose_pos_z {0.0f};
+            float     render_pos_x {0.0f}, render_pos_y {0.0f}, render_pos_z {0.0f};
             float     vel_x {0.0f}, vel_y {0.0f}, vel_z {0.0f};
+            float     ground_vel_x {0.0f}, ground_vel_y {0.0f}, ground_vel_z {0.0f};
+            float     one_shot_x {0.0f}, one_shot_z {0.0f};
+            float     expected_motion_x {0.0f}, expected_motion_z {0.0f};
+            float     frame_delta_x {0.0f}, frame_delta_z {0.0f};
+            uint32_t  hit_slide_slot {0xFFFFFFFFu};
+            uint32_t  latched_hit_slide_input_dir {0xFFFFFFFFu};
+            float     hit_pushback_x {0.0f}, hit_pushback_z {0.0f};
+            float     hit_pushback_decay_scale {0.0f};
+            float     root_motion_blend_weight {0.0f};
+            float     move_time_scale_a {0.0f};
+            float     move_time_scale_b {0.0f};
+            float     movevm_time_dilation_scalar {0.0f};
+            float     hit_cue_root_weight {0.0f};
+            std::array<uint8_t, kChara_HitCuePosePackBytes>
+                hit_cue_pose_pack{};
+            bool      hit_cue_pose_pack_readable {false};
             float     facing {0.0f};
+            float     look_target_x {0.0f}, look_target_y {0.0f}, look_target_z {0.0f};
+            float     opp_cached_x {0.0f}, opp_cached_facing {0.0f}, opp_cached_z {0.0f};
+            float     opponent_distance {0.0f};
+            float     opponent_angle {0.0f};
+            float     prev_opponent_angle {0.0f};
+            float     facing_target_minus_additive {0.0f};
+            float     wrapped_facing_target {0.0f};
+            float     final_facing_delta {0.0f};
+            uint32_t  facing_sector {0};
+            std::array<uint8_t, kChara_FacingRetrackRamp_Bytes> facing_retrack_ramp{};
+            uint32_t  facing_retrack_mode {0};
+            int32_t   facing_retrack_frames_remain {0};
+            float     facing_retrack_current_weight {0.0f};
+            float     facing_retrack_target_weight {0.0f};
+            float     facing_retrack_step_per_frame {0.0f};
+            bool      facing_retrack_readable {false};
             float     vm_decay_counter {0.0f};
             float     vital_scale {0.0f};
             float     vital_candidate {0.0f};
@@ -182,10 +363,37 @@ namespace Horse
             float     vital_displayed {0.0f};
             uint32_t  vital_category_bits {0};
             int16_t   vital_state {0};
+            uint32_t  replay_sample_period {0xFFFFFFFFu};
+            uint32_t  replay_mode_timeout {0xFFFFFFFFu};
+            uintptr_t soul_charge_provider_table {0};
+            uint32_t  soul_charge_provider_i {0xFFFFFFFFu};
+            uint32_t  soul_charge_provider_j {0xFFFFFFFFu};
+            uint8_t   soul_charge_mode {0xFF};
+            uint8_t   soul_charge_state {0xFF};
+            uint32_t  soul_charge_trigger_bits {0xFFFFFFFFu};
+            uint32_t  soul_charge_kind_group {0xFFFFFFFFu};
+            uint32_t  soul_charge_match_counter {0xFFFFFFFFu};
             uint8_t   vm_paused {0xFF};
             uint8_t   input_freeze_gate {0xFF};
+            uint8_t   mirror_adjust_16d9 {0xFF};
+            uint8_t   fall_reaction_16e1 {0xFF};
+            uint8_t   classify_gate_16e5 {0xFF};
+            uint8_t   damped_motion_mode_16fb {0xFF};
+            uint8_t   subwindow_inhibitor_16fe {0xFF};
             uint8_t   in_hitstun {0xFF};
             uint8_t   in_blockstun {0xFF};
+            uint8_t   airborne_16e2 {0xFF};
+            uint32_t  camera_range_active {0xFFFFFFFFu};
+            uint32_t  look_at_blend_frame_counter {0xFFFFFFFFu};
+            uint32_t  hit_root_motion_gate {0xFFFFFFFFu};
+            uint16_t  move_transition_state {0xFFFF};
+            uint16_t  hit_slide_state {0xFFFF};
+            uint16_t  match_state_sub_a {0xFFFF};
+            int32_t   hit_slide_frame_timer {0x7FFFFFFF};
+            int32_t   hit_slide_frame_timer_mirror {0x7FFFFFFF};
+            uint32_t  hit_reaction_result {0xFFFFFFFFu};
+            std::array<HitCueRootMotionSlot, kChara_HitCueSlotCount>
+                hit_cue_slots{};
             uintptr_t active_attack_cell {0};
             bool      readable {false};
 
@@ -194,6 +402,7 @@ namespace Horse
             bool changed_from(const CharaMoveVmSnap& prev) const noexcept
             {
                 return chara_ptr          != prev.chara_ptr
+                    || primary_header_state8c != prev.primary_header_state8c
                     || current_move_id    != prev.current_move_id
                     || current_move_frame != prev.current_move_frame
                     || current_clip_frame != prev.current_clip_frame
@@ -204,9 +413,54 @@ namespace Horse
                     || vel_x              != prev.vel_x
                     || vel_y              != prev.vel_y
                     || vel_z              != prev.vel_z
+                    || ground_vel_x       != prev.ground_vel_x
+                    || ground_vel_y       != prev.ground_vel_y
+                    || ground_vel_z       != prev.ground_vel_z
+                    || one_shot_x         != prev.one_shot_x
+                    || one_shot_z         != prev.one_shot_z
+                    || expected_motion_x  != prev.expected_motion_x
+                    || expected_motion_z  != prev.expected_motion_z
+                    || frame_delta_x      != prev.frame_delta_x
+                    || frame_delta_z      != prev.frame_delta_z
+                    || hit_slide_slot     != prev.hit_slide_slot
+                    || latched_hit_slide_input_dir
+                        != prev.latched_hit_slide_input_dir
+                    || hit_pushback_x     != prev.hit_pushback_x
+                    || hit_pushback_z     != prev.hit_pushback_z
+                    || hit_pushback_decay_scale
+                        != prev.hit_pushback_decay_scale
+                    || root_motion_blend_weight != prev.root_motion_blend_weight
+                    || move_time_scale_a  != prev.move_time_scale_a
+                    || move_time_scale_b  != prev.move_time_scale_b
+                    || hit_cue_root_weight != prev.hit_cue_root_weight
+                    || hit_cue_pose_pack_readable
+                        != prev.hit_cue_pose_pack_readable
+                    || hit_cue_pose_pack != prev.hit_cue_pose_pack
+                    || damped_motion_mode_16fb != prev.damped_motion_mode_16fb
+                    || move_transition_state != prev.move_transition_state
+                    || hit_slide_state    != prev.hit_slide_state
+                    || hit_slide_frame_timer != prev.hit_slide_frame_timer
+                    || hit_slide_frame_timer_mirror
+                        != prev.hit_slide_frame_timer_mirror
+                    || hit_reaction_result != prev.hit_reaction_result
+                    || look_at_blend_frame_counter
+                        != prev.look_at_blend_frame_counter
+                    || hit_root_motion_gate != prev.hit_root_motion_gate
+                    || hit_cue_slots[0].active_cue
+                        != prev.hit_cue_slots[0].active_cue
+                    || hit_cue_slots[0].cached_world_x
+                        != prev.hit_cue_slots[0].cached_world_x
+                    || hit_cue_slots[0].cached_world_z
+                        != prev.hit_cue_slots[0].cached_world_z
                     || vital_candidate    != prev.vital_candidate
                     || vital_displayed    != prev.vital_displayed
                     || vital_state        != prev.vital_state
+                    || replay_sample_period != prev.replay_sample_period
+                    || replay_mode_timeout != prev.replay_mode_timeout
+                    || soul_charge_state  != prev.soul_charge_state
+                    || soul_charge_trigger_bits != prev.soul_charge_trigger_bits
+                    || soul_charge_kind_group != prev.soul_charge_kind_group
+                    || soul_charge_match_counter != prev.soul_charge_match_counter
                     || active_attack_cell != prev.active_attack_cell;
             }
         };
@@ -228,22 +482,97 @@ namespace Horse
             s.chara_ptr = reinterpret_cast<uintptr_t>(chara_raw);
             uint8_t* c = reinterpret_cast<uint8_t*>(chara_raw);
 
+            SafeReadUInt32(c + kChara_nPrimaryHeaderState8C_Off,
+                           &s.primary_header_state8c);
             SafeReadUInt32(c + kChara_nCurrentMoveId_Off,    &s.current_move_id);
             float clip_frame = 0.0f;
-            if (SafeReadFloat(c + kChara_flCurrentClipFrame_Off, &clip_frame)
-                && clip_frame >= 0.0f)
+            if (SafeReadFloat(c + kChara_flCurrentClipFrame_Off, &clip_frame))
             {
                 s.current_clip_frame = clip_frame;
-                s.current_move_frame = static_cast<uint32_t>(clip_frame);
+                if (clip_frame >= 0.0f)
+                    s.current_move_frame = static_cast<uint32_t>(clip_frame);
             }
             SafeReadUInt16(c + kChara_wVfxStateCheckA_Off,   &s.vfx_state_check_a);
             SafeReadFloat (c + kChara_flSelfPos_X_Off,       &s.pos_x);
             SafeReadFloat (c + kChara_flSelfPos_Y_Off,       &s.pos_y);
             SafeReadFloat (c + kChara_flSelfPos_Z_Off,       &s.pos_z);
+            SafeReadFloat (c + kChara_flPosePos_X_Off,       &s.pose_pos_x);
+            SafeReadFloat (c + kChara_flPosePos_Y_Off,       &s.pose_pos_y);
+            SafeReadFloat (c + kChara_flPosePos_Z_Off,       &s.pose_pos_z);
+            SafeReadFloat (c + kChara_flRenderPos_X_Off,     &s.render_pos_x);
+            SafeReadFloat (c + kChara_flRenderPos_Y_Off,     &s.render_pos_y);
+            SafeReadFloat (c + kChara_flRenderPos_Z_Off,     &s.render_pos_z);
             SafeReadFloat (c + kChara_flMoveVelocity_X_Off,  &s.vel_x);
             SafeReadFloat (c + kChara_flMoveVelocity_Y_Off,  &s.vel_y);
             SafeReadFloat (c + kChara_flMoveVelocity_Z_Off,  &s.vel_z);
+            SafeReadFloat (c + kChara_flGroundVelocity_X_Off,&s.ground_vel_x);
+            SafeReadFloat (c + kChara_flGroundVelocity_Y_Off,&s.ground_vel_y);
+            SafeReadFloat (c + kChara_flGroundVelocity_Z_Off,&s.ground_vel_z);
+            SafeReadFloat (c + kChara_flOneShotOffset_X_Off, &s.one_shot_x);
+            SafeReadFloat (c + kChara_flOneShotOffset_Z_Off, &s.one_shot_z);
+            SafeReadFloat (c + kChara_flExpectedMotion_X_Off,&s.expected_motion_x);
+            SafeReadFloat (c + kChara_flExpectedMotion_Z_Off,&s.expected_motion_z);
+            SafeReadFloat (c + kChara_flFrameDelta_X_Off,    &s.frame_delta_x);
+            SafeReadFloat (c + kChara_flFrameDelta_Z_Off,    &s.frame_delta_z);
+            SafeReadUInt32(c + kChara_dwHitSlideSlot_Off,
+                           &s.hit_slide_slot);
+            SafeReadUInt32(c + kChara_dwLatchedHitSlideInputDir_Off,
+                           &s.latched_hit_slide_input_dir);
+            SafeReadFloat (c + kChara_flHitPushback_X_Off,   &s.hit_pushback_x);
+            SafeReadFloat (c + kChara_flHitPushback_Z_Off,   &s.hit_pushback_z);
+            SafeReadFloat (c + kChara_flHitPushbackDecayScale_Off,
+                           &s.hit_pushback_decay_scale);
+            SafeReadFloat (c + kChara_flRootMotionBlendWeight_Off,
+                           &s.root_motion_blend_weight);
+            SafeReadFloat (c + kChara_flMoveTimeScaleA_Off,  &s.move_time_scale_a);
+            SafeReadFloat (c + kChara_flMoveTimeScaleB_Off,  &s.move_time_scale_b);
+            SafeReadFloat (c + kChara_flMoveVMTimeDilationScalar_Off,
+                           &s.movevm_time_dilation_scalar);
+            SafeReadFloat (c + kChara_flHitCueRootWeight_Off,
+                            &s.hit_cue_root_weight);
+            s.hit_cue_pose_pack_readable = SafeReadBytes(
+                c + kChara_HitCuePosePack_Off,
+                s.hit_cue_pose_pack.data(),
+                s.hit_cue_pose_pack.size());
             SafeReadFloat (c + kChara_flBodyFacing_Off,      &s.facing);
+            SafeReadFloat (c + kChara_flLookTarget_X_Off,    &s.look_target_x);
+            SafeReadFloat (c + kChara_flLookTarget_Y_Off,    &s.look_target_y);
+            SafeReadFloat (c + kChara_flLookTarget_Z_Off,    &s.look_target_z);
+            SafeReadFloat (c + kChara_flOppCached_X_Off,     &s.opp_cached_x);
+            SafeReadFloat (c + kChara_flOppCached_Facing_Off,&s.opp_cached_facing);
+            SafeReadFloat (c + kChara_flOppCached_Z_Off,     &s.opp_cached_z);
+            SafeReadFloat (c + kChara_flOpponentDistance_Off,&s.opponent_distance);
+            SafeReadFloat (c + kChara_flOpponentAngle_Off,   &s.opponent_angle);
+            SafeReadFloat (c + kChara_flPrevOpponentAngle_Off,&s.prev_opponent_angle);
+            SafeReadFloat (c + kChara_flFacingTargetMinusAdditive_Off,
+                           &s.facing_target_minus_additive);
+            SafeReadFloat (c + kChara_flWrappedFacingTarget_Off,
+                           &s.wrapped_facing_target);
+            SafeReadFloat (c + kChara_flFinalFacingDelta_Off,
+                           &s.final_facing_delta);
+            SafeReadUInt32(c + kChara_dwFacingSector_Off,    &s.facing_sector);
+            s.facing_retrack_readable = SafeReadBytes(
+                c + kChara_FacingRetrackRamp_Off,
+                s.facing_retrack_ramp.data(),
+                s.facing_retrack_ramp.size());
+            if (s.facing_retrack_readable)
+            {
+                std::memcpy(&s.facing_retrack_mode,
+                            s.facing_retrack_ramp.data(),
+                            sizeof(s.facing_retrack_mode));
+                std::memcpy(&s.facing_retrack_frames_remain,
+                            s.facing_retrack_ramp.data() + 4,
+                            sizeof(s.facing_retrack_frames_remain));
+                std::memcpy(&s.facing_retrack_current_weight,
+                            s.facing_retrack_ramp.data() + 8,
+                            sizeof(s.facing_retrack_current_weight));
+                std::memcpy(&s.facing_retrack_target_weight,
+                            s.facing_retrack_ramp.data() + 0x0C,
+                            sizeof(s.facing_retrack_target_weight));
+                std::memcpy(&s.facing_retrack_step_per_frame,
+                            s.facing_retrack_ramp.data() + 0x10,
+                            sizeof(s.facing_retrack_step_per_frame));
+            }
             SafeReadFloat (c + kChara_flVmDecayCounter_Off,  &s.vm_decay_counter);
             SafeReadFloat (c + kChara_flVitalScale_Off,      &s.vital_scale);
             SafeReadFloat (c + kChara_flVitalCandidate_Off,  &s.vital_candidate);
@@ -252,10 +581,134 @@ namespace Horse
             SafeReadUInt32(c + kChara_dwVitalCategoryBits_Off,
                            &s.vital_category_bits);
             SafeReadInt16 (c + kChara_wVitalState_Off,       &s.vital_state);
+            SafeReadUInt32(c + kChara_dwReplaySamplePeriod_Off,
+                           &s.replay_sample_period);
+            SafeReadUInt32(c + kChara_dwReplayModeTimeout_Off,
+                           &s.replay_mode_timeout);
+
+            void* sc_table = nullptr;
+            if (SafeReadPtr(c + kChara_pSoulChargeProviderTable_Off, &sc_table))
+                s.soul_charge_provider_table =
+                    reinterpret_cast<uintptr_t>(sc_table);
+            SafeReadUInt32(c + kChara_dwSoulChargeProviderI_Off,
+                           &s.soul_charge_provider_i);
+            SafeReadUInt32(c + kChara_dwSoulChargeProviderJ_Off,
+                           &s.soul_charge_provider_j);
+            SafeReadUInt8 (c + kChara_bSoulChargeMode_Off,
+                           &s.soul_charge_mode);
+            SafeReadUInt8 (c + kChara_bSoulChargeState_Off,
+                           &s.soul_charge_state);
+            SafeReadUInt32(c + kChara_dwSoulChargeTriggerBits_Off,
+                           &s.soul_charge_trigger_bits);
+            SafeReadUInt32(c + kChara_dwSoulChargeKindGroup_Off,
+                           &s.soul_charge_kind_group);
+            SafeReadUInt32(c + kChara_dwSoulChargeMatchCounter_Off,
+                           &s.soul_charge_match_counter);
+
             SafeReadUInt8 (c + kChara_bVMPaused_Off,         &s.vm_paused);
             SafeReadUInt8 (c + kChara_bInputFreezeGate_Off,  &s.input_freeze_gate);
+            SafeReadUInt8 (c + kChara_bMirrorAdjust_16D9_Off,&s.mirror_adjust_16d9);
+            SafeReadUInt8 (c + kChara_bFallReaction_16E1_Off,&s.fall_reaction_16e1);
+            SafeReadUInt8 (c + kChara_bClassifyGate_16E5_Off,&s.classify_gate_16e5);
+            SafeReadUInt8 (c + kChara_bDampedMotionMode_16FB_Off,
+                           &s.damped_motion_mode_16fb);
+            SafeReadUInt8 (c + kChara_bSubWindowInhibitorB_16FE_Off,
+                           &s.subwindow_inhibitor_16fe);
             SafeReadUInt8 (c + kChara_bInHitstunFlag_Off,    &s.in_hitstun);
             SafeReadUInt8 (c + kChara_bInBlockstunFlag_Off,  &s.in_blockstun);
+            SafeReadUInt8 (c + kChara_bAirborneFlag_16E2_Off, &s.airborne_16e2);
+            SafeReadUInt32(c + kChara_dwCameraRangeActive_Off,
+                           &s.camera_range_active);
+            SafeReadUInt32(c + kChara_dwLookAtBlendFrameCounter_Off,
+                           &s.look_at_blend_frame_counter);
+            SafeReadUInt32(c + kChara_dwHitRootMotionGate_Off,
+                           &s.hit_root_motion_gate);
+            SafeReadUInt16(c + kChara_wMoveTransitionState_Off,
+                           &s.move_transition_state);
+            SafeReadUInt16(c + kChara_wHitSlideState_Off,
+                           &s.hit_slide_state);
+            SafeReadUInt16(c + kChara_wMatchStateSubA_Off,
+                           &s.match_state_sub_a);
+            SafeReadInt32 (c + kChara_nHitSlideFrameTimer_Off,
+                           &s.hit_slide_frame_timer);
+            SafeReadInt32 (c + kChara_nHitSlideFrameTimerMirror_Off,
+                           &s.hit_slide_frame_timer_mirror);
+            SafeReadUInt32(c + kChara_dwHitReactionResult_Off,
+                           &s.hit_reaction_result);
+
+            for (size_t i = 0; i < kChara_HitCueSlotCount; ++i)
+            {
+                uint8_t* slot = c + kChara_HitCueSlotBase_Off
+                    + i * kChara_HitCueSlotStride;
+                auto& h = s.hit_cue_slots[i];
+                SafeReadInt16(slot + kHitCueSlot_wActiveCue_Off,
+                              &h.active_cue);
+                SafeReadInt16(slot + kHitCueSlot_wMultiplierIndex_Off,
+                              &h.multiplier_index);
+                SafeReadInt16(slot + kHitCueSlot_wPoseMode_Off,
+                              &h.pose_mode);
+                SafeReadUInt32(slot + kHitCueSlot_dwFrameCounter_Off,
+                               &h.frame_counter);
+                SafeReadInt16(slot + kHitCueSlot_wLoopFlag_Off,
+                              &h.loop_flag);
+                SafeReadInt16(slot + kHitCueSlot_wEndReached_Off,
+                              &h.end_reached);
+                SafeReadFloat(slot + kHitCueSlot_flFrame_Off,
+                              &h.node_frame);
+                SafeReadFloat(slot + kHitCueSlot_flSegmentEnd_Off,
+                              &h.node_segment_end);
+                SafeReadFloat(slot + kHitCueSlot_flLoopSpan_Off,
+                              &h.node_loop_span);
+                SafeReadFloat(slot + kHitCueSlot_flPrevFrame_Off,
+                              &h.node_prev_frame);
+                SafeReadFloat(slot + kHitCueSlot_flWeightGate_Off,
+                              &h.weight_gate);
+                SafeReadFloat(slot + kHitCueSlot_flBlend_Off,
+                              &h.node_blend);
+                SafeReadFloat(slot + kHitCueSlot_flBlendTarget_Off,
+                              &h.node_blend_target);
+                SafeReadFloat(slot + kHitCueSlot_flBlendStep_Off,
+                              &h.node_blend_step);
+                SafeReadFloat(slot + kHitCueSlot_flBlendRate_Off,
+                              &h.node_blend_rate);
+                SafeReadFloat(slot + kHitCueSlot_flBlendTimer_Off,
+                              &h.node_blend_timer);
+                SafeReadFloat(slot + kHitCueSlot_flCachedLocalX_Off,
+                              &h.cached_local_x);
+                SafeReadFloat(slot + kHitCueSlot_flCachedLocalY_Off,
+                              &h.cached_local_y);
+                SafeReadFloat(slot + kHitCueSlot_flCachedLocalZ_Off,
+                              &h.cached_local_z);
+                SafeReadFloat(slot + kHitCueSlot_flCachedLocalW_Off,
+                              &h.cached_local_w);
+                SafeReadFloat(slot + kHitCueSlot_flCachedWorldX_Off,
+                              &h.cached_world_x);
+                SafeReadFloat(slot + kHitCueSlot_flCachedWorldY_Off,
+                              &h.cached_world_y);
+                SafeReadFloat(slot + kHitCueSlot_flCachedWorldZ_Off,
+                              &h.cached_world_z);
+                SafeReadFloat(slot + kHitCueSlot_flCachedWorldW_Off,
+                              &h.cached_world_w);
+                h.cache_readable = SafeReadBytes(
+                    slot + kHitCueSlot_CacheBytes_Off,
+                    h.cache_bytes.data(), h.cache_bytes.size());
+                h.slot_readable = SafeReadBytes(
+                    slot, h.slot_bytes.data(), h.slot_bytes.size());
+                if (h.multiplier_index >= 0
+                    && static_cast<size_t>(h.multiplier_index)
+                        < kChara_HitCueLaneCount)
+                {
+                    uint8_t* lane = c + kChara_HitCueLaneBase_Off
+                        + static_cast<size_t>(h.multiplier_index)
+                            * kChara_HitCueLaneStride;
+                    SafeReadUInt32(lane + kHitCueLane_dwGate_Off,
+                                   &h.lane_gate);
+                    SafeReadFloat(lane + kHitCueLane_flRate_Off,
+                                  &h.lane_rate);
+                    h.lane_readable = SafeReadBytes(
+                        lane, h.lane_header.data(), h.lane_header.size());
+                }
+            }
 
             void* cell = nullptr;
             if (SafeReadPtr(c + kChara_pActiveAttackCell_Off, &cell))
@@ -279,20 +732,40 @@ namespace Horse
             }
             RC::Output::send<RC::LogLevel::Default>(
                 STR("[ReplayScrub.diag] {} P{} chara=0x{:X} "
-                    "moveID=0x{:X} vfxState=0x{:X} "
+                    "hdr8c=0x{:X} moveID=0x{:X} vfxState=0x{:X} "
                     "moveFrame={} "
                     "pos=({:.2f},{:.2f},{:.2f}) vel=({:.2f},{:.2f},{:.2f}) "
+                    "groundVel=({:.2f},{:.2f},{:.2f}) "
+                    "oneShot=({:.4f},{:.4f}) frameDelta=({:.4f},{:.4f}) "
+                    "hitPush=({:.4f},{:.4f}) rootBlend={:.4f} "
+                    "hitSlide[slot={} dir=0x{:X} state={} timers={}/{} "
+                    "reaction=0x{:X}] "
+                    "timeScale=({:.4f},{:.4f}) "
                     "face={:.2f} vmDecay={:.1f} vital={:.1f}/{:.1f} "
                     "koGate={:.1f} vitalScale={:.3f} vitalBits=0x{:X} "
                     "vitalState={} "
                     "vmPaused={} inputFreeze={} hitstun={} blockstun={} "
+                    "damped={} trans={} matchSub={} camRange={} "
                     "atkCell=0x{:X}\n"),
                 RC::to_generic_string(label), player_idx + 1, s.chara_ptr,
+                static_cast<unsigned>(s.primary_header_state8c),
                 static_cast<unsigned>(s.current_move_id),
                 static_cast<unsigned>(s.vfx_state_check_a),
                 static_cast<unsigned>(s.current_move_frame),
                 s.pos_x, s.pos_y, s.pos_z,
                 s.vel_x, s.vel_y, s.vel_z,
+                s.ground_vel_x, s.ground_vel_y, s.ground_vel_z,
+                s.one_shot_x, s.one_shot_z,
+                s.frame_delta_x, s.frame_delta_z,
+                s.hit_pushback_x, s.hit_pushback_z,
+                s.root_motion_blend_weight,
+                s.hit_slide_slot,
+                s.latched_hit_slide_input_dir,
+                static_cast<unsigned>(s.hit_slide_state),
+                s.hit_slide_frame_timer,
+                s.hit_slide_frame_timer_mirror,
+                s.hit_reaction_result,
+                s.move_time_scale_a, s.move_time_scale_b,
                 s.facing, s.vm_decay_counter,
                 s.vital_candidate, s.vital_displayed,
                 s.vital_ko_gate, s.vital_scale,
@@ -302,7 +775,27 @@ namespace Horse
                 static_cast<int>(s.input_freeze_gate),
                 static_cast<int>(s.in_hitstun),
                 static_cast<int>(s.in_blockstun),
+                static_cast<int>(s.damped_motion_mode_16fb),
+                static_cast<unsigned>(s.move_transition_state),
+                static_cast<unsigned>(s.match_state_sub_a),
+                static_cast<unsigned>(s.camera_range_active),
                 s.active_attack_cell);
+
+            RC::Output::send<RC::LogLevel::Default>(
+                STR("[ReplayScrub.diag] {} P{} replayTailSC "
+                    "samplePeriod={} modeTimeout={} "
+                    "SC[table=0x{:X} i={} j={} mode={} state={} "
+                    "trigger=0x{:X} kindGroup={} matchCounter={}]\n"),
+                RC::to_generic_string(label), player_idx + 1,
+                s.replay_sample_period, s.replay_mode_timeout,
+                s.soul_charge_provider_table,
+                s.soul_charge_provider_i,
+                s.soul_charge_provider_j,
+                static_cast<unsigned>(s.soul_charge_mode),
+                static_cast<unsigned>(s.soul_charge_state),
+                s.soul_charge_trigger_bits,
+                s.soul_charge_kind_group,
+                s.soul_charge_match_counter);
         }
 
         // Resolve UDemoNetDriver via UWorld->DemoNetDriver first, then

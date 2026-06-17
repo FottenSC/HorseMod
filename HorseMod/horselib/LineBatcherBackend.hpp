@@ -111,11 +111,9 @@ namespace Horse
     // Persistent vs Foreground:
     //   Foreground — always-on-top.  Best general default.  Hitbox /
     //                hurtbox shapes read cleanly at any camera angle.
-    //   Persistent — depth-tested + lines remain alive past the kLifetime
-    //                expiry.  Useful for tracing a chara's hurtbox path
-    //                across a move (set hurtboxes to Persistent and the
-    //                trail accumulates).  Unsuitable for hitboxes — the
-    //                accumulation would be unreadable noise.
+    //   Persistent — depth-tested + lines remain alive until the caller
+    //                advances/clears their lifetime.  Useful for tracing
+    //                engine-live hitbox / hurtbox paths across a move.
     enum class LineBatcherSlot : uint8_t
     {
         Persistent = 0,   // UWorld+0x48
@@ -327,11 +325,7 @@ namespace Horse
 
         void hideAll() override
         {
-            // Appended lines expire naturally after m_lifetime seconds.
-            // If you want an immediate clear, zero Num here — but you'd
-            // also need to trip the dirty flag somehow, which we don't
-            // have a clean handle on yet.  For a debug overlay, fade-out
-            // via lifetime is fine.
+            (void)clearLines();
         }
 
         RC::Unreal::UObject* linebatcher() const { return m_lbc; }

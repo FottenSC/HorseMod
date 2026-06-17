@@ -106,6 +106,12 @@ namespace Horse
             set_active(true);
         }
 
+        void discard_window() noexcept
+        {
+            set_active(false);
+            reset();
+        }
+
         void end_window_and_emit(const char* phase,
                                  const char* label,
                                  int32_t requested_seq,
@@ -194,6 +200,16 @@ namespace Horse
         bool installed() const noexcept
         {
             return m_installed.load(std::memory_order_acquire);
+        }
+
+        bool active() const noexcept
+        {
+            return m_active.load(std::memory_order_acquire);
+        }
+
+        uint64_t total_calls() const noexcept
+        {
+            return m_total.load(std::memory_order_acquire);
         }
 
     private:
