@@ -17695,32 +17695,13 @@ namespace Horse
                 && (!compare_master_known
                     || input_master_after_advancer
                         == m_sc6_seek_job.validation_compare_master);
-            bool input_master_force_ok = input_master_advancer_reached_compare;
-            bool input_master_force_applied = false;
-            if (!input_master_advancer_reached_compare
-                && advancer_ok && input_master_before_ok
-                && compare_master_known
-                && m_sc6_seek_job.validation_compare_master
-                    == input_master_before + 1)
-            {
-                const int32_t forced_master =
-                    m_sc6_seek_job.validation_compare_master;
-                input_master_force_applied = SafeWriteBytes(
-                    reinterpret_cast<void*>(
-                        input_log + kIL_nMasterClock_Off),
-                    &forced_master, sizeof(forced_master));
-                input_master_force_ok = input_master_force_applied;
-                if (input_master_force_applied)
-                    input_master_after_force = forced_master;
-            }
-            else if (!compare_master_known)
-            {
-                input_master_force_ok = input_master_advancer_moved;
-            }
+            const bool input_master_force_ok =
+                input_master_advancer_reached_compare
+                || (!compare_master_known && input_master_advancer_moved);
+            const bool input_master_force_applied = false;
 
             const bool simulation_loop_invoked =
-                input_master_advancer_reached_compare
-                || input_master_force_applied;
+                input_master_advancer_reached_compare;
             const bool simulation_loop_ok = simulation_loop_invoked
                 && SafeInvokeNativeVoidPtr(
                     m_battle_manager_simulation_loop,
@@ -24143,7 +24124,8 @@ namespace Horse
                             "target-to-next-direct-validation");
                     const int32_t live_master = read_engine_master_clock();
                     const int32_t live_round = read_current_round();
-                    m_sc6_seek_job.frames_advanced += 1;
+                    if (step_ok)
+                        m_sc6_seek_job.frames_advanced += 1;
                     m_sc6_seek_job.native_step_last_observed_master =
                         live_master;
                     m_sc6_seek_job.native_step_wait_services = 0;
@@ -24159,6 +24141,7 @@ namespace Horse
                         m_sc6_seek_job.validation_compare_master,
                         live_round, m_sc6_seek_job.validation_compare_round,
                         step_ok ? 1 : 0);
+                    if (step_ok)
                     {
                         ReplayTraceFields f;
                         f.string("label", m_sc6_seek_job.label
@@ -24187,7 +24170,6 @@ namespace Horse
                          .boolean("step_ok", step_ok);
                         ReplayDebugTrace::instance().event(
                             "captured_seek_validation_step_observed", f);
-                    }
                     emit_validation_rng_u32_trace(
                         m_sc6_seek_job.label,
                         "direct-validation-step-observed");
@@ -24239,6 +24221,7 @@ namespace Horse
                             m_sc6_seek_job.validation_compare_seq,
                             expected_extras);
                     }
+                    }
 
                     const bool direct_round_ok = live_round < 0
                         || live_round
@@ -24247,6 +24230,8 @@ namespace Horse
                         == m_sc6_seek_job.validation_compare_master;
                     if (!step_ok || !direct_round_ok || !direct_master_ok)
                     {
+                        const bool direct_left_state_at_target =
+                            live_master == before;
                         ReplayTraceFields f;
                         f.string("label", m_sc6_seek_job.label
                                      ? m_sc6_seek_job.label : "?")
@@ -24265,15 +24250,25 @@ namespace Horse
                          .boolean("step_ok", step_ok)
                          .boolean("round_ok", direct_round_ok)
                          .boolean("master_ok", direct_master_ok)
-                         .string("fallback", "skipped-gate-driven-validation")
-                         .string("reason", "avoid-validation-gate-deadlock")
+                         .boolean("left_state_at_target",
+                                  direct_left_state_at_target)
+                         .string("fallback",
+                                 direct_left_state_at_target && !step_ok
+                                     ? "gate-driven-validation"
+                                     : "restore-target-and-block")
+                         .string("reason",
+                                 direct_left_state_at_target && !step_ok
+                                     ? "direct-advancer-did-not-move"
+                                     : "direct-validation-state-advanced")
                          .string("block_after_restore",
                                  native_seek_failure_name(
                                      NativeSeekFailure::
                                          CapturedGameplayStepFailed));
                         ReplayDebugTrace::instance().event(
-                            "captured_seek_direct_validation_gate_fallback_skipped",
+                            "captured_seek_direct_validation_fallback",
                             f);
+                        if (direct_left_state_at_target && !step_ok)
+                            return;
                         schedule_target_restore_after_validation(
                             "target-to-next-direct-validation-failed",
                             nullptr,
