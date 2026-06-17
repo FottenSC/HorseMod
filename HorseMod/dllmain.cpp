@@ -6334,20 +6334,32 @@ private:
             const bool load_busy = scrub.has_pending_replay_file_load();
             const bool start_busy = scrub.has_pending_replay_file_start();
             const bool file_busy = load_busy || start_busy;
+            const bool can_load_into_replay = in_replay && scrub.is_initialized();
+            const bool load_disabled = file_busy || !can_load_into_replay;
             if (file_busy) ImGui::BeginDisabled(true);
-            if (ImGui::Button("Browse...##rs_file_browse"))
-                scrub.browse_and_request_load_replay_file();
+            if (ImGui::Button(can_load_into_replay
+                                  ? "Browse...##rs_file_browse"
+                                  : "Browse + Start...##rs_file_browse"))
+            {
+                if (can_load_into_replay)
+                    scrub.browse_and_request_load_replay_file();
+                else
+                    scrub.browse_and_request_start_replay_file();
+            }
             if (file_busy) ImGui::EndDisabled();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Open a Windows file picker for .hmreplay or .bin replay files.");
+                can_load_into_replay
+                    ? "Open a Windows file picker for a replay payload to load into the current replay viewer."
+                    : "Open a Windows file picker and immediately start the selected replay file.");
             ImGui::SameLine();
-            if (file_busy) ImGui::BeginDisabled(true);
+            if (load_disabled) ImGui::BeginDisabled(true);
             if (ImGui::Button("Load Replay File##rs_file_load"))
                 scrub.request_load_replay_file(s_replay_load_name);
-            if (file_busy) ImGui::EndDisabled();
+            if (load_disabled) ImGui::EndDisabled();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Queue the selected file. It is applied once SC6 has an\n"
-                "active Replay viewer context for HorseMod to patch.");
+                can_load_into_replay
+                    ? "Patch the selected replay payload into the active replay viewer."
+                    : "Use Start Replay File to open a replay from a file when you are not already in a replay.");
             ImGui::SameLine();
             if (file_busy) ImGui::BeginDisabled(true);
             if (ImGui::Button("Start Replay File##rs_file_start"))
@@ -6358,14 +6370,17 @@ private:
                 "writes a raw launch copy into Saved\\ReplayFiles, sets\n"
                 "BattleReplay.PlayingBackPath, then calls the game's native\n"
                 "replay setup and manual battle launch UFunctions.");
-            ImGui::SameLine();
-            if (file_busy) ImGui::BeginDisabled(true);
-            if (ImGui::Button("Browse + Start...##rs_file_browse_start"))
-                scrub.browse_and_request_start_replay_file();
-            if (file_busy) ImGui::EndDisabled();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Open a Windows file picker and immediately request native\n"
-                "startup of the selected .hmreplay or .bin replay file.");
+            if (can_load_into_replay)
+            {
+                ImGui::SameLine();
+                if (file_busy) ImGui::BeginDisabled(true);
+                if (ImGui::Button("Browse + Start...##rs_file_browse_start"))
+                    scrub.browse_and_request_start_replay_file();
+                if (file_busy) ImGui::EndDisabled();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Open a Windows file picker and immediately request native\n"
+                    "startup of the selected .hmreplay or .bin replay file.");
+            }
             const std::string replay_file_status =
                 scrub.replay_file_status_text();
             if (!replay_file_status.empty())

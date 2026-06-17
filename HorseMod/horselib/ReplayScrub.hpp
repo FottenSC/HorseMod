@@ -3106,7 +3106,12 @@ namespace Horse
             const bool landed_play_active =
                 m_sc6_seek_job.phase == Sc6ExactSeekPhase::Landed
                 && !is_paused();
-            if (!seek_resume_active && !landed_play_active)
+            const bool validation_step_active =
+                m_sc6_seek_job.phase == Sc6ExactSeekPhase::ValidateStepToTarget
+                && m_sc6_seek_job.validation_compare_tick >= 0
+                && m_sc6_seek_job.validation_compare_seq >= 0;
+            if (!seek_resume_active && !landed_play_active
+                && !validation_step_active)
                 return false;
 
             uint8_t* c = static_cast<uint8_t*>(chara);
@@ -3117,8 +3122,42 @@ namespace Horse
 
             const int32_t live_round = read_current_round();
             const int32_t live_master = read_engine_master_clock();
-            const int32_t seq = find_slot_for_round_master(
-                live_round, live_master);
+            int32_t seq = -1;
+            bool validation_compare_authority = false;
+            bool validation_live_authority = false;
+            if (validation_step_active)
+            {
+                int32_t compare_seq = -1;
+                int32_t compare_round = -1;
+                int32_t compare_wall = -1;
+                int32_t compare_master = -1;
+                if (m_tags.get(
+                        static_cast<size_t>(
+                            m_sc6_seek_job.validation_compare_tick),
+                        compare_seq, compare_round, compare_wall,
+                        compare_master)
+                    && compare_seq >= 0 && compare_round >= 0
+                    && compare_master >= 0)
+                {
+                    const int32_t live_seq =
+                        find_slot_for_round_master(live_round, live_master);
+                    const int32_t live_ahead =
+                        live_master - compare_master;
+                    if (live_seq >= 0 && live_round == compare_round
+                        && live_ahead >= 0 && live_ahead <= 1)
+                    {
+                        seq = live_seq;
+                        validation_live_authority = true;
+                    }
+                    else
+                    {
+                        seq = m_sc6_seek_job.validation_compare_tick;
+                        validation_compare_authority = true;
+                    }
+                }
+            }
+            if (seq < 0)
+                seq = find_slot_for_round_master(live_round, live_master);
             if (seq < 0) return false;
 
             int32_t tag_seq = -1;
@@ -3170,9 +3209,20 @@ namespace Horse
              .hex("expected_latest_engine_input", expected)
              .boolean("seek_resume_active", seek_resume_active)
              .boolean("landed_play_active", landed_play_active)
+             .boolean("validation_step_active", validation_step_active)
+             .boolean("validation_compare_authority",
+                      validation_compare_authority)
+             .boolean("validation_live_authority",
+                      validation_live_authority)
+             .integer("validation_compare_seq",
+                      m_sc6_seek_job.validation_compare_seq)
+             .integer("validation_compare_master",
+                      m_sc6_seek_job.validation_compare_master)
              .boolean("write_ok", write_ok)
              .string("reason",
-                     "tick-chara-input-latest-engine-input-repair");
+                     validation_step_active
+                         ? "validation-step-latest-engine-input-repair"
+                         : "tick-chara-input-latest-engine-input-repair");
             ReplayDebugTrace::instance().event(
                 "latest_engine_input_tick_repair", f);
 
@@ -4621,9 +4671,9 @@ namespace Horse
         void service_pre_frame_gate()
         {
             service_state_snapshot_request();
-            if (!is_initialized()) return;
             service_replay_file_load_request();
             service_replay_file_start_request();
+            if (!is_initialized()) return;
             service_ui_command();
             service_drag_preview();
             service_sc6_exact_seek_job();
@@ -12162,6 +12212,16 @@ namespace Horse
 
         bool queue_replay_file_load(const std::wstring& path) noexcept
         {
+            if (GameMode::instance().current_presence()
+                    != GamePresence::Replay ||
+                !is_initialized())
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayFile] load redirected to start path='{}'\n"),
+                    RC::to_generic_string(narrow_path(path)));
+                return queue_replay_file_start(path);
+            }
+
             {
                 std::lock_guard<std::mutex> lock(m_replay_file_mutex);
                 m_replay_file_pending_path = path;
@@ -12200,28 +12260,92 @@ namespace Horse
                                     const ReplayFileMetadata& meta,
                                     const char* detail)
         {
-            char buf[1024]{};
-            std::snprintf(
-                buf, sizeof(buf),
-                "%s %s%s%s%s | bytes=%zu | path=%s | rounds=%d "
-                "current_round=%d frames=%d stage=%d charL=%d charR=%d "
-                "timestamp=%llu",
-                op ? op : "Replay file",
-                done ? (ok ? "success" : "failed") : "pending",
-                detail && *detail ? " (" : "",
-                detail && *detail ? detail : "",
-                detail && *detail ? ")" : "",
-                bytes,
-                narrow_path(path).c_str(),
-                meta.total_rounds,
-                meta.current_round,
-                meta.total_recorded_frames,
-                meta.stage_index,
-                meta.left_chara_id,
-                meta.right_chara_id,
-                static_cast<unsigned long long>(meta.timestamp_unix));
+            const char* op_name = op ? op : "Replay file";
+            const char* detail_text = (detail && *detail) ? detail : "";
+            const bool is_load =
+                op && std::strcmp(op, "Load Replay File") == 0;
+            const bool is_start =
+                op && std::strcmp(op, "Start Replay File") == 0;
+            const bool is_queued =
+                !done && std::strcmp(detail_text, "queued") == 0;
+            const bool meta_known =
+                meta.total_rounds >= 0 || meta.current_round >= 0 ||
+                meta.total_recorded_frames >= 0 || meta.stage_index >= 0 ||
+                meta.left_chara_id >= 0 || meta.right_chara_id >= 0 ||
+                meta.timestamp_unix != 0;
+
+            char line[512]{};
+            std::snprintf(line, sizeof(line), "%s %s",
+                          op_name,
+                          done ? (ok ? "success" : "failed") : "pending");
+            std::string status = line;
+            if (*detail_text && !is_queued)
+            {
+                status += ": ";
+                status += detail_text;
+            }
+
+            const std::string path_text = narrow_path(path);
+            if (!path_text.empty())
+            {
+                status += "\nPath: ";
+                status += path_text;
+            }
+            if (bytes > 0)
+            {
+                std::snprintf(line, sizeof(line), "\nPayload: %zu bytes",
+                              bytes);
+                status += line;
+            }
+            else if (!done)
+            {
+                status += "\nPayload: waiting to read file";
+            }
+
+            if (meta_known)
+            {
+                std::snprintf(
+                    line, sizeof(line),
+                    "\nReplay: rounds=%d current_round=%d frames=%d "
+                    "stage=%d charL=%d charR=%d timestamp=%llu",
+                    meta.total_rounds,
+                    meta.current_round,
+                    meta.total_recorded_frames,
+                    meta.stage_index,
+                    meta.left_chara_id,
+                    meta.right_chara_id,
+                    static_cast<unsigned long long>(meta.timestamp_unix));
+                status += line;
+            }
+            else if (bytes > 0)
+            {
+                status +=
+                    "\nReplay metadata: unavailable for raw .bin payload";
+            }
+
+            if (is_queued)
+            {
+                status += "\nWaiting: ";
+                if (is_load)
+                {
+                    status +=
+                        "Load only patches an already-open Replay viewer. "
+                        "Use Start Replay File to open this replay from a "
+                        "menu.";
+                }
+                else if (is_start)
+                {
+                    status +=
+                        "startup request will run on the game thread.";
+                }
+                else
+                {
+                    status += "request will run on the game thread.";
+                }
+            }
+
             std::lock_guard<std::mutex> lock(m_replay_file_mutex);
-            m_replay_file_status = buf;
+            m_replay_file_status = std::move(status);
         }
 
         bool read_live_replay_payload(std::vector<uint8_t>& out,
@@ -17571,11 +17695,32 @@ namespace Horse
                 && (!compare_master_known
                     || input_master_after_advancer
                         == m_sc6_seek_job.validation_compare_master);
-            const bool input_master_force_ok = true;
-            const bool input_master_force_applied = false;
+            bool input_master_force_ok = input_master_advancer_reached_compare;
+            bool input_master_force_applied = false;
+            if (!input_master_advancer_reached_compare
+                && advancer_ok && input_master_before_ok
+                && compare_master_known
+                && m_sc6_seek_job.validation_compare_master
+                    == input_master_before + 1)
+            {
+                const int32_t forced_master =
+                    m_sc6_seek_job.validation_compare_master;
+                input_master_force_applied = SafeWriteBytes(
+                    reinterpret_cast<void*>(
+                        input_log + kIL_nMasterClock_Off),
+                    &forced_master, sizeof(forced_master));
+                input_master_force_ok = input_master_force_applied;
+                if (input_master_force_applied)
+                    input_master_after_force = forced_master;
+            }
+            else if (!compare_master_known)
+            {
+                input_master_force_ok = input_master_advancer_moved;
+            }
 
             const bool simulation_loop_invoked =
-                input_master_advancer_reached_compare;
+                input_master_advancer_reached_compare
+                || input_master_force_applied;
             const bool simulation_loop_ok = simulation_loop_invoked
                 && SafeInvokeNativeVoidPtr(
                     m_battle_manager_simulation_loop,
@@ -22329,14 +22474,12 @@ namespace Horse
             const ReplayScrubHoldKind hold_before_seek =
                 static_cast<ReplayScrubHoldKind>(
                     m_hold_kind.load(std::memory_order_acquire));
+            const bool exact_seek_already_in_flight =
+                sc6_exact_seek_phase_active(m_sc6_seek_job.phase);
             const bool direct_validation_gate_already_active =
                 is_paused()
-                && (hold_before_seek
-                        == ReplayScrubHoldKind::RestoredFrameHold
-                    || hold_before_seek
-                        == ReplayScrubHoldKind::ValidationStep
-                    || hold_before_seek
-                        == ReplayScrubHoldKind::ManualDiagnosticFreeze);
+                && hold_before_seek == ReplayScrubHoldKind::ValidationStep
+                && exact_seek_already_in_flight;
 
             if (m_sc6_seek_job.requested_seq == requested_seq
                 && sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
@@ -22485,7 +22628,11 @@ namespace Horse
                            m_sc6_seek_job.native_replay_frame_fast_forward)
                   .boolean("direct_validation_gate_already_active",
                            direct_validation_gate_already_active)
-                  .string("status", "Queued")
+                 .boolean("exact_seek_already_in_flight",
+                          exact_seek_already_in_flight)
+                 .integer("hold_before_seek",
+                          static_cast<int32_t>(hold_before_seek))
+                 .string("status", "Queued")
                   .string("failure", "None");
                 ReplayDebugTrace::instance().event(
                     "captured_seek_queued", f);
@@ -24346,6 +24493,71 @@ namespace Horse
                     if (live_master
                         != m_sc6_seek_job.validation_compare_master)
                     {
+                        const int32_t observed_ahead =
+                            live_master
+                            - m_sc6_seek_job.validation_compare_master;
+                        const int32_t observed_tick =
+                            (live_round
+                             == m_sc6_seek_job.validation_compare_round
+                             && observed_ahead > 0
+                             && observed_ahead <= 1)
+                                ? find_slot_for_round_master(
+                                      live_round, live_master)
+                                : -1;
+                        int32_t observed_seq = -1;
+                        int32_t observed_round = -1;
+                        int32_t observed_wall = -1;
+                        int32_t observed_master = -1;
+                        const bool observed_tick_ok = observed_tick >= 0
+                            && m_tags.get(
+                                static_cast<size_t>(observed_tick),
+                                observed_seq, observed_round,
+                                observed_wall, observed_master)
+                            && observed_seq >= 0
+                            && observed_round
+                                == m_sc6_seek_job.validation_compare_round
+                            && observed_master == live_master;
+                        if (observed_tick_ok)
+                        {
+                            ReplayTraceFields f;
+                            f.string("label", m_sc6_seek_job.label
+                                         ? m_sc6_seek_job.label : "?")
+                             .integer("requested_seq",
+                                      m_sc6_seek_job.requested_seq)
+                             .integer("target_seq",
+                                      m_sc6_seek_job.target_seq)
+                             .integer("target_master",
+                                      m_sc6_seek_job.target_master)
+                             .integer("original_compare_seq",
+                                      m_sc6_seek_job.validation_compare_seq)
+                             .integer("original_compare_master",
+                                      m_sc6_seek_job.validation_compare_master)
+                             .integer("observed_seq", observed_seq)
+                             .integer("observed_tick", observed_tick)
+                             .integer("observed_master", observed_master)
+                             .integer("observed_ahead", observed_ahead)
+                             .string("reason",
+                                     "validation-step-master-overshoot");
+                            ReplayDebugTrace::instance().event(
+                                "captured_seek_validation_compare_adjusted",
+                                f);
+                            m_sc6_seek_job.validation_compare_tick =
+                                observed_tick;
+                            m_sc6_seek_job.validation_compare_seq =
+                                observed_seq;
+                            m_sc6_seek_job.validation_compare_round =
+                                observed_round;
+                            m_sc6_seek_job.validation_compare_master =
+                                observed_master;
+                            const int32_t actual_advanced =
+                                observed_master - m_sc6_seek_job.target_master;
+                            if (actual_advanced
+                                > m_sc6_seek_job.frames_advanced)
+                                m_sc6_seek_job.frames_advanced =
+                                    actual_advanced;
+                        }
+                        else
+                        {
                         if (m_sc6_seek_job.validation_compare_tick
                             != m_sc6_seek_job.target_tick)
                         {
@@ -24358,6 +24570,7 @@ namespace Horse
                         fail_sc6_exact_seek(
                             NativeSeekFailure::CapturedGameplayStepFailed);
                         return;
+                        }
                     }
                     m_sc6_seek_job.phase =
                         Sc6ExactSeekPhase::CompareTargetSnapshot;

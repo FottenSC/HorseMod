@@ -143,6 +143,7 @@ def collect_native_step_boundary_issues(
     )
     latest_drained_total: int | None = None
     drain_events = 0
+    gate_observations = 0
     issues: list[str] = []
 
     for index, e in enumerate(events, 1):
@@ -154,6 +155,26 @@ def collect_native_step_boundary_issues(
             except (TypeError, ValueError):
                 issues.append(f"line#{index}: drain event missing drained_total")
         elif name in observed_names:
+            if bool_field(e.get("direct_step")):
+                if not bool_field(e.get("step_ok")):
+                    issues.append(f"line#{index}: {name} direct step failed")
+                try:
+                    direct_master_after = int(e.get("master_after"))
+                    direct_compare_master = int(e.get("compare_master"))
+                except (TypeError, ValueError):
+                    issues.append(
+                        f"line#{index}: {name} direct step missing master"
+                    )
+                    continue
+                if direct_master_after != direct_compare_master:
+                    issues.append(
+                        f"line#{index}: {name} direct master_after="
+                        f"{direct_master_after} compare_master="
+                        f"{direct_compare_master}"
+                    )
+                continue
+
+            gate_observations += 1
             try:
                 observed_drained_total = int(e.get("drained_total_after"))
             except (TypeError, ValueError):
@@ -171,6 +192,9 @@ def collect_native_step_boundary_issues(
                     f"line#{index}: {name} drained_total={observed_drained_total} "
                     f"but latest drain={latest_drained_total}"
                 )
+
+    if gate_observations == 0:
+        has_drain_marker = False
 
     return len(observations), drain_events, has_drain_marker, issues
 
