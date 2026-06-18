@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -76,6 +77,38 @@ def raw_mismatch_is_strict_failure(result: dict[str, Any]) -> bool:
     if raw_mismatch_is_empty(result.get("raw_mismatch_first_offsets")):
         return False
     return not bool_field(result.get("passed"))
+
+
+def is_fallback_display_name(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    return re.fullmatch(r"Steam \d+", value.strip()) is not None
+
+
+def is_visual_oracle_diagnostic_failure(event: dict[str, Any]) -> bool:
+    """Return true for diagnostic drift that is visible in playback.
+
+    Cached hit-cue local/world transforms are still noisy derived values, but
+    slot, cache, lane, active-cue, and frame fields have proven visual impact.
+    Vital fields are HUD/gameplay state and must match the captured timeline.
+    Replay 10929583780367153341 exposed this gap: seek/watchback passed while
+    these USER-phase diagnostics diverged badly enough to be visible in-game.
+    """
+    if event_name(event) != "restore_integrity_oracle_diagnostic":
+        return False
+    if str(event.get("label") or "") != "USER":
+        return False
+
+    field = str(event.get("field") or "")
+    if field.startswith("vital-"):
+        return True
+    if field.startswith("hit-cue-"):
+        return True
+    if not field.startswith("hitcue"):
+        return False
+    if "cached-local" in field or "cached-world" in field:
+        return False
+    return True
 
 
 def classify_failure(result: dict[str, Any]) -> str:
@@ -399,6 +432,48 @@ def strict_failures(events: list[dict[str, Any]]) -> list[str]:
     elif not bool_field(seekability[-1].get("seekable")):
         failures.append("generate_seekability_summary.seekable is false")
 
+    start_results = [
+        e for e in events if event_name(e) == "replay_file_start_result"
+    ]
+    if start_results:
+        start = start_results[-1]
+        if not bool_field(start.get("ok")):
+            failures.append("replay_file_start_result.ok is false")
+        if str(start.get("reason") or "") != "generated timeline ready":
+            failures.append(
+                "replay_file_start_result.reason is not generated timeline ready"
+            )
+        if not bool_field(start.get("native_replay_metadata_valid")):
+            failures.append("native replay metadata was not valid")
+        if not bool_field(start.get("native_profile_applied")):
+            failures.append("native replay profile was not applied")
+
+        match_data = [
+            e for e in events
+            if event_name(e) == "native_replay_match_data_summary_applied"
+            and bool_field(e.get("ok"))
+        ]
+        if not match_data:
+            failures.append("missing native replay match-data summary")
+        else:
+            latest_match = match_data[-1]
+            if latest_match.get("left_rank") != latest_match.get("left_rank_readback"):
+                failures.append("left rank readback mismatch")
+            if latest_match.get("right_rank") != latest_match.get("right_rank_readback"):
+                failures.append("right rank readback mismatch")
+            if latest_match.get("left_player_points") != latest_match.get("left_points_readback"):
+                failures.append("left RP readback mismatch")
+            if latest_match.get("right_player_points") != latest_match.get("right_points_readback"):
+                failures.append("right RP readback mismatch")
+            if latest_match.get("left_chara") != latest_match.get("left_style_readback"):
+                failures.append("left style readback mismatch")
+            if latest_match.get("right_chara") != latest_match.get("right_style_readback"):
+                failures.append("right style readback mismatch")
+            if is_fallback_display_name(latest_match.get("left_display_name")):
+                failures.append("left display name is Steam fallback")
+            if is_fallback_display_name(latest_match.get("right_display_name")):
+                failures.append("right display name is Steam fallback")
+
     results = [e for e in events if event_name(e) == "replay_seek_test_case_result"]
     for result in results:
         label = result.get("label", "?")
@@ -433,6 +508,23 @@ def strict_failures(events: list[dict[str, Any]]) -> list[str]:
         failures.append(f"native-step boundary issues: {len(boundary_issues)}")
     if observation_count and has_drain_marker and drain_events == 0:
         failures.append("native-step observations without drain events")
+
+    visual_diagnostics = [
+        e for e in events if is_visual_oracle_diagnostic_failure(e)
+    ]
+    if visual_diagnostics:
+        field_counts = Counter(
+            str(e.get("field") or "?") for e in visual_diagnostics
+        )
+        top_fields = ", ".join(
+            f"{field}={count}"
+            for field, count in field_counts.most_common(5)
+        )
+        failures.append(
+            "visual/gameplay oracle diagnostics: "
+            f"{len(visual_diagnostics)} USER mismatches"
+            + (f" ({top_fields})" if top_fields else "")
+        )
 
     summaries = [e for e in events if event_name(e) == "replay_seek_test_summary"]
     if not summaries:

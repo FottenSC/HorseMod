@@ -6263,7 +6263,7 @@ private:
         case Reason::CapturedGameplayStepFailed:
             return "selected frame gameplay check failed";
         case Reason::SemanticMismatch:
-            return "Play blocked: selected frame semantic mismatch";
+            return "Play blocked: replay advanced differently from the generated timeline";
         case Reason::CrossRoundResetContextUnavailable:
             return "round reset context unavailable";
         case Reason::CrossRoundResetDispatchFailed:
@@ -6282,11 +6282,50 @@ private:
         }
     }
 
+    static const char* replay_scrub_native_status_text(
+        Horse::ReplayScrub::NativeSeekStatus status) noexcept
+    {
+        using Status = Horse::ReplayScrub::NativeSeekStatus;
+        switch (status)
+        {
+        case Status::Idle: return "Idle";
+        case Status::Queued: return "Queued";
+        case Status::DeferredBusy: return "Waiting";
+        case Status::Submitted: return "Submitted";
+        case Status::Settling: return "Settling";
+        case Status::ClockLanded: return "Clock landed";
+        case Status::Landed: return "Landed";
+        case Status::Failed: return "Failed";
+        default: return "Unknown";
+        }
+    }
+
+    static const char* replay_scrub_mode_text(
+        Horse::ReplayScrub::ScrubMode mode) noexcept
+    {
+        using Mode = Horse::ReplayScrub::ScrubMode;
+        switch (mode)
+        {
+        case Mode::Idle: return "Idle";
+        case Mode::Generated: return "Ready";
+        case Mode::Dragging: return "Seeking";
+        case Mode::PausedPreview: return "Preview";
+        case Mode::NativeSeekQueued: return "Seek queued";
+        case Mode::NativeSeekSubmitted: return "Seek submitted";
+        case Mode::NativeSeekSettling: return "Seek settling";
+        case Mode::NativeSeekLanded: return "Seek landed";
+        case Mode::NativeSeekFailed: return "Seek failed";
+        case Mode::Playing: return "Playing";
+        default: return "Unknown";
+        }
+    }
+
     void render_replay_tab()
     {
         auto& scrub = Horse::ReplayScrub::instance();
         const auto presence = Horse::GameMode::instance().current_presence();
         const bool in_replay = (presence == Horse::GamePresence::Replay);
+        const auto runtime = scrub.replay_ui_runtime_status();
 
         auto render_replay_file_controls = [&]() {
             // -------------------------------------------------------------
@@ -6309,78 +6348,17 @@ private:
                 "HorseMod's Saved\\ReplayFiles folder. Metadata is logged\n"
                 "when available; unknown fields are written as -1.");
 
-            static char s_replay_load_name[260]{};
-            if (s_replay_load_name[0] == '\0')
-            {
-                const std::string def = scrub.default_replay_load_name();
-                if (!def.empty())
-                {
-                    std::snprintf(s_replay_load_name,
-                                  sizeof(s_replay_load_name),
-                                  "%s", def.c_str());
-                }
-            }
-            ImGui::SetNextItemWidth(320.0f);
-            ImGui::InputText("Replay File##rs_file_load_name",
-                             s_replay_load_name,
-                             sizeof(s_replay_load_name));
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Replay file to load. Accepts exported .hmreplay filenames\n"
-                "inside Saved\\ReplayFiles, absolute .hmreplay paths, or\n"
-                "raw native replay payload .bin paths. Enter a full file\n"
-                "path (not a folder): e.g. E:\\myMods\\ReplayExample\\file.bin.\n"
-                "Traversal and unsafe characters are rejected.");
             ImGui::SameLine();
             const bool load_busy = scrub.has_pending_replay_file_load();
             const bool start_busy = scrub.has_pending_replay_file_start();
             const bool file_busy = load_busy || start_busy;
-            const bool can_load_into_replay = in_replay && scrub.is_initialized();
-            const bool load_disabled = file_busy || !can_load_into_replay;
             if (file_busy) ImGui::BeginDisabled(true);
-            if (ImGui::Button(can_load_into_replay
-                                  ? "Browse...##rs_file_browse"
-                                  : "Browse + Start...##rs_file_browse"))
-            {
-                if (can_load_into_replay)
-                    scrub.browse_and_request_load_replay_file();
-                else
-                    scrub.browse_and_request_start_replay_file();
-            }
+            if (ImGui::Button("Open Replay...##rs_file_open"))
+                scrub.browse_and_request_start_replay_file();
             if (file_busy) ImGui::EndDisabled();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                can_load_into_replay
-                    ? "Open a Windows file picker for a replay payload to load into the current replay viewer."
-                    : "Open a Windows file picker and immediately start the selected replay file.");
-            ImGui::SameLine();
-            if (load_disabled) ImGui::BeginDisabled(true);
-            if (ImGui::Button("Load Replay File##rs_file_load"))
-                scrub.request_load_replay_file(s_replay_load_name);
-            if (load_disabled) ImGui::EndDisabled();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                can_load_into_replay
-                    ? "Patch the selected replay payload into the active replay viewer."
-                    : "Use Start Replay File to open a replay from a file when you are not already in a replay.");
-            ImGui::SameLine();
-            if (file_busy) ImGui::BeginDisabled(true);
-            if (ImGui::Button("Start Replay File##rs_file_start"))
-                scrub.request_start_replay_file(s_replay_load_name);
-            if (file_busy) ImGui::EndDisabled();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Ask SC6 to start the selected local replay file. HorseMod\n"
-                "writes a raw launch copy into Saved\\ReplayFiles, sets\n"
-                "BattleReplay.PlayingBackPath, then calls the game's native\n"
-                "replay setup and manual battle launch UFunctions.");
-            if (can_load_into_replay)
-            {
-                ImGui::SameLine();
-                if (file_busy) ImGui::BeginDisabled(true);
-                if (ImGui::Button("Browse + Start...##rs_file_browse_start"))
-                    scrub.browse_and_request_start_replay_file();
-                if (file_busy) ImGui::EndDisabled();
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Open a Windows file picker and immediately request native\n"
-                    "startup of the selected .hmreplay or .bin replay file.");
-            }
+                "Open a Windows file picker and immediately start the\n"
+                "selected .hmreplay or raw .bin replay file.");
             const std::string replay_file_status =
                 scrub.replay_file_status_text();
             if (!replay_file_status.empty())
@@ -6388,15 +6366,6 @@ private:
         };
 
         render_replay_file_controls();
-
-        if (!scrub.is_initialized())
-        {
-            ImGui::TextDisabled(
-                "(replay scrubber not initialised yet. File selection above "
-                "is available; replay patching starts after entering the "
-                "Replay viewer.)");
-            return;
-        }
 
         const size_t  cnt    = scrub.ring_count();
         const int32_t earl   = scrub.earliest_seq();
@@ -6406,6 +6375,84 @@ private:
         bool paused = timeline_view.paused;
         const char* play_block_reason =
             replay_scrub_block_reason_text(timeline_view.block_reason);
+
+        const char* replay_state = "No replay loaded";
+        ImVec4 replay_state_color(0.72f, 0.72f, 0.72f, 1.0f);
+        if (runtime.in_replay && !runtime.initialized)
+        {
+            replay_state = "Replay viewer loading";
+            replay_state_color = ImVec4(0.95f, 0.82f, 0.45f, 1.0f);
+        }
+        else if (runtime.generation_running)
+        {
+            replay_state = "Generating timeline";
+            replay_state_color = ImVec4(0.95f, 0.82f, 0.45f, 1.0f);
+        }
+        else if (runtime.generation_waiting)
+        {
+            replay_state = "Waiting for replay restart";
+            replay_state_color = ImVec4(0.95f, 0.82f, 0.45f, 1.0f);
+        }
+        else if (runtime.timeline_stale)
+        {
+            replay_state = "Timeline from previous replay";
+            replay_state_color = ImVec4(0.95f, 0.55f, 0.35f, 1.0f);
+        }
+        else if (runtime.in_replay && runtime.initialized
+                 && !runtime.battle_active)
+        {
+            replay_state = "Replay menu / battle inactive";
+            replay_state_color = ImVec4(0.95f, 0.55f, 0.35f, 1.0f);
+        }
+        else if (runtime.in_replay && runtime.battle_active
+                 && runtime.timeline_complete)
+        {
+            replay_state = "Ready";
+            replay_state_color = ImVec4(0.55f, 0.85f, 0.55f, 1.0f);
+        }
+        else if (runtime.in_replay)
+        {
+            replay_state = cnt > 0
+                ? "Timeline incomplete"
+                : "Timeline not generated";
+            replay_state_color = ImVec4(0.80f, 0.80f, 0.80f, 1.0f);
+        }
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("Replay state");
+        ImGui::SameLine();
+        ImGui::TextColored(replay_state_color, "%s", replay_state);
+        if (runtime.in_replay && runtime.initialized)
+        {
+            ImGui::TextDisabled(
+                "Timeline: %zu frames | selected=%d landed=%d | mode=%s seek=%s",
+                cnt, timeline_view.requested_seq, timeline_view.landed_seq,
+                replay_scrub_mode_text(timeline_view.mode),
+                replay_scrub_native_status_text(timeline_view.native_status));
+            ImGui::TextDisabled(
+                "Battle: main=0x%02X status=0x%02X required=0x%02X/0x%02X | round=%d engine=%d bm=%d",
+                static_cast<unsigned>(runtime.battle_main_state),
+                static_cast<unsigned>(runtime.battle_status),
+                static_cast<unsigned>(runtime.required_main_state),
+                static_cast<unsigned>(runtime.required_status),
+                runtime.live_round, runtime.engine_master,
+                runtime.battle_master);
+            if (timeline_view.block_reason
+                != Horse::ReplayScrub::NativeSeekFailure::None)
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
+                                   "%s", play_block_reason);
+            }
+        }
+
+        if (!runtime.initialized)
+        {
+            ImGui::TextDisabled(
+                "(replay scrubber not initialised yet. File selection above "
+                "is available; replay patching starts after entering the "
+                "Replay viewer.)");
+            return;
+        }
 
         // 2026-05-16 UX fix: don't early-return when not in replay /
         // captures empty.  Show a status notice but keep the Settings /
@@ -6430,21 +6477,30 @@ private:
 
         if (show_timeline_ui)
         {
-        const bool timeline_ready =
-            scrub.is_timeline_generation_locked_complete();
-        if (!timeline_ready)
-        {
-            const bool generation_running =
-                scrub.timeline_gen_state()
-                    == Horse::ReplayScrub::TimelineGenState::Generating;
-            ImGui::TextColored(
-                ImVec4(0.95f, 0.75f, 0.35f, 1.0f),
-                generation_running
-                    ? "Timeline is still generating. Wait for Done before seeking or playing."
-                    : "Timeline is incomplete. Generate must finish before seeking or playing.");
-            ImGui::Spacing();
-            ImGui::BeginDisabled(true);
-        }
+            const bool timeline_ready = runtime.timeline_complete;
+            const bool timeline_controls_enabled =
+                timeline_ready && runtime.battle_active;
+            if (!timeline_ready)
+            {
+                const bool generation_running =
+                    scrub.timeline_gen_state()
+                        == Horse::ReplayScrub::TimelineGenState::Generating;
+                ImGui::TextColored(
+                    ImVec4(0.95f, 0.75f, 0.35f, 1.0f),
+                    generation_running
+                        ? "Timeline is still generating. Wait for Done before seeking or playing."
+                        : "Timeline is incomplete. Generate must finish before seeking or playing.");
+                ImGui::Spacing();
+            }
+            else if (!runtime.battle_active)
+            {
+                ImGui::TextColored(
+                    ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
+                    "Replay battle is not active. Seeking and playback controls are disabled.");
+                ImGui::Spacing();
+            }
+            if (!timeline_controls_enabled)
+                ImGui::BeginDisabled(true);
 
         // -----------------------------------------------------------------
         // Time display row
@@ -6700,7 +6756,7 @@ private:
 
         ImGui::Spacing();
 
-        if (!timeline_ready)
+        if (!timeline_controls_enabled)
             ImGui::EndDisabled();
 
         }  // end of: if (show_timeline_ui)
@@ -6783,8 +6839,8 @@ private:
                         ImGui::BeginDisabled(true);
                     if (ImGui::Button(gen_locked
                                            ? "Timeline complete##rs_gen"
-                                           : (done ? "Re-generate timeline##rs_gen"
-                                                   : "Generate timeline##rs_gen")))
+                                           : (done ? "Regenerate Timeline##rs_gen"
+                                                   : "Generate Timeline##rs_gen")))
                         scrub.request_generate_timeline();
                     if (!gen_allowed)
                         ImGui::EndDisabled();
