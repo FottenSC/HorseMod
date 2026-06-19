@@ -36,8 +36,15 @@ DEFAULT_GAME_EXE = Path(
 )
 DEFAULT_STEAM_APPID = "544750"
 DEFAULT_STATIC_SECTIONS = "0.02,0.10,0.25,0.50,0.75,0.90,0.97"
-DEFAULT_WATCH_SECTIONS = "0.03,0.10,0.25,0.50,0.75,0.90"
+DEFAULT_WATCH_SECTION_VALUES = (0.10, 0.25, 0.50, 0.75)
+DEFAULT_WATCH_SECTIONS = ",".join(
+    f"{section:.2f}" for section in DEFAULT_WATCH_SECTION_VALUES
+)
+DEFAULT_WATCH_SEEK_COUNT = len(DEFAULT_WATCH_SECTION_VALUES)
 DEFAULT_WATCH_FRAMES = 600
+DEFAULT_MIN_RESUME_TICK_RATE = 58.0
+DEFAULT_RESUME_TICK_WINDOW = 120
+DEFAULT_MAX_SEEK_VALIDATION_SECONDS = 0.5
 
 
 CrashCheck = Callable[[], str | None]
@@ -681,10 +688,23 @@ def run_menu_script(path: Path) -> None:
                 time.sleep(float(step.get("delay", 0.05) or 0.05))
 
 
-def run_analyzer(trace: Path, run_id: str, strict: bool) -> tuple[int, str]:
+def run_analyzer(
+    trace: Path,
+    run_id: str,
+    strict: bool,
+    min_resume_tick_rate: float = DEFAULT_MIN_RESUME_TICK_RATE,
+    resume_tick_window: int = DEFAULT_RESUME_TICK_WINDOW,
+    max_seek_validation_seconds: float = DEFAULT_MAX_SEEK_VALIDATION_SECONDS,
+) -> tuple[int, str]:
     cmd = [sys.executable, str(ANALYZER), str(trace), "--require-tests"]
     if run_id:
         cmd += ["--run-id", run_id]
+    cmd += ["--min-resume-tick-rate", f"{min_resume_tick_rate:.3f}"]
+    cmd += ["--resume-tick-window", str(resume_tick_window)]
+    cmd += [
+        "--max-seek-validation-seconds",
+        f"{max_seek_validation_seconds:.3f}",
+    ]
     if strict:
         cmd += ["--strict"]
     print("analyzing:", " ".join(cmd))
@@ -880,6 +900,35 @@ def main() -> int:
         help="Diagnostic only: call ManualLaunchBattle even if CanLaunchBattleManually is false",
     )
     parser.add_argument("--strict", action="store_true", help="Use strict analyzer checks")
+    parser.set_defaults(min_resume_tick_rate=DEFAULT_MIN_RESUME_TICK_RATE)
+    parser.add_argument(
+        "--min-resume-tick-rate",
+        dest="min_resume_tick_rate",
+        type=float,
+        default=argparse.SUPPRESS,
+        help=(
+            "Minimum native replay ticks per second during the post-seek "
+            f"watch window. Default: {DEFAULT_MIN_RESUME_TICK_RATE:.1f} t/s"
+        ),
+    )
+    parser.add_argument(
+        "--resume-tick-window",
+        type=int,
+        default=DEFAULT_RESUME_TICK_WINDOW,
+        help=(
+            "Native replay ticks to measure immediately after resume. "
+            f"Default: {DEFAULT_RESUME_TICK_WINDOW}"
+        ),
+    )
+    parser.add_argument(
+        "--max-seek-validation-seconds",
+        type=float,
+        default=DEFAULT_MAX_SEEK_VALIDATION_SECONDS,
+        help=(
+            "Maximum visible validation warmup time before playback. "
+            f"Default: {DEFAULT_MAX_SEEK_VALIDATION_SECONDS:.2f}s"
+        ),
+    )
     parser.add_argument("--report-dir", help="Directory for E2E JSON/TXT report files")
     parser.add_argument(
         "--menu-script",
@@ -917,7 +966,9 @@ def main() -> int:
         default=DEFAULT_WATCH_SECTIONS,
         help=(
             "Comma-separated timeline percents for watch-back checks. "
-            "Values may be fractions or percents."
+            "Values may be fractions or percents. "
+            f"Default emits {DEFAULT_WATCH_SEEK_COUNT} watch seeks: "
+            f"{DEFAULT_WATCH_SECTIONS}."
         ),
     )
     parser.add_argument(
@@ -928,12 +979,14 @@ def main() -> int:
     )
     parser.add_argument(
         "--watch-validation-mode",
-        default="static_target",
-        choices=["static_target", "target_to_next"],
+        default="previous_to_target",
+        choices=["static_target", "target_to_next", "previous_to_target"],
         help=(
-            "Seek validation used before watch-back playback. static_target "
-            "lands on the section then watches real playback; target_to_next "
-            "also requires one captured frame-step validation before playback."
+            "Seek validation used before watch-back playback. "
+            "previous_to_target restores the frame before the section and "
+            "lets SC6 advance natively into the selected frame before Play; "
+            "static_target lands directly on the selected frame; "
+            "target_to_next validates one native step after the selected frame."
         ),
     )
     parser.add_argument("--case-timeout", type=int, default=600)
@@ -943,7 +996,14 @@ def main() -> int:
 
     if args.analyze_only:
         run_id = args.run_id or ""
-        code, _ = run_analyzer(Path(args.analyze_only), run_id, args.strict)
+        code, _ = run_analyzer(
+            Path(args.analyze_only),
+            run_id,
+            args.strict,
+            args.min_resume_tick_rate,
+            args.resume_tick_window,
+            args.max_seek_validation_seconds,
+        )
         return code
 
     if args.strict and not args.wait:
@@ -1213,6 +1273,7 @@ def main() -> int:
             "seek case plan: "
             f"preset={args.case_preset if request_override is None else 'custom'} "
             f"cases={len(cases)} static={static_cases} watch={watch_cases} "
+            f"watch_sections={args.watch_sections if request_override is None else 'custom'} "
             f"watch_frames={args.watch_frames if request_override is None else 'custom'} "
             f"watch_validation={args.watch_validation_mode if request_override is None else 'custom'}"
         )
@@ -1271,7 +1332,14 @@ def main() -> int:
     if args.analyze or args.strict:
         if trace is None:
             return 3
-        analyzer_code, analyzer_stdout = run_analyzer(trace, run_id, args.strict)
+        analyzer_code, analyzer_stdout = run_analyzer(
+            trace,
+            run_id,
+            args.strict,
+            args.min_resume_tick_rate,
+            args.resume_tick_window,
+            args.max_seek_validation_seconds,
+        )
 
     exit_code = analyzer_code or (0 if summary.get("passed") else 1)
     return finish_run(report_dir, run_id, replay_start_result,

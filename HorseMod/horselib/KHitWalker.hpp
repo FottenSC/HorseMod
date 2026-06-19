@@ -1188,41 +1188,23 @@ namespace Horse
     }
 
     // ------------------------------------------------------------------
-    // Option B — the SC6-native way to convert a KHit local centre into UE4
-    // world space, mirroring ALuxTraceManager_GetTracePosition_Impl
-    // (0x1408D0BB0) which is the game's own capsule-to-world converter.
+    // KHit battle-space -> UE render-space conversion.
     //
-    //   int ueBone = LuxSkeletalBoneIndex_Remap(node->BoneId);     // +0x17
-    //   FTransform64 bone;
-    //   ALuxBattleChara_GetBoneTransformForPose(&bone, chara, poseSelector,
-    //                                           ueBone);
-    //   FVector scaled  = node->LocalCenter * g_LuxCmToUEScale;     // ×10
-    //   scaled *= bone.Scale;                                       // per-axis
-    //   FVector world = bone.Translation
-    //                 + Quat::Rotate(bone.Rot, scaled);
+    // Ghidra audit (2026-06): ALuxBattleChara_GetBoneTransformForPose
+    // @ 0x140462760 returns a render-space FMatrix produced by
+    // ConvertBattlePoseMatrixToUERenderMatrix @ 0x1404555A0.  That converter
+    // applies g_LuxMoveVM_FrameDivisor60 @ 0x143E8A4C8 (= 100.0f) to the
+    // translation row.  The separate g_LuxCmToUEScale @ 0x143E8A418 (= 10.0f)
+    // belongs to the stale trace/capsule path and must not be reused for KHit
+    // drawing.
     //
-    // The ×10 constant lives in the binary at 0x143E8A418 (symbol
-    // g_LuxCmToUEScale).  The remaining ~×10 factor is baked into the
-    // FTransform's Scale3D (the skeletal mesh component scale).
-    //
-    // Radius is scaled by the same g_LuxCmToUEScale (uniform approximation —
-    // the exact game uses the max bone Scale component but spheres are
-    // visually indistinguishable).
-    //
-    // Scale factor note
-    // -----------------
-    // The literal float at 0x143E8A418 is 10.0f (g_LuxCmToUEScale), but the
-    // empirically-correct scale to reach UE world cm for *our* pipeline is
-    // 100.  That's because the bone FMatrix we get back from
-    // GetBoneTransformForPose has row-scale ≈ 1.0 (the actor's component
-    // scale), NOT ≈ 10.  In the game's own capsule path the factor-of-10
-    // shows up either baked into the skeletal component scale or applied
-    // at a different layer (inside the physics trace call).  Measurements:
-    //   - Body pushbox radius 0.26 × 100 = 26 UE-cm  (body-sized — matches)
-    //   - Hurtbox local offset (0.03,0,0.12) × 100  → 12 UE-cm forward of
-    //     pelvis (correct torso height on Kilik/Grøh).
+    // KHit local offsets and radii are authored in battle units; render them
+    // in UE centimetres by multiplying by 100.  Native KHit collision does not
+    // apply a bone-row scale to sphere radii: KHitSphere_OverlapTest compares
+    // node+0x50 world centers against node+0x70 live radii directly.  Therefore
+    // the renderer scales radii by this battle-to-UE factor only.
     // ------------------------------------------------------------------
-    constexpr float kLuxCmToUE = 100.0f;
+    constexpr float kBattleToUE = 100.0f;
 
     // Box         — KHitArea render-space current/previous spine endpoints,
     //               drawn as a swept-quad outline.
@@ -4032,22 +4014,12 @@ namespace Horse
             return true;
         }
 
-        static float rowScaleMean(const FMatrix64& m)
-        {
-            auto mag = [&](int r) {
-                return std::sqrt(m.M[r][0] * m.M[r][0]
-                               + m.M[r][1] * m.M[r][1]
-                               + m.M[r][2] * m.M[r][2]);
-            };
-            return (mag(0) + mag(1) + mag(2)) / 3.0f;
-        }
-
         static FVec3 LiftBoneLocalToWorld(const FMatrix64& bone,
                                           const FVec3& boneLocal)
         {
-            const FVec3 scaled = { boneLocal.X * kLuxCmToUE,
-                                   boneLocal.Y * kLuxCmToUE,
-                                   boneLocal.Z * kLuxCmToUE };
+            const FVec3 scaled = { boneLocal.X * kBattleToUE,
+                                   boneLocal.Y * kBattleToUE,
+                                   boneLocal.Z * kBattleToUE };
             return TransformPoint(bone, scaled);
         }
 
@@ -4213,7 +4185,7 @@ namespace Horse
 
             out.kind   = KHitKind::Sphere;
             out.centre = LiftBoneLocalToWorld(bone, local);
-            out.radius = radius * kLuxCmToUE * rowScaleMean(bone);
+            out.radius = radius * kBattleToUE;
             return true;
         }
 

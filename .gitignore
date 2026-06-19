@@ -76,6 +76,9 @@ Thumbs.db
 *.log
 tmp/
 
+# --- Test run artifacts -----------------------------------------------------
+test_runs/
+
 # --- Moveset parser comparison artifacts -----------------------------------
 tools/moveset_parser/community_framedata.json
 tools/moveset_parser/community_framedata.xlsx

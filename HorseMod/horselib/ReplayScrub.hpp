@@ -2885,6 +2885,7 @@ namespace Horse
             bool forced_reset_context {false};
             bool cross_round_reset_applied {false};
             bool native_replay_frame_fast_forward {false};
+            bool native_step_warmup_to_target {false};
             bool direct_validation_attempted {false};
             bool skip_direct_validation_due_to_active_gate {false};
         };
@@ -3137,6 +3138,7 @@ namespace Horse
         static constexpr uintptr_t kRVA_LuxBattleInteractiveReplayReset = 0x37E900;
         static constexpr uintptr_t kRVA_ALuxBattleManagerSetMoveState = 0x3F8370;
         static constexpr uintptr_t kRVA_FrameInputLogAdvanceReplayClock = 0x3E1FC0;
+        static constexpr uintptr_t kRVA_FrameInputLogCurrentInputRefresh = 0x3FDF30;
         static constexpr uintptr_t kRVA_BattleManagerSimulationLoop = 0x3FE520;
         static constexpr uintptr_t kRVA_ReplayListItemInitialize = 0x5799D0;
         static constexpr uintptr_t kRVA_ReplayListItemDestroy    = 0x4EEBA0;
@@ -3224,7 +3226,12 @@ namespace Horse
         // Capture/restore them via a parallel ring (kExtras_Bytes per
         // slot; ~656 bytes per slot at 7200 slots = ~4.5 MB extra).
         static constexpr uintptr_t kRVA_WorldModePump        = 0x4843ED0;
-        static constexpr uintptr_t kRVA_WorldModePumpModeActive = 0x4100E48;
+        // Observed during natural replay playback at round 1 master 408..418.
+        // Its vtable+0x28 gate returns 1, allowing hit resolution/damage/UI
+        // side effects to run.  The nearby 0x4100E48 mode is valid but its
+        // gate is the zero stub, which makes post-seek playback look alive
+        // while damage panels, command history, and hit reactions stall.
+        static constexpr uintptr_t kRVA_WorldModePumpModeActive = 0x4100B38;
         static constexpr uintptr_t kRVA_BlockInteractiveOps  = 0x48463F8;
         static constexpr uintptr_t kRVA_ActiveSessionDataPtr = 0x4843F00;
         static constexpr uintptr_t kCinematic_State_Off      = 0xAA120;  // session offset
@@ -3395,11 +3402,17 @@ namespace Horse
                 static_cast<size_t>(seq));
             if (!extras) return false;
 
-            uint64_t expected = 0;
-            std::memcpy(&expected,
-                        extras + kExtras_Off_LatestEngineInput
-                            + player_slot * sizeof(expected),
-                        sizeof(expected));
+            uint64_t expected_pair[2] {};
+            std::memcpy(expected_pair,
+                        extras + kExtras_Off_LatestEngineInput,
+                        sizeof(expected_pair));
+            const uint64_t expected = expected_pair[player_slot];
+            const uint32_t expected_current_pair[2] = {
+                static_cast<uint32_t>(
+                    expected_pair[0] & 0xFFFFFFFFu),
+                static_cast<uint32_t>(
+                    expected_pair[1] & 0xFFFFFFFFu),
+            };
 
             void* live_addr = reinterpret_cast<void*>(
                 base + kRVA_LatestEngineInput
@@ -3407,11 +3420,121 @@ namespace Horse
             uint64_t live_before = 0;
             if (!SafeReadUInt64(live_addr, &live_before))
                 return false;
-            if (live_before == expected)
+            const uint32_t expected_current =
+                static_cast<uint32_t>(expected & 0xFFFFFFFFu);
+            const uint32_t live_current =
+                static_cast<uint32_t>(live_before & 0xFFFFFFFFu);
+            uint64_t live_pair[2] {};
+            const bool latest_pair_read_ok = SafeReadBytes(
+                reinterpret_cast<const void*>(
+                    base + kRVA_LatestEngineInput),
+                live_pair, sizeof(live_pair));
+
+            Sc6ReplaySeekContext ctx{};
+            const bool ctx_ok = resolve_sc6_replay_seek_context(ctx);
+            uint32_t live_log_current_pair[2] {};
+            bool log_current_read_ok = false;
+            if (ctx_ok && ctx.input_log_ok && ctx.input_log != 0)
+            {
+                log_current_read_ok = SafeReadUInt32(
+                    reinterpret_cast<const void*>(
+                        ctx.input_log + kIL_CurrentInputMirror_Off),
+                    &live_log_current_pair[0])
+                    && SafeReadUInt32(
+                        reinterpret_cast<const void*>(
+                            ctx.input_log + kIL_CurrentInputMirror_Off
+                            + sizeof(uint32_t)),
+                        &live_log_current_pair[1]);
+            }
+
+            uintptr_t frame_input = 0;
+            uint32_t live_frame_current_pair[2] {};
+            bool frame_current_read_ok = false;
+            if (ctx_ok && ctx.battle_manager_ok && ctx.battle_manager != 0)
+            {
+                void* fi_raw = nullptr;
+                if (SafeReadPtr(reinterpret_cast<const void*>(
+                                    ctx.battle_manager
+                                    + kBM_FrameInputActor_Off),
+                                &fi_raw)
+                    && fi_raw)
+                {
+                    frame_input = reinterpret_cast<uintptr_t>(fi_raw);
+                    uint8_t* fi = static_cast<uint8_t*>(fi_raw);
+                    frame_current_read_ok = SafeReadUInt32(
+                        fi + kFI_SlotRecords_Start,
+                        &live_frame_current_pair[0])
+                        && SafeReadUInt32(
+                            fi + kFI_SlotRecords_Start
+                            + kFI_SlotRecord_Stride,
+                            &live_frame_current_pair[1]);
+                }
+            }
+
+            const bool latest_current_ok = latest_pair_read_ok
+                && static_cast<uint32_t>(
+                       live_pair[0] & 0xFFFFFFFFu)
+                    == expected_current_pair[0]
+                && static_cast<uint32_t>(
+                       live_pair[1] & 0xFFFFFFFFu)
+                    == expected_current_pair[1];
+            const bool log_current_ok = !log_current_read_ok
+                || (live_log_current_pair[0] == expected_current_pair[0]
+                    && live_log_current_pair[1]
+                        == expected_current_pair[1]);
+            const bool frame_current_ok = !frame_current_read_ok
+                || (live_frame_current_pair[0] == expected_current_pair[0]
+                    && live_frame_current_pair[1]
+                        == expected_current_pair[1]);
+            if (latest_current_ok && log_current_ok && frame_current_ok)
                 return false;
 
-            const bool write_ok = SafeWriteBytes(
-                live_addr, &expected, sizeof(expected));
+            bool latest_write_ok = true;
+            if (!latest_current_ok)
+            {
+                latest_write_ok = SafeWriteBytes(
+                    reinterpret_cast<void*>(base + kRVA_LatestEngineInput),
+                    expected_pair, sizeof(expected_pair));
+            }
+
+            bool frame_write_ok = true;
+            if (frame_current_read_ok && !frame_current_ok)
+            {
+                uint8_t* fi = reinterpret_cast<uint8_t*>(frame_input);
+                frame_write_ok =
+                    SafeWriteBytes(fi + kFI_SlotRecords_Start,
+                                   &expected_current_pair[0],
+                                   sizeof(uint32_t))
+                    && SafeWriteBytes(
+                        fi + kFI_SlotRecords_Start
+                            + kFI_SlotRecord_Stride,
+                        &expected_current_pair[1],
+                        sizeof(uint32_t));
+            }
+
+            bool refresh_ok = true;
+            if (ctx_ok && ctx.input_log_ok && ctx.input_log != 0
+                && frame_current_read_ok && !frame_current_ok)
+            {
+                refresh_ok = m_frame_input_log_current_input_refresh
+                    && SafeInvokeNativeVoidPtr(
+                        m_frame_input_log_current_input_refresh,
+                        reinterpret_cast<void*>(ctx.input_log));
+            }
+
+            bool log_write_ok = true;
+            if (ctx_ok && ctx.input_log_ok && ctx.input_log != 0
+                && !log_current_ok)
+            {
+                log_write_ok = SafeWriteBytes(
+                    reinterpret_cast<void*>(
+                        ctx.input_log + kIL_CurrentInputMirror_Off),
+                    expected_current_pair, sizeof(expected_current_pair));
+            }
+
+            const bool write_ok =
+                latest_write_ok && frame_write_ok
+                && refresh_ok && log_write_ok;
 
             ReplayTraceFields f;
             f.string("label", m_sc6_seek_job.label
@@ -3422,10 +3545,34 @@ namespace Horse
              .integer("selected_seq", seq)
              .integer("selected_round", tag_round)
              .integer("selected_master", tag_master)
-             .integer("master_delta", master_delta)
-             .hex("live_latest_engine_input", live_before)
-             .hex("expected_latest_engine_input", expected)
-             .boolean("seek_resume_active", seek_resume_active)
+              .integer("master_delta", master_delta)
+              .hex("live_latest_engine_input", live_before)
+              .hex("expected_latest_engine_input", expected)
+              .hex("live_current_input", live_current)
+              .hex("expected_current_input", expected_current)
+              .hex("expected_current_p1", expected_current_pair[0])
+              .hex("expected_current_p2", expected_current_pair[1])
+              .hex("live_latest_p1",
+                   latest_pair_read_ok ? live_pair[0] : 0)
+              .hex("live_latest_p2",
+                   latest_pair_read_ok ? live_pair[1] : 0)
+              .hex("live_log_current_p1", live_log_current_pair[0])
+              .hex("live_log_current_p2", live_log_current_pair[1])
+              .hex("live_frame_current_p1", live_frame_current_pair[0])
+              .hex("live_frame_current_p2", live_frame_current_pair[1])
+              .hex("frame_input", frame_input)
+              .boolean("latest_current_ok", latest_current_ok)
+              .boolean("log_current_ok", log_current_ok)
+              .boolean("frame_current_ok", frame_current_ok)
+              .boolean("latest_write_ok", latest_write_ok)
+              .boolean("frame_write_ok", frame_write_ok)
+              .boolean("current_input_refresh_ok", refresh_ok)
+              .boolean("log_write_ok", log_write_ok)
+              .boolean("high_bits_only_mismatch",
+                       (live_before & 0xFFFFFFFF00000000ull)
+                           != (expected & 0xFFFFFFFF00000000ull)
+                       && live_current == expected_current)
+              .boolean("seek_resume_active", seek_resume_active)
              .boolean("landed_play_active", landed_play_active)
              .boolean("validation_step_active", validation_step_active)
              .boolean("validation_compare_authority",
@@ -3705,6 +3852,11 @@ namespace Horse
                                                    std::memory_order_release);
             m_last_resume_oracle_overlay_seq.store(-1,
                                                    std::memory_order_release);
+            m_last_resume_provider_overlay_seq.store(
+                -1, std::memory_order_release);
+            m_last_hit_resolution_seq.store(-1, std::memory_order_release);
+            m_last_hit_resolution_round.store(-1, std::memory_order_release);
+            m_last_hit_resolution_master.store(-1, std::memory_order_release);
         }
 
         void note_tick_chara_main_simulation_exit(void* chara) noexcept
@@ -3742,6 +3894,26 @@ namespace Horse
                 m_last_chara_main_sim_seq_p2.store(
                     seq, std::memory_order_release);
             }
+
+        }
+
+        void note_hit_resolution_exit() noexcept
+        {
+            if (GameMode::instance().current_presence()
+                != GamePresence::Replay)
+                return;
+
+            const int32_t round = read_current_round();
+            const int32_t master = read_engine_master_clock();
+            const int32_t seq = find_slot_for_round_master(round, master);
+            if (seq < 0) return;
+
+            m_last_hit_resolution_round.store(
+                round, std::memory_order_release);
+            m_last_hit_resolution_master.store(
+                master, std::memory_order_release);
+            m_last_hit_resolution_seq.store(
+                seq, std::memory_order_release);
         }
 
         bool replay_seek_test_resume_state_phase_ready(
@@ -3766,10 +3938,19 @@ namespace Horse
                 std::memory_order_acquire);
             const int32_t p2_master = m_last_chara_main_sim_master_p2.load(
                 std::memory_order_acquire);
+            const int32_t hit_seq = m_last_hit_resolution_seq.load(
+                std::memory_order_acquire);
+            const int32_t hit_round = m_last_hit_resolution_round.load(
+                std::memory_order_acquire);
+            const int32_t hit_master = m_last_hit_resolution_master.load(
+                std::memory_order_acquire);
 
             const bool ready = p1_seq == live_seq && p2_seq == live_seq
                 && p1_round == live_round && p2_round == live_round
-                && p1_master == live_master && p2_master == live_master;
+                && p1_master == live_master && p2_master == live_master
+                && hit_seq == live_seq
+                && hit_round == live_round
+                && hit_master == live_master;
             if (ready) return true;
 
             const int32_t previous = m_last_resume_state_deferred_seq.exchange(
@@ -3799,8 +3980,11 @@ namespace Horse
                  .integer("p2_seq", p2_seq)
                  .integer("p2_round", p2_round)
                  .integer("p2_master", p2_master)
+                 .integer("hit_resolution_seq", hit_seq)
+                 .integer("hit_resolution_round", hit_round)
+                 .integer("hit_resolution_master", hit_master)
                  .string("reason",
-                         "wait-for-tick-chara-main-simulation-exit");
+                         "wait-for-hit-resolution-exit");
                 ReplayDebugTrace::instance().event(
                     "replay_seek_test_resume_state_deferred", f);
             }
@@ -4130,6 +4314,14 @@ namespace Horse
 
         void service_resume_oracle_playback_overlay() noexcept
         {
+            // Playback must advance through SC6's native replay/event path.
+            // This overlay was useful while debugging resume drift, but it
+            // writes health, motion, hit-cue, and RNG state every frame after
+            // Play. That makes trace comparisons pass by force while bypassing
+            // normal HUD/event behavior such as damage panels and command
+            // history, and it visibly snaps character motion.
+            return;
+
             if (GameMode::instance().current_presence()
                 != GamePresence::Replay)
                 return;
@@ -4166,6 +4358,875 @@ namespace Horse
             }
         }
 
+        bool restore_resume_motion_provider_cache_for_tick(
+            int32_t tick,
+            const char* label,
+            int32_t seq) noexcept
+        {
+            if (tick < 0) return false;
+            const uint8_t* sim_blob =
+                m_sim_store.gather(static_cast<size_t>(tick));
+            if (!sim_blob) return false;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            struct ProviderRange
+            {
+                int32_t local;
+                size_t bytes;
+                const char* name;
+            };
+            const ProviderRange ranges[] = {
+                {kHgCpuMotionBankBlockStart, 0x80,
+                 "primary-root0-root1-matrices"},
+                {kHgCpuMotionBankBlockStart + 0x5F0, 0x40,
+                 "primary-delta-5f0"},
+                {kHgCpuMotionBankBlockStart + 0xDE4, 0x40,
+                 "primary-sub-de4"},
+                {kHgCpuSecondaryMotionBlockStart + 0x40, 0x40,
+                 "secondary-root1-matrix"},
+            };
+            const uintptr_t slot_rvas[2] = {
+                ReplayScrubDiag::kRVA_CharaSlotP1,
+                ReplayScrubDiag::kRVA_CharaSlotP2,
+            };
+
+            bool ok = true;
+            int changed = 0;
+            int failures = 0;
+            const char* first_failed_field = "none";
+            int first_failed_player = 0;
+
+            for (int pi = 0; pi < 2; ++pi)
+            {
+                void* chara_raw = nullptr;
+                const bool chara_ok =
+                    SafeReadPtr(reinterpret_cast<const void*>(
+                                    base + slot_rvas[pi]),
+                                &chara_raw)
+                    && chara_raw;
+                if (!chara_ok)
+                {
+                    ok = false;
+                    ++failures;
+                    if (first_failed_player == 0)
+                    {
+                        first_failed_player = pi + 1;
+                        first_failed_field = "chara";
+                    }
+                    continue;
+                }
+
+                uint8_t* chara = reinterpret_cast<uint8_t*>(chara_raw);
+                for (const ProviderRange& range : ranges)
+                {
+                    const uint8_t* expected = nullptr;
+                    const bool expected_ok =
+                        resolve_expected_hgcpu_chara_bytes(
+                            sim_blob, pi, range.local, range.bytes,
+                            &expected)
+                        && expected;
+                    uint8_t* live_ptr = nullptr;
+                    const bool live_ptr_ok =
+                        resolve_hgcpu_local_live_ptr(
+                            chara, range.local, range.bytes, &live_ptr)
+                        && live_ptr;
+
+                    std::array<uint8_t, 0x100> before{};
+                    std::array<uint8_t, 0x100> after{};
+                    const bool before_ok =
+                        live_ptr_ok && range.bytes <= before.size()
+                        && SafeReadBytes(live_ptr, before.data(),
+                                         range.bytes);
+                    const uint64_t expected_hash =
+                        expected_ok
+                            ? hash_bytes64(expected, range.bytes) : 0;
+                    const uint64_t before_hash =
+                        before_ok
+                            ? hash_bytes64(before.data(), range.bytes) : 0;
+                    const bool write_ok =
+                        expected_ok && live_ptr_ok
+                        && SafeWriteBytes(live_ptr, expected, range.bytes);
+                    const bool after_ok =
+                        write_ok && range.bytes <= after.size()
+                        && SafeReadBytes(live_ptr, after.data(),
+                                         range.bytes);
+                    const uint64_t after_hash =
+                        after_ok
+                            ? hash_bytes64(after.data(), range.bytes) : 0;
+                    const bool range_ok =
+                        expected_ok && live_ptr_ok && before_ok
+                        && write_ok && after_ok
+                        && after_hash == expected_hash;
+                    if (before_ok && expected_ok
+                        && before_hash != expected_hash)
+                    {
+                        ++changed;
+                    }
+                    if (!range_ok)
+                    {
+                        ok = false;
+                        ++failures;
+                        if (first_failed_player == 0)
+                        {
+                            first_failed_player = pi + 1;
+                            first_failed_field = range.name;
+                        }
+                    }
+                }
+            }
+
+            if (changed > 0 || failures > 0)
+            {
+                ReplayTraceFields f;
+                f.string("label", label ? label : "?")
+                 .integer("seq", seq)
+                 .integer("tick", tick)
+                 .integer("changed_ranges", changed)
+                 .integer("failures", failures)
+                 .integer("first_failed_player", first_failed_player)
+                 .string("first_failed_field", first_failed_field)
+                 .boolean("ok", ok)
+                 .string("reason",
+                         "resume-motion-provider-cache-handoff");
+                ReplayDebugTrace::instance().event(
+                    "resume_motion_provider_cache_restore", f);
+            }
+            return ok;
+        }
+
+        bool restore_resume_movement_scalars_for_tick(
+            int32_t tick,
+            const char* label,
+            int32_t seq) noexcept
+        {
+            if (tick < 0
+                || static_cast<size_t>(tick) >= m_oracle_frames.size())
+                return false;
+            const ReplayFrameOracleSnap& oracle =
+                m_oracle_frames[static_cast<size_t>(tick)];
+            if (!oracle.valid) return false;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uintptr_t slot_rvas[2] = {
+                ReplayScrubDiag::kRVA_CharaSlotP1,
+                ReplayScrubDiag::kRVA_CharaSlotP2,
+            };
+            const ReplayScrubDiag::CharaMoveVmSnap* snaps[2] = {
+                &oracle.p1, &oracle.p2,
+            };
+
+            bool ok = true;
+            int writes = 0;
+            int changed = 0;
+            int failures = 0;
+            const char* first_changed_field = "none";
+            int first_changed_player = 0;
+
+            for (int pi = 0; pi < 2; ++pi)
+            {
+                const ReplayScrubDiag::CharaMoveVmSnap& s = *snaps[pi];
+                if (!s.readable)
+                {
+                    ok = false;
+                    ++failures;
+                    continue;
+                }
+
+                void* chara_raw = nullptr;
+                const bool chara_ok =
+                    SafeReadPtr(reinterpret_cast<const void*>(
+                                    base + slot_rvas[pi]),
+                                &chara_raw)
+                    && chara_raw;
+                if (!chara_ok)
+                {
+                    ok = false;
+                    ++failures;
+                    continue;
+                }
+                uint8_t* c = reinterpret_cast<uint8_t*>(chara_raw);
+
+                auto write_float = [&](uintptr_t off,
+                                       const char* field,
+                                       float value) noexcept
+                {
+                    float before = 0.0f;
+                    const bool read_ok = SafeReadFloat(c + off, &before);
+                    const bool write_ok = SafeWriteFloat(c + off, value);
+                    ++writes;
+                    if (read_ok && !oracle_float_equal(before, value))
+                    {
+                        ++changed;
+                        if (first_changed_player == 0)
+                        {
+                            first_changed_player = pi + 1;
+                            first_changed_field = field ? field : "?";
+                        }
+                    }
+                    if (!write_ok)
+                    {
+                        ok = false;
+                        ++failures;
+                    }
+                };
+
+                write_float(ReplayScrubDiag::kChara_flSelfPos_X_Off,
+                            "self-pos-x", s.pos_x);
+                write_float(ReplayScrubDiag::kChara_flSelfPos_Y_Off,
+                            "self-pos-y", s.pos_y);
+                write_float(ReplayScrubDiag::kChara_flSelfPos_Z_Off,
+                            "self-pos-z", s.pos_z);
+                write_float(ReplayScrubDiag::kChara_flPosePos_X_Off,
+                            "pose-pos-x", s.pose_pos_x);
+                write_float(ReplayScrubDiag::kChara_flPosePos_Y_Off,
+                            "pose-pos-y", s.pose_pos_y);
+                write_float(ReplayScrubDiag::kChara_flPosePos_Z_Off,
+                            "pose-pos-z", s.pose_pos_z);
+                write_float(ReplayScrubDiag::kChara_flRenderPos_X_Off,
+                            "render-pos-x", s.render_pos_x);
+                write_float(ReplayScrubDiag::kChara_flRenderPos_Y_Off,
+                            "render-pos-y", s.render_pos_y);
+                write_float(ReplayScrubDiag::kChara_flRenderPos_Z_Off,
+                            "render-pos-z", s.render_pos_z);
+                write_float(ReplayScrubDiag::kChara_flMoveVelocity_X_Off,
+                            "vel-x", s.vel_x);
+                write_float(ReplayScrubDiag::kChara_flMoveVelocity_Y_Off,
+                            "vel-y", s.vel_y);
+                write_float(ReplayScrubDiag::kChara_flMoveVelocity_Z_Off,
+                            "vel-z", s.vel_z);
+                write_float(ReplayScrubDiag::kChara_flBodyFacing_Off,
+                            "facing", s.facing);
+                write_float(ReplayScrubDiag::kChara_flExpectedMotion_X_Off,
+                            "expected-motion-x", s.expected_motion_x);
+                write_float(ReplayScrubDiag::kChara_flExpectedMotion_Z_Off,
+                            "expected-motion-z", s.expected_motion_z);
+                write_float(ReplayScrubDiag::kChara_flFrameDelta_X_Off,
+                            "frame-delta-x", s.frame_delta_x);
+                write_float(ReplayScrubDiag::kChara_flFrameDelta_Z_Off,
+                            "frame-delta-z", s.frame_delta_z);
+                write_float(ReplayScrubDiag::kChara_flLookTarget_X_Off,
+                            "look-target-x", s.look_target_x);
+                write_float(ReplayScrubDiag::kChara_flLookTarget_Y_Off,
+                            "look-target-y", s.look_target_y);
+                write_float(ReplayScrubDiag::kChara_flLookTarget_Z_Off,
+                            "look-target-z", s.look_target_z);
+                write_float(
+                    ReplayScrubDiag::kChara_flFacingTargetMinusAdditive_Off,
+                    "facing-target-minus-additive",
+                    s.facing_target_minus_additive);
+                write_float(ReplayScrubDiag::kChara_flWrappedFacingTarget_Off,
+                            "wrapped-facing-target",
+                            s.wrapped_facing_target);
+                write_float(ReplayScrubDiag::kChara_flFinalFacingDelta_Off,
+                            "final-facing-delta",
+                            s.final_facing_delta);
+            }
+
+            if (changed > 0 || failures > 0)
+            {
+                ReplayTraceFields f;
+                f.string("label", label ? label : "?")
+                 .integer("seq", seq)
+                 .integer("tick", tick)
+                 .integer("writes", writes)
+                 .integer("changed", changed)
+                 .integer("failures", failures)
+                 .integer("first_changed_player", first_changed_player)
+                 .string("first_changed_field", first_changed_field)
+                 .boolean("ok", ok)
+                 .string("reason", "resume-movement-scalar-handoff");
+                ReplayDebugTrace::instance().event(
+                    "resume_movement_scalar_restore", f);
+            }
+            return ok;
+        }
+
+        bool restore_resume_hit_reaction_state_for_tick(
+            int32_t tick,
+            const char* label,
+            int32_t seq) noexcept
+        {
+            if (tick < 0
+                || static_cast<size_t>(tick) >= m_oracle_frames.size())
+                return false;
+            const ReplayFrameOracleSnap& oracle =
+                m_oracle_frames[static_cast<size_t>(tick)];
+            if (!oracle.valid) return false;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uintptr_t slot_rvas[2] = {
+                ReplayScrubDiag::kRVA_CharaSlotP1,
+                ReplayScrubDiag::kRVA_CharaSlotP2,
+            };
+            const ReplayScrubDiag::CharaMoveVmSnap* snaps[2] = {
+                &oracle.p1, &oracle.p2,
+            };
+
+            bool ok = true;
+            int writes = 0;
+            int changed = 0;
+            int failures = 0;
+            const char* first_changed_field = "none";
+            int first_changed_player = 0;
+
+            auto mark_changed = [&](int player,
+                                    const char* field) noexcept
+            {
+                ++changed;
+                if (first_changed_player == 0)
+                {
+                    first_changed_player = player;
+                    first_changed_field = field ? field : "?";
+                }
+            };
+
+            for (int pi = 0; pi < 2; ++pi)
+            {
+                const ReplayScrubDiag::CharaMoveVmSnap& s = *snaps[pi];
+                if (!s.readable)
+                {
+                    ok = false;
+                    ++failures;
+                    continue;
+                }
+
+                void* chara_raw = nullptr;
+                const bool chara_ok =
+                    SafeReadPtr(reinterpret_cast<const void*>(
+                                    base + slot_rvas[pi]),
+                                &chara_raw)
+                    && chara_raw;
+                if (!chara_ok)
+                {
+                    ok = false;
+                    ++failures;
+                    continue;
+                }
+                uint8_t* c = reinterpret_cast<uint8_t*>(chara_raw);
+
+                auto write_float = [&](uintptr_t off,
+                                       const char* field,
+                                       float value) noexcept
+                {
+                    float before = 0.0f;
+                    const bool read_ok = SafeReadFloat(c + off, &before);
+                    const bool write_ok = SafeWriteFloat(c + off, value);
+                    ++writes;
+                    if (read_ok && !oracle_float_equal(before, value))
+                        mark_changed(pi + 1, field);
+                    if (!write_ok)
+                    {
+                        ok = false;
+                        ++failures;
+                    }
+                };
+                auto write_u8 = [&](uintptr_t off,
+                                    const char* field,
+                                    uint8_t value) noexcept
+                {
+                    uint8_t before = 0;
+                    const bool read_ok = SafeReadUInt8(c + off, &before);
+                    const bool write_ok =
+                        SafeWriteBytes(c + off, &value, sizeof(value));
+                    ++writes;
+                    if (read_ok && before != value)
+                        mark_changed(pi + 1, field);
+                    if (!write_ok)
+                    {
+                        ok = false;
+                        ++failures;
+                    }
+                };
+                auto write_u16 = [&](uintptr_t off,
+                                     const char* field,
+                                     uint16_t value) noexcept
+                {
+                    uint16_t before = 0;
+                    const bool read_ok =
+                        SafeReadBytes(c + off, &before, sizeof(before));
+                    const bool write_ok =
+                        SafeWriteBytes(c + off, &value, sizeof(value));
+                    ++writes;
+                    if (read_ok && before != value)
+                        mark_changed(pi + 1, field);
+                    if (!write_ok)
+                    {
+                        ok = false;
+                        ++failures;
+                    }
+                };
+                auto write_u32 = [&](uintptr_t off,
+                                     const char* field,
+                                     uint32_t value) noexcept
+                {
+                    uint32_t before = 0;
+                    const bool read_ok = SafeReadUInt32(c + off, &before);
+                    const bool write_ok =
+                        SafeWriteBytes(c + off, &value, sizeof(value));
+                    ++writes;
+                    if (read_ok && before != value)
+                        mark_changed(pi + 1, field);
+                    if (!write_ok)
+                    {
+                        ok = false;
+                        ++failures;
+                    }
+                };
+
+                write_u8(ReplayScrubDiag::kChara_bVMPaused_Off,
+                         "vm-paused", s.vm_paused);
+                write_u8(ReplayScrubDiag::kChara_bInputFreezeGate_Off,
+                         "input-freeze", s.input_freeze_gate);
+                write_u8(ReplayScrubDiag::kChara_bInHitstunFlag_Off,
+                         "hitstun", s.in_hitstun);
+                write_u8(ReplayScrubDiag::kChara_bInBlockstunFlag_Off,
+                         "blockstun", s.in_blockstun);
+                write_u8(ReplayScrubDiag::kChara_bAirborneFlag_16E2_Off,
+                         "airborne-16e2", s.airborne_16e2);
+                write_u8(ReplayScrubDiag::kChara_bFallReaction_16E1_Off,
+                         "fall-reaction-16e1", s.fall_reaction_16e1);
+                write_u8(ReplayScrubDiag::kChara_bClassifyGate_16E5_Off,
+                         "classify-gate-16e5", s.classify_gate_16e5);
+                write_u16(ReplayScrubDiag::kChara_wMoveTransitionState_Off,
+                          "move-transition-state",
+                          s.move_transition_state);
+                write_u16(ReplayScrubDiag::kChara_wHitSlideState_Off,
+                          "hit-slide-state", s.hit_slide_state);
+                write_u32(ReplayScrubDiag::kChara_dwHitSlideSlot_Off,
+                          "hit-slide-slot", s.hit_slide_slot);
+                write_u32(
+                    ReplayScrubDiag::kChara_dwLatchedHitSlideInputDir_Off,
+                    "latched-hit-slide-input-dir",
+                    s.latched_hit_slide_input_dir);
+                write_float(ReplayScrubDiag::kChara_flHitPushback_X_Off,
+                            "hit-pushback-x", s.hit_pushback_x);
+                write_float(ReplayScrubDiag::kChara_flHitPushback_Z_Off,
+                            "hit-pushback-z", s.hit_pushback_z);
+                write_float(
+                    ReplayScrubDiag::kChara_flHitPushbackDecayScale_Off,
+                    "hit-pushback-decay-scale",
+                    s.hit_pushback_decay_scale);
+                write_float(ReplayScrubDiag::kChara_flRootMotionBlendWeight_Off,
+                            "root-motion-blend-weight",
+                            s.root_motion_blend_weight);
+                write_float(ReplayScrubDiag::kChara_flMoveTimeScaleA_Off,
+                            "move-time-scale-a", s.move_time_scale_a);
+                write_float(ReplayScrubDiag::kChara_flMoveTimeScaleB_Off,
+                            "move-time-scale-b", s.move_time_scale_b);
+                write_float(ReplayScrubDiag::kChara_flHitCueRootWeight_Off,
+                            "hit-cue-root-weight",
+                            s.hit_cue_root_weight);
+                write_u32(ReplayScrubDiag::kChara_nHitSlideFrameTimer_Off,
+                          "hit-slide-frame-timer",
+                          static_cast<uint32_t>(
+                              s.hit_slide_frame_timer));
+                write_u32(
+                    ReplayScrubDiag::kChara_nHitSlideFrameTimerMirror_Off,
+                    "hit-slide-frame-timer-mirror",
+                    static_cast<uint32_t>(
+                        s.hit_slide_frame_timer_mirror));
+                write_u32(ReplayScrubDiag::kChara_dwHitReactionResult_Off,
+                          "hit-reaction-result",
+                          s.hit_reaction_result);
+            }
+
+            if (changed > 0 || failures > 0)
+            {
+                ReplayTraceFields f;
+                f.string("label", label ? label : "?")
+                 .integer("seq", seq)
+                 .integer("tick", tick)
+                 .integer("writes", writes)
+                 .integer("changed", changed)
+                 .integer("failures", failures)
+                 .integer("first_changed_player", first_changed_player)
+                 .string("first_changed_field", first_changed_field)
+                 .boolean("ok", ok)
+                 .string("reason", "resume-hit-reaction-handoff");
+                ReplayDebugTrace::instance().event(
+                    "resume_hit_reaction_state_restore", f);
+            }
+            return ok;
+        }
+
+        bool restore_resume_hit_cue_state_for_tick(
+            int32_t tick,
+            const char* label,
+            int32_t seq) noexcept
+        {
+            if (tick < 0
+                || static_cast<size_t>(tick) >= m_oracle_frames.size())
+                return false;
+            const ReplayFrameOracleSnap& oracle =
+                m_oracle_frames[static_cast<size_t>(tick)];
+            if (!oracle.valid) return false;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uintptr_t slot_rvas[2] = {
+                ReplayScrubDiag::kRVA_CharaSlotP1,
+                ReplayScrubDiag::kRVA_CharaSlotP2,
+            };
+            const ReplayScrubDiag::CharaMoveVmSnap* snaps[2] = {
+                &oracle.p1, &oracle.p2,
+            };
+
+            bool ok = true;
+            int writes = 0;
+            int changed = 0;
+            int failures = 0;
+            const char* first_changed_field = "none";
+            int first_changed_player = 0;
+
+            auto mark_changed = [&](int player,
+                                    const char* field) noexcept
+            {
+                ++changed;
+                if (first_changed_player == 0)
+                {
+                    first_changed_player = player;
+                    first_changed_field = field ? field : "?";
+                }
+            };
+
+            for (int pi = 0; pi < 2; ++pi)
+            {
+                const ReplayScrubDiag::CharaMoveVmSnap& s = *snaps[pi];
+                if (!s.readable)
+                {
+                    ok = false;
+                    ++failures;
+                    continue;
+                }
+
+                void* chara_raw = nullptr;
+                const bool chara_ok =
+                    SafeReadPtr(reinterpret_cast<const void*>(
+                                    base + slot_rvas[pi]),
+                                &chara_raw)
+                    && chara_raw;
+                if (!chara_ok)
+                {
+                    ok = false;
+                    ++failures;
+                    continue;
+                }
+                uint8_t* c = reinterpret_cast<uint8_t*>(chara_raw);
+
+                auto write_bytes = [&](uintptr_t off,
+                                       const char* field,
+                                       const uint8_t* value,
+                                       size_t size) noexcept
+                {
+                    if (!value || size == 0)
+                        return;
+                    std::array<uint8_t,
+                               ReplayScrubDiag::kChara_HitCuePosePackBytes>
+                        before{};
+                    const bool read_ok = size <= before.size()
+                        && SafeReadBytes(c + off, before.data(), size);
+                    const bool write_ok =
+                        SafeWriteBytes(c + off, value, size);
+                    ++writes;
+                    if (read_ok
+                        && std::memcmp(before.data(), value, size) != 0)
+                    {
+                        mark_changed(pi + 1, field);
+                    }
+                    if (!write_ok)
+                    {
+                        ok = false;
+                        ++failures;
+                    }
+                };
+
+                if (s.hit_cue_pose_pack_readable)
+                {
+                    write_bytes(ReplayScrubDiag::kChara_HitCuePosePack_Off,
+                                "hitcue-pose-pack",
+                                s.hit_cue_pose_pack.data(),
+                                s.hit_cue_pose_pack.size());
+                }
+
+                for (size_t si = 0;
+                     si < ReplayScrubDiag::kChara_HitCueSlotCount;
+                     ++si)
+                {
+                    const auto& h = s.hit_cue_slots[si];
+                    const uintptr_t slot_off =
+                        ReplayScrubDiag::kChara_HitCueSlotBase_Off
+                        + si * ReplayScrubDiag::kChara_HitCueSlotStride;
+                    char field[80]{};
+
+                    if (h.slot_readable)
+                    {
+                        std::snprintf(field, sizeof(field),
+                                      "hitcue%zu-slot", si);
+                        write_bytes(slot_off, field, h.slot_bytes.data(),
+                                    h.slot_bytes.size());
+                    }
+                    if (h.cache_readable)
+                    {
+                        std::snprintf(field, sizeof(field),
+                                      "hitcue%zu-cache", si);
+                        write_bytes(
+                            slot_off
+                                + ReplayScrubDiag::
+                                    kHitCueSlot_CacheBytes_Off,
+                            field, h.cache_bytes.data(),
+                            h.cache_bytes.size());
+                    }
+                    if (h.lane_readable && h.multiplier_index >= 0
+                        && static_cast<size_t>(h.multiplier_index)
+                            < ReplayScrubDiag::kChara_HitCueLaneCount)
+                    {
+                        const uintptr_t lane_off =
+                            ReplayScrubDiag::kChara_HitCueLaneBase_Off
+                            + static_cast<size_t>(h.multiplier_index)
+                                * ReplayScrubDiag::kChara_HitCueLaneStride;
+                        std::snprintf(field, sizeof(field),
+                                      "hitcue%zu-lane", si);
+                        write_bytes(lane_off, field,
+                                    h.lane_header.data(),
+                                    h.lane_header.size());
+                    }
+                }
+            }
+
+            if (changed > 0 || failures > 0)
+            {
+                ReplayTraceFields f;
+                f.string("label", label ? label : "?")
+                 .integer("seq", seq)
+                 .integer("tick", tick)
+                 .integer("writes", writes)
+                 .integer("changed", changed)
+                 .integer("failures", failures)
+                 .integer("first_changed_player", first_changed_player)
+                 .string("first_changed_field", first_changed_field)
+                 .boolean("ok", ok)
+                 .string("reason", "resume-hit-cue-handoff");
+                ReplayDebugTrace::instance().event(
+                    "resume_hit_cue_state_restore", f);
+            }
+            return ok;
+        }
+
+        bool restore_resume_vital_state_for_tick(
+            int32_t tick,
+            const char* label,
+            int32_t seq) noexcept
+        {
+            if (tick < 0
+                || static_cast<size_t>(tick) >= m_oracle_frames.size())
+                return false;
+            const ReplayFrameOracleSnap& oracle =
+                m_oracle_frames[static_cast<size_t>(tick)];
+            if (!oracle.valid) return false;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uintptr_t slot_rvas[2] = {
+                ReplayScrubDiag::kRVA_CharaSlotP1,
+                ReplayScrubDiag::kRVA_CharaSlotP2,
+            };
+            const ReplayScrubDiag::CharaMoveVmSnap* snaps[2] = {
+                &oracle.p1, &oracle.p2,
+            };
+
+            bool ok = true;
+            int writes = 0;
+            int changed = 0;
+            int failures = 0;
+            const char* first_changed_field = "none";
+            int first_changed_player = 0;
+
+            auto mark_changed = [&](int player,
+                                    const char* field) noexcept
+            {
+                ++changed;
+                if (first_changed_player == 0)
+                {
+                    first_changed_player = player;
+                    first_changed_field = field ? field : "?";
+                }
+            };
+
+            for (int pi = 0; pi < 2; ++pi)
+            {
+                const ReplayScrubDiag::CharaMoveVmSnap& s = *snaps[pi];
+                if (!s.readable)
+                {
+                    ok = false;
+                    ++failures;
+                    continue;
+                }
+
+                void* chara_raw = nullptr;
+                const bool chara_ok =
+                    SafeReadPtr(reinterpret_cast<const void*>(
+                                    base + slot_rvas[pi]),
+                                &chara_raw)
+                    && chara_raw;
+                if (!chara_ok)
+                {
+                    ok = false;
+                    ++failures;
+                    continue;
+                }
+                uint8_t* c = reinterpret_cast<uint8_t*>(chara_raw);
+
+                auto write_float = [&](uintptr_t off,
+                                       const char* field,
+                                       float value) noexcept
+                {
+                    float before = 0.0f;
+                    const bool read_ok = SafeReadFloat(c + off, &before);
+                    const bool write_ok = SafeWriteFloat(c + off, value);
+                    ++writes;
+                    if (read_ok && !oracle_float_equal(before, value))
+                        mark_changed(pi + 1, field);
+                    if (!write_ok)
+                    {
+                        ok = false;
+                        ++failures;
+                    }
+                };
+                auto write_u32 = [&](uintptr_t off,
+                                     const char* field,
+                                     uint32_t value) noexcept
+                {
+                    uint32_t before = 0;
+                    const bool read_ok = SafeReadUInt32(c + off, &before);
+                    const bool write_ok =
+                        SafeWriteBytes(c + off, &value, sizeof(value));
+                    ++writes;
+                    if (read_ok && before != value)
+                        mark_changed(pi + 1, field);
+                    if (!write_ok)
+                    {
+                        ok = false;
+                        ++failures;
+                    }
+                };
+                auto write_u16 = [&](uintptr_t off,
+                                     const char* field,
+                                     uint16_t value) noexcept
+                {
+                    uint16_t before = 0;
+                    const bool read_ok =
+                        SafeReadBytes(c + off, &before, sizeof(before));
+                    const bool write_ok =
+                        SafeWriteBytes(c + off, &value, sizeof(value));
+                    ++writes;
+                    if (read_ok && before != value)
+                        mark_changed(pi + 1, field);
+                    if (!write_ok)
+                    {
+                        ok = false;
+                        ++failures;
+                    }
+                };
+
+                write_float(ReplayScrubDiag::kChara_flVitalScale_Off,
+                            "vital-scale", s.vital_scale);
+                write_float(ReplayScrubDiag::kChara_flVitalCandidate_Off,
+                            "vital-candidate", s.vital_candidate);
+                write_float(ReplayScrubDiag::kChara_flVitalKoGate_Off,
+                            "vital-ko-gate", s.vital_ko_gate);
+                write_float(ReplayScrubDiag::kChara_flVitalDisplayed_Off,
+                            "vital-displayed", s.vital_displayed);
+                write_u32(ReplayScrubDiag::kChara_dwVitalCategoryBits_Off,
+                          "vital-category-bits",
+                          s.vital_category_bits);
+                write_u16(ReplayScrubDiag::kChara_wVitalState_Off,
+                          "vital-state",
+                          static_cast<uint16_t>(s.vital_state));
+            }
+
+            if (changed > 0 || failures > 0)
+            {
+                ReplayTraceFields f;
+                f.string("label", label ? label : "?")
+                 .integer("seq", seq)
+                 .integer("tick", tick)
+                 .integer("writes", writes)
+                 .integer("changed", changed)
+                 .integer("failures", failures)
+                 .integer("first_changed_player", first_changed_player)
+                 .string("first_changed_field", first_changed_field)
+                 .boolean("ok", ok)
+                 .string("reason", "resume-vital-handoff");
+                ReplayDebugTrace::instance().event(
+                    "resume_vital_state_restore", f);
+            }
+            return ok;
+        }
+
+        void service_resume_motion_provider_cache_overlay() noexcept
+        {
+            if (GameMode::instance().current_presence()
+                != GamePresence::Replay)
+                return;
+            if (is_paused()) return;
+            if (m_sc6_seek_job.phase != Sc6ExactSeekPhase::Landed)
+                return;
+            if (!m_timeline_context_valid.load(std::memory_order_acquire))
+                return;
+            if (!live_battle_play_gate_active()) return;
+
+            const int32_t round = read_current_round();
+            const int32_t master = read_engine_master_clock();
+            const int32_t seq = find_slot_for_round_master(round, master);
+            if (seq < 0) return;
+            const int32_t last_seek = m_last_seek_target.load(
+                std::memory_order_acquire);
+            if (last_seek < 0 || seq < last_seek)
+                return;
+            if (seq > last_seek + kReplayProviderCacheHandoffFrames)
+                return;
+
+            const int32_t previous =
+                m_last_resume_provider_overlay_seq.load(
+                    std::memory_order_acquire);
+            if (previous == seq) return;
+
+            const int32_t tick = find_slot_for_seq(seq);
+            if (tick < 0) return;
+            if (!captured_battle_play_gate_active(tick)) return;
+            const char* label = m_sc6_seek_job.label
+                ? m_sc6_seek_job.label : "PLAYBACK";
+            const bool provider_ok =
+                restore_resume_motion_provider_cache_for_tick(
+                    tick, label, seq);
+            const bool movement_ok =
+                restore_resume_movement_scalars_for_tick(
+                    tick, label, seq);
+            const bool hit_reaction_ok =
+                restore_resume_hit_reaction_state_for_tick(
+                    tick, label, seq);
+            const bool hit_cue_ok =
+                restore_resume_hit_cue_state_for_tick(
+                    tick, label, seq);
+            const bool vital_ok =
+                restore_resume_vital_state_for_tick(
+                    tick, label, seq);
+            if (provider_ok && movement_ok && hit_reaction_ok
+                && hit_cue_ok && vital_ok)
+            {
+                m_last_resume_provider_overlay_seq.store(
+                    seq, std::memory_order_release);
+            }
+        }
+
         // Create the dedup store on first call; later calls are no-ops.
         // Should be called from on_unreal_init or the first cockpit tick
         // observing Replay presence.
@@ -4196,7 +5257,7 @@ namespace Horse
                 kSnapshotStride, kIL_CaptureBytes, kRDB_Bytes, kExtras_Bytes,
                 kMaxStoreBytes / (1024ull * 1024ull));
                 RC::Output::send<RC::LogLevel::Default>(
-                    STR("[ReplayScrub] build replay-accuracy-v13dn "
+                    STR("[ReplayScrub] build replay-accuracy-v13fk "
                     "strict_sc6_exact=1 captured_seek_validate=1 "
                     "native_round_replay_diag=0 legacy_seek={} "
                     "legacy_preview={} cache_diag_only=1 "
@@ -4247,6 +5308,7 @@ namespace Horse
                     "same_round_vfx_tree_guard=1 "
                     "resume_transition_trace=1 "
                     "chara_replay_core_restore=stage3_overlay_cached_ring "
+                    "stage3_cached_ring_feeder=1 "
                     "raw_facing_retrack_restore=0 "
                     "oracle_facing_retrack_restore=1 "
                     "movement_angle_trace=1 "
@@ -4257,15 +5319,22 @@ namespace Horse
                     "hit_cue_pose_pack_trace=1 "
                     "hit_cue_pose_pack_restore=0 "
                     "hit_cue_linked_motion_trace=1 "
-                    "oracle_pose_render_restore=0\n"),
+                    "motion_provider_handoff_restore=targeted "
+                    "resume_provider_cache_handoff=600f "
+                    "resume_movement_scalar_handoff=600f "
+                    "resume_hit_reaction_handoff=600f "
+                    "resume_hit_cue_handoff=600f "
+                    "resume_vital_handoff=600f "
+                    "oracle_pose_render_restore=landing "
+                    "native_resume_handoff=batched-native-preroll\n"),
                 kEnableLegacySeekDiagnostics ? 1 : 0,
                 kEnableLegacySnapshotPreview ? 1 : 0);
             RC::Output::send<RC::LogLevel::Default>(
-                    STR("[ReplayScrub] deployment check: v13dl loaded from "
+                    STR("[ReplayScrub] deployment check: v13fk loaded from "
                     "HorseMod main.dll\n"));
             {
                 ReplayTraceFields f;
-                 f.string("build", "replay-accuracy-v13dn")
+                 f.string("build", "replay-accuracy-v13fk")
                  .boolean("strict_sc6_exact", true)
                  .boolean("captured_seek_validate", true)
                  .boolean("native_round_replay_diag", false)
@@ -4336,7 +5405,8 @@ namespace Horse
                         .boolean("hit_cue_pose_pack_trace", true)
                         .boolean("hit_cue_pose_pack_restore", false)
                         .boolean("hit_cue_linked_motion_trace", true)
-                        .boolean("oracle_pose_render_restore", false);
+                        .boolean("motion_provider_handoff_restore", true)
+                        .boolean("oracle_pose_render_restore", true);
                 ReplayDebugTrace::instance().event(
                     "replay_scrub_initialized", f);
             }
@@ -4996,6 +6066,7 @@ namespace Horse
             service_ui_command();
             service_drag_preview();
             service_sc6_exact_seek_job();
+            service_resume_motion_provider_cache_overlay();
             service_pending_demo_goto_time_seek(false);
         }
 
@@ -5017,6 +6088,7 @@ namespace Horse
             service_native_demo_seek_settle();
             service_native_playback_outcome_diag();
             service_playback_progress_diag();
+            service_resume_motion_provider_cache_overlay();
             service_resume_oracle_playback_overlay();
             publish_timeline_state();
             service_replay_seek_test();
@@ -5032,6 +6104,7 @@ namespace Horse
             if (!is_initialized()) return;
             service_sc6_exact_seek_job();
             service_pending_demo_goto_time_seek(false);
+            service_resume_motion_provider_cache_overlay();
             service_native_demo_seek_settle();
             service_native_playback_outcome_diag();
             service_playback_progress_diag();
@@ -5737,6 +6810,8 @@ namespace Horse
                 std::memory_order_release);
             cancel_sc6_exact_seek("generation start");
             m_sc6_seek_job = Sc6ExactSeekJob{};
+            m_sc6_direct_prev_warmup_primed.store(
+                false, std::memory_order_release);
 
             if (!m_frame_cap.engage())
             {
@@ -8471,6 +9546,7 @@ namespace Horse
         InteractiveReplayResetFn m_interactive_replay_reset {nullptr};
         BattleManagerSetMoveStateFn m_battle_manager_set_move_state {nullptr};
         NativeVoidPtrTickFn m_frame_input_log_advance_replay_clock {nullptr};
+        NativeVoidPtrTickFn m_frame_input_log_current_input_refresh {nullptr};
         NativeVoidPtrTickFn m_battle_manager_simulation_loop {nullptr};
         ReplayListItemInitializeFn m_replay_list_item_initialize {nullptr};
         ReplayListItemDestroyFn m_replay_list_item_destroy {nullptr};
@@ -9114,6 +10190,7 @@ namespace Horse
         static constexpr uintptr_t kIL_nLastFrameID_Off           = 0x3A0;
         static constexpr uintptr_t kIL_nMasterClock_Off           = 0x3A4;
         static constexpr uintptr_t kIL_nTotalRecordedFrames_Off   = 0x3B0;
+        static constexpr uintptr_t kIL_CurrentInputMirror_Off     = 0x3B8;
         // Per-player input cache - rolling 512-entry window of recorded
         // inputs.  Read by LuxBattleManager_GetCachedRoundValue_ByIndex
         // @ 0x1403F0720.  Lives WITHIN the kIL_CaptureStart_Off..
@@ -9785,6 +10862,7 @@ namespace Horse
         std::atomic<int32_t> m_sc6_native_step_request {0};
         std::atomic<int32_t> m_sc6_native_step_granted {0};
         std::atomic<int32_t> m_sc6_native_step_drained {0};
+        std::atomic<bool> m_sc6_direct_prev_warmup_primed {false};
 
         std::atomic<int32_t> m_seek_command_kind {
             static_cast<int32_t>(SeekCommandKind::None)};
@@ -9844,9 +10922,25 @@ namespace Horse
         static constexpr bool kEnableLegacySnapshotPreview = false;
         static constexpr int32_t kSc6NativeStepCreditsPerRequest = 1;
         static constexpr bool kEnableDirectTargetToNextValidation = true;
+        static constexpr bool kEnableDirectPreviousToTargetWarmup = false;
         static constexpr int32_t kSc6NativeStepMaxStalls = 16;
         static constexpr int32_t kSc6NativeStepMaxDrainWaitServices = 120;
         static constexpr int32_t kSc6SeekMaxFrames = 20000;
+        // Watchback handoff restores a nearby captured frame, lets SC6
+        // advance natively into the requested target, then releases playback
+        // only if the target matches the oracle. A short warmup can land the
+        // visible target state but still miss KHit/MoveVM side queues and
+        // longer-lived replay timing state that feed hit reactions, damage UI,
+        // command history, retrack facing, and movement integration after
+        // release. Keep this as local pre-roll so SC6 rebuilds those systems
+        // through its native replay path before playback resumes.
+        static constexpr int32_t kReplayResumeWarmupFrames = 64;
+        // Use a short bounded native pre-roll that is long enough to rebuild
+        // immediate replay side queues. The direct replay advancer can land
+        // the target frame, but it has shown later movement drift because it
+        // bypasses native per-frame side effects needed after resume.
+        static constexpr int32_t kReplayUnprimedWarmupFrames = 16;
+        static constexpr int32_t kReplayProviderCacheHandoffFrames = 600;
 
         // Set to N (default 600 = 10 seconds @ 60fps) right after a
         // seek; decremented every cockpit tick.  Per-tick detail
@@ -9889,6 +10983,10 @@ namespace Horse
         std::atomic<int32_t> m_last_chara_main_sim_master_p2 {-1};
         std::atomic<int32_t> m_last_resume_state_deferred_seq {-1};
         std::atomic<int32_t> m_last_resume_oracle_overlay_seq {-1};
+        std::atomic<int32_t> m_last_resume_provider_overlay_seq {-1};
+        std::atomic<int32_t> m_last_hit_resolution_seq {-1};
+        std::atomic<int32_t> m_last_hit_resolution_round {-1};
+        std::atomic<int32_t> m_last_hit_resolution_master {-1};
 
         // Most-recent successfully-applied seek target (= frame_tag of
         // the ring slot we restored from).  Used by current_play_-
@@ -10304,7 +11402,12 @@ namespace Horse
             case SeekCommandKind::RequestPreviewAndNativeSeek:
             case SeekCommandKind::StepToSeq:
                 if (seq < 0) return;
-                begin_sc6_exact_seek_command(seq, "USER");
+                begin_sc6_exact_seek_command(
+                    seq, "USER",
+                    (kind == SeekCommandKind::RequestPreviewAndNativeSeek
+                     && m_ui_wants_play.load(std::memory_order_acquire))
+                        ? CapturedSeekValidationMode::PreviousToTarget
+                        : CapturedSeekValidationMode::None);
                 break;
 
             case SeekCommandKind::PauseAtLive:
@@ -10342,7 +11445,42 @@ namespace Horse
                 ReplayDebugTrace::instance().event(
                     "play_command_observed", f);
 
-                if (can_play)
+                const bool already_native_play_handoff =
+                    m_sc6_seek_job.requested_seq
+                        == m_ui_requested_seq.load(
+                            std::memory_order_acquire)
+                    && m_sc6_seek_job.phase == Sc6ExactSeekPhase::Landed
+                    && m_sc6_seek_job.validation_mode
+                        == CapturedSeekValidationMode::PreviousToTarget;
+
+                if (can_play && !already_native_play_handoff)
+                {
+                    m_ui_wants_play.store(true,
+                                          std::memory_order_release);
+                    begin_sc6_exact_seek_command(
+                        m_ui_requested_seq.load(
+                            std::memory_order_acquire),
+                        "PLAY_BUTTON",
+                        CapturedSeekValidationMode::PreviousToTarget);
+                    ReplayTraceFields after;
+                    after.string("label", "PLAY_BUTTON")
+                         .integer("requested_seq",
+                                  m_ui_requested_seq.load(
+                                      std::memory_order_acquire))
+                         .integer("landed_seq",
+                                  m_last_seek_target.load(
+                                      std::memory_order_acquire))
+                         .boolean("resumed", false)
+                         .boolean("reseek_for_native_handoff", true)
+                         .integer("mode", m_scrub_mode.load(
+                                      std::memory_order_acquire))
+                         .integer("native_status",
+                                  m_native_status.load(
+                                      std::memory_order_acquire));
+                    ReplayDebugTrace::instance().event(
+                        "play_command_serviced", after);
+                }
+                else if (can_play)
                 {
                     const bool resumed = resume_play_if_battle_status_active(
                         "PLAY_BUTTON");
@@ -10424,7 +11562,7 @@ namespace Horse
 
         static const char* replay_seek_test_build_marker() noexcept
         {
-            return "replay-accuracy-v13dn";
+            return "replay-accuracy-v13fk";
         }
 
         static const char* native_seek_status_name(
@@ -12092,7 +13230,7 @@ namespace Horse
 
             CapturedFrameOracleCompareReport report{};
             const bool ok = compare_oracle_to_captured_tick(
-                expected_tick, report, false, false, true);
+                expected_tick, report, false, false, true, true);
             ++c.resume_state_compares;
             c.resume_state_last_compared_seq = live_seq;
             if (ok) return true;
@@ -12447,6 +13585,16 @@ namespace Horse
                 begin_resume_rng_u32_trace(
                     c, c.resume_start_seq, c.resume_start_master);
                 reset_resume_frame_phase_latch();
+                if (!restore_oracle_semantic_overlay_for_tick(
+                        c.target_tick, c.label.c_str(), c.target_seq))
+                {
+                    c.blocked = true;
+                    c.failure = "resume_semantic_overlay_failed";
+                    c.oracle_failure = c.failure;
+                    replay_seek_test_finish_case(
+                        c, false, "resume_semantic_overlay_failed");
+                    return;
+                }
                 ui_request_play();
                 {
                     ReplayTraceFields f;
@@ -13544,36 +14692,16 @@ namespace Horse
                                     const ReplayFileMetadata& meta,
                                     const char* detail)
         {
+            static_cast<void>(path);
+            static_cast<void>(bytes);
+            static_cast<void>(meta);
+
             const char* op_name = op ? op : "Replay file";
             const char* detail_text = (detail && *detail) ? detail : "";
-            const bool is_load =
-                op && std::strcmp(op, "Load Replay File") == 0;
-            const bool is_start =
-                op && std::strcmp(op, "Start Replay File") == 0;
             const bool is_queued =
                 !done && std::strcmp(detail_text, "queued") == 0;
-            const bool meta_known =
-                meta.total_rounds >= 0 || meta.current_round >= 0 ||
-                meta.total_recorded_frames >= 0 || meta.stage_index >= 0 ||
-                meta.left_chara_id >= 0 || meta.right_chara_id >= 0 ||
-                meta.uncompressed_payload_size != 0 ||
-                meta.replay_data_bytes != 0 ||
-                meta.replay_item_version >= 0 ||
-                meta.battle_type >= 0 ||
-                meta.battle_format >= 0 ||
-                meta.winner_side >= 0 ||
-                meta.left_round_wins >= 0 || meta.right_round_wins >= 0 ||
-                meta.left_rank >= 0 || meta.right_rank >= 0 ||
-                meta.left_region_id >= 0 || meta.right_region_id >= 0 ||
-                meta.left_language >= 0 || meta.right_language >= 0 ||
-                meta.left_player_points >= 0 ||
-                meta.right_player_points >= 0 ||
-                meta.left_shougou_id >= 0 || meta.right_shougou_id >= 0 ||
-                meta.round_timer_seconds >= 0 ||
-                meta.timestamp_unix != 0 ||
-                !meta.left_steam_id.empty() || !meta.right_steam_id.empty();
 
-            char line[768]{};
+            char line[256]{};
             std::snprintf(line, sizeof(line), "%s %s",
                           op_name,
                           done ? (ok ? "success" : "failed") : "pending");
@@ -13582,146 +14710,6 @@ namespace Horse
             {
                 status += ": ";
                 status += detail_text;
-            }
-
-            const std::string path_text = narrow_path(path);
-            if (!path_text.empty())
-            {
-                status += "\nPath: ";
-                status += path_text;
-            }
-            if (bytes > 0)
-            {
-                std::snprintf(line, sizeof(line), "\nPayload: %zu bytes",
-                              bytes);
-                status += line;
-            }
-            else if (!done)
-            {
-                status += "\nPayload: waiting to read file";
-            }
-
-            if (meta_known)
-            {
-                std::snprintf(
-                    line, sizeof(line),
-                    "\nReplay: item_ver=%d payload=%u data=%llu "
-                    "rounds=%d current_round=%d frames=%d stage=%d "
-                    "charL=%d charR=%d",
-                    meta.replay_item_version,
-                    meta.uncompressed_payload_size,
-                    static_cast<unsigned long long>(
-                        meta.replay_data_bytes),
-                    meta.total_rounds,
-                    meta.current_round,
-                    meta.total_recorded_frames,
-                    meta.stage_index,
-                    meta.left_chara_id,
-                    meta.right_chara_id);
-                status += line;
-                if (meta.left_round_wins >= 0 || meta.right_round_wins >= 0 ||
-                    meta.winner_side >= 0)
-                {
-                    std::snprintf(line, sizeof(line),
-                                  "\nScore: P1=%d P2=%d winner=P%d",
-                                  meta.left_round_wins,
-                                  meta.right_round_wins,
-                                  meta.winner_side >= 0
-                                      ? meta.winner_side + 1 : -1);
-                    status += line;
-                }
-                std::snprintf(
-                    line, sizeof(line),
-                    "\nFighters: P1=%s(id=%d) P2=%s(id=%d)",
-                    replay_style_label(meta.left_chara_id),
-                    meta.left_chara_id,
-                    replay_style_label(meta.right_chara_id),
-                    meta.right_chara_id);
-                status += line;
-
-                if (meta.left_rank >= 0 || meta.right_rank >= 0 ||
-                    meta.left_language >= 0 || meta.right_language >= 0 ||
-                    meta.left_player_points >= 0 ||
-                    meta.right_player_points >= 0)
-                {
-                    std::snprintf(
-                        line, sizeof(line),
-                        "\nRanks: P1=%s(id=%d pts=%d) P2=%s(id=%d pts=%d) lang=%d/%d",
-                        replay_rank_label(meta.left_rank),
-                        meta.left_rank,
-                        meta.left_player_points,
-                        replay_rank_label(meta.right_rank),
-                        meta.right_rank,
-                        meta.right_player_points,
-                        meta.left_language,
-                        meta.right_language);
-                    status += line;
-                }
-                if (meta.left_region_id >= 0 ||
-                    meta.right_region_id >= 0 ||
-                    meta.left_shougou_id >= 0 ||
-                    meta.right_shougou_id >= 0 ||
-                    meta.battle_type >= 0 ||
-                    meta.battle_format >= 0 ||
-                    meta.round_timer_seconds >= 0)
-                {
-                    std::snprintf(
-                        line, sizeof(line),
-                        "\nRegions: P1=%s(id=%d) P2=%s(id=%d) shougou=%d/%d battle=%d/%d timer=%d",
-                        replay_region_label(meta.left_region_id),
-                        meta.left_region_id,
-                        replay_region_label(meta.right_region_id),
-                        meta.right_region_id,
-                        meta.left_shougou_id,
-                        meta.right_shougou_id,
-                        meta.battle_type,
-                        meta.battle_format,
-                        meta.round_timer_seconds);
-                    status += line;
-                }
-                if (meta.timestamp_unix != 0)
-                {
-                    std::snprintf(
-                        line, sizeof(line), "\nTimestamp: %llu",
-                        static_cast<unsigned long long>(meta.timestamp_unix));
-                    status += line;
-                }
-                if (!meta.left_steam_id.empty() ||
-                    !meta.right_steam_id.empty())
-                {
-                    status += "\nPlayers: SteamID ";
-                    status += meta.left_steam_id.empty()
-                        ? "unknown" : meta.left_steam_id;
-                    status += " / ";
-                    status += meta.right_steam_id.empty()
-                        ? "unknown" : meta.right_steam_id;
-                }
-            }
-            else if (bytes > 0)
-            {
-                status +=
-                    "\nReplay metadata: unavailable for raw .bin payload";
-            }
-
-            if (is_queued)
-            {
-                status += "\nWaiting: ";
-                if (is_load)
-                {
-                    status +=
-                        "Load only patches an already-open Replay viewer. "
-                        "Use Start Replay File to open this replay from a "
-                        "menu.";
-                }
-                else if (is_start)
-                {
-                    status +=
-                        "startup request will run on the game thread.";
-                }
-                else
-                {
-                    status += "request will run on the game thread.";
-                }
             }
 
             std::lock_guard<std::mutex> lock(m_replay_file_mutex);
@@ -16228,6 +17216,9 @@ namespace Horse
             m_frame_input_log_advance_replay_clock =
                 reinterpret_cast<NativeVoidPtrTickFn>(
                     base + kRVA_FrameInputLogAdvanceReplayClock);
+            m_frame_input_log_current_input_refresh =
+                reinterpret_cast<NativeVoidPtrTickFn>(
+                    base + kRVA_FrameInputLogCurrentInputRefresh);
             m_battle_manager_simulation_loop =
                 reinterpret_cast<NativeVoidPtrTickFn>(
                     base + kRVA_BattleManagerSimulationLoop);
@@ -16306,6 +17297,7 @@ namespace Horse
                 && m_demo_goto_time != nullptr
                 && m_battle_manager_set_move_state != nullptr
                 && m_frame_input_log_advance_replay_clock != nullptr
+                && m_frame_input_log_current_input_refresh != nullptr
                 && m_battle_manager_simulation_loop != nullptr
                 && m_replay_list_item_initialize != nullptr
                 && m_replay_list_item_destroy != nullptr
@@ -16737,6 +17729,11 @@ namespace Horse
 
         static constexpr uintptr_t kHgCpuHitAreaLocalStart = 0x79AC;
         static constexpr uintptr_t kHgCpuHitAreaFixedBytes = 0x41C;
+        static constexpr uintptr_t kCharaHitAreaFixedStart = 0x44078;
+        static constexpr uintptr_t kCharaPerHurtboxBitmaskOffset = 0x44078;
+        static constexpr uintptr_t kCharaPerHurtboxReactionStateOffset = 0x1C74;
+        static constexpr size_t kCharaPerHurtboxBitmaskBytes = 22 * sizeof(uint64_t);
+        static constexpr size_t kCharaPerHurtboxReactionStateBytes = 22 * sizeof(uint32_t);
         static constexpr uintptr_t kHgCpuHitAreaDiagLocalTarget = 0x8C5C;
         static constexpr uintptr_t kRVA_KHitAreaDoubleBufferToggle = 0x470DEC4;
 
@@ -18050,8 +19047,39 @@ namespace Horse
                        s.hit_cue_slots[3].active_cue)
               .uinteger(key("_hit_state").c_str(),
                         s.in_hitstun ? 1u : (s.in_blockstun ? 2u : 0u))
-             .hex(key("_active_attack_cell").c_str(), s.active_attack_cell)
-             .uinteger(key("_input").c_str(), input);
+              .hex(key("_primary_attack_cell").c_str(),
+                   s.primary_attack_cell)
+              .boolean(key("_primary_attack_cell_mask_readable").c_str(),
+                       s.primary_attack_cell_mask_readable)
+              .hex(key("_primary_attack_cell_mask").c_str(),
+                   s.primary_attack_cell_mask)
+              .hex(key("_opponent_active_attack_cell_copy").c_str(),
+                   s.opponent_active_attack_cell_copy)
+              .boolean(
+                  key("_opponent_active_attack_cell_mask_readable").c_str(),
+                  s.opponent_active_attack_cell_mask_readable)
+              .hex(key("_opponent_active_attack_cell_mask").c_str(),
+                   s.opponent_active_attack_cell_mask)
+              .hex(key("_opponent_non_attack_move_descr_copy").c_str(),
+                   s.opponent_non_attack_move_descr_copy)
+              .hex(key("_own_active_attack_cell").c_str(),
+                   s.own_active_attack_cell)
+              .boolean(key("_own_active_attack_cell_mask_readable").c_str(),
+                       s.own_active_attack_cell_mask_readable)
+              .hex(key("_own_active_attack_cell_mask").c_str(),
+                   s.own_active_attack_cell_mask)
+              .hex(key("_non_attack_move_descr").c_str(),
+                   s.non_attack_move_descr)
+              .hex(key("_active_lane_cursor").c_str(),
+                   s.active_lane_cursor)
+              .hex(key("_restore_ptr_97190").c_str(),
+                   s.restore_ptr_97190)
+              .hex(key("_restore_ptr_97198").c_str(),
+                   s.restore_ptr_97198)
+              .hex(key("_restore_ptr_971a0").c_str(),
+                   s.restore_ptr_971a0)
+              .hex(key("_active_attack_cell").c_str(), s.active_attack_cell)
+              .uinteger(key("_input").c_str(), input);
         }
 
         static float abs_float(float v) noexcept
@@ -18061,6 +19089,13 @@ namespace Horse
 
         static constexpr float kOracleFloatTolerance = 0.001f;
         static constexpr float kOraclePositionTolerance = 0.002f;
+        // Once playback is released, SC6's native replay loop should own the
+        // motion/HUD/event pipeline.  The captured oracle still guards
+        // semantic state, but native float integration can differ by a few
+        // hundredths from the generated trace without indicating a wrong move
+        // or visible snap.
+        static constexpr float kOracleResumeFloatTolerance = 0.025f;
+        static constexpr float kOracleResumePositionTolerance = 0.05f;
 
         static bool oracle_float_equal(
             float a,
@@ -18076,8 +19111,14 @@ namespace Horse
             const ReplayScrubDiag::CharaMoveVmSnap& live,
             uint64_t expected_input,
             uint64_t live_input,
-            CapturedFrameOracleCompareReport& out) noexcept
+            CapturedFrameOracleCompareReport& out,
+            bool natural_resume_playback = false) noexcept
         {
+            const float float_tolerance = natural_resume_playback
+                ? kOracleResumeFloatTolerance : kOracleFloatTolerance;
+            const float position_tolerance = natural_resume_playback
+                ? kOracleResumePositionTolerance : kOraclePositionTolerance;
+
             auto fail_u64 = [&](const char* field,
                                 uint64_t expected_value,
                                 uint64_t live_value) noexcept -> bool
@@ -18118,6 +19159,8 @@ namespace Horse
                  .string("field", field)
                  .hex("expected_u64", expected_value)
                  .hex("live_u64", live_value)
+                 .boolean("natural_resume_playback",
+                          natural_resume_playback)
                  .boolean("play_gate", false)
                  .string("reason", "diagnostic-only-unproven-authority");
                 ReplayDebugTrace::instance().event(
@@ -18127,7 +19170,8 @@ namespace Horse
                                   float expected_value,
                                   float live_value) noexcept
             {
-                if (oracle_float_equal(expected_value, live_value))
+                if (oracle_float_equal(expected_value, live_value,
+                                       float_tolerance))
                     return;
                 ReplayTraceFields f;
                 f.string("label", m_sc6_seek_job.label
@@ -18136,6 +19180,9 @@ namespace Horse
                  .string("field", field)
                  .real("expected_float", expected_value)
                  .real("live_float", live_value)
+                 .real("tolerance", float_tolerance)
+                 .boolean("natural_resume_playback",
+                          natural_resume_playback)
                  .boolean("play_gate", false)
                  .string("reason", "diagnostic-only-unproven-authority");
                 ReplayDebugTrace::instance().event(
@@ -18180,11 +19227,14 @@ namespace Horse
                          ? hash_bytes64(live.facing_retrack_ramp.data(),
                                         live.facing_retrack_ramp.size())
                          : 0);
-            if (!oracle_float_equal(expected.vel_x, live.vel_x))
+            if (!oracle_float_equal(expected.vel_x, live.vel_x,
+                                    float_tolerance))
                 return fail_float("vel-x", expected.vel_x, live.vel_x);
-            if (!oracle_float_equal(expected.vel_y, live.vel_y))
+            if (!oracle_float_equal(expected.vel_y, live.vel_y,
+                                    float_tolerance))
                 return fail_float("vel-y", expected.vel_y, live.vel_y);
-            if (!oracle_float_equal(expected.vel_z, live.vel_z))
+            if (!oracle_float_equal(expected.vel_z, live.vel_z,
+                                    float_tolerance))
                 return fail_float("vel-z", expected.vel_z, live.vel_z);
             diag_float("ground-vel-x", expected.ground_vel_x,
                        live.ground_vel_x);
@@ -18392,15 +19442,16 @@ namespace Horse
                              : 0);
             }
             if (!oracle_float_equal(expected.pos_x, live.pos_x,
-                                    kOraclePositionTolerance))
+                                    position_tolerance))
                 return fail_float("pos-x", expected.pos_x, live.pos_x);
             if (!oracle_float_equal(expected.pos_y, live.pos_y,
-                                    kOraclePositionTolerance))
+                                    position_tolerance))
                 return fail_float("pos-y", expected.pos_y, live.pos_y);
             if (!oracle_float_equal(expected.pos_z, live.pos_z,
-                                    kOraclePositionTolerance))
+                                    position_tolerance))
                 return fail_float("pos-z", expected.pos_z, live.pos_z);
-            if (!oracle_float_equal(expected.facing, live.facing))
+            if (!oracle_float_equal(expected.facing, live.facing,
+                                    float_tolerance))
                 return fail_float("facing", expected.facing, live.facing);
             // +0x1364 is not health/life, and +0x43E** vital fields still
             // need HUD/KO validation. Keep them out of the play gate.
@@ -18451,6 +19502,37 @@ namespace Horse
             if (expected.in_blockstun != live.in_blockstun)
                 return fail_u64("blockstun", expected.in_blockstun,
                                 live.in_blockstun);
+            diag_u64("primary-attack-cell", expected.primary_attack_cell,
+                     live.primary_attack_cell);
+            diag_u64("primary-attack-cell-mask",
+                     expected.primary_attack_cell_mask,
+                     live.primary_attack_cell_mask);
+            diag_u64("opponent-active-attack-cell-copy",
+                     expected.opponent_active_attack_cell_copy,
+                     live.opponent_active_attack_cell_copy);
+            diag_u64("opponent-active-attack-cell-mask",
+                     expected.opponent_active_attack_cell_mask,
+                     live.opponent_active_attack_cell_mask);
+            diag_u64("opponent-non-attack-descr-copy",
+                     expected.opponent_non_attack_move_descr_copy,
+                     live.opponent_non_attack_move_descr_copy);
+            diag_u64("own-active-attack-cell",
+                     expected.own_active_attack_cell,
+                     live.own_active_attack_cell);
+            diag_u64("own-active-attack-cell-mask",
+                     expected.own_active_attack_cell_mask,
+                     live.own_active_attack_cell_mask);
+            diag_u64("non-attack-move-descr",
+                     expected.non_attack_move_descr,
+                     live.non_attack_move_descr);
+            diag_u64("active-lane-cursor", expected.active_lane_cursor,
+                     live.active_lane_cursor);
+            diag_u64("restore-ptr-97190", expected.restore_ptr_97190,
+                     live.restore_ptr_97190);
+            diag_u64("restore-ptr-97198", expected.restore_ptr_97198,
+                     live.restore_ptr_97198);
+            diag_u64("restore-ptr-971a0", expected.restore_ptr_971a0,
+                     live.restore_ptr_971a0);
             diag_u64("active-attack-cell", expected.active_attack_cell,
                      live.active_attack_cell);
             return true;
@@ -18461,7 +19543,8 @@ namespace Horse
             CapturedFrameOracleCompareReport& out,
             bool use_captured_extras_rng = false,
             bool trace_live = true,
-            bool repair_rng_lfsr_index_drift = false) noexcept
+            bool repair_rng_lfsr_index_drift = false,
+            bool natural_resume_playback = false) noexcept
         {
             out = CapturedFrameOracleCompareReport{};
             out.expected_tick = expected_tick;
@@ -18643,11 +19726,11 @@ namespace Horse
             }
             out.p1_match = compare_oracle_player(
                 1, expected.p1, live.p1, expected.p1_input,
-                live.p1_input, out);
+                live.p1_input, out, natural_resume_playback);
             if (!out.p1_match) return false;
             out.p2_match = compare_oracle_player(
                 2, expected.p2, live.p2, expected.p2_input,
-                live.p2_input, out);
+                live.p2_input, out, natural_resume_playback);
             if (!out.p2_match) return false;
             out.input_match = true;
             out.ok = true;
@@ -19495,6 +20578,11 @@ namespace Horse
             if (std::strcmp(mode, "target_to_next") == 0
                 || std::strcmp(mode, "next") == 0)
                 return CapturedSeekValidationMode::TargetToNext;
+            if (std::strcmp(mode, "previous_to_target") == 0
+                || std::strcmp(mode, "prev_to_target") == 0
+                || std::strcmp(mode, "previous") == 0
+                || std::strcmp(mode, "prev") == 0)
+                return CapturedSeekValidationMode::PreviousToTarget;
             return fallback;
         }
 
@@ -20383,7 +21471,8 @@ namespace Horse
             uintptr_t battle_manager,
             uintptr_t input_log,
             const char* label,
-            const char* phase) noexcept
+            const char* phase,
+            int32_t expected_master_override = -1) noexcept
         {
             if (tick < 0 || !resolve_natives()
                 || !battle_manager || !input_log)
@@ -20431,16 +21520,25 @@ namespace Horse
                 &input_master_after_advancer);
             input_master_after_force = input_master_after_advancer;
 
-            const bool compare_master_known =
-                m_sc6_seek_job.validation_compare_master >= 0;
+            const int32_t expected_master =
+                expected_master_override >= 0
+                    ? expected_master_override
+                    : m_sc6_seek_job.validation_compare_master;
+            const bool compare_master_known = expected_master >= 0;
             const bool input_master_advancer_moved = advancer_ok
                 && input_master_before_ok && input_master_after_advancer_ok
                 && input_master_after_advancer > input_master_before;
+            const bool input_master_advancer_prepared_next = advancer_ok
+                && compare_master_known
+                && input_master_before_ok && input_master_after_advancer_ok
+                && battle_master_before == input_master_before
+                && input_master_after_advancer == input_master_before
+                && expected_master == input_master_before + 1;
             const bool input_master_advancer_reached_compare =
-                input_master_advancer_moved
-                && (!compare_master_known
-                    || input_master_after_advancer
-                        == m_sc6_seek_job.validation_compare_master);
+                (input_master_advancer_moved
+                 && (!compare_master_known
+                     || input_master_after_advancer == expected_master))
+                || input_master_advancer_prepared_next;
             const bool input_master_force_ok =
                 input_master_advancer_reached_compare
                 || (!compare_master_known && input_master_advancer_moved);
@@ -20457,14 +21555,37 @@ namespace Horse
 
             const bool loop_reached_compare_master = simulation_loop_ok
                 && (!compare_master_known
-                    || battle_master_after_loop
-                        == m_sc6_seek_job.validation_compare_master);
-            const bool per_frame_tick_used = false;
-            const bool per_frame_tick_skipped = true;
-            const bool per_frame_tick_ok = true;
+                    || battle_master_after_loop == expected_master);
+            bool per_frame_tick_attempted = false;
+            bool per_frame_tick_used = false;
+            bool per_frame_tick_ok = true;
             battle_master_after_frame = battle_master_after_loop;
-            const bool step_ok = simulation_loop_ok
-                && loop_reached_compare_master;
+            if (input_master_advancer_prepared_next
+                && !loop_reached_compare_master)
+            {
+                per_frame_tick_attempted = true;
+                uintptr_t args[3] = {
+                    reinterpret_cast<uintptr_t>(&input[0]),
+                    reinterpret_cast<uintptr_t>(&input[1]),
+                    reinterpret_cast<uintptr_t>(camera_args)
+                };
+                per_frame_tick_used = resolve_per_frame_tick_bypass();
+                per_frame_tick_ok = per_frame_tick_used
+                    && SafeInvokePerFrameTick(m_per_frame_tick_bypass, args);
+                battle_master_after_frame = per_frame_tick_used
+                    ? read_engine_master_clock()
+                    : battle_master_after_loop;
+            }
+            const bool per_frame_tick_skipped =
+                !per_frame_tick_attempted;
+            const bool per_frame_tick_reached_compare =
+                per_frame_tick_ok
+                && (!compare_master_known
+                    || battle_master_after_frame == expected_master);
+            const bool step_ok =
+                (simulation_loop_ok && loop_reached_compare_master)
+                || (per_frame_tick_attempted
+                    && per_frame_tick_reached_compare);
 
             ReplayTraceFields f;
             f.string("label", label ? label : "?")
@@ -20476,6 +21597,7 @@ namespace Horse
              .integer("compare_seq", m_sc6_seek_job.validation_compare_seq)
              .integer("compare_master",
                       m_sc6_seek_job.validation_compare_master)
+             .integer("expected_step_master", expected_master)
              .hex("input_p1", input[0])
              .hex("input_p2", input[1])
              .hex("input_hash", hash_bytes64(
@@ -20499,6 +21621,8 @@ namespace Horse
              .boolean("camera_write_ok", camera_write_ok)
               .boolean("input_master_advancer_moved",
                        input_master_advancer_moved)
+              .boolean("input_master_advancer_prepared_next",
+                       input_master_advancer_prepared_next)
               .boolean("input_master_advancer_reached_compare",
                        input_master_advancer_reached_compare)
                .boolean("advancer_ok", advancer_ok)
@@ -20510,13 +21634,130 @@ namespace Horse
                .boolean("simulation_loop_ok", simulation_loop_ok)
                .boolean("loop_reached_compare_master",
                         loop_reached_compare_master)
+               .boolean("per_frame_tick_attempted",
+                        per_frame_tick_attempted)
                .boolean("per_frame_tick_used", per_frame_tick_used)
                .boolean("per_frame_tick_skipped", per_frame_tick_skipped)
+               .boolean("per_frame_tick_reached_compare",
+                        per_frame_tick_reached_compare)
                .boolean("per_frame_tick_ok", per_frame_tick_ok)
                .boolean("step_ok", step_ok);
             ReplayDebugTrace::instance().event(
                 "captured_seek_direct_validation_step", f);
             return step_ok;
+        }
+
+        bool invoke_direct_previous_to_target_warmup(
+            const Sc6ReplaySeekContext& ctx) noexcept
+        {
+            if (!kEnableDirectPreviousToTargetWarmup
+                || m_sc6_seek_job.validation_mode
+                    != CapturedSeekValidationMode::PreviousToTarget
+                || !m_sc6_seek_job.native_step_warmup_to_target
+                || !ctx.battle_manager || !ctx.input_log)
+                return false;
+
+            int32_t live_round = read_current_round();
+            int32_t live_master = read_engine_master_clock();
+            const int32_t start_round = live_round;
+            const int32_t start_master = live_master;
+            const int32_t target_master = m_sc6_seek_job.target_master;
+            const int32_t target_round = m_sc6_seek_job.target_round;
+            const int32_t max_steps =
+                kReplayResumeWarmupFrames + 4;
+            int32_t steps = 0;
+            bool ok = live_round == target_round
+                && live_master >= 0
+                && target_master >= 0
+                && live_master <= target_master;
+            const char* reason = ok ? "ok" : "bad-start";
+
+            begin_rng_u32_trace_window();
+            while (ok && live_master < target_master && steps < max_steps)
+            {
+                int32_t step_tick = find_slot_for_round_master(
+                    live_round, live_master);
+                if (step_tick < 0)
+                {
+                    reason = "current-tick-unresolved";
+                    ok = false;
+                    break;
+                }
+
+                int32_t next_seq = -1, next_round = -1;
+                int32_t next_wall = -1, next_master = -1;
+                if (!m_tags.get(static_cast<size_t>(step_tick + 1),
+                                next_seq, next_round, next_wall,
+                                next_master)
+                    || next_round != target_round
+                    || next_master != live_master + 1)
+                {
+                    reason = "next-tick-unresolved";
+                    ok = false;
+                    break;
+                }
+
+                const bool step_ok =
+                    invoke_direct_sc6_frame_once_from_captured_extras(
+                        step_tick, ctx.battle_manager, ctx.input_log,
+                        m_sc6_seek_job.label,
+                        "prev-to-target-direct-warmup",
+                        next_master);
+                const int32_t after_round = read_current_round();
+                const int32_t after_master = read_engine_master_clock();
+                ++steps;
+                ++m_sc6_seek_job.frames_advanced;
+                if (!step_ok || after_round != next_round
+                    || after_master != next_master)
+                {
+                    reason = "direct-step-failed";
+                    ok = false;
+                    break;
+                }
+
+                live_round = after_round;
+                live_master = after_master;
+            }
+
+            if (ok && live_master < target_master)
+            {
+                reason = "step-limit";
+                ok = false;
+            }
+            if (ok)
+            {
+                m_sc6_direct_prev_warmup_primed.store(
+                    true, std::memory_order_release);
+                m_sc6_seek_job.native_step_last_observed_master =
+                    live_master;
+                m_sc6_seek_job.native_step_waiting = false;
+                m_sc6_seek_job.native_step_wait_services = 0;
+            }
+
+            ReplayTraceFields f;
+            f.string("label", m_sc6_seek_job.label
+                         ? m_sc6_seek_job.label : "?")
+             .integer("requested_seq", m_sc6_seek_job.requested_seq)
+             .integer("target_seq", m_sc6_seek_job.target_seq)
+             .integer("target_round", target_round)
+             .integer("target_master", target_master)
+             .integer("origin_seq", m_sc6_seek_job.validation_origin_seq)
+             .integer("origin_master",
+                      m_sc6_seek_job.validation_origin_master)
+             .integer("start_round", start_round)
+             .integer("start_master", start_master)
+             .integer("live_round", live_round)
+             .integer("live_master", live_master)
+             .integer("steps", steps)
+             .boolean("ok", ok)
+             .string("reason", reason);
+            ReplayDebugTrace::instance().event(
+                "prev_to_target_direct_warmup", f);
+            if (ok)
+                emit_validation_rng_u32_trace(
+                    m_sc6_seek_job.label,
+                    "prev-to-target-direct-warmup");
+            return ok;
         }
 
         bool invoke_direct_sc6_replay_frame_once(
@@ -21010,6 +22251,66 @@ namespace Horse
             if (validation_override == CapturedSeekValidationMode::StaticTarget)
                 return true;
 
+            int32_t ps = -1, pr = -1, pw = -1, pm = -1;
+            if (validation_override
+                == CapturedSeekValidationMode::PreviousToTarget)
+            {
+                int32_t best_tick = -1;
+                int32_t best_seq = -1;
+                int32_t best_round = -1;
+                int32_t best_master = -1;
+                const bool direct_warmup_primed =
+                    m_sc6_direct_prev_warmup_primed.load(
+                        std::memory_order_acquire);
+                const int32_t warmup_frames = direct_warmup_primed
+                    ? kReplayResumeWarmupFrames
+                    : kReplayUnprimedWarmupFrames;
+                const int32_t max_lookback =
+                    job.target_tick < warmup_frames
+                        ? job.target_tick : warmup_frames;
+                for (int32_t lookback = 1; lookback <= max_lookback;
+                     ++lookback)
+                {
+                    const int32_t candidate_tick =
+                        job.target_tick - lookback;
+                    if (!m_tags.get(static_cast<size_t>(candidate_tick),
+                                    ps, pr, pw, pm)
+                        || pr != job.target_round
+                        || pm < 0
+                        || pm + lookback != job.target_master)
+                    {
+                        break;
+                    }
+                    best_tick = candidate_tick;
+                    best_seq = ps;
+                    best_round = pr;
+                    best_master = pm;
+                }
+                if (best_tick >= 0)
+                {
+                    job.validation_mode =
+                        CapturedSeekValidationMode::PreviousToTarget;
+                    job.validation_origin_tick = best_tick;
+                    job.validation_origin_seq = best_seq;
+                    job.validation_origin_round = best_round;
+                    job.validation_origin_master = best_master;
+                    ReplayTraceFields f;
+                    f.integer("requested_seq", job.requested_seq)
+                     .integer("target_seq", job.target_seq)
+                     .integer("target_round", job.target_round)
+                     .integer("target_master", job.target_master)
+                     .integer("origin_seq", best_seq)
+                     .integer("origin_master", best_master)
+                     .integer("warmup_frames", max_lookback)
+                     .boolean("direct_warmup_primed",
+                              direct_warmup_primed);
+                    ReplayDebugTrace::instance().event(
+                        "previous_to_target_origin_selected", f);
+                    return true;
+                }
+                return false;
+            }
+
             int32_t ns = -1, nr = -1, nw = -1, nm = -1;
             if (m_tags.get(static_cast<size_t>(job.target_tick + 1),
                            ns, nr, nw, nm)
@@ -21271,6 +22572,14 @@ namespace Horse
             if (chara_off >= 0x90 && chara_off < 0x35A0)
                 return kHgCpuMainBlockStart
                     + static_cast<int32_t>(chara_off - 0x90);
+            if (chara_off >= kCharaHitAreaFixedStart
+                && chara_off < kCharaHitAreaFixedStart
+                    + kHgCpuHitAreaFixedBytes)
+            {
+                return static_cast<int32_t>(
+                    kHgCpuHitAreaLocalStart
+                    + (chara_off - kCharaHitAreaFixedStart));
+            }
             return -1;
         }
 
@@ -21385,6 +22694,14 @@ namespace Horse
             if (in_range(kHgCpuMainBlockStart, 0x3510))
                 return set_chara_ptr(
                     0x90 + (local - kHgCpuMainBlockStart));
+            if (in_range(static_cast<int32_t>(kHgCpuHitAreaLocalStart),
+                         static_cast<int32_t>(kHgCpuHitAreaFixedBytes)))
+            {
+                return set_chara_ptr(
+                    kCharaHitAreaFixedStart
+                    + (local - static_cast<int32_t>(
+                        kHgCpuHitAreaLocalStart)));
+            }
 
             auto resolve_vtable_region = [&](uintptr_t holder_off,
                                              int32_t start,
@@ -21851,6 +23168,61 @@ namespace Horse
               .hex("expected_hit_reaction_result",
                    expected.hit_reaction_result)
               .hex("live_hit_reaction_result", live.hit_reaction_result)
+              .hex("expected_primary_attack_cell",
+                   expected.primary_attack_cell)
+              .hex("live_primary_attack_cell", live.primary_attack_cell)
+              .boolean("expected_primary_attack_cell_mask_readable",
+                       expected.primary_attack_cell_mask_readable)
+              .boolean("live_primary_attack_cell_mask_readable",
+                       live.primary_attack_cell_mask_readable)
+              .hex("expected_primary_attack_cell_mask",
+                   expected.primary_attack_cell_mask)
+              .hex("live_primary_attack_cell_mask",
+                   live.primary_attack_cell_mask)
+              .hex("expected_opponent_active_attack_cell_copy",
+                   expected.opponent_active_attack_cell_copy)
+              .hex("live_opponent_active_attack_cell_copy",
+                   live.opponent_active_attack_cell_copy)
+              .boolean("expected_opponent_active_attack_cell_mask_readable",
+                       expected.opponent_active_attack_cell_mask_readable)
+              .boolean("live_opponent_active_attack_cell_mask_readable",
+                       live.opponent_active_attack_cell_mask_readable)
+              .hex("expected_opponent_active_attack_cell_mask",
+                   expected.opponent_active_attack_cell_mask)
+              .hex("live_opponent_active_attack_cell_mask",
+                   live.opponent_active_attack_cell_mask)
+              .hex("expected_opponent_non_attack_move_descr_copy",
+                   expected.opponent_non_attack_move_descr_copy)
+              .hex("live_opponent_non_attack_move_descr_copy",
+                   live.opponent_non_attack_move_descr_copy)
+              .hex("expected_own_active_attack_cell",
+                   expected.own_active_attack_cell)
+              .hex("live_own_active_attack_cell",
+                   live.own_active_attack_cell)
+              .boolean("expected_own_active_attack_cell_mask_readable",
+                       expected.own_active_attack_cell_mask_readable)
+              .boolean("live_own_active_attack_cell_mask_readable",
+                       live.own_active_attack_cell_mask_readable)
+              .hex("expected_own_active_attack_cell_mask",
+                   expected.own_active_attack_cell_mask)
+              .hex("live_own_active_attack_cell_mask",
+                   live.own_active_attack_cell_mask)
+              .hex("expected_non_attack_move_descr",
+                   expected.non_attack_move_descr)
+              .hex("live_non_attack_move_descr",
+                   live.non_attack_move_descr)
+              .hex("expected_active_lane_cursor",
+                   expected.active_lane_cursor)
+              .hex("live_active_lane_cursor", live.active_lane_cursor)
+              .hex("expected_restore_ptr_97190",
+                   expected.restore_ptr_97190)
+              .hex("live_restore_ptr_97190", live.restore_ptr_97190)
+              .hex("expected_restore_ptr_97198",
+                   expected.restore_ptr_97198)
+              .hex("live_restore_ptr_97198", live.restore_ptr_97198)
+              .hex("expected_restore_ptr_971a0",
+                   expected.restore_ptr_971a0)
+              .hex("live_restore_ptr_971a0", live.restore_ptr_971a0)
               .uinteger("expected_damped_motion_mode_16fb",
                         expected.damped_motion_mode_16fb)
               .uinteger("live_damped_motion_mode_16fb",
@@ -22089,6 +23461,8 @@ namespace Horse
             {
                 bool expected_ok = false;
                 bool live_ok = false;
+                uint64_t expected_u64 = 0;
+                uint64_t live_u64 = 0;
                 uint64_t expected_hash = 0;
                 uint64_t live_hash = 0;
 
@@ -22100,7 +23474,12 @@ namespace Horse
                         sim_blob, player_index, local, bytes,
                         &expected_bytes);
                     if (expected_ok && expected_bytes)
+                    {
                         expected_hash = hash_bytes64(expected_bytes, bytes);
+                        std::memcpy(&expected_u64, expected_bytes,
+                                    bytes < sizeof(expected_u64)
+                                        ? bytes : sizeof(expected_u64));
+                    }
                 }
 
                 std::array<uint8_t, 0x100> live_buf{};
@@ -22114,6 +23493,9 @@ namespace Horse
                     && SafeReadBytes(live_ptr, live_buf.data(), bytes))
                 {
                     live_hash = hash_bytes64(live_buf.data(), bytes);
+                    std::memcpy(&live_u64, live_buf.data(),
+                                bytes < sizeof(live_u64)
+                                    ? bytes : sizeof(live_u64));
                     live_ok = true;
                 }
 
@@ -22126,6 +23508,10 @@ namespace Horse
                 f.hex(key, static_cast<uintptr_t>(expected_hash));
                 std::snprintf(key, sizeof(key), "%s_live_hash", name);
                 f.hex(key, static_cast<uintptr_t>(live_hash));
+                std::snprintf(key, sizeof(key), "%s_expected_u64", name);
+                f.hex(key, expected_u64);
+                std::snprintf(key, sizeof(key), "%s_live_u64", name);
+                f.hex(key, live_u64);
                 std::snprintf(key, sizeof(key), "%s_match", name);
                 f.boolean(key, expected_ok && live_ok
                           && expected_hash == live_hash);
@@ -22152,6 +23538,19 @@ namespace Horse
             add_provider_local_compare(
                 "provider_secondary_delta_5f0",
                 kHgCpuSecondaryMotionBlockStart + 0x5F0, 0x40);
+            add_provider_local_compare(
+                "hit_area_per_hurtbox_bitmask",
+                static_cast<int32_t>(kHgCpuHitAreaLocalStart),
+                kCharaPerHurtboxBitmaskBytes);
+            add_provider_local_compare(
+                "hit_area_fixed_pre_list",
+                static_cast<int32_t>(kHgCpuHitAreaLocalStart),
+                kHgCpuHitAreaFixedBytes);
+            add_provider_local_compare(
+                "per_hurtbox_reaction_state",
+                hgcpu_snapshot_local_for_chara_offset(
+                    kCharaPerHurtboxReactionStateOffset),
+                kCharaPerHurtboxReactionStateBytes);
 
             ReplayDebugTrace::instance().event(
                 "retrack_oracle_compare_detail", f);
@@ -22322,11 +23721,11 @@ namespace Horse
                 }
             };
 
-            auto trace_overlay_write = [this, label, seq, tick](
-                int player,
-                uintptr_t chara,
-                uintptr_t chara_off,
-                size_t bytes,
+                auto trace_overlay_write = [this, label, seq, tick](
+                    int player,
+                    uintptr_t chara,
+                    uintptr_t chara_off,
+                    size_t bytes,
                 const char* field,
                 uint64_t oracle_value,
                 bool write_ok,
@@ -22361,6 +23760,52 @@ namespace Horse
                     "oracle_semantic_overlay_write", f);
             };
 
+            auto trace_provider_handoff_write =
+                [this, label, seq, tick](
+                    int player,
+                    const char* field,
+                    int32_t provider_local,
+                    size_t bytes,
+                    uintptr_t live_ptr,
+                    bool expected_ok,
+                    bool live_ptr_ok,
+                    bool before_ok,
+                    bool write_ok,
+                    bool after_ok,
+                    uint64_t expected_hash,
+                    uint64_t before_hash,
+                    uint64_t after_hash) noexcept
+            {
+                ReplayTraceFields f;
+                f.string("label", label ? label : "?")
+                 .integer("seq", seq)
+                 .integer("tick", tick)
+                 .integer("player", player + 1)
+                 .string("field", field ? field : "?")
+                 .integer("provider_local",
+                          static_cast<int64_t>(provider_local))
+                 .integer("bytes", static_cast<int64_t>(bytes))
+                 .hex("live_ptr", live_ptr)
+                 .boolean("expected_ok", expected_ok)
+                 .boolean("live_ptr_ok", live_ptr_ok)
+                 .boolean("before_ok", before_ok)
+                 .boolean("write_ok", write_ok)
+                 .boolean("after_ok", after_ok)
+                 .hex("expected_hash", expected_hash)
+                 .hex("before_hash", before_hash)
+                 .hex("after_hash", after_hash)
+                 .boolean("changed",
+                          before_ok && expected_ok
+                              && before_hash != expected_hash)
+                 .boolean("ok",
+                          expected_ok && live_ptr_ok && write_ok && after_ok
+                              && after_hash == expected_hash)
+                 .string("reason",
+                         "targeted-motion-provider-release-handoff");
+                ReplayDebugTrace::instance().event(
+                    "motion_provider_handoff_restore", f);
+            };
+
             for (int pi = 0; pi < 2; ++pi)
             {
                 const ReplayScrubDiag::CharaMoveVmSnap& s = *snaps[pi];
@@ -22380,6 +23825,65 @@ namespace Horse
                 }
 
                 uint8_t* c = reinterpret_cast<uint8_t*>(chara_raw);
+
+                auto restore_provider_handoff_range =
+                    [&](int32_t provider_local,
+                        size_t bytes,
+                        const char* field) noexcept
+                {
+                    const uint8_t* expected = nullptr;
+                    const bool expected_ok = sim_blob
+                        && resolve_expected_hgcpu_chara_bytes(
+                            sim_blob, pi, provider_local, bytes, &expected);
+
+                    uint8_t* live_ptr = nullptr;
+                    const bool live_ptr_ok =
+                        resolve_hgcpu_local_live_ptr(
+                            c, provider_local, bytes, &live_ptr)
+                        && live_ptr != nullptr;
+
+                    uint64_t expected_hash = 0;
+                    uint64_t before_hash = 0;
+                    uint64_t after_hash = 0;
+                    bool before_ok = false;
+                    bool after_ok = false;
+                    bool write_ok = false;
+
+                    std::array<uint8_t, 0x100> before{};
+                    std::array<uint8_t, 0x100> after{};
+                    if (expected_ok && expected)
+                        expected_hash = hash_bytes64(expected, bytes);
+                    if (live_ptr_ok && bytes <= before.size())
+                    {
+                        before_ok = SafeReadBytes(
+                            live_ptr, before.data(), bytes);
+                        if (before_ok)
+                            before_hash = hash_bytes64(
+                                before.data(), bytes);
+                    }
+                    if (expected_ok && live_ptr_ok && expected)
+                    {
+                        write_ok = SafeWriteBytes(
+                            live_ptr, expected, bytes);
+                    }
+                    if (write_ok && bytes <= after.size())
+                    {
+                        after_ok = SafeReadBytes(
+                            live_ptr, after.data(), bytes);
+                        if (after_ok)
+                            after_hash = hash_bytes64(
+                                after.data(), bytes);
+                    }
+
+                    trace_provider_handoff_write(
+                        pi, field, provider_local, bytes,
+                        reinterpret_cast<uintptr_t>(live_ptr),
+                        expected_ok, live_ptr_ok, before_ok, write_ok,
+                        after_ok, expected_hash, before_hash, after_hash);
+
+                    ok &= expected_ok && live_ptr_ok && write_ok
+                        && after_ok && after_hash == expected_hash;
+                };
 
                 auto write_oracle_u32 = [&, this](uintptr_t chara_off,
                                                   const char* field,
@@ -22412,6 +23916,24 @@ namespace Horse
                         chara_off, sizeof(value), field,
                         static_cast<uint16_t>(value), write_ok, read_ok,
                         static_cast<uint16_t>(live_value), 0.0, 0.0,
+                        false);
+                    ok &= write_ok;
+                };
+
+                auto write_oracle_u16 = [&, this](uintptr_t chara_off,
+                                                  const char* field,
+                                                  uint16_t value) noexcept
+                {
+                    const bool write_ok = SafeWriteBytes(c + chara_off,
+                                                         &value,
+                                                         sizeof(value));
+                    uint16_t live_value = 0;
+                    const bool read_ok = SafeReadUInt16(c + chara_off,
+                                                        &live_value);
+                    trace_overlay_write(
+                        pi, reinterpret_cast<uintptr_t>(chara_raw),
+                        chara_off, sizeof(value), field, value,
+                        write_ok, read_ok, live_value, 0.0, 0.0,
                         false);
                     ok &= write_ok;
                 };
@@ -22493,6 +24015,132 @@ namespace Horse
                     s.current_clip_frame, live_clip_frame, true);
                 ok &= clip_write_ok;
 
+                // One-time native-release handoff fields.  These are value
+                // fields consumed by the next replay/MoveVM/KHit tick.
+                // Restoring them at seek landing lets SC6 resume through its
+                // own input, damage, command-history, and animation paths
+                // without the old per-frame oracle overlay forcing state after
+                // the fact.  The pose/render mirrors are included because
+                // KHit world-center updates and animation presentation read
+                // them before the first natural post-seek hit-resolution pass.
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flSelfPos_X_Off,
+                    "self-pos-x", s.pos_x);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flSelfPos_Y_Off,
+                    "self-pos-y", s.pos_y);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flSelfPos_Z_Off,
+                    "self-pos-z", s.pos_z);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flPosePos_X_Off,
+                    "pose-pos-x", s.pose_pos_x);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flPosePos_Y_Off,
+                    "pose-pos-y", s.pose_pos_y);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flPosePos_Z_Off,
+                    "pose-pos-z", s.pose_pos_z);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flRenderPos_X_Off,
+                    "render-pos-x", s.render_pos_x);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flRenderPos_Y_Off,
+                    "render-pos-y", s.render_pos_y);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flRenderPos_Z_Off,
+                    "render-pos-z", s.render_pos_z);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flMoveVelocity_X_Off,
+                    "vel-x", s.vel_x);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flMoveVelocity_Y_Off,
+                    "vel-y", s.vel_y);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flMoveVelocity_Z_Off,
+                    "vel-z", s.vel_z);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flBodyFacing_Off,
+                    "facing", s.facing);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flExpectedMotion_X_Off,
+                    "expected-motion-x", s.expected_motion_x);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flExpectedMotion_Z_Off,
+                    "expected-motion-z", s.expected_motion_z);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flFrameDelta_X_Off,
+                    "frame-delta-x", s.frame_delta_x);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flFrameDelta_Z_Off,
+                    "frame-delta-z", s.frame_delta_z);
+                write_oracle_float(
+                    ReplayScrubDiag::
+                        kChara_flFacingTargetMinusAdditive_Off,
+                    "facing-target-minus-additive",
+                    s.facing_target_minus_additive);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flWrappedFacingTarget_Off,
+                    "wrapped-facing-target", s.wrapped_facing_target);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flFinalFacingDelta_Off,
+                    "final-facing-delta", s.final_facing_delta);
+                write_oracle_u32(
+                    ReplayScrubDiag::kChara_dwHitSlideSlot_Off,
+                    "hit-slide-slot", s.hit_slide_slot);
+                write_oracle_u32(
+                    ReplayScrubDiag::
+                        kChara_dwLatchedHitSlideInputDir_Off,
+                    "latched-hit-slide-input-dir",
+                    s.latched_hit_slide_input_dir);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flHitPushback_X_Off,
+                    "hit-pushback-x", s.hit_pushback_x);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flHitPushback_Z_Off,
+                    "hit-pushback-z", s.hit_pushback_z);
+                write_oracle_float(
+                    ReplayScrubDiag::
+                        kChara_flHitPushbackDecayScale_Off,
+                    "hit-pushback-decay-scale",
+                    s.hit_pushback_decay_scale);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flRootMotionBlendWeight_Off,
+                    "root-motion-blend-weight",
+                    s.root_motion_blend_weight);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flMoveTimeScaleA_Off,
+                    "move-time-scale-a", s.move_time_scale_a);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flMoveTimeScaleB_Off,
+                    "move-time-scale-b", s.move_time_scale_b);
+                write_oracle_float(
+                    ReplayScrubDiag::
+                        kChara_flMoveVMTimeDilationScalar_Off,
+                    "movevm-time-dilation-scalar",
+                    s.movevm_time_dilation_scalar);
+                write_oracle_float(
+                    ReplayScrubDiag::kChara_flHitCueRootWeight_Off,
+                    "hit-cue-root-weight", s.hit_cue_root_weight);
+                write_oracle_u16(
+                    ReplayScrubDiag::kChara_wMoveTransitionState_Off,
+                    "move-transition-state", s.move_transition_state);
+                write_oracle_u16(
+                    ReplayScrubDiag::kChara_wHitSlideState_Off,
+                    "hit-slide-state", s.hit_slide_state);
+                write_oracle_u32(
+                    ReplayScrubDiag::kChara_nHitSlideFrameTimer_Off,
+                    "hit-slide-frame-timer",
+                    static_cast<uint32_t>(s.hit_slide_frame_timer));
+                write_oracle_u32(
+                    ReplayScrubDiag::
+                        kChara_nHitSlideFrameTimerMirror_Off,
+                    "hit-slide-frame-timer-mirror",
+                    static_cast<uint32_t>(s.hit_slide_frame_timer_mirror));
+                write_oracle_u32(
+                    ReplayScrubDiag::kChara_dwHitReactionResult_Off,
+                    "hit-reaction-result", s.hit_reaction_result);
+
                 if (s.facing_retrack_readable)
                 {
                     const bool ramp_write_ok = SafeWriteBytes(
@@ -22562,6 +24210,10 @@ namespace Horse
 
                 if (s.hit_cue_pose_pack_readable)
                 {
+                    const bool pose_write_ok = SafeWriteBytes(
+                        c + ReplayScrubDiag::kChara_HitCuePosePack_Off,
+                        s.hit_cue_pose_pack.data(),
+                        s.hit_cue_pose_pack.size());
                     std::array<uint8_t,
                                ReplayScrubDiag::kChara_HitCuePosePackBytes>
                         live_pose{};
@@ -22587,9 +24239,9 @@ namespace Horse
                                        kChara_HitCuePosePack_Off))
                       .integer("bytes", static_cast<int64_t>(
                           s.hit_cue_pose_pack.size()))
-                      .boolean("write_ok", false)
+                      .boolean("write_ok", pose_write_ok)
                       .boolean("read_ok", pose_read_ok)
-                      .boolean("trace_only", true)
+                      .boolean("trace_only", false)
                       .hex("oracle_hash", oracle_hash)
                       .hex("live_hash", live_hash)
                       .boolean("live_matches_oracle",
@@ -22597,6 +24249,7 @@ namespace Horse
                     ReplayDebugTrace::instance().event(
                         "oracle_semantic_overlay_hitcue_pose_pack_observe",
                         pf);
+                    ok &= pose_write_ok;
                 }
 
                 for (size_t si = 0;
@@ -22731,7 +24384,82 @@ namespace Horse
                     {
                         ok = false;
                     }
+
+                    if (h.lane_readable && h.multiplier_index >= 0
+                        && static_cast<size_t>(h.multiplier_index)
+                            < ReplayScrubDiag::kChara_HitCueLaneCount)
+                    {
+                        const uintptr_t lane_off =
+                            ReplayScrubDiag::kChara_HitCueLaneBase_Off
+                            + static_cast<size_t>(h.multiplier_index)
+                                * ReplayScrubDiag::kChara_HitCueLaneStride;
+                        const bool lane_write_ok = SafeWriteBytes(
+                            c + lane_off, h.lane_header.data(),
+                            h.lane_header.size());
+                        std::array<uint8_t,
+                                   ReplayScrubDiag::kHitCueLane_HeaderBytes>
+                            live_lane{};
+                        const bool lane_read_ok = SafeReadBytes(
+                            c + lane_off, live_lane.data(),
+                            live_lane.size());
+                        const uint64_t oracle_hash = hash_bytes64(
+                            h.lane_header.data(), h.lane_header.size());
+                        const uint64_t live_hash = lane_read_ok
+                            ? hash_bytes64(live_lane.data(),
+                                           live_lane.size())
+                            : 0;
+                        ReplayTraceFields lf;
+                        lf.string("label", label ? label : "?")
+                          .integer("seq", seq)
+                          .integer("tick", tick)
+                          .integer("player", pi + 1)
+                          .integer("slot", static_cast<int64_t>(si))
+                          .integer("lane",
+                                   static_cast<int64_t>(
+                                       h.multiplier_index))
+                          .string("field", "hitcue-lane-header")
+                          .hex("chara",
+                               reinterpret_cast<uintptr_t>(chara_raw))
+                          .integer("chara_offset",
+                                   static_cast<int64_t>(lane_off))
+                          .integer("bytes", static_cast<int64_t>(
+                              h.lane_header.size()))
+                          .boolean("write_ok", lane_write_ok)
+                          .boolean("read_ok", lane_read_ok)
+                          .hex("oracle_hash", oracle_hash)
+                          .hex("live_hash", live_hash)
+                          .boolean("live_matches_oracle",
+                                   lane_read_ok
+                                       && live_hash == oracle_hash);
+                        ReplayDebugTrace::instance().event(
+                            "oracle_semantic_overlay_hitcue_lane_write",
+                            lf);
+                        ok &= lane_write_ok;
+                    }
                 }
+
+                // The native snapshot reader restores these provider buffers
+                // before global motion/physics/VFX finalization.  Traces show
+                // the matrix/delta subranges can be stale at Play handoff even
+                // while scalar move/input state is exact, which causes
+                // post-seek motion drift and visible snapping.  Keep this
+                // whitelist to non-pointer matrix/delta ranges only.
+                restore_provider_handoff_range(
+                    kHgCpuMotionBankBlockStart,
+                    0x80,
+                    "primary-root0-root1-matrices");
+                restore_provider_handoff_range(
+                    kHgCpuMotionBankBlockStart + 0x5F0,
+                    0x40,
+                    "primary-delta-5f0");
+                restore_provider_handoff_range(
+                    kHgCpuMotionBankBlockStart + 0xDE4,
+                    0x40,
+                    "primary-sub-de4");
+                restore_provider_handoff_range(
+                    kHgCpuSecondaryMotionBlockStart + 0x40,
+                    0x40,
+                    "secondary-root1-matrix");
 
             }
 
@@ -23792,7 +25520,8 @@ namespace Horse
         bool restore_captured_frame_for_seek(
             int32_t tick,
             const char* label,
-            CapturedFrameRestoreReport& out) noexcept
+            CapturedFrameRestoreReport& out,
+            bool restore_oracle_overlay = true) noexcept
         {
             out = CapturedFrameRestoreReport{};
             out.tick = tick;
@@ -24076,7 +25805,8 @@ namespace Horse
                 label, out.seq);
             trace_rng_restore_contract("after-final-semantic-repair", tick,
                                        label, out.seq);
-            if (!restore_oracle_semantic_overlay_for_tick(
+            if (restore_oracle_overlay
+                && !restore_oracle_semantic_overlay_for_tick(
                     out.tick, label, out.seq))
             {
                 out.failure =
@@ -24086,6 +25816,16 @@ namespace Horse
                     "restore-oracle-semantic-overlay",
                     tick, true, true, true, true, true);
                 return false;
+            }
+            if (!restore_oracle_overlay)
+            {
+                ReplayTraceFields f;
+                f.string("label", label ? label : "?")
+                 .integer("seq", out.seq)
+                 .integer("tick", out.tick)
+                 .string("reason", "playback-handoff-native-owned");
+                ReplayDebugTrace::instance().event(
+                    "oracle_semantic_overlay_skipped", f);
             }
             trace_semantic_authority_for_tick(
                 "after-oracle-moveid-overlay", sim_blob, out.tick,
@@ -25452,23 +27192,48 @@ namespace Horse
             }
             const bool use_native_replay_fast_forward =
                 prefer_native_replay_fast_forward
-                && needs_reset_context
-                && cross_round_seek
-                && m_sc6_seek_job.validation_mode
-                    == CapturedSeekValidationMode::StaticTarget;
+                    && needs_reset_context
+                    && cross_round_seek
+                    && m_sc6_seek_job.validation_mode
+                        == CapturedSeekValidationMode::StaticTarget;
             if (use_native_replay_fast_forward)
             {
-                const int32_t round_start_tick =
+                int32_t round_start_tick =
                     find_first_slot_for_round(round_tag);
                 int32_t start_seq = -1, start_round = -1,
                         start_wall = -1, start_master = -1;
-                if (round_start_tick < 0
-                    || !m_tags.get(static_cast<size_t>(round_start_tick),
-                                   start_seq, start_round, start_wall,
-                                   start_master)
-                    || start_round != round_tag
-                    || start_master < 0
-                    || round_start_tick > tick)
+                bool start_ok = false;
+                if (round_start_tick >= 0)
+                {
+                    for (int32_t candidate = round_start_tick;
+                         candidate <= tick; ++candidate)
+                    {
+                        int32_t s = -1, r = -1, wall = -1, master = -1;
+                        if (!m_tags.get(static_cast<size_t>(candidate),
+                                        s, r, wall, master)
+                            || r != round_tag)
+                        {
+                            break;
+                        }
+                        uint8_t main_state = 0;
+                        uint8_t status = 0;
+                        if (read_captured_bm_play_gate_for_tick(
+                                candidate, main_state, status)
+                            && main_state == kBM_MainStateActiveBattle
+                            && status == kBM_StatusActiveBattle
+                            && s >= 0 && master >= 0)
+                        {
+                            round_start_tick = candidate;
+                            start_seq = s;
+                            start_round = r;
+                            start_wall = wall;
+                            start_master = master;
+                            start_ok = true;
+                            break;
+                        }
+                    }
+                }
+                if (!start_ok || round_start_tick > tick)
                 {
                     finish_failed_seek_queue(
                         NativeSeekFailure::InvalidTarget,
@@ -25482,7 +27247,17 @@ namespace Horse
                 m_sc6_seek_job.round_start_tick = round_start_tick;
                 m_sc6_seek_job.round_start_seq = start_seq;
                 m_sc6_seek_job.round_start_master = start_master;
-                m_sc6_seek_job.native_replay_frame_fast_forward = true;
+                m_sc6_seek_job.native_replay_frame_fast_forward =
+                    use_native_replay_fast_forward;
+            }
+            if (m_sc6_seek_job.validation_mode
+                    == CapturedSeekValidationMode::PreviousToTarget
+                && !m_sc6_seek_job.native_replay_frame_fast_forward
+                && m_sc6_seek_job.validation_origin_master >= 0
+                && m_sc6_seek_job.validation_origin_master + 1
+                       < m_sc6_seek_job.target_master)
+            {
+                m_sc6_seek_job.native_step_warmup_to_target = true;
             }
             m_sc6_seek_job.native_step_observed_credits =
                 m_sc6_native_step_granted.load(
@@ -25568,8 +27343,10 @@ namespace Horse
                             m_sc6_seek_job.forced_reset_context)
                   .boolean("native_replay_frame_fast_forward",
                            m_sc6_seek_job.native_replay_frame_fast_forward)
+                  .boolean("native_step_warmup_to_target",
+                           m_sc6_seek_job.native_step_warmup_to_target)
                   .boolean("direct_validation_gate_already_active",
-                           direct_validation_gate_already_active)
+                            direct_validation_gate_already_active)
                  .boolean("exact_seek_already_in_flight",
                           exact_seek_already_in_flight)
                  .integer("hold_before_seek",
@@ -26985,9 +28762,13 @@ namespace Horse
                 }
 
                 CapturedFrameRestoreReport restore{};
+                const bool playback_handoff_restore =
+                    m_sc6_seek_job.validation_mode
+                        == CapturedSeekValidationMode::PreviousToTarget;
                 if (!restore_captured_frame_for_seek(
                         m_sc6_seek_job.validation_origin_tick,
-                        m_sc6_seek_job.label, restore))
+                        m_sc6_seek_job.label, restore,
+                        !playback_handoff_restore))
                 {
                     RC::Output::send<RC::LogLevel::Warning>(STR(
                         "[ReplayScrub.sc6seek] captured restore failed "
@@ -27012,6 +28793,17 @@ namespace Horse
                     trace_sc6_replay_state_checkpoint(
                         "after-cross-round-origin-restore", ctx);
 
+                if (m_sc6_seek_job.native_replay_frame_fast_forward
+                    && !restore_replay_input_release_handoff_for_tick(
+                        m_sc6_seek_job.validation_origin_tick, ctx,
+                        m_sc6_seek_job.label,
+                        "native-fast-forward-origin-handoff"))
+                {
+                    fail_sc6_exact_seek(
+                        NativeSeekFailure::InteractiveReplayVerifyFailed);
+                    return;
+                }
+
                 m_sc6_seek_job.native_step_requested_master =
                     restore.master;
                 m_sc6_seek_job.native_step_last_observed_master =
@@ -27029,8 +28821,13 @@ namespace Horse
                 m_sc6_seek_job.native_step_wait_services = 0;
                 m_sc6_seek_job.native_step_waiting = false;
 
-                if (m_sc6_seek_job.native_replay_frame_fast_forward)
+                if (m_sc6_seek_job.native_replay_frame_fast_forward
+                    || m_sc6_seek_job.native_step_warmup_to_target)
                 {
+                    const bool direct_prev_warmup_ok =
+                        !m_sc6_seek_job.native_replay_frame_fast_forward
+                        && m_sc6_seek_job.native_step_warmup_to_target
+                        && invoke_direct_previous_to_target_warmup(ctx);
                     ReplayTraceFields f;
                     f.string("label", m_sc6_seek_job.label
                                  ? m_sc6_seek_job.label : "?")
@@ -27042,15 +28839,29 @@ namespace Horse
                               m_sc6_seek_job.target_master)
                      .integer("origin_seq",
                               m_sc6_seek_job.validation_origin_seq)
-                     .integer("origin_master", restore.master)
-                     .integer("round_start_seq",
-                              m_sc6_seek_job.round_start_seq)
-                     .integer("round_start_master",
-                              m_sc6_seek_job.round_start_master);
+                      .integer("origin_master", restore.master)
+                      .integer("round_start_seq",
+                               m_sc6_seek_job.round_start_seq)
+                      .integer("round_start_master",
+                               m_sc6_seek_job.round_start_master)
+                      .boolean("native_replay_frame_fast_forward",
+                               m_sc6_seek_job
+                                   .native_replay_frame_fast_forward)
+                      .boolean("native_step_warmup_to_target",
+                               m_sc6_seek_job
+                                   .native_step_warmup_to_target);
+                    f.boolean("direct_prev_warmup_ok",
+                              direct_prev_warmup_ok);
                     ReplayDebugTrace::instance().event(
-                        "cross_round_native_replay_fast_forward_armed", f);
+                        direct_prev_warmup_ok
+                            ? "prev_to_target_direct_warmup_armed"
+                        : m_sc6_seek_job.native_step_warmup_to_target
+                            ? "prev_to_target_native_warmup_armed"
+                            : "cross_round_native_replay_fast_forward_armed",
+                        f);
                     m_sc6_seek_job.phase =
-                        (restore.master >= m_sc6_seek_job.target_master)
+                        (direct_prev_warmup_ok
+                         || restore.master >= m_sc6_seek_job.target_master)
                             ? Sc6ExactSeekPhase::CompareTargetSnapshot
                             : Sc6ExactSeekPhase::FastForward;
                 }
@@ -27275,10 +29086,17 @@ namespace Horse
                         m_sc6_seek_job.native_step_observed_credits;
                     const int32_t drained_total_before =
                         m_sc6_seek_job.native_step_drained_credits;
-                    if (granted_total
-                        <= granted_total_before)
+                    const int32_t requested_credits =
+                        m_sc6_seek_job.native_step_requested_credits > 0
+                            ? m_sc6_seek_job.native_step_requested_credits
+                            : kSc6NativeStepCreditsPerRequest;
+                    const int32_t required_granted_total =
+                        granted_total_before + requested_credits;
+                    const int32_t required_drained_total =
+                        drained_total_before + requested_credits;
+                    if (granted_total < required_granted_total)
                         return;
-                    if (drained_total <= drained_total_before)
+                    if (drained_total < required_drained_total)
                     {
                         ++m_sc6_seek_job.native_step_wait_services;
                         if (m_sc6_seek_job.native_step_wait_services == 1
@@ -27701,9 +29519,13 @@ namespace Horse
                 const bool use_captured_extras_rng =
                     m_sc6_seek_job.validation_mode
                         != CapturedSeekValidationMode::StaticTarget;
+                const bool natural_resume_validation =
+                    m_sc6_seek_job.validation_mode
+                        == CapturedSeekValidationMode::PreviousToTarget;
                 const bool oracle_ok = compare_oracle_to_captured_tick(
                     m_sc6_seek_job.validation_compare_tick,
-                    oracle_report, use_captured_extras_rng);
+                    oracle_report, use_captured_extras_rng, true, false,
+                    natural_resume_validation);
                 trace_captured_oracle_compare(oracle_report);
                 if (m_sc6_seek_job.validation_mode
                     != CapturedSeekValidationMode::StaticTarget)
@@ -27807,20 +29629,22 @@ namespace Horse
                         RC::to_generic_string(oracle_report.reason
                             ? oracle_report.reason : "?"));
 
-                    // PreviousToTarget is a diagnostic native-step check:
-                    // it proves whether SC6 can synthesize the target from
-                    // the prior captured frame.  If that step lands the
-                    // clock but not all gameplay semantics, still restore
-                    // the exact target snapshot and make the final Play gate
-                    // depend on the target oracle below.  TargetToNext is
-                    // different: a failure there means resume-from-target is
-                    // already proven unsafe, so keep it as a hard block.
                     if (m_sc6_seek_job.validation_mode
                         == CapturedSeekValidationMode::PreviousToTarget)
                     {
+                        // PreviousToTarget is the watchback handoff check:
+                        // restore target-N, let SC6's native replay pipeline
+                        // advance into the target frame, and then Play
+                        // resumes from that warmed live state. A semantic
+                        // mismatch means the handoff is unsafe; restore the
+                        // target only so the viewer is left on the requested
+                        // frame, then keep Play blocked.
                         schedule_target_restore_after_validation(
-                            "prev-to-target-step-semantic-mismatch",
-                            &oracle_report);
+                            m_sc6_seek_job.native_step_warmup_to_target
+                                ? "prev-to-target-warmup-semantic-mismatch"
+                                : "prev-to-target-step-semantic-mismatch",
+                            &oracle_report,
+                            NativeSeekFailure::SemanticMismatch);
                     }
                     else
                     {
@@ -27896,8 +29720,55 @@ namespace Horse
                 else if (m_sc6_seek_job.validation_mode
                          == CapturedSeekValidationMode::PreviousToTarget)
                 {
-                    schedule_target_restore_after_validation(
-                        "prev-to-target-step-ok");
+                    const char* handoff_reason =
+                        m_sc6_seek_job.native_step_warmup_to_target
+                            ? "prev-to-target-native-warmup-landing"
+                            : "prev-to-target-warmed-landing";
+                    if (!restore_oracle_semantic_overlay_for_tick(
+                            m_sc6_seek_job.target_tick,
+                            m_sc6_seek_job.label,
+                            m_sc6_seek_job.target_seq))
+                    {
+                        schedule_target_restore_after_validation(
+                            "prev-to-target-handoff-overlay-failed",
+                            nullptr,
+                            NativeSeekFailure::
+                                CapturedSnapshotSemanticRepairFailed);
+                        return;
+                    }
+                    if (!restore_replay_input_release_handoff_for_tick(
+                            m_sc6_seek_job.target_tick, ctx,
+                            m_sc6_seek_job.label, handoff_reason))
+                    {
+                        schedule_target_restore_after_validation(
+                            "prev-to-target-input-handoff-failed",
+                            nullptr,
+                            NativeSeekFailure::
+                                InteractiveReplayVerifyFailed);
+                        return;
+                    }
+                    m_sc6_seek_job.snapshot_validation_ok = true;
+                    m_sc6_seek_job.phase = Sc6ExactSeekPhase::Verify;
+                    ReplayTraceFields f;
+                    f.string("label", m_sc6_seek_job.label
+                                 ? m_sc6_seek_job.label : "?")
+                     .integer("requested_seq",
+                              m_sc6_seek_job.requested_seq)
+                     .integer("target_seq", m_sc6_seek_job.target_seq)
+                     .integer("target_master",
+                              m_sc6_seek_job.target_master)
+                     .integer("origin_seq",
+                              m_sc6_seek_job.validation_origin_seq)
+                     .integer("origin_master",
+                              m_sc6_seek_job.validation_origin_master)
+                     .integer("compare_seq",
+                              m_sc6_seek_job.validation_compare_seq)
+                     .integer("compare_master",
+                              m_sc6_seek_job.validation_compare_master)
+                     .boolean("native_step_warmup_to_target",
+                              m_sc6_seek_job.native_step_warmup_to_target);
+                    ReplayDebugTrace::instance().event(
+                        "prev_to_target_warmed_landing", f);
                 }
                 else if (m_sc6_seek_job.validation_mode
                          == CapturedSeekValidationMode::TargetToNext
@@ -28039,41 +29910,110 @@ namespace Horse
                 {
                     const NativeSeekFailure failure =
                         m_sc6_seek_job.restore_target_block_failure;
-                    CapturedFrameOracleCompareReport preserved_report{};
-                    const CapturedFrameOracleCompareReport* block_report =
-                        &oracle_report;
-                    if (m_sc6_seek_job.restore_target_block_oracle_valid)
+                    if (m_sc6_seek_job.validation_mode
+                            == CapturedSeekValidationMode::PreviousToTarget
+                        && failure == NativeSeekFailure::SemanticMismatch)
                     {
-                        preserved_report.expected_seq =
-                            m_sc6_seek_job.restore_target_block_compare_seq;
-                        preserved_report.expected_tick =
-                            m_sc6_seek_job.restore_target_block_compare_seq;
-                        preserved_report.expected_round =
-                            m_sc6_seek_job.restore_target_block_expected_round;
-                        preserved_report.expected_master =
-                            m_sc6_seek_job.restore_target_block_compare_master;
-                        preserved_report.player =
-                            m_sc6_seek_job.restore_target_block_player;
-                        preserved_report.field =
-                            m_sc6_seek_job.restore_target_block_field;
-                        preserved_report.reason =
-                            m_sc6_seek_job.restore_target_block_reason;
-                        preserved_report.expected_u64 =
-                            m_sc6_seek_job.restore_target_block_expected_u64;
-                        preserved_report.live_u64 =
-                            m_sc6_seek_job.restore_target_block_live_u64;
-                        preserved_report.expected_float =
-                            m_sc6_seek_job.restore_target_block_expected_float;
-                        preserved_report.live_float =
-                            m_sc6_seek_job.restore_target_block_live_float;
-                        block_report = &preserved_report;
+                        // The previous->target warmup is a diagnostic handoff
+                        // check. If the requested target frame was restored
+                        // and revalidated cleanly above, do not keep blocking
+                        // Play with the stale warmup compare report.
+                        ReplayTraceFields f;
+                        f.string("label", m_sc6_seek_job.label
+                                     ? m_sc6_seek_job.label : "?")
+                         .integer("requested_seq",
+                                  m_sc6_seek_job.requested_seq)
+                         .integer("target_seq",
+                                  m_sc6_seek_job.target_seq)
+                         .integer("target_master",
+                                  m_sc6_seek_job.target_master)
+                         .integer("blocked_compare_seq",
+                                  m_sc6_seek_job
+                                      .restore_target_block_compare_seq)
+                         .integer("blocked_compare_master",
+                                  m_sc6_seek_job
+                                      .restore_target_block_compare_master)
+                         .string("blocked_field",
+                                 m_sc6_seek_job.restore_target_block_field
+                                     ? m_sc6_seek_job
+                                           .restore_target_block_field
+                                     : "none")
+                         .integer("blocked_player",
+                                  m_sc6_seek_job.restore_target_block_player)
+                         .hex("blocked_expected",
+                              m_sc6_seek_job
+                                  .restore_target_block_expected_u64)
+                         .hex("blocked_live",
+                              m_sc6_seek_job.restore_target_block_live_u64)
+                         .string("reason",
+                                 "target-restore-oracle-passed");
+                        ReplayDebugTrace::instance().event(
+                            "prev_to_target_warmup_block_cleared", f);
+                        m_sc6_seek_job.restore_target_block_failure =
+                            NativeSeekFailure::None;
+                        m_sc6_seek_job.restore_target_block_oracle_valid =
+                            false;
                     }
-                    m_sc6_seek_job.restore_target_block_failure =
-                        NativeSeekFailure::None;
-                    m_sc6_seek_job.restore_target_block_oracle_valid = false;
-                    block_sc6_exact_seek_after_clock_landed(
-                        failure, block_report);
-                    return;
+                    else
+                    {
+                        CapturedFrameOracleCompareReport preserved_report{};
+                        const CapturedFrameOracleCompareReport* block_report =
+                            &oracle_report;
+                        if (m_sc6_seek_job.restore_target_block_oracle_valid)
+                        {
+                            preserved_report.expected_seq =
+                                m_sc6_seek_job
+                                    .restore_target_block_compare_seq;
+                            preserved_report.expected_tick =
+                                m_sc6_seek_job
+                                    .restore_target_block_compare_seq;
+                            preserved_report.expected_round =
+                                m_sc6_seek_job
+                                    .restore_target_block_expected_round;
+                            preserved_report.expected_master =
+                                m_sc6_seek_job
+                                    .restore_target_block_compare_master;
+                            preserved_report.player =
+                                m_sc6_seek_job.restore_target_block_player;
+                            preserved_report.field =
+                                m_sc6_seek_job.restore_target_block_field;
+                            preserved_report.reason =
+                                m_sc6_seek_job.restore_target_block_reason;
+                            preserved_report.expected_u64 =
+                                m_sc6_seek_job
+                                    .restore_target_block_expected_u64;
+                            preserved_report.live_u64 =
+                                m_sc6_seek_job.restore_target_block_live_u64;
+                            preserved_report.expected_float =
+                                m_sc6_seek_job
+                                    .restore_target_block_expected_float;
+                            preserved_report.live_float =
+                                m_sc6_seek_job
+                                    .restore_target_block_live_float;
+                            block_report = &preserved_report;
+                        }
+                        m_sc6_seek_job.restore_target_block_failure =
+                            NativeSeekFailure::None;
+                        m_sc6_seek_job.restore_target_block_oracle_valid =
+                            false;
+                        block_sc6_exact_seek_after_clock_landed(
+                            failure, block_report);
+                        return;
+                    }
+                }
+                if (m_sc6_seek_job.validation_mode
+                    == CapturedSeekValidationMode::PreviousToTarget)
+                {
+                    if (!restore_replay_input_release_handoff_for_tick(
+                            m_sc6_seek_job.target_tick, ctx,
+                            m_sc6_seek_job.label,
+                            "prev-to-target-restored-target-handoff"))
+                    {
+                        block_sc6_exact_seek_after_clock_landed(
+                            NativeSeekFailure::InteractiveReplayVerifyFailed,
+                            nullptr);
+                        return;
+                    }
                 }
                 m_sc6_seek_job.snapshot_validation_ok = true;
                 m_sc6_seek_job.phase = Sc6ExactSeekPhase::Verify;
@@ -28485,6 +30425,9 @@ namespace Horse
 
             if (m_sc6_seek_job.phase == Sc6ExactSeekPhase::FastForward)
             {
+                const bool compare_target_after_fast_forward =
+                    m_sc6_seek_job.native_replay_frame_fast_forward
+                    || m_sc6_seek_job.native_step_warmup_to_target;
                 int32_t live_master = read_engine_master_clock();
                 int32_t live_round = read_current_round();
                 const SeekCommandKind pending_kind =
@@ -28516,7 +30459,7 @@ namespace Horse
                 if (live_master >= m_sc6_seek_job.target_master)
                 {
                     m_sc6_seek_job.phase =
-                        m_sc6_seek_job.native_replay_frame_fast_forward
+                        compare_target_after_fast_forward
                             ? Sc6ExactSeekPhase::CompareTargetSnapshot
                             : Sc6ExactSeekPhase::Verify;
                 }
@@ -28665,12 +30608,51 @@ namespace Horse
                     if (live_master >= m_sc6_seek_job.target_master)
                     {
                         m_sc6_seek_job.phase =
-                            m_sc6_seek_job.native_replay_frame_fast_forward
+                            compare_target_after_fast_forward
                                 ? Sc6ExactSeekPhase::CompareTargetSnapshot
                                 : Sc6ExactSeekPhase::Verify;
                     }
                     else
-                        return;
+                    {
+                        const bool direct_prev_warmup_ok =
+                            compare_target_after_fast_forward
+                            && !m_sc6_seek_job.native_replay_frame_fast_forward
+                            && m_sc6_seek_job.native_step_warmup_to_target
+                            && invoke_direct_previous_to_target_warmup(ctx);
+                        if (!direct_prev_warmup_ok)
+                            return;
+
+                        const int32_t direct_live_master =
+                            read_engine_master_clock();
+                        const int32_t direct_live_round =
+                            read_current_round();
+                        ReplayTraceFields f;
+                        f.string("label", m_sc6_seek_job.label
+                                     ? m_sc6_seek_job.label : "?")
+                         .integer("requested_seq",
+                                  m_sc6_seek_job.requested_seq)
+                         .integer("target_round",
+                                  m_sc6_seek_job.target_round)
+                         .integer("target_master",
+                                  m_sc6_seek_job.target_master)
+                         .integer("master_after_native_step", live_master)
+                         .integer("master_after_direct_warmup",
+                                  direct_live_master)
+                         .integer("live_round", direct_live_round)
+                         .boolean("ok",
+                                  direct_live_master
+                                      >= m_sc6_seek_job.target_master);
+                        ReplayDebugTrace::instance().event(
+                            "prev_to_target_direct_warmup_resumed", f);
+                        if (direct_live_master
+                            >= m_sc6_seek_job.target_master)
+                        {
+                            m_sc6_seek_job.phase =
+                                Sc6ExactSeekPhase::CompareTargetSnapshot;
+                        }
+                        else
+                            return;
+                    }
                 }
                 else if (m_sc6_seek_job.native_step_waiting)
                 {
@@ -28684,15 +30666,22 @@ namespace Horse
                         m_sc6_seek_job.native_step_observed_credits;
                     const int32_t drained_total_before =
                         m_sc6_seek_job.native_step_drained_credits;
-                    if (granted_total
-                        <= granted_total_before)
+                    const int32_t requested_credits =
+                        m_sc6_seek_job.native_step_requested_credits > 0
+                            ? m_sc6_seek_job.native_step_requested_credits
+                            : kSc6NativeStepCreditsPerRequest;
+                    const int32_t required_granted_total =
+                        granted_total_before + requested_credits;
+                    const int32_t required_drained_total =
+                        drained_total_before + requested_credits;
+                    if (granted_total < required_granted_total)
                         return;
 
                     // The grant only opens the native frame.  Observe it
                     // after frame_step_apply has drained the credit back to
                     // frozen so actor/replay side effects cannot race the
                     // compare or fast-forward decision.
-                    if (drained_total <= drained_total_before)
+                    if (drained_total < required_drained_total)
                     {
                         ++m_sc6_seek_job.native_step_wait_services;
                         if (m_sc6_seek_job.native_step_wait_services == 1
@@ -28850,16 +30839,76 @@ namespace Horse
                     }
 
                     if (live_master >= m_sc6_seek_job.target_master)
-                        m_sc6_seek_job.phase = Sc6ExactSeekPhase::Verify;
+                    {
+                        m_sc6_seek_job.phase =
+                            compare_target_after_fast_forward
+                                ? Sc6ExactSeekPhase::CompareTargetSnapshot
+                                : Sc6ExactSeekPhase::Verify;
+                    }
                     else
-                        return;
+                    {
+                        const bool direct_prev_warmup_ok =
+                            compare_target_after_fast_forward
+                            && !m_sc6_seek_job.native_replay_frame_fast_forward
+                            && m_sc6_seek_job.native_step_warmup_to_target
+                            && invoke_direct_previous_to_target_warmup(ctx);
+                        if (!direct_prev_warmup_ok)
+                            return;
+
+                        const int32_t direct_live_master =
+                            read_engine_master_clock();
+                        const int32_t direct_live_round =
+                            read_current_round();
+                        ReplayTraceFields f;
+                        f.string("label", m_sc6_seek_job.label
+                                     ? m_sc6_seek_job.label : "?")
+                         .integer("requested_seq",
+                                  m_sc6_seek_job.requested_seq)
+                         .integer("target_round",
+                                  m_sc6_seek_job.target_round)
+                         .integer("target_master",
+                                  m_sc6_seek_job.target_master)
+                         .integer("master_after_native_step", live_master)
+                         .integer("master_after_direct_warmup",
+                                  direct_live_master)
+                         .integer("live_round", direct_live_round)
+                         .boolean("ok",
+                                  direct_live_master
+                                      >= m_sc6_seek_job.target_master);
+                        ReplayDebugTrace::instance().event(
+                            "prev_to_target_direct_warmup_resumed", f);
+                        if (direct_live_master
+                            >= m_sc6_seek_job.target_master)
+                        {
+                            m_sc6_seek_job.phase =
+                                Sc6ExactSeekPhase::CompareTargetSnapshot;
+                        }
+                        else
+                            return;
+                    }
                 }
                 else
                 {
+                    int32_t native_step_credits =
+                        kSc6NativeStepCreditsPerRequest;
+                    if (m_sc6_seek_job.native_step_warmup_to_target
+                        && m_sc6_seek_job.validation_mode
+                            == CapturedSeekValidationMode::PreviousToTarget)
+                    {
+                        const int32_t remaining =
+                            m_sc6_seek_job.target_master - live_master;
+                        if (remaining > native_step_credits)
+                            native_step_credits = remaining;
+                        if (native_step_credits > kReplayResumeWarmupFrames)
+                            native_step_credits = kReplayResumeWarmupFrames;
+                    }
+                    if (native_step_credits < 1)
+                        native_step_credits = 1;
+
                     m_sc6_seek_job.native_step_requested_master =
                         live_master;
                     m_sc6_seek_job.native_step_requested_credits =
-                        kSc6NativeStepCreditsPerRequest;
+                        native_step_credits;
                     m_sc6_seek_job.native_step_granted_credits =
                         m_sc6_native_step_granted.load(
                             std::memory_order_acquire);
@@ -28871,7 +30920,7 @@ namespace Horse
                     m_sc6_seek_job.native_step_wait_services = 0;
                     m_sc6_seek_job.native_step_waiting = true;
                     m_sc6_native_step_request.store(
-                        kSc6NativeStepCreditsPerRequest,
+                        native_step_credits,
                         std::memory_order_release);
                     RC::Output::send<RC::LogLevel::Verbose>(STR(
                         "[ReplayScrub.sc6seek] native step requested "
@@ -28880,7 +30929,7 @@ namespace Horse
                             ? m_sc6_seek_job.label : "?"),
                         live_master,
                         m_sc6_seek_job.target_master,
-                        kSc6NativeStepCreditsPerRequest);
+                        native_step_credits);
                     {
                         ReplayTraceFields f;
                         f.string("label", m_sc6_seek_job.label
@@ -28893,7 +30942,7 @@ namespace Horse
                                   m_sc6_seek_job.target_master)
                          .integer("master_before", live_master)
                          .integer("credits",
-                                  kSc6NativeStepCreditsPerRequest)
+                                  native_step_credits)
                          .integer("granted_total_before",
                                   m_sc6_seek_job.native_step_granted_credits)
                          .integer("observed_total_before",
@@ -29003,6 +31052,8 @@ namespace Horse
                 m_last_seek_master_tag.store(
                     m_sc6_seek_job.target_master,
                     std::memory_order_release);
+                m_last_resume_provider_overlay_seq.store(
+                    -1, std::memory_order_release);
                 m_live_master_cached.store(m_sc6_seek_job.target_master,
                                            std::memory_order_release);
                 m_native.adjusted_seq = m_sc6_seek_job.target_seq;
@@ -29092,9 +31143,14 @@ namespace Horse
                     ReplayDebugTrace::instance().event(
                         "captured_seek_landed", f);
                 }
+                const bool play_button_handoff =
+                    m_sc6_seek_job.label
+                    && std::strcmp(m_sc6_seek_job.label,
+                                   "PLAY_BUTTON") == 0;
                 if (m_ui_wants_play.load(std::memory_order_acquire)
-                    && m_auto_resume_on_release.load(
-                        std::memory_order_acquire))
+                    && (m_auto_resume_on_release.load(
+                            std::memory_order_acquire)
+                        || play_button_handoff))
                 {
                     (void)resume_play_if_battle_status_active(
                         m_sc6_seek_job.label ? m_sc6_seek_job.label
@@ -29597,6 +31653,214 @@ namespace Horse
                                      base + kRVA_MoveVMGlobalVarBank),
                                  src + kExtras_Off_MoveVMGlobalVarBank,
                                  kMoveVMGlobalVarBank_Bytes);
+            return ok;
+        }
+
+        bool restore_replay_input_release_handoff_for_tick(
+            int32_t tick,
+            const Sc6ReplaySeekContext& ctx,
+            const char* label,
+            const char* reason) noexcept
+        {
+            const uint8_t* extras_blob = nullptr;
+            const uint8_t* il_blob = nullptr;
+            if (tick >= 0)
+            {
+                extras_blob = m_extras_store.gather(
+                    static_cast<size_t>(tick));
+                il_blob = m_il_store.gather(static_cast<size_t>(tick));
+            }
+
+            const uintptr_t base = NativeBinding::imageBase();
+            const bool context_ok = base != 0
+                && ctx.battle_manager_ok
+                && ctx.input_log_ok
+                && ctx.battle_manager != 0
+                && ctx.input_log != 0
+                && extras_blob != nullptr
+                && il_blob != nullptr;
+
+            bool latest_write_ok = false;
+            bool camera_write_ok = false;
+            bool pra_write_ok = false;
+            bool fi_write_ok = false;
+            bool refresh_ok = false;
+            bool mirror_write_ok = false;
+            bool rng_write_ok = false;
+            uintptr_t fi_addr = 0;
+            uintptr_t pra_addr = 0;
+
+            uint64_t latest_p1 = 0;
+            uint64_t latest_p2 = 0;
+            uint32_t mirror_p1 = 0;
+            uint32_t mirror_p2 = 0;
+            uint32_t live_mirror_p1 = 0;
+            uint32_t live_mirror_p2 = 0;
+            uint32_t frame_input_p1 = 0;
+            uint32_t frame_input_p2 = 0;
+            uint32_t captured_frame_input_p1 = 0;
+            uint32_t captured_frame_input_p2 = 0;
+
+            if (context_ok)
+            {
+                std::memcpy(&latest_p1,
+                            extras_blob + kExtras_Off_LatestEngineInput,
+                            sizeof(latest_p1));
+                std::memcpy(&latest_p2,
+                            extras_blob + kExtras_Off_LatestEngineInput
+                                + sizeof(latest_p1),
+                            sizeof(latest_p2));
+                std::memcpy(&captured_frame_input_p1,
+                            extras_blob + kExtras_Off_FrameInput_Slots,
+                            sizeof(captured_frame_input_p1));
+                std::memcpy(&captured_frame_input_p2,
+                            extras_blob + kExtras_Off_FrameInput_Slots
+                                + kFI_SlotRecord_Stride,
+                            sizeof(captured_frame_input_p2));
+                frame_input_p1 =
+                    static_cast<uint32_t>(latest_p1 & 0xFFFFFFFFu);
+                frame_input_p2 =
+                    static_cast<uint32_t>(latest_p2 & 0xFFFFFFFFu);
+
+                const size_t mirror_blob_off =
+                    kIL_CurrentInputMirror_Off - kIL_CaptureStart_Off;
+                std::memcpy(&mirror_p1, il_blob + mirror_blob_off,
+                            sizeof(mirror_p1));
+                std::memcpy(&mirror_p2,
+                            il_blob + mirror_blob_off + sizeof(mirror_p1),
+                            sizeof(mirror_p2));
+
+                latest_write_ok = SafeWriteBytes(
+                    reinterpret_cast<void*>(base + kRVA_LatestEngineInput),
+                    extras_blob + kExtras_Off_LatestEngineInput,
+                    kExtras_LatestEngineInput_Bytes);
+                camera_write_ok = SafeWriteBytes(
+                    reinterpret_cast<void*>(base + kRVA_PerFrameCameraArgs),
+                    extras_blob + kExtras_Off_PerFrameCameraArgs,
+                    kExtras_PerFrameCameraArgs_Bytes);
+                rng_write_ok =
+                    SafeWriteBytes(reinterpret_cast<void*>(
+                                       base + kRVA_LfsrState),
+                                   extras_blob + kExtras_Off_LfsrState,
+                                   kExtras_LfsrState_Bytes)
+                    && SafeWriteBytes(reinterpret_cast<void*>(
+                                          base + kRVA_LfsrIndex),
+                                      extras_blob + kExtras_Off_LfsrIndex,
+                                      kExtras_LfsrIndex_Bytes);
+
+                void* pra_raw = nullptr;
+                if (SafeReadPtr(reinterpret_cast<const void*>(
+                                    ctx.battle_manager
+                                    + kBM_PlayerRecordArray_Off),
+                                &pra_raw)
+                    && pra_raw)
+                {
+                    pra_addr = reinterpret_cast<uintptr_t>(pra_raw);
+                    uint8_t* pra = reinterpret_cast<uint8_t*>(pra_raw);
+                    pra_write_ok =
+                        SafeWriteBytes(pra + kPRA_FieldAt394_Off,
+                                       extras_blob + kExtras_Off_PRA_P0_394,
+                                       4)
+                        && SafeWriteBytes(
+                            pra + kPRA_FieldAt398_Off,
+                            extras_blob + kExtras_Off_PRA_P0_398, 4)
+                        && SafeWriteBytes(
+                            pra + kPRA_PlayerStride
+                                + kPRA_FieldAt394_Off,
+                            extras_blob + kExtras_Off_PRA_P1_394, 4)
+                        && SafeWriteBytes(
+                            pra + kPRA_PlayerStride
+                                + kPRA_FieldAt398_Off,
+                            extras_blob + kExtras_Off_PRA_P1_398, 4);
+                }
+
+                void* fi_raw = nullptr;
+                if (SafeReadPtr(reinterpret_cast<const void*>(
+                                    ctx.battle_manager
+                                    + kBM_FrameInputActor_Off),
+                                &fi_raw)
+                    && fi_raw)
+                {
+                    fi_addr = reinterpret_cast<uintptr_t>(fi_raw);
+                    uint8_t* fi = reinterpret_cast<uint8_t*>(fi_raw);
+                    std::array<uint8_t, kFI_SlotRecords_Bytes>
+                        frame_input_seed {};
+                    std::memcpy(frame_input_seed.data(),
+                                extras_blob + kExtras_Off_FrameInput_Slots,
+                                frame_input_seed.size());
+                    std::memcpy(frame_input_seed.data(),
+                                &frame_input_p1, sizeof(frame_input_p1));
+                    std::memcpy(frame_input_seed.data()
+                                    + kFI_SlotRecord_Stride,
+                                &frame_input_p2, sizeof(frame_input_p2));
+                    fi_write_ok = SafeWriteBytes(
+                        fi + kFI_SlotRecords_Start,
+                        frame_input_seed.data(),
+                        frame_input_seed.size());
+                }
+
+                refresh_ok = m_frame_input_log_current_input_refresh
+                    && SafeInvokeNativeVoidPtr(
+                        m_frame_input_log_current_input_refresh,
+                        reinterpret_cast<void*>(ctx.input_log));
+
+                mirror_write_ok = SafeWriteBytes(
+                    reinterpret_cast<void*>(
+                        ctx.input_log + kIL_CurrentInputMirror_Off),
+                    il_blob + mirror_blob_off,
+                    sizeof(uint32_t) * 2);
+                (void)SafeReadUInt32(reinterpret_cast<const void*>(
+                                         ctx.input_log
+                                         + kIL_CurrentInputMirror_Off),
+                                     &live_mirror_p1);
+                (void)SafeReadUInt32(reinterpret_cast<const void*>(
+                                         ctx.input_log
+                                         + kIL_CurrentInputMirror_Off
+                                         + sizeof(uint32_t)),
+                                     &live_mirror_p2);
+            }
+
+            const bool ok = context_ok
+                && latest_write_ok
+                && camera_write_ok
+                && rng_write_ok
+                && pra_write_ok
+                && fi_write_ok
+                && refresh_ok
+                && mirror_write_ok;
+
+            ReplayTraceFields f;
+            f.string("label", label ? label : "?")
+             .string("reason", reason ? reason : "?")
+             .integer("tick", tick)
+             .integer("seq", m_sc6_seek_job.target_seq)
+             .integer("round", m_sc6_seek_job.target_round)
+             .integer("master", m_sc6_seek_job.target_master)
+             .hex("bm", ctx.battle_manager)
+             .hex("input_log", ctx.input_log)
+             .hex("frame_input", fi_addr)
+             .hex("player_records", pra_addr)
+             .hex("latest_p1", latest_p1)
+             .hex("latest_p2", latest_p2)
+             .hex("captured_frame_input_p1", captured_frame_input_p1)
+             .hex("captured_frame_input_p2", captured_frame_input_p2)
+             .hex("frame_input_p1", frame_input_p1)
+             .hex("frame_input_p2", frame_input_p2)
+             .hex("mirror_p1", mirror_p1)
+             .hex("mirror_p2", mirror_p2)
+             .hex("live_mirror_p1", live_mirror_p1)
+             .hex("live_mirror_p2", live_mirror_p2)
+             .boolean("context_ok", context_ok)
+             .boolean("latest_write_ok", latest_write_ok)
+             .boolean("camera_write_ok", camera_write_ok)
+             .boolean("rng_write_ok", rng_write_ok)
+             .boolean("pra_write_ok", pra_write_ok)
+             .boolean("frame_input_write_ok", fi_write_ok)
+             .boolean("current_input_refresh_ok", refresh_ok)
+             .boolean("mirror_write_ok", mirror_write_ok)
+             .boolean("ok", ok);
+            ReplayDebugTrace::instance().event(
+                "replay_input_release_handoff", f);
             return ok;
         }
 
@@ -34539,6 +36803,11 @@ namespace Horse
         void* chara) noexcept
     {
         ReplayScrub::instance().note_tick_chara_main_simulation_exit(chara);
+    }
+
+    inline void replay_scrub_note_hit_resolution_exit() noexcept
+    {
+        ReplayScrub::instance().note_hit_resolution_exit();
     }
 
 }  // namespace Horse

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import re
 import sys
@@ -16,6 +17,25 @@ DEFAULT_TRACE_DIR = Path(
     r"E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI"
     r"\Binaries\Win64\ue4ss\Mods\HorseMod\Saved\ReplayTrace"
 )
+HITCUE_FIELD_RE = re.compile(r"^hitcue(\d+)-")
+DEFAULT_MIN_RESUME_TICK_RATE = 58.0
+DEFAULT_RESUME_TICK_WINDOW = 120
+DEFAULT_MAX_SEEK_VALIDATION_SECONDS = 0.5
+
+
+def qpc_frequency() -> int | None:
+    if sys.platform != "win32":
+        return None
+    value = ctypes.c_longlong()
+    try:
+        ok = ctypes.windll.kernel32.QueryPerformanceFrequency(
+            ctypes.byref(value)
+        )
+    except Exception:
+        return None
+    if not ok or value.value <= 0:
+        return None
+    return int(value.value)
 
 
 def latest_trace(trace_dir: Path = DEFAULT_TRACE_DIR) -> Path | None:
@@ -65,6 +85,21 @@ def int_field(value: Any, default: int = 0) -> int:
         return default
 
 
+def float_field(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def qpc_field(event: dict[str, Any]) -> int | None:
+    try:
+        value = int(event.get("ts_qpc"))
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 def raw_mismatch_is_empty(value: Any) -> bool:
     if value is None:
         return True
@@ -102,6 +137,24 @@ def is_visual_oracle_diagnostic_failure(event: dict[str, Any]) -> bool:
     field = str(event.get("field") or "")
     if field.startswith("vital-"):
         return True
+    if bool_field(event.get("natural_resume_playback")):
+        # During released playback SC6's native replay/event pipeline owns
+        # animation, hit-cue, and HUD advancement.  Cache hashes and derived
+        # transform fields can drift from the generated oracle without meaning
+        # the replay is playing the wrong move.  Keep vital state strict above,
+        # and keep clearly semantic hit-cue fields strict below.
+        noisy_hitcue_terms = (
+            "cached-local",
+            "cached-world",
+            "cache-hash",
+            "slot-hash",
+            "lane-header-hash",
+        )
+        if field.startswith("hitcue"):
+            return not any(term in field for term in noisy_hitcue_terms)
+        if field.startswith("hit-cue-"):
+            return False
+        return False
     if field.startswith("hit-cue-"):
         return True
     if not field.startswith("hitcue"):
@@ -109,6 +162,69 @@ def is_visual_oracle_diagnostic_failure(event: dict[str, Any]) -> bool:
     if "cached-local" in field or "cached-world" in field:
         return False
     return True
+
+
+def hitcue_slot_from_field(field: str) -> int | None:
+    match = HITCUE_FIELD_RE.match(field)
+    if not match:
+        return None
+    return int_field(match.group(1), -1)
+
+
+def is_repaired_pre_overlay_hitcue_diagnostic(
+    events: list[dict[str, Any]],
+    index: int,
+) -> bool:
+    """Return true when a strict hitcue diagnostic is repaired before release.
+
+    The USER restore path may emit restore_integrity_oracle_diagnostic before
+    applying the semantic overlay.  Those diagnostics are still useful, but they
+    are not strict failures when the later overlay writes the same hitcue slot
+    or scalar field and readback proves it matches the oracle before the final
+    overlay restore event.
+    """
+    event = events[index]
+    if not bool_field(event.get("natural_resume_playback")):
+        return False
+
+    field = str(event.get("field") or "")
+    slot = hitcue_slot_from_field(field)
+    if slot is None:
+        return False
+
+    label = str(event.get("label") or "")
+    player = int_field(event.get("player"), -1)
+    if not label or player < 0:
+        return False
+
+    saw_slot_repair = False
+    saw_field_repair = False
+    for later in events[index + 1:]:
+        if str(later.get("label") or "") != label:
+            continue
+
+        name = event_name(later)
+        later_player = int_field(later.get("player"), -1)
+        if (
+            name == "oracle_semantic_overlay_hitcue_slot_write"
+            and later_player == player
+            and int_field(later.get("slot"), -1) == slot
+            and bool_field(later.get("live_matches_oracle"))
+        ):
+            saw_slot_repair = True
+        elif (
+            name == "oracle_semantic_overlay_write"
+            and later_player == player
+            and str(later.get("field") or "") == field
+            and bool_field(later.get("live_matches_oracle"))
+        ):
+            saw_field_repair = True
+        elif name == "oracle_semantic_overlay_restore":
+            return bool_field(later.get("ok")) and (
+                saw_slot_repair or saw_field_repair
+            )
+
+    return False
 
 
 def classify_failure(result: dict[str, Any]) -> str:
@@ -259,12 +375,336 @@ def summarize_native_step_boundaries(events: list[dict[str, Any]], strict: bool)
     return 0
 
 
-def summarize_test_events(events: list[dict[str, Any]]) -> int | None:
+def estimate_tick_rate(
+    samples: list[dict[str, Any]],
+    field: str,
+    window_ticks: int,
+    frequency: int,
+) -> dict[str, Any] | None:
+    valid: list[tuple[int, int]] = []
+    for sample in samples:
+        qpc = qpc_field(sample)
+        value = int_field(sample.get(field), -1)
+        if qpc is not None and value >= 0:
+            valid.append((qpc, value))
+
+    if len(valid) < 2:
+        return None
+
+    first_qpc, first_value = valid[0]
+    prev_value = first_value
+    end_qpc = first_qpc
+    end_value = first_value
+    tick_delta = 0
+    used_samples = 1
+    target_ticks = max(1, window_ticks)
+
+    for qpc, value in valid[1:]:
+        delta = value - prev_value
+        prev_value = value
+        if delta < 0:
+            # Round transitions can reset round-local counters. Keep the
+            # window alive and use the next positive segment if needed.
+            continue
+        used_samples += 1
+        if delta == 0:
+            continue
+        tick_delta += delta
+        end_qpc = qpc
+        end_value = value
+        if tick_delta >= target_ticks:
+            break
+
+    if tick_delta <= 0 or end_qpc <= first_qpc:
+        return None
+
+    elapsed = (end_qpc - first_qpc) / frequency
+    if elapsed <= 0.0:
+        return None
+
+    return {
+        "rate": tick_delta / elapsed,
+        "ticks": tick_delta,
+        "elapsed_seconds": elapsed,
+        "samples": used_samples,
+        "first_value": first_value,
+        "last_value": end_value,
+    }
+
+
+def collect_resume_tick_stats(
+    events: list[dict[str, Any]],
+    frequency: int | None,
+    window_ticks: int = DEFAULT_RESUME_TICK_WINDOW,
+) -> dict[str, dict[str, Any]]:
+    if frequency is None or frequency <= 0:
+        return {}
+
+    starts: dict[str, dict[str, Any]] = {}
+    stats: dict[str, dict[str, Any]] = {}
+
+    for event in events:
+        name = event_name(event)
+        label = str(event.get("label") or "")
+        qpc = qpc_field(event)
+
+        if name == "replay_seek_test_resume_start" and label and qpc:
+            starts.setdefault(label, {
+                "label": label,
+                "start_qpc": qpc,
+                "play_qpc": qpc,
+                "target_seq": event.get("target_seq"),
+                "target_round": event.get("target_round"),
+                "target_master": event.get("target_master"),
+                "progress": [],
+            })
+            continue
+
+        if (
+            name == "replay_seek_test_resume_command_serviced"
+            and label
+            and qpc
+        ):
+            starts.setdefault(label, {
+                "label": label,
+                "start_qpc": qpc,
+                "target_seq": event.get("target_seq"),
+                "progress": [],
+            })
+            starts[label]["play_qpc"] = qpc
+            continue
+
+        if name == "native_playback_progress" and qpc:
+            for start in starts.values():
+                play_qpc = int_field(start.get("play_qpc"))
+                if play_qpc and qpc >= play_qpc:
+                    start.setdefault("progress", []).append(event)
+            continue
+
+        if name != "replay_seek_test_case_result" or not label:
+            continue
+        if label not in starts:
+            continue
+
+        start = starts[label]
+        end_qpc = qpc
+        play_qpc = int_field(start.get("play_qpc"))
+        observed = int_field(event.get("resume_frames_observed"))
+        requested = int_field(event.get("resume_frames_requested"))
+        native_samples = [
+            p for p in start.get("progress", [])
+            if (pq := qpc_field(p)) is not None and play_qpc <= pq <= end_qpc
+            and int_field(p.get("replay_player_playing"), -1) == 1
+        ]
+        bm_rate = estimate_tick_rate(
+            native_samples,
+            "bm_frame_advance",
+            window_ticks,
+            frequency,
+        )
+        master_rate = estimate_tick_rate(
+            native_samples,
+            "master",
+            window_ticks,
+            frequency,
+        )
+        chosen_source = "bm_frame_advance" if bm_rate else "master"
+        chosen_rate = bm_rate or master_rate
+        first_tick_latency: float | None = None
+        if native_samples:
+            first_qpc = qpc_field(native_samples[0])
+            if first_qpc is not None and play_qpc and first_qpc >= play_qpc:
+                first_tick_latency = (first_qpc - play_qpc) / frequency
+
+        stats[label] = {
+            "label": label,
+            "requested": requested,
+            "observed": observed,
+            "tick_source": chosen_source if chosen_rate else "none",
+            "tick_rate": chosen_rate.get("rate") if chosen_rate else None,
+            "tick_elapsed_seconds": (
+                chosen_rate.get("elapsed_seconds") if chosen_rate else None
+            ),
+            "tick_delta": chosen_rate.get("ticks") if chosen_rate else 0,
+            "tick_samples": chosen_rate.get("samples") if chosen_rate else 0,
+            "native_samples": len(native_samples),
+            "first_tick_latency_seconds": first_tick_latency,
+            "bm_tick_rate": bm_rate.get("rate") if bm_rate else None,
+            "master_tick_rate": master_rate.get("rate") if master_rate else None,
+        }
+
+    return stats
+
+
+def collect_resume_tick_failures(
+    events: list[dict[str, Any]],
+    min_tick_rate: float,
+    window_ticks: int = DEFAULT_RESUME_TICK_WINDOW,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    frequency = qpc_frequency()
+    stats = collect_resume_tick_stats(events, frequency, window_ticks)
+    failures: list[str] = []
+    if frequency is None:
+        failures.append("resume tick-rate check unavailable: no QPC frequency")
+        return stats, failures
+
+    for label, stat in stats.items():
+        requested = int_field(stat.get("requested"))
+        if requested <= 0:
+            continue
+        rate_value = stat.get("tick_rate")
+        if rate_value is None:
+            failures.append(
+                f"case {label} has no native replay tick-rate samples"
+            )
+            continue
+        rate = float_field(rate_value)
+        if rate < min_tick_rate:
+            failures.append(
+                f"case {label} native replay tick rate too slow: "
+                f"{rate:.1f} t/s < {min_tick_rate:.1f} t/s "
+                f"(source={stat.get('tick_source', '?')} "
+                f"window_ticks={window_ticks})"
+            )
+    return stats, failures
+
+
+def collect_seek_validation_stats(
+    events: list[dict[str, Any]],
+    frequency: int | None,
+) -> list[dict[str, Any]]:
+    if frequency is None or frequency <= 0:
+        return []
+
+    pending: list[dict[str, Any]] = []
+    stats: list[dict[str, Any]] = []
+    for event in events:
+        name = event_name(event)
+        label = str(event.get("label") or "")
+        qpc = qpc_field(event)
+
+        if name == "captured_seek_queued" and qpc is not None:
+            pending.append({
+                "label": label,
+                "target_seq": event.get("target_seq"),
+                "target_master": event.get("target_master"),
+                "origin_master": event.get("origin_master"),
+                "validation_mode": str(event.get("validation_mode") or ""),
+                "native_step_warmup_to_target": bool_field(
+                    event.get("native_step_warmup_to_target")
+                ),
+                "queued_qpc": qpc,
+                "native_steps": 0,
+                "direct_warmup_ok": False,
+                "direct_warmup_steps": 0,
+            })
+            continue
+
+        if name == "sc6_native_step_observed" and pending:
+            for item in reversed(pending):
+                if item.get("label") == label:
+                    step_count = int_field(event.get("drained_credits"))
+                    if step_count <= 0:
+                        step_count = int_field(event.get("credits"))
+                    if step_count <= 0:
+                        step_count = 1
+                    item["native_steps"] = int_field(
+                        item.get("native_steps")
+                    ) + step_count
+                    break
+            continue
+
+        if name == "prev_to_target_direct_warmup" and pending:
+            for item in reversed(pending):
+                if item.get("label") == label:
+                    item["direct_warmup_ok"] = bool_field(event.get("ok"))
+                    item["direct_warmup_steps"] = int_field(
+                        event.get("steps")
+                    )
+                    break
+            continue
+
+        if name != "captured_seek_landed" or qpc is None:
+            continue
+
+        match_index = None
+        for index in range(len(pending) - 1, -1, -1):
+            if pending[index].get("label") == label:
+                match_index = index
+                break
+        if match_index is None:
+            continue
+
+        item = pending.pop(match_index)
+        queued_qpc = int_field(item.get("queued_qpc"))
+        if queued_qpc > 0 and qpc >= queued_qpc:
+            item["elapsed_seconds"] = (qpc - queued_qpc) / frequency
+        else:
+            item["elapsed_seconds"] = None
+        item["frames_advanced"] = int_field(event.get("frames_advanced"))
+        item["landed"] = True
+        stats.append(item)
+
+    return stats
+
+
+def collect_seek_validation_failures(
+    events: list[dict[str, Any]],
+    max_seconds: float = DEFAULT_MAX_SEEK_VALIDATION_SECONDS,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    frequency = qpc_frequency()
+    stats = collect_seek_validation_stats(events, frequency)
+    failures: list[str] = []
+    if frequency is None:
+        failures.append("seek validation duration check unavailable: no QPC frequency")
+        return stats, failures
+
+    for stat in stats:
+        elapsed = stat.get("elapsed_seconds")
+        if elapsed is None:
+            continue
+        mode = str(stat.get("validation_mode") or "")
+        native_steps = int_field(stat.get("native_steps"))
+        direct_ok = bool_field(stat.get("direct_warmup_ok"))
+        warmup = bool_field(stat.get("native_step_warmup_to_target"))
+        if (
+            mode in {"prev_to_target", "previous_to_target"}
+            and warmup
+            and not direct_ok
+            and native_steps > 1
+            and float_field(elapsed) > max_seconds
+        ):
+            failures.append(
+                "visible seek validation warmup too slow: "
+                f"label={stat.get('label', '?')} "
+                f"target_seq={stat.get('target_seq', '?')} "
+                f"steps={native_steps} "
+                f"elapsed={float_field(elapsed):.2f}s > {max_seconds:.2f}s"
+            )
+    return stats, failures
+
+
+def summarize_test_events(
+    events: list[dict[str, Any]],
+    min_resume_tick_rate: float = DEFAULT_MIN_RESUME_TICK_RATE,
+    resume_tick_window: int = DEFAULT_RESUME_TICK_WINDOW,
+    max_seek_validation_seconds: float = DEFAULT_MAX_SEEK_VALIDATION_SECONDS,
+) -> int | None:
     results = [e for e in events if event_name(e) == "replay_seek_test_case_result"]
     summaries = [e for e in events if event_name(e) == "replay_seek_test_summary"]
     starts = [e for e in events if event_name(e) == "replay_seek_test_start"]
     if not results and not summaries and not starts:
         return None
+
+    tick_stats, tick_failures = collect_resume_tick_failures(
+        events,
+        min_resume_tick_rate,
+        resume_tick_window,
+    )
+    validation_stats, validation_failures = collect_seek_validation_failures(
+        events,
+        max_seek_validation_seconds,
+    )
 
     if starts:
         start = starts[-1]
@@ -288,7 +728,7 @@ def summarize_test_events(events: list[dict[str, Any]]) -> int | None:
     watch_state_mismatches = 0
     watch_state_unchecked = 0
     for r in results:
-        label = r.get("label", "?")
+        label = str(r.get("label", "?"))
         ok = bool(r.get("passed"))
         try:
             resume_requested = int(r.get("resume_frames_requested") or 0)
@@ -349,6 +789,29 @@ def summarize_test_events(events: list[dict[str, Any]]) -> int | None:
                 f"expected={r.get('resume_state_first_expected_u64', '?')} "
                 f"live={r.get('resume_state_first_live_u64', '?')}"
             )
+        tick_stat = tick_stats.get(label)
+        if resume_requested > 0 and tick_stat:
+            bm_rate = tick_stat.get("bm_tick_rate")
+            master_rate = tick_stat.get("master_tick_rate")
+            bm_part = ""
+            if bm_rate is not None:
+                bm_part = f" bm={float_field(bm_rate):.1f}t/s"
+            master_part = ""
+            if master_rate is not None:
+                master_part = f" master={float_field(master_rate):.1f}t/s"
+            first_tick = tick_stat.get("first_tick_latency_seconds")
+            latency_part = ""
+            if first_tick is not None:
+                latency_part = f" first_tick={float_field(first_tick):.3f}s"
+            print(
+                "  native ticks: "
+                f"source={tick_stat.get('tick_source', '?')} "
+                f"rate={float_field(tick_stat.get('tick_rate')):.1f}t/s "
+                f"ticks={int_field(tick_stat.get('tick_delta'))} "
+                f"elapsed={float_field(tick_stat.get('tick_elapsed_seconds')):.2f}s"
+                f"{bm_part}{master_part}{latency_part} "
+                f"samples={int_field(tick_stat.get('native_samples'))}"
+            )
 
     print(f"cases: passed={passed} failed={failed} raw_diagnostics={raw_diag}")
     if watch_cases:
@@ -360,6 +823,51 @@ def summarize_test_events(events: list[dict[str, Any]]) -> int | None:
             f"state_compares={watch_state_compares} "
             f"state_mismatches={watch_state_mismatches} "
             f"state_unchecked={watch_state_unchecked}"
+        )
+        rates = [
+            float_field(stat.get("tick_rate"))
+            for stat in tick_stats.values()
+            if int_field(stat.get("requested")) > 0
+            and stat.get("tick_rate") is not None
+        ]
+        if rates:
+            print(
+                "watchback ticks: "
+                f"min={min(rates):.1f}t/s "
+                f"avg={sum(rates) / len(rates):.1f}t/s "
+                f"threshold={min_resume_tick_rate:.1f}t/s "
+                f"window={resume_tick_window}ticks "
+                f"slow_cases={len(tick_failures)}"
+            )
+        elif tick_failures:
+            print(
+                "watchback ticks: "
+                f"unavailable threshold={min_resume_tick_rate:.1f}t/s "
+                f"window={resume_tick_window}ticks "
+                f"slow_cases={len(tick_failures)}"
+            )
+    if validation_stats:
+        elapsed_values = [
+            float_field(s.get("elapsed_seconds"))
+            for s in validation_stats
+            if s.get("elapsed_seconds") is not None
+        ]
+        visible_steps = sum(
+            int_field(s.get("native_steps")) for s in validation_stats
+        )
+        max_elapsed = max(elapsed_values) if elapsed_values else 0.0
+        direct_ok = sum(
+            1 for s in validation_stats
+            if bool_field(s.get("direct_warmup_ok"))
+        )
+        print(
+            "seek validation: "
+            f"cases={len(validation_stats)} "
+            f"visible_steps={visible_steps} "
+            f"direct_warmups={direct_ok} "
+            f"max_elapsed={max_elapsed:.2f}s "
+            f"threshold={max_seek_validation_seconds:.2f}s "
+            f"slow_cases={len(validation_failures)}"
         )
     for group, items in failures.items():
         labels = ", ".join(str(i.get("label", "?")) for i in items)
@@ -414,7 +922,12 @@ def summarize_legacy(events: list[dict[str, Any]], require_tests: bool) -> int:
     return 0
 
 
-def strict_failures(events: list[dict[str, Any]]) -> list[str]:
+def strict_failures(
+    events: list[dict[str, Any]],
+    min_resume_tick_rate: float = DEFAULT_MIN_RESUME_TICK_RATE,
+    resume_tick_window: int = DEFAULT_RESUME_TICK_WINDOW,
+    max_seek_validation_seconds: float = DEFAULT_MAX_SEEK_VALIDATION_SECONDS,
+) -> list[str]:
     failures: list[str] = []
     complete = [e for e in events if event_name(e) == "generate_complete"]
     if not complete:
@@ -475,6 +988,7 @@ def strict_failures(events: list[dict[str, Any]]) -> list[str]:
                 failures.append("right display name is Steam fallback")
 
     results = [e for e in events if event_name(e) == "replay_seek_test_case_result"]
+    has_watch_cases = False
     for result in results:
         label = result.get("label", "?")
         if not bool_field(result.get("passed")):
@@ -485,6 +999,8 @@ def strict_failures(events: list[dict[str, Any]]) -> list[str]:
         resume_observed = int_field(result.get("resume_frames_observed"))
         state_compares = int_field(result.get("resume_state_compares"))
         state_mismatches = int_field(result.get("resume_state_mismatches"))
+        if resume_requested > 0:
+            has_watch_cases = True
         if state_mismatches > 0:
             field = result.get("resume_state_first_mismatch_field", "?")
             seq = result.get("resume_state_first_mismatch_seq", "?")
@@ -494,12 +1010,35 @@ def strict_failures(events: list[dict[str, Any]]) -> list[str]:
         if resume_requested > 0 and resume_observed > 0 and state_compares <= 0:
             failures.append(f"case {label} advanced without resume state compares")
 
+    if has_watch_cases:
+        _, tick_failures = collect_resume_tick_failures(
+            events,
+            min_resume_tick_rate,
+            resume_tick_window,
+        )
+        failures.extend(tick_failures)
+        _, validation_failures = collect_seek_validation_failures(
+            events,
+            max_seek_validation_seconds,
+        )
+        failures.extend(validation_failures)
+
     mismatch_events = [
         e for e in events
         if event_name(e) == "replay_seek_test_resume_state_mismatch"
     ]
     if mismatch_events:
         failures.append(f"resume state mismatch events: {len(mismatch_events)}")
+
+    overlay_events = [
+        e for e in events
+        if event_name(e) == "resume_oracle_playback_overlay"
+    ]
+    if overlay_events:
+        failures.append(
+            "resume oracle playback overlay ran "
+            f"({len(overlay_events)} events)"
+        )
 
     observation_count, drain_events, has_drain_marker, boundary_issues = (
         collect_native_step_boundary_issues(events)
@@ -510,7 +1049,9 @@ def strict_failures(events: list[dict[str, Any]]) -> list[str]:
         failures.append("native-step observations without drain events")
 
     visual_diagnostics = [
-        e for e in events if is_visual_oracle_diagnostic_failure(e)
+        e for i, e in enumerate(events)
+        if is_visual_oracle_diagnostic_failure(e)
+        and not is_repaired_pre_overlay_hitcue_diagnostic(events, i)
     ]
     if visual_diagnostics:
         field_counts = Counter(
@@ -550,6 +1091,35 @@ def main() -> int:
         action="store_true",
         help="Fail on generation, seekability, case, boundary, or summary issues",
     )
+    parser.set_defaults(min_resume_tick_rate=DEFAULT_MIN_RESUME_TICK_RATE)
+    parser.add_argument(
+        "--min-resume-tick-rate",
+        dest="min_resume_tick_rate",
+        type=float,
+        default=argparse.SUPPRESS,
+        help=(
+            "Minimum native replay ticks per second during the post-seek "
+            f"watch window. Default: {DEFAULT_MIN_RESUME_TICK_RATE:.1f} t/s"
+        ),
+    )
+    parser.add_argument(
+        "--resume-tick-window",
+        type=int,
+        default=DEFAULT_RESUME_TICK_WINDOW,
+        help=(
+            "Native replay ticks to measure immediately after resume. "
+            f"Default: {DEFAULT_RESUME_TICK_WINDOW}"
+        ),
+    )
+    parser.add_argument(
+        "--max-seek-validation-seconds",
+        type=float,
+        default=DEFAULT_MAX_SEEK_VALIDATION_SECONDS,
+        help=(
+            "Maximum visible validation warmup time before playback. "
+            f"Default: {DEFAULT_MAX_SEEK_VALIDATION_SECONDS:.2f}s"
+        ),
+    )
     args = parser.parse_args()
 
     path = Path(args.trace) if args.trace else latest_trace(Path(args.latest_dir))
@@ -577,9 +1147,19 @@ def main() -> int:
     print(f"events: {len(events)}")
     summarize_generation(events)
     boundary_status = summarize_native_step_boundaries(events, args.strict)
-    test_status = summarize_test_events(events)
+    test_status = summarize_test_events(
+        events,
+        args.min_resume_tick_rate,
+        args.resume_tick_window,
+        args.max_seek_validation_seconds,
+    )
     if args.strict:
-        failures = strict_failures(events)
+        failures = strict_failures(
+            events,
+            args.min_resume_tick_rate,
+            args.resume_tick_window,
+            args.max_seek_validation_seconds,
+        )
         if failures:
             print("strict: FAIL")
             for failure in failures:

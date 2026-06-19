@@ -52,6 +52,7 @@ namespace Horse
         void* chara) noexcept;
     void replay_scrub_note_tick_chara_main_simulation_exit(
         void* chara) noexcept;
+    void replay_scrub_note_hit_resolution_exit() noexcept;
 
     class NativeReplayTraceHook
     {
@@ -462,6 +463,8 @@ namespace Horse
         static constexpr size_t kCachedReplayRingMasters = 8192;
         static constexpr size_t kCachedReplayRingSlots = 2;
         static constexpr size_t kCachedReplayRingEntryBytes = 16;
+        static constexpr uint32_t kReplayRingBucketMask = 0x1FF;
+        static constexpr int32_t kCachedStage3RepairLookahead = 16;
 
         static constexpr size_t slot_index(Slot s) noexcept
         {
@@ -677,6 +680,17 @@ namespace Horse
         static bool safe_read_bytes(
             const void* src,
             void* dst,
+            size_t bytes) noexcept
+        {
+            if (!src || !dst) return false;
+            __try { std::memcpy(dst, src, bytes); }
+            __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+            return true;
+        }
+
+        static bool safe_write_bytes(
+            void* dst,
+            const void* src,
             size_t bytes) noexcept
         {
             if (!src || !dst) return false;
@@ -1566,7 +1580,8 @@ namespace Horse
             if (frame_id < 0 || input_cursor < 0 || active_slots <= 0)
                 return;
             const uint32_t cursor = static_cast<uint32_t>(input_cursor);
-            const size_t ring_index = static_cast<size_t>(cursor) & 0x1FF;
+            const size_t ring_index = static_cast<size_t>(cursor)
+                & kReplayRingBucketMask;
             size_t slot_count = static_cast<size_t>(active_slots);
             if (slot_count > kCachedReplayRingSlots)
                 slot_count = kCachedReplayRingSlots;
@@ -1585,11 +1600,126 @@ namespace Horse
                     continue;
                 ReplayRingCacheEntry& entry = m_replay_ring_cache[
                     replay_ring_cache_index(frame_id, cursor, slot)];
+                if (entry.valid && entry.frame_id == frame_id
+                    && entry.cursor == cursor && entry.slot == slot)
+                {
+                    continue;
+                }
                 std::memcpy(entry.bytes, bytes, sizeof(bytes));
                 entry.frame_id = frame_id;
                 entry.cursor = cursor;
                 entry.slot = slot;
                 entry.valid = true;
+            }
+        }
+
+        void restore_cached_replay_ring_entries_for_stage3(
+            void* chara,
+            uint32_t call_index) noexcept
+        {
+            if (!chara) return;
+            auto* c = static_cast<uint8_t*>(chara);
+            const int32_t frame_id = safe_read_int32(c + 0x3A0);
+            const int32_t input_cursor = safe_read_int32(c + 0x3B0);
+            const int32_t active_slots = safe_read_int32(c + 0x398);
+            const int32_t master = safe_read_int32(c + 0x3A4);
+            const int32_t frame_count = safe_read_int32(c + 0x3B4);
+            if (frame_id < 0 || input_cursor < 0 || active_slots <= 0)
+                return;
+
+            int32_t repair_end = input_cursor + 1;
+            if (master >= input_cursor)
+                repair_end = master + 1;
+            if (frame_count >= 0 && repair_end > frame_count)
+                repair_end = frame_count;
+            if (repair_end <= input_cursor)
+                repair_end = input_cursor + 1;
+            const int32_t max_end =
+                input_cursor + kCachedStage3RepairLookahead;
+            if (repair_end > max_end)
+                repair_end = max_end;
+
+            size_t slot_count = static_cast<size_t>(active_slots);
+            if (slot_count > kCachedReplayRingSlots)
+                slot_count = kCachedReplayRingSlots;
+
+            int restored_entries = 0;
+            int already_valid_entries = 0;
+            int cache_missing_entries = 0;
+            int write_failures = 0;
+            for (int32_t cursor_i = input_cursor;
+                 cursor_i < repair_end;
+                 ++cursor_i)
+            {
+                const uint32_t cursor = static_cast<uint32_t>(cursor_i);
+                const size_t ring_index = static_cast<size_t>(cursor)
+                    & kReplayRingBucketMask;
+                for (size_t slot = 0; slot < slot_count; ++slot)
+                {
+                    uint8_t* ring = c + 0x3C0
+                        + slot * 0x2000 + ring_index * 0x10;
+                    const int32_t live_frame = safe_read_int32(ring + 0x0);
+                    const uint32_t live_cursor = safe_read_uint32(ring + 0x4);
+                    const uint8_t live_filled = safe_read_uint8(ring + 0x0C);
+                    const bool live_valid =
+                        live_frame == frame_id && live_cursor == cursor
+                        && live_filled != 0;
+
+                    const ReplayRingCacheEntry& entry = m_replay_ring_cache[
+                        replay_ring_cache_index(frame_id, cursor, slot)];
+                    if (!entry.valid || entry.frame_id != frame_id
+                        || entry.cursor != cursor || entry.slot != slot)
+                    {
+                        if (live_valid)
+                            ++already_valid_entries;
+                        else
+                            ++cache_missing_entries;
+                        continue;
+                    }
+
+                    uint8_t live_bytes[kCachedReplayRingEntryBytes] {};
+                    if (live_valid
+                        && safe_read_bytes(ring, live_bytes,
+                                           sizeof(live_bytes))
+                        && std::memcmp(live_bytes, entry.bytes,
+                                       sizeof(live_bytes)) == 0)
+                    {
+                        ++already_valid_entries;
+                        continue;
+                    }
+
+                    if (safe_write_bytes(ring, entry.bytes,
+                                         kCachedReplayRingEntryBytes))
+                    {
+                        ++restored_entries;
+                    }
+                    else
+                    {
+                        ++write_failures;
+                    }
+                }
+            }
+
+            if (restored_entries || cache_missing_entries || write_failures)
+            {
+                ReplayTraceFields f;
+                f.uinteger("call_index", call_index)
+                 .hex("chara", reinterpret_cast<uintptr_t>(chara))
+                 .integer("static_chara_slot", static_chara_slot_index(chara))
+                 .integer("frame_id", frame_id)
+                 .integer("input_cursor", input_cursor)
+                 .integer("master", master)
+                 .integer("frame_count", frame_count)
+                 .integer("repair_begin", input_cursor)
+                 .integer("repair_end", repair_end)
+                 .integer("slot_count", static_cast<int64_t>(slot_count))
+                 .integer("restored_entries", restored_entries)
+                 .integer("already_valid_entries", already_valid_entries)
+                 .integer("cache_missing_entries", cache_missing_entries)
+                 .integer("write_failures", write_failures)
+                 .boolean("ok", write_failures == 0)
+                 .string("reason", "stage3-current-ring-cache-restore");
+                emit("replay_ring_cached_stage3_restore", f);
             }
         }
 
@@ -1620,7 +1750,8 @@ namespace Horse
             const auto* c = static_cast<const uint8_t*>(chara);
             const int32_t input_cursor = safe_read_int32(c + 0x3B0);
             const size_t ring_index = static_cast<size_t>(
-                static_cast<uint32_t>(input_cursor)) & 0x1FF;
+                static_cast<uint32_t>(input_cursor))
+                & kReplayRingBucketMask;
             const uint8_t* ring0 = c + 0x3C0 + ring_index * 0x10;
             const uint8_t* ring1 = c + 0x3C0 + 0x2000 + ring_index * 0x10;
             f.hex("chara", reinterpret_cast<uintptr_t>(chara))
@@ -2011,6 +2142,9 @@ namespace Horse
             }
             const uint32_t enter_index = s_stage3_enter_count.fetch_add(
                 1, std::memory_order_acq_rel);
+            if (chara)
+                instance().restore_cached_replay_ring_entries_for_stage3(
+                    chara, enter_index);
             const int32_t enter_master = safe_read_int32(
                 static_cast<uint8_t*>(chara) + 0x3A4);
             if (enter_index < 256 || (enter_index % 120) == 0
@@ -2106,6 +2240,7 @@ namespace Horse
             if (auto fn = orig<VoidNoArgFn>(
                     Slot::TickHitResolutionAndBodyCollision))
                 fn();
+            replay_scrub_note_hit_resolution_exit();
             emit_lifecycle_slots(
                 "TickHitResolutionAndBodyCollision", "exit");
         }

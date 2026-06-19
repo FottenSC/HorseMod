@@ -146,7 +146,19 @@ namespace Horse
         constexpr uintptr_t kChara_wMoveTransitionState_Off = 0x198C;
         constexpr uintptr_t kChara_wHitSlideState_Off     = 0x1994;
         constexpr uintptr_t kChara_wMatchStateSubA_Off     = 0x19EC;
-        constexpr uintptr_t kChara_pActiveAttackCell_Off  = 0x44048;
+        constexpr uintptr_t kChara_pPrimaryAttackCell_Off = 0x44040;
+        constexpr uintptr_t kChara_pOpponentActiveAttackCellCopy_Off = 0x44048;
+        constexpr uintptr_t kChara_pOpponentNonAttackMoveDescrCopy_Off = 0x44050;
+        constexpr uintptr_t kChara_pOwnActiveAttackCell_Off = 0x44058;
+        constexpr uintptr_t kChara_pNonAttackMoveDescr_Off = 0x44060;
+        constexpr uintptr_t kChara_pActiveLaneCursor_Off = 0x44068;
+        constexpr uintptr_t kChara_pRestorePtr97190_Off = 0x97190;
+        constexpr uintptr_t kChara_pRestorePtr97198_Off = 0x97198;
+        constexpr uintptr_t kChara_pRestorePtr971A0_Off = 0x971A0;
+        // Legacy name used by older trace readers.  This is the defender-side
+        // mirror of the opponent's +0x44058, not the local chara's own cell.
+        constexpr uintptr_t kChara_pActiveAttackCell_Off =
+            kChara_pOpponentActiveAttackCellCopy_Off;
         // Not life/HP. Ghidra shows +0x1364 is a VM decay/counter field;
         // keep it only as diagnostic drift telemetry.
         constexpr uintptr_t kChara_flVmDecayCounter_Off   = 0x1364;
@@ -154,9 +166,8 @@ namespace Horse
         constexpr uintptr_t kChara_nHitSlideFrameTimer_Off = 0x43D90;
         constexpr uintptr_t kChara_nHitSlideFrameTimerMirror_Off = 0x43D94;
         constexpr uintptr_t kChara_dwHitReactionResult_Off = 0x43DA0;
-        // Native vital candidates from LuxBattleChara_AccumulateDamageTaken
-        // and LuxBattleChara_UpdateLethalHitGauge. These are diagnostic until
-        // live traces prove exact HUD/KO semantics.
+        // Native vital/HUD state from LuxBattleChara_AccumulateDamageTaken
+        // and LuxBattleChara_UpdateLethalHitGauge.
         constexpr uintptr_t kChara_flVitalScale_Off       = 0x43E00;
         constexpr uintptr_t kChara_flVitalCandidate_Off   = 0x43E08;
         constexpr uintptr_t kChara_flVitalKoGate_Off      = 0x43E10;
@@ -394,6 +405,21 @@ namespace Horse
             uint32_t  hit_reaction_result {0xFFFFFFFFu};
             std::array<HitCueRootMotionSlot, kChara_HitCueSlotCount>
                 hit_cue_slots{};
+            uintptr_t primary_attack_cell {0};
+            uint64_t  primary_attack_cell_mask {0};
+            bool      primary_attack_cell_mask_readable {false};
+            uintptr_t opponent_active_attack_cell_copy {0};
+            uint64_t  opponent_active_attack_cell_mask {0};
+            bool      opponent_active_attack_cell_mask_readable {false};
+            uintptr_t opponent_non_attack_move_descr_copy {0};
+            uintptr_t own_active_attack_cell {0};
+            uint64_t  own_active_attack_cell_mask {0};
+            bool      own_active_attack_cell_mask_readable {false};
+            uintptr_t non_attack_move_descr {0};
+            uintptr_t active_lane_cursor {0};
+            uintptr_t restore_ptr_97190 {0};
+            uintptr_t restore_ptr_97198 {0};
+            uintptr_t restore_ptr_971a0 {0};
             uintptr_t active_attack_cell {0};
             bool      readable {false};
 
@@ -461,6 +487,29 @@ namespace Horse
                     || soul_charge_trigger_bits != prev.soul_charge_trigger_bits
                     || soul_charge_kind_group != prev.soul_charge_kind_group
                     || soul_charge_match_counter != prev.soul_charge_match_counter
+                    || primary_attack_cell != prev.primary_attack_cell
+                    || primary_attack_cell_mask
+                        != prev.primary_attack_cell_mask
+                    || primary_attack_cell_mask_readable
+                        != prev.primary_attack_cell_mask_readable
+                    || opponent_active_attack_cell_copy
+                        != prev.opponent_active_attack_cell_copy
+                    || opponent_active_attack_cell_mask
+                        != prev.opponent_active_attack_cell_mask
+                    || opponent_active_attack_cell_mask_readable
+                        != prev.opponent_active_attack_cell_mask_readable
+                    || opponent_non_attack_move_descr_copy
+                        != prev.opponent_non_attack_move_descr_copy
+                    || own_active_attack_cell != prev.own_active_attack_cell
+                    || own_active_attack_cell_mask
+                        != prev.own_active_attack_cell_mask
+                    || own_active_attack_cell_mask_readable
+                        != prev.own_active_attack_cell_mask_readable
+                    || non_attack_move_descr != prev.non_attack_move_descr
+                    || active_lane_cursor != prev.active_lane_cursor
+                    || restore_ptr_97190 != prev.restore_ptr_97190
+                    || restore_ptr_97198 != prev.restore_ptr_97198
+                    || restore_ptr_971a0 != prev.restore_ptr_971a0
                     || active_attack_cell != prev.active_attack_cell;
             }
         };
@@ -710,9 +759,50 @@ namespace Horse
                 }
             }
 
-            void* cell = nullptr;
-            if (SafeReadPtr(c + kChara_pActiveAttackCell_Off, &cell))
-                s.active_attack_cell = reinterpret_cast<uintptr_t>(cell);
+            auto read_ptr_field =
+                [&](uintptr_t off, uintptr_t& out) noexcept
+            {
+                void* ptr = nullptr;
+                if (SafeReadPtr(c + off, &ptr))
+                    out = reinterpret_cast<uintptr_t>(ptr);
+            };
+            auto read_cell_ptr_and_mask =
+                [&](uintptr_t off,
+                    uintptr_t& out,
+                    uint64_t& mask,
+                    bool& mask_ok) noexcept
+            {
+                read_ptr_field(off, out);
+                if (out)
+                    mask_ok = SafeReadUInt64(
+                        reinterpret_cast<const void*>(out), &mask);
+            };
+
+            read_cell_ptr_and_mask(kChara_pPrimaryAttackCell_Off,
+                                   s.primary_attack_cell,
+                                   s.primary_attack_cell_mask,
+                                   s.primary_attack_cell_mask_readable);
+            read_cell_ptr_and_mask(kChara_pOpponentActiveAttackCellCopy_Off,
+                                   s.opponent_active_attack_cell_copy,
+                                   s.opponent_active_attack_cell_mask,
+                                   s.opponent_active_attack_cell_mask_readable);
+            read_ptr_field(kChara_pOpponentNonAttackMoveDescrCopy_Off,
+                           s.opponent_non_attack_move_descr_copy);
+            read_cell_ptr_and_mask(kChara_pOwnActiveAttackCell_Off,
+                                   s.own_active_attack_cell,
+                                   s.own_active_attack_cell_mask,
+                                   s.own_active_attack_cell_mask_readable);
+            read_ptr_field(kChara_pNonAttackMoveDescr_Off,
+                           s.non_attack_move_descr);
+            read_ptr_field(kChara_pActiveLaneCursor_Off,
+                           s.active_lane_cursor);
+            read_ptr_field(kChara_pRestorePtr97190_Off,
+                           s.restore_ptr_97190);
+            read_ptr_field(kChara_pRestorePtr97198_Off,
+                           s.restore_ptr_97198);
+            read_ptr_field(kChara_pRestorePtr971A0_Off,
+                           s.restore_ptr_971a0);
+            s.active_attack_cell = s.opponent_active_attack_cell_copy;
 
             s.readable = true;
             return s;
