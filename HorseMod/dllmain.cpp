@@ -3942,7 +3942,8 @@ private:
         // viewer don't pay any memory cost.  Subsequent ticks find
         // is_initialized()=true and skip.  Capture is unbounded (2 GB
         // ceiling); there is no capture-window setting.
-        Horse::ReplayScrub::instance().tick_capture();
+        Horse::ReplayScrub& replay_scrub = Horse::ReplayScrub::instance();
+        replay_scrub.tick_capture();
         // 2026-05-16: "Generate timeline" driver.  Services the UI
         // start/stop request and, while generating, watches for the
         // end of the recording.  The fast-forward itself is done by
@@ -3950,7 +3951,7 @@ private:
         // experimental variant, RenderSkipOverride skipping the scene
         // redraw) - this call just starts/stops it and auto-detects
         // completion.
-        Horse::ReplayScrub::instance().tick_generate_timeline();
+        replay_scrub.tick_generate_timeline();
 
         if (!raw_cockpit) return;
 
@@ -3958,23 +3959,16 @@ private:
         // generation skips rendering-oriented overlay work below.
         m_stage_visuals.tick(m_hide_stage_visuals.load());
 
-        // During a "Generate timeline" fast-forward the user is not
-        // watching the screen, so skip rendering-oriented per-frame mod
-        // work - stage-boundary drawing and the hitbox visualiser
-        // (m_lux.forEachChara + line-batch draws).  This
-        // leaves the fast-forward loop bound only by SC6's own
-        // simulation + the (sub-millisecond) snapshot capture, which
-        // tick_capture() above already did this frame.  Combined with
-        // the render-resolution drop (ScreenPercentageOverride) this is
-        // what actually lets generation run faster than 1x.
-        if (Horse::ReplayScrub::instance().timeline_gen_state()
-            == Horse::ReplayScrub::TimelineGenState::Generating)
+        // Lux-only timeline generation keeps gameplay simulation
+        // authoritative and suppresses presentation-only mod work.
+        if (replay_scrub.should_suppress_timeline_presentation())
         {
             // This early return skips the per-chara retrack-event
             // detection that maintains m_prev_yaw.  Invalidate the yaw
             // baseline so the first tick after generation ends re-seeds
             // it, instead of firing a spurious "retrack event" banner
             // off a stale pre-generation yaw.
+            replay_scrub.note_timeline_cockpit_overlay_suppressed();
             m_have_prev_yaw[0] = false;
             m_have_prev_yaw[1] = false;
             return;
@@ -4942,6 +4936,16 @@ private:
     // ------------------------------------------------------------------
     void render_tab_impl()
     {
+        {
+            Horse::ReplayScrub& replay_scrub =
+                Horse::ReplayScrub::instance();
+            if (replay_scrub.should_suppress_timeline_presentation())
+            {
+                replay_scrub.note_timeline_imgui_overlay_suppressed();
+                return;
+            }
+        }
+
         // ----------------------------------------------------------------
         // Always-on overlays first - these draw to GetForegroundDrawList
         // unconditionally so they show up regardless of whether the
@@ -6791,14 +6795,14 @@ private:
                     scrub.request_stop_generate_timeline();
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                     "Stop fast-forwarding now and restore the 60 fps cap\n"
-                    "(and rendering, if the experimental run skipped it).\n"
+                    "(and rendering, if lux-no-render skipped it).\n"
                     "The timeline keeps whatever has been captured so far.");
                 ImGui::SameLine(0.0f, 14.0f);
                 const char* gen_label =
                     scrub.is_battle_step_generation()
                         ? "Generating (experimental 2 - direct PerFrameTick)-  %zu frames"
-                        : scrub.is_experimental_generation()
-                            ? "Generating (experimental - render skipped)-  "
+                        : scrub.is_lux_no_render_generation()
+                            ? "Generating (lux-no-render)-  "
                               "%zu frames"
                             : "Generating - replay at max speed-  %zu frames";
                 ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.35f, 1.0f),
@@ -6860,19 +6864,20 @@ private:
                 else if (gen_status && gen_status[0])
                     ImGui::TextDisabled("%s", gen_status);
 
-                // Experimental variant: same fast-forward, but it also skips
-                // rendering so generation is sim-bound instead of render-bound.
+                // Lux no-render variant: same replay fast-forward, but
+                // presentation work is suppressed during generation only.
                 // See ReplayScrub::RenderSkipOverride.
                 ImGui::SameLine();
                 if (!gen_allowed || gen_waiting)
                     ImGui::BeginDisabled(true);
-                if (ImGui::Button("Experimental##rs_gen_exp"))
-                    scrub.request_generate_timeline_experimental();
+                if (ImGui::Button("Lux No Render##rs_gen_lux_no_render"))
+                    scrub.request_generate_timeline_lux_no_render();
                 if (!gen_allowed || gen_waiting)
                     ImGui::EndDisabled();
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Faster timeline build. The screen may stop updating\n"
-                    "while it runs; that is expected.\n"
+                    "Faster timeline build. Lux gameplay simulation,\n"
+                    "replay inputs, clocks, RNG, health, and result state\n"
+                    "keep running; render/overlay presentation is skipped.\n"
                     "\n"
                     "Use the normal Generate button first unless this is\n"
                     "too slow.");

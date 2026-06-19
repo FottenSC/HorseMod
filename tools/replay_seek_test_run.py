@@ -178,12 +178,28 @@ def default_cases(args: argparse.Namespace) -> list[dict[str, Any]]:
     )
 
 
+def normalize_generation_mode(mode: str) -> str:
+    value = (mode or "normal").strip()
+    if value == "experimental":
+        return "lux-no-render"
+    return value or "normal"
+
+
+def effective_generation_mode(args: argparse.Namespace) -> str:
+    timeline_mode = getattr(args, "timeline_generation_mode", None)
+    if timeline_mode:
+        return normalize_generation_mode(str(timeline_mode))
+    return normalize_generation_mode(str(args.generate_mode))
+
+
 def make_request(args: argparse.Namespace, run_id: str) -> dict[str, Any]:
     cases = getattr(args, "generated_cases", None) or default_cases(args)
+    generation_mode = effective_generation_mode(args)
     return {
         "enabled": True,
         "run_id": run_id,
-        "generate_mode": args.generate_mode,
+        "generate_mode": generation_mode,
+        "timeline_generation_mode": generation_mode,
         "timeout_seconds": args.case_timeout,
         "cases": cases,
     }
@@ -941,7 +957,19 @@ def main() -> int:
     parser.add_argument(
         "--generate-mode",
         default="normal",
-        choices=["normal", "experimental", "battle_step"],
+        choices=["normal", "lux-no-render", "experimental", "battle_step"],
+        help=(
+            "Legacy generation selector. Prefer "
+            "--timeline-generation-mode for normal/lux-no-render runs."
+        ),
+    )
+    parser.add_argument(
+        "--timeline-generation-mode",
+        choices=["normal", "lux-no-render"],
+        help=(
+            "Timeline generation mode for the replay-start and seek-test "
+            "requests. lux-no-render is used only during generation."
+        ),
     )
     parser.add_argument(
         "--case-preset",
@@ -1133,8 +1161,11 @@ def main() -> int:
         start_generate_mode = ""
         if args.wait:
             start_generate_mode = str(
-                (request_override or {}).get("generate_mode") or args.generate_mode
+                (request_override or {}).get("timeline_generation_mode")
+                or (request_override or {}).get("generate_mode")
+                or effective_generation_mode(args)
             )
+            start_generate_mode = normalize_generation_mode(start_generate_mode)
         request = {
             "enabled": True,
             "run_id": run_id,
@@ -1144,6 +1175,7 @@ def main() -> int:
         }
         if start_generate_mode:
             request["generate_mode"] = start_generate_mode
+            request["timeline_generation_mode"] = start_generate_mode
         start_since = time.time()
         path = start_request_path(saved_dir)
         write_json_atomic(path, request)
@@ -1255,6 +1287,17 @@ def main() -> int:
     )
     request["run_id"] = run_id
     request.setdefault("enabled", True)
+    if "timeline_generation_mode" not in request:
+        request["timeline_generation_mode"] = request.get(
+            "generate_mode",
+            effective_generation_mode(args),
+        )
+    request["timeline_generation_mode"] = normalize_generation_mode(
+        str(request["timeline_generation_mode"])
+    )
+    request["generate_mode"] = normalize_generation_mode(
+        str(request.get("generate_mode") or request["timeline_generation_mode"])
+    )
 
     cases = request.get("cases") if isinstance(request, dict) else None
     if isinstance(cases, list):
@@ -1271,6 +1314,7 @@ def main() -> int:
         static_cases = len(cases) - watch_cases
         print(
             "seek case plan: "
+            f"generation_mode={request.get('timeline_generation_mode')} "
             f"preset={args.case_preset if request_override is None else 'custom'} "
             f"cases={len(cases)} static={static_cases} watch={watch_cases} "
             f"watch_sections={args.watch_sections if request_override is None else 'custom'} "

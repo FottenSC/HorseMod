@@ -1793,6 +1793,30 @@ namespace Horse
 
         bool is_engaged() const noexcept { return m_engaged; }
 
+        struct Counters
+        {
+            uint64_t calls {0};
+            uint64_t forwarded {0};
+            uint64_t skipped {0};
+        };
+
+        Counters counters() const noexcept
+        {
+            Counters c{};
+            c.calls = s_call_count.load(std::memory_order_relaxed);
+            c.forwarded = s_forwarded_count.load(
+                std::memory_order_relaxed);
+            c.skipped = c.calls >= c.forwarded
+                ? c.calls - c.forwarded : 0;
+            return c;
+        }
+
+        void reset_counters() const noexcept
+        {
+            s_call_count.store(0, std::memory_order_relaxed);
+            s_forwarded_count.store(0, std::memory_order_relaxed);
+        }
+
         // Resolve + verify + patch GEngine's redraw vtable slot.  Returns
         // false (changing nothing) if GEngine / its vtable / the slot
         // can't be resolved, or the slot does not hold the expected
@@ -1833,7 +1857,7 @@ namespace Horse
             }
 
             s_original.store(current, std::memory_order_release);
-            s_call_count.store(0, std::memory_order_relaxed);
+            reset_counters();
 
             // Patch the 8-byte slot to point at vt_redraw_thunk.  BytePatch
             // snapshots the original pointer (verified above to be the real
@@ -1900,13 +1924,17 @@ namespace Horse
         static void __fastcall vt_redraw_thunk(void* self,
                                                uint8_t present) noexcept
         {
-            const uint32_t n =
+            const uint64_t n =
                 s_call_count.fetch_add(1, std::memory_order_relaxed);
             if ((n % kKeepAliveEveryN) == 0)
             {
                 void* orig = s_original.load(std::memory_order_acquire);
                 if (orig)
+                {
+                    s_forwarded_count.fetch_add(
+                        1, std::memory_order_relaxed);
                     reinterpret_cast<RedrawFn>(orig)(self, present);
+                }
             }
             // else: scene redraw skipped for this frame
         }
@@ -1938,7 +1966,8 @@ namespace Horse
         // Written/read on the game thread only (engage/disengage and the
         // thunk all run there); atomic purely as cheap insurance.
         static inline std::atomic<void*>    s_original  {nullptr};
-        static inline std::atomic<uint32_t> s_call_count{0};
+        static inline std::atomic<uint64_t> s_call_count{0};
+        static inline std::atomic<uint64_t> s_forwarded_count{0};
     };
 
     // ========================================================================
@@ -2418,6 +2447,12 @@ namespace Horse
         // both accessor methods and external UI code can reference it.
         enum class TimelineGenState : int { Idle = 0, Generating = 1, Done = 2 };
 
+        enum class TimelineGenerationMode : int
+        {
+            Normal = 0,
+            LuxNoRender = 1,
+        };
+
         enum class BattleStepMode : int
         {
             None = 0,
@@ -2690,7 +2725,7 @@ namespace Horse
         {
             bool active {false};
             std::string run_id;
-            std::string generate_mode {"battle_step"};
+            std::string generate_mode {"normal"};
             int32_t timeout_seconds {600};
             std::vector<ReplaySeekTestCase> cases;
             size_t case_index {0};
@@ -5257,7 +5292,7 @@ namespace Horse
                 kSnapshotStride, kIL_CaptureBytes, kRDB_Bytes, kExtras_Bytes,
                 kMaxStoreBytes / (1024ull * 1024ull));
                 RC::Output::send<RC::LogLevel::Default>(
-                    STR("[ReplayScrub] build replay-accuracy-v13fk "
+                    STR("[ReplayScrub] build replay-accuracy-v13fl "
                     "strict_sc6_exact=1 captured_seek_validate=1 "
                     "native_round_replay_diag=0 legacy_seek={} "
                     "legacy_preview={} cache_diag_only=1 "
@@ -5334,7 +5369,7 @@ namespace Horse
                     "HorseMod main.dll\n"));
             {
                 ReplayTraceFields f;
-                 f.string("build", "replay-accuracy-v13fk")
+                 f.string("build", "replay-accuracy-v13fl")
                  .boolean("strict_sc6_exact", true)
                  .boolean("captured_seek_validate", true)
                  .boolean("native_round_replay_diag", false)
@@ -5423,9 +5458,13 @@ namespace Horse
             // Restore the engine frame cap + screen percentage + redraw
             // hook first - none of them must outlive the module if
             // generation was still running at unload.
+            m_timeline_no_render_scope.exit("shutdown", false);
             m_frame_cap.disengage();
             m_screen_pct.disengage();
             m_render_skip.disengage();
+            m_timeline_generation_mode.store(
+                static_cast<int>(TimelineGenerationMode::Normal),
+                std::memory_order_release);
             free_ring();
             m_initialized.store(false, std::memory_order_release);
         }
@@ -6440,13 +6479,13 @@ namespace Horse
                 return;
             m_gen_request.store(kGenReqStart, std::memory_order_release);
         }
-        // As request_generate_timeline(), but the pass also skips the
-        // scene redraw each frame (RenderSkipOverride) for a much faster
-        // fast-forward - drives the "Experimental" button.
-        void request_generate_timeline_experimental() noexcept
+        // As request_generate_timeline(), but the pass enters the
+        // opt-in Lux-only generation mode: the Lux/replay simulation
+        // stays authoritative while presentation work is suppressed.
+        void request_generate_timeline_lux_no_render() noexcept
         {
             ReplayTraceFields f;
-            f.string("mode", "experimental").boolean("armed", false);
+            f.string("mode", "lux-no-render").boolean("armed", false);
             ReplayDebugTrace::instance().event("generate_request", f);
             if (is_timeline_generation_locked_complete())
             {
@@ -6454,10 +6493,15 @@ namespace Horse
                 return;
             }
             if (arm_generate_if_replay_already_advanced(
-                    kGenReqStartExperimental))
+                    kGenReqStartLuxNoRender))
                 return;
-            m_gen_request.store(kGenReqStartExperimental,
+            m_gen_request.store(kGenReqStartLuxNoRender,
                                 std::memory_order_release);
+        }
+        // Legacy alias kept for old traces/scripts/UI labels.
+        void request_generate_timeline_experimental() noexcept
+        {
+            request_generate_timeline_lux_no_render();
         }
         // Launch a second experimental generation path that drives
         // the timeline by calling LuxBattle_PerFrameTick directly
@@ -6488,7 +6532,7 @@ namespace Horse
 
         const char* generate_request_mode_name(int mode) const noexcept
         {
-            if (mode == kGenReqStartExperimental) return "experimental";
+            if (mode == kGenReqStartLuxNoRender) return "lux-no-render";
             if (mode == kGenReqStartBattleStep) return "battle_step";
             if (mode == kGenReqStart) return "normal";
             return "";
@@ -6498,7 +6542,8 @@ namespace Horse
             const std::string& mode) const noexcept
         {
             if (mode == "normal") return kGenReqStart;
-            if (mode == "experimental") return kGenReqStartExperimental;
+            if (mode == "lux-no-render") return kGenReqStartLuxNoRender;
+            if (mode == "experimental") return kGenReqStartLuxNoRender;
             if (mode == "battle_step") return kGenReqStartBattleStep;
             return kGenReqNone;
         }
@@ -6594,6 +6639,22 @@ namespace Horse
                 != kGenReqNone;
         }
 
+        const char* timeline_generation_mode_name(
+            TimelineGenerationMode mode) const noexcept
+        {
+            return mode == TimelineGenerationMode::LuxNoRender
+                ? "lux-no-render" : "normal";
+        }
+
+        TimelineGenerationMode timeline_generation_mode() const noexcept
+        {
+            const int mode = m_timeline_generation_mode.load(
+                std::memory_order_acquire);
+            return mode == static_cast<int>(TimelineGenerationMode::LuxNoRender)
+                ? TimelineGenerationMode::LuxNoRender
+                : TimelineGenerationMode::Normal;
+        }
+
         const char* generate_status_text() noexcept
         {
             if (is_generate_armed_for_next_clean_start())
@@ -6648,13 +6709,40 @@ namespace Horse
             return ready.reason;
         }
 
-        // True while the current generation pass is the EXPERIMENTAL
-        // render-skipping one (only meaningful when timeline_gen_state()
-        // == Generating).  The UI uses it for the status label.
+        // True only while the current generation pass is the opt-in
+        // Lux-only / no-render one. Seek playback and normal replay
+        // playback must never observe this as true.
+        bool is_lux_no_render_generation() const noexcept
+        {
+            return timeline_gen_state() == TimelineGenState::Generating
+                && timeline_generation_mode()
+                    == TimelineGenerationMode::LuxNoRender;
+        }
+
+        // Legacy UI/tests still ask for "experimental"; keep the
+        // accessor as an alias for the explicitly-named generation mode.
         bool is_experimental_generation() const noexcept
         {
-            return m_gen_mode.load(std::memory_order_acquire)
-                == static_cast<int>(BattleStepMode::RenderSkip);
+            return is_lux_no_render_generation();
+        }
+
+        bool should_suppress_timeline_presentation() const noexcept
+        {
+            return is_lux_no_render_generation()
+                && m_timeline_no_render_active.load(
+                    std::memory_order_acquire);
+        }
+
+        void note_timeline_cockpit_overlay_suppressed() noexcept
+        {
+            m_timeline_no_render_cockpit_overlay_suppressed.fetch_add(
+                1, std::memory_order_acq_rel);
+        }
+
+        void note_timeline_imgui_overlay_suppressed() noexcept
+        {
+            m_timeline_no_render_imgui_overlay_suppressed.fetch_add(
+                1, std::memory_order_acq_rel);
         }
 
         bool is_battle_step_generation() const noexcept
@@ -6718,8 +6806,10 @@ namespace Horse
         // tick_generate_timeline() servicing a UI request - never from
         // the render thread directly.  No-op (with a log line) unless
         // we're in the Replay viewer with the ring ready and capture on.
-        void start_generate_timeline(bool experimental) noexcept
+        void start_generate_timeline(TimelineGenerationMode mode) noexcept
         {
+            const bool lux_no_render =
+                mode == TimelineGenerationMode::LuxNoRender;
             if (m_timeline_gen_state.load(std::memory_order_acquire)
                 == static_cast<int>(TimelineGenState::Generating))
                 return;   // already running
@@ -6823,16 +6913,16 @@ namespace Horse
             // Make the uncapped loop sim-bound rather than render-bound
             // (SC6 replay viewing is render-limited well below 60fps, so
             // the frame cap alone does not fast-forward):
-            //   experimental - skip the scene redraw entirely
-            //     (RenderSkipOverride), the strongest fast-forward lever.
-            //     If the redraw hook can't engage, fall back to the
-            //     screen-percentage cut so the button still does
-            //     something useful.
+            //   lux-no-render - enter a scoped presentation-suppression
+            //     mode that skips scene redraw. If the redraw hook can't
+            //     engage, fall back immediately to normal generation.
             //   normal - just drop the render resolution.
             // Either way generation still runs if this fails, just
             // render-limited.
+            m_timeline_generation_mode.store(
+                static_cast<int>(mode), std::memory_order_release);
             m_gen_mode.store(
-                experimental
+                lux_no_render
                     ? static_cast<int>(BattleStepMode::RenderSkip)
                     : static_cast<int>(BattleStepMode::None),
                 std::memory_order_release);
@@ -6840,15 +6930,28 @@ namespace Horse
                                           std::memory_order_release);
             m_gen_battle_step_generate.store(false,
                                             std::memory_order_release);
-            if (experimental)
+            if (lux_no_render)
             {
-                if (!m_render_skip.engage())
+                if (!m_timeline_no_render_scope.enter(
+                        *this, "generate_start"))
                 {
                     RC::Output::send<RC::LogLevel::Warning>(STR(
-                        "[ReplayScrub] experimental render-skip could not "
-                        "engage - falling back to the screen-percentage "
-                        "cut\n"));
-                    m_screen_pct.engage();
+                        "[ReplayScrub] lux-no-render could not engage "
+                        "render suppression - falling back to normal "
+                        "generation\n"));
+                    emit_timeline_no_render_fallback(
+                        "render_skip_enter_failed", false, false, false);
+                    m_gen_mode.store(
+                        static_cast<int>(BattleStepMode::None),
+                        std::memory_order_release);
+                    m_timeline_generation_mode.store(
+                        static_cast<int>(TimelineGenerationMode::Normal),
+                        std::memory_order_release);
+                    m_frame_cap.disengage();
+                    m_screen_pct.disengage();
+                    m_render_skip.disengage();
+                    start_generate_timeline(TimelineGenerationMode::Normal);
+                    return;
                 }
             }
             else
@@ -6916,8 +7019,8 @@ namespace Horse
                 "round={} input_master={} battle_master={} "
                 "seek_context_ok={} reset_source_ok={} source={} "
                 "live_bm_reset_ok={})\n"),
-                RC::to_generic_string(experimental
-                    ? "experimental: render skipped" : "normal"), m,
+                RC::to_generic_string(
+                    timeline_generation_mode_name(mode)), m,
                 ready.round, ready.input_master, ready.battle_master,
                 ready.seek_context_ok ? 1 : 0,
                 ready.reset_source_ok ? 1 : 0,
@@ -6926,7 +7029,7 @@ namespace Horse
                 ready.live_bm_reset_ok ? 1 : 0);
             {
                 ReplayTraceFields f;
-                f.string("mode", experimental ? "experimental" : "normal")
+                f.string("mode", timeline_generation_mode_name(mode))
                  .integer("round", ready.round)
                  .integer("input_master", ready.input_master)
                  .integer("battle_master", ready.battle_master)
@@ -6943,6 +7046,13 @@ namespace Horse
                 ReplayDebugTrace::instance().event("generate_start", f);
             }
             begin_rng_u32_trace_window();
+        }
+
+        void start_generate_timeline(bool experimental) noexcept
+        {
+            start_generate_timeline(
+                experimental ? TimelineGenerationMode::LuxNoRender
+                             : TimelineGenerationMode::Normal);
         }
 
         void start_generate_timeline_battle_step() noexcept
@@ -7068,7 +7178,11 @@ namespace Horse
             m_sc6_seek_job = Sc6ExactSeekJob{};
             m_frame_cap.disengage();
             m_screen_pct.disengage();
+            m_timeline_no_render_scope.exit("battle_step_start", false);
             m_render_skip.disengage();
+            m_timeline_generation_mode.store(
+                static_cast<int>(TimelineGenerationMode::Normal),
+                std::memory_order_release);
 
             m_gen_mode.store(
                 static_cast<int>(BattleStepMode::DirectPerFrame),
@@ -7327,7 +7441,9 @@ namespace Horse
                 first_bad_oracle_seq, ok ? 1 : 0);
             {
                 ReplayTraceFields f;
-                f.uinteger("frames", count)
+                f.string("mode", timeline_generation_mode_name(
+                              timeline_generation_mode()))
+                 .uinteger("frames", count)
                  .integer("rounds", round_count)
                  .integer("first_seq", first_timeline_seq)
                  .integer("first_master", first_timeline_master)
@@ -7367,6 +7483,10 @@ namespace Horse
         void stop_generate_timeline(const char* reason,
                                     bool reached_end) noexcept
         {
+            const TimelineGenerationMode stopped_mode =
+                timeline_generation_mode();
+            const bool was_lux_no_render =
+                stopped_mode == TimelineGenerationMode::LuxNoRender;
             m_gen_battle_step_generate.store(false,
                                              std::memory_order_release);
             m_gen_battle_step_probe.store(false,
@@ -7378,6 +7498,8 @@ namespace Horse
                 m_timeline_gen_state.load(std::memory_order_acquire)
                 == static_cast<int>(TimelineGenState::Generating);
 
+            if (was_lux_no_render)
+                m_timeline_no_render_scope.exit(reason, reached_end);
             m_frame_cap.disengage();
             m_screen_pct.disengage();
             m_render_skip.disengage();
@@ -7407,6 +7529,8 @@ namespace Horse
             // Go control can unlock.  Only on reached_end: a user-
             // requested Stop, or an abnormal safety-timeout / left-replay,
             // must not change live replay state.
+            bool completed_generation_validated = false;
+            bool completed_seek_data_valid = false;
             if (was_generating && reached_end)
             {
                 m_paused.store(true, std::memory_order_release);
@@ -7420,6 +7544,8 @@ namespace Horse
                     0, std::memory_order_release);
                 const bool seek_data_valid =
                     validate_generated_timeline_seek_data();
+                completed_generation_validated = true;
+                completed_seek_data_valid = seek_data_valid;
 
                 int32_t park_seq = -1;
                 if (m_gen_final_round_last_safe_seq >= 0)
@@ -7533,6 +7659,34 @@ namespace Horse
                 }
             }
 
+            const bool user_stop =
+                reason && std::strcmp(reason, "user") == 0;
+            const bool needs_no_render_fallback =
+                was_lux_no_render && was_generating && !user_stop
+                && ((!reached_end)
+                    || (completed_generation_validated
+                        && !completed_seek_data_valid));
+            if (needs_no_render_fallback)
+            {
+                emit_timeline_no_render_fallback(
+                    completed_generation_validated
+                        ? "timeline_validation_failed"
+                        : (reason ? reason : "generation_stopped"),
+                    true,
+                    reached_end,
+                    completed_seek_data_valid);
+                m_timeline_gen_state.store(
+                    static_cast<int>(TimelineGenState::Idle),
+                    std::memory_order_release);
+                m_timeline_seek_data_valid.store(
+                    false, std::memory_order_release);
+                m_timeline_context_valid.store(
+                    false, std::memory_order_release);
+                m_gen_armed_mode.store(kGenReqStart,
+                                       std::memory_order_release);
+                reset_armed_generate_wait_log();
+            }
+
             if (was_generating)
             {
                 emit_rng_u32_trace_window(
@@ -7545,7 +7699,16 @@ namespace Horse
                     std::memory_order_acquire);
                 {
                     ReplayTraceFields f;
-                    f.string("reason", reason ? reason : "?")
+                    const auto render = m_render_skip.counters();
+                    const uint64_t cockpit =
+                        m_timeline_no_render_cockpit_overlay_suppressed.load(
+                            std::memory_order_acquire);
+                    const uint64_t imgui =
+                        m_timeline_no_render_imgui_overlay_suppressed.load(
+                            std::memory_order_acquire);
+                    f.string("mode",
+                             timeline_generation_mode_name(stopped_mode))
+                     .string("reason", reason ? reason : "?")
                      .boolean("reached_end", reached_end)
                      .integer("start_master", start)
                      .integer("last_master", last)
@@ -7557,7 +7720,14 @@ namespace Horse
                                   std::memory_order_acquire))
                      .boolean("timeline_context_valid",
                               m_timeline_context_valid.load(
-                                  std::memory_order_acquire));
+                                  std::memory_order_acquire))
+                     .uinteger("render_redraw_calls", render.calls)
+                     .uinteger("render_redraw_forwarded", render.forwarded)
+                     .uinteger("render_redraw_skipped", render.skipped)
+                     .uinteger("cockpit_overlay_suppressed", cockpit)
+                     .uinteger("imgui_overlay_suppressed", imgui)
+                     .uinteger("suppressed_total",
+                               render.skipped + cockpit + imgui);
                     ReplayDebugTrace::instance().event(
                         reached_end ? "generate_stopped_complete"
                                     : "generate_stopped_incomplete", f);
@@ -7575,6 +7745,9 @@ namespace Horse
                         "stop_generate_timeline"))
                     service_replay_seek_test();
             }
+            m_timeline_generation_mode.store(
+                static_cast<int>(TimelineGenerationMode::Normal),
+                std::memory_order_release);
         }
 
         // [game thread] Per-cockpit-tick driver for "Generate timeline".
@@ -7601,9 +7774,9 @@ namespace Horse
             const int req = m_gen_request.exchange(
                 kGenReqNone, std::memory_order_acq_rel);
             if (req == kGenReqStart)
-                start_generate_timeline(false);
-            else if (req == kGenReqStartExperimental)
-                start_generate_timeline(true);
+                start_generate_timeline(TimelineGenerationMode::Normal);
+            else if (req == kGenReqStartLuxNoRender)
+                start_generate_timeline(TimelineGenerationMode::LuxNoRender);
             else if (req == kGenReqStartBattleStep)
                 start_generate_timeline_battle_step();
             else if (req == kGenReqBattleStepProbe)
@@ -7624,14 +7797,20 @@ namespace Horse
                 // state without disengaging, fix it here so a single
                 // cockpit tick always restores SC6's 60fps cap.
                 if (m_frame_cap.is_engaged() || m_screen_pct.is_engaged()
-                    || m_render_skip.is_engaged())
+                    || m_render_skip.is_engaged()
+                    || m_timeline_no_render_scope.active())
                 {
                     RC::Output::send<RC::LogLevel::Warning>(STR(
                         "[ReplayScrub] frame cap / screen-pct / render-skip "
                         "engaged outside generation - restoring\n"));
+                    m_timeline_no_render_scope.exit(
+                        "safety-restore", false);
                     m_frame_cap.disengage();
                     m_screen_pct.disengage();
                     m_render_skip.disengage();
+                    m_timeline_generation_mode.store(
+                        static_cast<int>(TimelineGenerationMode::Normal),
+                        std::memory_order_release);
                 }
                 return;
             }
@@ -8677,9 +8856,19 @@ namespace Horse
             // engine frame cap + screen percentage + redraw hook and
             // reset the gen state so the button shows "Generate timeline"
             // again for the next replay.
+            m_timeline_no_render_scope.exit("new-replay-reset", false);
             m_frame_cap.disengage();
             m_screen_pct.disengage();
             m_render_skip.disengage();
+            m_timeline_generation_mode.store(
+                static_cast<int>(TimelineGenerationMode::Normal),
+                std::memory_order_release);
+            m_timeline_no_render_active.store(
+                false, std::memory_order_release);
+            m_timeline_no_render_cockpit_overlay_suppressed.store(
+                0, std::memory_order_release);
+            m_timeline_no_render_imgui_overlay_suppressed.store(
+                0, std::memory_order_release);
             m_timeline_gen_state.store(
                 static_cast<int>(TimelineGenState::Idle),
                 std::memory_order_release);
@@ -11065,7 +11254,8 @@ namespace Horse
         static constexpr int kGenReqNone              = 0;
         static constexpr int kGenReqStart             = 1;
         static constexpr int kGenReqStop              = 2;
-        static constexpr int kGenReqStartExperimental = 3;
+        static constexpr int kGenReqStartLuxNoRender  = 3;
+        static constexpr int kGenReqStartExperimental = kGenReqStartLuxNoRender;
         static constexpr int kGenReqStartBattleStep   = 4;
         static constexpr int kGenReqBattleStepProbe   = 5;
 
@@ -11123,6 +11313,27 @@ namespace Horse
         std::atomic<uint64_t> m_gen_profile_rdb_us    {0};
         std::atomic<uint64_t> m_gen_profile_extras_us {0};
         std::atomic<uint64_t> m_gen_profile_commit_us {0};
+        std::atomic<int> m_timeline_generation_mode {
+            static_cast<int>(TimelineGenerationMode::Normal)};
+        std::atomic<bool> m_timeline_no_render_active {false};
+        std::atomic<uint64_t>
+            m_timeline_no_render_cockpit_overlay_suppressed {0};
+        std::atomic<uint64_t>
+            m_timeline_no_render_imgui_overlay_suppressed {0};
+
+        class TimelineNoRenderScope
+        {
+        public:
+            ~TimelineNoRenderScope() noexcept;
+            bool enter(ReplayScrub& owner, const char* reason) noexcept;
+            void exit(const char* reason, bool reached_end) noexcept;
+            bool active() const noexcept { return m_active; }
+
+        private:
+            ReplayScrub* m_owner {nullptr};
+            bool m_active {false};
+        };
+        TimelineNoRenderScope m_timeline_no_render_scope;
         std::vector<uint8_t> m_exp2_sim_before;
         std::vector<uint8_t> m_exp2_sim_after;
         std::vector<uint8_t> m_exp2_il_before;
@@ -11562,7 +11773,7 @@ namespace Horse
 
         static const char* replay_seek_test_build_marker() noexcept
         {
-            return "replay-accuracy-v13fk";
+            return "replay-accuracy-v13fl";
         }
 
         static const char* native_seek_status_name(
@@ -12730,6 +12941,16 @@ namespace Horse
             if (parsed.run_id.empty()) parsed.run_id = "manual";
             (void)json_get_string(text, "generate_mode",
                                   parsed.generate_mode);
+            (void)json_get_string(text, "timeline_generation_mode",
+                                  parsed.generate_mode);
+            {
+                const int generate_req =
+                    generate_request_mode_from_string(
+                        parsed.generate_mode);
+                parsed.generate_mode =
+                    generate_req == kGenReqNone
+                        ? "normal" : generate_request_mode_name(generate_req);
+            }
             (void)json_get_int(text, "timeout_seconds",
                                parsed.timeout_seconds);
             if (parsed.timeout_seconds < 30) parsed.timeout_seconds = 30;
@@ -13344,13 +13565,20 @@ namespace Horse
                 }
                 else
                 {
-                    if (m_replay_seek_test.generate_mode == "normal")
+                    const int generate_req =
+                        generate_request_mode_from_string(
+                            m_replay_seek_test.generate_mode);
+                    if (generate_req == kGenReqStart)
                         request_generate_timeline();
-                    else if (m_replay_seek_test.generate_mode
-                             == "experimental")
-                        request_generate_timeline_experimental();
-                    else
+                    else if (generate_req == kGenReqStartLuxNoRender)
+                        request_generate_timeline_lux_no_render();
+                    else if (generate_req == kGenReqStartBattleStep)
                         request_generate_timeline_experimental_battle_step();
+                    else
+                    {
+                        m_replay_seek_test.generate_mode = "normal";
+                        request_generate_timeline();
+                    }
                     m_replay_seek_test.phase =
                         ReplaySeekTestPhase::WaitGeneration;
                     replay_seek_test_set_deadline();
@@ -14296,6 +14524,8 @@ namespace Horse
 
             std::string auto_generate_mode;
             (void)json_get_string(text, "generate_mode", auto_generate_mode);
+            (void)json_get_string(text, "timeline_generation_mode",
+                                  auto_generate_mode);
 
             std::string requested;
             if (!json_get_string(text, "path", requested) || requested.empty())
@@ -17713,6 +17943,37 @@ namespace Horse
                 p.frames, p.wall_seconds, p.ticks_per_second,
                 p.avg_total_us, p.avg_sim_us, p.avg_inputlog_us,
                 p.avg_rdb_us, p.avg_extras_us, p.avg_commit_us);
+        }
+
+        void emit_timeline_no_render_fallback(
+            const char* reason,
+            bool restart_required,
+            bool reached_end,
+            bool seek_data_valid) noexcept
+        {
+            const auto render = m_render_skip.counters();
+            const uint64_t cockpit =
+                m_timeline_no_render_cockpit_overlay_suppressed.load(
+                    std::memory_order_acquire);
+            const uint64_t imgui =
+                m_timeline_no_render_imgui_overlay_suppressed.load(
+                    std::memory_order_acquire);
+            ReplayTraceFields f;
+            f.string("mode", "lux-no-render")
+             .string("fallback_mode", "normal")
+             .string("reason", reason ? reason : "?")
+             .boolean("restart_required", restart_required)
+             .boolean("reached_end", reached_end)
+             .boolean("seek_data_valid", seek_data_valid)
+             .uinteger("render_redraw_calls", render.calls)
+             .uinteger("render_redraw_forwarded", render.forwarded)
+             .uinteger("render_redraw_skipped", render.skipped)
+             .uinteger("cockpit_overlay_suppressed", cockpit)
+             .uinteger("imgui_overlay_suppressed", imgui)
+             .uinteger("suppressed_total",
+                       render.skipped + cockpit + imgui);
+            ReplayDebugTrace::instance().event(
+                "timeline_no_render_fallback", f);
         }
 
         static uint64_t hash_bytes64(const uint8_t* p,
@@ -22141,9 +22402,9 @@ namespace Horse
                 ready.live_bm_reset_ok ? 1 : 0);
 
             if (mode == kGenReqStart)
-                start_generate_timeline(false);
-            else if (mode == kGenReqStartExperimental)
-                start_generate_timeline(true);
+                start_generate_timeline(TimelineGenerationMode::Normal);
+            else if (mode == kGenReqStartLuxNoRender)
+                start_generate_timeline(TimelineGenerationMode::LuxNoRender);
             else if (mode == kGenReqStartBattleStep)
                 start_generate_timeline_battle_step();
             else
@@ -22195,10 +22456,7 @@ namespace Horse
                 ready.reset_source_ok ? 1 : 0,
                 ready.live_bm_reset_ok ? 1 : 0);
             ReplayTraceFields f;
-            f.string("mode", mode == kGenReqStartExperimental
-                         ? "experimental"
-                         : (mode == kGenReqStartBattleStep
-                                ? "battle_step" : "normal"))
+            f.string("mode", generate_request_mode_name(mode))
              .boolean("armed", true)
              .string("reason", ready.reason ? ready.reason : "?")
              .integer("round", ready.round)
@@ -36768,6 +37026,93 @@ namespace Horse
             return true;
         }
     };
+
+    inline ReplayScrub::TimelineNoRenderScope::~TimelineNoRenderScope()
+        noexcept
+    {
+        exit("scope-destructor", false);
+    }
+
+    inline bool ReplayScrub::TimelineNoRenderScope::enter(
+        ReplayScrub& owner,
+        const char* reason) noexcept
+    {
+        if (m_active)
+            return true;
+
+        owner.m_timeline_no_render_cockpit_overlay_suppressed.store(
+            0, std::memory_order_release);
+        owner.m_timeline_no_render_imgui_overlay_suppressed.store(
+            0, std::memory_order_release);
+        owner.m_timeline_no_render_active.store(
+            false, std::memory_order_release);
+        owner.m_render_skip.reset_counters();
+
+        if (!owner.m_render_skip.engage())
+        {
+            m_owner = nullptr;
+            m_active = false;
+            return false;
+        }
+
+        m_owner = &owner;
+        m_active = true;
+        owner.m_timeline_no_render_active.store(
+            true, std::memory_order_release);
+
+        ReplayTraceFields f;
+        f.string("mode", "lux-no-render")
+         .string("reason", reason ? reason : "?")
+         .uinteger("render_redraw_calls", 0)
+         .uinteger("render_redraw_forwarded", 0)
+         .uinteger("render_redraw_skipped", 0)
+         .uinteger("cockpit_overlay_suppressed", 0)
+         .uinteger("imgui_overlay_suppressed", 0)
+         .uinteger("suppressed_total", 0);
+        ReplayDebugTrace::instance().event(
+            "timeline_no_render_enter", f);
+        return true;
+    }
+
+    inline void ReplayScrub::TimelineNoRenderScope::exit(
+        const char* reason,
+        bool reached_end) noexcept
+    {
+        if (!m_active)
+            return;
+
+        ReplayScrub* owner = m_owner;
+        m_active = false;
+        m_owner = nullptr;
+        if (!owner)
+            return;
+
+        const auto render = owner->m_render_skip.counters();
+        const uint64_t cockpit =
+            owner->m_timeline_no_render_cockpit_overlay_suppressed.load(
+                std::memory_order_acquire);
+        const uint64_t imgui =
+            owner->m_timeline_no_render_imgui_overlay_suppressed.load(
+                std::memory_order_acquire);
+
+        owner->m_timeline_no_render_active.store(
+            false, std::memory_order_release);
+        owner->m_render_skip.disengage();
+
+        ReplayTraceFields f;
+        f.string("mode", "lux-no-render")
+         .string("reason", reason ? reason : "?")
+         .boolean("reached_end", reached_end)
+         .uinteger("render_redraw_calls", render.calls)
+         .uinteger("render_redraw_forwarded", render.forwarded)
+         .uinteger("render_redraw_skipped", render.skipped)
+         .uinteger("cockpit_overlay_suppressed", cockpit)
+         .uinteger("imgui_overlay_suppressed", imgui)
+         .uinteger("suppressed_total",
+                   render.skipped + cockpit + imgui);
+        ReplayDebugTrace::instance().event(
+            "timeline_no_render_exit", f);
+    }
 
     inline bool replay_scrub_repair_latest_engine_input_before_chara_input(
         void* chara) noexcept
