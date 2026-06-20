@@ -19,13 +19,22 @@ from pathlib import Path
 from typing import Any
 
 
-TRACE_METADATA = {"event", "name", "ts_qpc", "thread_id", "build", "image_base"}
+TRACE_METADATA = {
+    "event",
+    "name",
+    "ts_qpc",
+    "thread_id",
+    "build",
+    "image_base",
+    "wall_tag",
+}
 POINTER_FIELD_RE = re.compile(
     r"_(?:chara|sc_provider_table|active_lane_cursor|restore_ptr_[0-9a-f]+)$"
     r"|_(?:primary_attack_cell|opponent_active_attack_cell_copy"
     r"|opponent_non_attack_move_descr_copy|own_active_attack_cell"
     r"|non_attack_move_descr|active_attack_cell)$"
 )
+DIAGNOSTIC_FIELD_RE = re.compile(r"_hit_cue_pose_pack_hash$")
 
 
 @dataclass
@@ -119,6 +128,8 @@ def choose_segment(
 
 def comparable_key(key: str) -> bool:
     if key in TRACE_METADATA:
+        return False
+    if DIAGNOSTIC_FIELD_RE.search(key):
         return False
     return POINTER_FIELD_RE.search(key) is None
 

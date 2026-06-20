@@ -192,10 +192,33 @@ def effective_generation_mode(args: argparse.Namespace) -> str:
     return normalize_generation_mode(str(args.generate_mode))
 
 
+def truthy_request_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def effective_generation_full_frame_trace(
+    args: argparse.Namespace,
+    request_override: dict[str, Any] | None = None,
+) -> bool:
+    if getattr(args, "generation_full_frame_trace", False):
+        return True
+    if not isinstance(request_override, dict):
+        return False
+    return truthy_request_flag(request_override.get("generation_full_frame_trace")) or (
+        truthy_request_flag(request_override.get("full_frame_trace"))
+    )
+
+
 def make_request(args: argparse.Namespace, run_id: str) -> dict[str, Any]:
     cases = getattr(args, "generated_cases", None) or default_cases(args)
     generation_mode = effective_generation_mode(args)
-    return {
+    request = {
         "enabled": True,
         "run_id": run_id,
         "generate_mode": generation_mode,
@@ -203,6 +226,9 @@ def make_request(args: argparse.Namespace, run_id: str) -> dict[str, Any]:
         "timeout_seconds": args.case_timeout,
         "cases": cases,
     }
+    if effective_generation_full_frame_trace(args):
+        request["generation_full_frame_trace"] = True
+    return request
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -972,6 +998,14 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--generation-full-frame-trace",
+        action="store_true",
+        help=(
+            "Request noisy per-frame generation diagnostics for comparison "
+            "runs. Normal fast generation leaves these diagnostics suppressed."
+        ),
+    )
+    parser.add_argument(
         "--case-preset",
         default="both",
         choices=["static", "watch", "both"],
@@ -1176,6 +1210,8 @@ def main() -> int:
         if start_generate_mode:
             request["generate_mode"] = start_generate_mode
             request["timeline_generation_mode"] = start_generate_mode
+        if effective_generation_full_frame_trace(args, request_override):
+            request["generation_full_frame_trace"] = True
         start_since = time.time()
         path = start_request_path(saved_dir)
         write_json_atomic(path, request)
@@ -1298,6 +1334,8 @@ def main() -> int:
     request["generate_mode"] = normalize_generation_mode(
         str(request.get("generate_mode") or request["timeline_generation_mode"])
     )
+    if effective_generation_full_frame_trace(args, request_override):
+        request["generation_full_frame_trace"] = True
 
     cases = request.get("cases") if isinstance(request, dict) else None
     if isinstance(cases, list):

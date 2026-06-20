@@ -23,6 +23,9 @@
 
 namespace Horse
 {
+    extern std::atomic<bool>
+        g_replay_scrub_generation_diagnostics_suppressed;
+
     class VitalTraceHook
     {
     public:
@@ -180,7 +183,9 @@ namespace Horse
         static void __fastcall detour_accumulate(void* chara,
                                                  int32_t damage_delta)
         {
-            const bool trace = ReplayDebugTrace::instance().enabled();
+            const bool trace = ReplayDebugTrace::instance().enabled()
+                && !g_replay_scrub_generation_diagnostics_suppressed.load(
+                    std::memory_order_acquire);
             const VitalSnap before = trace ? read_vital(chara) : VitalSnap{};
             using Fn = void(__fastcall*)(void*, int32_t);
             Fn orig = reinterpret_cast<Fn>(instance().m_accumulate_trampoline);
@@ -194,7 +199,9 @@ namespace Horse
 
         static void __fastcall detour_lethal(void* chara)
         {
-            const bool trace = ReplayDebugTrace::instance().enabled();
+            const bool trace = ReplayDebugTrace::instance().enabled()
+                && !g_replay_scrub_generation_diagnostics_suppressed.load(
+                    std::memory_order_acquire);
             const VitalSnap before = trace ? read_vital(chara) : VitalSnap{};
             using Fn = void(__fastcall*)(void*);
             Fn orig = reinterpret_cast<Fn>(instance().m_lethal_trampoline);

@@ -598,6 +598,7 @@ private:
     // chara mesh's anim montage plays out via the UE4-side actor tick.
     // See horselib/ActorTickGate.hpp for the full plate.
     Horse::ActorTickGate m_actor_tick_gate{};
+    bool m_timeline_visual_actor_tick_gate_active{false};
     // Sibling gate that forces LuxMoveVM_GetTimeDilationScalar
     // (0x14030A8C0) to return 0.0 when WorldTickGate's policy slot is 0.
     // The function's normal-play fall-through path bypasses VMFreezeByte
@@ -3756,6 +3757,8 @@ private:
         // an armed timeline generation can catch the earliest clean
         // replay-start frames instead of waiting for the cockpit hook.
         Horse::ReplayScrub::instance().on_presence_change();
+        if (m_timeline_visual_actor_tick_gate_active)
+            sync_timeline_visual_actor_tick_gate();
         if (to == GMP::Replay)
             (void)Horse::ReplayScrub::instance().ensure_initialized();
 
@@ -3815,12 +3818,79 @@ private:
         scrub.service_engine_tick_replay_fallback();
     }
 
+    void sync_timeline_visual_actor_tick_gate()
+    {
+        const bool want =
+            Horse::ReplayScrub::instance()
+                .should_suppress_timeline_presentation();
+        if (want)
+        {
+            if (m_timeline_visual_actor_tick_gate_active)
+                return;
+
+            if (!m_world_tick_gate.is_resolved())
+                m_world_tick_gate.resolve();
+            if (m_world_tick_gate.is_resolved()
+                && !m_actor_tick_gate.is_resolved())
+            {
+                m_actor_tick_gate.resolve(
+                    m_world_tick_gate.policy_slot_address());
+            }
+
+            const bool enabled = m_actor_tick_gate.is_resolved()
+                && m_actor_tick_gate.enable_visual_only();
+            if (enabled)
+            {
+                m_timeline_visual_actor_tick_gate_active = true;
+                Horse::ReplayTraceFields f;
+                f.boolean("enabled", true)
+                 .integer("policy", m_world_tick_gate.policy());
+                Horse::ReplayDebugTrace::instance().event(
+                    "timeline_no_render_visual_actor_tick_gate", f);
+            }
+            return;
+        }
+
+        if (!m_timeline_visual_actor_tick_gate_active)
+            return;
+
+        m_timeline_visual_actor_tick_gate_active = false;
+        m_actor_tick_gate.disable_visual_only();
+        Horse::ReplayTraceFields f;
+        f.boolean("enabled", false)
+         .integer("policy", m_world_tick_gate.policy());
+        Horse::ReplayDebugTrace::instance().event(
+            "timeline_no_render_visual_actor_tick_gate", f);
+    }
+
     // ------------------------------------------------------------------
     // CockpitBase_C::Update pre-hook.  Game thread, one call per frame.
     // ------------------------------------------------------------------
     void on_cockpit_update_pre(UObject* raw_cockpit)
     {
         ++m_update_calls;
+
+        Horse::ReplayScrub& replay_scrub = Horse::ReplayScrub::instance();
+        {
+            const auto rs_presence =
+                Horse::GameMode::instance().current_presence();
+            if (rs_presence == Horse::GamePresence::Replay
+                && !replay_scrub.is_initialized())
+            {
+                replay_scrub.ensure_initialized();
+            }
+        }
+
+        if (replay_scrub.should_suppress_timeline_presentation())
+        {
+            sync_timeline_visual_actor_tick_gate();
+            replay_scrub.tick_capture();
+            replay_scrub.tick_generate_timeline();
+            replay_scrub.note_timeline_cockpit_overlay_suppressed();
+            m_have_prev_yaw[0] = false;
+            m_have_prev_yaw[1] = false;
+            return;
+        }
 
         // Drain the ResetOverride deferred-apply queue.  Cheap no-op
         // when no reset is pending.  Must run BEFORE any other tick
@@ -3883,17 +3953,10 @@ private:
         // toggle is a process-state property, not a per-frame action.
         // No call needed here.
 
-        {
-            const auto rs_presence =
-                Horse::GameMode::instance().current_presence();
-            if (rs_presence == Horse::GamePresence::Replay
-                && !Horse::ReplayScrub::instance().is_initialized())
-            {
-                Horse::ReplayScrub::instance().ensure_initialized();
-            }
-        }
+        const bool timeline_presentation_suppressed =
+            replay_scrub.should_suppress_timeline_presentation();
 
-        if (Horse::ReplayScrub::instance().wants_time_controls_suspended())
+        if (replay_scrub.wants_time_controls_suspended())
         {
             suspend_manual_time_controls_for_replay_scrub(
                 "replay-scrub-critical-path");
@@ -3903,7 +3966,9 @@ private:
             m_replay_scrub_time_suspended_logged = false;
         }
 
-        Horse::ReplayScrub::instance().service_pre_frame_gate();
+        sync_timeline_visual_actor_tick_gate();
+        if (!timeline_presentation_suppressed)
+            replay_scrub.service_pre_frame_gate();
 
         // Frame-step + freeze-frame driver.  Computes the desired
         // speedval from the (Freeze, Slow-mo, step-counter) tuple and
@@ -3913,7 +3978,8 @@ private:
         // world tick), while the ImGui tab callback only runs when the
         // user has the menu open.
         frame_step_apply();
-        Horse::ReplayScrub::instance().service_post_frame_gate();
+        if (!timeline_presentation_suppressed)
+            replay_scrub.service_post_frame_gate();
 
         // Free-camera driver.  Resolves ALuxBattleCamera* from the current
         // LuxBattleManager.BattleCamera property (null outside battle)
@@ -3921,7 +3987,8 @@ private:
         // writes the pose fields directly on the camera actor.  Running
         // this unconditionally (not gated by m_enabled) matches the other
         // "always on while toggled" features above.
-        free_camera_apply();
+        if (!timeline_presentation_suppressed)
+            free_camera_apply();
 
         // Replay scrubber driver.  Two operations per cockpit tick:
         //   1. tick_capture() - read g_LuxBattle_FrameCounter; if it
@@ -3942,7 +4009,6 @@ private:
         // viewer don't pay any memory cost.  Subsequent ticks find
         // is_initialized()=true and skip.  Capture is unbounded (2 GB
         // ceiling); there is no capture-window setting.
-        Horse::ReplayScrub& replay_scrub = Horse::ReplayScrub::instance();
         replay_scrub.tick_capture();
         // 2026-05-16: "Generate timeline" driver.  Services the UI
         // start/stop request and, while generating, watches for the
@@ -6800,7 +6866,7 @@ private:
                 ImGui::SameLine(0.0f, 14.0f);
                 const char* gen_label =
                     scrub.is_battle_step_generation()
-                        ? "Generating (experimental 2 - direct PerFrameTick)-  %zu frames"
+                        ? "Generating (experimental 2 - direct engine tick)-  %zu frames"
                         : scrub.is_lux_no_render_generation()
                             ? "Generating (lux-no-render)-  "
                               "%zu frames"

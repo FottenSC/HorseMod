@@ -82,6 +82,8 @@
 #include "SafeMemoryRead.hpp"
 #include "VitalTraceHook.hpp"
 
+#include <polyhook2/Detour/x64Detour.hpp>
+
 #include <commdlg.h>
 #pragma comment(lib, "Comdlg32.lib")
 
@@ -107,6 +109,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -117,6 +120,14 @@
 
 namespace Horse
 {
+    inline std::atomic<bool>
+        g_replay_scrub_generation_diagnostics_suppressed{false};
+    inline std::atomic<bool>
+        g_replay_scrub_timeline_no_render_active{false};
+
+    void replay_scrub_run_direct_boost_slice_from_engine_loop() noexcept;
+    bool replay_scrub_try_replace_engine_loop_tick_for_generation() noexcept;
+
     // ------------------------------------------------------------------
     // HgCpuBufferShim - HorseMod's implementation of the engine's
     // IBuffer-style vtable contract.
@@ -1397,6 +1408,693 @@ namespace Horse
     };
 
     // ------------------------------------------------------------------
+    // GenerationNativeProfileHooks - coarse native timing map for
+    // lux-no-render generation.
+    //
+    // The hooks call originals unmodified and aggregate timings only while
+    // the no-render RAII scope is active.  This separates full engine-loop
+    // time from UGameEngine/UWorld time without adding per-frame trace spam.
+    // ------------------------------------------------------------------
+    class GenerationNativeProfileHooks
+    {
+    public:
+        GenerationNativeProfileHooks() noexcept
+        {
+            s_instance.store(this, std::memory_order_release);
+        }
+
+        ~GenerationNativeProfileHooks()
+        {
+            uninstall_all();
+            if (s_instance.load(std::memory_order_acquire) == this)
+                s_instance.store(nullptr, std::memory_order_release);
+        }
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        void reset_counters() noexcept
+        {
+            for (auto& c : s_calls)
+                c.store(0, std::memory_order_release);
+            for (auto& us : s_us)
+                us.store(0, std::memory_order_release);
+        }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (m_installed)
+            {
+                m_engaged = true;
+                return true;
+            }
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            bool ok = true;
+            ok &= install_one(Slot::EngineLoopTick,
+                              base + kRVA_FEngineLoopTick,
+                              reinterpret_cast<uint64_t>(
+                                  &detour_engine_loop_tick),
+                              STR("FEngineLoop::Tick"));
+            ok &= install_one(Slot::UpdateTime,
+                              base + kRVA_UpdateTimeAndHandleMaxTickRate,
+                              reinterpret_cast<uint64_t>(
+                                  &detour_update_time),
+                              STR("UpdateTimeAndHandleMaxTickRate"));
+            ok &= install_one(Slot::GameEngineTick,
+                              base + kRVA_UGameEngineTick,
+                              reinterpret_cast<uint64_t>(
+                                  &detour_game_engine_tick),
+                              STR("UGameEngine::Tick"));
+            ok &= install_one(Slot::PostEngineQueues,
+                              base + kRVA_PostEngineQueues,
+                              reinterpret_cast<uint64_t>(
+                                  &detour_post_engine_queues),
+                              STR("UEngine post queues"));
+
+            if (!ok)
+            {
+                uninstall_all();
+                return false;
+            }
+
+            m_installed = true;
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.GenerationNativeProfile] engaged - "
+                "coarse native timing hooks installed\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+
+            auto avg = [](Slot slot) noexcept -> double
+            {
+                const size_t idx = static_cast<size_t>(slot);
+                const uint64_t calls =
+                    s_calls[idx].load(std::memory_order_acquire);
+                if (!calls) return 0.0;
+                return static_cast<double>(
+                           s_us[idx].load(std::memory_order_acquire))
+                     / static_cast<double>(calls);
+            };
+            auto calls = [](Slot slot) noexcept -> uint64_t
+            {
+                return s_calls[static_cast<size_t>(slot)].load(
+                    std::memory_order_acquire);
+            };
+
+            const double engine_loop = avg(Slot::EngineLoopTick);
+            const double game_engine = avg(Slot::GameEngineTick);
+            const double world_tick = avg(Slot::WorldTick);
+            const double update_time = avg(Slot::UpdateTime);
+            const double post_queues = avg(Slot::PostEngineQueues);
+            const double outside_game =
+                engine_loop > game_engine ? engine_loop - game_engine : 0.0;
+            const double game_outside_world =
+                game_engine > world_tick ? game_engine - world_tick : 0.0;
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.GenerationNativeProfile] engine_loop {:.1f} "
+                "us/{} calls; game_engine {:.1f} us/{} calls; world {:.1f} "
+                "us/{} calls; update_time {:.1f} us/{} calls; post_queues "
+                "{:.1f} us/{} calls; derived outside_game {:.1f} us "
+                "game_outside_world {:.1f} us\n"),
+                engine_loop, calls(Slot::EngineLoopTick),
+                game_engine, calls(Slot::GameEngineTick),
+                world_tick, calls(Slot::WorldTick),
+                update_time, calls(Slot::UpdateTime),
+                post_queues, calls(Slot::PostEngineQueues),
+                outside_game, game_outside_world);
+
+            uninstall_all();
+        }
+
+    private:
+        enum class Slot : size_t
+        {
+            EngineLoopTick,
+            UpdateTime,
+            GameEngineTick,
+            WorldTick,
+            PostEngineQueues,
+            Count
+        };
+
+        static constexpr uintptr_t kRVA_FEngineLoopTick = 0x396450;
+        static constexpr uintptr_t kRVA_UpdateTimeAndHandleMaxTickRate =
+            0x2189040;
+        static constexpr uintptr_t kRVA_UGameEngineTick = 0x1E38F70;
+        static constexpr uintptr_t kRVA_UWorldTick = 0x1F02230;
+        static constexpr uintptr_t kRVA_PostEngineQueues = 0x2187E10;
+
+        using EngineLoopTickFn = void(__fastcall*)(void*);
+        using UpdateTimeFn = void(__fastcall*)(void*);
+        using GameEngineTickFn = void(__fastcall*)(void*, float, bool);
+        using WorldTickFn = void(__fastcall*)(void*, int, float);
+        using PostEngineQueuesFn = void(__fastcall*)(void*);
+
+        struct HookSlot
+        {
+            std::unique_ptr<PLH::x64Detour> detour{};
+            uint64_t trampoline{0};
+        };
+
+        static uint64_t elapsed_us(
+            std::chrono::steady_clock::time_point a,
+            std::chrono::steady_clock::time_point b) noexcept
+        {
+            return static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    b - a).count());
+        }
+
+        static void record(Slot slot, uint64_t us) noexcept
+        {
+            const size_t idx = static_cast<size_t>(slot);
+            s_calls[idx].fetch_add(1, std::memory_order_acq_rel);
+            s_us[idx].fetch_add(us, std::memory_order_acq_rel);
+        }
+
+        template <typename Fn>
+        static Fn original(Slot slot) noexcept
+        {
+            auto* inst = s_instance.load(std::memory_order_acquire);
+            if (!inst) return nullptr;
+            return reinterpret_cast<Fn>(
+                inst->m_slots[static_cast<size_t>(slot)].trampoline);
+        }
+
+        static void __fastcall detour_engine_loop_tick(void* self)
+        {
+            EngineLoopTickFn orig =
+                original<EngineLoopTickFn>(Slot::EngineLoopTick);
+            if (!orig) return;
+            const bool active =
+                g_replay_scrub_timeline_no_render_active.load(
+                    std::memory_order_acquire);
+            const auto t0 = active ? std::chrono::steady_clock::now()
+                                   : std::chrono::steady_clock::time_point{};
+            orig(self);
+            if (active)
+                record(Slot::EngineLoopTick,
+                       elapsed_us(t0, std::chrono::steady_clock::now()));
+        }
+
+        static void __fastcall detour_update_time(void* engine)
+        {
+            UpdateTimeFn orig = original<UpdateTimeFn>(Slot::UpdateTime);
+            if (!orig) return;
+            const bool active =
+                g_replay_scrub_timeline_no_render_active.load(
+                    std::memory_order_acquire);
+            const auto t0 = active ? std::chrono::steady_clock::now()
+                                   : std::chrono::steady_clock::time_point{};
+            orig(engine);
+            if (active)
+                record(Slot::UpdateTime,
+                       elapsed_us(t0, std::chrono::steady_clock::now()));
+        }
+
+        static void __fastcall detour_game_engine_tick(
+            void* engine,
+            float delta_seconds,
+            bool idle_mode)
+        {
+            GameEngineTickFn orig =
+                original<GameEngineTickFn>(Slot::GameEngineTick);
+            if (!orig) return;
+            const bool active =
+                g_replay_scrub_timeline_no_render_active.load(
+                    std::memory_order_acquire);
+            const auto t0 = active ? std::chrono::steady_clock::now()
+                                   : std::chrono::steady_clock::time_point{};
+            orig(engine, delta_seconds, idle_mode);
+            if (active)
+                record(Slot::GameEngineTick,
+                       elapsed_us(t0, std::chrono::steady_clock::now()));
+        }
+
+        static void __fastcall detour_world_tick(
+            void* world,
+            int tick_type,
+            float delta_seconds)
+        {
+            WorldTickFn orig = original<WorldTickFn>(Slot::WorldTick);
+            if (!orig) return;
+            const bool active =
+                g_replay_scrub_timeline_no_render_active.load(
+                    std::memory_order_acquire);
+            const auto t0 = active ? std::chrono::steady_clock::now()
+                                   : std::chrono::steady_clock::time_point{};
+            orig(world, tick_type, delta_seconds);
+            if (active)
+                record(Slot::WorldTick,
+                       elapsed_us(t0, std::chrono::steady_clock::now()));
+        }
+
+        static void __fastcall detour_post_engine_queues(void* engine)
+        {
+            PostEngineQueuesFn orig =
+                original<PostEngineQueuesFn>(Slot::PostEngineQueues);
+            if (!orig) return;
+            const bool active =
+                g_replay_scrub_timeline_no_render_active.load(
+                    std::memory_order_acquire);
+            const auto t0 = active ? std::chrono::steady_clock::now()
+                                   : std::chrono::steady_clock::time_point{};
+            orig(engine);
+            if (active)
+                record(Slot::PostEngineQueues,
+                       elapsed_us(t0, std::chrono::steady_clock::now()));
+        }
+
+        bool install_one(Slot slot,
+                         uintptr_t target,
+                         uint64_t hook_fn,
+                         const wchar_t* name) noexcept
+        {
+            HookSlot& s = m_slots[static_cast<size_t>(slot)];
+            s.trampoline = 0;
+            try
+            {
+                s.detour = std::make_unique<PLH::x64Detour>(
+                    static_cast<uint64_t>(target), hook_fn, &s.trampoline);
+            }
+            catch (...)
+            {
+                return false;
+            }
+            if (!s.detour->hook())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.GenerationNativeProfile] hook failed "
+                    "{} target=0x{:X}\n"),
+                    name, target);
+                s.detour.reset();
+                s.trampoline = 0;
+                return false;
+            }
+            return true;
+        }
+
+        void uninstall_all() noexcept
+        {
+            for (auto& s : m_slots)
+            {
+                if (s.detour)
+                {
+                    s.detour->unHook();
+                    s.detour.reset();
+                }
+                s.trampoline = 0;
+            }
+            m_installed = false;
+        }
+
+        std::array<HookSlot, static_cast<size_t>(Slot::Count)> m_slots{};
+        bool m_installed{false};
+        bool m_engaged{false};
+
+        static inline std::array<std::atomic<uint64_t>,
+                                 static_cast<size_t>(Slot::Count)>
+            s_calls{};
+        static inline std::array<std::atomic<uint64_t>,
+                                 static_cast<size_t>(Slot::Count)>
+            s_us{};
+        static inline std::atomic<GenerationNativeProfileHooks*> s_instance{
+            nullptr};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopDirectBoostHook - runs optional direct generation slices
+    // after the normal FEngineLoop::Tick returns.
+    //
+    // Calling UGameEngine::Tick from the cockpit update path is recursive:
+    // cockpit update itself runs inside UGameEngine::Tick.  The boost hook
+    // instead waits until the outer engine tick has completed, then asks
+    // ReplayScrub to run extra authoritative engine ticks and capture them.
+    // ------------------------------------------------------------------
+    class EngineLoopDirectBoostHook
+    {
+    public:
+        EngineLoopDirectBoostHook() noexcept
+        {
+            s_instance.store(this, std::memory_order_release);
+        }
+
+        ~EngineLoopDirectBoostHook()
+        {
+            disengage();
+            if (s_instance.load(std::memory_order_acquire) == this)
+                s_instance.store(nullptr, std::memory_order_release);
+        }
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!m_detour)
+            {
+                const uintptr_t base = NativeBinding::imageBase();
+                if (!base) return false;
+                const uintptr_t target = base + kRVA_FEngineLoopTick;
+                try
+                {
+                    m_detour = std::make_unique<PLH::x64Detour>(
+                        static_cast<uint64_t>(target),
+                        reinterpret_cast<uint64_t>(&detour_engine_loop_tick),
+                        &m_trampoline);
+                }
+                catch (...)
+                {
+                    m_detour.reset();
+                    m_trampoline = 0;
+                    return false;
+                }
+                if (!m_detour->hook())
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.EngineLoopDirectBoost] hook failed "
+                        "FEngineLoop::Tick target=0x{:X}\n"),
+                        target);
+                    m_detour.reset();
+                    m_trampoline = 0;
+                    return false;
+                }
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopDirectBoost] engaged - direct "
+                "generation slices run after FEngineLoop::Tick\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged && !m_detour) return;
+            m_engaged = false;
+            if (m_detour)
+            {
+                m_detour->unHook();
+                m_detour.reset();
+            }
+            m_trampoline = 0;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopDirectBoost] disengaged - direct "
+                "generation slices restored to idle\n"));
+        }
+
+    private:
+        static constexpr uintptr_t kRVA_FEngineLoopTick = 0x396450;
+        using EngineLoopTickFn = void(__fastcall*)(void*);
+
+        static EngineLoopTickFn original() noexcept
+        {
+            auto* inst = s_instance.load(std::memory_order_acquire);
+            if (!inst) return nullptr;
+            return reinterpret_cast<EngineLoopTickFn>(inst->m_trampoline);
+        }
+
+        static void __fastcall detour_engine_loop_tick(void* self)
+        {
+            if (replay_scrub_try_replace_engine_loop_tick_for_generation())
+                return;
+            EngineLoopTickFn orig = original();
+            if (orig) orig(self);
+            replay_scrub_run_direct_boost_slice_from_engine_loop();
+        }
+
+        std::unique_ptr<PLH::x64Detour> m_detour{};
+        uint64_t m_trampoline {0};
+        bool m_engaged {false};
+
+        static inline std::atomic<EngineLoopDirectBoostHook*> s_instance{
+            nullptr};
+    };
+
+    // ------------------------------------------------------------------
+    // GenerationWorldTickFilter - during timeline capture, forward the
+    // replay/demo world and suppress unrelated UWorld ticks.
+    // ------------------------------------------------------------------
+    class GenerationWorldTickFilter
+    {
+    public:
+        struct Counters
+        {
+            uint64_t calls {0};
+            uint64_t forwarded {0};
+            uint64_t skipped {0};
+            uint64_t no_target {0};
+            uint64_t secondary_demo_world {0};
+        };
+
+        GenerationWorldTickFilter() noexcept
+        {
+            s_instance.store(this, std::memory_order_release);
+        }
+
+        ~GenerationWorldTickFilter()
+        {
+            disengage();
+            if (s_instance.load(std::memory_order_acquire) == this)
+                s_instance.store(nullptr, std::memory_order_release);
+        }
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        void reset_counters() noexcept
+        {
+            s_calls.store(0, std::memory_order_release);
+            s_forwarded.store(0, std::memory_order_release);
+            s_skipped.store(0, std::memory_order_release);
+            s_no_target.store(0, std::memory_order_release);
+            s_secondary_demo_world.store(0, std::memory_order_release);
+            s_target_world.store(0, std::memory_order_release);
+            s_cached_secondary_demo_world.store(0,
+                                                std::memory_order_release);
+        }
+
+        Counters counters() const noexcept
+        {
+            Counters c{};
+            c.calls = s_calls.load(std::memory_order_acquire);
+            c.forwarded = s_forwarded.load(std::memory_order_acquire);
+            c.skipped = s_skipped.load(std::memory_order_acquire);
+            c.no_target = s_no_target.load(std::memory_order_acquire);
+            c.secondary_demo_world =
+                s_secondary_demo_world.load(std::memory_order_acquire);
+            return c;
+        }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            const uintptr_t target_world = resolve_target_world();
+            if (!target_world)
+                return false;
+            s_target_world.store(target_world, std::memory_order_release);
+
+            if (!m_detour)
+            {
+                const uintptr_t base = NativeBinding::imageBase();
+                if (!base) return false;
+                const uintptr_t target = base + kRVA_UWorldTick;
+                try
+                {
+                    m_detour = std::make_unique<PLH::x64Detour>(
+                        static_cast<uint64_t>(target),
+                        reinterpret_cast<uint64_t>(&detour_world_tick),
+                        &m_trampoline);
+                }
+                catch (...)
+                {
+                    m_detour.reset();
+                    m_trampoline = 0;
+                    return false;
+                }
+                if (!m_detour->hook())
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.WorldTickFilter] hook failed "
+                        "UWorld::Tick target=0x{:X}\n"),
+                        target);
+                    m_detour.reset();
+                    m_trampoline = 0;
+                    return false;
+                }
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldTickFilter] engaged - non-demo "
+                "UWorld::Tick calls suppressed during generation "
+                "(target_world=0x{:X})\n"),
+                target_world);
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged && !m_detour) return;
+            m_engaged = false;
+            if (m_detour)
+            {
+                m_detour->unHook();
+                m_detour.reset();
+            }
+            m_trampoline = 0;
+
+            const Counters c = counters();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldTickFilter] disengaged - "
+                "target_world=0x{:X} calls={} forwarded={} skipped={} no_target={} "
+                "secondary_demo_world={}\n"),
+                s_target_world.load(std::memory_order_acquire),
+                c.calls, c.forwarded, c.skipped, c.no_target,
+                c.secondary_demo_world);
+            s_target_world.store(0, std::memory_order_release);
+        }
+
+    private:
+        static constexpr uintptr_t kRVA_UWorldTick = 0x1F02230;
+        using WorldTickFn = void(__fastcall*)(void*, int, float);
+
+        static WorldTickFn original() noexcept
+        {
+            auto* inst = s_instance.load(std::memory_order_acquire);
+            if (!inst) return nullptr;
+            return reinterpret_cast<WorldTickFn>(inst->m_trampoline);
+        }
+
+        static bool ptr_readable(uintptr_t ptr) noexcept
+        {
+            if (!ptr) return false;
+            void* vtbl = nullptr;
+            return SafeReadPtr(reinterpret_cast<const void*>(ptr), &vtbl)
+                && vtbl;
+        }
+
+        static uintptr_t resolve_target_world() noexcept
+        {
+            if (RC::Unreal::UObject* rp =
+                    ReplayScrubDiag::replay_player_ptr().get(
+                        L"LuxBattleReplayPlayer"))
+            {
+                void* world = nullptr;
+                if (ReplayScrubDiag::safe_get_world_context_object(
+                        rp, &world) && ptr_readable(
+                            reinterpret_cast<uintptr_t>(world)))
+                    return reinterpret_cast<uintptr_t>(world);
+            }
+
+            const uintptr_t cached =
+                ReplayScrubDiag::cached_demo_world_ptr().load(
+                    std::memory_order_acquire);
+            if (ptr_readable(cached))
+                return cached;
+
+            void* gworld = nullptr;
+            if (ReplayScrubDiag::read_gworld_ptr(&gworld)
+                && ptr_readable(reinterpret_cast<uintptr_t>(gworld)))
+                return reinterpret_cast<uintptr_t>(gworld);
+
+            return 0;
+        }
+
+        static bool world_has_demo_driver(void* world) noexcept
+        {
+            ReplayScrubDiag::DemoNetDriverSnap snap{};
+            return ReplayScrubDiag::read_world_demo_driver(
+                world, snap, nullptr, false);
+        }
+
+        static void __fastcall detour_world_tick(
+            void* world,
+            int tick_type,
+            float delta_seconds)
+        {
+            WorldTickFn orig = original();
+            if (!orig) return;
+
+            const bool active =
+                g_replay_scrub_timeline_no_render_active.load(
+                    std::memory_order_acquire);
+            if (!active)
+            {
+                orig(world, tick_type, delta_seconds);
+                return;
+            }
+
+            s_calls.fetch_add(1, std::memory_order_acq_rel);
+            const uintptr_t target =
+                s_target_world.load(
+                    std::memory_order_acquire);
+            const uintptr_t world_addr = reinterpret_cast<uintptr_t>(world);
+
+            if (!target)
+            {
+                s_no_target.fetch_add(1, std::memory_order_acq_rel);
+                s_forwarded.fetch_add(1, std::memory_order_acq_rel);
+                orig(world, tick_type, delta_seconds);
+                return;
+            }
+
+            if (world_addr == target)
+            {
+                s_forwarded.fetch_add(1, std::memory_order_acq_rel);
+                orig(world, tick_type, delta_seconds);
+                return;
+            }
+
+            const uintptr_t cached_secondary =
+                s_cached_secondary_demo_world.load(
+                    std::memory_order_acquire);
+            if (cached_secondary == world_addr)
+            {
+                s_secondary_demo_world.fetch_add(
+                    1, std::memory_order_acq_rel);
+                s_skipped.fetch_add(1, std::memory_order_acq_rel);
+                return;
+            }
+
+            if (!cached_secondary && world_has_demo_driver(world))
+            {
+                uintptr_t expected = 0;
+                (void)s_cached_secondary_demo_world.compare_exchange_strong(
+                    expected, world_addr, std::memory_order_acq_rel);
+                s_secondary_demo_world.fetch_add(
+                    1, std::memory_order_acq_rel);
+                s_skipped.fetch_add(1, std::memory_order_acq_rel);
+                return;
+            }
+
+            s_skipped.fetch_add(1, std::memory_order_acq_rel);
+        }
+
+        std::unique_ptr<PLH::x64Detour> m_detour{};
+        uint64_t m_trampoline {0};
+        bool m_engaged {false};
+
+        static inline std::atomic<GenerationWorldTickFilter*> s_instance{
+            nullptr};
+        static inline std::atomic<uint64_t> s_calls{0};
+        static inline std::atomic<uint64_t> s_forwarded{0};
+        static inline std::atomic<uint64_t> s_skipped{0};
+        static inline std::atomic<uint64_t> s_no_target{0};
+        static inline std::atomic<uint64_t> s_secondary_demo_world{0};
+        static inline std::atomic<uintptr_t> s_target_world{0};
+        static inline std::atomic<uintptr_t> s_cached_secondary_demo_world{0};
+    };
+
+    // ------------------------------------------------------------------
     // FrameCapOverride - temporarily removes SC6's engine frame-rate cap.
     //
     // Why this is the correct fast-forward mechanism
@@ -1785,11 +2483,11 @@ namespace Horse
         // UGameEngine vtable in .rdata (slot 0x268 = UGameEngine::Tick @
         // 0x141e38f70; slot 0x410 = 0x141e348f0).
         static constexpr uintptr_t kRVA_RedrawViewports = 0x1E348F0;
-        // Render 1 frame in N during a skip pass: keeps the window
-        // responsive and gives coarse visual progress.  N=16 costs ~6%
-        // of the render it would otherwise save - negligible against the
-        // multi-x speedup, and worth it for a clickable "Stop".
-        static constexpr uint32_t  kKeepAliveEveryN     = 16;
+        // Render 1 frame in N during a skip pass: keeps the OS-facing
+        // viewport alive while keeping timeline generation sim-bound.
+        // N=4096 keeps the first-frame redraw for OS/window liveness and
+        // avoids nearly every expensive full redraw on typical replays.
+        static constexpr uint32_t  kKeepAliveEveryN     = 4096;
 
         bool is_engaged() const noexcept { return m_engaged; }
 
@@ -1970,6 +2668,3062 @@ namespace Horse
         static inline std::atomic<uint64_t> s_forwarded_count{0};
     };
 
+    // ------------------------------------------------------------------
+    // RendererTickSkipOverride - skips renderer module housekeeping while
+    // lux-no-render generation is active.
+    //
+    // UGameEngine::Tick still calls two renderer-module virtuals after
+    // RedrawViewports.  RedrawViewports itself is already skipped by
+    // RenderSkipOverride, so these callbacks should be presentation-side
+    // cleanup/submission work.  Patch the renderer module instance vtable
+    // slots to no-op thunks only during generation; restore exact pointers
+    // on exit.
+    // ------------------------------------------------------------------
+    class RendererTickSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_RendererModule = 0x4394BB8;
+        static constexpr uintptr_t kVtOff_PostRedraw   = 0x130;
+        static constexpr uintptr_t kVtOff_FrameEnd     = 0x0A0;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+
+            const bool ok_post = m_patch_post_redraw.enable();
+            const bool ok_end  = m_patch_frame_end.enable();
+            if (!ok_post || !ok_end)
+            {
+                if (ok_post) m_patch_post_redraw.disable();
+                if (ok_end)  m_patch_frame_end.disable();
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.RendererTickSkip] enable failed "
+                    "(post_redraw={} frame_end={})\n"),
+                    ok_post ? STR("ok") : STR("FAIL"),
+                    ok_end  ? STR("ok") : STR("FAIL"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.RendererTickSkip] engaged - renderer module "
+                "vtable[0x130]/[0x0A0] no-op during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_post_redraw.disable();
+            m_patch_frame_end.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.RendererTickSkip] disengaged - renderer "
+                "module callbacks restored\n"));
+        }
+
+    private:
+        static void __fastcall renderer_noop(void*) noexcept {}
+
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            void* module = nullptr;
+            if (!SafeReadPtr(reinterpret_cast<const void*>(
+                                 base + kRVA_RendererModule),
+                             &module)
+                || !module)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.RendererTickSkip] renderer module "
+                    "pointer unavailable\n"));
+                return false;
+            }
+
+            void* vtable = nullptr;
+            if (!SafeReadPtr(module, &vtable) || !vtable)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.RendererTickSkip] renderer module "
+                    "vtable unavailable (module=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(module));
+                return false;
+            }
+
+            void** post_slot = reinterpret_cast<void**>(
+                reinterpret_cast<uintptr_t>(vtable) + kVtOff_PostRedraw);
+            void** end_slot = reinterpret_cast<void**>(
+                reinterpret_cast<uintptr_t>(vtable) + kVtOff_FrameEnd);
+            auto noop = &renderer_noop;
+            uint8_t replacement[sizeof(void*)]{};
+            std::memcpy(replacement, &noop, sizeof(noop));
+
+            if (!m_patch_post_redraw.prepare(
+                    post_slot, replacement, sizeof(replacement))
+                || !m_patch_frame_end.prepare(
+                    end_slot, replacement, sizeof(replacement)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.RendererTickSkip] vtable patch prepare "
+                    "failed (module=0x{:X} vtable=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(module),
+                    reinterpret_cast<uintptr_t>(vtable));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_post_redraw{};
+        BytePatch m_patch_frame_end{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // GenerationPriorityOverride - temporarily gives the game thread and
+    // process a higher scheduling priority while no-render generation runs.
+    //
+    // This does not change simulation state.  It only reduces OS scheduler
+    // interference during an opt-in, CPU-bound capture burst, and restores
+    // the exact previous priorities in the same RAII scope as the render
+    // gates.
+    // ------------------------------------------------------------------
+    class GenerationPriorityOverride
+    {
+    public:
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+
+            HANDLE process = ::GetCurrentProcess();
+            HANDLE thread = ::GetCurrentThread();
+            m_old_process_priority = ::GetPriorityClass(process);
+            m_old_thread_priority = ::GetThreadPriority(thread);
+
+            m_process_changed =
+                m_old_process_priority != 0
+                && ::SetPriorityClass(process, HIGH_PRIORITY_CLASS) != 0;
+            m_thread_changed =
+                m_old_thread_priority != THREAD_PRIORITY_ERROR_RETURN
+                && ::SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST) != 0;
+
+            m_engaged = m_process_changed || m_thread_changed;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.GenerationPriority] {} - process old=0x{:X} "
+                "changed={} thread old={} changed={}\n"),
+                m_engaged ? STR("engaged") : STR("unchanged"),
+                static_cast<unsigned>(m_old_process_priority),
+                m_process_changed ? 1 : 0,
+                m_old_thread_priority,
+                m_thread_changed ? 1 : 0);
+            return m_engaged;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+
+            HANDLE process = ::GetCurrentProcess();
+            HANDLE thread = ::GetCurrentThread();
+            if (m_thread_changed
+                && m_old_thread_priority != THREAD_PRIORITY_ERROR_RETURN)
+            {
+                (void)::SetThreadPriority(thread, m_old_thread_priority);
+            }
+            if (m_process_changed && m_old_process_priority != 0)
+                (void)::SetPriorityClass(process, m_old_process_priority);
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.GenerationPriority] restored - process=0x{:X} "
+                "thread={}\n"),
+                static_cast<unsigned>(m_old_process_priority),
+                m_old_thread_priority);
+
+            m_process_changed = false;
+            m_thread_changed = false;
+            m_old_process_priority = 0;
+            m_old_thread_priority = THREAD_PRIORITY_ERROR_RETURN;
+            m_engaged = false;
+        }
+
+    private:
+        DWORD m_old_process_priority {0};
+        int m_old_thread_priority {THREAD_PRIORITY_ERROR_RETURN};
+        bool m_process_changed {false};
+        bool m_thread_changed {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // FrameEndSyncSkipOverride - skips FEngineLoop's render-thread frame
+    // end fence while lux-no-render generation is active.
+    //
+    // FEngineLoop::Tick calls FFrameEndSync_AdvanceTwoSlot after
+    // UGameEngine::Tick.  In normal play that keeps the game/render
+    // threads paced.  During timeline capture RedrawViewports and renderer
+    // module callbacks are already gated, so this fence is a prime suspect
+    // for the remaining ~2 ms/tick floor.  The call is return-ignored and
+    // restored by the same RAII scope as the render gates.
+    // ------------------------------------------------------------------
+    class FrameEndSyncSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_FrameEndSyncCall = 0x396AE9;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_frame_end_sync.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.FrameEndSyncSkip] enable failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.FrameEndSyncSkip] engaged - FEngineLoop "
+                "frame-end sync skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_frame_end_sync.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.FrameEndSyncSkip] disengaged - FEngineLoop "
+                "frame-end sync restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            void* frame_end_sync = reinterpret_cast<void*>(
+                base + kRVA_FrameEndSyncCall);
+            if (!m_patch_frame_end_sync.prepare(
+                    frame_end_sync, nop5, sizeof(nop5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.FrameEndSyncSkip] patch prepare failed "
+                    "(call=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(frame_end_sync));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_frame_end_sync{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopCoreTickerSkipOverride - skips FEngineLoop's post-game
+    // core ticker during lux-no-render generation.
+    //
+    // This call runs after UGameEngine::Tick has advanced Lux replay state
+    // and after generation capture has taken its snapshot. It is generic
+    // engine/frame housekeeping, not part of the authoritative replay
+    // pipeline, and the strict oracle/seek tests decide whether any latent
+    // replay state actually depends on it.
+    // ------------------------------------------------------------------
+    class EngineLoopCoreTickerSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_CoreTickerCall = 0x396A5E;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_core_ticker.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopCoreTickerSkip] enable "
+                    "failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopCoreTickerSkip] engaged - "
+                "FEngineLoop post-game core ticker skipped during "
+                "generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_core_ticker.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopCoreTickerSkip] disengaged - "
+                "FEngineLoop core ticker restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop6[6] = {0x90, 0x90, 0x90,
+                                     0x90, 0x90, 0x90};
+            void* core_ticker = reinterpret_cast<void*>(
+                base + kRVA_CoreTickerCall);
+            if (!m_patch_core_ticker.prepare(
+                    core_ticker, nop6, sizeof(nop6)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopCoreTickerSkip] patch "
+                    "prepare failed (call=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(core_ticker));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_core_ticker{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopDeferredQueueSkipOverride - skips a post-game deferred
+    // engine queue pump during lux-no-render generation.
+    //
+    // The call runs after UGameEngine::Tick/capture and is outside the
+    // Lux replay step. It is tested separately from broader post-tail
+    // skips because this queue can be involved in scene plumbing.
+    // ------------------------------------------------------------------
+    class EngineLoopDeferredQueueSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_DeferredQueueCall = 0x3968E3;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_deferred_queue.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopDeferredQueueSkip] enable "
+                    "failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopDeferredQueueSkip] engaged - "
+                "FEngineLoop deferred queue skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_deferred_queue.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopDeferredQueueSkip] disengaged - "
+                "FEngineLoop deferred queue restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            void* queue_call = reinterpret_cast<void*>(
+                base + kRVA_DeferredQueueCall);
+            if (!m_patch_deferred_queue.prepare(
+                    queue_call, nop5, sizeof(nop5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopDeferredQueueSkip] patch "
+                    "prepare failed (call=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(queue_call));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_deferred_queue{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopFrameServiceSkipOverride - skips narrow post-UGameEngine
+    // frame-service calls during lux-no-render generation.
+    //
+    // These calls run after UGameEngine::Tick has advanced and captured the
+    // replay frame. They are kept separate from the broad tail jump because
+    // the broad skip crashed on one startup path; each call here is isolated
+    // and strict-oracle validated before being treated as safe.
+    // ------------------------------------------------------------------
+    class EngineLoopFrameServiceSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_StatsManagerVCall = 0x3968CF;
+        static constexpr uintptr_t kRVA_HotReloadMetadata = 0x3969F5;
+        static constexpr uintptr_t kRVA_HotReloadService  = 0x396A03;
+        static constexpr uintptr_t kRVA_PostHitAreaUpdate = 0x3968F4;
+        static constexpr uintptr_t kRVA_PostFrameDeltaCallback = 0x396A5E;
+        static constexpr uintptr_t kRVA_PostEngineQueues  = 0x396B3D;
+        static constexpr bool kSkipStatsManager = true;
+        static constexpr bool kSkipHotReloadMetadata = false;
+        static constexpr bool kSkipHotReloadService = false;
+        static constexpr bool kSkipPostHitAreaUpdate = false;
+        static constexpr bool kSkipPostFrameDeltaCallback = true;
+        static constexpr bool kSkipPostEngineQueues = true;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+
+            const bool ok_stats = !kSkipStatsManager
+                || m_patch_stats_manager.enable();
+            const bool ok_meta = !kSkipHotReloadMetadata
+                || m_patch_hot_reload_metadata.enable();
+            const bool ok_service = !kSkipHotReloadService
+                || m_patch_hot_reload_service.enable();
+            const bool ok_hit_area = !kSkipPostHitAreaUpdate
+                || m_patch_post_hit_area_update.enable();
+            const bool ok_delta = !kSkipPostFrameDeltaCallback
+                || m_patch_post_frame_delta_callback.enable();
+            const bool ok_queues = !kSkipPostEngineQueues
+                || m_patch_post_engine_queues.enable();
+            if (!ok_stats || !ok_meta || !ok_service || !ok_hit_area
+                || !ok_delta || !ok_queues)
+            {
+                if (kSkipPostEngineQueues && ok_queues)
+                    m_patch_post_engine_queues.disable();
+                if (kSkipPostFrameDeltaCallback && ok_delta)
+                    m_patch_post_frame_delta_callback.disable();
+                if (kSkipPostHitAreaUpdate && ok_hit_area)
+                    m_patch_post_hit_area_update.disable();
+                if (kSkipHotReloadService && ok_service)
+                    m_patch_hot_reload_service.disable();
+                if (kSkipHotReloadMetadata && ok_meta)
+                    m_patch_hot_reload_metadata.disable();
+                if (kSkipStatsManager && ok_stats)
+                    m_patch_stats_manager.disable();
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopFrameServiceSkip] enable "
+                    "failed (stats={} metadata={} service={} hit_area={} "
+                    "delta={} queues={})\n"),
+                    ok_stats ? STR("ok") : STR("FAIL"),
+                    ok_meta ? STR("ok") : STR("FAIL"),
+                    ok_service ? STR("ok") : STR("FAIL"),
+                    ok_hit_area ? STR("ok") : STR("FAIL"),
+                    ok_delta ? STR("ok") : STR("FAIL"),
+                    ok_queues ? STR("ok") : STR("FAIL"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopFrameServiceSkip] engaged - "
+                "FEngineLoop post-frame service calls skipped during "
+                "generation (stats={} metadata={} service={} hit_area={} "
+                "delta={} queues={})\n"),
+                kSkipStatsManager ? STR("yes") : STR("no"),
+                kSkipHotReloadMetadata ? STR("yes") : STR("no"),
+                kSkipHotReloadService ? STR("yes") : STR("no"),
+                kSkipPostHitAreaUpdate ? STR("yes") : STR("no"),
+                kSkipPostFrameDeltaCallback ? STR("yes") : STR("no"),
+                kSkipPostEngineQueues ? STR("yes") : STR("no"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            if (kSkipPostEngineQueues)
+                m_patch_post_engine_queues.disable();
+            if (kSkipPostFrameDeltaCallback)
+                m_patch_post_frame_delta_callback.disable();
+            if (kSkipPostHitAreaUpdate)
+                m_patch_post_hit_area_update.disable();
+            if (kSkipHotReloadService)
+                m_patch_hot_reload_service.disable();
+            if (kSkipHotReloadMetadata)
+                m_patch_hot_reload_metadata.disable();
+            if (kSkipStatsManager)
+                m_patch_stats_manager.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopFrameServiceSkip] disengaged - "
+                "FEngineLoop post-frame service calls restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop3[3] = {0x90, 0x90, 0x90};
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            const uint8_t nop6[6] =
+                {0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+            void* stats = reinterpret_cast<void*>(
+                base + kRVA_StatsManagerVCall);
+            void* metadata = reinterpret_cast<void*>(
+                base + kRVA_HotReloadMetadata);
+            void* service = reinterpret_cast<void*>(
+                base + kRVA_HotReloadService);
+            void* hit_area = reinterpret_cast<void*>(
+                base + kRVA_PostHitAreaUpdate);
+            void* delta = reinterpret_cast<void*>(
+                base + kRVA_PostFrameDeltaCallback);
+            void* queues = reinterpret_cast<void*>(
+                base + kRVA_PostEngineQueues);
+
+            if (!m_patch_stats_manager.prepare(stats, nop3, sizeof(nop3))
+                || !m_patch_hot_reload_metadata.prepare(
+                    metadata, nop5, sizeof(nop5))
+                || !m_patch_hot_reload_service.prepare(
+                    service, nop5, sizeof(nop5))
+                || !m_patch_post_hit_area_update.prepare(
+                    hit_area, nop5, sizeof(nop5))
+                || !m_patch_post_frame_delta_callback.prepare(
+                    delta, nop6, sizeof(nop6))
+                || !m_patch_post_engine_queues.prepare(
+                    queues, nop5, sizeof(nop5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopFrameServiceSkip] patch "
+                    "prepare failed (stats=0x{:X} metadata=0x{:X} "
+                    "service=0x{:X} hit_area=0x{:X} delta=0x{:X} "
+                    "queues=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(stats),
+                    reinterpret_cast<uintptr_t>(metadata),
+                    reinterpret_cast<uintptr_t>(service),
+                    reinterpret_cast<uintptr_t>(hit_area),
+                    reinterpret_cast<uintptr_t>(delta),
+                    reinterpret_cast<uintptr_t>(queues));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_stats_manager{};
+        BytePatch m_patch_hot_reload_metadata{};
+        BytePatch m_patch_hot_reload_service{};
+        BytePatch m_patch_post_hit_area_update{};
+        BytePatch m_patch_post_frame_delta_callback{};
+        BytePatch m_patch_post_engine_queues{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopPreStubArraySkipOverride - skips pre-game temporary array
+    // setup for a stubbed KHitArea_UpdateFromAnimCell call.
+    //
+    // FEngineLoop zeros R12, builds a one-item stack/small-array wrapper,
+    // calls KHitArea_UpdateFromAnimCell_Stub, then tears the array down.
+    // Ghidra shows the target as a ret-only stub in this build, so the
+    // wrapper work is pure overhead for no-render generation.
+    // ------------------------------------------------------------------
+    class EngineLoopPreStubArraySkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_PreStubArrayStart = 0x396613;
+        static constexpr uintptr_t kRVA_PreStubArrayAfter = 0x39670F;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_pre_stub_array.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopPreStubArraySkip] enable "
+                    "failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopPreStubArraySkip] engaged - "
+                "FEngineLoop pre-game stub array skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_pre_stub_array.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopPreStubArraySkip] disengaged - "
+                "FEngineLoop pre-game stub array restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            uint8_t patch[5] = {0, 0, 0, 0, 0};
+            void* start = reinterpret_cast<void*>(
+                base + kRVA_PreStubArrayStart);
+            void* after = reinterpret_cast<void*>(
+                base + kRVA_PreStubArrayAfter);
+            if (!encode_jmp_rel32(start, after, patch))
+                return false;
+
+            if (!m_patch_pre_stub_array.prepare(
+                    start, patch, sizeof(patch)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopPreStubArraySkip] patch "
+                    "prepare failed (start=0x{:X} after=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(start),
+                    reinterpret_cast<uintptr_t>(after));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_pre_stub_array{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopMediaSkipOverride - skips FEngineLoop's per-frame Media
+    // module callbacks during lux-no-render generation.
+    //
+    // The block only wraps UGameEngine::Tick with IMediaModule style
+    // pre/post hooks.  It is presentation-side for replay timeline
+    // capture, and RDI is the block-local module pointer used by all
+    // later media post-callback guards.  Set RDI=0 and jump to the normal
+    // engine tick dispatch so the rest of FEngineLoop continues unchanged.
+    // ------------------------------------------------------------------
+    class EngineLoopMediaSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_MediaBlockStart = 0x396852;
+        static constexpr uintptr_t kRVA_MediaBlockAfter = 0x396893;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_media_block.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopMediaSkip] enable failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopMediaSkip] engaged - "
+                "FEngineLoop media callbacks skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_media_block.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopMediaSkip] disengaged - "
+                "FEngineLoop media callbacks restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            uint8_t patch[7] = {
+                0x31, 0xFF, // xor edi, edi
+                0, 0, 0, 0, 0
+            };
+            uint8_t* start =
+                reinterpret_cast<uint8_t*>(base + kRVA_MediaBlockStart);
+            void* jmp_at = start + 2;
+            void* after =
+                reinterpret_cast<void*>(base + kRVA_MediaBlockAfter);
+            if (!encode_jmp_rel32(jmp_at, after, patch + 2))
+                return false;
+
+            if (!m_patch_media_block.prepare(
+                    start, patch, sizeof(patch)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopMediaSkip] patch prepare "
+                    "failed (start=0x{:X} after=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(start),
+                    reinterpret_cast<uintptr_t>(after));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_media_block{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopAuxSkipOverride - skips FEngineLoop pre-game auxiliary
+    // services during lux-no-render generation.
+    //
+    // The skipped block sits after UEngine::UpdateTimeAndHandleMaxTickRate
+    // and before the media wrapper / UGameEngine::Tick dispatch.  Its only
+    // value consumed by the game tick is R15B (bIdleMode), normally returned
+    // by Engine_CheckIdleWhenNotForeground.  Timeline generation must never
+    // idle, so force R15D=0 and continue to the normal game tick path.
+    // ------------------------------------------------------------------
+    class EngineLoopAuxSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_PreGameAuxStart = 0x396603;
+        static constexpr uintptr_t kRVA_PreGameAuxAfter = 0x396852;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_pre_game_aux.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopAuxSkip] enable failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopAuxSkip] engaged - FEngineLoop "
+                "pre-game auxiliary block skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_pre_game_aux.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopAuxSkip] disengaged - FEngineLoop "
+                "pre-game auxiliary block restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            uint8_t patch[10] = {
+                0x45, 0x31, 0xFF, // xor r15d, r15d
+                0, 0, 0, 0, 0,    // jmp rel32 -> game tick wrapper
+                0x90, 0x90
+            };
+            uint8_t* start =
+                reinterpret_cast<uint8_t*>(base + kRVA_PreGameAuxStart);
+            void* jmp_at = start + 3;
+            void* after =
+                reinterpret_cast<void*>(base + kRVA_PreGameAuxAfter);
+            if (!encode_jmp_rel32(jmp_at, after, patch + 3))
+                return false;
+
+            if (!m_patch_pre_game_aux.prepare(
+                    start, patch, sizeof(patch)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopAuxSkip] patch prepare failed "
+                    "(start=0x{:X} after=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(start),
+                    reinterpret_cast<uintptr_t>(after));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_pre_game_aux{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopFrontMatterSkipOverride - skips FEngineLoop pre-game
+    // service/front-matter before the UGameEngine tick dispatch.
+    //
+    // The resumed address is the stock GEngine vtable dispatch for
+    // UGameEngine::Tick.  The patch initializes the callee-saved locals
+    // that later FEngineLoop blocks treat as zero sentinels so the normal
+    // post-game/frame-counter/epilogue path can still run safely.
+    // ------------------------------------------------------------------
+    class EngineLoopFrontMatterSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_FrontMatterStart = 0x396483;
+        static constexpr uintptr_t kRVA_GameEngineDispatch = 0x396893;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_front_matter.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopFrontMatterSkip] enable "
+                    "failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopFrontMatterSkip] engaged - "
+                "FEngineLoop front matter skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_front_matter.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopFrontMatterSkip] disengaged - "
+                "FEngineLoop front matter restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            uint8_t patch[18] = {
+                0x45, 0x31, 0xE4,             // xor r12d, r12d
+                0x45, 0x31, 0xFF,             // xor r15d, r15d
+                0x31, 0xFF,                   // xor edi, edi
+                0x4C, 0x89, 0x64, 0x24, 0x28, // mov [rsp+0x28], r12
+                0, 0, 0, 0, 0                 // jmp rel32 -> UGameEngine
+            };
+            uint8_t* start = reinterpret_cast<uint8_t*>(
+                base + kRVA_FrontMatterStart);
+            void* jmp_at = start + 13;
+            void* after = reinterpret_cast<void*>(
+                base + kRVA_GameEngineDispatch);
+            if (!encode_jmp_rel32(jmp_at, after, patch + 13))
+                return false;
+
+            if (!m_patch_front_matter.prepare(
+                    start, patch, sizeof(patch)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopFrontMatterSkip] patch "
+                    "prepare failed (start=0x{:X} after=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(start),
+                    reinterpret_cast<uintptr_t>(after));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_front_matter{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopIdleSleepSkipOverride - skips the "use less CPU while
+    // unfocused" sleep inside FEngineLoop during lux-no-render generation.
+    //
+    // The harness intentionally does not focus SC6.  FEngineLoop still
+    // advances the replay correctly in idle mode, but the background idle
+    // sleep costs roughly a millisecond per generated frame.  Skip only
+    // the sleep call and only under the TimelineNoRenderScope; normal
+    // replay playback and seek playback keep the game's stock behavior.
+    // ------------------------------------------------------------------
+    class EngineLoopIdleSleepSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_IdleSleepCall = 0x3967B9;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_idle_sleep.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopIdleSleepSkip] enable failed\n"));
+                return false;
+            }
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopIdleSleepSkip] engaged - "
+                "FEngineLoop background idle sleep skipped during "
+                "generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_idle_sleep.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopIdleSleepSkip] disengaged - "
+                "FEngineLoop background idle sleep restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            void* callsite =
+                reinterpret_cast<void*>(base + kRVA_IdleSleepCall);
+            if (!m_patch_idle_sleep.prepare(callsite, nop5, sizeof(nop5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopIdleSleepSkip] patch prepare "
+                    "failed idle_sleep=0x{:X}\n"),
+                    reinterpret_cast<uintptr_t>(callsite));
+                return false;
+            }
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_idle_sleep{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopUpdateTimeSkipOverride - skips UE's per-frame time/pacing
+    // update during lux-no-render generation.
+    //
+    // FrameCapOverride has already forced bUseFixedFrameRate to a very high
+    // rate so UEngine::UpdateTimeAndHandleMaxTickRate should not be needed
+    // for replay advancement.  UGameEngine::Tick still receives the current
+    // global delta value immediately after this callsite, and the full stock
+    // timing path is restored before seek playback or normal replay playback.
+    // ------------------------------------------------------------------
+    class EngineLoopUpdateTimeSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_UpdateTimeCall = 0x3965E6;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_update_time.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopUpdateTimeSkip] enable "
+                    "failed\n"));
+                return false;
+            }
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopUpdateTimeSkip] engaged - "
+                "UEngine time/pacing update skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_update_time.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopUpdateTimeSkip] disengaged - "
+                "UEngine time/pacing update restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            void* callsite =
+                reinterpret_cast<void*>(base + kRVA_UpdateTimeCall);
+            if (!m_patch_update_time.prepare(callsite, nop5, sizeof(nop5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopUpdateTimeSkip] patch prepare "
+                    "failed update_time=0x{:X}\n"),
+                    reinterpret_cast<uintptr_t>(callsite));
+                return false;
+            }
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_update_time{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopPostGameSkipOverride - skips demo-driver async audio
+    // scheduling after UGameEngine::Tick.
+    //
+    // By this point Lux replay simulation and snapshot capture have already
+    // run through UGameEngine/UWorld.  The skipped sub-block only queues
+    // Audio_RandomTick through the demo-driver async path; media callbacks,
+    // hot-reload hooks, reference cleanup, and frame-counter bookkeeping
+    // remain intact.
+    // ------------------------------------------------------------------
+    class EngineLoopPostGameSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_PostGameStart = 0x3968C4;
+        static constexpr uintptr_t kRVA_PostGameAfter = 0x3969E4;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_post_game.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopPostGameSkip] enable failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopPostGameSkip] engaged - "
+                "FEngineLoop demo-driver async audio block skipped during "
+                "generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_post_game.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopPostGameSkip] disengaged - "
+                "FEngineLoop demo-driver async audio block restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            uint8_t patch[5] = {0, 0, 0, 0, 0};
+            void* start = reinterpret_cast<void*>(
+                base + kRVA_PostGameStart);
+            void* after = reinterpret_cast<void*>(
+                base + kRVA_PostGameAfter);
+            if (!encode_jmp_rel32(start, after, patch))
+                return false;
+
+            if (!m_patch_post_game.prepare(start, patch, sizeof(patch)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopPostGameSkip] patch prepare "
+                    "failed (start=0x{:X} after=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(start),
+                    reinterpret_cast<uintptr_t>(after));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_post_game{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopPostGameTailSkipOverride - skips FEngineLoop's broad
+    // post-UGameEngine presentation/service tail during lux-no-render
+    // generation.
+    //
+    // UGameEngine::Tick has already advanced replay state and
+    // tick_capture() has already committed the authoritative snapshot by
+    // this point. Resume at the global engine-frame counter update so the
+    // outer loop still maintains frame identity and downstream stop logic.
+    // ------------------------------------------------------------------
+    class EngineLoopPostGameTailSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_PostGameTailStart = 0x3968B3;
+        static constexpr uintptr_t kRVA_PostGameTailAfter = 0x396A64;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_post_game_tail.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopPostGameTailSkip] enable "
+                    "failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopPostGameTailSkip] engaged - "
+                "FEngineLoop post-game tail skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_post_game_tail.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopPostGameTailSkip] disengaged - "
+                "FEngineLoop post-game tail restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            uint8_t patch[14] = {
+                0x31, 0xFF,                   // xor edi, edi
+                0x4C, 0x89, 0x64, 0x24, 0x28, // mov [rsp+0x28], r12
+                0, 0, 0, 0, 0,                // jmp rel32 -> frame counter
+                0x90, 0x90
+            };
+            uint8_t* start = reinterpret_cast<uint8_t*>(
+                base + kRVA_PostGameTailStart);
+            void* jmp_at = start + 7;
+            void* after = reinterpret_cast<void*>(
+                base + kRVA_PostGameTailAfter);
+            if (!encode_jmp_rel32(jmp_at, after, patch + 7))
+                return false;
+
+            if (!m_patch_post_game_tail.prepare(
+                    start, patch, sizeof(patch)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopPostGameTailSkip] patch "
+                    "prepare failed (start=0x{:X} after=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(start),
+                    reinterpret_cast<uintptr_t>(after));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_post_game_tail{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineLoopServiceTailSkipOverride - skips the late FEngineLoop
+    // service/reporting tail after the global engine frame counter has
+    // already been updated.
+    //
+    // This is narrower than EngineLoopPostGameTailSkipOverride: it keeps
+    // UGameEngine::Tick and the frame-counter/time update at 0x396A64, then
+    // jumps over the task/stat/message-pump tail to the epilogue cleanup.
+    // ------------------------------------------------------------------
+    class EngineLoopServiceTailSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_ServiceTailStart = 0x396A8F;
+        static constexpr uintptr_t kRVA_ServiceTailAfter = 0x396C70;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_service_tail.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopServiceTailSkip] enable "
+                    "failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopServiceTailSkip] engaged - "
+                "FEngineLoop service tail skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_service_tail.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineLoopServiceTailSkip] disengaged - "
+                "FEngineLoop service tail restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            uint8_t patch[9] = {0, 0, 0, 0, 0, 0x90, 0x90, 0x90, 0x90};
+            void* start = reinterpret_cast<void*>(
+                base + kRVA_ServiceTailStart);
+            void* after = reinterpret_cast<void*>(
+                base + kRVA_ServiceTailAfter);
+            if (!encode_jmp_rel32(start, after, patch))
+                return false;
+
+            if (!m_patch_service_tail.prepare(start, patch, sizeof(patch)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineLoopServiceTailSkip] patch "
+                    "prepare failed (start=0x{:X} after=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(start),
+                    reinterpret_cast<uintptr_t>(after));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_service_tail{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // GameViewportTickSkipOverride - skips viewport/widget ticks
+    // during lux-no-render generation.
+    //
+    // UGameEngine::Tick calls GEngine->GameViewport vtable[0x298] before
+    // UWorld::Tick and vtable[0x280] after UWorld::Tick.  On SC6's UE4
+    // build these are viewport/UI update paths, including the cockpit
+    // widget tick that normally hosts ReplayScrub capture.  Generation
+    // capture can run from the engine-tick fallback, so cockpit-widget
+    // ticking is not required while no-render generation is active.
+    // ------------------------------------------------------------------
+    class GameViewportTickSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_GEngine        = 0x43B3068;
+        static constexpr uintptr_t kOff_GameViewport   = 0x618;
+        static constexpr uintptr_t kVtOff_PreWorldTick = 0x298;
+        static constexpr uintptr_t kVtOff_PostWorldTick = 0x280;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            const bool ok_pre = m_patch_pre_world_tick.enable();
+            const bool ok_post = m_patch_post_world_tick.enable();
+            if (!ok_pre || !ok_post)
+            {
+                if (ok_pre) m_patch_pre_world_tick.disable();
+                if (ok_post) m_patch_post_world_tick.disable();
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.GameViewportTickSkip] enable failed "
+                    "(pre={} post={})\n"),
+                    ok_pre ? STR("ok") : STR("FAIL"),
+                    ok_post ? STR("ok") : STR("FAIL"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.GameViewportTickSkip] engaged - "
+                "GameViewport vtable[0x298]/[0x280] no-op during "
+                "generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_post_world_tick.disable();
+            m_patch_pre_world_tick.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.GameViewportTickSkip] disengaged - "
+                "GameViewport tick restored\n"));
+        }
+
+    private:
+        static void __fastcall viewport_tick_noop(void*, float) noexcept {}
+
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            void* engine = nullptr;
+            if (!SafeReadPtr(reinterpret_cast<const void*>(
+                                 base + kRVA_GEngine),
+                             &engine)
+                || !engine)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.GameViewportTickSkip] GEngine "
+                    "unavailable\n"));
+                return false;
+            }
+
+            void* viewport = nullptr;
+            if (!SafeReadPtr(reinterpret_cast<const uint8_t*>(engine)
+                                 + kOff_GameViewport,
+                             &viewport)
+                || !viewport)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.GameViewportTickSkip] GameViewport "
+                    "unavailable (engine=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(engine));
+                return false;
+            }
+
+            void* vtable = nullptr;
+            if (!SafeReadPtr(viewport, &vtable) || !vtable)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.GameViewportTickSkip] GameViewport "
+                    "vtable unavailable (viewport=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(viewport));
+                return false;
+            }
+
+            void** pre_tick_slot = reinterpret_cast<void**>(
+                reinterpret_cast<uintptr_t>(vtable) + kVtOff_PreWorldTick);
+            void** post_tick_slot = reinterpret_cast<void**>(
+                reinterpret_cast<uintptr_t>(vtable) + kVtOff_PostWorldTick);
+            auto noop = &viewport_tick_noop;
+            uint8_t replacement[sizeof(void*)]{};
+            std::memcpy(replacement, &noop, sizeof(noop));
+
+            if (!m_patch_pre_world_tick.prepare(
+                    pre_tick_slot, replacement, sizeof(replacement))
+                || !m_patch_post_world_tick.prepare(
+                    post_tick_slot, replacement, sizeof(replacement)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.GameViewportTickSkip] vtable patch "
+                    "prepare failed (viewport=0x{:X} vtable=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(viewport),
+                    reinterpret_cast<uintptr_t>(vtable));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_pre_world_tick{};
+        BytePatch m_patch_post_world_tick{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EngineBookkeepingSkipOverride - skips tiny pre-world engine
+    // bookkeeping callsites while lux-no-render generation is active.
+    //
+    // These are fixed UGameEngine::Tick callsites before UWorld::Tick:
+    //   0x141E3903C -> world-context/viewport cleanup helper
+    //   0x141E390E5 -> small UObject/global tick wrapper
+    //   0x141E390F9 -> periodic engine status/time string publisher
+    // They are outside Lux replay simulation and are restored by the
+    // timeline no-render RAII scope.
+    // ------------------------------------------------------------------
+    class EngineBookkeepingSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_WorldContextCleanupCall = 0x1E3903C;
+        static constexpr uintptr_t kRVA_UObjectTickWrapperCall  = 0x1E390E5;
+        static constexpr uintptr_t kRVA_StatusTickerCall        = 0x1E390F9;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+
+            const bool ok_cleanup = m_patch_world_context_cleanup.enable();
+            const bool ok_uobject = m_patch_uobject_tick_wrapper.enable();
+            const bool ok_status = m_patch_status_ticker.enable();
+            if (!ok_cleanup || !ok_uobject || !ok_status)
+            {
+                if (ok_status) m_patch_status_ticker.disable();
+                if (ok_cleanup) m_patch_world_context_cleanup.disable();
+                if (ok_uobject) m_patch_uobject_tick_wrapper.disable();
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineBookkeepingSkip] enable failed "
+                    "(cleanup={} uobject={} status={})\n"),
+                    ok_cleanup ? STR("ok") : STR("FAIL"),
+                    ok_uobject ? STR("ok") : STR("FAIL"),
+                    ok_status ? STR("ok") : STR("FAIL"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineBookkeepingSkip] engaged - "
+                "UGameEngine pre-world bookkeeping callsites skipped during "
+                "generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_status_ticker.disable();
+            m_patch_uobject_tick_wrapper.disable();
+            m_patch_world_context_cleanup.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EngineBookkeepingSkip] disengaged - "
+                "UGameEngine bookkeeping callsites restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            void* cleanup_call = reinterpret_cast<void*>(
+                base + kRVA_WorldContextCleanupCall);
+            void* uobject_call = reinterpret_cast<void*>(
+                base + kRVA_UObjectTickWrapperCall);
+            void* status_call = reinterpret_cast<void*>(
+                base + kRVA_StatusTickerCall);
+
+            if (!m_patch_world_context_cleanup.prepare(
+                    cleanup_call, nop5, sizeof(nop5))
+                || !m_patch_uobject_tick_wrapper.prepare(
+                    uobject_call, nop5, sizeof(nop5))
+                || !m_patch_status_ticker.prepare(
+                    status_call, nop5, sizeof(nop5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EngineBookkeepingSkip] patch prepare "
+                    "failed (cleanup=0x{:X} uobject=0x{:X} "
+                    "status=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(cleanup_call),
+                    reinterpret_cast<uintptr_t>(uobject_call),
+                    reinterpret_cast<uintptr_t>(status_call));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_world_context_cleanup{};
+        BytePatch m_patch_uobject_tick_wrapper{};
+        BytePatch m_patch_status_ticker{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // EnginePostWorldSkipOverride - skips selected UGameEngine per-world
+    // housekeeping callsites while lux-no-render generation is active.
+    //
+    // The one pre-world callback and the post-world calls here all ignore
+    // their return values.  Predicate calls that feed branches are left
+    // intact so the surrounding engine control flow remains well-defined.
+    // ------------------------------------------------------------------
+    class EnginePostWorldSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_WorldPostCleanupA = 0x1E391F4;
+        static constexpr uintptr_t kRVA_WorldPostCleanupB = 0x1E39200;
+        static constexpr uintptr_t kRVA_WorldPreTickVt400 = 0x1E391AD;
+        static constexpr uintptr_t kRVA_WorldPostTickA    = 0x1E39431;
+        static constexpr uintptr_t kRVA_WorldFlagService  = 0x1E39449;
+        static constexpr uintptr_t kRVA_WorldDebugService = 0x1E3946C;
+        static constexpr uintptr_t kRVA_WorldContextTick  = 0x1E3947E;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+
+            const bool ok_pre = m_patch_pre_tick_vt400.enable();
+            const bool ok_a = m_patch_cleanup_a.enable();
+            const bool ok_b = m_patch_cleanup_b.enable();
+            const bool ok_tick_a = m_patch_post_tick_a.enable();
+            const bool ok_flag = m_patch_flag_service.enable();
+            const bool ok_debug = m_patch_debug_service.enable();
+            const bool ok_context = m_patch_context_tick.enable();
+            if (!ok_pre || !ok_a || !ok_b || !ok_tick_a || !ok_flag
+                || !ok_debug || !ok_context)
+            {
+                if (ok_context) m_patch_context_tick.disable();
+                if (ok_debug) m_patch_debug_service.disable();
+                if (ok_flag) m_patch_flag_service.disable();
+                if (ok_tick_a) m_patch_post_tick_a.disable();
+                if (ok_b) m_patch_cleanup_b.disable();
+                if (ok_a) m_patch_cleanup_a.disable();
+                if (ok_pre) m_patch_pre_tick_vt400.disable();
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EnginePostWorldSkip] enable failed "
+                    "(pre_vt400={} cleanup_a={} cleanup_b={} "
+                    "post_tick_a={} flag={} debug={} context={})\n"),
+                    ok_pre ? STR("ok") : STR("FAIL"),
+                    ok_a ? STR("ok") : STR("FAIL"),
+                    ok_b ? STR("ok") : STR("FAIL"),
+                    ok_tick_a ? STR("ok") : STR("FAIL"),
+                    ok_flag ? STR("ok") : STR("FAIL"),
+                    ok_debug ? STR("ok") : STR("FAIL"),
+                    ok_context ? STR("ok") : STR("FAIL"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EnginePostWorldSkip] engaged - UGameEngine "
+                "post-world housekeeping callsites skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_context_tick.disable();
+            m_patch_debug_service.disable();
+            m_patch_flag_service.disable();
+            m_patch_post_tick_a.disable();
+            m_patch_cleanup_b.disable();
+            m_patch_cleanup_a.disable();
+            m_patch_pre_tick_vt400.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.EnginePostWorldSkip] disengaged - "
+                "UGameEngine post-world housekeeping restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            const uint8_t nop6[6] = {0x90, 0x90, 0x90,
+                                     0x90, 0x90, 0x90};
+            void* pre_tick_vt400 = reinterpret_cast<void*>(
+                base + kRVA_WorldPreTickVt400);
+            void* cleanup_a = reinterpret_cast<void*>(
+                base + kRVA_WorldPostCleanupA);
+            void* cleanup_b = reinterpret_cast<void*>(
+                base + kRVA_WorldPostCleanupB);
+            void* post_tick_a = reinterpret_cast<void*>(
+                base + kRVA_WorldPostTickA);
+            void* flag_service = reinterpret_cast<void*>(
+                base + kRVA_WorldFlagService);
+            void* debug_service = reinterpret_cast<void*>(
+                base + kRVA_WorldDebugService);
+            void* context_tick = reinterpret_cast<void*>(
+                base + kRVA_WorldContextTick);
+
+            if (!m_patch_pre_tick_vt400.prepare(
+                    pre_tick_vt400, nop6, sizeof(nop6))
+                || !m_patch_cleanup_a.prepare(cleanup_a, nop5, sizeof(nop5))
+                || !m_patch_cleanup_b.prepare(cleanup_b, nop5, sizeof(nop5))
+                || !m_patch_post_tick_a.prepare(
+                    post_tick_a, nop5, sizeof(nop5))
+                || !m_patch_flag_service.prepare(
+                    flag_service, nop5, sizeof(nop5))
+                || !m_patch_debug_service.prepare(
+                    debug_service, nop5, sizeof(nop5))
+                || !m_patch_context_tick.prepare(
+                    context_tick, nop5, sizeof(nop5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.EnginePostWorldSkip] patch prepare failed "
+                    "(pre_vt400=0x{:X} cleanup_a=0x{:X} "
+                    "cleanup_b=0x{:X} post_tick_a=0x{:X} flag=0x{:X} "
+                    "debug=0x{:X} context=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(pre_tick_vt400),
+                    reinterpret_cast<uintptr_t>(cleanup_a),
+                    reinterpret_cast<uintptr_t>(cleanup_b),
+                    reinterpret_cast<uintptr_t>(post_tick_a),
+                    reinterpret_cast<uintptr_t>(flag_service),
+                    reinterpret_cast<uintptr_t>(debug_service),
+                    reinterpret_cast<uintptr_t>(context_tick));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_pre_tick_vt400{};
+        BytePatch m_patch_cleanup_a{};
+        BytePatch m_patch_cleanup_b{};
+        BytePatch m_patch_post_tick_a{};
+        BytePatch m_patch_flag_service{};
+        BytePatch m_patch_debug_service{};
+        BytePatch m_patch_context_tick{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // WorldTickableObjectSkipOverride - skips global tickable-object
+    // dispatch while lux-no-render generation is active.
+    //
+    // UWorld::Tick and UGameEngine::Tick both call 0x141F03080 after the
+    // main world tick groups.  The function iterates a global registered
+    // object list and invokes each object's tick callback.  Treat it as a
+    // candidate presentation/subsystem dispatch gate and let the replay
+    // oracle validate whether any authoritative Lux state depends on it.
+    // ------------------------------------------------------------------
+    class WorldTickableObjectSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_TickableObjects = 0x1F03080;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_entry.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.WorldTickableObjectSkip] enable failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldTickableObjectSkip] engaged - "
+                "global tickable-object dispatch skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_entry.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldTickableObjectSkip] disengaged - "
+                "global tickable-object dispatch restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t ret = 0xC3;
+            void* entry = reinterpret_cast<void*>(
+                base + kRVA_TickableObjects);
+            if (!m_patch_entry.prepare(entry, &ret, sizeof(ret)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.WorldTickableObjectSkip] entry patch "
+                    "prepare failed (entry=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(entry));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_entry{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // WorldPreGroupTimerSkipOverride - skips the pre-tick UWorld timer
+    // manager pass during lux-no-render generation.
+    //
+    // Lux replay advancement and battle simulation are retained through
+    // the tick-task group path.  This candidate only removes UE timer
+    // dispatch that runs before those groups; the replay oracle/watchback
+    // canary decides whether any authoritative replay state depends on it.
+    // ------------------------------------------------------------------
+    class WorldPreGroupTimerSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_PreTimerManagerCall = 0x1F02390;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_pre_timer.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.WorldPreGroupTimerSkip] enable "
+                    "failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldPreGroupTimerSkip] engaged - "
+                "pre-group UWorld timer manager skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_pre_timer.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldPreGroupTimerSkip] disengaged - "
+                "pre-group UWorld timer manager restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            void* timer_call = reinterpret_cast<void*>(
+                base + kRVA_PreTimerManagerCall);
+            if (!m_patch_pre_timer.prepare(
+                    timer_call, nop5, sizeof(nop5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.WorldPreGroupTimerSkip] patch prepare "
+                    "failed (call=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(timer_call));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_pre_timer{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // WorldPresentationSkipOverride - skips UWorld presentation/debug
+    // callbacks during lux-no-render generation.
+    //
+    // These callsites are outside the authoritative FTickTaskManager
+    // group-0 dispatch.  They cover persistent line batcher/debug ticks,
+    // world pre/post presentation callbacks, and camera-manager-only
+    // work.  Lux battle simulation, replay input advancement, clocks,
+    // MoveVM, hit state, health, RNG, and round result state still run
+    // through the normal world tick path.
+    // ------------------------------------------------------------------
+    class WorldPresentationSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_LineBatcherA = 0x1F022A0;
+        static constexpr uintptr_t kRVA_LineBatcherB = 0x1F022B0;
+        static constexpr uintptr_t kRVA_LineBatcherC = 0x1F02E18;
+        static constexpr uintptr_t kRVA_WorldPreCallback = 0x1F022D9;
+        static constexpr uintptr_t kRVA_WorldPostCallback = 0x1F02DDD;
+        static constexpr uintptr_t kRVA_WorldCameraUpdate = 0x1F02A5D;
+        static constexpr uintptr_t kRVA_CameraManagerCommit = 0x1F02AD0;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+
+            const bool ok_a = m_patch_line_batcher_a.enable();
+            const bool ok_b = m_patch_line_batcher_b.enable();
+            const bool ok_c = m_patch_line_batcher_c.enable();
+            const bool ok_pre = m_patch_world_pre.enable();
+            const bool ok_post = m_patch_world_post.enable();
+            const bool ok_cam_update = m_patch_camera_update.enable();
+            const bool ok_cam_commit = m_patch_camera_commit.enable();
+            if (!ok_a || !ok_b || !ok_c || !ok_pre || !ok_post
+                || !ok_cam_update || !ok_cam_commit)
+            {
+                if (ok_cam_commit) m_patch_camera_commit.disable();
+                if (ok_cam_update) m_patch_camera_update.disable();
+                if (ok_post) m_patch_world_post.disable();
+                if (ok_pre) m_patch_world_pre.disable();
+                if (ok_c) m_patch_line_batcher_c.disable();
+                if (ok_b) m_patch_line_batcher_b.disable();
+                if (ok_a) m_patch_line_batcher_a.disable();
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.WorldPresentationSkip] enable failed "
+                    "(line_a={} line_b={} line_c={} pre={} post={} "
+                    "cam_update={} cam_commit={})\n"),
+                    ok_a ? STR("ok") : STR("FAIL"),
+                    ok_b ? STR("ok") : STR("FAIL"),
+                    ok_c ? STR("ok") : STR("FAIL"),
+                    ok_pre ? STR("ok") : STR("FAIL"),
+                    ok_post ? STR("ok") : STR("FAIL"),
+                    ok_cam_update ? STR("ok") : STR("FAIL"),
+                    ok_cam_commit ? STR("ok") : STR("FAIL"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldPresentationSkip] engaged - "
+                "UWorld debug/camera presentation callsites skipped "
+                "during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_camera_commit.disable();
+            m_patch_camera_update.disable();
+            m_patch_world_post.disable();
+            m_patch_world_pre.disable();
+            m_patch_line_batcher_c.disable();
+            m_patch_line_batcher_b.disable();
+            m_patch_line_batcher_a.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldPresentationSkip] disengaged - "
+                "UWorld debug/camera presentation restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            const uint8_t nop6[6] = {0x90, 0x90, 0x90,
+                                     0x90, 0x90, 0x90};
+
+            void* line_a = reinterpret_cast<void*>(base + kRVA_LineBatcherA);
+            void* line_b = reinterpret_cast<void*>(base + kRVA_LineBatcherB);
+            void* line_c = reinterpret_cast<void*>(base + kRVA_LineBatcherC);
+            void* pre = reinterpret_cast<void*>(base + kRVA_WorldPreCallback);
+            void* post = reinterpret_cast<void*>(
+                base + kRVA_WorldPostCallback);
+            void* cam_update = reinterpret_cast<void*>(
+                base + kRVA_WorldCameraUpdate);
+            void* cam_commit = reinterpret_cast<void*>(
+                base + kRVA_CameraManagerCommit);
+
+            if (!m_patch_line_batcher_a.prepare(line_a, nop5, sizeof(nop5))
+                || !m_patch_line_batcher_b.prepare(
+                    line_b, nop5, sizeof(nop5))
+                || !m_patch_line_batcher_c.prepare(
+                    line_c, nop5, sizeof(nop5))
+                || !m_patch_world_pre.prepare(pre, nop6, sizeof(nop6))
+                || !m_patch_world_post.prepare(post, nop6, sizeof(nop6))
+                || !m_patch_camera_update.prepare(
+                    cam_update, nop5, sizeof(nop5))
+                || !m_patch_camera_commit.prepare(
+                    cam_commit, nop5, sizeof(nop5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.WorldPresentationSkip] patch prepare "
+                    "failed (line_a=0x{:X} line_b=0x{:X} line_c=0x{:X} "
+                    "pre=0x{:X} post=0x{:X} cam_update=0x{:X} "
+                    "cam_commit=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(line_a),
+                    reinterpret_cast<uintptr_t>(line_b),
+                    reinterpret_cast<uintptr_t>(line_c),
+                    reinterpret_cast<uintptr_t>(pre),
+                    reinterpret_cast<uintptr_t>(post),
+                    reinterpret_cast<uintptr_t>(cam_update),
+                    reinterpret_cast<uintptr_t>(cam_commit));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_line_batcher_a{};
+        BytePatch m_patch_line_batcher_b{};
+        BytePatch m_patch_line_batcher_c{};
+        BytePatch m_patch_world_pre{};
+        BytePatch m_patch_world_post{};
+        BytePatch m_patch_camera_update{};
+        BytePatch m_patch_camera_commit{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // WorldPostGroupLevelTickSkipOverride - skips UWorld's level tick
+    // dispatch after the required early tick-task group has run.
+    //
+    // Ghidra places this call after the group-0 advancement path and
+    // before the tickable-object/camera/debug presentation section that
+    // lux-no-render already suppresses.  Keep it isolated from
+    // WorldPresentationSkipOverride so correctness canary failures point
+    // directly at this more speculative gate.
+    // ------------------------------------------------------------------
+    class WorldPostGroupLevelTickSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_LevelDispatchCall = 0x1F02A40;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            if (!m_patch_level_dispatch.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.WorldPostGroupLevelTickSkip] enable "
+                    "failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldPostGroupLevelTickSkip] engaged - "
+                "post-group UWorld level tick dispatch skipped during "
+                "generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_level_dispatch.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldPostGroupLevelTickSkip] disengaged - "
+                "post-group UWorld level tick dispatch restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            void* level_dispatch = reinterpret_cast<void*>(
+                base + kRVA_LevelDispatchCall);
+            if (!m_patch_level_dispatch.prepare(
+                    level_dispatch, nop5, sizeof(nop5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.WorldPostGroupLevelTickSkip] patch "
+                    "prepare failed (call=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(level_dispatch));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_level_dispatch{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // WorldPostGroupAsyncTailSkipOverride - skips UWorld tail work after
+    // replay advancement and post-group level dispatch.
+    //
+    // The two fixed CALLs target UE async/timer queue walkers for the
+    // second world timer collection and a compact-only queue pass.  The
+    // short vtable CALL is the foreground line-batcher tick.  These are
+    // all after the required Lux replay/sim tick path, so keep them as a
+    // separate, oracle-validated suppression bucket.
+    // ------------------------------------------------------------------
+    class WorldPostGroupAsyncTailSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_LateTimerManagerCall = 0x1F02BD5;
+        static constexpr uintptr_t kRVA_AsyncCompactCall     = 0x1F02BE1;
+        static constexpr uintptr_t kRVA_ForegroundLineTickCall = 0x1F02C1D;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+
+            const bool ok_timer = m_patch_late_timer.enable();
+            const bool ok_compact = m_patch_async_compact.enable();
+            const bool ok_foreground = m_patch_foreground_line_tick.enable();
+            if (!ok_timer || !ok_compact || !ok_foreground)
+            {
+                if (ok_foreground) m_patch_foreground_line_tick.disable();
+                if (ok_compact) m_patch_async_compact.disable();
+                if (ok_timer) m_patch_late_timer.disable();
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.WorldPostGroupAsyncTailSkip] enable "
+                    "failed (timer={} compact={} foreground={})\n"),
+                    ok_timer ? STR("ok") : STR("FAIL"),
+                    ok_compact ? STR("ok") : STR("FAIL"),
+                    ok_foreground ? STR("ok") : STR("FAIL"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldPostGroupAsyncTailSkip] engaged - "
+                "post-group UWorld async/timer/foreground tail skipped "
+                "during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_foreground_line_tick.disable();
+            m_patch_async_compact.disable();
+            m_patch_late_timer.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.WorldPostGroupAsyncTailSkip] disengaged - "
+                "post-group UWorld async/timer/foreground tail restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            const uint8_t nop2[2] = {0x90, 0x90};
+            void* timer_call = reinterpret_cast<void*>(
+                base + kRVA_LateTimerManagerCall);
+            void* compact_call = reinterpret_cast<void*>(
+                base + kRVA_AsyncCompactCall);
+            void* foreground_call = reinterpret_cast<void*>(
+                base + kRVA_ForegroundLineTickCall);
+
+            if (!m_patch_late_timer.prepare(timer_call, nop5, sizeof(nop5))
+                || !m_patch_async_compact.prepare(
+                    compact_call, nop5, sizeof(nop5))
+                || !m_patch_foreground_line_tick.prepare(
+                    foreground_call, nop2, sizeof(nop2)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.WorldPostGroupAsyncTailSkip] patch "
+                    "prepare failed (timer=0x{:X} compact=0x{:X} "
+                    "foreground=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(timer_call),
+                    reinterpret_cast<uintptr_t>(compact_call),
+                    reinterpret_cast<uintptr_t>(foreground_call));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_late_timer{};
+        BytePatch m_patch_async_compact{};
+        BytePatch m_patch_foreground_line_tick{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // ActorPresentationTickSkipOverride - skips actor ticks that are not
+    // part of Lux replay authority during timeline generation.
+    //
+    // Authoritative BM/InputLog/chara simulation ticks are intentionally
+    // excluded.  These targets are UI/input-event/camera presentation
+    // paths; the replay oracle and strict watchback test decide whether
+    // any hidden gameplay dependency remains.
+    // ------------------------------------------------------------------
+    class ActorPresentationTickSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_LuxInputListenerTick = 0x3FC2B0;
+        static constexpr uintptr_t kRVA_LuxCharaActorTick    = 0x3FC2D0;
+        static constexpr uintptr_t kRVA_PlayerControllerTick = 0x204E1E0;
+        static constexpr bool kSkipInputListener = true;
+        static constexpr bool kSkipLuxCharaActor = true;
+        static constexpr bool kSkipPlayerController = true;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+
+            const bool ok_listener = !kSkipInputListener
+                || m_patch_input_listener.enable();
+            const bool ok_chara_actor = !kSkipLuxCharaActor
+                || m_patch_lux_chara_actor.enable();
+            const bool ok_pc = !kSkipPlayerController
+                || m_patch_player_controller.enable();
+            if (!ok_listener || !ok_chara_actor || !ok_pc)
+            {
+                if (ok_pc) m_patch_player_controller.disable();
+                if (ok_chara_actor) m_patch_lux_chara_actor.disable();
+                if (ok_listener) m_patch_input_listener.disable();
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.ActorPresentationTickSkip] enable failed "
+                    "(listener={} chara_actor={} player_controller={})\n"),
+                    ok_listener ? STR("ok") : STR("FAIL"),
+                    ok_chara_actor ? STR("ok") : STR("FAIL"),
+                    ok_pc ? STR("ok") : STR("FAIL"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.ActorPresentationTickSkip] engaged - "
+                "actor presentation ticks skipped during generation "
+                "(listener={} chara_base={} player_controller={})\n"),
+                kSkipInputListener ? STR("yes") : STR("no"),
+                kSkipLuxCharaActor ? STR("yes") : STR("no"),
+                kSkipPlayerController ? STR("yes") : STR("no"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_player_controller.disable();
+            m_patch_lux_chara_actor.disable();
+            m_patch_input_listener.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.ActorPresentationTickSkip] disengaged - "
+                "actor presentation ticks restored\n"));
+        }
+
+    private:
+        static bool prepare_ret_site(void* site,
+                                     BytePatch& patch,
+                                     const char* tag) noexcept
+        {
+            const uint8_t ret5[5] = {0xC3, 0x90, 0x90, 0x90, 0x90};
+            if (!patch.prepare(site, ret5, sizeof(ret5)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.ActorPresentationTickSkip] {} prepare "
+                    "failed (site=0x{:X})\n"),
+                    RC::to_generic_string(tag),
+                    reinterpret_cast<uintptr_t>(site));
+                return false;
+            }
+            return true;
+        }
+
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            void* listener = reinterpret_cast<void*>(
+                base + kRVA_LuxInputListenerTick);
+            void* chara_actor = reinterpret_cast<void*>(
+                base + kRVA_LuxCharaActorTick);
+            void* player_controller = reinterpret_cast<void*>(
+                base + kRVA_PlayerControllerTick);
+            if ((kSkipInputListener
+                    && !prepare_ret_site(listener, m_patch_input_listener,
+                                         "LuxInputListenerTick"))
+                || (kSkipLuxCharaActor
+                    && !prepare_ret_site(chara_actor,
+                                         m_patch_lux_chara_actor,
+                                         "LuxCharaActorTick"))
+                || (kSkipPlayerController
+                    && !prepare_ret_site(player_controller,
+                                         m_patch_player_controller,
+                                         "PlayerControllerTick")))
+                return false;
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_input_listener{};
+        BytePatch m_patch_lux_chara_actor{};
+        BytePatch m_patch_player_controller{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // BattleCharaPresentationSkipOverride - skips visual-only
+    // ALuxBattleChara::TickActor callsites during lux-no-render
+    // generation.
+    //
+    // The retained path still runs replay advancement, weapon/Lux state,
+    // soul-charge state transitions, hit/cue state, and ALuxCharaActor's
+    // base tick.  The skipped callsites only push actor transforms, hair
+    // simulation, material parameters, and visibility propagation.
+    // ------------------------------------------------------------------
+    class BattleCharaPresentationSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_SetActorTransformCall = 0x3D0823;
+        static constexpr uintptr_t kRVA_HairStateMachineCall  = 0x3D082E;
+        static constexpr uintptr_t kRVA_ChargeMaterialCall    = 0x3D0DC1;
+        static constexpr uintptr_t kRVA_MoveVisibilityCall    = 0x3D0DFB;
+        static constexpr uintptr_t kRVA_AnimDelegateBlockStart = 0x3D05D4;
+        static constexpr uintptr_t kRVA_AnimDelegateBlockAfter = 0x3D0629;
+        static constexpr uintptr_t kRVA_WeaponAnimBlockStart  = 0x3D064E;
+        static constexpr uintptr_t kRVA_WeaponAnimBlockAfter  = 0x3D07E8;
+        static constexpr uintptr_t kRVA_SubActorLoopStart     = 0x3D095D;
+        static constexpr uintptr_t kRVA_SubActorLoopAfter     = 0x3D0C93;
+        static constexpr bool kSkipAnimDelegateDispatch = false;
+        static constexpr bool kSkipWeaponAnimDispatch = true;
+        static constexpr bool kSkipSubActorLoop = false;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+
+            const bool ok_transform = m_patch_set_actor_transform.enable();
+            const bool ok_hair = m_patch_hair_state_machine.enable();
+            const bool ok_material = m_patch_charge_material.enable();
+            const bool ok_visibility = m_patch_move_visibility.enable();
+            const bool ok_anim_delegate = !kSkipAnimDelegateDispatch
+                || m_patch_anim_delegate_block.enable();
+            const bool ok_weapon_anim = !kSkipWeaponAnimDispatch
+                || m_patch_weapon_anim_block.enable();
+            const bool ok_subactors = !kSkipSubActorLoop
+                || m_patch_subactor_loop.enable();
+            if (!ok_transform || !ok_hair || !ok_material || !ok_visibility
+                || !ok_anim_delegate || !ok_weapon_anim || !ok_subactors)
+            {
+                if (ok_subactors) m_patch_subactor_loop.disable();
+                if (ok_weapon_anim) m_patch_weapon_anim_block.disable();
+                if (ok_anim_delegate) m_patch_anim_delegate_block.disable();
+                if (ok_visibility) m_patch_move_visibility.disable();
+                if (ok_material) m_patch_charge_material.disable();
+                if (ok_hair) m_patch_hair_state_machine.disable();
+                if (ok_transform) m_patch_set_actor_transform.disable();
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.BattleCharaPresentationSkip] enable "
+                    "failed (transform={} hair={} material={} "
+                    "visibility={} anim_delegate={} weapon_anim={} "
+                    "subactors={})\n"),
+                    ok_transform ? STR("ok") : STR("FAIL"),
+                    ok_hair ? STR("ok") : STR("FAIL"),
+                    ok_material ? STR("ok") : STR("FAIL"),
+                    ok_visibility ? STR("ok") : STR("FAIL"),
+                    ok_anim_delegate ? STR("ok") : STR("FAIL"),
+                    ok_weapon_anim ? STR("ok") : STR("FAIL"),
+                    ok_subactors ? STR("ok") : STR("FAIL"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.BattleCharaPresentationSkip] engaged - "
+                "battle-chara transform/hair/material/visibility callsites "
+                "skipped during generation\n"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            if (kSkipSubActorLoop)
+                m_patch_subactor_loop.disable();
+            if (kSkipWeaponAnimDispatch)
+                m_patch_weapon_anim_block.disable();
+            if (kSkipAnimDelegateDispatch)
+                m_patch_anim_delegate_block.disable();
+            m_patch_move_visibility.disable();
+            m_patch_charge_material.disable();
+            m_patch_hair_state_machine.disable();
+            m_patch_set_actor_transform.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.BattleCharaPresentationSkip] disengaged - "
+                "battle-chara presentation callsites restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+            void* transform_call = reinterpret_cast<void*>(
+                base + kRVA_SetActorTransformCall);
+            void* hair_call = reinterpret_cast<void*>(
+                base + kRVA_HairStateMachineCall);
+            void* material_call = reinterpret_cast<void*>(
+                base + kRVA_ChargeMaterialCall);
+            void* visibility_call = reinterpret_cast<void*>(
+                base + kRVA_MoveVisibilityCall);
+            uint8_t anim_delegate_patch[7] = {};
+            void* anim_delegate_start = nullptr;
+            void* anim_delegate_after = nullptr;
+            bool anim_delegate_prepare_ok = true;
+            if (kSkipAnimDelegateDispatch)
+            {
+                anim_delegate_patch[5] = 0x90;
+                anim_delegate_patch[6] = 0x90;
+                anim_delegate_start = reinterpret_cast<void*>(
+                    base + kRVA_AnimDelegateBlockStart);
+                anim_delegate_after = reinterpret_cast<void*>(
+                    base + kRVA_AnimDelegateBlockAfter);
+                anim_delegate_prepare_ok = encode_jmp_rel32(
+                    anim_delegate_start,
+                    anim_delegate_after,
+                    anim_delegate_patch);
+                if (anim_delegate_prepare_ok)
+                {
+                    anim_delegate_prepare_ok =
+                        m_patch_anim_delegate_block.prepare(
+                            anim_delegate_start,
+                            anim_delegate_patch,
+                            sizeof(anim_delegate_patch));
+                }
+            }
+            uint8_t weapon_anim_patch[7] = {};
+            void* weapon_anim_start = nullptr;
+            void* weapon_anim_after = nullptr;
+            bool weapon_anim_prepare_ok = true;
+            if (kSkipWeaponAnimDispatch)
+            {
+                weapon_anim_patch[5] = 0x90;
+                weapon_anim_patch[6] = 0x90;
+                weapon_anim_start = reinterpret_cast<void*>(
+                    base + kRVA_WeaponAnimBlockStart);
+                weapon_anim_after = reinterpret_cast<void*>(
+                    base + kRVA_WeaponAnimBlockAfter);
+                weapon_anim_prepare_ok = encode_jmp_rel32(
+                    weapon_anim_start,
+                    weapon_anim_after,
+                    weapon_anim_patch);
+                if (weapon_anim_prepare_ok)
+                {
+                    weapon_anim_prepare_ok =
+                        m_patch_weapon_anim_block.prepare(
+                            weapon_anim_start,
+                            weapon_anim_patch,
+                            sizeof(weapon_anim_patch));
+                }
+            }
+            uint8_t subactor_patch[7] = {};
+            void* subactor_start = nullptr;
+            void* subactor_after = nullptr;
+            bool subactor_prepare_ok = true;
+            if (kSkipSubActorLoop)
+            {
+                subactor_patch[5] = 0x90;
+                subactor_patch[6] = 0x90;
+                subactor_start = reinterpret_cast<void*>(
+                    base + kRVA_SubActorLoopStart);
+                subactor_after = reinterpret_cast<void*>(
+                    base + kRVA_SubActorLoopAfter);
+                subactor_prepare_ok = encode_jmp_rel32(
+                    subactor_start, subactor_after, subactor_patch);
+                if (subactor_prepare_ok)
+                {
+                    subactor_prepare_ok = m_patch_subactor_loop.prepare(
+                        subactor_start,
+                        subactor_patch,
+                        sizeof(subactor_patch));
+                }
+            }
+
+            if (!m_patch_set_actor_transform.prepare(
+                    transform_call, nop5, sizeof(nop5))
+                || !m_patch_hair_state_machine.prepare(
+                    hair_call, nop5, sizeof(nop5))
+                || !m_patch_charge_material.prepare(
+                    material_call, nop5, sizeof(nop5))
+                || !m_patch_move_visibility.prepare(
+                    visibility_call, nop5, sizeof(nop5))
+                || !anim_delegate_prepare_ok
+                || !weapon_anim_prepare_ok
+                || !subactor_prepare_ok)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.BattleCharaPresentationSkip] patch "
+                    "prepare failed (transform=0x{:X} hair=0x{:X} "
+                    "material=0x{:X} visibility=0x{:X} "
+                    "anim_delegate=0x{:X}->0x{:X} "
+                    "weapon_anim=0x{:X}->0x{:X} "
+                    "subactors=0x{:X}->0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(transform_call),
+                    reinterpret_cast<uintptr_t>(hair_call),
+                    reinterpret_cast<uintptr_t>(material_call),
+                    reinterpret_cast<uintptr_t>(visibility_call),
+                    reinterpret_cast<uintptr_t>(anim_delegate_start),
+                    reinterpret_cast<uintptr_t>(anim_delegate_after),
+                    reinterpret_cast<uintptr_t>(weapon_anim_start),
+                    reinterpret_cast<uintptr_t>(weapon_anim_after),
+                    reinterpret_cast<uintptr_t>(subactor_start),
+                    reinterpret_cast<uintptr_t>(subactor_after));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_set_actor_transform{};
+        BytePatch m_patch_hair_state_machine{};
+        BytePatch m_patch_charge_material{};
+        BytePatch m_patch_move_visibility{};
+        BytePatch m_patch_anim_delegate_block{};
+        BytePatch m_patch_weapon_anim_block{};
+        BytePatch m_patch_subactor_loop{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
+    // ------------------------------------------------------------------
+    // TickTaskGroupSkipOverride - skips later UE tick-task groups during
+    // lux-no-render generation.
+    //
+    // UWorld::Tick dispatches the authoritative early tick work through
+    // FTickTaskManager and then runs groups 1..6 for later component,
+    // camera, post-physics, and cleanup work.  This experimental gate
+    // keeps group 0 intact and suppresses later groups only while the
+    // timeline no-render RAII scope is active.  The replay oracle/watch
+    // tests decide whether any Lux-authoritative state actually lived in
+    // those later groups.
+    // ------------------------------------------------------------------
+    class TickTaskGroupSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_FTickTaskManagerGet = 0x215F460;
+        static constexpr uintptr_t kRVA_FrameCounter        = 0x470D0C4;
+        static constexpr uintptr_t kVtOff_RunTickGroup      = 0x28;
+        static constexpr int       kFirstSuppressedGroup    = 1;
+        static constexpr size_t    kGroup0OrdinalCount      = 4;
+        static constexpr uint64_t  kGroup0WarmupCalls =
+            kGroup0OrdinalCount * 64;
+        static constexpr uint32_t  kForcedGroup0RequiredMask = 0x0;
+        static constexpr bool      kProfileGroup0AfterLearning = true;
+
+        using GetManagerFn = void*(__fastcall*)();
+        using RunTickGroupFn = void(__fastcall*)(void*, int, bool);
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        void reset_counters() noexcept
+        {
+            s_suppressed_groups.store(0, std::memory_order_release);
+            s_passed_group0_calls.store(0, std::memory_order_release);
+            s_passed_group0_us.store(0, std::memory_order_release);
+            s_group0_sequence.store(0, std::memory_order_release);
+            s_group0_required_mask.store(0, std::memory_order_release);
+            s_group0_learning_ready.store(false, std::memory_order_release);
+            s_group0_adaptive_skipped.store(0, std::memory_order_release);
+            for (auto& v : s_group0_calls_by_ordinal)
+                v.store(0, std::memory_order_release);
+            for (auto& v : s_group0_advances_by_ordinal)
+                v.store(0, std::memory_order_release);
+            for (auto& v : s_group0_skips_by_ordinal)
+                v.store(0, std::memory_order_release);
+        }
+
+        uint64_t suppressed_groups() const noexcept
+        {
+            return s_suppressed_groups.load(std::memory_order_acquire);
+        }
+
+        uint64_t passed_group0_calls() const noexcept
+        {
+            return s_passed_group0_calls.load(std::memory_order_acquire);
+        }
+
+        double average_group0_us() const noexcept
+        {
+            const uint64_t calls =
+                s_passed_group0_calls.load(std::memory_order_acquire);
+            if (!calls) return 0.0;
+            return static_cast<double>(s_passed_group0_us.load(
+                       std::memory_order_acquire))
+                 / static_cast<double>(calls);
+        }
+
+        uint64_t adaptive_group0_skipped() const noexcept
+        {
+            return s_group0_adaptive_skipped.load(
+                std::memory_order_acquire);
+        }
+
+        uint32_t group0_required_mask() const noexcept
+        {
+            return s_group0_required_mask.load(std::memory_order_acquire);
+        }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            reset_counters();
+            if (!m_patch_run_tick_group.enable())
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.TickTaskGroupSkip] enable failed\n"));
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.TickTaskGroupSkip] engaged - FTickTaskManager "
+                "groups >= {} skipped during generation\n"),
+                kFirstSuppressedGroup);
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_run_tick_group.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.TickTaskGroupSkip] disengaged - "
+                "FTickTaskManager groups restored (suppressed={} "
+                "group0_calls={} group0_avg={:.1f} us "
+                "group0_adaptive_skipped={} group0_required_mask=0x{:X} "
+                "ord0={}/{}/{} ord1={}/{}/{} ord2={}/{}/{} "
+                "ord3={}/{}/{})\n"),
+                suppressed_groups(), passed_group0_calls(),
+                average_group0_us(), adaptive_group0_skipped(),
+                group0_required_mask(),
+                s_group0_calls_by_ordinal[0].load(std::memory_order_acquire),
+                s_group0_advances_by_ordinal[0].load(
+                    std::memory_order_acquire),
+                s_group0_skips_by_ordinal[0].load(
+                    std::memory_order_acquire),
+                s_group0_calls_by_ordinal[1].load(std::memory_order_acquire),
+                s_group0_advances_by_ordinal[1].load(
+                    std::memory_order_acquire),
+                s_group0_skips_by_ordinal[1].load(
+                    std::memory_order_acquire),
+                s_group0_calls_by_ordinal[2].load(std::memory_order_acquire),
+                s_group0_advances_by_ordinal[2].load(
+                    std::memory_order_acquire),
+                s_group0_skips_by_ordinal[2].load(
+                    std::memory_order_acquire),
+                s_group0_calls_by_ordinal[3].load(std::memory_order_acquire),
+                s_group0_advances_by_ordinal[3].load(
+                    std::memory_order_acquire),
+                s_group0_skips_by_ordinal[3].load(
+                    std::memory_order_acquire));
+        }
+
+    private:
+        static void __fastcall run_tick_group_gate(
+            void* manager, int group, bool block) noexcept
+        {
+            auto* original = reinterpret_cast<RunTickGroupFn>(
+                s_original_run_tick_group.load(std::memory_order_acquire));
+            if (!original) return;
+
+            if (group >= kFirstSuppressedGroup)
+            {
+                s_suppressed_groups.fetch_add(
+                    1, std::memory_order_acq_rel);
+                return;
+            }
+
+            if (group == 0)
+            {
+                const uint64_t seq = s_group0_sequence.fetch_add(
+                    1, std::memory_order_acq_rel);
+                const size_t ordinal = static_cast<size_t>(
+                    seq % kGroup0OrdinalCount);
+                const bool learning_ready =
+                    s_group0_learning_ready.load(
+                        std::memory_order_acquire);
+                const uint32_t required_mask =
+                    learning_ready
+                        ? s_group0_required_mask.load(
+                              std::memory_order_acquire)
+                        : 0;
+
+                if (learning_ready)
+                {
+                    if (required_mask != 0
+                        && (required_mask
+                            & (1u << static_cast<uint32_t>(ordinal)))
+                               == 0)
+                    {
+                        s_group0_adaptive_skipped.fetch_add(
+                            1, std::memory_order_acq_rel);
+                        s_group0_skips_by_ordinal[ordinal].fetch_add(
+                            1, std::memory_order_acq_rel);
+                        return;
+                    }
+                    if (!kProfileGroup0AfterLearning
+                        && required_mask != 0)
+                    {
+                        original(manager, group, block);
+                        s_passed_group0_calls.fetch_add(
+                            1, std::memory_order_acq_rel);
+                        s_group0_calls_by_ordinal[ordinal].fetch_add(
+                            1, std::memory_order_acq_rel);
+                        s_group0_advances_by_ordinal[ordinal].fetch_add(
+                            1, std::memory_order_acq_rel);
+                        return;
+                    }
+                }
+
+                uint32_t frame_before = 0;
+                const bool measure_advance = !learning_ready;
+                const bool frame_before_ok = measure_advance
+                    &&
+                    read_lux_frame_counter(frame_before);
+                const auto t0 = std::chrono::steady_clock::now();
+                original(manager, group, block);
+                const auto t1 = std::chrono::steady_clock::now();
+                const uint64_t us = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        t1 - t0).count());
+                s_passed_group0_calls.fetch_add(
+                    1, std::memory_order_acq_rel);
+                s_passed_group0_us.fetch_add(
+                    us, std::memory_order_acq_rel);
+                s_group0_calls_by_ordinal[ordinal].fetch_add(
+                    1, std::memory_order_acq_rel);
+                uint32_t frame_after = 0;
+                if (frame_before_ok
+                    && read_lux_frame_counter(frame_after)
+                    && frame_after != frame_before)
+                {
+                    s_group0_advances_by_ordinal[ordinal].fetch_add(
+                        1, std::memory_order_acq_rel);
+                }
+                else if (learning_ready && required_mask != 0
+                         && (required_mask
+                             & (1u << static_cast<uint32_t>(ordinal)))
+                                != 0)
+                {
+                    s_group0_advances_by_ordinal[ordinal].fetch_add(
+                        1, std::memory_order_acq_rel);
+                }
+                if (!learning_ready)
+                    maybe_finish_group0_learning(seq + 1);
+                return;
+            }
+
+            original(manager, group, block);
+        }
+
+        static bool read_lux_frame_counter(uint32_t& out) noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            return SafeReadUInt32(reinterpret_cast<const void*>(
+                                      base + kRVA_FrameCounter),
+                                  &out);
+        }
+
+        static void maybe_finish_group0_learning(uint64_t calls) noexcept
+        {
+            if (calls < kGroup0WarmupCalls) return;
+            if (s_group0_learning_ready.load(std::memory_order_acquire))
+                return;
+
+            uint32_t mask = 0;
+            for (size_t i = 0; i < kGroup0OrdinalCount; ++i)
+            {
+                if (s_group0_advances_by_ordinal[i].load(
+                        std::memory_order_acquire) != 0)
+                {
+                    mask |= (1u << static_cast<uint32_t>(i));
+                }
+            }
+            if (kForcedGroup0RequiredMask != 0)
+                mask = kForcedGroup0RequiredMask;
+            if (mask == 0) return;
+
+            s_group0_required_mask.store(mask, std::memory_order_release);
+            s_group0_learning_ready.store(true, std::memory_order_release);
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.TickTaskGroupSkip] group0 adaptive skip "
+                "learned required_mask=0x{:X} after {} calls "
+                "(advances: {}, {}, {}, {})\n"),
+                mask, calls,
+                s_group0_advances_by_ordinal[0].load(
+                    std::memory_order_acquire),
+                s_group0_advances_by_ordinal[1].load(
+                    std::memory_order_acquire),
+                s_group0_advances_by_ordinal[2].load(
+                    std::memory_order_acquire),
+                s_group0_advances_by_ordinal[3].load(
+                    std::memory_order_acquire));
+        }
+
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            auto* get_manager = reinterpret_cast<GetManagerFn>(
+                base + kRVA_FTickTaskManagerGet);
+            void* manager = nullptr;
+            __try
+            {
+                manager = get_manager();
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                manager = nullptr;
+            }
+            if (!manager)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.TickTaskGroupSkip] manager unavailable\n"));
+                return false;
+            }
+
+            void* vtable = nullptr;
+            if (!SafeReadPtr(manager, &vtable) || !vtable)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.TickTaskGroupSkip] vtable unavailable "
+                    "(manager=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(manager));
+                return false;
+            }
+
+            void** run_group_slot = reinterpret_cast<void**>(
+                reinterpret_cast<uintptr_t>(vtable) + kVtOff_RunTickGroup);
+            void* original = nullptr;
+            if (!SafeReadPtr(run_group_slot, &original) || !original)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.TickTaskGroupSkip] slot unavailable "
+                    "(manager=0x{:X} vtable=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(manager),
+                    reinterpret_cast<uintptr_t>(vtable));
+                return false;
+            }
+            s_original_run_tick_group.store(
+                original, std::memory_order_release);
+
+            auto gate = &run_tick_group_gate;
+            uint8_t replacement[sizeof(void*)]{};
+            std::memcpy(replacement, &gate, sizeof(gate));
+            if (!m_patch_run_tick_group.prepare(
+                    run_group_slot, replacement, sizeof(replacement)))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.TickTaskGroupSkip] vtable patch prepare "
+                    "failed (manager=0x{:X} vtable=0x{:X})\n"),
+                    reinterpret_cast<uintptr_t>(manager),
+                    reinterpret_cast<uintptr_t>(vtable));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_run_tick_group{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+
+        static inline std::atomic<void*> s_original_run_tick_group{nullptr};
+        static inline std::atomic<uint64_t> s_suppressed_groups{0};
+        static inline std::atomic<uint64_t> s_passed_group0_calls{0};
+        static inline std::atomic<uint64_t> s_passed_group0_us{0};
+        static inline std::atomic<uint64_t> s_group0_sequence{0};
+        static inline std::atomic<uint32_t> s_group0_required_mask{0};
+        static inline std::atomic<bool> s_group0_learning_ready{false};
+        static inline std::atomic<uint64_t> s_group0_adaptive_skipped{0};
+        static inline std::array<std::atomic<uint64_t>,
+                                 kGroup0OrdinalCount>
+            s_group0_calls_by_ordinal{};
+        static inline std::array<std::atomic<uint64_t>,
+                                 kGroup0OrdinalCount>
+            s_group0_advances_by_ordinal{};
+        static inline std::array<std::atomic<uint64_t>,
+                                 kGroup0OrdinalCount>
+            s_group0_skips_by_ordinal{};
+    };
+
+    // ------------------------------------------------------------------
+    // LuxPerFramePresentationSkipOverride - skips presentation-only calls
+    // inside LuxBattle_PerFrameTick during lux-no-render generation.
+    //
+    // This leaves replay input, BattleManager round/cursor state, MoveVM,
+    // hit resolution, health/vitals, RNG, and stage wind force accumulation
+    // intact.  Audio is intentionally left enabled in this first pass until
+    // hit-cue equivalence has been validated separately.
+    // ------------------------------------------------------------------
+    class LuxPerFramePresentationSkipOverride
+    {
+    public:
+        static constexpr uintptr_t kRVA_FireVfxCall = 0x2DC0CD;
+        static constexpr uintptr_t kRVA_UpdateCameraCall = 0x2DC0DE;
+        static constexpr uintptr_t kRVA_TickCameraFadeCall = 0x2DC133;
+        static constexpr uintptr_t kRVA_SpawnStageWindParticlesCall =
+            0x2DC325;
+        static constexpr bool kSkipFireVfx = false;
+        static constexpr bool kSkipUpdateCamera = false;
+        static constexpr bool kSkipTickCameraFade = false;
+        static constexpr bool kSkipSpawnStageWindParticles = false;
+
+        bool is_engaged() const noexcept { return m_engaged; }
+
+        bool engage() noexcept
+        {
+            if (m_engaged) return true;
+            if (!prepare()) return false;
+            const bool ok_vfx =
+                !kSkipFireVfx || m_patch_fire_vfx.enable();
+            const bool ok_camera =
+                !kSkipUpdateCamera || m_patch_update_camera.enable();
+            const bool ok_fade =
+                !kSkipTickCameraFade || m_patch_tick_camera_fade.enable();
+            const bool ok_wind_particles =
+                !kSkipSpawnStageWindParticles
+                || m_patch_spawn_stage_wind_particles.enable();
+            if (!ok_vfx || !ok_camera || !ok_fade || !ok_wind_particles)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.LuxPerFramePresentationSkip] enable "
+                    "failed (vfx={} camera={} fade={} wind_particles={})\n"),
+                    ok_vfx ? STR("ok") : STR("FAIL"),
+                    ok_camera ? STR("ok") : STR("FAIL"),
+                    ok_fade ? STR("ok") : STR("FAIL"),
+                    ok_wind_particles ? STR("ok") : STR("FAIL"));
+                if (ok_vfx) m_patch_fire_vfx.disable();
+                if (ok_camera) m_patch_update_camera.disable();
+                if (ok_fade) m_patch_tick_camera_fade.disable();
+                if (ok_wind_particles)
+                    m_patch_spawn_stage_wind_particles.disable();
+                return false;
+            }
+
+            m_engaged = true;
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.LuxPerFramePresentationSkip] engaged - "
+                "PerFrameTick presentation calls skipped during generation "
+                "(vfx={} camera={} fade={} wind_particles={})\n"),
+                kSkipFireVfx ? STR("yes") : STR("no"),
+                kSkipUpdateCamera ? STR("yes") : STR("no"),
+                kSkipTickCameraFade ? STR("yes") : STR("no"),
+                kSkipSpawnStageWindParticles ? STR("yes") : STR("no"));
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (!m_engaged) return;
+            m_engaged = false;
+            m_patch_spawn_stage_wind_particles.disable();
+            m_patch_tick_camera_fade.disable();
+            m_patch_update_camera.disable();
+            m_patch_fire_vfx.disable();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.LuxPerFramePresentationSkip] disengaged - "
+                "PerFrameTick presentation calls restored\n"));
+        }
+
+    private:
+        bool prepare() noexcept
+        {
+            if (m_prepared) return true;
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            const uint8_t nop5[5] = {0x90, 0x90, 0x90, 0x90, 0x90};
+
+            const bool ok =
+                (!kSkipFireVfx
+                 || m_patch_fire_vfx.prepare(
+                        reinterpret_cast<void*>(base + kRVA_FireVfxCall),
+                        nop5, sizeof(nop5)))
+                && (!kSkipUpdateCamera
+                    || m_patch_update_camera.prepare(
+                        reinterpret_cast<void*>(base + kRVA_UpdateCameraCall),
+                        nop5, sizeof(nop5)))
+                && (!kSkipTickCameraFade
+                    || m_patch_tick_camera_fade.prepare(
+                        reinterpret_cast<void*>(base + kRVA_TickCameraFadeCall),
+                        nop5, sizeof(nop5)))
+                && (!kSkipSpawnStageWindParticles
+                    || m_patch_spawn_stage_wind_particles.prepare(
+                    reinterpret_cast<void*>(
+                        base + kRVA_SpawnStageWindParticlesCall),
+                    nop5, sizeof(nop5)));
+            if (!ok)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub.LuxPerFramePresentationSkip] patch "
+                    "prepare failed\n"));
+                return false;
+            }
+
+            m_prepared = true;
+            return true;
+        }
+
+        BytePatch m_patch_fire_vfx{};
+        BytePatch m_patch_update_camera{};
+        BytePatch m_patch_tick_camera_fade{};
+        BytePatch m_patch_spawn_stage_wind_particles{};
+        bool m_prepared {false};
+        bool m_engaged {false};
+    };
+
     // ========================================================================
     // Horse::ChunkPool - content-addressed deduplicating byte store.
     //
@@ -1992,10 +5746,11 @@ namespace Horse
     class ChunkPool
     {
     public:
-        // 512 B balances dedup granularity (smaller = more shared chunks)
-        // against id-list overhead (smaller = more ids/tick).  Must be a
-        // multiple of 8 - hash64 reads the chunk as uint64 words.
-        static constexpr size_t kChunkBytes = 512;
+        // 1024 B keeps the match replay well under the 2 GB capture ceiling
+        // while halving per-frame hash/id-list work versus the original
+        // 512 B chunks.  Must be a multiple of 8 - hash64 reads the chunk
+        // as uint64 words.
+        static constexpr size_t kChunkBytes = 1024;
 
         // Intern kChunkBytes bytes at `p` (must be 8-byte aligned); returns
         // the id of the pool chunk holding exactly that content, adding a
@@ -2099,6 +5854,23 @@ namespace Horse
         // Writable region_len-byte staging buffer.  Capture code fills this,
         // then calls commit() to fold it into the pool as the next tick.
         uint8_t* scratch() { return m_scratch.data(); }
+
+        bool reserve_ticks(size_t ticks) noexcept
+        {
+            if (!m_chunks_per_tick || ticks == 0) return true;
+            if (ticks > ((std::numeric_limits<size_t>::max)()
+                         / m_chunks_per_tick))
+                return false;
+            try
+            {
+                m_ids.reserve(ticks * m_chunks_per_tick);
+                return true;
+            }
+            catch (const std::bad_alloc&)
+            {
+                return false;
+            }
+        }
 
         // Fold the current scratch contents in as the next tick.  Returns
         // false ONLY if the optional self-test (first kSelfTestTicks ticks)
@@ -2392,6 +6164,42 @@ namespace Horse
         }
     }
 
+    static inline bool SafeInvokeWorldTick(
+        void (__fastcall* fn)(void*, int, float),
+        void* world,
+        int tick_type,
+        float delta_seconds) noexcept
+    {
+        if (!fn || !world) return false;
+        __try
+        {
+            fn(world, tick_type, delta_seconds);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static inline bool SafeInvokeGameEngineTick(
+        void (__fastcall* fn)(void*, float, bool),
+        void* engine,
+        float delta_seconds,
+        bool idle_mode) noexcept
+    {
+        if (!fn || !engine) return false;
+        __try
+        {
+            fn(engine, delta_seconds, idle_mode);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     static inline bool SafeInvokeNativeVoidPtr(
         void (__fastcall* fn)(void*),
         void* self) noexcept
@@ -2400,6 +6208,23 @@ namespace Horse
         __try
         {
             fn(self);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static inline bool SafeInvokeNativePtrFloat(
+        void (__fastcall* fn)(void*, float),
+        void* self,
+        float delta_seconds) noexcept
+    {
+        if (!fn || !self) return false;
+        __try
+        {
+            fn(self, delta_seconds);
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -2726,6 +6551,7 @@ namespace Horse
             bool active {false};
             std::string run_id;
             std::string generate_mode {"normal"};
+            bool generation_full_frame_trace {false};
             int32_t timeout_seconds {600};
             std::vector<ReplaySeekTestCase> cases;
             size_t case_index {0};
@@ -3160,6 +6986,16 @@ namespace Horse
             double   avg_rdb_us;
             double   avg_extras_us;
             double   avg_commit_us;
+            double   avg_tag_us;
+            double   avg_oracle_us;
+            double   avg_reset_us;
+            double   avg_demo_time_us;
+            double   avg_trace_diag_us;
+            uint64_t tick_capture_calls;
+            double   avg_tick_capture_us;
+            uint64_t tick_generate_calls;
+            double   avg_tick_generate_us;
+            double   avg_fallback_us;
         };
 
         // Per-snapshot stride matches HgCpuDirect's allocator stride
@@ -3172,8 +7008,10 @@ namespace Horse
         static constexpr uintptr_t kRVA_LuxBattlePerFrameTick = 0x2DBC60;
         static constexpr uintptr_t kRVA_LuxBattleInteractiveReplayReset = 0x37E900;
         static constexpr uintptr_t kRVA_ALuxBattleManagerSetMoveState = 0x3F8370;
+        static constexpr uintptr_t kRVA_FrameInputLogTickActorDispatch = 0x3FBDF0;
         static constexpr uintptr_t kRVA_FrameInputLogAdvanceReplayClock = 0x3E1FC0;
         static constexpr uintptr_t kRVA_FrameInputLogCurrentInputRefresh = 0x3FDF30;
+        static constexpr uintptr_t kRVA_BattleManagerMainStateTick = 0x3FBF30;
         static constexpr uintptr_t kRVA_BattleManagerSimulationLoop = 0x3FE520;
         static constexpr uintptr_t kRVA_ReplayListItemInitialize = 0x5799D0;
         static constexpr uintptr_t kRVA_ReplayListItemDestroy    = 0x4EEBA0;
@@ -3218,6 +7056,11 @@ namespace Horse
         static constexpr uintptr_t kRVA_ScbattleStageBarrierValid = 0x484406C;
         static constexpr uintptr_t kRVA_ScbattleStageBarrierArray = 0x4844070;
         static constexpr uintptr_t kRVA_DemoGotoTimeInSeconds = 0x1E0ECA0;
+        static constexpr uintptr_t kRVA_UpdateTimeAndHandleMaxTickRate =
+            0x2189040;
+        static constexpr uintptr_t kRVA_EnginePostUpdateDelta = 0x1D29D80;
+        static constexpr uintptr_t kRVA_UWorldTick = 0x1F02230;
+        static constexpr uintptr_t kRVA_UGameEngineTick = 0x1E38F70;
 
         static constexpr uintptr_t kWorldModePump_BattleManager_Off = 0x30;
         static constexpr uintptr_t kWorldModePump_SubDriver_Off     = 0x38;
@@ -5490,6 +9333,8 @@ namespace Horse
         void tick_capture()
         {
             if (!is_initialized()) return;
+            if (m_direct_engine_tick_active.load(std::memory_order_acquire))
+                return;
 
             // One master-clock read per cockpit tick.  The engine does
             // not advance between here and the end of this function (we
@@ -5530,8 +9375,26 @@ namespace Horse
             // playback is a fresh level load with a fresh BattleManager,
             // so a changed BM while still in Replay presence means a new
             // replay was loaded: do the full new-replay reset.
-            if (GameMode::instance().current_presence()
-                == GamePresence::Replay)
+            const bool generating_timeline =
+                m_timeline_gen_state.load(std::memory_order_acquire)
+                == static_cast<int>(TimelineGenState::Generating);
+            const bool direct_generation =
+                m_gen_battle_step_generate.load(
+                    std::memory_order_acquire);
+            const int direct_mode =
+                m_gen_mode.load(std::memory_order_acquire);
+            const bool direct_boost_generation =
+                direct_generation && is_lux_no_render_generation()
+                && direct_mode == static_cast<int>(BattleStepMode::RenderSkip);
+            const bool natural_generation =
+                generating_timeline
+                && (!direct_generation || direct_boost_generation);
+            GenerationProfileScope tick_capture_profile(
+                *this, natural_generation,
+                GenerationProfileScope::Kind::TickCapture);
+            if (!natural_generation
+                && GameMode::instance().current_presence()
+                    == GamePresence::Replay)
             {
                 int32_t native_guard_ticks =
                     m_native_demo_seek_guard_ticks.load(
@@ -5586,10 +9449,7 @@ namespace Horse
             // the deliberate Generate pass is the normal way to fill
             // the ring.
             if (!m_capture_enabled.load(std::memory_order_acquire)
-                && !(m_timeline_gen_state.load(std::memory_order_acquire)
-                     == static_cast<int>(TimelineGenState::Generating)
-                     && !m_gen_battle_step_generate.load(
-                         std::memory_order_acquire)))
+                && !natural_generation)
                 return;
             // While paused (= world frozen via WorldTickGate), the
             // global frame counter doesn't advance, so the
@@ -6141,6 +10001,13 @@ namespace Horse
         void service_engine_tick_replay_fallback()
         {
             if (!is_initialized()) return;
+            const bool profile_generation =
+                timeline_gen_state() == TimelineGenState::Generating;
+            const auto profile_t0 = profile_generation
+                ? std::chrono::steady_clock::now()
+                : std::chrono::steady_clock::time_point{};
+            if (profile_generation)
+                tick_capture();
             service_sc6_exact_seek_job();
             service_pending_demo_goto_time_seek(false);
             service_resume_motion_provider_cache_overlay();
@@ -6152,6 +10019,13 @@ namespace Horse
             service_replay_seek_test();
             tick_generate_timeline();
             service_replay_seek_test();
+            if (profile_generation &&
+                timeline_gen_state() == TimelineGenState::Generating)
+            {
+                add_generation_fallback_profile_sample(
+                    elapsed_us(profile_t0,
+                               std::chrono::steady_clock::now()));
+            }
         }
 
         // Back-compat wrapper for any older call sites.
@@ -6733,6 +10607,12 @@ namespace Horse
                     std::memory_order_acquire);
         }
 
+        bool should_suppress_generation_diagnostics() const noexcept
+        {
+            return g_replay_scrub_generation_diagnostics_suppressed.load(
+                std::memory_order_acquire);
+        }
+
         void note_timeline_cockpit_overlay_suppressed() noexcept
         {
             m_timeline_no_render_cockpit_overlay_suppressed.fetch_add(
@@ -6797,6 +10677,46 @@ namespace Horse
             p.avg_commit_us =
                 static_cast<double>(m_gen_profile_commit_us.load(
                     std::memory_order_acquire)) / denom;
+            p.avg_tag_us =
+                static_cast<double>(m_gen_profile_tag_us.load(
+                    std::memory_order_acquire)) / denom;
+            p.avg_oracle_us =
+                static_cast<double>(m_gen_profile_oracle_us.load(
+                    std::memory_order_acquire)) / denom;
+            p.avg_reset_us =
+                static_cast<double>(m_gen_profile_reset_us.load(
+                    std::memory_order_acquire)) / denom;
+            p.avg_demo_time_us =
+                static_cast<double>(m_gen_profile_demo_time_us.load(
+                    std::memory_order_acquire)) / denom;
+            p.avg_trace_diag_us =
+                static_cast<double>(m_gen_profile_trace_diag_us.load(
+                    std::memory_order_acquire)) / denom;
+            p.tick_capture_calls =
+                m_gen_profile_tick_capture_calls.load(
+                    std::memory_order_acquire);
+            const double tick_capture_denom =
+                p.tick_capture_calls
+                    ? static_cast<double>(p.tick_capture_calls) : 1.0;
+            p.avg_tick_capture_us =
+                static_cast<double>(m_gen_profile_tick_capture_us.load(
+                    std::memory_order_acquire)) / tick_capture_denom;
+            p.tick_generate_calls =
+                m_gen_profile_tick_generate_calls.load(
+                    std::memory_order_acquire);
+            const double tick_generate_denom =
+                p.tick_generate_calls
+                    ? static_cast<double>(p.tick_generate_calls) : 1.0;
+            p.avg_tick_generate_us =
+                static_cast<double>(m_gen_profile_tick_generate_us.load(
+                    std::memory_order_acquire)) / tick_generate_denom;
+            const uint64_t fallback_calls =
+                m_gen_profile_fallback_calls.load(std::memory_order_acquire);
+            const double fallback_denom =
+                fallback_calls ? static_cast<double>(fallback_calls) : 1.0;
+            p.avg_fallback_us =
+                static_cast<double>(m_gen_profile_fallback_us.load(
+                    std::memory_order_acquire)) / fallback_denom;
             return p;
         }
 
@@ -6928,8 +10848,8 @@ namespace Horse
                 std::memory_order_release);
             m_gen_battle_step_probe.store(false,
                                           std::memory_order_release);
-            m_gen_battle_step_generate.store(false,
-                                            std::memory_order_release);
+            m_gen_battle_step_generate.store(
+                false, std::memory_order_release);
             if (lux_no_render)
             {
                 if (!m_timeline_no_render_scope.enter(
@@ -6959,10 +10879,24 @@ namespace Horse
                 m_screen_pct.engage();
             }
 
+            m_gen_battle_step_generate.store(
+                lux_no_render, std::memory_order_release);
+
+            m_gen_cached_battle_manager.store(
+                static_cast<uintptr_t>(ready.battle_manager),
+                std::memory_order_release);
+            m_gen_cached_input_log.store(
+                static_cast<uintptr_t>(ready.input_log),
+                std::memory_order_release);
+            m_gen_cached_replay_player.store(
+                static_cast<uintptr_t>(ready.replay_player),
+                std::memory_order_release);
+
             // A valid new generation starts from an empty timeline.  This
             // is intentionally after every guard and after frame-cap
             // engagement, so a failed start never destroys the timeline.
             drop_ring();
+            reserve_generation_storage_for_replay();
             m_timeline_seek_data_valid.store(false,
                                              std::memory_order_release);
             m_timeline_context_valid.store(false,
@@ -6994,6 +10928,7 @@ namespace Horse
             m_gen_seen_playing_back   = false;
             m_gen_playback_gone_ticks = 0;
             m_gen_match_undecided_seen = false;
+            m_engine_loop_replace_fallback_logged = false;
             m_gen_total_rounds        = -1;
             m_gen_final_round_first_safe_seq = -1;
             m_gen_final_round_last_safe_seq  = -1;
@@ -7039,13 +10974,18 @@ namespace Horse
                  .boolean("seek_context_ok", ready.seek_context_ok)
                  .boolean("reset_source_ok", ready.reset_source_ok)
                  .boolean("live_bm_reset_ok", ready.live_bm_reset_ok)
-                 .hex("bm", ready.battle_manager)
+                  .boolean("engine_loop_tick_replacement", false)
+                  .boolean("direct_lux_generation", lux_no_render)
+                  .hex("bm", ready.battle_manager)
                  .hex("input_log", ready.input_log)
                  .hex("replay_player", ready.replay_player)
                  .hex("state_reset_data", ready.state_reset_data);
                 ReplayDebugTrace::instance().event("generate_start", f);
             }
-            begin_rng_u32_trace_window();
+            if (generation_full_frame_trace_enabled())
+                begin_rng_u32_trace_window();
+            else
+                RngTraceHook::instance().discard_window();
         }
 
         void start_generate_timeline(bool experimental) noexcept
@@ -7095,7 +11035,7 @@ namespace Horse
                     RC::Output::send<RC::LogLevel::Warning>(STR(
                         "[ReplayScrub] Generate timeline (battle-step) "
                         "failed - could not prepare direct-step bypass\n"));
-                        return;
+                    return;
                 }
             }
             if (!ensure_exp2_buffers())
@@ -7178,11 +11118,21 @@ namespace Horse
             m_sc6_seek_job = Sc6ExactSeekJob{};
             m_frame_cap.disengage();
             m_screen_pct.disengage();
-            m_timeline_no_render_scope.exit("battle_step_start", false);
             m_render_skip.disengage();
             m_timeline_generation_mode.store(
-                static_cast<int>(TimelineGenerationMode::Normal),
+                static_cast<int>(TimelineGenerationMode::LuxNoRender),
                 std::memory_order_release);
+            if (!m_timeline_no_render_scope.enter(
+                    *this, "battle_step_start"))
+            {
+                m_timeline_generation_mode.store(
+                    static_cast<int>(TimelineGenerationMode::Normal),
+                    std::memory_order_release);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline (battle-step) "
+                    "failed - no-render guards could not engage\n"));
+                return;
+            }
 
             m_gen_mode.store(
                 static_cast<int>(BattleStepMode::DirectPerFrame),
@@ -7194,6 +11144,15 @@ namespace Horse
             m_exp2_transient_fail_count = 0;
             m_gen_capture_fail_count = 0;
             m_last_extras_failure = "none";
+            m_gen_cached_battle_manager.store(
+                static_cast<uintptr_t>(ready.battle_manager),
+                std::memory_order_release);
+            m_gen_cached_input_log.store(
+                static_cast<uintptr_t>(ready.input_log),
+                std::memory_order_release);
+            m_gen_cached_replay_player.store(
+                static_cast<uintptr_t>(ready.replay_player),
+                std::memory_order_release);
 
             drop_ring();
             m_timeline_seek_data_valid.store(false,
@@ -7491,6 +11450,9 @@ namespace Horse
                                              std::memory_order_release);
             m_gen_battle_step_probe.store(false,
                                           std::memory_order_release);
+            m_direct_engine_tick_active.store(false,
+                                              std::memory_order_release);
+            m_engine_loop_replace_fallback_logged = false;
             m_exp2_transient_fail_count = 0;
             m_gen_mode.store(static_cast<int>(BattleStepMode::None),
                              std::memory_order_release);
@@ -7689,10 +11651,17 @@ namespace Horse
 
             if (was_generating)
             {
-                emit_rng_u32_trace_window(
-                    "generation-stop", reason ? reason : "?", -1, -1,
-                    m_timeline_gen_last_master.load(
-                        std::memory_order_acquire));
+                if (generation_full_frame_trace_enabled())
+                {
+                    emit_rng_u32_trace_window(
+                        "generation-stop", reason ? reason : "?", -1, -1,
+                        m_timeline_gen_last_master.load(
+                            std::memory_order_acquire));
+                }
+                else
+                {
+                    RngTraceHook::instance().discard_window();
+                }
                 const int32_t start = m_timeline_gen_start_master.load(
                     std::memory_order_acquire);
                 const int32_t last = m_timeline_gen_last_master.load(
@@ -7710,6 +11679,8 @@ namespace Horse
                              timeline_generation_mode_name(stopped_mode))
                      .string("reason", reason ? reason : "?")
                      .boolean("reached_end", reached_end)
+                     .boolean("full_frame_trace",
+                              generation_full_frame_trace_enabled())
                      .integer("start_master", start)
                      .integer("last_master", last)
                      .integer("advanced_frames",
@@ -7726,6 +11697,24 @@ namespace Horse
                      .uinteger("render_redraw_skipped", render.skipped)
                      .uinteger("cockpit_overlay_suppressed", cockpit)
                      .uinteger("imgui_overlay_suppressed", imgui)
+                     .uinteger("trace_oracle_suppressed",
+                               m_gen_trace_oracle_suppressed.load(
+                                   std::memory_order_acquire))
+                     .uinteger("trace_rng_suppressed",
+                               m_gen_trace_rng_suppressed.load(
+                                   std::memory_order_acquire))
+                     .uinteger("trace_overlay_core_suppressed",
+                               m_gen_trace_overlay_core_suppressed.load(
+                                   std::memory_order_acquire))
+                     .uinteger("trace_overlay_state_suppressed",
+                               m_gen_trace_overlay_state_suppressed.load(
+                                   std::memory_order_acquire))
+                     .uinteger("stage_boundary_cache_captures",
+                               m_gen_stage_boundary_cache_captures.load(
+                                   std::memory_order_acquire))
+                     .uinteger("stage_boundary_cache_reuses",
+                               m_gen_stage_boundary_cache_reuses.load(
+                                   std::memory_order_acquire))
                      .uinteger("suppressed_total",
                                render.skipped + cockpit + imgui);
                     ReplayDebugTrace::instance().event(
@@ -7745,6 +11734,11 @@ namespace Horse
                         "stop_generate_timeline"))
                     service_replay_seek_test();
             }
+            m_gen_cached_replay_player.store(0, std::memory_order_release);
+            m_gen_cached_input_log.store(0, std::memory_order_release);
+            m_gen_cached_battle_manager.store(0, std::memory_order_release);
+            m_generation_full_frame_trace_requested.store(
+                false, std::memory_order_release);
             m_timeline_generation_mode.store(
                 static_cast<int>(TimelineGenerationMode::Normal),
                 std::memory_order_release);
@@ -7770,6 +11764,9 @@ namespace Horse
         // the end of the recording.
         void tick_generate_timeline() noexcept
         {
+            if (m_direct_engine_tick_active.load(std::memory_order_acquire))
+                return;
+
             // ---- service UI request (render thread -> game thread) ----
             const int req = m_gen_request.exchange(
                 kGenReqNone, std::memory_order_acq_rel);
@@ -7789,6 +11786,9 @@ namespace Horse
             const bool generating =
                 m_timeline_gen_state.load(std::memory_order_acquire)
                 == static_cast<int>(TimelineGenState::Generating);
+            GenerationProfileScope tick_generate_profile(
+                *this, generating,
+                GenerationProfileScope::Kind::TickGenerate);
 
             if (!generating)
             {
@@ -7917,7 +11917,9 @@ namespace Horse
                     return;
             }
 
-            if (m_gen_battle_step_generate.load(std::memory_order_acquire))
+            if (m_gen_battle_step_generate.load(std::memory_order_acquire)
+                && m_gen_mode.load(std::memory_order_acquire)
+                    == static_cast<int>(BattleStepMode::DirectPerFrame))
             {
                 run_battle_step_generate_slice();
                 return;
@@ -7933,6 +11935,11 @@ namespace Horse
             // slot a stale "already decided" count could be present at
             // generation start.  Only a false -> true TRANSITION (the
             // match observed undecided, then decided) is trusted.
+            const bool direct_lux_generation =
+                m_gen_battle_step_generate.load(std::memory_order_acquire)
+                && m_gen_mode.load(std::memory_order_acquire)
+                    == static_cast<int>(BattleStepMode::RenderSkip);
+            if (!direct_lux_generation)
             {
                 const bool decided = match_decided();
                 if (m_gen_seen_progress && !decided)
@@ -8056,6 +12063,113 @@ namespace Horse
                 stop_generate_timeline(
                     in_final_round ? "match-ended" : "end-of-recording",
                     true);
+                return;
+            }
+        }
+
+        bool try_replace_engine_loop_tick_for_generation() noexcept
+        {
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                != static_cast<int>(TimelineGenState::Generating))
+                return false;
+            if (m_timeline_generation_mode.load(std::memory_order_acquire)
+                != static_cast<int>(TimelineGenerationMode::LuxNoRender))
+                return false;
+            if (!m_timeline_no_render_active.load(std::memory_order_acquire))
+                return false;
+            if (m_direct_engine_tick_active.load(std::memory_order_acquire))
+                return false;
+
+            if (m_gen_battle_step_generate.load(
+                    std::memory_order_acquire)
+                && m_gen_mode.load(std::memory_order_acquire)
+                    == static_cast<int>(BattleStepMode::RenderSkip))
+            {
+                run_direct_replay_generate_burst_slice();
+                tick_generate_timeline();
+                return true;
+            }
+
+            if ((!m_game_engine_tick || !m_engine_update_time
+                 || !m_engine_post_update_delta)
+                && !resolve_natives())
+                return false;
+
+            void* engine = nullptr;
+            if (!ReplayScrubDiag::read_gengine_ptr(&engine) || !engine)
+            {
+                if (!m_engine_loop_replace_fallback_logged)
+                {
+                    m_engine_loop_replace_fallback_logged = true;
+                    emit_timeline_no_render_fallback(
+                        "engine_loop_tick_replace_no_gengine",
+                        false, false, false);
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.EngineLoopDirectBoost] light "
+                        "FEngineLoop replacement could not resolve "
+                        "GEngine; falling back to original tick\n"));
+                }
+                return false;
+            }
+
+            static constexpr float kReplayDeltaSeconds = 1.0f / 60.0f;
+            m_direct_engine_tick_active.store(
+                true, std::memory_order_release);
+            const bool time_ok =
+                SafeInvokeNativeVoidPtr(m_engine_update_time, engine);
+            const bool delta_ok =
+                time_ok && SafeInvokeNativePtrFloat(
+                    m_engine_post_update_delta, engine, kReplayDeltaSeconds);
+            const bool tick_ok =
+                delta_ok && SafeInvokeGameEngineTick(
+                    m_game_engine_tick, engine, kReplayDeltaSeconds, true);
+            m_direct_engine_tick_active.store(
+                false, std::memory_order_release);
+
+            if (!tick_ok)
+            {
+                if (!m_engine_loop_replace_fallback_logged)
+                {
+                    m_engine_loop_replace_fallback_logged = true;
+                    emit_timeline_no_render_fallback(
+                        "engine_loop_tick_replace_failed",
+                        false, false, false);
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.EngineLoopDirectBoost] light "
+                        "FEngineLoop replacement UGameEngine::Tick failed; "
+                        "falling back to original tick\n"));
+                }
+                return false;
+            }
+
+            tick_capture();
+            tick_generate_timeline();
+            return true;
+        }
+
+        void service_direct_engine_tick_boost_from_engine_loop() noexcept
+        {
+            static constexpr int32_t kDirectGameEngineBoostFramesPerOuterTick =
+                1;
+
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                != static_cast<int>(TimelineGenState::Generating))
+                return;
+            if (m_timeline_generation_mode.load(std::memory_order_acquire)
+                != static_cast<int>(TimelineGenerationMode::LuxNoRender))
+                return;
+            if (!m_gen_battle_step_generate.load(std::memory_order_acquire))
+                return;
+            if (m_gen_mode.load(std::memory_order_acquire)
+                != static_cast<int>(BattleStepMode::RenderSkip))
+                return;
+            if (m_direct_engine_tick_active.load(std::memory_order_acquire))
+                return;
+
+            for (int32_t i = 0; i < kDirectGameEngineBoostFramesPerOuterTick;
+                 ++i)
+            {
+                run_direct_replay_generate_burst_slice();
                 return;
             }
         }
@@ -9064,6 +13178,7 @@ namespace Horse
             bool native_profile_request_ok {false};
             bool native_profile_applied {false};
             bool native_profile_waiting_emitted {false};
+            bool generation_full_frame_trace {false};
             uint32_t native_profile_summary_apply_count {0};
             bool game_initialize_requested {false};
             bool title_to_main_menu_requested {false};
@@ -9356,9 +13471,13 @@ namespace Horse
         using ExecReadFn  = void* (__fastcall*)(HgCpuBufferShim*);
         using DemoGotoTimeFn = void (__fastcall*)(void*, float, void*);
         using PerFrameTickFn = void (__fastcall*)(uintptr_t*);
+        using WorldTickFn = void (__fastcall*)(void*, int, float);
+        using GameEngineTickFn = void (__fastcall*)(void*, float, bool);
+        using EngineUpdateTimeFn = void (__fastcall*)(void*);
         using InteractiveReplayResetFn = void (__fastcall*)(void*);
         using BattleManagerSetMoveStateFn = void (__fastcall*)(void*, uint8_t);
         using NativeVoidPtrTickFn = void (__fastcall*)(void*);
+        using NativePtrFloatTickFn = void (__fastcall*)(void*, float);
         using ReplayListItemInitializeFn = void* (__fastcall*)(void*);
         using ReplayListItemDestroyFn = void (__fastcall*)(void*);
         using LuxReplayGetSaveManagerFn = void* (__fastcall*)(bool);
@@ -9732,10 +13851,16 @@ namespace Horse
         ExecReadFn  m_exec_read  {nullptr};
         DemoGotoTimeFn m_demo_goto_time {nullptr};
         PerFrameTickFn m_per_frame_tick_bypass {nullptr};
+        WorldTickFn m_world_tick {nullptr};
+        GameEngineTickFn m_game_engine_tick {nullptr};
+        EngineUpdateTimeFn m_engine_update_time {nullptr};
+        NativePtrFloatTickFn m_engine_post_update_delta {nullptr};
         InteractiveReplayResetFn m_interactive_replay_reset {nullptr};
         BattleManagerSetMoveStateFn m_battle_manager_set_move_state {nullptr};
+        NativeVoidPtrTickFn m_frame_input_log_tick_actor {nullptr};
         NativeVoidPtrTickFn m_frame_input_log_advance_replay_clock {nullptr};
         NativeVoidPtrTickFn m_frame_input_log_current_input_refresh {nullptr};
+        NativePtrFloatTickFn m_battle_manager_main_state_tick {nullptr};
         NativeVoidPtrTickFn m_battle_manager_simulation_loop {nullptr};
         ReplayListItemInitializeFn m_replay_list_item_initialize {nullptr};
         ReplayListItemDestroyFn m_replay_list_item_destroy {nullptr};
@@ -11230,9 +15355,40 @@ namespace Horse
         // m_gen_request is the render-thread -> game-thread handoff:
         // the UI posts kGenReqStart/kGenReqStop, tick_generate_timeline()
         // consumes it on the game thread.
+        GenerationNativeProfileHooks m_generation_native_profile;
+        EngineLoopDirectBoostHook m_engine_loop_direct_boost;
+        GenerationWorldTickFilter m_world_tick_filter;
         FrameCapOverride         m_frame_cap;
         ScreenPercentageOverride m_screen_pct;
         RenderSkipOverride       m_render_skip;
+        RendererTickSkipOverride m_renderer_tick_skip;
+        GenerationPriorityOverride m_generation_priority;
+        FrameEndSyncSkipOverride m_frame_end_sync_skip;
+        EngineLoopCoreTickerSkipOverride m_engine_loop_core_ticker_skip;
+        EngineLoopDeferredQueueSkipOverride m_engine_loop_deferred_queue_skip;
+        EngineLoopFrameServiceSkipOverride m_engine_loop_frame_service_skip;
+        EngineLoopPreStubArraySkipOverride m_engine_loop_pre_stub_array_skip;
+        EngineLoopMediaSkipOverride m_engine_loop_media_skip;
+        EngineLoopAuxSkipOverride m_engine_loop_aux_skip;
+        EngineLoopFrontMatterSkipOverride m_engine_loop_front_matter_skip;
+        EngineLoopIdleSleepSkipOverride m_engine_loop_idle_sleep_skip;
+        EngineLoopUpdateTimeSkipOverride m_engine_loop_update_time_skip;
+        EngineLoopPostGameSkipOverride m_engine_loop_post_game_skip;
+        EngineLoopPostGameTailSkipOverride m_engine_loop_post_game_tail_skip;
+        EngineLoopServiceTailSkipOverride m_engine_loop_service_tail_skip;
+        GameViewportTickSkipOverride m_game_viewport_tick_skip;
+        EngineBookkeepingSkipOverride m_engine_bookkeeping_skip;
+        EnginePostWorldSkipOverride m_engine_post_world_skip;
+        WorldTickableObjectSkipOverride m_world_tickable_object_skip;
+        WorldPreGroupTimerSkipOverride m_world_pre_group_timer_skip;
+        WorldPresentationSkipOverride m_world_presentation_skip;
+        WorldPostGroupLevelTickSkipOverride m_world_post_group_level_tick_skip;
+        WorldPostGroupAsyncTailSkipOverride m_world_post_group_async_tail_skip;
+        ActorPresentationTickSkipOverride m_actor_presentation_tick_skip;
+        BattleCharaPresentationSkipOverride m_battle_chara_presentation_skip;
+        TickTaskGroupSkipOverride m_tick_task_group_skip;
+        LuxPerFramePresentationSkipOverride
+            m_lux_per_frame_presentation_skip;
         std::atomic<int>     m_gen_request               {0};
         std::atomic<int>     m_gen_armed_mode            {0};
         std::atomic<int32_t> m_gen_armed_last_log_round  {INT32_MIN};
@@ -11249,6 +15405,8 @@ namespace Horse
         // Experimental battle-step generation: direct PerFrameTick stepping.
         std::atomic<bool>    m_gen_battle_step_generate  {false};
         std::atomic<bool>    m_gen_battle_step_probe     {false};
+        std::atomic<bool>    m_direct_engine_tick_active {false};
+        bool                 m_engine_loop_replace_fallback_logged {false};
 
         // m_gen_request values.
         static constexpr int kGenReqNone              = 0;
@@ -11263,6 +15421,8 @@ namespace Horse
         static constexpr int32_t kExp2MaxFramesPerSlice = 32;
         static constexpr int64_t kExp2SliceBudgetUs     = 2400;
         static constexpr int32_t kExp2TransientFailureBudget = 4;
+        static constexpr bool kDirectGenerationUseBattleManagerMainState =
+            true;
 
         // Auto-stop tuning.  Wall-clock based so it is independent of
         // the (now uncapped, hardware-dependent) frame rate.
@@ -11313,6 +15473,31 @@ namespace Horse
         std::atomic<uint64_t> m_gen_profile_rdb_us    {0};
         std::atomic<uint64_t> m_gen_profile_extras_us {0};
         std::atomic<uint64_t> m_gen_profile_commit_us {0};
+        std::atomic<uint64_t> m_gen_profile_tag_us {0};
+        std::atomic<uint64_t> m_gen_profile_oracle_us {0};
+        std::atomic<uint64_t> m_gen_profile_reset_us {0};
+        std::atomic<uint64_t> m_gen_profile_demo_time_us {0};
+        std::atomic<uint64_t> m_gen_profile_trace_diag_us {0};
+        std::atomic<uint64_t> m_gen_profile_tick_capture_us {0};
+        std::atomic<uint64_t> m_gen_profile_tick_capture_calls {0};
+        std::atomic<uint64_t> m_gen_profile_tick_generate_us {0};
+        std::atomic<uint64_t> m_gen_profile_tick_generate_calls {0};
+        std::atomic<uint64_t> m_gen_profile_fallback_us {0};
+        std::atomic<uint64_t> m_gen_profile_fallback_calls {0};
+        std::atomic<uint64_t> m_gen_trace_oracle_suppressed {0};
+        std::atomic<uint64_t> m_gen_trace_rng_suppressed {0};
+        std::atomic<uint64_t> m_gen_trace_overlay_core_suppressed {0};
+        std::atomic<uint64_t> m_gen_trace_overlay_state_suppressed {0};
+        std::atomic<uint64_t> m_gen_demo_time_fast_read_suppressed {0};
+        std::atomic<bool> m_generation_full_frame_trace_requested {false};
+        std::array<uint8_t, kStageBoundary_Bytes>
+            m_gen_stage_boundary_cache {};
+        bool m_gen_stage_boundary_cache_valid {false};
+        std::atomic<uint64_t> m_gen_stage_boundary_cache_captures {0};
+        std::atomic<uint64_t> m_gen_stage_boundary_cache_reuses {0};
+        std::atomic<uintptr_t> m_gen_cached_battle_manager {0};
+        std::atomic<uintptr_t> m_gen_cached_input_log {0};
+        std::atomic<uintptr_t> m_gen_cached_replay_player {0};
         std::atomic<int> m_timeline_generation_mode {
             static_cast<int>(TimelineGenerationMode::Normal)};
         std::atomic<bool> m_timeline_no_render_active {false};
@@ -11320,6 +15505,45 @@ namespace Horse
             m_timeline_no_render_cockpit_overlay_suppressed {0};
         std::atomic<uint64_t>
             m_timeline_no_render_imgui_overlay_suppressed {0};
+
+        class GenerationProfileScope
+        {
+        public:
+            enum class Kind { TickCapture, TickGenerate };
+
+            GenerationProfileScope(
+                ReplayScrub& owner,
+                bool active,
+                Kind kind) noexcept
+                : m_owner(&owner),
+                  m_start(std::chrono::steady_clock::now()),
+                  m_kind(kind),
+                  m_active(active)
+            {}
+
+            ~GenerationProfileScope() noexcept
+            {
+                if (!m_active || !m_owner) return;
+                const auto end = std::chrono::steady_clock::now();
+                const uint64_t us = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        end - m_start).count());
+                if (m_kind == Kind::TickCapture)
+                    m_owner->add_generation_tick_capture_profile_sample(us);
+                else
+                    m_owner->add_generation_tick_generate_profile_sample(us);
+            }
+
+            GenerationProfileScope(const GenerationProfileScope&) = delete;
+            GenerationProfileScope& operator=(
+                const GenerationProfileScope&) = delete;
+
+        private:
+            ReplayScrub* m_owner;
+            std::chrono::steady_clock::time_point m_start;
+            Kind m_kind;
+            bool m_active;
+        };
 
         class TimelineNoRenderScope
         {
@@ -12951,6 +17175,13 @@ namespace Horse
                     generate_req == kGenReqNone
                         ? "normal" : generate_request_mode_name(generate_req);
             }
+            (void)json_get_bool(text, "generation_full_frame_trace",
+                                parsed.generation_full_frame_trace);
+            (void)json_get_bool(text, "full_frame_trace",
+                                parsed.generation_full_frame_trace);
+            m_generation_full_frame_trace_requested.store(
+                parsed.generation_full_frame_trace,
+                std::memory_order_release);
             (void)json_get_int(text, "timeout_seconds",
                                parsed.timeout_seconds);
             if (parsed.timeout_seconds < 30) parsed.timeout_seconds = 30;
@@ -13020,6 +17251,8 @@ namespace Horse
             f.string("build", replay_seek_test_build_marker())
              .string("run_id", m_replay_seek_test.run_id.c_str())
              .string("generate_mode", m_replay_seek_test.generate_mode.c_str())
+             .boolean("generation_full_frame_trace",
+                      m_replay_seek_test.generation_full_frame_trace)
              .integer("case_count",
                       static_cast<int64_t>(m_replay_seek_test.cases.size()))
              .integer("timeout_seconds",
@@ -14348,6 +18581,8 @@ namespace Horse
                .boolean("battle_scene_requested", state.battle_scene_requested)
                .boolean("replay_setup_reached", state.replay_setup_reached)
                .string("auto_generate_mode", state.auto_generate_mode.c_str())
+               .boolean("generation_full_frame_trace",
+                        state.generation_full_frame_trace)
                .boolean("auto_generate_armed", state.auto_generate_armed)
                .boolean("native_replay_imported", state.native_replay_imported)
                .boolean("native_replay_metadata_valid",
@@ -14452,7 +18687,8 @@ namespace Horse
             const std::wstring& resolved_path,
             int32_t timeout_seconds,
             bool force_native_launch = false,
-            const std::string& auto_generate_mode = std::string{}) noexcept
+            const std::string& auto_generate_mode = std::string{},
+            bool generation_full_frame_trace = false) noexcept
         {
             if (timeout_seconds <= 0) timeout_seconds = 180;
             release_replay_file_profile_container();
@@ -14464,6 +18700,10 @@ namespace Horse
             state.run_id = run_id;
             state.requested_path = requested_path;
             state.auto_generate_mode = auto_generate_mode;
+            state.generation_full_frame_trace = generation_full_frame_trace;
+            m_generation_full_frame_trace_requested.store(
+                generation_full_frame_trace,
+                std::memory_order_release);
             if (generate_request_mode_from_string(
                     state.auto_generate_mode) != kGenReqNone)
             {
@@ -14526,6 +18766,11 @@ namespace Horse
             (void)json_get_string(text, "generate_mode", auto_generate_mode);
             (void)json_get_string(text, "timeline_generation_mode",
                                   auto_generate_mode);
+            bool generation_full_frame_trace = false;
+            (void)json_get_bool(text, "generation_full_frame_trace",
+                                generation_full_frame_trace);
+            (void)json_get_bool(text, "full_frame_trace",
+                                generation_full_frame_trace);
 
             std::string requested;
             if (!json_get_string(text, "path", requested) || requested.empty())
@@ -14552,7 +18797,8 @@ namespace Horse
                                                resolved,
                                                timeout_seconds,
                                                force_native_launch,
-                                               auto_generate_mode);
+                                               auto_generate_mode,
+                                               generation_full_frame_trace);
             return true;
         }
 
@@ -17437,18 +21683,33 @@ namespace Horse
                 base + kRVA_ExecFinalizeAndPost);
             m_demo_goto_time = reinterpret_cast<DemoGotoTimeFn>(
                 base + kRVA_DemoGotoTimeInSeconds);
+            m_world_tick = reinterpret_cast<WorldTickFn>(
+                base + kRVA_UWorldTick);
+            m_game_engine_tick = reinterpret_cast<GameEngineTickFn>(
+                base + kRVA_UGameEngineTick);
+            m_engine_update_time = reinterpret_cast<EngineUpdateTimeFn>(
+                base + kRVA_UpdateTimeAndHandleMaxTickRate);
+            m_engine_post_update_delta =
+                reinterpret_cast<NativePtrFloatTickFn>(
+                    base + kRVA_EnginePostUpdateDelta);
             m_interactive_replay_reset =
                 reinterpret_cast<InteractiveReplayResetFn>(
                     base + kRVA_LuxBattleInteractiveReplayReset);
             m_battle_manager_set_move_state =
                 reinterpret_cast<BattleManagerSetMoveStateFn>(
                     base + kRVA_ALuxBattleManagerSetMoveState);
+            m_frame_input_log_tick_actor =
+                reinterpret_cast<NativeVoidPtrTickFn>(
+                    base + kRVA_FrameInputLogTickActorDispatch);
             m_frame_input_log_advance_replay_clock =
                 reinterpret_cast<NativeVoidPtrTickFn>(
                     base + kRVA_FrameInputLogAdvanceReplayClock);
             m_frame_input_log_current_input_refresh =
                 reinterpret_cast<NativeVoidPtrTickFn>(
                     base + kRVA_FrameInputLogCurrentInputRefresh);
+            m_battle_manager_main_state_tick =
+                reinterpret_cast<NativePtrFloatTickFn>(
+                    base + kRVA_BattleManagerMainStateTick);
             m_battle_manager_simulation_loop =
                 reinterpret_cast<NativeVoidPtrTickFn>(
                     base + kRVA_BattleManagerSimulationLoop);
@@ -17525,9 +21786,15 @@ namespace Horse
             return m_exec_write != nullptr
                 && m_exec_read  != nullptr
                 && m_demo_goto_time != nullptr
+                && m_world_tick != nullptr
+                && m_game_engine_tick != nullptr
+                && m_engine_update_time != nullptr
+                && m_engine_post_update_delta != nullptr
                 && m_battle_manager_set_move_state != nullptr
+                && m_frame_input_log_tick_actor != nullptr
                 && m_frame_input_log_advance_replay_clock != nullptr
                 && m_frame_input_log_current_input_refresh != nullptr
+                && m_battle_manager_main_state_tick != nullptr
                 && m_battle_manager_simulation_loop != nullptr
                 && m_replay_list_item_initialize != nullptr
                 && m_replay_list_item_destroy != nullptr
@@ -17591,6 +21858,47 @@ namespace Horse
                 reinterpret_cast<uintptr_t>(tramp),
                 base + kRVA_LuxBattlePerFrameTick);
             return true;
+        }
+
+        void* resolve_generation_world_tick_target() noexcept
+        {
+            auto validate_world = [](uintptr_t world) noexcept -> void*
+            {
+                if (!world) return nullptr;
+                void* vtbl = nullptr;
+                if (!SafeReadPtr(reinterpret_cast<const void*>(world),
+                                 &vtbl) || !vtbl)
+                    return nullptr;
+                return reinterpret_cast<void*>(world);
+            };
+
+            const uintptr_t cached =
+                ReplayScrubDiag::cached_demo_world_ptr().load(
+                    std::memory_order_acquire);
+            if (void* world = validate_world(cached))
+                return world;
+
+            const ReplayScrubDiag::DemoDriverResolveReport report =
+                ReplayScrubDiag::resolve_demo_net_driver_report(true);
+
+            const uintptr_t refreshed =
+                ReplayScrubDiag::cached_demo_world_ptr().load(
+                    std::memory_order_acquire);
+            if (void* world = validate_world(refreshed))
+                return world;
+
+            for (int32_t i = report.attempt_count - 1; i >= 0; --i)
+            {
+                const auto& attempt = report.attempts[i];
+                if (!attempt.world_readable) continue;
+                if (void* world = validate_world(attempt.world))
+                    return world;
+            }
+
+            void* gworld = nullptr;
+            if (ReplayScrubDiag::read_gworld_ptr(&gworld))
+                return validate_world(reinterpret_cast<uintptr_t>(gworld));
+            return nullptr;
         }
 
         // Reset the dedup store to empty: re-size the four RegionStores,
@@ -17689,12 +21997,48 @@ namespace Horse
             return SafeReadUInt32(m_frame_counter_addr, &out);
         }
 
+        bool generation_cache_active() const noexcept
+        {
+            return m_timeline_gen_state.load(std::memory_order_acquire)
+                == static_cast<int>(TimelineGenState::Generating);
+        }
+
+        uint8_t* cached_generation_replay_player() const noexcept
+        {
+            if (!generation_cache_active()) return nullptr;
+            const uintptr_t p = m_gen_cached_replay_player.load(
+                std::memory_order_acquire);
+            return p ? reinterpret_cast<uint8_t*>(p) : nullptr;
+        }
+
+        uint8_t* cached_generation_battle_manager() const noexcept
+        {
+            if (!generation_cache_active()) return nullptr;
+            const uintptr_t p = m_gen_cached_battle_manager.load(
+                std::memory_order_acquire);
+            return p ? reinterpret_cast<uint8_t*>(p) : nullptr;
+        }
+
+        uint8_t* cached_generation_input_log() const noexcept
+        {
+            if (!generation_cache_active()) return nullptr;
+            const uintptr_t p = m_gen_cached_input_log.load(
+                std::memory_order_acquire);
+            return p ? reinterpret_cast<uint8_t*>(p) : nullptr;
+        }
+
         // Read ALuxBattleReplayPlayer.CurrentRound (the replay's round
         // index, ReplayPlayer+0x39C).  Returns -1 if the actor isn't
         // resolvable (between matches / teardown).  Uses the shared
         // GlobalPtr cache from ReplayScrubDiag.
         int32_t read_current_round() const noexcept
         {
+            if (uint8_t* rp = cached_generation_replay_player())
+            {
+                int32_t r = -1;
+                if (SafeReadInt32(rp + kRP_CurrentRound_Off, &r))
+                    return r;
+            }
             RC::Unreal::UObject* rp =
                 ReplayScrubDiag::replay_player_ptr().get(
                     L"LuxBattleReplayPlayer");
@@ -17713,6 +22057,12 @@ namespace Horse
         // moment the last round ends.
         int32_t read_total_rounds() const noexcept
         {
+            if (uint8_t* rp = cached_generation_replay_player())
+            {
+                int32_t n = -1;
+                if (SafeReadInt32(rp + kRP_TotalRounds_Off, &n))
+                    return n;
+            }
             RC::Unreal::UObject* rp =
                 ReplayScrubDiag::replay_player_ptr().get(
                     L"LuxBattleReplayPlayer");
@@ -17722,6 +22072,62 @@ namespace Horse
                                    + kRP_TotalRounds_Off, &n))
                 return -1;
             return n;
+        }
+
+        int32_t read_total_recorded_frames() noexcept
+        {
+            RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
+            if (!bm_obj) return -1;
+
+            void* il_raw = nullptr;
+            if (!SafeReadPtr(reinterpret_cast<const uint8_t*>(bm_obj)
+                                 + kBM_BattleFrameInputLog_Off,
+                             &il_raw)
+                || !il_raw)
+            {
+                return -1;
+            }
+
+            int32_t frames = -1;
+            if (!SafeReadInt32(reinterpret_cast<const uint8_t*>(il_raw)
+                                   + kIL_nTotalRecordedFrames_Off,
+                               &frames))
+            {
+                return -1;
+            }
+            return frames;
+        }
+
+        void reserve_generation_storage_for_replay() noexcept
+        {
+            static constexpr size_t kDefaultReserveTicks = 16384;
+            static constexpr size_t kMaxReserveTicks = 65536;
+
+            size_t reserve_ticks = kDefaultReserveTicks;
+            const int32_t total_recorded = read_total_recorded_frames();
+            if (total_recorded > 0)
+            {
+                reserve_ticks = (std::max)(
+                    reserve_ticks,
+                    static_cast<size_t>(total_recorded) + 1024u);
+            }
+            reserve_ticks = (std::min)(reserve_ticks, kMaxReserveTicks);
+
+            const bool sim_ok = m_sim_store.reserve_ticks(reserve_ticks);
+            const bool il_ok = m_il_store.reserve_ticks(reserve_ticks);
+            const bool rdb_ok = m_rdb_store.reserve_ticks(reserve_ticks);
+            const bool extras_ok = m_extras_store.reserve_ticks(reserve_ticks);
+            bool oracle_ok = true;
+            try { m_oracle_frames.reserve(reserve_ticks); }
+            catch (const std::bad_alloc&) { oracle_ok = false; }
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub] generation storage reserve ticks={} "
+                "total_recorded={} sim={} inputlog={} rdb={} extras={} "
+                "oracle={}\n"),
+                reserve_ticks, total_recorded,
+                sim_ok ? 1 : 0, il_ok ? 1 : 0, rdb_ok ? 1 : 0,
+                extras_ok ? 1 : 0, oracle_ok ? 1 : 0);
         }
 
         // Read g_LuxBattle_LastRoundResultType (i16 @ imageBase +
@@ -17811,6 +22217,12 @@ namespace Horse
         // resolvable.
         int32_t read_replay_is_playing_back() const noexcept
         {
+            if (uint8_t* rp = cached_generation_replay_player())
+            {
+                uint8_t b = 0;
+                if (SafeReadUInt8(rp + kRP_IsPlayingBack_Off, &b))
+                    return b ? 1 : 0;
+            }
             RC::Unreal::UObject* rp =
                 ReplayScrubDiag::replay_player_ptr().get(
                     L"LuxBattleReplayPlayer");
@@ -17908,12 +22320,58 @@ namespace Horse
             m_gen_profile_rdb_us.store(0, std::memory_order_release);
             m_gen_profile_extras_us.store(0, std::memory_order_release);
             m_gen_profile_commit_us.store(0, std::memory_order_release);
+            m_gen_profile_tag_us.store(0, std::memory_order_release);
+            m_gen_profile_oracle_us.store(0, std::memory_order_release);
+            m_gen_profile_reset_us.store(0, std::memory_order_release);
+            m_gen_profile_demo_time_us.store(0, std::memory_order_release);
+            m_gen_profile_trace_diag_us.store(0, std::memory_order_release);
+            m_gen_profile_tick_capture_us.store(
+                0, std::memory_order_release);
+            m_gen_profile_tick_capture_calls.store(
+                0, std::memory_order_release);
+            m_gen_profile_tick_generate_us.store(
+                0, std::memory_order_release);
+            m_gen_profile_tick_generate_calls.store(
+                0, std::memory_order_release);
+            m_gen_profile_fallback_us.store(0, std::memory_order_release);
+            m_gen_profile_fallback_calls.store(
+                0, std::memory_order_release);
+            m_gen_trace_oracle_suppressed.store(
+                0, std::memory_order_release);
+            m_gen_trace_rng_suppressed.store(0, std::memory_order_release);
+            m_gen_trace_overlay_core_suppressed.store(
+                0, std::memory_order_release);
+            m_gen_trace_overlay_state_suppressed.store(
+                0, std::memory_order_release);
+            m_gen_demo_time_fast_read_suppressed.store(
+                0, std::memory_order_release);
+            m_gen_stage_boundary_cache_valid = false;
+            m_gen_stage_boundary_cache_captures.store(
+                0, std::memory_order_release);
+            m_gen_stage_boundary_cache_reuses.store(
+                0, std::memory_order_release);
+        }
+
+        bool generation_full_frame_trace_enabled() const noexcept
+        {
+            return m_verbose_diag.load(std::memory_order_acquire)
+                || m_generation_full_frame_trace_requested.load(
+                    std::memory_order_acquire);
+        }
+
+        bool suppress_generation_frame_trace() const noexcept
+        {
+            return m_timeline_gen_state.load(std::memory_order_acquire)
+                == static_cast<int>(TimelineGenState::Generating)
+                && !generation_full_frame_trace_enabled();
         }
 
         void add_generation_profile_sample(
             uint64_t total_us, uint64_t sim_us, uint64_t il_us,
             uint64_t rdb_us, uint64_t extras_us,
-            uint64_t commit_us) noexcept
+            uint64_t commit_us, uint64_t tag_us,
+            uint64_t oracle_us, uint64_t reset_us,
+            uint64_t demo_time_us, uint64_t trace_diag_us) noexcept
         {
             m_gen_profile_frames.fetch_add(1, std::memory_order_acq_rel);
             m_gen_profile_total_us.fetch_add(total_us,
@@ -17928,21 +22386,107 @@ namespace Horse
                                               std::memory_order_acq_rel);
             m_gen_profile_commit_us.fetch_add(commit_us,
                                               std::memory_order_acq_rel);
+            m_gen_profile_tag_us.fetch_add(tag_us,
+                                           std::memory_order_acq_rel);
+            m_gen_profile_oracle_us.fetch_add(oracle_us,
+                                              std::memory_order_acq_rel);
+            m_gen_profile_reset_us.fetch_add(reset_us,
+                                             std::memory_order_acq_rel);
+            m_gen_profile_demo_time_us.fetch_add(demo_time_us,
+                                                 std::memory_order_acq_rel);
+            m_gen_profile_trace_diag_us.fetch_add(
+                trace_diag_us, std::memory_order_acq_rel);
+        }
+
+        void add_generation_tick_capture_profile_sample(
+            uint64_t total_us) noexcept
+        {
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                != static_cast<int>(TimelineGenState::Generating))
+            {
+                return;
+            }
+            m_gen_profile_tick_capture_calls.fetch_add(
+                1, std::memory_order_acq_rel);
+            m_gen_profile_tick_capture_us.fetch_add(
+                total_us, std::memory_order_acq_rel);
+        }
+
+        void add_generation_tick_generate_profile_sample(
+            uint64_t total_us) noexcept
+        {
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                != static_cast<int>(TimelineGenState::Generating))
+            {
+                return;
+            }
+            m_gen_profile_tick_generate_calls.fetch_add(
+                1, std::memory_order_acq_rel);
+            m_gen_profile_tick_generate_us.fetch_add(
+                total_us, std::memory_order_acq_rel);
+        }
+
+        void add_generation_fallback_profile_sample(uint64_t total_us) noexcept
+        {
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                != static_cast<int>(TimelineGenState::Generating))
+            {
+                return;
+            }
+            m_gen_profile_fallback_calls.fetch_add(
+                1, std::memory_order_acq_rel);
+            m_gen_profile_fallback_us.fetch_add(
+                total_us, std::memory_order_acq_rel);
         }
 
         void log_generation_profile(const char* reason) noexcept
         {
             const TimelineGenProfile p = timeline_gen_profile();
             if (p.frames == 0) return;
+            const uint64_t oracle =
+                m_gen_trace_oracle_suppressed.load(
+                    std::memory_order_acquire);
+            const uint64_t rng =
+                m_gen_trace_rng_suppressed.load(
+                    std::memory_order_acquire);
+            const uint64_t overlay_core =
+                m_gen_trace_overlay_core_suppressed.load(
+                    std::memory_order_acquire);
+            const uint64_t overlay_state =
+                m_gen_trace_overlay_state_suppressed.load(
+                    std::memory_order_acquire);
+            const uint64_t demo_time =
+                m_gen_demo_time_fast_read_suppressed.load(
+                    std::memory_order_acquire);
+            const uint64_t boundary_captures =
+                m_gen_stage_boundary_cache_captures.load(
+                    std::memory_order_acquire);
+            const uint64_t boundary_reuses =
+                m_gen_stage_boundary_cache_reuses.load(
+                    std::memory_order_acquire);
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayScrub] Generate timeline profile ({}) - "
                 "{} frames in {:.3f}s = {:.1f} ticks/s; avg capture "
                 "{:.1f} us (sim {:.1f}, InputLog {:.1f}, RDB {:.1f}, "
-                "extras {:.1f}, commit {:.1f})\n"),
+                "extras {:.1f}, commit {:.1f}, tag {:.1f}, oracle {:.1f}, "
+                "reset {:.1f}, demo_time {:.1f}, trace_diag {:.1f}); "
+                "driver tick_capture {:.1f} us/{} calls, "
+                "tick_generate {:.1f} us/{} calls; fallback {:.1f} us; "
+                "frame trace suppressed "
+                "oracle={} rng={} overlay_core={} overlay_state={}; "
+                "demo_time_fast_read_suppressed={}; "
+                "stage_boundary_cache captures={} reuses={}\n"),
                 RC::to_generic_string(reason ? reason : "?"),
                 p.frames, p.wall_seconds, p.ticks_per_second,
                 p.avg_total_us, p.avg_sim_us, p.avg_inputlog_us,
-                p.avg_rdb_us, p.avg_extras_us, p.avg_commit_us);
+                p.avg_rdb_us, p.avg_extras_us, p.avg_commit_us,
+                p.avg_tag_us, p.avg_oracle_us, p.avg_reset_us,
+                p.avg_demo_time_us, p.avg_trace_diag_us,
+                p.avg_tick_capture_us, p.tick_capture_calls,
+                p.avg_tick_generate_us, p.tick_generate_calls,
+                p.avg_fallback_us,
+                oracle, rng, overlay_core, overlay_state,
+                demo_time, boundary_captures, boundary_reuses);
         }
 
         void emit_timeline_no_render_fallback(
@@ -17958,6 +22502,8 @@ namespace Horse
             const uint64_t imgui =
                 m_timeline_no_render_imgui_overlay_suppressed.load(
                     std::memory_order_acquire);
+            const uint64_t tick_task_group_skipped =
+                m_tick_task_group_skip.suppressed_groups();
             ReplayTraceFields f;
             f.string("mode", "lux-no-render")
              .string("fallback_mode", "normal")
@@ -17970,8 +22516,10 @@ namespace Horse
              .uinteger("render_redraw_skipped", render.skipped)
              .uinteger("cockpit_overlay_suppressed", cockpit)
              .uinteger("imgui_overlay_suppressed", imgui)
+             .uinteger("tick_task_group_skipped", tick_task_group_skipped)
              .uinteger("suppressed_total",
-                       render.skipped + cockpit + imgui);
+                       render.skipped + cockpit + imgui
+                           + tick_task_group_skipped);
             ReplayDebugTrace::instance().event(
                 "timeline_no_render_fallback", f);
         }
@@ -18102,6 +22650,9 @@ namespace Horse
                                        int32_t tick_or_master,
                                        uintptr_t target_local) noexcept
         {
+            if (should_suppress_generation_diagnostics())
+                return;
+
             const uintptr_t base = NativeBinding::imageBase();
             if (!base) return;
 
@@ -18375,7 +22926,8 @@ namespace Horse
         }
 
         void evaluate_battle_step_generation_end(
-            const std::chrono::steady_clock::time_point& now) noexcept
+            const std::chrono::steady_clock::time_point& now,
+            bool allow_match_decided_shortcut = true) noexcept
         {
             const int32_t master = read_engine_master_clock();
             const int32_t round  = read_current_round();
@@ -18431,6 +22983,7 @@ namespace Horse
                     return;
             }
 
+            if (allow_match_decided_shortcut)
             {
                 const bool decided = match_decided();
                 if (m_gen_seen_progress && !decided)
@@ -18511,6 +23064,161 @@ namespace Horse
             }
         }
 
+        void run_direct_replay_generate_burst_slice() noexcept
+        {
+            static constexpr int32_t kDirectFramesPerOuterTick = 1;
+
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                != static_cast<int>(TimelineGenState::Generating))
+                return;
+            if (!m_gen_battle_step_generate.load(std::memory_order_acquire))
+                return;
+            if (!is_lux_no_render_generation())
+                return;
+            if (!resolve_natives())
+                return;
+
+            uintptr_t battle_manager =
+                m_gen_cached_battle_manager.load(std::memory_order_acquire);
+            uintptr_t input_log =
+                m_gen_cached_input_log.load(std::memory_order_acquire);
+            if (!battle_manager || !input_log)
+            {
+                const GenerateStartReadiness ready =
+                    read_generate_start_readiness();
+                battle_manager = ready.battle_manager;
+                input_log = ready.input_log;
+                if (battle_manager)
+                    m_gen_cached_battle_manager.store(
+                        battle_manager, std::memory_order_release);
+                if (input_log)
+                    m_gen_cached_input_log.store(
+                        input_log, std::memory_order_release);
+            }
+            if (!battle_manager || !input_log)
+            {
+                stop_generate_timeline(
+                    "direct-replay-burst-context-missing", false);
+                return;
+            }
+
+            int32_t live_round = read_current_round();
+            int32_t live_master = read_engine_master_clock();
+            if (live_master < 0 || live_round < 0)
+            {
+                stop_generate_timeline(
+                    "direct-replay-burst-clock-unreadable", false);
+                return;
+            }
+
+            int32_t frames_this_slice = 0;
+            for (int32_t i = 0; i < kDirectFramesPerOuterTick; ++i)
+            {
+                if (m_timeline_gen_state.load(std::memory_order_acquire)
+                    != static_cast<int>(TimelineGenState::Generating))
+                    return;
+                if (!charas_alive())
+                {
+                    stop_generate_timeline(
+                        "direct-replay-burst-battle-state-loss", false);
+                    return;
+                }
+
+                const int32_t before_master = live_master;
+                const int32_t before_round = live_round;
+                m_direct_engine_tick_active.store(
+                    true, std::memory_order_release);
+                const bool step_ok =
+                    invoke_direct_sc6_replay_frame_once(
+                        battle_manager, input_log,
+                        "timeline-direct-burst");
+                m_direct_engine_tick_active.store(
+                    false, std::memory_order_release);
+                if (!step_ok)
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.DirectBurst] direct replay-frame "
+                        "generation failed master={} round={} "
+                        "frames_this={}\n"),
+                        before_master, before_round, frames_this_slice);
+                    stop_generate_timeline(
+                        "direct-replay-burst-step-failed", false);
+                    return;
+                }
+
+                live_round = read_current_round();
+                live_master = read_engine_master_clock();
+                if (live_master < 0 || live_round < 0)
+                {
+                    stop_generate_timeline(
+                        "direct-replay-burst-clock-unreadable", false);
+                    return;
+                }
+                const bool master_advanced =
+                    live_master >= 0 && live_master > before_master;
+                const bool round_advanced =
+                    before_round >= 0 && live_round > before_round;
+                if (!master_advanced && !round_advanced)
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub.DirectBurst] direct replay-frame "
+                        "generation stalled master {} -> {} round {} -> {} "
+                        "frames_this={}\n"),
+                        before_master, live_master, before_round,
+                        live_round, frames_this_slice);
+                    stop_generate_timeline(
+                        "direct-replay-burst-stalled", false);
+                    return;
+                }
+
+                const int32_t first_committable_master =
+                    live_round <= 0 ? 3 : 1;
+                if (live_master < first_committable_master)
+                {
+                    evaluate_battle_step_generation_end(
+                        std::chrono::steady_clock::now(), false);
+                    continue;
+                }
+
+                const int32_t wall_tag =
+                    live_master >= 0 ? live_master : before_master + 1;
+                if (!capture_snapshot(wall_tag, true))
+                {
+                    if (m_capture_ceiling_hit.load(std::memory_order_acquire))
+                    {
+                        stop_generate_timeline("memory-ceiling", true);
+                    }
+                    else
+                    {
+                        stop_generate_timeline(
+                            "direct-replay-burst-capture-failed", false);
+                    }
+                    return;
+                }
+
+                ++frames_this_slice;
+                evaluate_battle_step_generation_end(
+                    std::chrono::steady_clock::now(), false);
+            }
+
+            if (frames_this_slice > 0)
+            {
+                static std::atomic<uint64_t> s_total_direct_frames{0};
+                const uint64_t total =
+                    s_total_direct_frames.fetch_add(
+                        static_cast<uint64_t>(frames_this_slice),
+                        std::memory_order_acq_rel)
+                    + static_cast<uint64_t>(frames_this_slice);
+                if (total <= 32 || (total % 1024u) < 8u)
+                {
+                    RC::Output::send<RC::LogLevel::Default>(STR(
+                        "[ReplayScrub.DirectBurst] generated {} direct "
+                        "frame(s) this slice; total={} master={} round={}\n"),
+                        frames_this_slice, total, live_master, live_round);
+                }
+            }
+        }
+
         bool run_battle_step_generate_one_frame() noexcept
         {
             auto on_transient_failure = [this](const char* reason) noexcept
@@ -18561,12 +23269,12 @@ namespace Horse
             uint8_t camera_args[24] = {};
             const bool input_ok =
                 SafeReadBytes(reinterpret_cast<const void*>(
-                                 base + kRVA_LatestEngineInput),
-                             input, sizeof(input));
+                                  base + kRVA_LatestEngineInput),
+                              input, sizeof(input));
             const bool camera_ok =
                 SafeReadBytes(reinterpret_cast<const void*>(
-                                 base + kRVA_PerFrameCameraArgs),
-                             camera_args, sizeof(camera_args));
+                                  base + kRVA_PerFrameCameraArgs),
+                              camera_args, sizeof(camera_args));
             if (!input_ok || !camera_ok)
             {
                 if (on_transient_failure("engine input/camera read failed"))
@@ -18580,6 +23288,7 @@ namespace Horse
                 }
                 return true;
             }
+
             const int32_t master_before = read_engine_master_clock();
             if (master_before < 0)
             {
@@ -18669,6 +23378,11 @@ namespace Horse
             uint64_t rdb_us = 0;
             uint64_t extras_us = 0;
             uint64_t commit_us = 0;
+            uint64_t tag_us = 0;
+            uint64_t oracle_us = 0;
+            uint64_t reset_us = 0;
+            uint64_t demo_time_us = 0;
+            uint64_t trace_diag_us = 0;
 
             if (m_capture_ceiling_hit.load(std::memory_order_acquire))
                 return false;
@@ -18736,55 +23450,102 @@ namespace Horse
             std::memcpy(&round_tag, m_extras_store.scratch()
                         + kExtras_Off_RP_CurrentRound, sizeof(round_tag));
 
+            if (do_commit && profile_generation
+                && is_lux_no_render_generation())
+            {
+                const size_t count = m_tags.count();
+                if (count > 0)
+                {
+                    int32_t last_seq = -1;
+                    int32_t last_round = -1;
+                    int32_t last_wall = -1;
+                    int32_t last_master = -1;
+                    if (m_tags.get(count - 1, last_seq, last_round,
+                                   last_wall, last_master)
+                        && last_round == round_tag
+                        && last_master == master_tag)
+                    {
+                        return true;
+                    }
+                }
+            }
+
             if (do_commit)
             {
                 const int32_t next_seq =
                     static_cast<int32_t>(m_tags.count());
+                t0 = std::chrono::steady_clock::now();
                 capture_sc6_round_reset_snapshot_if_needed(
                     round_tag, next_seq, master_tag, last_frame_id_tag);
+                t1 = std::chrono::steady_clock::now();
+                reset_us = elapsed_us(t0, t1);
             }
 
             int32_t demo_time_ms = -1;
+            bool demo_time_sampled = true;
             ReplayScrubDiag::DemoTimeSourceSnap demo_time_snap{};
             {
-                demo_time_snap =
-                    ReplayScrubDiag::read_demo_time_source_fast();
-                if (!(demo_time_snap.readable && demo_time_snap.time_sane)
-                    && profile_generation && do_commit)
+                t0 = std::chrono::steady_clock::now();
+                const size_t committed_count =
+                    do_commit ? m_tags.count() : 0u;
+                const bool sparse_generation_demo_time =
+                    profile_generation && do_commit
+                    && is_lux_no_render_generation();
+                const bool sample_demo_time =
+                    !sparse_generation_demo_time;
+                if (sample_demo_time)
                 {
-                    const size_t committed_count = m_tags.count();
-                    if (committed_count < 5
-                        || (committed_count % 300u) == 0u)
+                    demo_time_snap =
+                        ReplayScrubDiag::read_demo_time_source_fast();
+                    if (!(demo_time_snap.readable
+                          && demo_time_snap.time_sane)
+                        && profile_generation && do_commit)
                     {
-                        demo_time_snap =
-                            ReplayScrubDiag::read_demo_time_source();
-                        if (demo_time_snap.readable
-                            && demo_time_snap.time_sane
-                            && !m_gen_demo_time_recovered_logged)
+                        if (committed_count < 5
+                            || (committed_count % 300u) == 0u)
                         {
-                            m_gen_demo_time_recovered_logged = true;
-                            RC::Output::send<RC::LogLevel::Default>(STR(
-                                "[ReplayScrub] Generate timeline native "
-                                "demo time source recovered during capture: "
-                                "source={} ptr=0x{:X} cur={:.3f}s "
-                                "total={:.3f}s after {} committed tick(s)\n"),
-                                RC::to_generic_string(
-                                    ReplayScrubDiag::demo_driver_source_name(
-                                        demo_time_snap.source)),
-                                demo_time_snap.source_ptr,
-                                demo_time_snap.raw_demo_cur_time,
-                                demo_time_snap.raw_demo_total_time,
-                                committed_count);
+                            demo_time_snap =
+                                ReplayScrubDiag::read_demo_time_source();
+                            if (demo_time_snap.readable
+                                && demo_time_snap.time_sane
+                                && !m_gen_demo_time_recovered_logged)
+                            {
+                                m_gen_demo_time_recovered_logged = true;
+                                RC::Output::send<RC::LogLevel::Default>(STR(
+                                    "[ReplayScrub] Generate timeline native "
+                                    "demo time source recovered during "
+                                    "capture: source={} ptr=0x{:X} "
+                                    "cur={:.3f}s total={:.3f}s after {} "
+                                    "committed tick(s)\n"),
+                                    RC::to_generic_string(
+                                        ReplayScrubDiag::
+                                            demo_driver_source_name(
+                                                demo_time_snap.source)),
+                                    demo_time_snap.source_ptr,
+                                    demo_time_snap.raw_demo_cur_time,
+                                    demo_time_snap.raw_demo_total_time,
+                                    committed_count);
+                            }
                         }
                     }
+                    if (demo_time_snap.readable && demo_time_snap.time_sane)
+                    {
+                        demo_time_ms = static_cast<int32_t>(
+                            demo_time_snap.raw_demo_cur_time * 1000.0f
+                            + 0.5f);
+                    }
                 }
-                if (demo_time_snap.readable && demo_time_snap.time_sane)
+                else
                 {
-                    demo_time_ms = static_cast<int32_t>(
-                        demo_time_snap.raw_demo_cur_time * 1000.0f + 0.5f);
+                    demo_time_sampled = false;
+                    m_gen_demo_time_fast_read_suppressed.fetch_add(
+                        1, std::memory_order_acq_rel);
                 }
+                t1 = std::chrono::steady_clock::now();
+                demo_time_us = elapsed_us(t0, t1);
             }
-            if (profile_generation && do_commit && demo_time_ms < 0
+            if (profile_generation && do_commit && demo_time_sampled
+                && demo_time_ms < 0
                 && !m_gen_missing_demo_time_logged)
             {
                 m_gen_missing_demo_time_logged = true;
@@ -18844,24 +23605,44 @@ namespace Horse
                 }
 
                 const int32_t seq_tag = static_cast<int32_t>(m_tags.count());
+                t0 = std::chrono::steady_clock::now();
                 m_tags.append(seq_tag, round_tag, wall_tag, master_tag,
                               demo_time_ms);
+                t1 = std::chrono::steady_clock::now();
+                tag_us = elapsed_us(t0, t1);
+                t0 = std::chrono::steady_clock::now();
                 if (should_trace_hit_area_stream_diag(seq_tag, master_tag))
                 {
                     trace_hit_area_stream_map(
                         "GEN_CAPTURE", "after-capture", seq_tag,
                         master_tag, kHgCpuHitAreaDiagLocalTarget);
                 }
+                t1 = std::chrono::steady_clock::now();
+                trace_diag_us = elapsed_us(t0, t1);
+                t0 = std::chrono::steady_clock::now();
                 (void)commit_oracle_frame(seq_tag, round_tag, wall_tag,
                                           master_tag);
+                t1 = std::chrono::steady_clock::now();
+                oracle_us = elapsed_us(t0, t1);
                 if (profile_generation)
-                    emit_generation_rng_u32_trace(seq_tag, master_tag);
+                {
+                    if (generation_full_frame_trace_enabled())
+                    {
+                        emit_generation_rng_u32_trace(seq_tag, master_tag);
+                    }
+                    else
+                    {
+                        m_gen_trace_rng_suppressed.fetch_add(
+                            1, std::memory_order_acq_rel);
+                    }
+                }
                 if (profile_generation)
                 {
                     const auto t_total1 = std::chrono::steady_clock::now();
                     add_generation_profile_sample(
                         elapsed_us(t_total0, t_total1), sim_us, il_us,
-                        rdb_us, extras_us, commit_us);
+                        rdb_us, extras_us, commit_us, tag_us, oracle_us,
+                        reset_us, demo_time_us, trace_diag_us);
                 }
                 static std::atomic<bool> s_logged{false};
                 if (!s_logged.exchange(true, std::memory_order_relaxed))
@@ -19178,7 +23959,15 @@ namespace Horse
                     snap.p1.readable ? 1 : 0,
                     snap.p2.readable ? 1 : 0);
             }
-            trace_oracle_frame(snap);
+            if (snap.valid && suppress_generation_frame_trace())
+            {
+                m_gen_trace_oracle_suppressed.fetch_add(
+                    1, std::memory_order_acq_rel);
+            }
+            else
+            {
+                trace_oracle_frame(snap);
+            }
             return snap.valid;
         }
 
@@ -20201,6 +24990,13 @@ namespace Horse
         // InputLog null, fault during read).
         int32_t read_engine_master_clock() noexcept
         {
+            if (uint8_t* cached_il = cached_generation_input_log())
+            {
+                int32_t master = -1;
+                if (SafeReadInt32(cached_il + kIL_nMasterClock_Off,
+                                  &master))
+                    return master;
+            }
             RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
             if (!bm_obj) return -1;
             uint8_t* bm = reinterpret_cast<uint8_t*>(bm_obj);
@@ -22036,7 +26832,7 @@ namespace Horse
                 return false;
 
             if (!SafeInvokeNativeVoidPtr(
-                    m_frame_input_log_advance_replay_clock,
+                    m_frame_input_log_tick_actor,
                     reinterpret_cast<void*>(input_log)))
                 return false;
 
@@ -22066,10 +26862,28 @@ namespace Horse
                 }
                 return false;
             }
-            if (!SafeInvokeNativeVoidPtr(
-                    m_battle_manager_simulation_loop,
-                    reinterpret_cast<void*>(battle_manager)))
+            static constexpr float kReplayDeltaSeconds = 1.0f / 60.0f;
+            if (kDirectGenerationUseBattleManagerMainState)
+            {
+                if (!SafeInvokeNativePtrFloat(
+                        m_battle_manager_main_state_tick,
+                        reinterpret_cast<void*>(battle_manager),
+                        kReplayDeltaSeconds))
+                    return false;
+            }
+            else if (!SafeInvokeNativeVoidPtr(
+                         m_battle_manager_simulation_loop,
+                         reinterpret_cast<void*>(battle_manager)))
+            {
                 return false;
+            }
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                    == static_cast<int>(TimelineGenState::Generating)
+                && m_gen_battle_step_generate.load(
+                    std::memory_order_acquire)
+                && m_gen_mode.load(std::memory_order_acquire)
+                    == static_cast<int>(BattleStepMode::RenderSkip))
+                return true;
             return invoke_direct_sc6_frame_once();
         }
 
@@ -32484,6 +37298,78 @@ namespace Horse
             return true;
         }
 
+        void refresh_stage_boundary_dynamic_header(
+            uintptr_t base,
+            uint8_t* boundary) noexcept
+        {
+            if (!base || !boundary) return;
+
+            uint32_t flags = blob_read_u32(
+                boundary, kStageBoundary_Off_Flags);
+            uint8_t active_b = 0;
+            if (SafeReadUInt8(reinterpret_cast<const void*>(
+                                  base + kRVA_FrameContextUseB), &active_b))
+                boundary[kStageBoundary_Off_ActiveB] = active_b;
+
+            uint8_t* sc = boundary + kStageBoundary_Off_Scbattle;
+            const bool sc_ok =
+                SafeReadBytes(reinterpret_cast<const void*>(
+                                  base + kRVA_ScbattleStageInitialized),
+                              sc + kStageBoundary_Scbattle_Off_Initialized,
+                              4)
+                && SafeReadBytes(reinterpret_cast<const void*>(
+                                     base + kRVA_ScbattleStageBarrierValid),
+                                 sc + kStageBoundary_Scbattle_Off_BarrierValid,
+                                 4)
+                && SafeReadBytes(reinterpret_cast<const void*>(
+                                     base + kRVA_ScbattleStageBarrierArray),
+                                 sc + kStageBoundary_Scbattle_Off_BarrierArray,
+                                 kStageBoundary_Scbattle_BarrierArrayBytes);
+            if (sc_ok)
+            {
+                flags |= kStageBoundaryFlag_ScbattleOk;
+                blob_write_u64(boundary, kStageBoundary_Off_ScbattleHash,
+                               hash_bytes64(sc, kStageBoundary_ScbattleBytes));
+            }
+            else
+            {
+                flags &= ~kStageBoundaryFlag_ScbattleOk;
+                blob_write_u64(boundary, kStageBoundary_Off_ScbattleHash, 0);
+            }
+            blob_write_u32(boundary, kStageBoundary_Off_Flags, flags);
+        }
+
+        bool capture_stage_boundary_for_generation(
+            uintptr_t base,
+            uint8_t* dst) noexcept
+        {
+            if (!base || !dst) return false;
+            if (!is_lux_no_render_generation())
+                return capture_stage_boundary(base, dst);
+
+            uint8_t* boundary = dst + kExtras_Off_StageBoundary;
+            if (!m_gen_stage_boundary_cache_valid)
+            {
+                const bool ok = capture_stage_boundary(base, dst);
+                if (ok)
+                {
+                    std::memcpy(m_gen_stage_boundary_cache.data(),
+                                boundary, kStageBoundary_Bytes);
+                    m_gen_stage_boundary_cache_valid = true;
+                    m_gen_stage_boundary_cache_captures.fetch_add(
+                        1, std::memory_order_acq_rel);
+                }
+                return ok;
+            }
+
+            std::memcpy(boundary, m_gen_stage_boundary_cache.data(),
+                        kStageBoundary_Bytes);
+            refresh_stage_boundary_dynamic_header(base, boundary);
+            m_gen_stage_boundary_cache_reuses.fetch_add(
+                1, std::memory_order_acq_rel);
+            return true;
+        }
+
         bool restore_stage_boundary_grid(uintptr_t grid_addr,
                                          const uint8_t* boundary,
                                          int bank) noexcept
@@ -34619,11 +39505,13 @@ namespace Horse
         bool capture_extras(uint8_t* dst) noexcept
         {
             if (!dst) return false;
-            // Pre-zero the whole staging blob: capture_extras fills only
-            // specific sub-ranges and the rest must read back as zero.
-            // The old per-slot ring was alloc-zeroed once; staging
-            // buffers are reused tick-to-tick so they are zeroed here.
-            std::memset(dst, 0, kExtras_Bytes);
+            // Staging buffers are reused tick-to-tick, so sparse fields
+            // must still be cleared.  Large sections clear/copy
+            // themselves below; avoid zeroing the full ~100 KB extras
+            // blob before immediately overwriting it.
+            std::memset(dst, 0, kExtras_Off_StageWindRoot);
+            std::memset(dst + kExtras_Off_HgCpuSnapshotLayout, 0,
+                        kExtras_HgCpuSnapshotLayout_Bytes);
             const uintptr_t base = NativeBinding::imageBase();
             if (!base) return false;
             bool required_ok = capture_required_rollback_globals(base, dst);
@@ -34847,12 +39735,20 @@ namespace Horse
                         kChara_ReplayCore_Bytes);
                 }
                 required_ok &= overlay_ok;
-                ReplayTraceFields f;
-                f.hex("overlay", overlay)
-                 .boolean("ok", overlay_ok)
-                 .string("reason", "stage3-overlay-replay-core-capture");
-                ReplayDebugTrace::instance().event(
-                    "replay_input_overlay_core_capture", f);
+                if (overlay_ok && suppress_generation_frame_trace())
+                {
+                    m_gen_trace_overlay_core_suppressed.fetch_add(
+                        1, std::memory_order_acq_rel);
+                }
+                else
+                {
+                    ReplayTraceFields f;
+                    f.hex("overlay", overlay)
+                     .boolean("ok", overlay_ok)
+                     .string("reason", "stage3-overlay-replay-core-capture");
+                    ReplayDebugTrace::instance().event(
+                        "replay_input_overlay_core_capture", f);
+                }
             }
 
             // Capture Stage-2 replay-state fields at overlay+0x43F4..+0x4428.
@@ -34876,12 +39772,20 @@ namespace Horse
                         kExtras_CharaReplay_Bytes);
                 }
                 required_ok &= state_ok;
-                ReplayTraceFields f;
-                f.hex("overlay", overlay)
-                 .boolean("ok", state_ok)
-                 .string("reason", "stage3-overlay-replay-state-capture");
-                ReplayDebugTrace::instance().event(
-                    "replay_input_overlay_state_capture", f);
+                if (state_ok && suppress_generation_frame_trace())
+                {
+                    m_gen_trace_overlay_state_suppressed.fetch_add(
+                        1, std::memory_order_acq_rel);
+                }
+                else
+                {
+                    ReplayTraceFields f;
+                    f.hex("overlay", overlay)
+                     .boolean("ok", state_ok)
+                     .string("reason", "stage3-overlay-replay-state-capture");
+                    ReplayDebugTrace::instance().event(
+                        "replay_input_overlay_state_capture", f);
+                }
             }
 
             // Empirical-validation probe (2026-05-14): log chara
@@ -34897,7 +39801,7 @@ namespace Horse
             capture_stage_wind_root(base, dst);
             capture_stage_wind_graph(base, dst);
             capture_stage_wind_emitters(base, dst);
-            capture_stage_boundary(base, dst);
+            capture_stage_boundary_for_generation(base, dst);
             return required_ok;
         }
 
@@ -37027,6 +41931,20 @@ namespace Horse
         }
     };
 
+    inline void replay_scrub_run_direct_boost_slice_from_engine_loop()
+        noexcept
+    {
+        ReplayScrub::instance()
+            .service_direct_engine_tick_boost_from_engine_loop();
+    }
+
+    inline bool replay_scrub_try_replace_engine_loop_tick_for_generation()
+        noexcept
+    {
+        return ReplayScrub::instance()
+            .try_replace_engine_loop_tick_for_generation();
+    }
+
     inline ReplayScrub::TimelineNoRenderScope::~TimelineNoRenderScope()
         noexcept
     {
@@ -37046,7 +41964,14 @@ namespace Horse
             0, std::memory_order_release);
         owner.m_timeline_no_render_active.store(
             false, std::memory_order_release);
+        g_replay_scrub_timeline_no_render_active.store(
+            false, std::memory_order_release);
+        g_replay_scrub_generation_diagnostics_suppressed.store(
+            false, std::memory_order_release);
         owner.m_render_skip.reset_counters();
+        owner.m_tick_task_group_skip.reset_counters();
+        owner.m_generation_native_profile.reset_counters();
+        owner.m_world_tick_filter.reset_counters();
 
         if (!owner.m_render_skip.engage())
         {
@@ -37054,20 +41979,140 @@ namespace Horse
             m_active = false;
             return false;
         }
+        (void)ReplayScrubDiag::resolve_demo_net_driver_report(true);
+        const bool priority_ok =
+            owner.m_generation_priority.engage();
+        const bool native_profile_ok = false;
+        const bool engine_loop_direct_boost_ok =
+            owner.m_engine_loop_direct_boost.engage();
+        const bool world_tick_filter_ok =
+            owner.m_world_tick_filter.engage();
+        const bool frame_end_sync_skip_ok =
+            owner.m_frame_end_sync_skip.engage();
+        const bool engine_loop_core_ticker_skip_ok =
+            owner.m_engine_loop_core_ticker_skip.engage();
+        const bool engine_loop_deferred_queue_skip_ok =
+            owner.m_engine_loop_deferred_queue_skip.engage();
+        const bool engine_loop_frame_service_skip_ok =
+            owner.m_engine_loop_frame_service_skip.engage();
+        const bool engine_loop_pre_stub_array_skip_ok = false;
+        const bool renderer_tick_skip_ok =
+            owner.m_renderer_tick_skip.engage();
+        const bool engine_loop_media_skip_ok =
+            owner.m_engine_loop_media_skip.engage();
+        const bool engine_loop_aux_skip_ok =
+            owner.m_engine_loop_aux_skip.engage();
+        const bool engine_loop_front_matter_skip_ok =
+            owner.m_engine_loop_front_matter_skip.engage();
+        const bool engine_loop_idle_sleep_skip_ok = false;
+        const bool engine_loop_update_time_skip_ok =
+            owner.m_engine_loop_update_time_skip.engage();
+        const bool engine_loop_post_game_skip_ok =
+            owner.m_engine_loop_post_game_skip.engage();
+        const bool engine_loop_post_game_tail_skip_ok = false;
+        const bool engine_loop_service_tail_skip_ok =
+            owner.m_engine_loop_service_tail_skip.engage();
+        const bool viewport_tick_skip_ok =
+            owner.m_game_viewport_tick_skip.engage();
+        const bool engine_bookkeeping_skip_ok =
+            owner.m_engine_bookkeeping_skip.engage();
+        const bool engine_post_world_skip_ok =
+            owner.m_engine_post_world_skip.engage();
+        const bool world_tickable_skip_ok =
+            owner.m_world_tickable_object_skip.engage();
+        const bool world_pre_group_timer_skip_ok =
+            owner.m_world_pre_group_timer_skip.engage();
+        const bool world_presentation_skip_ok =
+            owner.m_world_presentation_skip.engage();
+        const bool world_post_group_level_tick_skip_ok =
+            owner.m_world_post_group_level_tick_skip.engage();
+        const bool world_post_group_async_tail_skip_ok =
+            owner.m_world_post_group_async_tail_skip.engage();
+        const bool actor_presentation_tick_skip_ok =
+            owner.m_actor_presentation_tick_skip.engage();
+        const bool battle_chara_presentation_skip_ok =
+            owner.m_battle_chara_presentation_skip.engage();
+        const bool tick_task_group_skip_ok =
+            owner.m_tick_task_group_skip.engage();
+        const bool lux_per_frame_presentation_skip_ok = false;
 
         m_owner = &owner;
         m_active = true;
         owner.m_timeline_no_render_active.store(
             true, std::memory_order_release);
+        g_replay_scrub_timeline_no_render_active.store(
+            true, std::memory_order_release);
+        const bool generation_diagnostics_suppressed =
+            !owner.generation_full_frame_trace_enabled();
+        g_replay_scrub_generation_diagnostics_suppressed.store(
+            generation_diagnostics_suppressed,
+            std::memory_order_release);
 
         ReplayTraceFields f;
         f.string("mode", "lux-no-render")
          .string("reason", reason ? reason : "?")
+         .boolean("diagnostics_suppressed",
+                  generation_diagnostics_suppressed)
+         .boolean("priority_boosted", priority_ok)
+         .boolean("native_profile_enabled", native_profile_ok)
+         .boolean("engine_loop_direct_boost_enabled",
+                  engine_loop_direct_boost_ok)
+         .boolean("world_tick_filter_enabled", world_tick_filter_ok)
          .uinteger("render_redraw_calls", 0)
          .uinteger("render_redraw_forwarded", 0)
          .uinteger("render_redraw_skipped", 0)
          .uinteger("cockpit_overlay_suppressed", 0)
          .uinteger("imgui_overlay_suppressed", 0)
+         .boolean("frame_end_sync_suppressed",
+                  frame_end_sync_skip_ok)
+         .boolean("engine_loop_core_ticker_suppressed",
+                  engine_loop_core_ticker_skip_ok)
+         .boolean("engine_loop_deferred_queue_suppressed",
+                  engine_loop_deferred_queue_skip_ok)
+         .boolean("engine_loop_frame_service_suppressed",
+                  engine_loop_frame_service_skip_ok)
+         .boolean("engine_loop_pre_stub_array_suppressed",
+                  engine_loop_pre_stub_array_skip_ok)
+         .boolean("renderer_tick_suppressed", renderer_tick_skip_ok)
+         .boolean("engine_loop_media_suppressed",
+                  engine_loop_media_skip_ok)
+         .boolean("engine_loop_aux_suppressed",
+                  engine_loop_aux_skip_ok)
+         .boolean("engine_loop_front_matter_suppressed",
+                  engine_loop_front_matter_skip_ok)
+         .boolean("engine_loop_idle_sleep_suppressed",
+                  engine_loop_idle_sleep_skip_ok)
+         .boolean("engine_loop_update_time_suppressed",
+                  engine_loop_update_time_skip_ok)
+         .boolean("engine_loop_post_game_suppressed",
+                  engine_loop_post_game_skip_ok)
+         .boolean("engine_loop_post_game_tail_suppressed",
+                  engine_loop_post_game_tail_skip_ok)
+         .boolean("engine_loop_service_tail_suppressed",
+                  engine_loop_service_tail_skip_ok)
+         .boolean("viewport_tick_suppressed", viewport_tick_skip_ok)
+         .boolean("engine_bookkeeping_suppressed",
+                  engine_bookkeeping_skip_ok)
+         .boolean("engine_post_world_suppressed",
+                  engine_post_world_skip_ok)
+         .boolean("world_tickable_suppressed", world_tickable_skip_ok)
+         .boolean("world_pre_group_timer_suppressed",
+                  world_pre_group_timer_skip_ok)
+         .boolean("world_presentation_suppressed",
+                  world_presentation_skip_ok)
+         .boolean("world_post_group_level_tick_suppressed",
+                  world_post_group_level_tick_skip_ok)
+         .boolean("world_post_group_async_tail_suppressed",
+                  world_post_group_async_tail_skip_ok)
+         .boolean("actor_presentation_tick_suppressed",
+                  actor_presentation_tick_skip_ok)
+         .boolean("battle_chara_presentation_suppressed",
+                  battle_chara_presentation_skip_ok)
+         .boolean("tick_task_group_suppressed", tick_task_group_skip_ok)
+         .boolean("lux_per_frame_presentation_suppressed",
+                  lux_per_frame_presentation_skip_ok)
+         .uinteger("world_tick_filter_skipped", 0)
+         .uinteger("tick_task_group_skipped", 0)
          .uinteger("suppressed_total", 0);
         ReplayDebugTrace::instance().event(
             "timeline_no_render_enter", f);
@@ -37094,22 +42139,190 @@ namespace Horse
         const uint64_t imgui =
             owner->m_timeline_no_render_imgui_overlay_suppressed.load(
                 std::memory_order_acquire);
+        const bool renderer_tick_active =
+            owner->m_renderer_tick_skip.is_engaged();
+        const bool engine_loop_media_active =
+            owner->m_engine_loop_media_skip.is_engaged();
+        const bool frame_end_sync_active =
+            owner->m_frame_end_sync_skip.is_engaged();
+        const bool engine_loop_core_ticker_active =
+            owner->m_engine_loop_core_ticker_skip.is_engaged();
+        const bool engine_loop_deferred_queue_active =
+            owner->m_engine_loop_deferred_queue_skip.is_engaged();
+        const bool engine_loop_frame_service_active =
+            owner->m_engine_loop_frame_service_skip.is_engaged();
+        const bool engine_loop_pre_stub_array_active =
+            owner->m_engine_loop_pre_stub_array_skip.is_engaged();
+        const bool priority_active =
+            owner->m_generation_priority.is_engaged();
+        const bool native_profile_active =
+            owner->m_generation_native_profile.is_engaged();
+        const bool engine_loop_direct_boost_active =
+            owner->m_engine_loop_direct_boost.is_engaged();
+        const bool world_tick_filter_active =
+            owner->m_world_tick_filter.is_engaged();
+        const bool viewport_tick_active =
+            owner->m_game_viewport_tick_skip.is_engaged();
+        const bool engine_loop_aux_active =
+            owner->m_engine_loop_aux_skip.is_engaged();
+        const bool engine_loop_front_matter_active =
+            owner->m_engine_loop_front_matter_skip.is_engaged();
+        const bool engine_loop_idle_sleep_active =
+            owner->m_engine_loop_idle_sleep_skip.is_engaged();
+        const bool engine_loop_update_time_active =
+            owner->m_engine_loop_update_time_skip.is_engaged();
+        const bool engine_loop_post_game_active =
+            owner->m_engine_loop_post_game_skip.is_engaged();
+        const bool engine_loop_post_game_tail_active =
+            owner->m_engine_loop_post_game_tail_skip.is_engaged();
+        const bool engine_loop_service_tail_active =
+            owner->m_engine_loop_service_tail_skip.is_engaged();
+        const bool engine_bookkeeping_active =
+            owner->m_engine_bookkeeping_skip.is_engaged();
+        const bool engine_post_world_active =
+            owner->m_engine_post_world_skip.is_engaged();
+        const bool world_tickable_active =
+            owner->m_world_tickable_object_skip.is_engaged();
+        const bool world_pre_group_timer_active =
+            owner->m_world_pre_group_timer_skip.is_engaged();
+        const bool world_presentation_active =
+            owner->m_world_presentation_skip.is_engaged();
+        const bool world_post_group_level_tick_active =
+            owner->m_world_post_group_level_tick_skip.is_engaged();
+        const bool world_post_group_async_tail_active =
+            owner->m_world_post_group_async_tail_skip.is_engaged();
+        const bool actor_presentation_tick_active =
+            owner->m_actor_presentation_tick_skip.is_engaged();
+        const bool battle_chara_presentation_active =
+            owner->m_battle_chara_presentation_skip.is_engaged();
+        const bool tick_task_group_active =
+            owner->m_tick_task_group_skip.is_engaged();
+        const bool lux_per_frame_presentation_active =
+            owner->m_lux_per_frame_presentation_skip.is_engaged();
+        const uint64_t tick_task_group_skipped =
+            owner->m_tick_task_group_skip.suppressed_groups();
+        const auto world_tick_filter =
+            owner->m_world_tick_filter.counters();
 
         owner->m_timeline_no_render_active.store(
             false, std::memory_order_release);
+        g_replay_scrub_timeline_no_render_active.store(
+            false, std::memory_order_release);
+        const bool generation_diagnostics_suppressed =
+            g_replay_scrub_generation_diagnostics_suppressed.load(
+                std::memory_order_acquire);
+        g_replay_scrub_generation_diagnostics_suppressed.store(
+            false, std::memory_order_release);
+        owner->m_tick_task_group_skip.disengage();
+        owner->m_lux_per_frame_presentation_skip.disengage();
+        owner->m_world_tick_filter.disengage();
+        owner->m_battle_chara_presentation_skip.disengage();
+        owner->m_actor_presentation_tick_skip.disengage();
+        owner->m_world_post_group_async_tail_skip.disengage();
+        owner->m_world_post_group_level_tick_skip.disengage();
+        owner->m_world_presentation_skip.disengage();
+        owner->m_world_pre_group_timer_skip.disengage();
+        owner->m_world_tickable_object_skip.disengage();
+        owner->m_engine_post_world_skip.disengage();
+        owner->m_engine_bookkeeping_skip.disengage();
+        owner->m_game_viewport_tick_skip.disengage();
+        owner->m_engine_loop_service_tail_skip.disengage();
+        owner->m_engine_loop_post_game_tail_skip.disengage();
+        owner->m_engine_loop_post_game_skip.disengage();
+        owner->m_engine_loop_update_time_skip.disengage();
+        owner->m_engine_loop_idle_sleep_skip.disengage();
+        owner->m_engine_loop_aux_skip.disengage();
+        owner->m_engine_loop_front_matter_skip.disengage();
+        owner->m_engine_loop_media_skip.disengage();
+        owner->m_engine_loop_pre_stub_array_skip.disengage();
+        owner->m_engine_loop_frame_service_skip.disengage();
+        owner->m_engine_loop_deferred_queue_skip.disengage();
+        owner->m_engine_loop_core_ticker_skip.disengage();
+        owner->m_engine_loop_direct_boost.disengage();
+        owner->m_generation_native_profile.disengage();
+        owner->m_renderer_tick_skip.disengage();
+        owner->m_frame_end_sync_skip.disengage();
+        owner->m_generation_priority.disengage();
         owner->m_render_skip.disengage();
 
         ReplayTraceFields f;
         f.string("mode", "lux-no-render")
          .string("reason", reason ? reason : "?")
          .boolean("reached_end", reached_end)
+         .boolean("diagnostics_suppressed",
+                  generation_diagnostics_suppressed)
+         .boolean("priority_boosted", priority_active)
+         .boolean("native_profile_enabled", native_profile_active)
+         .boolean("engine_loop_direct_boost_enabled",
+                  engine_loop_direct_boost_active)
+         .boolean("world_tick_filter_enabled", world_tick_filter_active)
          .uinteger("render_redraw_calls", render.calls)
          .uinteger("render_redraw_forwarded", render.forwarded)
          .uinteger("render_redraw_skipped", render.skipped)
          .uinteger("cockpit_overlay_suppressed", cockpit)
          .uinteger("imgui_overlay_suppressed", imgui)
+         .boolean("frame_end_sync_suppressed",
+                  frame_end_sync_active)
+         .boolean("engine_loop_core_ticker_suppressed",
+                  engine_loop_core_ticker_active)
+         .boolean("engine_loop_deferred_queue_suppressed",
+                  engine_loop_deferred_queue_active)
+         .boolean("engine_loop_frame_service_suppressed",
+                  engine_loop_frame_service_active)
+         .boolean("engine_loop_pre_stub_array_suppressed",
+                  engine_loop_pre_stub_array_active)
+         .boolean("renderer_tick_suppressed", renderer_tick_active)
+         .boolean("engine_loop_media_suppressed",
+                  engine_loop_media_active)
+         .boolean("engine_loop_aux_suppressed",
+                  engine_loop_aux_active)
+         .boolean("engine_loop_front_matter_suppressed",
+                  engine_loop_front_matter_active)
+         .boolean("engine_loop_idle_sleep_suppressed",
+                  engine_loop_idle_sleep_active)
+         .boolean("engine_loop_update_time_suppressed",
+                  engine_loop_update_time_active)
+         .boolean("engine_loop_post_game_suppressed",
+                  engine_loop_post_game_active)
+         .boolean("engine_loop_post_game_tail_suppressed",
+                  engine_loop_post_game_tail_active)
+         .boolean("engine_loop_service_tail_suppressed",
+                  engine_loop_service_tail_active)
+         .boolean("viewport_tick_suppressed", viewport_tick_active)
+         .boolean("engine_bookkeeping_suppressed",
+                  engine_bookkeeping_active)
+         .boolean("engine_post_world_suppressed",
+                  engine_post_world_active)
+         .boolean("world_tickable_suppressed", world_tickable_active)
+         .boolean("world_pre_group_timer_suppressed",
+                  world_pre_group_timer_active)
+         .boolean("world_presentation_suppressed",
+                  world_presentation_active)
+         .boolean("world_post_group_level_tick_suppressed",
+                  world_post_group_level_tick_active)
+         .boolean("world_post_group_async_tail_suppressed",
+                  world_post_group_async_tail_active)
+         .boolean("actor_presentation_tick_suppressed",
+                  actor_presentation_tick_active)
+         .boolean("battle_chara_presentation_suppressed",
+                  battle_chara_presentation_active)
+         .boolean("tick_task_group_suppressed", tick_task_group_active)
+         .boolean("lux_per_frame_presentation_suppressed",
+                  lux_per_frame_presentation_active)
+         .uinteger("world_tick_filter_calls", world_tick_filter.calls)
+         .uinteger("world_tick_filter_forwarded",
+                   world_tick_filter.forwarded)
+         .uinteger("world_tick_filter_skipped",
+                   world_tick_filter.skipped)
+         .uinteger("world_tick_filter_no_target",
+                   world_tick_filter.no_target)
+         .uinteger("world_tick_filter_secondary_demo_world",
+                   world_tick_filter.secondary_demo_world)
+         .uinteger("tick_task_group_skipped", tick_task_group_skipped)
          .uinteger("suppressed_total",
-                   render.skipped + cockpit + imgui);
+                   render.skipped + cockpit + imgui
+                       + tick_task_group_skipped
+                       + world_tick_filter.skipped);
         ReplayDebugTrace::instance().event(
             "timeline_no_render_exit", f);
     }

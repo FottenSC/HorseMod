@@ -44,6 +44,8 @@ namespace Horse
 {
     bool replay_scrub_repair_latest_engine_input_before_chara_input(
         void* chara) noexcept;
+    extern std::atomic<bool>
+        g_replay_scrub_generation_diagnostics_suppressed;
     void replay_scrub_append_secondary_action_stack_push_trace_context(
         ReplayTraceFields& f) noexcept;
     bool replay_scrub_repair_secondary_action_stack_last_variant_before_random_push(
@@ -2145,27 +2147,35 @@ namespace Horse
             if (chara)
                 instance().restore_cached_replay_ring_entries_for_stage3(
                     chara, enter_index);
-            const int32_t enter_master = safe_read_int32(
-                static_cast<uint8_t*>(chara) + 0x3A4);
-            if (enter_index < 256 || (enter_index % 120) == 0
-                || (enter_index > 512 && enter_master >= 0
-                    && enter_master < 512))
+            if (!g_replay_scrub_generation_diagnostics_suppressed.load(
+                    std::memory_order_acquire))
             {
-                emit_replay_input_stage(
-                    "native_replay_stage3_enter", chara, enter_index);
+                const int32_t enter_master = safe_read_int32(
+                    static_cast<uint8_t*>(chara) + 0x3A4);
+                if (enter_index < 256 || (enter_index % 120) == 0
+                    || (enter_index > 512 && enter_master >= 0
+                        && enter_master < 512))
+                {
+                    emit_replay_input_stage(
+                        "native_replay_stage3_enter", chara, enter_index);
+                }
             }
             if (auto fn = orig<VoidPtrFn>(Slot::ReplayPlaybackPushInputs))
                 fn(chara);
             const uint32_t exit_index = s_stage3_exit_count.fetch_add(
                 1, std::memory_order_acq_rel);
-            const int32_t exit_master = safe_read_int32(
-                static_cast<uint8_t*>(chara) + 0x3A4);
-            if (exit_index < 256 || (exit_index % 120) == 0
-                || (exit_index > 512 && exit_master >= 0
-                    && exit_master < 512))
+            if (!g_replay_scrub_generation_diagnostics_suppressed.load(
+                    std::memory_order_acquire))
             {
-                emit_replay_input_stage(
-                    "native_replay_stage3_exit", chara, exit_index);
+                const int32_t exit_master = safe_read_int32(
+                    static_cast<uint8_t*>(chara) + 0x3A4);
+                if (exit_index < 256 || (exit_index % 120) == 0
+                    || (exit_index > 512 && exit_master >= 0
+                        && exit_master < 512))
+                {
+                    emit_replay_input_stage(
+                        "native_replay_stage3_exit", chara, exit_index);
+                }
             }
         }
 
