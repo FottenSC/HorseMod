@@ -78,6 +78,7 @@ tmp/
 
 # --- Test run artifacts -----------------------------------------------------
 test_runs/
+reports/
 
 # --- Moveset parser comparison artifacts -----------------------------------
 tools/moveset_parser/community_framedata.json

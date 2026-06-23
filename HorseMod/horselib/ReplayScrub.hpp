@@ -27325,7 +27325,8 @@ namespace Horse
 
             int32_t ps = -1, pr = -1, pw = -1, pm = -1;
             if (validation_override
-                == CapturedSeekValidationMode::PreviousToTarget)
+                    == CapturedSeekValidationMode::PreviousToTarget
+                || validation_override == CapturedSeekValidationMode::None)
             {
                 int32_t best_tick = -1;
                 int32_t best_seq = -1;
@@ -27380,7 +27381,11 @@ namespace Horse
                         "previous_to_target_origin_selected", f);
                     return true;
                 }
-                return false;
+                if (validation_override
+                    == CapturedSeekValidationMode::PreviousToTarget)
+                {
+                    return false;
+                }
             }
 
             int32_t ns = -1, nr = -1, nw = -1, nm = -1;
@@ -36764,6 +36769,8 @@ namespace Horse
 
             uint64_t latest_p1 = 0;
             uint64_t latest_p2 = 0;
+            uint32_t captured_mirror_p1 = 0;
+            uint32_t captured_mirror_p2 = 0;
             uint32_t mirror_p1 = 0;
             uint32_t mirror_p2 = 0;
             uint32_t live_mirror_p1 = 0;
@@ -36796,11 +36803,13 @@ namespace Horse
 
                 const size_t mirror_blob_off =
                     kIL_CurrentInputMirror_Off - kIL_CaptureStart_Off;
-                std::memcpy(&mirror_p1, il_blob + mirror_blob_off,
-                            sizeof(mirror_p1));
-                std::memcpy(&mirror_p2,
+                std::memcpy(&captured_mirror_p1, il_blob + mirror_blob_off,
+                            sizeof(captured_mirror_p1));
+                std::memcpy(&captured_mirror_p2,
                             il_blob + mirror_blob_off + sizeof(mirror_p1),
-                            sizeof(mirror_p2));
+                            sizeof(captured_mirror_p2));
+                mirror_p1 = frame_input_p1;
+                mirror_p2 = frame_input_p2;
 
                 latest_write_ok = SafeWriteBytes(
                     reinterpret_cast<void*>(base + kRVA_LatestEngineInput),
@@ -36876,10 +36885,11 @@ namespace Horse
                         m_frame_input_log_current_input_refresh,
                         reinterpret_cast<void*>(ctx.input_log));
 
+                const uint32_t current_mirror[2] = {mirror_p1, mirror_p2};
                 mirror_write_ok = SafeWriteBytes(
                     reinterpret_cast<void*>(
                         ctx.input_log + kIL_CurrentInputMirror_Off),
-                    il_blob + mirror_blob_off,
+                    current_mirror,
                     sizeof(uint32_t) * 2);
                 (void)SafeReadUInt32(reinterpret_cast<const void*>(
                                          ctx.input_log
@@ -36918,6 +36928,8 @@ namespace Horse
              .hex("captured_frame_input_p2", captured_frame_input_p2)
              .hex("frame_input_p1", frame_input_p1)
              .hex("frame_input_p2", frame_input_p2)
+             .hex("captured_mirror_p1", captured_mirror_p1)
+             .hex("captured_mirror_p2", captured_mirror_p2)
              .hex("mirror_p1", mirror_p1)
              .hex("mirror_p2", mirror_p2)
              .hex("live_mirror_p1", live_mirror_p1)
