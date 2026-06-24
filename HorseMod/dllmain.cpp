@@ -6423,12 +6423,14 @@ private:
             const bool start_busy = scrub.has_pending_replay_file_start();
             const bool file_busy = load_busy || start_busy;
             if (file_busy) ImGui::BeginDisabled(true);
-            if (ImGui::Button("Open Replay...##rs_file_open"))
-                scrub.browse_and_request_start_replay_file();
+            if (ImGui::Button("Open Replay + Lux Gen##rs_file_open"))
+                scrub.browse_and_request_start_replay_file(
+                    "lux-no-render-force");
             if (file_busy) ImGui::EndDisabled();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                 "Open a Windows file picker and immediately start the\n"
-                "selected .hmreplay or raw .bin replay file.");
+                "selected .hmreplay or raw .bin replay file, then force\n"
+                "a fresh lux-no-render timeline generation.");
             const std::string replay_file_status =
                 scrub.replay_file_status_text();
             if (!replay_file_status.empty())
@@ -6934,19 +6936,21 @@ private:
                 // presentation work is suppressed during generation only.
                 // See ReplayScrub::RenderSkipOverride.
                 ImGui::SameLine();
-                if (!gen_allowed || gen_waiting)
+                const bool lux_gen_allowed =
+                    !gen_waiting && (gen_allowed || (in_replay && gen_locked));
+                if (!lux_gen_allowed)
                     ImGui::BeginDisabled(true);
                 if (ImGui::Button("Lux No Render##rs_gen_lux_no_render"))
-                    scrub.request_generate_timeline_lux_no_render();
-                if (!gen_allowed || gen_waiting)
+                    scrub.request_generate_timeline_lux_no_render(true);
+                if (!lux_gen_allowed)
                     ImGui::EndDisabled();
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                     "Faster timeline build. Lux gameplay simulation,\n"
                     "replay inputs, clocks, RNG, health, and result state\n"
                     "keep running; render/overlay presentation is skipped.\n"
                     "\n"
-                    "Use the normal Generate button first unless this is\n"
-                    "too slow.");
+                    "When a timeline is already complete, this forces a fresh\n"
+                    "lux-no-render generation for the loaded replay.");
 
                 ImGui::SameLine();
                 if (!gen_allowed || gen_waiting)

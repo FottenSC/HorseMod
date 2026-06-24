@@ -9208,7 +9208,7 @@ namespace Horse
                 kEnableLegacySeekDiagnostics ? 1 : 0,
                 kEnableLegacySnapshotPreview ? 1 : 0);
             RC::Output::send<RC::LogLevel::Default>(
-                    STR("[ReplayScrub] deployment check: v13fk loaded from "
+                    STR("[ReplayScrub] deployment check: v13fl loaded from "
                     "HorseMod main.dll\n"));
             {
                 ReplayTraceFields f;
@@ -9288,6 +9288,8 @@ namespace Horse
                 ReplayDebugTrace::instance().event(
                     "replay_scrub_initialized", f);
             }
+            auto_arm_lux_no_render_generation_for_replay_load(
+                "replay scrub initialized");
             return true;
         }
 
@@ -10358,19 +10360,29 @@ namespace Horse
         // stays authoritative while presentation work is suppressed.
         void request_generate_timeline_lux_no_render() noexcept
         {
+            request_generate_timeline_lux_no_render(false);
+        }
+
+        void request_generate_timeline_lux_no_render(
+            bool force_regenerate) noexcept
+        {
             ReplayTraceFields f;
-            f.string("mode", "lux-no-render").boolean("armed", false);
+            f.string("mode", "lux-no-render")
+             .boolean("armed", false)
+             .boolean("force_regenerate", force_regenerate);
             ReplayDebugTrace::instance().event("generate_request", f);
-            if (is_timeline_generation_locked_complete())
+            if (!force_regenerate && is_timeline_generation_locked_complete())
             {
                 log_generate_locked_complete_once();
                 return;
             }
+            const int request_mode = force_regenerate
+                ? kGenReqForceStartLuxNoRender
+                : kGenReqStartLuxNoRender;
             if (arm_generate_if_replay_already_advanced(
-                    kGenReqStartLuxNoRender))
+                    request_mode))
                 return;
-            m_gen_request.store(kGenReqStartLuxNoRender,
-                                std::memory_order_release);
+            m_gen_request.store(request_mode, std::memory_order_release);
         }
         // Legacy alias kept for old traces/scripts/UI labels.
         void request_generate_timeline_experimental() noexcept
@@ -10407,6 +10419,8 @@ namespace Horse
         const char* generate_request_mode_name(int mode) const noexcept
         {
             if (mode == kGenReqStartLuxNoRender) return "lux-no-render";
+            if (mode == kGenReqForceStartLuxNoRender)
+                return "lux-no-render";
             if (mode == kGenReqStartBattleStep) return "battle_step";
             if (mode == kGenReqStart) return "normal";
             return "";
@@ -10417,6 +10431,8 @@ namespace Horse
         {
             if (mode == "normal") return kGenReqStart;
             if (mode == "lux-no-render") return kGenReqStartLuxNoRender;
+            if (mode == "lux-no-render-force")
+                return kGenReqForceStartLuxNoRender;
             if (mode == "experimental") return kGenReqStartLuxNoRender;
             if (mode == "battle_step") return kGenReqStartBattleStep;
             return kGenReqNone;
@@ -10436,6 +10452,8 @@ namespace Horse
             ReplayTraceFields f;
             f.string("mode", generate_request_mode_name(req))
              .boolean("armed", true)
+             .boolean("force_regenerate",
+                      req == kGenReqForceStartLuxNoRender)
              .string("reason", reason ? reason : "replay_file_start");
             ReplayDebugTrace::instance().event("generate_request", f);
             return true;
@@ -10726,7 +10744,9 @@ namespace Horse
         // tick_generate_timeline() servicing a UI request - never from
         // the render thread directly.  No-op (with a log line) unless
         // we're in the Replay viewer with the ring ready and capture on.
-        void start_generate_timeline(TimelineGenerationMode mode) noexcept
+        void start_generate_timeline(
+            TimelineGenerationMode mode,
+            bool force_regenerate = false) noexcept
         {
             const bool lux_no_render =
                 mode == TimelineGenerationMode::LuxNoRender;
@@ -10749,7 +10769,7 @@ namespace Horse
                     "the Replay viewer\n"));
                 return;
             }
-            if (is_timeline_generation_locked_complete())
+            if (!force_regenerate && is_timeline_generation_locked_complete())
             {
                 log_generate_locked_complete_once();
                 return;
@@ -11442,6 +11462,8 @@ namespace Horse
         void stop_generate_timeline(const char* reason,
                                     bool reached_end) noexcept
         {
+            const bool memory_ceiling_stop =
+                reason && std::strcmp(reason, "memory-ceiling") == 0;
             const TimelineGenerationMode stopped_mode =
                 timeline_generation_mode();
             const bool was_lux_no_render =
@@ -11459,6 +11481,15 @@ namespace Horse
             const bool was_generating =
                 m_timeline_gen_state.load(std::memory_order_acquire)
                 == static_cast<int>(TimelineGenState::Generating);
+
+            if (memory_ceiling_stop && reached_end)
+            {
+                reached_end = false;
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] Generate timeline stopped at the "
+                    "snapshot memory ceiling; treating timeline as "
+                    "incomplete and skipping post-generation park seek\n"));
+            }
 
             if (was_lux_no_render)
                 m_timeline_no_render_scope.exit(reason, reached_end);
@@ -11625,6 +11656,7 @@ namespace Horse
                 reason && std::strcmp(reason, "user") == 0;
             const bool needs_no_render_fallback =
                 was_lux_no_render && was_generating && !user_stop
+                && !memory_ceiling_stop
                 && ((!reached_end)
                     || (completed_generation_validated
                         && !completed_seek_data_valid));
@@ -11774,6 +11806,9 @@ namespace Horse
                 start_generate_timeline(TimelineGenerationMode::Normal);
             else if (req == kGenReqStartLuxNoRender)
                 start_generate_timeline(TimelineGenerationMode::LuxNoRender);
+            else if (req == kGenReqForceStartLuxNoRender)
+                start_generate_timeline(TimelineGenerationMode::LuxNoRender,
+                                        true);
             else if (req == kGenReqStartBattleStep)
                 start_generate_timeline_battle_step();
             else if (req == kGenReqBattleStepProbe)
@@ -13002,6 +13037,8 @@ namespace Horse
                     "(last_seek={})\n"),
                 RC::to_generic_string(reason ? reason : "?"),
                 cnt_before, last_seek);
+            auto_arm_lux_no_render_generation_for_replay_load(
+                reason ? reason : "new replay");
         }
 
         // External signal: scene presence changed.  Any captured
@@ -13313,7 +13350,9 @@ namespace Horse
             return queue_replay_file_load(path);
         }
 
-        bool request_start_replay_file(const char* user_name) noexcept
+        bool request_start_replay_file(
+            const char* user_name,
+            const char* auto_generate_mode = nullptr) noexcept
         {
             std::wstring path;
             std::string reason;
@@ -13330,7 +13369,7 @@ namespace Horse
                 return false;
             }
 
-            return queue_replay_file_start(path);
+            return queue_replay_file_start(path, auto_generate_mode);
         }
 
         bool browse_and_request_load_replay_file() noexcept
@@ -13384,7 +13423,8 @@ namespace Horse
             return queue_replay_file_load(path);
         }
 
-        bool browse_and_request_start_replay_file() noexcept
+        bool browse_and_request_start_replay_file(
+            const char* auto_generate_mode = nullptr) noexcept
         {
             wchar_t file_name[MAX_PATH]{};
             OPENFILENAMEW ofn{};
@@ -13432,7 +13472,7 @@ namespace Horse
                                        path, 0, meta, reason.c_str());
                 return false;
             }
-            return queue_replay_file_start(path);
+            return queue_replay_file_start(path, auto_generate_mode);
         }
 
     private:
@@ -13956,6 +13996,7 @@ namespace Horse
         std::wstring m_replay_file_last_path;
         std::wstring m_replay_file_pending_path;
         std::wstring m_replay_file_start_pending_path;
+        std::string m_replay_file_start_pending_generate_mode;
         std::wstring m_replay_file_launch_path;
         ReplayFileStartAutomationState m_replay_file_start_automation;
         RC::Unreal::UObject* m_replay_file_profile_container {nullptr};
@@ -15416,6 +15457,7 @@ namespace Horse
         static constexpr int kGenReqStartExperimental = kGenReqStartLuxNoRender;
         static constexpr int kGenReqStartBattleStep   = 4;
         static constexpr int kGenReqBattleStepProbe   = 5;
+        static constexpr int kGenReqForceStartLuxNoRender = 6;
 
         // Keep direct-step loops responsive by capping work per game tick.
         static constexpr int32_t kExp2MaxFramesPerSlice = 32;
@@ -19144,19 +19186,30 @@ namespace Horse
             return true;
         }
 
-        bool queue_replay_file_start(const std::wstring& path) noexcept
+        bool queue_replay_file_start(
+            const std::wstring& path,
+            const char* auto_generate_mode = nullptr) noexcept
         {
+            const char* mode =
+                (auto_generate_mode && auto_generate_mode[0])
+                    ? auto_generate_mode
+                    : "";
             {
                 std::lock_guard<std::mutex> lock(m_replay_file_mutex);
                 m_replay_file_start_pending_path = path;
+                m_replay_file_start_pending_generate_mode = mode;
             }
             m_replay_file_start_pending.store(true, std::memory_order_release);
             ReplayFileMetadata meta{};
             RC::Output::send<RC::LogLevel::Default>(STR(
-                "[ReplayFile] start queued path='{}'\n"),
-                RC::to_generic_string(narrow_path(path)));
+                "[ReplayFile] start queued path='{}' "
+                "auto_generate_mode={}\n"),
+                RC::to_generic_string(narrow_path(path)),
+                RC::to_generic_string(*mode ? mode : "none"));
             set_replay_file_status("Start Replay File", false, false,
-                                   path, 0, meta, "queued");
+                                   path, 0, meta,
+                                   *mode ? "queued with auto-generate"
+                                         : "queued");
             return true;
         }
 
@@ -21205,12 +21258,17 @@ namespace Horse
                     std::memory_order_acq_rel))
             {
                 std::wstring path;
+                std::string auto_generate_mode;
                 {
                     std::lock_guard<std::mutex> lock(m_replay_file_mutex);
                     path = m_replay_file_start_pending_path;
+                    auto_generate_mode =
+                        m_replay_file_start_pending_generate_mode;
+                    m_replay_file_start_pending_generate_mode.clear();
                 }
                 replay_file_start_begin_automation("", narrow_path(path),
-                                                   path, 180, true);
+                                                   path, 180, true,
+                                                   auto_generate_mode);
             }
 
             if (!m_replay_file_start_automation.active)
@@ -27173,7 +27231,9 @@ namespace Horse
                 == static_cast<int>(TimelineGenState::Generating))
                 return;
 
-            if (is_timeline_generation_locked_complete())
+            const bool force_regenerate =
+                mode == kGenReqForceStartLuxNoRender;
+            if (!force_regenerate && is_timeline_generation_locked_complete())
             {
                 m_gen_armed_mode.store(kGenReqNone,
                                        std::memory_order_release);
@@ -27217,8 +27277,12 @@ namespace Horse
 
             if (mode == kGenReqStart)
                 start_generate_timeline(TimelineGenerationMode::Normal);
-            else if (mode == kGenReqStartLuxNoRender)
-                start_generate_timeline(TimelineGenerationMode::LuxNoRender);
+            else if (mode == kGenReqStartLuxNoRender
+                     || mode == kGenReqForceStartLuxNoRender)
+            {
+                start_generate_timeline(TimelineGenerationMode::LuxNoRender,
+                                        force_regenerate);
+            }
             else if (mode == kGenReqStartBattleStep)
                 start_generate_timeline_battle_step();
             else
@@ -27289,6 +27353,41 @@ namespace Horse
              .boolean("live_bm_reset_ok", ready.live_bm_reset_ok);
             ReplayDebugTrace::instance().event("generate_request", f);
             return true;
+        }
+
+        void auto_arm_lux_no_render_generation_for_replay_load(
+            const char* reason) noexcept
+        {
+            if (reason && std::strcmp(reason,
+                    "replay file start auto-generate") == 0)
+                return;
+            if (m_replay_file_start_automation.active
+                || m_replay_seek_test.active)
+                return;
+            if (m_timeline_gen_state.load(std::memory_order_acquire)
+                    == static_cast<int>(TimelineGenState::Generating))
+                return;
+
+            int expected = kGenReqNone;
+            if (!m_gen_armed_mode.compare_exchange_strong(
+                    expected, kGenReqForceStartLuxNoRender,
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire))
+                return;
+
+            reset_armed_generate_wait_log();
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub] auto-armed lux-no-render timeline generation "
+                "for replay load (reason={})\n"),
+                RC::to_generic_string(reason ? reason : "?"));
+
+            ReplayTraceFields f;
+            f.string("mode", "lux-no-render")
+             .boolean("armed", true)
+             .boolean("force_regenerate", true)
+             .boolean("auto_replay_load", true)
+             .string("reason", reason ? reason : "?");
+            ReplayDebugTrace::instance().event("generate_request", f);
         }
 
         bool choose_captured_seek_validation_origin(
