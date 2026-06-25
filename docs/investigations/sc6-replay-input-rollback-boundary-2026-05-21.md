@@ -36,6 +36,11 @@ Static Ghidra pass focused on replay freeze, timeline scrub, and rollback determ
 
 Best rollback timing: restore a pre-frame HgCpuDirect snapshot, restore HorseMod extras immediately after `ExecFinalizeAndPost`, inject frame inputs through normal args/global path, then execute `LuxBattle_PerFrameTick` once.
 
+Related runtime notes: `luxbattle-runtime-map-2026-06-25.md` tracks the
+provider/action-slot, damage-factor, training-setup, and battle-camera systems
+that are adjacent to this frame boundary and useful when replay seek resumes
+with inert characters or camera/hash drift.
+
 ## Rollback state matrix
 
 Covered by HgCpuDirect:

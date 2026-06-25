@@ -187,7 +187,7 @@ sub-arrays:
 | +0x00 | qword | `u64SlotMask` | Per-attacker bits; bits 31/55 = throw partition |
 | +0x32 | ushort | `wU16AttackFlags` | High/Mid/Low/UB bitmask (see below) |
 | +0x36 / +0x38 | i16 | active-frame window | start/end (60ths) |
-| +0x3A | i16 | `wI16BaseDamage` | **damage on hit** |
+| +0x3A | i16 | `wI16BaseDamage` | **base damage on hit**; runtime multipliers are applied later |
 | +0x44 | i16 | `wI16BlockstunFrames` | block disadvantage |
 | +0x46 / +0x48 | i16 | hitstun (standing / standing-air) | hit advantage |
 | +0x4C / +0x4E | i16 | hitstun (crouch / crouch-air) | |
@@ -203,6 +203,44 @@ sub-arrays:
 ```
 Combined: `High+Low blockable → Mid`, `High only → High`, `Low only → Low`,
 `neither + UB → Unblockable`, slot-mask bits 31/55 → Throw.
+
+#### Runtime damage multiplier path (Ghidra pass 2026-06-25)
+
+Section A gives the authored base damage and hit properties. The final
+in-game damage is not just `wI16BaseDamage`; it is multiplied through the
+runtime hit-damage factor path on `ALuxBattleChara`.
+
+Key native path:
+
+1. `LuxBattleChara_ComputeHitDamageFactors @ 0x140343630` resolves attacker
+   as `pDefender->pOpponentChara`, resets the defender's final damage-rate
+   lane, and fills a `FLuxHitDamageRateFactors_Partial` output vector.
+2. `LuxBattleChara_AccumulateDefenseRates @ 0x140344D10` consumes queued
+   defender rates at the `ALuxBattleChara` overlay around `+0x3F0..+0x420`
+   and seeds the first factor lanes.
+3. `LuxBattleChara_CalcDefenseDamageRate` contributes move/posture/guard
+   impact defense rates.
+4. Stored attacker rates at `attacker+0x3F4` and `attacker+0x2B4B4` are
+   multiplied into the defender damage-rate lane and copied into the factor
+   vector.
+5. The hit-classifier result can force special rates: some outcomes reset to
+   `1.0`, some force `0.0`, and one stance-clash case forces `0.5`.
+6. Style mismatch, threshold/stat procs, and
+   `PlayerExtraSkill_AccumulateAttackDamageRates` add the late skill-rate
+   lanes.
+7. The full 0x64-byte `FLuxHitDamageRateFactors_Partial` is copied to the
+   attacker-side last-hit factor cache at `attacker+0x2B440`.
+
+Practical parser/modding implication: the parser can safely report base
+damage from KHD section A, but exact runtime damage needs either a live trace
+of `FLuxHitDamageRateFactors_Partial` or a separate runtime-state model for
+defense queues, stat-table keys, skill rates, style mismatch, and
+the attacker stored-rate lanes. Do not treat the current
+`ALuxBattleChara_Partial` field names around `+0x3F0..+0x420` as globally
+stable; that range has overlapping actor-array names from older recovery, but
+the hit-damage functions use it as float damage-rate state.
+
+Broader runtime notes: `../../docs/investigations/luxbattle-runtime-map-2026-06-25.md`.
 
 **Section C** is the bulk authored-data block (660 KB - 813 KB per
 chara) split into two regions:
@@ -358,6 +396,8 @@ HgMotion_BindLPBData                            0x14038B740
 Lux_KHitChk_DeserializeLinkedList               0x14030C940
 LuxBattle_InitCpuPersonalityData                0x140364950
 LuxMoveVM_InitCharaFromMoveTable                0x140309B20
+LuxBattleChara_ComputeHitDamageFactors          0x140343630
+LuxBattleChara_AccumulateDefenseRates           0x140344D10
 ```
 
 In-Ghidra structs (created during this RE pass):
@@ -370,4 +410,6 @@ FLuxDtpFileHeader      variable    — .dtp header
 FLuxVtbFileHeader      0x18 bytes — .vtb header
 FLuxLpdFileHeader      0x10 bytes — .lpd wrapper
 FLuxLpbBlockHeader     0x3C bytes — inner LPB block
+FLuxHitDamageRateFactors_Partial                0x64 bytes - runtime damage factor vector
+FLuxPlayerExtraSkillDamageRateScratch_Partial   0x18 bytes - vftable + 4 skill damage-rate lanes
 ```
