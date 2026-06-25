@@ -171,7 +171,7 @@ namespace Horse
         void primeFrom(Obj pivot)
         {
             if (!pivot) return;
-            auto* world = pivot.raw()->GetWorld();
+            auto* world = safeGetWorld(pivot.raw());
             if (!world)
             {
                 invalidate();
@@ -202,7 +202,13 @@ namespace Horse
             }
             auto** p = reinterpret_cast<RC::Unreal::UObject**>(
                 reinterpret_cast<uint8_t*>(world) + off);
-            m_lbc = *p;
+            RC::Unreal::UObject* lbc = nullptr;
+            if (!safeReadObjectPtr(p, &lbc))
+            {
+                invalidate();
+                return;
+            }
+            m_lbc = lbc;
             if (!m_lbc) return;
 
             RC::Output::send<RC::LogLevel::Verbose>(
@@ -333,6 +339,69 @@ namespace Horse
 
     private:
         using Clock = std::chrono::steady_clock;
+
+        static bool readableCommitted(const void* ptr, size_t bytes)
+        {
+            if (!ptr || bytes == 0) return false;
+
+            MEMORY_BASIC_INFORMATION mbi{};
+            if (VirtualQuery(ptr, &mbi, sizeof(mbi)) == 0)
+                return false;
+            if (mbi.State != MEM_COMMIT)
+                return false;
+            if ((mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0)
+                return false;
+
+            const DWORD protect = mbi.Protect & 0xff;
+            const bool readable =
+                protect == PAGE_READONLY ||
+                protect == PAGE_READWRITE ||
+                protect == PAGE_WRITECOPY ||
+                protect == PAGE_EXECUTE_READ ||
+                protect == PAGE_EXECUTE_READWRITE ||
+                protect == PAGE_EXECUTE_WRITECOPY;
+            if (!readable)
+                return false;
+
+            const auto* start = static_cast<const uint8_t*>(ptr);
+            const auto* base = static_cast<const uint8_t*>(mbi.BaseAddress);
+            const size_t offset = static_cast<size_t>(start - base);
+            return offset <= mbi.RegionSize && bytes <= mbi.RegionSize - offset;
+        }
+
+        static RC::Unreal::UObject* safeGetWorld(
+            RC::Unreal::UObject* obj) noexcept
+        {
+            if (!readableCommitted(obj, sizeof(void*)))
+                return nullptr;
+            __try
+            {
+                return obj->GetWorld();
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return nullptr;
+            }
+        }
+
+        static bool safeReadObjectPtr(RC::Unreal::UObject** p,
+                                      RC::Unreal::UObject** out) noexcept
+        {
+            if (!out) return false;
+            *out = nullptr;
+            if (!readableCommitted(p, sizeof(*p)))
+                return false;
+            __try
+            {
+                *out = *p;
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                *out = nullptr;
+                return false;
+            }
+        }
 
         TArrHdr* batchedLinesHeader()
         {

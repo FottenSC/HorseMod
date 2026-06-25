@@ -8,6 +8,10 @@ Repo layout:
 - `dump/` — UE header/asset dumps used as RE inputs. a full dump can be found at `C:\Users\prest\Documents\SoulcaliburModding\SCVI Sound Tools\dump` move the files you end up using to the repo dump folder
 - `E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\ue4ss\UE4SS.log` — Can be used to check ue4ss logs
 
+## Replay testing
+
+Run a strict replay seek test after changes touching ReplayScrub, replay hooks, timeline generation, seek/restore behavior, GameMode presence handling, clocks, MoveVM/hit state, RNG, input history, or no-render gates. Build and deploy first, then start with `E:\myMods\ReplayExample\REPLAY_12744704008398858106.bin` using `E:\myMods\tools\replay_seek_test_run.py --kill-game --launch-game --allow-unknown-presence --start-replay <replay> --timeline-generation-mode lux-no-render --case-preset watch --watch-frames 600 --wait --analyze --strict --min-resume-tick-rate 58 --resume-tick-window 120 --max-seek-validation-seconds 0.5`. For timeline-generation changes, compare `normal` vs `lux-no-render` oracle data first; fast generation is valid only with zero mismatches.
+
 The reverse-engineering work runs through `bethington/ghidra-mcp` MCP tools. 
 The MCP is the authoritative interface for Ghidra — never edit `.gpr` files or invoke Ghidra scripts directly. 
 The bridge auto-discovers tools from `/mcp/schema`; if a tool name isn't in the schema it doesn't exist.

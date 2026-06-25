@@ -70,7 +70,7 @@
 //   - overlay enable toggle (mirrors F5)
 //   - per-list visibility toggles (hurtbox / attack / body)
 //   - line thickness slider
-//   - LineBatcher slot selector (Default / Persistent / Foreground)
+//   - Per-list renderer selector (Persistent trail / Normal foreground)
 //
 // Everything else the earlier prototype had - predicate hooks, bounds
 // traces, yarare watchers, process-event spies, cockpit-widget backend,
@@ -80,8 +80,9 @@
 //
 // Ghidra references
 //   LuxBattle_TickHitResolutionAndBodyCollision  @ 0x14033CCA0  (full plate)
-//   ALuxBattleChara_GetBoneTransformForPose      @ 0x140462760
-//   LuxSkeletalBoneIndex_Remap                   @ 0x140898140
+//   Lux_KHitChk_DeserializeLinkedList            @ 0x14030C940
+//   LuxBattleChara_UpdateAllKHitWorldCenters     @ 0x14030D6A0
+//   KHitSphere_UpdateFromAnimCell                @ 0x14030E2F0
 //   KHitBase / KHitArea / KHitSphere / KHitFixArea native field layouts
 // ============================================================================
 
@@ -691,6 +692,7 @@ private:
     // and reapplies at a low cadence instead of scanning every tick.
     Horse::StageVisualSuppressor m_stage_visuals{};
     std::atomic<bool> m_hide_stage_visuals{false};
+    std::atomic<bool> m_replay_trace_files_enabled{true};
 
     // ---- Freeze frame (WorldTickGate-driven) --------------------------------
     // Replaces the broken Horse::GamePause helper (which patched a chara
@@ -717,19 +719,6 @@ private:
     // frame - first tick lifts the freeze, second tick re-applies it.
     std::atomic<int>  m_step_pending{0};
     std::atomic<bool> m_step_expecting{false};
-
-    // Per-step diagnostic logger toggle (Time-tab checkbox).  When on,
-    // every F6 step emits two UE4SS.log lines - "pre" right before the
-    // world ticks at speedval=1.0, "post" right after - with key chara
-    // fields the hit classifier reads (chara+0x16E5 attack-active,
-    // +0x16EA ready-to-hit, +0x44058 own-cell, +0x44048 mirror-cell,
-    // +0x4495A move slot id, +0x44DC2 sub-frame cell idx, +0x3500
-    // per-chara time scale, +0x3508 hitstop counter, plus lane-1
-    // anim-frame).  Lets the user diff "what changed across a single
-    // game frame" against expectations and spot which field stops
-    // updating between the first and second hit of a multi-hit move.
-    std::atomic<bool> m_step_diag_enabled{false};
-    std::atomic<int>  m_step_diag_seq{0};
 
     // Defensive frame-step resync: cockpit::Update can fire WITHOUT
     // the world ticking (UMG widget tick is independent of world tick
@@ -898,6 +887,24 @@ private:
     uint32_t m_last_trail_game_frame{0};
     bool     m_have_trail_filter_state{false};
     bool     m_last_trail_only_active{true};
+
+    // Diagnostic-only.  Logs attack spheres once per game frame so
+    // externally-edited spheres can be compared against the rendered
+    // centre/radius without permanently noisy UE4SS logs.
+    //
+    // Scuffle clue captured from hdr030_TEST.khd, move 328: the edited
+    // test hitbox is on attack entry 1's General_1 / General_2 masks,
+    // i.e. native category slots 56 and 57, not HitMisc::Big_Sphere.
+    std::atomic<bool> m_khit_sphere_audit{false};
+    std::atomic<bool> m_khit_sphere_audit_filter_move{false};
+    std::atomic<int>  m_khit_sphere_audit_move{328};
+    std::atomic<bool> m_khit_sphere_audit_filter_slots{false};
+    std::atomic<int>  m_khit_sphere_audit_slot_a{56};
+    std::atomic<int>  m_khit_sphere_audit_slot_b{57};
+    bool     m_have_sphere_audit_frame{false};
+    uint32_t m_last_sphere_audit_frame{0};
+    int      m_sphere_audit_logs_this_frame{0};
+    static constexpr int kMaxKHitAuditLogsPerFrame = 96;
 
     // ---- Retrack-event overlay ----------------------------------------
     // When ON, watches each chara's facing yaw every cockpit tick and
@@ -1073,6 +1080,612 @@ private:
         return false;
     }
 
+    static bool read_lux_battle_game_frame(uint32_t& out_frame) noexcept
+    {
+        constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
+        const uintptr_t base = Horse::NativeBinding::imageBase();
+        return base != 0 && Horse::SafeReadUInt32(
+            reinterpret_cast<const void*>(base + kFrameCounterRVA),
+            &out_frame);
+    }
+
+    static bool mask_has_slot(uint64_t mask, int slot) noexcept
+    {
+        return slot >= 0 && slot < 64 &&
+               (((mask >> static_cast<unsigned>(slot)) & 1ull) != 0);
+    }
+
+    static bool khit_audit_move_matches(int wanted,
+                                        bool has_move,
+                                        int packed_move,
+                                        int move_id_low11) noexcept
+    {
+        return wanted < 0 ||
+               (has_move &&
+                (packed_move == wanted || move_id_low11 == wanted));
+    }
+
+    bool khit_audit_matches_move_filter(
+        const Horse::KHitDraw& d,
+        const Horse::KHitWalker::LaneSnapshot* attacker_lane) const
+    {
+        if (m_khit_sphere_audit_filter_move.load(std::memory_order_relaxed))
+        {
+            const int wanted =
+                m_khit_sphere_audit_move.load(std::memory_order_relaxed);
+            if (d.list == Horse::KHitList::Hurtbox && attacker_lane)
+            {
+                const int packed =
+                    static_cast<int>(attacker_lane->packed_move);
+                const int low11 = packed & 0x7ff;
+                return khit_audit_move_matches(
+                    wanted, attacker_lane->has_move, packed, low11);
+            }
+
+            return khit_audit_move_matches(
+                wanted,
+                d.has_move_identity,
+                static_cast<int>(d.active_packed_move),
+                static_cast<int>(d.active_move_id_low11));
+        }
+
+        return true;
+    }
+
+    bool khit_audit_matches_slot_filter(const Horse::KHitDraw& d) const
+    {
+        if (m_khit_sphere_audit_filter_slots.load(std::memory_order_relaxed))
+        {
+            const int slot_a =
+                m_khit_sphere_audit_slot_a.load(std::memory_order_relaxed);
+            const int slot_b =
+                m_khit_sphere_audit_slot_b.load(std::memory_order_relaxed);
+            auto matches_slot = [&](int slot) {
+                return slot >= 0 && slot < 64 &&
+                       (static_cast<int>(d.bone_id_internal) == slot ||
+                        mask_has_slot(d.category_or_bone_mask, slot) ||
+                        (d.defender_hurtbox_mask_valid &&
+                         mask_has_slot(d.defender_hurtbox_attack_mask, slot)));
+            };
+            if (!matches_slot(slot_a) && !matches_slot(slot_b))
+                return false;
+        }
+
+        return true;
+    }
+
+    bool khit_audit_matches_filter(
+        const Horse::KHitDraw& d,
+        const Horse::KHitWalker::LaneSnapshot* attacker_lane) const
+    {
+        return khit_audit_matches_move_filter(d, attacker_lane) &&
+               khit_audit_matches_slot_filter(d);
+    }
+
+    static bool can_expose_khit_attack_for_audit(const Horse::KHitDraw& d)
+    {
+        return d.list == Horse::KHitList::Attack &&
+               d.geom_active &&
+               d.attack_mask_selected &&
+               d.attacker_can_strike_engine;
+    }
+
+    bool consume_khit_audit_log_slot()
+    {
+        if (m_sphere_audit_logs_this_frame >= kMaxKHitAuditLogsPerFrame)
+            return false;
+        ++m_sphere_audit_logs_this_frame;
+        return true;
+    }
+
+    static Horse::FVec3 midpoint(const Horse::FVec3& a,
+                                 const Horse::FVec3& b) noexcept
+    {
+        return Horse::FVec3{
+            (a.X + b.X) * 0.5f,
+            (a.Y + b.Y) * 0.5f,
+            (a.Z + b.Z) * 0.5f,
+        };
+    }
+
+    static Horse::FVec3 centroid3(const Horse::FVec3& a,
+                                  const Horse::FVec3& b,
+                                  const Horse::FVec3& c) noexcept
+    {
+        return Horse::FVec3{
+            (a.X + b.X + c.X) / 3.0f,
+            (a.Y + b.Y + c.Y) / 3.0f,
+            (a.Z + b.Z + c.Z) / 3.0f,
+        };
+    }
+
+    static float distance3(const Horse::FVec3& a,
+                           const Horse::FVec3& b) noexcept
+    {
+        const float dx = a.X - b.X;
+        const float dy = a.Y - b.Y;
+        const float dz = a.Z - b.Z;
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    static float max_float(float a, float b) noexcept
+    {
+        return (a > b) ? a : b;
+    }
+
+    struct KHitAuditShapeMetrics
+    {
+        Horse::FVec3 native_center{};
+        Horse::FVec3 ue_center{};
+        float native_radius = 0.0f;
+        float ue_radius = 0.0f;
+    };
+
+    static KHitAuditShapeMetrics audit_shape_metrics(
+        const Horse::KHitDraw& d) noexcept
+    {
+        KHitAuditShapeMetrics m{};
+        switch (d.kind)
+        {
+            case Horse::KHitKind::Sphere:
+                m.native_center = d.native_centre;
+                m.ue_center = d.centre;
+                m.native_radius = d.native_radius;
+                m.ue_radius = d.radius;
+                break;
+
+            case Horse::KHitKind::AreaSpine:
+                m.native_center =
+                    midpoint(d.native_spine_p1_world,
+                             d.native_spine_p2_world);
+                m.ue_center = midpoint(d.spine_p1_world,
+                                       d.spine_p2_world);
+                m.native_radius = max_float(
+                    distance3(m.native_center, d.native_spine_p1_world),
+                    distance3(m.native_center, d.native_spine_p2_world));
+                m.ue_radius = max_float(
+                    distance3(m.ue_center, d.spine_p1_world),
+                    distance3(m.ue_center, d.spine_p2_world));
+                if (d.has_prev_spine)
+                {
+                    const Horse::FVec3 native_prev_center =
+                        midpoint(d.native_prev_p1_world,
+                                 d.native_prev_p2_world);
+                    const Horse::FVec3 ue_prev_center =
+                        midpoint(d.prev_p1_world, d.prev_p2_world);
+                    m.native_radius = max_float(
+                        m.native_radius,
+                        distance3(m.native_center, native_prev_center));
+                    m.native_radius = max_float(
+                        m.native_radius,
+                        distance3(m.native_center, d.native_prev_p1_world));
+                    m.native_radius = max_float(
+                        m.native_radius,
+                        distance3(m.native_center, d.native_prev_p2_world));
+                    m.ue_radius = max_float(
+                        m.ue_radius,
+                        distance3(m.ue_center, ue_prev_center));
+                    m.ue_radius = max_float(
+                        m.ue_radius,
+                        distance3(m.ue_center, d.prev_p1_world));
+                    m.ue_radius = max_float(
+                        m.ue_radius,
+                        distance3(m.ue_center, d.prev_p2_world));
+                }
+                break;
+
+            case Horse::KHitKind::FixAreaTri:
+                m.native_center = centroid3(d.native_corners[0],
+                                            d.native_corners[1],
+                                            d.native_corners[2]);
+                m.ue_center = centroid3(d.corners[0],
+                                        d.corners[1],
+                                        d.corners[2]);
+                for (int i = 0; i < 3; ++i)
+                {
+                    m.native_radius = max_float(
+                        m.native_radius,
+                        distance3(m.native_center, d.native_corners[i]));
+                    m.ue_radius = max_float(
+                        m.ue_radius,
+                        distance3(m.ue_center, d.corners[i]));
+                }
+                break;
+        }
+        return m;
+    }
+
+    void service_khit_sphere_audit_frame(bool have_game_frame,
+                                         uint32_t game_frame)
+    {
+        if (!m_khit_sphere_audit.load(std::memory_order_relaxed))
+        {
+            m_have_sphere_audit_frame = false;
+            m_sphere_audit_logs_this_frame = 0;
+            return;
+        }
+
+        const uint32_t audit_frame = have_game_frame
+            ? game_frame
+            : static_cast<uint32_t>(m_update_calls);
+        if (!m_have_sphere_audit_frame ||
+            audit_frame != m_last_sphere_audit_frame)
+        {
+            m_have_sphere_audit_frame = true;
+            m_last_sphere_audit_frame = audit_frame;
+            m_sphere_audit_logs_this_frame = 0;
+        }
+    }
+
+    void maybe_log_khit_audit(
+        const Horse::KHitDraw& d,
+        int player,
+        bool matters_this_frame,
+        bool have_game_frame,
+        uint32_t game_frame,
+        Horse::LineBatcherSlot renderer_slot,
+        const Horse::KHitWalker::LaneSnapshot* attacker_lane)
+    {
+        if (!m_khit_sphere_audit.load(std::memory_order_relaxed))
+            return;
+
+        const bool is_attack_audit =
+            d.list == Horse::KHitList::Attack &&
+            can_expose_khit_attack_for_audit(d);
+        const bool is_hit_result_audit =
+            d.list == Horse::KHitList::Hurtbox &&
+            (d.raw_reaction_hot ||
+             d.reaction_hot ||
+             d.final_hit_result_code != 0 ||
+             (d.defender_hurtbox_mask_valid &&
+              d.defender_hurtbox_attack_mask != 0));
+        if (!is_attack_audit && !is_hit_result_audit)
+            return;
+
+        if (!khit_audit_matches_move_filter(d, attacker_lane))
+            return;
+
+        if (!consume_khit_audit_log_slot())
+            return;
+
+        if (is_hit_result_audit)
+        {
+            const int attacker_player = (player == 0) ? 2 : 1;
+            const bool attacker_has_move =
+                attacker_lane && attacker_lane->has_move;
+            const int attacker_packed = attacker_has_move
+                ? static_cast<int>(attacker_lane->packed_move)
+                : -1;
+            const int attacker_low11 = attacker_has_move
+                ? (attacker_packed & 0x7ff)
+                : -1;
+            Output::send<LogLevel::Default>(
+                STR("[HorseMod.KHitAudit.HurtResult] frame_ok={} frame={} "
+                    "def_p={} atk_p={} atk_move=0x{:04x}/{} hurt_node=0x{:x} "
+                    "hurt_slot={} raw_react={} sticky_react={} final={} "
+                    "mask_valid={} incoming=0x{:016x} filter_slots=({}, {}) "
+                    "phase={} defender_can_react={} overlap={} addressable={}\n"),
+                have_game_frame,
+                have_game_frame ? game_frame : 0,
+                player + 1,
+                attacker_player,
+                attacker_has_move
+                    ? static_cast<unsigned>(attacker_packed & 0xffff)
+                    : 0xffffu,
+                attacker_low11,
+                d.source_node,
+                d.hurtbox_slot,
+                d.raw_reaction_state,
+                d.reaction_state,
+                d.final_hit_result_code,
+                d.defender_hurtbox_mask_valid,
+                d.defender_hurtbox_attack_mask,
+                m_khit_sphere_audit_slot_a.load(std::memory_order_relaxed),
+                m_khit_sphere_audit_slot_b.load(std::memory_order_relaxed),
+                static_cast<int>(d.engine_phase),
+                d.defender_can_react_engine,
+                d.overlap_active,
+                d.classifier_addressable);
+            return;
+        }
+
+        if (!khit_audit_matches_slot_filter(d))
+            return;
+
+        if (d.kind == Horse::KHitKind::Sphere)
+        {
+            Output::send<LogLevel::Default>(
+                STR("[HorseMod.KHitAudit.Attack] frame_ok={} frame={} p={} "
+                    "move=0x{:04x}/{} sub=0x{:04x} node=0x{:x} kind=sphere "
+                    "slot={} renderer={} matters={} geom={} mask_selected={} "
+                    "phase={} primary=0x{:016x} alt_open={} alt=0x{:016x} "
+                    "cat=0x{:016x} native=({:.3f},{:.3f},{:.3f}) "
+                    "ue=({:.1f},{:.1f},{:.1f}) local=({:.3f},{:.3f},{:.3f}) "
+                    "auth_local=({:.3f},{:.3f},{:.3f}) radius_native={:.3f} "
+                    "radius_auth={:.3f} radius_ue={:.1f}\n"),
+                have_game_frame,
+                have_game_frame ? game_frame : 0,
+                player + 1,
+                d.has_move_identity ? d.active_packed_move : 0xFFFFu,
+                d.has_move_identity
+                    ? static_cast<int>(d.active_move_id_low11)
+                    : -1,
+                d.move_subframe_id,
+                d.source_node,
+                static_cast<int>(d.bone_id_internal),
+                static_cast<int>(renderer_slot),
+                matters_this_frame,
+                d.geom_active,
+                d.attack_mask_selected,
+                static_cast<int>(d.engine_phase),
+                d.primary_attack_mask,
+                d.alt_classify_open,
+                d.alt_attack_mask,
+                d.category_or_bone_mask,
+                d.native_centre.X,
+                d.native_centre.Y,
+                d.native_centre.Z,
+                d.centre.X,
+                d.centre.Y,
+                d.centre.Z,
+                d.native_live_local_centre.X,
+                d.native_live_local_centre.Y,
+                d.native_live_local_centre.Z,
+                d.native_authored_local_centre.X,
+                d.native_authored_local_centre.Y,
+                d.native_authored_local_centre.Z,
+                d.native_radius,
+                d.native_authored_radius,
+                d.radius);
+            return;
+        }
+
+        if (d.kind == Horse::KHitKind::AreaSpine)
+        {
+            Output::send<LogLevel::Default>(
+                STR("[HorseMod.KHitAudit.Attack] frame_ok={} frame={} p={} "
+                    "move=0x{:04x}/{} sub=0x{:04x} node=0x{:x} kind=area "
+                    "slot={} renderer={} matters={} geom={} mask_selected={} "
+                    "phase={} primary=0x{:016x} alt_open={} alt=0x{:016x} "
+                    "cat=0x{:016x} native_p1=({:.3f},{:.3f},{:.3f}) "
+                    "native_p2=({:.3f},{:.3f},{:.3f}) "
+                    "native_prev_p1=({:.3f},{:.3f},{:.3f}) "
+                    "native_prev_p2=({:.3f},{:.3f},{:.3f}) has_prev={} "
+                    "ue_p1=({:.1f},{:.1f},{:.1f}) ue_p2=({:.1f},{:.1f},{:.1f})\n"),
+                have_game_frame,
+                have_game_frame ? game_frame : 0,
+                player + 1,
+                d.has_move_identity ? d.active_packed_move : 0xFFFFu,
+                d.has_move_identity
+                    ? static_cast<int>(d.active_move_id_low11)
+                    : -1,
+                d.move_subframe_id,
+                d.source_node,
+                static_cast<int>(d.bone_id_internal),
+                static_cast<int>(renderer_slot),
+                matters_this_frame,
+                d.geom_active,
+                d.attack_mask_selected,
+                static_cast<int>(d.engine_phase),
+                d.primary_attack_mask,
+                d.alt_classify_open,
+                d.alt_attack_mask,
+                d.category_or_bone_mask,
+                d.native_spine_p1_world.X,
+                d.native_spine_p1_world.Y,
+                d.native_spine_p1_world.Z,
+                d.native_spine_p2_world.X,
+                d.native_spine_p2_world.Y,
+                d.native_spine_p2_world.Z,
+                d.native_prev_p1_world.X,
+                d.native_prev_p1_world.Y,
+                d.native_prev_p1_world.Z,
+                d.native_prev_p2_world.X,
+                d.native_prev_p2_world.Y,
+                d.native_prev_p2_world.Z,
+                d.has_prev_spine,
+                d.spine_p1_world.X,
+                d.spine_p1_world.Y,
+                d.spine_p1_world.Z,
+                d.spine_p2_world.X,
+                d.spine_p2_world.Y,
+                d.spine_p2_world.Z);
+            return;
+        }
+
+        Output::send<LogLevel::Default>(
+            STR("[HorseMod.KHitAudit.Attack] frame_ok={} frame={} p={} "
+                "move=0x{:04x}/{} sub=0x{:04x} node=0x{:x} kind=fixarea "
+                "slot={} renderer={} matters={} geom={} mask_selected={} "
+                "phase={} primary=0x{:016x} alt_open={} alt=0x{:016x} "
+                "cat=0x{:016x} native_p1=({:.3f},{:.3f},{:.3f}) "
+                "native_p2=({:.3f},{:.3f},{:.3f}) "
+                "native_p3=({:.3f},{:.3f},{:.3f}) "
+                "ue_p1=({:.1f},{:.1f},{:.1f}) ue_p2=({:.1f},{:.1f},{:.1f}) "
+                "ue_p3=({:.1f},{:.1f},{:.1f})\n"),
+            have_game_frame,
+            have_game_frame ? game_frame : 0,
+            player + 1,
+            d.has_move_identity ? d.active_packed_move : 0xFFFFu,
+            d.has_move_identity
+                ? static_cast<int>(d.active_move_id_low11)
+                : -1,
+            d.move_subframe_id,
+            d.source_node,
+            static_cast<int>(d.bone_id_internal),
+            static_cast<int>(renderer_slot),
+            matters_this_frame,
+            d.geom_active,
+            d.attack_mask_selected,
+            static_cast<int>(d.engine_phase),
+            d.primary_attack_mask,
+            d.alt_classify_open,
+            d.alt_attack_mask,
+            d.category_or_bone_mask,
+            d.native_corners[0].X,
+            d.native_corners[0].Y,
+            d.native_corners[0].Z,
+            d.native_corners[1].X,
+            d.native_corners[1].Y,
+            d.native_corners[1].Z,
+            d.native_corners[2].X,
+            d.native_corners[2].Y,
+            d.native_corners[2].Z,
+            d.corners[0].X,
+            d.corners[0].Y,
+            d.corners[0].Z,
+            d.corners[1].X,
+            d.corners[1].Y,
+            d.corners[1].Z,
+            d.corners[2].X,
+            d.corners[2].Y,
+            d.corners[2].Z);
+    }
+
+    void maybe_log_khit_overlap_pairs(
+        const std::vector<Horse::KHitDraw> (&draws)[2],
+        const Horse::KHitWalker::LaneSnapshot (&lane_snapshots)[2],
+        bool have_game_frame,
+        uint32_t game_frame,
+        Horse::LineBatcherSlot hit_renderer_slot,
+        Horse::LineBatcherSlot hurt_renderer_slot)
+    {
+        if (!m_khit_sphere_audit.load(std::memory_order_relaxed))
+            return;
+
+        for (int defender = 0; defender < 2; ++defender)
+        {
+            const int attacker = (defender == 0) ? 1 : 0;
+            const auto* attacker_lane = &lane_snapshots[attacker];
+            const bool attacker_has_move =
+                attacker_lane && attacker_lane->has_move;
+            const int attacker_packed = attacker_has_move
+                ? static_cast<int>(attacker_lane->packed_move)
+                : -1;
+            const int attacker_low11 = attacker_has_move
+                ? (attacker_packed & 0x7ff)
+                : -1;
+
+            for (const Horse::KHitDraw& hurt : draws[defender])
+            {
+                if (hurt.list != Horse::KHitList::Hurtbox ||
+                    !hurt.defender_hurtbox_mask_valid ||
+                    hurt.defender_hurtbox_attack_mask == 0)
+                {
+                    continue;
+                }
+                if (!khit_audit_matches_move_filter(hurt, attacker_lane))
+                    continue;
+
+                for (const Horse::KHitDraw& attack : draws[attacker])
+                {
+                    if (attack.list != Horse::KHitList::Attack)
+                        continue;
+
+                    const uint64_t matched_bits =
+                        hurt.defender_hurtbox_attack_mask &
+                        attack.category_or_bone_mask;
+                    if (matched_bits == 0)
+                        continue;
+                    if (!attack.geom_active)
+                        continue;
+
+                    if (m_khit_sphere_audit_filter_slots.load(
+                            std::memory_order_relaxed) &&
+                        !khit_audit_matches_slot_filter(attack) &&
+                        !khit_audit_matches_slot_filter(hurt))
+                    {
+                        continue;
+                    }
+                    if (!consume_khit_audit_log_slot())
+                        return;
+
+                    const KHitAuditShapeMetrics atk_m =
+                        audit_shape_metrics(attack);
+                    const KHitAuditShapeMetrics hurt_m =
+                        audit_shape_metrics(hurt);
+                    const float native_dist =
+                        distance3(atk_m.native_center,
+                                  hurt_m.native_center);
+                    const float ue_dist =
+                        distance3(atk_m.ue_center,
+                                  hurt_m.ue_center);
+                    const float native_rsum =
+                        atk_m.native_radius + hurt_m.native_radius;
+                    const float ue_rsum =
+                        atk_m.ue_radius + hurt_m.ue_radius;
+                    Output::send<LogLevel::Default>(
+                        STR("[HorseMod.KHitAudit.OverlapPair] frame_ok={} "
+                            "frame={} def_p={} atk_p={} "
+                            "atk_move=0x{:04x}/{} "
+                            "hurt_node=0x{:x} hurt_kind={} hurt_slot={} "
+                            "atk_node=0x{:x} atk_kind={} atk_slot={} "
+                            "matched=0x{:016x} incoming=0x{:016x} "
+                            "raw_react={} sticky_react={} final={} "
+                            "atk_phase={} atk_geom={} atk_mask_selected={} "
+                            "renderer_hit={} renderer_hurt={} "
+                            "native_atk=({:.3f},{:.3f},{:.3f}) "
+                            "native_hurt=({:.3f},{:.3f},{:.3f}) "
+                            "native_dist={:.3f} native_rsum={:.3f} "
+                            "native_margin={:.3f} "
+                            "ue_atk=({:.1f},{:.1f},{:.1f}) "
+                            "ue_hurt=({:.1f},{:.1f},{:.1f}) "
+                            "ue_dist={:.1f} ue_rsum={:.1f} "
+                            "ue_margin={:.1f} "
+                            "atk_radius_native={:.3f} "
+                            "hurt_radius_native={:.3f} "
+                            "atk_radius_ue={:.1f} hurt_radius_ue={:.1f}\n"),
+                        have_game_frame,
+                        have_game_frame ? game_frame : 0,
+                        defender + 1,
+                        attacker + 1,
+                        attacker_has_move
+                            ? static_cast<unsigned>(attacker_packed & 0xffff)
+                            : 0xffffu,
+                        attacker_low11,
+                        hurt.source_node,
+                        static_cast<int>(hurt.kind),
+                        hurt.hurtbox_slot,
+                        attack.source_node,
+                        static_cast<int>(attack.kind),
+                        static_cast<int>(attack.bone_id_internal),
+                        matched_bits,
+                        hurt.defender_hurtbox_attack_mask,
+                        hurt.raw_reaction_state,
+                        hurt.reaction_state,
+                        hurt.final_hit_result_code,
+                        static_cast<int>(attack.engine_phase),
+                        attack.geom_active,
+                        attack.attack_mask_selected,
+                        static_cast<int>(hit_renderer_slot),
+                        static_cast<int>(hurt_renderer_slot),
+                        atk_m.native_center.X,
+                        atk_m.native_center.Y,
+                        atk_m.native_center.Z,
+                        hurt_m.native_center.X,
+                        hurt_m.native_center.Y,
+                        hurt_m.native_center.Z,
+                        native_dist,
+                        native_rsum,
+                        native_rsum - native_dist,
+                        atk_m.ue_center.X,
+                        atk_m.ue_center.Y,
+                        atk_m.ue_center.Z,
+                        hurt_m.ue_center.X,
+                        hurt_m.ue_center.Y,
+                        hurt_m.ue_center.Z,
+                        ue_dist,
+                        ue_rsum,
+                        ue_rsum - ue_dist,
+                        atk_m.native_radius,
+                        hurt_m.native_radius,
+                        atk_m.ue_radius,
+                        hurt_m.ue_radius);
+                }
+            }
+        }
+    }
+
     void clear_persistent_khit_trails()
     {
         if (m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
@@ -1181,6 +1794,10 @@ private:
         m_show_stage_boundary    .store(S.get_bool ("show_stage_boundary",   false));
         m_hide_stage_visuals     .store(S.get_bool ("hide_stage_visuals",    false));
         m_show_retrack_events    .store(S.get_bool ("show_retrack_events",   false));
+        m_replay_trace_files_enabled.store(
+            S.get_bool("replay_trace_files_enabled", true));
+        Horse::ReplayDebugTrace::instance().set_enabled(
+            m_replay_trace_files_enabled.load());
 
         // --- Reset override -----------------------------------------
         // Captured pose persists across reboots so the user can resume
@@ -1268,6 +1885,8 @@ private:
         S.set("show_stage_boundary",   m_show_stage_boundary.load());
         S.set("hide_stage_visuals",    m_hide_stage_visuals.load());
         S.set("show_retrack_events",   m_show_retrack_events.load());
+        S.set("replay_trace_files_enabled",
+              m_replay_trace_files_enabled.load());
 
         // --- Reset override ----------------------------------------
         // The toggle is deliberately NOT persisted - see the matching
@@ -1311,7 +1930,6 @@ private:
     StringType                   m_hook_path;
     int                          m_poll_counter = 0;
     int                          m_update_calls = 0;
-    int                          m_diag_tick    = 0;
     int                          m_engine_fallback_last_cockpit_calls = 0;
     int                          m_engine_fallback_missed_ticks = 0;
     bool                         m_engine_fallback_logged = false;
@@ -1389,6 +2007,10 @@ private:
     // D-pad appears to do nothing until a "menu" key press kicks nav
     // into gear by side effect.
     bool m_nav_bootstrap_pending = false;
+    static constexpr int kHorseModTabCount = 6;
+    int m_current_tab = 0;
+    std::atomic<int> m_requested_tab{-1};
+    std::atomic<bool> m_replay_timeline_only_overlay{false};
 
     // One-shot log flags so UE4SS.log doesn't fill with repeats.
     bool m_logged_native_missing = false;
@@ -1487,6 +2109,59 @@ private:
                 "rip=0x{:X} rva=0x{:X}\n"),
             static_cast<unsigned>(code), rip, rip - base);
         return EXCEPTION_CONTINUE_SEARCH;
+    }
+
+    static void release_replay_scrub_gates_callback(
+        const char* reason) noexcept
+    {
+        if (HorseMod* self = s_instance.load(std::memory_order_acquire))
+            self->release_replay_scrub_gates_now(reason);
+    }
+
+    void release_replay_scrub_gates_now(const char* reason) noexcept
+    {
+        if (m_freeze_frame.load(std::memory_order_acquire) ||
+            m_speed_enabled.load(std::memory_order_acquire) ||
+            m_step_pending.load(std::memory_order_acquire) > 0)
+        {
+            return;
+        }
+
+        const bool had_world = m_world_tick_gate.is_enabled();
+        const bool had_replay = m_replay_clock_gate.is_enabled();
+        const bool had_actor = m_actor_tick_gate.is_enabled();
+        const bool had_time = m_time_dilation_gate.is_enabled();
+        const bool had_wind = m_wind_rng_gate.is_enabled();
+        if (!had_world && !had_replay && !had_actor && !had_time && !had_wind)
+            return;
+
+        if (had_wind) m_wind_rng_gate.disable();
+        if (had_replay) m_replay_clock_gate.disable();
+        if (had_actor) m_actor_tick_gate.disable();
+        if (had_time) m_time_dilation_gate.disable();
+        if (had_world) m_world_tick_gate.disable();
+        m_last_tick_kind.store(
+            static_cast<uint8_t>(TickKind::Inactive),
+            std::memory_order_release);
+
+        Horse::ReplayTraceFields f;
+        f.string("reason", reason ? reason : "reset")
+         .boolean("world_gate_was_enabled", had_world)
+         .boolean("replay_gate_was_enabled", had_replay)
+         .boolean("actor_gate_was_enabled", had_actor)
+         .boolean("time_gate_was_enabled", had_time)
+         .boolean("wind_gate_was_enabled", had_wind);
+        Horse::ReplayDebugTrace::instance().event(
+            "replay_scrub_gates_released_for_reset", f);
+        Output::send<LogLevel::Default>(
+            STR("[ReplayScrub.gates] released for reset reason={} "
+                "world={} replay={} actor={} time={} wind={}\n"),
+            RC::to_generic_string(reason ? reason : "reset"),
+            had_world ? 1 : 0,
+            had_replay ? 1 : 0,
+            had_actor ? 1 : 0,
+            had_time ? 1 : 0,
+            had_wind ? 1 : 0);
     }
 
 public:
@@ -1624,8 +2299,16 @@ public:
         // Back/Select on the gamepad also toggles the overlay; that
         // half is wired inside horselib/GameImGui/GamepadInput.hpp's
         // BACK-button edge detector.
-        register_keydown_event(Input::Key::F2, no_mods, []() {
-            const bool v = !Horse::GameImGui::visible();
+        register_keydown_event(Input::Key::F2, no_mods, [this]() {
+            bool v = !Horse::GameImGui::visible();
+            if (m_replay_timeline_only_overlay.exchange(
+                    false, std::memory_order_relaxed))
+            {
+                // Timeline-only overlay is an automatic replay affordance.
+                // F2 should promote it to the full HorseMod panel instead
+                // of making the user hide/reopen the overlay first.
+                v = true;
+            }
             Horse::GameImGui::set_visible(v);
             Output::send<LogLevel::Default>(
                 STR("[HorseMod] F2 pressed - overlay {}\n"),
@@ -1633,6 +2316,8 @@ public:
         });
 
         s_instance.store(this);
+        Horse::ReplayScrub::instance().set_gate_release_callback(
+            &HorseMod::release_replay_scrub_gates_callback);
         m_exception_handler = ::AddVectoredExceptionHandler(
             1, &HorseMod::vectored_exception_handler);
         if (!m_exception_handler)
@@ -1663,6 +2348,8 @@ public:
             ::RemoveVectoredExceptionHandler(m_exception_handler);
             m_exception_handler = nullptr;
         }
+
+        Horse::ReplayScrub::instance().set_gate_release_callback(nullptr);
 
         // Zero instance pointer early so any in-flight hook sees null.
         s_instance.store(nullptr);
@@ -1793,18 +2480,16 @@ public:
                     auto& scrub = Horse::ReplayScrub::instance();
                     scrub.service_state_snapshot_request();
                     scrub.service_replay_file_start_request();
+                    self->draw_line_overlays_after_battle_tick();
                 }, replay_start_tick_opts);
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] engine tick replay-start service registered id={}\n"),
             m_engine_tick_callback_id);
 
-        // Resolve SC6 native function RVAs now that the game image is loaded:
-        //   ALuxBattleChara_GetBoneTransformForPose @ image + 0x462760
-        //   LuxSkeletalBoneIndex_Remap              @ image + 0x898140
-        //   LuxBattleChara_SetStartPosition         @ image + 0x301E60
-        // These are used by KHitWalker to transform KHitArea OBBs into
-        // world space via the owning chara's bone pose, and by
-        // SetStartPositionHook to override the chara teleport target.
+        // Resolve SC6 native RVAs now that the game image is loaded.  KHit
+        // rendering reads native world buffers directly; the remaining
+        // pointers cover reset/start-position, online rules, presence
+        // tracking, line-batcher refresh, and throw-height prediction.
         Horse::NativeBinding::resolve();
 
         // Stock native replay-launch trace probes.  These are the
@@ -3416,191 +4101,6 @@ private:
     }
 
     // ------------------------------------------------------------------
-    // Per-step diagnostic logger (Time-tab checkbox-gated).
-    // ------------------------------------------------------------------
-    // Snapshots the chara fields the hit classifier
-    // (LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100) reads to
-    // decide whether to register a hit, plus the lane-1 anim cursor.
-    // Emits ONE LINE PER CHARA per call.  Caller invokes twice per F6
-    // step:
-    //   "pre"  - before the world tick at speedval=1.0
-    //   "post" - after  the world tick at speedval=1.0
-    //
-    // Reading a "pre"/"post" pair tells you which field changed across
-    // exactly one game frame.  For multi-hit miss diagnosis: between
-    // the missed hits, fields like +0x16E5/+0x16EA/+0x44058/+0x44048
-    // should toggle.  If they don't, that's the leak.
-    //
-    // All reads SEH-wrapped; a faulting field shows as "??".
-    static void log_frame_step_diag(const char* phase, int seq) noexcept
-    {
-        // Phase string is fixed "pre" or "post" - use a wide-string
-        // literal directly instead of a runtime char->wide conversion
-        // (UE4SS's STR macro only works on literals).
-        const auto phase_w = (phase[0] == 'p' && phase[1] == 'o')
-                                ? STR("post")
-                                : STR("pre");
-
-        for (uint32_t pi = 0; pi < 2; ++pi)
-        {
-            void* chara = Horse::KHitWalker::charaSlotFromGlobal(pi);
-            if (!chara) continue;
-            auto* b = reinterpret_cast<const uint8_t*>(chara);
-
-            uint8_t  v_16e5 = 0xFF, v_16ea = 0xFF, v_16eb = 0xFF,
-                     v_16fe = 0xFF, v_16d2 = 0xFF;
-            void*    v_44058 = nullptr;
-            void*    v_44048 = nullptr;
-            uint64_t v_44058_mask = 0, v_44048_mask = 0;
-            int16_t  v_44dc2 = -1, v_4495a = -1;
-            float    v_3500 = -1.0f;
-            int32_t  v_3508 = -1, v_44db8 = -1;
-            float    lane1_anim = -1.0f;
-            int16_t  lane1_delta = -1;
-            int32_t  lane1_tickctr = -1;
-            uint16_t lane1_atend = 0xFFFF, lane1_finished = 0xFFFF;
-
-            using namespace Horse;
-            uint8_t kind = 0xFF;
-            SafeReadUInt8 (b + 0x23C,   &kind);
-            SafeReadUInt8 (b + 0x16E5,  &v_16e5);
-            SafeReadUInt8 (b + 0x16EA,  &v_16ea);
-            SafeReadUInt8 (b + 0x16EB,  &v_16eb);
-            SafeReadUInt8 (b + 0x16FE,  &v_16fe);
-            SafeReadUInt8 (b + 0x16D2,  &v_16d2);
-            SafeReadPtr   (b + 0x44058, &v_44058);
-            SafeReadPtr   (b + 0x44048, &v_44048);
-            if (v_44058) SafeReadUInt64(v_44058, &v_44058_mask);
-            if (v_44048) SafeReadUInt64(v_44048, &v_44048_mask);
-            SafeReadInt16 (b + 0x44DC2, &v_44dc2);
-            SafeReadInt16 (b + 0x4495A, &v_4495a);
-            SafeReadFloat (b + 0x3500,  &v_3500);
-            SafeReadInt32 (b + 0x3508,  &v_3508);
-            SafeReadInt32 (b + 0x44DB8, &v_44db8);
-            // Lane 1: chara + 0x44958.
-            const uint8_t* lane1 = b + 0x44958;
-            SafeReadInt32 (lane1 + 0x04, &lane1_tickctr);
-            SafeReadFloat (lane1 + 0x08, &lane1_anim);
-            SafeReadUInt16(lane1 + 0x1A, &lane1_atend);
-            SafeReadInt16 (lane1 + 0x1C, &lane1_delta);
-            SafeReadUInt16(lane1 + 0x24, &lane1_finished);
-
-            // CheckMoveTransitionTiming-relevant fields (lane 1 + lane 0).
-            // The function early-exits if lane+0x5A == -1 and otherwise
-            // uses lane+0x68 as the threshold compared against the OTHER
-            // lane's anim frame.  If this function isn't firing CommitMoveEnd
-            // (which clears 16EB), one of these is the cause.
-            int16_t lane1_2D = -1, lane1_2E = -1, lane1_2F = -1, lane1_30 = -1;
-            int16_t lane1_2B = -1;
-            float   lane1_68 = -1.0f;
-            float   lane0_anim = -1.0f, lane0_20 = -1.0f;
-            int16_t lane0_idx = -1, lane0_slot = -1;
-            // param_2 is short*, so [0x2D] = byte offset 0x5A, [0x2E] = 0x5C,
-            // [0x2F] = 0x5E, [0x30] = 0x60, [0x2B] = 0x56, [0x34] = 0x68.
-            SafeReadInt16 (lane1 + 0x5A, &lane1_2D);
-            SafeReadInt16 (lane1 + 0x5C, &lane1_2E);
-            SafeReadInt16 (lane1 + 0x5E, &lane1_2F);
-            SafeReadInt16 (lane1 + 0x60, &lane1_30);
-            SafeReadInt16 (lane1 + 0x56, &lane1_2B);
-            SafeReadFloat (lane1 + 0x68, &lane1_68);
-            const uint8_t* lane0 = b + 0x444F0;
-            SafeReadFloat (lane0 + 0x08, &lane0_anim);
-            SafeReadFloat (lane0 + 0x20, &lane0_20);
-            SafeReadInt16 (lane0 + 0x00, &lane0_idx);
-            SafeReadInt16 (lane0 + 0x02, &lane0_slot);
-
-            // Active-lane cursor: chara+0x44068 points to whichever lane is
-            // currently driving the move.  Multi-hit logic depends on this
-            // pointer matching the lane CheckMoveTransitionTiming sees.
-            void* active_lane_cursor = nullptr;
-            SafeReadPtr   (b + 0x44068, &active_lane_cursor);
-
-            // chara+0x2130 - MoveExecState (1=running, 2=committed-after-
-            // TransitionToMove, 0=cleared by TerminateCurrentMove).  If
-            // this ever flips to 2 mid-multi-hit, TransitionToMove fired.
-            int32_t v_2130 = -1;
-            SafeReadInt32(b + 0x2130, &v_2130);
-
-            // lane1[+0x2C] (= chara + 0x44984): CheckMoveTransitionTiming
-            // writes 1 here ONLY AFTER successfully calling TransitionToMove
-            // (asm 1402fde6b).  Persistent post-call marker - if this is
-            // ever 1 during step, the engine's natural transition fired.
-            int32_t lane1_2C = -1;
-            SafeReadInt32(lane1 + 0x2C, &lane1_2C);
-
-            RC::Output::send<RC::LogLevel::Default>(
-                STR("[FStep] {} #{:>3} P{} kind={:02x}: lane1.anim={:7.2f} d={:+d} tick={} end={}/{} "
-                    "16e5={:02x} 16ea={:02x} 16eb={:02x} 16fe={:02x} 16d2={:02x} "
-                    "058={:#x}|m={:#018x} 048={:#x}|m={:#018x} "
-                    "44dc2={:#06x} 4495a={:#06x} 44db8={} 3500={:.3f} 3508={}\n"),
-                phase_w,
-                seq, pi + 1, kind,
-                lane1_anim, static_cast<int>(lane1_delta), lane1_tickctr,
-                static_cast<int>(lane1_atend), static_cast<int>(lane1_finished),
-                v_16e5, v_16ea, v_16eb, v_16fe, v_16d2,
-                reinterpret_cast<uintptr_t>(v_44058),
-                static_cast<unsigned long long>(v_44058_mask),
-                reinterpret_cast<uintptr_t>(v_44048),
-                static_cast<unsigned long long>(v_44048_mask),
-                static_cast<uint16_t>(v_44dc2),
-                static_cast<uint16_t>(v_4495a),
-                v_44db8, v_3500, v_3508);
-
-            // Second line: transition-timing fields the multi-hit
-            // mechanism depends on.  2130/L1+0x2C are post-call markers
-            // for the TransitionToMove path (see comments above).
-            RC::Output::send<RC::LogLevel::Default>(
-                STR("[FStep tx ] {} #{:>3} P{}: activeLane={:#x} "
-                    "L1[+5A]={:#06x} [+5C]={:#06x} [+5E]={:#06x} [+60]={:#06x} "
-                    "[+56(idxCopy)]={:#06x} [+68(threshold)]={:7.2f} "
-                    "[+2C(txfired)]={} 2130(execState)={} | "
-                    "L0 idx={} slot={:#06x} anim={:7.2f} +0x20={:7.2f}\n"),
-                phase_w, seq, pi + 1,
-                reinterpret_cast<uintptr_t>(active_lane_cursor),
-                static_cast<uint16_t>(lane1_2D),
-                static_cast<uint16_t>(lane1_2E),
-                static_cast<uint16_t>(lane1_2F),
-                static_cast<uint16_t>(lane1_30),
-                static_cast<uint16_t>(lane1_2B),
-                lane1_68,
-                lane1_2C, v_2130,
-                static_cast<int>(lane0_idx),
-                static_cast<uint16_t>(lane0_slot),
-                lane0_anim, lane0_20);
-
-            // Dump the 0x70-byte LuxBattleAttackCell at chara+0x44058
-            // (P1 only, only on "pre" snapshot, only once per step pair).
-            // Lets us see the cell's full structure (master window, sub-
-            // windows, attack flags, slot mask reference, etc.) without
-            // needing to figure out which dump file holds Siegfried's
-            // move bank.  The cell's first 8 bytes are the slot mask we
-            // already log; the rest contains MasterWindowStart at +0x36,
-            // MasterWindowEnd at +0x38, BaseDamage at +0x3A, etc.
-            if (pi == 0 && phase[0] == 'p' && phase[1] == 'r' && v_44058)
-            {
-                uint8_t cell[0x70] = {};
-                if (Horse::SafeReadBytes(v_44058, cell, sizeof(cell)))
-                {
-                    // Format as 7 lines of 16 bytes.
-                    for (int row = 0; row < 7; ++row)
-                    {
-                        const int o = row * 16;
-                        RC::Output::send<RC::LogLevel::Default>(
-                            STR("[FStep cell] +{:#04x}: "
-                                "{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} "
-                                "{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}\n"),
-                            o,
-                            cell[o+0],  cell[o+1],  cell[o+2],  cell[o+3],
-                            cell[o+4],  cell[o+5],  cell[o+6],  cell[o+7],
-                            cell[o+8],  cell[o+9],  cell[o+10], cell[o+11],
-                            cell[o+12], cell[o+13], cell[o+14], cell[o+15]);
-                    }
-                }
-            }
-        }
-    }
-
-    // ------------------------------------------------------------------
     // Free-fly camera driver - wired into the cockpit pre-hook.
     //
     // Per-tick responsibilities:
@@ -3757,6 +4257,11 @@ private:
         // an armed timeline generation can catch the earliest clean
         // replay-start frames instead of waiting for the cockpit hook.
         Horse::ReplayScrub::instance().on_presence_change();
+        // Chara/MoveVM lifecycle detours are diagnostic-only and are too
+        // invasive during Replay menu/setup transitions, where transient
+        // character objects can exist before the battle runtime is stable.
+        Horse::NativeReplayTraceHook::instance()
+            .set_replay_lifecycle_trace_active(false);
         if (m_timeline_visual_actor_tick_gate_active)
             sync_timeline_visual_actor_tick_gate();
         if (to == GMP::Replay)
@@ -3864,6 +4369,408 @@ private:
     }
 
     // ------------------------------------------------------------------
+    // Line overlays that must sample completed battle state.
+    //
+    // CockpitBase_C::Update can run before LuxBattle_PerFrameTick on a UE
+    // frame.  KHit node buffers are refreshed inside that battle tick, so
+    // drawing from the cockpit pre-hook can show previous native KHit
+    // positions while the later collision pass already uses the new ones.
+    // This post-engine-tick path samples after the battle tick has had its
+    // chance to flip Area buffers, update Sphere/FixArea world points, apply
+    // Sphere anim-cell modifiers, and resolve hits.
+    // ------------------------------------------------------------------
+    static bool can_draw_battle_overlays_for_presence(
+        Horse::GamePresence presence) noexcept
+    {
+        using GMP = Horse::GamePresence;
+        switch (presence)
+        {
+            case GMP::ShinEdgeMaster:
+            case GMP::Chronicle:
+            case GMP::Arcade:
+            case GMP::Versus:
+            case GMP::Training:
+            case GMP::RankMatch:
+            case GMP::CasualMatch:
+            case GMP::Replay:
+            case GMP::Tournament:
+                return true;
+            case GMP::MainMenu:
+            case GMP::Creation:
+            case GMP::Ranking:
+            case GMP::Museum:
+            case GMP::Options:
+            case GMP::Unknown:
+                return false;
+        }
+        return false;
+    }
+
+    void draw_line_overlays_after_battle_tick()
+    {
+        if (Horse::ReplayScrub::instance()
+                .should_suppress_timeline_presentation())
+        {
+            return;
+        }
+
+        if (!can_draw_battle_overlays_for_presence(
+                Horse::GameMode::instance().current_presence()))
+        {
+            m_have_sphere_audit_frame = false;
+            return;
+        }
+
+        const bool wants_line_overlay =
+            m_show_stage_boundary.load() || m_enabled.load();
+        if (!wants_line_overlay)
+        {
+            m_have_sphere_audit_frame = false;
+            return;
+        }
+
+        Horse::Obj pivot = m_lux.cockpit();
+        if (!pivot) return;
+
+        const bool native_ready = Horse::NativeBinding::isReady();
+        if (!native_ready)
+        {
+            if ((m_enabled.load() || m_show_stage_boundary.load()) &&
+                !m_logged_native_missing)
+            {
+                Output::send<LogLevel::Warning>(
+                    STR("[HorseMod] NativeBinding not ready - overlay draw disabled\n"));
+                m_logged_native_missing = true;
+            }
+            return;
+        }
+
+        // Render cadence and gameplay cadence are deliberately separate.
+        // Freeze-frame halts g_LuxBattle_FrameCounter, but the overlay still
+        // has to redraw every engine-post callback so foreground/current
+        // hitboxes remain visible.  The game-frame counter is used only below
+        // for persistent trail sampling and lifetime aging.
+
+        if (m_show_stage_boundary.load())
+        {
+            if (m_backend_stage.slot() != Horse::LineBatcherSlot::Foreground)
+                m_backend_stage.setSlot(Horse::LineBatcherSlot::Foreground);
+            m_backend_stage.setLifetime(Horse::LineBatcherBackend::kDefaultLifetime);
+            m_backend_stage.primeFrom(pivot);
+            if (m_backend_stage.isReady())
+            {
+                Horse::Obj bm = m_lux.battleManager();
+                Horse::Obj stageManager =
+                    bm ? bm.getObj(L"BattleStageActorManager") : Horse::Obj{};
+                m_backend_stage.beginFrame();
+                (void)m_stage_boundary.draw(m_backend_stage, stageManager);
+                m_backend_stage.endFrame();
+            }
+        }
+
+        if (!m_enabled.load()) return;
+
+        const Horse::LineBatcherSlot desired_hit_slot  = m_slot_hit.load();
+        const Horse::LineBatcherSlot desired_hurt_slot = m_slot_hurt.load();
+        const bool only_active_this_frame = m_only_show_active.load();
+
+        bool trail_filter_changed = false;
+        if (m_have_trail_filter_state)
+        {
+            trail_filter_changed =
+                only_active_this_frame != m_last_trail_only_active;
+        }
+        m_last_trail_only_active = only_active_this_frame;
+        m_have_trail_filter_state = true;
+
+        // Sync each configured backend's slot with the per-feature ImGui
+        // toggles and prime all KHit backends this frame.  *_once backends
+        // are fixed Foreground fallbacks for inactive boxes when the
+        // configured backend is Persistent.
+        bool trail_slot_changed = false;
+        bool clear_hit_trail_after_prime = false;
+        bool clear_hurt_trail_after_prime = false;
+        if (m_backend_hit.slot() != desired_hit_slot)
+        {
+            if (m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hit.clearLines();
+            m_backend_hit.setSlot(desired_hit_slot);
+            clear_hit_trail_after_prime =
+                desired_hit_slot == Horse::LineBatcherSlot::Persistent;
+            trail_slot_changed = true;
+        }
+        if (m_backend_hurt.slot() != desired_hurt_slot)
+        {
+            if (m_backend_hurt.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hurt.clearLines();
+            m_backend_hurt.setSlot(desired_hurt_slot);
+            clear_hurt_trail_after_prime =
+                desired_hurt_slot == Horse::LineBatcherSlot::Persistent;
+            trail_slot_changed = true;
+        }
+        if (m_backend_hit_once.slot() != Horse::LineBatcherSlot::Foreground)
+            m_backend_hit_once.setSlot(Horse::LineBatcherSlot::Foreground);
+        if (m_backend_hurt_once.slot() != Horse::LineBatcherSlot::Foreground)
+            m_backend_hurt_once.setSlot(Horse::LineBatcherSlot::Foreground);
+        if (trail_slot_changed)
+            m_have_trail_game_frame = false;
+
+        // Push the per-line lifetime: Persistent backends use the user-
+        // configured trail length (m_trail_frames game frames at 60Hz),
+        // Normal backends stick to the engine-debug default (~6 frames).
+        // Re-pushed every tick so a slider drag is immediately reflected
+        // on the next appended line.  setLifetime() is a single float
+        // store; cheap to call unconditionally.
+        {
+            const float trail_seconds =
+                static_cast<float>(m_trail_frames.load()) / 60.0f;
+            m_backend_hit.setLifetime(
+                desired_hit_slot == Horse::LineBatcherSlot::Persistent
+                    ? trail_seconds
+                    : Horse::LineBatcherBackend::kDefaultLifetime);
+            m_backend_hurt.setLifetime(
+                desired_hurt_slot == Horse::LineBatcherSlot::Persistent
+                    ? trail_seconds
+                    : Horse::LineBatcherBackend::kDefaultLifetime);
+            m_backend_hit_once.setLifetime(
+                Horse::LineBatcherBackend::kDefaultLifetime);
+            m_backend_hurt_once.setLifetime(
+                Horse::LineBatcherBackend::kDefaultLifetime);
+        }
+
+        m_backend_hit.primeFrom(pivot);
+        m_backend_hurt.primeFrom(pivot);
+        m_backend_hit_once.primeFrom(pivot);
+        m_backend_hurt_once.primeFrom(pivot);
+
+        // All KHit backends must be ready to proceed - partial readiness
+        // could split active trails from one-frame inactive boxes and
+        // visually misrepresent the current move state.
+        if (!m_backend_hit.isReady() || !m_backend_hurt.isReady() ||
+            !m_backend_hit_once.isReady() || !m_backend_hurt_once.isReady())
+            return;
+
+        if (clear_hit_trail_after_prime || clear_hurt_trail_after_prime ||
+            trail_filter_changed)
+        {
+            if ((clear_hit_trail_after_prime || trail_filter_changed) &&
+                m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hit.clearLines();
+            if ((clear_hurt_trail_after_prime || trail_filter_changed) &&
+                m_backend_hurt.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hurt.clearLines();
+            m_have_trail_game_frame = false;
+        }
+
+        if (Horse::ResetOverride::instance().consume_trail_clear_request())
+        {
+            // Clears persistent lines and restarts cadence so the first
+            // post-teleport engine-post tick appends a fresh trail entry.
+            clear_persistent_khit_trails();
+        }
+
+        uint32_t trail_game_frame = 0;
+        const bool have_trail_game_frame =
+            read_lux_battle_game_frame(trail_game_frame);
+
+        uint32_t trail_frames_elapsed = 0;
+        bool append_persistent_this_tick = true;
+        if (have_trail_game_frame)
+        {
+            if (m_have_trail_game_frame)
+            {
+                trail_frames_elapsed =
+                    trail_game_frame - m_last_trail_game_frame;
+                append_persistent_this_tick = trail_frames_elapsed != 0;
+            }
+            m_last_trail_game_frame = trail_game_frame;
+            m_have_trail_game_frame = true;
+        }
+        else
+        {
+            m_have_trail_game_frame = false;
+        }
+        service_khit_sphere_audit_frame(have_trail_game_frame,
+                                        trail_game_frame);
+
+        if (trail_frames_elapsed > 0)
+        {
+            const float game_seconds =
+                static_cast<float>(trail_frames_elapsed) / 60.0f;
+            m_backend_hit.advanceLifetime(game_seconds);
+            m_backend_hurt.advanceLifetime(game_seconds);
+        }
+
+        m_backend_hit.beginFrame();
+        m_backend_hurt.beginFrame();
+        m_backend_hit_once.beginFrame();
+        m_backend_hurt_once.beginFrame();
+
+        const float T = m_thickness.load();
+        void* slot_charas[2] = {
+            Horse::KHitWalker::charaSlotFromGlobal(0),
+            Horse::KHitWalker::charaSlotFromGlobal(1),
+        };
+        Horse::KHitWalker::LaneSnapshot lane_snapshots[2] = {
+            Horse::KHitWalker::readLaneSnapshot(slot_charas[0]),
+            Horse::KHitWalker::readLaneSnapshot(slot_charas[1]),
+        };
+        std::vector<Horse::KHitDraw> khit_draws[2];
+        khit_draws[0].reserve(96);
+        khit_draws[1].reserve(96);
+
+        for (uint32_t pi = 0; pi < 2; ++pi)
+        {
+            void* slot_chara = slot_charas[pi];
+            if (!slot_chara) continue;
+
+            Horse::KHitWalker::forEachKHit(
+                slot_chara,
+                pi,
+                [&](const Horse::KHitDraw& d) {
+                    khit_draws[pi].push_back(d);
+                });
+        }
+
+        maybe_log_khit_overlap_pairs(
+            khit_draws, lane_snapshots,
+            have_trail_game_frame, trail_game_frame,
+            desired_hit_slot, desired_hurt_slot);
+
+        for (uint32_t pi = 0; pi < 2; ++pi)
+        {
+            const int player = static_cast<int>(pi);
+            const auto* audit_attacker_lane =
+                &lane_snapshots[(pi == 0u) ? 1u : 0u];
+            const bool show_hurt =
+                shouldShow(player, Horse::KHitList::Hurtbox);
+            const bool show_atk =
+                shouldShow(player, Horse::KHitList::Attack);
+            const bool show_body =
+                shouldShow(player, Horse::KHitList::Body);
+
+            // Snapshot the master visibility filter (see
+            // m_only_show_active block).  When enabled, attacks and hurts
+            // must pass the same engine-truth gates as before; only the
+            // owner source changed from UObject iteration to CharaSlot.
+            const bool only_active = only_active_this_frame;
+            if (!show_hurt && !show_atk && !show_body) continue;
+
+            for (const Horse::KHitDraw& d : khit_draws[pi])
+            {
+                const bool matters_this_frame = canMatterThisFrame(d);
+                const bool audit_exposes_this_frame =
+                    m_khit_sphere_audit.load(std::memory_order_relaxed) &&
+                    khit_audit_matches_filter(d, audit_attacker_lane) &&
+                    can_expose_khit_attack_for_audit(d);
+                const bool visible_when_filtered =
+                    matters_this_frame || audit_exposes_this_frame;
+                switch (d.list)
+                {
+                    case Horse::KHitList::Hurtbox:
+                        if (!show_hurt) continue;
+                        if (only_active && !visible_when_filtered)
+                            continue;
+                        break;
+                    case Horse::KHitList::Attack:
+                        if (!show_atk) continue;
+                        if (only_active && !visible_when_filtered)
+                            continue;
+                        break;
+                    case Horse::KHitList::Body:
+                        if (!show_body) continue;
+                        break;
+                }
+
+                const Horse::FLinColor col = colourFor(d, player);
+                Horse::LineBatcherBackend* trail_backend = nullptr;
+                Horse::LineBatcherBackend* current_backend = nullptr;
+                Horse::LineBatcherSlot renderer_slot =
+                    Horse::LineBatcherSlot::Foreground;
+                switch (d.list)
+                {
+                    case Horse::KHitList::Attack:
+                        renderer_slot = m_backend_hit.slot();
+                        if (renderer_slot ==
+                            Horse::LineBatcherSlot::Persistent)
+                        {
+                            if (matters_this_frame &&
+                                append_persistent_this_tick)
+                            {
+                                trail_backend = &m_backend_hit;
+                            }
+                            current_backend = &m_backend_hit_once;
+                        }
+                        else
+                        {
+                            current_backend = &m_backend_hit;
+                        }
+                        break;
+                    case Horse::KHitList::Hurtbox:
+                        renderer_slot = m_backend_hurt.slot();
+                        if (renderer_slot ==
+                            Horse::LineBatcherSlot::Persistent)
+                        {
+                            if (matters_this_frame &&
+                                append_persistent_this_tick)
+                            {
+                                trail_backend = &m_backend_hurt;
+                            }
+                            current_backend = &m_backend_hurt_once;
+                        }
+                        else
+                        {
+                            current_backend = &m_backend_hurt;
+                        }
+                        break;
+                    case Horse::KHitList::Body:
+                        renderer_slot = m_backend_hurt.slot();
+                        current_backend =
+                            (renderer_slot ==
+                                 Horse::LineBatcherSlot::Persistent)
+                                ? &m_backend_hurt_once
+                                : &m_backend_hurt;
+                        break;
+                }
+                maybe_log_khit_audit(
+                    d, player, matters_this_frame,
+                    have_trail_game_frame, trail_game_frame,
+                    renderer_slot, audit_attacker_lane);
+                if (trail_backend)
+                    Horse::DrawKHitDraw(*trail_backend, d, col, T);
+                if (current_backend)
+                    Horse::DrawKHitDraw(*current_backend, d, col, T);
+            }
+        }
+
+        m_backend_hit.endFrame();
+        m_backend_hurt.endFrame();
+        m_backend_hit_once.endFrame();
+        m_backend_hurt_once.endFrame();
+    }
+
+    void request_replay_timeline_window_visible() noexcept
+    {
+        if (!Horse::GameImGui::visible())
+        {
+            m_replay_timeline_only_overlay.store(
+                true, std::memory_order_relaxed);
+        }
+        Horse::GameImGui::set_visible(true);
+    }
+
+    void tick_generate_timeline_with_replay_window(
+        Horse::ReplayScrub& replay_scrub) noexcept
+    {
+        using GS = Horse::ReplayScrub::TimelineGenState;
+        const GS before = replay_scrub.timeline_gen_state();
+        replay_scrub.tick_generate_timeline();
+        const GS after = replay_scrub.timeline_gen_state();
+        if (before != GS::Generating && after == GS::Generating)
+            request_replay_timeline_window_visible();
+    }
+
+    // ------------------------------------------------------------------
     // CockpitBase_C::Update pre-hook.  Game thread, one call per frame.
     // ------------------------------------------------------------------
     void on_cockpit_update_pre(UObject* raw_cockpit)
@@ -3881,12 +4788,16 @@ private:
             }
         }
 
+        service_presence_transition_safety("cockpit");
+
         if (replay_scrub.should_suppress_timeline_presentation())
         {
             sync_timeline_visual_actor_tick_gate();
             replay_scrub.tick_capture();
-            replay_scrub.tick_generate_timeline();
-            replay_scrub.note_timeline_cockpit_overlay_suppressed();
+            tick_generate_timeline_with_replay_window(replay_scrub);
+            sync_timeline_visual_actor_tick_gate();
+            if (replay_scrub.should_suppress_timeline_presentation())
+                replay_scrub.note_timeline_cockpit_overlay_suppressed();
             m_have_prev_yaw[0] = false;
             m_have_prev_yaw[1] = false;
             return;
@@ -3899,8 +4810,6 @@ private:
         // apply" plate for why we don't write directly from the
         // reset post-hook.
         Horse::ResetOverride::instance().tick();
-
-        service_presence_transition_safety("cockpit");
 
         // ----------------------------------------------------------------
         // ONLINE-MATCH FEATURE GATE
@@ -4017,7 +4926,7 @@ private:
         // experimental variant, RenderSkipOverride skipping the scene
         // redraw) - this call just starts/stops it and auto-detects
         // completion.
-        replay_scrub.tick_generate_timeline();
+        tick_generate_timeline_with_replay_window(replay_scrub);
 
         if (!raw_cockpit) return;
 
@@ -4040,204 +4949,12 @@ private:
             return;
         }
 
-        // Always-on heartbeat: once every ~2s print a single line so we can
-        // confirm the hook is ticking even while the overlay is off.  This
-        // separates "hook not firing" from "F5 not toggled".
-        // DISABLED - noisy; re-enable if diagnosing "is the hook firing?".
-#if 0
-        if ((m_update_calls & 0x7F) == 1)
-        {
-            Output::send<LogLevel::Verbose>(
-                STR("[HorseMod.Tick] calls={} enabled={} pivot=0x{:x} "
-                    "backend_ready={} native_ready={}\n"),
-                m_update_calls,
-                m_enabled.load() ? 1 : 0,
-                reinterpret_cast<uintptr_t>(raw_cockpit),
-                (m_backend_hit.isReady() && m_backend_hurt.isReady() &&
-                 m_backend_hit_once.isReady() &&
-                 m_backend_hurt_once.isReady()) ? 1 : 0,
-                Horse::NativeBinding::isReady() ? 1 : 0);
-        }
-#endif
-
-        const bool native_ready = Horse::NativeBinding::isReady();
-        if (!native_ready)
-        {
-            if ((m_enabled.load() || m_show_stage_boundary.load()) &&
-                !m_logged_native_missing)
-            {
-                Output::send<LogLevel::Warning>(
-                    STR("[HorseMod] NativeBinding not ready - overlay draw disabled\n"));
-                m_logged_native_missing = true;
-            }
-            return;
-        }
-
-        Horse::Obj pivot{raw_cockpit};
-
-        if (m_show_stage_boundary.load())
-        {
-            if (m_backend_stage.slot() != Horse::LineBatcherSlot::Foreground)
-                m_backend_stage.setSlot(Horse::LineBatcherSlot::Foreground);
-            m_backend_stage.setLifetime(Horse::LineBatcherBackend::kDefaultLifetime);
-            m_backend_stage.primeFrom(pivot);
-            if (m_backend_stage.isReady())
-            {
-                Horse::Obj bm = m_lux.battleManager();
-                Horse::Obj stageManager =
-                    bm ? bm.getObj(L"BattleStageActorManager") : Horse::Obj{};
-                m_backend_stage.beginFrame();
-                (void)m_stage_boundary.draw(m_backend_stage, stageManager);
-                m_backend_stage.endFrame();
-            }
-        }
-
-        if (!m_enabled.load()) return;
-
-        const Horse::LineBatcherSlot desired_hit_slot  = m_slot_hit.load();
-        const Horse::LineBatcherSlot desired_hurt_slot = m_slot_hurt.load();
-        const bool only_active_this_frame = m_only_show_active.load();
-
-        bool trail_filter_changed = false;
-        if (m_have_trail_filter_state)
-        {
-            trail_filter_changed =
-                only_active_this_frame != m_last_trail_only_active;
-        }
-        m_last_trail_only_active = only_active_this_frame;
-        m_have_trail_filter_state = true;
-
-        // Sync each configured backend's slot with the per-feature ImGui
-        // toggles and prime all KHit backends this frame.  *_once backends
-        // are fixed Foreground fallbacks for inactive boxes when the
-        // configured backend is Persistent.
-        bool trail_slot_changed = false;
-        bool clear_hit_trail_after_prime = false;
-        bool clear_hurt_trail_after_prime = false;
-        if (m_backend_hit.slot() != desired_hit_slot)
-        {
-            if (m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
-                (void)m_backend_hit.clearLines();
-            m_backend_hit.setSlot(desired_hit_slot);
-            clear_hit_trail_after_prime =
-                desired_hit_slot == Horse::LineBatcherSlot::Persistent;
-            trail_slot_changed = true;
-        }
-        if (m_backend_hurt.slot() != desired_hurt_slot)
-        {
-            if (m_backend_hurt.slot() == Horse::LineBatcherSlot::Persistent)
-                (void)m_backend_hurt.clearLines();
-            m_backend_hurt.setSlot(desired_hurt_slot);
-            clear_hurt_trail_after_prime =
-                desired_hurt_slot == Horse::LineBatcherSlot::Persistent;
-            trail_slot_changed = true;
-        }
-        if (m_backend_hit_once.slot() != Horse::LineBatcherSlot::Foreground)
-            m_backend_hit_once.setSlot(Horse::LineBatcherSlot::Foreground);
-        if (m_backend_hurt_once.slot() != Horse::LineBatcherSlot::Foreground)
-            m_backend_hurt_once.setSlot(Horse::LineBatcherSlot::Foreground);
-        if (trail_slot_changed)
-            m_have_trail_game_frame = false;
-
-        // Push the per-line lifetime: Persistent backends use the user-
-        // configured trail length (m_trail_frames game frames at 60Hz),
-        // Normal backends stick to the engine-debug default (~6 frames).
-        // Re-pushed every tick so a slider drag is immediately reflected
-        // on the next appended line.  setLifetime() is a single float
-        // store; cheap to call unconditionally.
-        {
-            const float trail_seconds =
-                static_cast<float>(m_trail_frames.load()) / 60.0f;
-            m_backend_hit.setLifetime(
-                desired_hit_slot == Horse::LineBatcherSlot::Persistent
-                    ? trail_seconds
-                    : Horse::LineBatcherBackend::kDefaultLifetime);
-            m_backend_hurt.setLifetime(
-                desired_hurt_slot == Horse::LineBatcherSlot::Persistent
-                    ? trail_seconds
-                    : Horse::LineBatcherBackend::kDefaultLifetime);
-            m_backend_hit_once.setLifetime(
-                Horse::LineBatcherBackend::kDefaultLifetime);
-            m_backend_hurt_once.setLifetime(
-                Horse::LineBatcherBackend::kDefaultLifetime);
-        }
-
-        m_backend_hit.primeFrom(pivot);
-        m_backend_hurt.primeFrom(pivot);
-        m_backend_hit_once.primeFrom(pivot);
-        m_backend_hurt_once.primeFrom(pivot);
-
-        // All KHit backends must be ready to proceed - partial readiness
-        // could split active trails from one-frame inactive boxes and
-        // visually misrepresent the current move state.
-        if (!m_backend_hit.isReady() || !m_backend_hurt.isReady() ||
-            !m_backend_hit_once.isReady() || !m_backend_hurt_once.isReady())
-            return;
-
-        if (clear_hit_trail_after_prime || clear_hurt_trail_after_prime ||
-            trail_filter_changed)
-        {
-            if ((clear_hit_trail_after_prime || trail_filter_changed) &&
-                m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
-                (void)m_backend_hit.clearLines();
-            if ((clear_hurt_trail_after_prime || trail_filter_changed) &&
-                m_backend_hurt.slot() == Horse::LineBatcherSlot::Persistent)
-                (void)m_backend_hurt.clearLines();
-            m_have_trail_game_frame = false;
-        }
-
-        if (Horse::ResetOverride::instance().consume_trail_clear_request())
-        {
-            // Clears persistent lines and restarts cadence so the first
-            // post-teleport cockpit tick appends a fresh trail entry.
-            clear_persistent_khit_trails();
-        }
-
-        uint32_t trail_game_frame = 0;
-        bool have_trail_game_frame = false;
-        {
-            constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
-            const uintptr_t base = Horse::NativeBinding::imageBase();
-            have_trail_game_frame = base != 0 && Horse::SafeReadUInt32(
-                reinterpret_cast<const void*>(base + kFrameCounterRVA),
-                &trail_game_frame);
-        }
-
-        uint32_t trail_frames_elapsed = 0;
-        bool append_persistent_this_tick = true;
-        if (have_trail_game_frame)
-        {
-            if (m_have_trail_game_frame)
-            {
-                trail_frames_elapsed =
-                    trail_game_frame - m_last_trail_game_frame;
-                append_persistent_this_tick = trail_frames_elapsed != 0;
-            }
-            m_last_trail_game_frame = trail_game_frame;
-            m_have_trail_game_frame = true;
-        }
-        else
-        {
-            m_have_trail_game_frame = false;
-        }
-
-        if (trail_frames_elapsed > 0)
-        {
-            const float game_seconds =
-                static_cast<float>(trail_frames_elapsed) / 60.0f;
-            m_backend_hit.advanceLifetime(game_seconds);
-            m_backend_hurt.advanceLifetime(game_seconds);
-        }
-
-        m_backend_hit.beginFrame();
-        m_backend_hurt.beginFrame();
-        m_backend_hit_once.beginFrame();
-        m_backend_hurt_once.beginFrame();
-
-        const float T = m_thickness.load();
+        // KHit/stage line-overlay drawing runs from the engine tick post
+        // callback, after the native battle tick has refreshed KHit world
+        // buffers.  Cockpit pre-hook remains responsible for controls,
+        // weapon visibility, and retrack-event HUD state.
 
         int charas_seen = 0;
-        int nodes_drawn = 0;
 
         // ---- Weapon visibility snapshot ---------------------------------
         // Compute once per frame.  `apply_weapons` is true when we need to
@@ -4369,177 +5086,6 @@ private:
                 m_was_retracking[pi] = retracking_now;
             }
 
-            // Snapshot this player's three toggles once per chara so the
-            // inner-loop gate is branch-free.
-            const bool show_hurt       = shouldShow(pi, Horse::KHitList::Hurtbox);
-            const bool show_atk        = shouldShow(pi, Horse::KHitList::Attack );
-            const bool show_body       = shouldShow(pi, Horse::KHitList::Body   );
-            // Snapshot the master visibility filter (see
-            // m_only_show_active block).  Composition:
-            //
-            //   hits  hidden if  only_active &&
-            //                    (!d.is_per_frame_active ||
-            //                     !d.attacker_can_strike_engine)
-            //   hurts hidden if  only_active &&
-            //                    (!d.classifier_addressable ||
-            //                     !d.overlap_active ||
-            //                     !d.defender_can_react_engine)
-            //
-            // The hurt predicate is an OR of three engine-truth gates:
-            //
-            //   classifier_addressable  - the slot index (+0x17) is
-            //     less than chara+0x44494 (= AttackMaxSlot, reused as
-            //     the classifier's hurt-iteration ceiling).  A box at
-            //     slot >= cap can NEVER deal damage this frame because
-            //     LuxBattle_ResolveAttackVsHurtboxMask22's outer for
-            //     loop won't read its PerHurtboxBitmask slot.
-            //     [Geralt block-hold rectangle case.]
-            //
-            //   overlap_active           - the byte at +0x14 is
-            //     non-zero, so UpdateAllKHitWorldCenters' overlap loop
-            //     will OR attacker bits into PerHurtboxBitmask[slot].
-            //
-            //   defender_can_react_engine - chara-wide gate covering
-            //     the three early-return sites of the resolver:
-            //     battle-running global, chara+0x20B8 (incapacitated),
-            //     chara+0x19B0 (no-react state, == 6).  When any
-            //     fails, EVERY hurtbox on this chara is inert this
-            //     frame regardless of geometry / +0x14 / slot index.
-            //     Covers KO cinematics, round-end "WIN" pose,
-            //     paused / loading frames.
-            //
-            // Any gate failing means "this hurtbox cannot land a
-            // reaction this frame," which is the engine-truth answer
-            // to "boxes that can matter this frame."  All three must
-            // pass for damage, so hiding when ANY fails matches what
-            // the engine actually does.
-            //
-            // Master OFF (only_active==false) draws everything
-            // authored on either list regardless of these predicates.
-            const bool only_active = only_active_this_frame;
-            if (!show_hurt && !show_atk && !show_body) return;
-
-            // KHit native buffers are battle-space scratch fields.  The
-            // walker anchors render positions through the owning UE bone
-            // matrix and uses area buffers only for sweep deltas.
-            Horse::KHitWalker::forEachKHit(
-                chara.raw(),
-                static_cast<uint32_t>(pi),
-                [&](const Horse::KHitDraw& d) {
-                    const bool matters_this_frame = canMatterThisFrame(d);
-                    // Gate by list kind using THIS chara's per-player flags.
-                    switch (d.list)
-                    {
-                        case Horse::KHitList::Hurtbox:
-                            if (!show_hurt) return;
-                            // Hurtbox-side narrow filter (engine truth
-                            // - see the long comment at the toggle
-                            // snapshot above for the OR rationale).
-                            //
-                            //   classifier_addressable  : slot < cap?
-                            //     If false, classifier loop ignores
-                            //     this slot; box can't deal damage no
-                            //     matter what its +0x14 says.  These
-                            //     are cyan-coloured classifier-ignored
-                            //     extension/meta hurtboxes (e.g. Geralt's
-                            //     two large rectangles, slot >=
-                            //     AttackMaxSlot).
-                            //
-                            //   overlap_active           : +0x14 != 0?
-                            //     If false, engine's overlap loop
-                            //     skips the box; no attacker bits get
-                            //     OR'd, classifier finds nothing.
-                            //
-                            //   defender_can_react_engine: chara-wide?
-                            //     If false, resolver early-returns
-                            //     (battle not running, chara
-                            //     incapacitated/dead, no-react state
-                            //     6).  Whole hurtbox list is inert
-                            //     this frame - KO cinematics,
-                            //     round-end pose, paused / loading.
-                            //
-                            // ALL three must pass for the engine to
-                            // fire a reaction this frame, so the
-                            // OR-of-failures gate matches engine-
-                            // truth.
-                            if (only_active && !matters_this_frame)
-                                return;
-                            break;
-                        case Horse::KHitList::Attack:
-                            if (!show_atk) return;
-                            // Hitbox-side narrow filter (engine truth).
-                            //
-                            // is_per_frame_active = (+0x14 != 0) AND
-                            //   (cat_mask & chara[+0x44058]) != 0 - the
-                            // exact predicate LuxBattle_Resolve-
-                            // AttackVsHurtboxMask22 (0x14033C100)
-                            // applies before firing damage.  Hides
-                            // boxes during startup / recovery, leaving
-                            // only the engine-authored damage frames.
-                            //
-                            // (The legacy "Damage-active only" toggle
-                            // tested is_damage_active - same per-move
-                            // cell but the slot-bit interpretation,
-                            // broader than is_per_frame_active.  It was
-                            // dropped 2026-05 because in default state
-                            // it was strictly weaker than the per-frame
-                            // gate that's already on.)
-                            //
-                            // attacker_can_strike_engine: same chara-
-                            // wide gate as the hurtbox side.  An
-                            // incapacitated / round-ended chara
-                            // doesn't deal damage even if its attack
-                            // box otherwise looks live, so the
-                            // engine-truth filter must include this
-                            // gate too.
-                            if (only_active && !matters_this_frame)
-                                return;
-                            break;
-                        case Horse::KHitList::Body:
-                            if (!show_body) return;
-                            break;
-                    }
-
-                    const Horse::FLinColor col = colourFor(d, pi);
-                    // Persistent is reserved for boxes that can affect the
-                    // hit resolver this frame.  Inactive hit/hurt boxes in
-                    // broad inspection mode are drawn through fixed
-                    // Foreground backends so they show once.  Body boxes do
-                    // not participate in hit resolution, so they also fall
-                    // back to Foreground when hurtboxes are set to trail.
-                    Horse::LineBatcherBackend* b = nullptr;
-                    switch (d.list)
-                    {
-                        case Horse::KHitList::Attack:
-                            b = (m_backend_hit.slot() ==
-                                     Horse::LineBatcherSlot::Persistent &&
-                                 !matters_this_frame)
-                                ? &m_backend_hit_once
-                                : &m_backend_hit;
-                            break;
-                        case Horse::KHitList::Hurtbox:
-                            b = (m_backend_hurt.slot() ==
-                                     Horse::LineBatcherSlot::Persistent &&
-                                 !matters_this_frame)
-                                ? &m_backend_hurt_once
-                                : &m_backend_hurt;
-                            break;
-                        case Horse::KHitList::Body:
-                            b = (m_backend_hurt.slot() ==
-                                     Horse::LineBatcherSlot::Persistent)
-                                ? &m_backend_hurt_once
-                                : &m_backend_hurt;
-                            break;
-                    }
-                    if (!b) return;
-                    if (b->slot() == Horse::LineBatcherSlot::Persistent &&
-                        !append_persistent_this_tick)
-                    {
-                        return;
-                    }
-                    Horse::DrawKHitDraw(*b, d, col, T);
-                    ++nodes_drawn;
-                });
         });
 
         // Commit the state we actually pushed to the game this frame.
@@ -4558,31 +5104,7 @@ private:
         {
             m_last_applied_hide_weapons.store(hide_weapons_now);
         }
-
-        m_backend_hit.endFrame();
-        m_backend_hurt.endFrame();
-        m_backend_hit_once.endFrame();
-        m_backend_hurt_once.endFrame();
-
-        // Once per ~2s: dump a summary so we can tell whether each stage
-        // fired.  Parallel to the KHitWalker's shouldLog() throttle.
-        // DISABLED - noisy; re-enable for end-to-end health checks.
-#if 0
-        if ((++m_diag_tick & 0x7F) == 1)
-        {
-            Output::send<LogLevel::Verbose>(
-                STR("[HorseMod] frame pivot=0x{:x} backend_ready={} charas={} drawn={}\n"),
-                reinterpret_cast<uintptr_t>(raw_cockpit),
-                (m_backend_hit.isReady() && m_backend_hurt.isReady() &&
-                 m_backend_hit_once.isReady() &&
-                 m_backend_hurt_once.isReady()) ? 1 : 0,
-                charas_seen,
-                nodes_drawn);
-        }
-#else
-        (void)charas_seen; (void)nodes_drawn; (void)raw_cockpit;
-        ++m_diag_tick;
-#endif
+        (void)raw_cockpit;
     }
 
     // ------------------------------------------------------------------
@@ -5069,6 +5591,17 @@ private:
             m_nav_bootstrap_pending = true;
         }
 
+        if (m_replay_timeline_only_overlay.load(std::memory_order_relaxed))
+        {
+            if (render_replay_timeline_window())
+                return;
+
+            m_replay_timeline_only_overlay.store(
+                false, std::memory_order_relaxed);
+            Horse::GameImGui::set_visible(false);
+            return;
+        }
+
         // Window title carries the build date (DD-Mmm-YYYY) so users
         // running the dev mod can tell which build they're on - useful
         // when triaging bug reports on Discord ("which date is your
@@ -5077,6 +5610,7 @@ private:
         if (!ImGui::Begin(horsemod_window_title()))
         {
             ImGui::End();
+            (void)render_replay_timeline_window();
             return;
         }
 
@@ -5102,12 +5636,12 @@ private:
         draw_title_bar_status_indicator();
 
         // 2. L1 / R1 (shoulder) cycle tabs.  Two pieces of state:
-        //    - s_current_tab mirrors whichever tab is ACTUALLY showing
+        //    - m_current_tab mirrors whichever tab is ACTUALLY showing
         //      (updated by whichever BeginTabItem returns true this
         //      frame).
-        //    - s_requested_tab is the index to switch TO on this frame
-        //      only (-1 = no switch).  We compute it from s_current_tab
-        //      on an L1/R1 edge and clear it at the bottom.
+        //    - requested_tab is a one-frame switch target, consumed
+        //      from m_requested_tab so shoulder presses can select the
+        //      target tab without racing the renderer.
         //
         //    This separation avoids a bug where the currently-visible
         //    BeginTabItem's sync-back would clobber our requested-tab
@@ -5120,18 +5654,20 @@ private:
         //    L1/R1 are suppressed while a widget is actively being
         //    edited (dragging a slider) so they keep their stock
         //    ImGui "tweak slower / faster" role in that context.
-        constexpr int kNumTabs = 6;
-        static int s_current_tab   = 0;
-        static int s_requested_tab = -1;
+        int requested_tab = m_requested_tab.exchange(
+            -1, std::memory_order_relaxed);
         if (!ImGui::IsAnyItemActive())
         {
             if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, /*repeat=*/false))
             {
-                s_requested_tab = (s_current_tab + kNumTabs - 1) % kNumTabs;
+                requested_tab =
+                    (m_current_tab + kHorseModTabCount - 1)
+                    % kHorseModTabCount;
             }
             if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, /*repeat=*/false))
             {
-                s_requested_tab = (s_current_tab + 1) % kNumTabs;
+                requested_tab =
+                    (m_current_tab + 1) % kHorseModTabCount;
             }
         }
 
@@ -5139,17 +5675,17 @@ private:
         {
             auto tab_item = [&](const char* label, int idx, auto&& body) {
                 ImGuiTabItemFlags flags = 0;
-                if (s_requested_tab == idx)
+                if (requested_tab == idx)
                 {
                     flags |= ImGuiTabItemFlags_SetSelected;
                 }
                 if (ImGui::BeginTabItem(label, nullptr, flags))
                 {
                     // Sync "what's actually visible" back to
-                    // s_current_tab.  Does NOT touch s_requested_tab,
+                    // m_current_tab.  Does NOT touch requested_tab,
                     // so the SetSelected flag still gets applied to
                     // the target tab later in the iteration.
-                    s_current_tab = idx;
+                    m_current_tab = idx;
                     body();
                     ImGui::EndTabItem();
                 }
@@ -5165,12 +5701,6 @@ private:
             ImGui::EndTabBar();
         }
 
-        // Clear the requested-tab marker AFTER the tab bar finishes so
-        // ImGui has processed the SetSelected flag for this frame.
-        // Leaving it set would re-apply SetSelected on the next frame
-        // too, which ImGui handles gracefully but wastes cycles.
-        s_requested_tab = -1;
-
         // Unconditionally clear m_nav_bootstrap_pending at the end of
         // every frame - even if the visible tab wasn't render_hitboxes_-
         // tab and didn't consume it.  Without this clear the flag would
@@ -5184,6 +5714,7 @@ private:
         m_nav_bootstrap_pending = false;
 
         ImGui::End();
+        (void)render_replay_timeline_window();
     }
 
     // ==================================================================
@@ -5364,9 +5895,9 @@ private:
                 ImGui::SetTooltip("Line thickness for the wireframes.");
 
             // Per-feature renderer combos.  Two entries each: Persistent
-            // (depth-tested, engine-live boxes accumulate over time) and Normal
-            // (always-on-top, lines clear each frame - clean read of
-            // the current state).  The third historical entry "Default"
+            // (depth-tested trail plus a current-frame foreground copy) and
+            // Normal (always-on-top, lines clear each frame - clean read
+            // of the current state).  The third historical entry "Default"
             // (UWorld+0x40, depth-tested per-frame) was removed because
             // its lines disappeared behind characters, which defeats
             // the purpose of an overlay.
@@ -5382,24 +5913,25 @@ private:
                 m_slot_hit.store(static_cast<Horse::LineBatcherSlot>(hit_idx));
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Normal: always on top. Persistent: active "
-                    "hitboxes trail; inactive hitboxes show once when "
-                    "the broad view is enabled.");
+                    "Normal: current frame, always on top. Persistent: "
+                    "active hitboxes trail while the current hitbox also "
+                    "draws on top each frame.");
 
             int hurt_idx = static_cast<int>(m_slot_hurt.load());
             if (ImGui::Combo("Hurtbox renderer", &hurt_idx, slot_names, 2))
                 m_slot_hurt.store(static_cast<Horse::LineBatcherSlot>(hurt_idx));
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Normal: always on top. Persistent: active "
-                    "hurtboxes trail; inactive hurtboxes show once when "
-                    "the broad view is enabled.");
+                    "Normal: current frame, always on top. Persistent: "
+                    "active hurtboxes trail while the current hurtbox also "
+                    "draws on top each frame.");
 
             // Trail length - only meaningful when at least one renderer
             // is set to Persistent.  Hidden otherwise to keep the UI
             // free of inert controls.  Persistent batchers accumulate only
-            // engine-live hit/hurt draws; inactive broad-view boxes and body
-            // boxes are routed to one-frame Foreground fallbacks.
+            // engine-live hit/hurt trail samples. Current active boxes,
+            // inactive broad-view boxes, and body boxes are routed to
+            // one-frame Foreground fallbacks.
             const bool any_persistent =
                 m_slot_hit.load()  == Horse::LineBatcherSlot::Persistent ||
                 m_slot_hurt.load() == Horse::LineBatcherSlot::Persistent;
@@ -5418,8 +5950,104 @@ private:
                     "game frames (60/sec). Lifetime decrements only "
                     "when SC6's game-frame counter advances, so freeze "
                     "holds the trail and F6 step drains one frame. "
-                    "Only active hit/hurt boxes enter the trail; inactive "
-                    "broad-view boxes show once in Foreground.");
+                    "Only active hit/hurt boxes enter the trail; current "
+                    "boxes still redraw once per render frame.");
+            }
+
+            auto reset_sphere_audit_cadence = [&]() {
+                m_have_sphere_audit_frame = false;
+                m_sphere_audit_logs_this_frame = 0;
+            };
+
+            bool audit = m_khit_sphere_audit.load();
+            if (ImGui::Checkbox("KHit audit log", &audit))
+            {
+                m_khit_sphere_audit.store(audit);
+                reset_sphere_audit_cadence();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Logs native KHit attack shapes, defender hit-result masks, "
+                "and paired attacker/hurtbox geometry to UE4SS.log once per "
+                "game frame. Use OverlapPair lines to compare native vs UE "
+                "centers for the exact incoming bit the engine accepted.");
+
+            if (audit)
+            {
+                ImGui::Indent();
+
+                bool filter_move =
+                    m_khit_sphere_audit_filter_move.load();
+                if (ImGui::Checkbox("Move filter##sphere_audit_move_on",
+                                    &filter_move))
+                {
+                    m_khit_sphere_audit_filter_move.store(filter_move);
+                    reset_sphere_audit_cadence();
+                }
+                ImGui::SameLine();
+                int move = m_khit_sphere_audit_move.load();
+                ImGui::PushItemWidth(100.0f);
+                if (ImGui::InputInt("Move id##sphere_audit_move",
+                                    &move, 0, 0))
+                {
+                    if (move < -1) move = -1;
+                    if (move > 0xFFFF) move = 0xFFFF;
+                    m_khit_sphere_audit_move.store(move);
+                    reset_sphere_audit_cadence();
+                }
+                ImGui::PopItemWidth();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Matches either the low 11-bit move id or the packed "
+                    "move value. Use 328 for hdr030_TEST.khd move 328.");
+
+                bool filter_slots =
+                    m_khit_sphere_audit_filter_slots.load();
+                if (ImGui::Checkbox("Slot filter##sphere_audit_slot_on",
+                                    &filter_slots))
+                {
+                    m_khit_sphere_audit_filter_slots.store(filter_slots);
+                    reset_sphere_audit_cadence();
+                }
+                ImGui::SameLine();
+                int slot_a = m_khit_sphere_audit_slot_a.load();
+                int slot_b = m_khit_sphere_audit_slot_b.load();
+                ImGui::PushItemWidth(70.0f);
+                if (ImGui::InputInt("A##sphere_audit_slot_a",
+                                    &slot_a, 0, 0))
+                {
+                    slot_a = std::clamp(slot_a, -1, 63);
+                    m_khit_sphere_audit_slot_a.store(slot_a);
+                    reset_sphere_audit_cadence();
+                }
+                ImGui::SameLine();
+                if (ImGui::InputInt("B##sphere_audit_slot_b",
+                                    &slot_b, 0, 0))
+                {
+                    slot_b = std::clamp(slot_b, -1, 63);
+                    m_khit_sphere_audit_slot_b.store(slot_b);
+                    reset_sphere_audit_cadence();
+                }
+                ImGui::PopItemWidth();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "For attack nodes, matches node slot or category-mask "
+                    "bit. For hurt-result lines, the full incoming mask is "
+                    "logged when the move filter matches, so leave this off "
+                    "when searching for a missing contributor.");
+
+                if (ImGui::Button("Use 328 / all active slots"))
+                {
+                    m_khit_sphere_audit_filter_move.store(true);
+                    m_khit_sphere_audit_move.store(328);
+                    m_khit_sphere_audit_filter_slots.store(false);
+                    m_khit_sphere_audit_slot_a.store(56);
+                    m_khit_sphere_audit_slot_b.store(57);
+                    reset_sphere_audit_cadence();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Preset for hdr030_TEST.khd move 328. Slot filtering is "
+                    "disabled so Area/FixArea or slot 21 contributors are "
+                    "not hidden while debugging the huge edited hitbox.");
+
+                ImGui::Unindent();
             }
         }
     }
@@ -5824,50 +6452,6 @@ private:
                         : "(arming WorldTickGate on next cockpit tick)");
             }
 
-            // ---- Per-step diagnostic logger (debug aid) ----------------
-            // UI hidden - underlying logger machinery (m_step_diag_*) and
-            // settings persistence remain intact, so the feature can be
-            // toggled by editing settings.cfg or by un-#if-ing this block.
-#if 0
-            // Off by default.  When on, every F6 step writes two lines
-            // to UE4SS.log - one BEFORE the step's world tick, one
-            // AFTER - listing the chara fields the hit classifier
-            // consults.  Used to diagnose multi-hit-miss / held-input
-            // bugs by diffing the pre/post snapshots.  Heavy: noisy log,
-            // ~16 bytes per chara per snapshot * 2 charas * 2 phases =
-            // ~64 reads per step.  Leave off for normal play.
-            {
-                bool diag = m_step_diag_enabled.load();
-                if (ImGui::Checkbox("Per-step diagnostic log", &diag))
-                {
-                    m_step_diag_enabled.store(diag);
-                    if (diag)
-                    {
-                        // Reset sequence counter so the log starts at #1
-                        // for this enable cycle.
-                        m_step_diag_seq.store(0);
-                        Output::send<LogLevel::Default>(
-                            STR("[FStep] per-step diagnostic ENABLED - "
-                                "next F6 step will log pre/post chara "
-                                "fields to UE4SS.log\n"));
-                    }
-                    else
-                    {
-                        Output::send<LogLevel::Default>(
-                            STR("[FStep] per-step diagnostic disabled\n"));
-                    }
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Debug aid for diagnosing multi-hit / held-input\n"
-                    "bugs.  When enabled, each F6 step writes two lines\n"
-                    "to UE4SS.log (a pre-step snapshot and a post-step\n"
-                    "snapshot) listing chara+0x16E5/0x16EA/0x44058/etc.\n"
-                    "- the fields the hit classifier reads.  Diff a\n"
-                    "pre/post pair to see what changed across one game\n"
-                    "frame.  Leave OFF for normal play.");
-            }
-#endif
-
             // --- Speed control (slow-motion / freeze) ------------------
             // Replaces the engine's master delta-time reads with a load
             // from a single user-controlled float.  Independent of the
@@ -6254,13 +6838,11 @@ private:
     // HorseMod-allocated ring of N x 0x28018-byte slots.
     //
     // UI flow:
-    //   1. User enters the Replay viewer.
-    //   2. User opens this tab and clicks "Generate timeline" - the
-    //      replay fast-forwards (engine frame cap removed) and the ring
-    //      fills.  (Or enables "Capture" for passive 1x capture instead.)
-    //   3. User drags the timeline / uses the transport buttons ? seeks
-    //      to that capture; the world freezes while paused.
-    //   4. User presses Play ? playback resumes from the playhead.
+    //   1. User opens a replay file from this tab.
+    //   2. HorseMod generates the Lux timeline automatically.
+    //   3. User drags the timeline / uses the transport buttons to seek;
+    //      the world freezes while paused.
+    //   4. Releasing the playhead resumes playback after the seek lands.
     // ==================================================================
     static const char* replay_scrub_block_reason_text(
         Horse::ReplayScrub::NativeSeekFailure reason) noexcept
@@ -6283,7 +6865,7 @@ private:
         case Reason::InvalidTarget:
             return "invalid target";
         case Reason::TimelineMissingDemoTime:
-            return "no captured demo time";
+            return "no timeline demo time";
         case Reason::NativeTimeSourceUnresolved:
             return "native time unresolved";
         case Reason::LegacyVerifyFailed:
@@ -6341,7 +6923,7 @@ private:
         case Reason::OracleFieldOffsetUnproven:
             return "selected frame field unproven";
         case Reason::TimelineIncomplete:
-            return "timeline incomplete - let Generate finish";
+            return "timeline incomplete - wait for generation";
         case Reason::NotLanded:
             return "selected frame not verified";
         case Reason::BattleManagerStatusNotActive:
@@ -6352,42 +6934,286 @@ private:
         }
     }
 
-    static const char* replay_scrub_native_status_text(
-        Horse::ReplayScrub::NativeSeekStatus status) noexcept
+    void render_replay_timeline_controls()
     {
-        using Status = Horse::ReplayScrub::NativeSeekStatus;
-        switch (status)
+        auto& scrub = Horse::ReplayScrub::instance();
+        const auto runtime = scrub.replay_ui_runtime_status();
+        const size_t  cnt   = scrub.ring_count();
+        const int32_t earl  = scrub.earliest_seq();
+        const int32_t latst = scrub.latest_seq();
+
+        if (!runtime.initialized || runtime.timeline_stale || cnt == 0)
+            return;
+
+        auto timeline_view = scrub.timeline_view();
+        bool paused = timeline_view.paused;
+        const char* play_block_reason =
+            replay_scrub_block_reason_text(timeline_view.block_reason);
+
+        if (timeline_view.block_reason
+            != Horse::ReplayScrub::NativeSeekFailure::None)
         {
-        case Status::Idle: return "Idle";
-        case Status::Queued: return "Queued";
-        case Status::DeferredBusy: return "Waiting";
-        case Status::Submitted: return "Submitted";
-        case Status::Settling: return "Settling";
-        case Status::ClockLanded: return "Clock landed";
-        case Status::Landed: return "Landed";
-        case Status::Failed: return "Failed";
-        default: return "Unknown";
+            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
+                               "%s", play_block_reason);
         }
+
+        const bool timeline_controls_enabled =
+            runtime.timeline_complete && runtime.battle_active;
+        if (!timeline_controls_enabled)
+            ImGui::BeginDisabled(true);
+
+        // -----------------------------------------------------------------
+        // Time display row
+        // -----------------------------------------------------------------
+        timeline_view = scrub.timeline_view();
+        paused = timeline_view.paused;
+        play_block_reason =
+            replay_scrub_block_reason_text(timeline_view.block_reason);
+        int playhead = timeline_view.displayed_seq;
+        if (playhead < earl)  playhead = earl;
+        if (playhead > latst) playhead = latst;
+
+        auto fmt_time = [](float seconds, char* out, size_t n) {
+            const int mm = static_cast<int>(seconds) / 60;
+            const float ss = seconds - mm * 60.0f;
+            std::snprintf(out, n, "%02d:%05.2f", mm, ss);
+        };
+        // playhead is a timeline-sequence coordinate (monotonic across
+        // the whole match, including round boundaries). Resolve it to
+        // (round, within-round frame) for a round-aware read-out; the
+        // "frame N / total" still gives the overall timeline position.
+        int32_t ph_round = -1, ph_wall = -1;
+        scrub.seq_tag_info(playhead, ph_round, ph_wall);
+        char cur_buf[16];
+        fmt_time(ph_wall >= 0 ? static_cast<float>(ph_wall) / 60.0f : 0.0f,
+                 cur_buf, sizeof(cur_buf));
+        if (ph_round >= 0)
+            ImGui::Text("Round %d  -  %s  -  frame %d / %d",
+                        ph_round + 1, cur_buf,
+                        playhead - earl + 1, latst - earl + 1);
+        else
+            ImGui::Text("frame %d / %d",
+                        playhead - earl + 1, latst - earl + 1);
+        ImGui::SameLine(0.0f, 30.0f);
+        const char* playback_label = paused ? "PAUSED" : "LIVE";
+        ImVec4 playback_color = paused
+            ? ImVec4(0.95f, 0.85f, 0.35f, 1.0f)
+            : ImVec4(0.55f, 0.85f, 0.55f, 1.0f);
+        if (runtime.generation_running)
+        {
+            playback_label = "GENERATING";
+            playback_color = ImVec4(0.95f, 0.85f, 0.35f, 1.0f);
+        }
+        else if (!runtime.timeline_complete)
+        {
+            playback_label = "INCOMPLETE";
+            playback_color = ImVec4(0.80f, 0.80f, 0.80f, 1.0f);
+        }
+        else if (!runtime.battle_active)
+        {
+            playback_label = "INACTIVE";
+            playback_color = ImVec4(0.95f, 0.55f, 0.35f, 1.0f);
+        }
+        ImGui::TextColored(playback_color, "%s", playback_label);
+        if (timeline_view.native_pending)
+        {
+            ImGui::SameLine(0.0f, 12.0f);
+            ImGui::TextDisabled("%s",
+                                timeline_view.block_reason
+                                    == Horse::ReplayScrub::NativeSeekFailure::None
+                                      ? "Checking selected frame..."
+                                      : play_block_reason);
+        }
+        else if (paused && !timeline_view.can_play)
+        {
+            ImGui::SameLine(0.0f, 12.0f);
+            ImGui::TextDisabled("%s", play_block_reason);
+        }
+
+        // -----------------------------------------------------------------
+        // Custom-drawn timeline (the "playhead" UI).
+        // -----------------------------------------------------------------
+        const float bar_h = 28.0f;
+        const float bar_w = ImGui::GetContentRegionAvail().x;
+        const ImVec2 bar_pos = ImGui::GetCursorScreenPos();
+        const ImVec2 bar_max = ImVec2(bar_pos.x + bar_w, bar_pos.y + bar_h);
+        ImGui::InvisibleButton("##rs_timeline", ImVec2(bar_w, bar_h));
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(bar_pos, bar_max,
+                          IM_COL32( 35,  35,  40, 255), 4.0f);
+        dl->AddRectFilled(bar_pos, bar_max,
+                          IM_COL32( 80, 130, 180, 110), 4.0f);
+
+        if (latst > earl)
+        {
+            const auto markers = scrub.collect_round_markers();
+            for (const auto& mk : markers)
+            {
+                const float mf = static_cast<float>(mk.seq - earl)
+                               / static_cast<float>(latst - earl);
+                if (mf < 0.0f || mf > 1.0f) continue;
+                const float mxr = bar_pos.x + mf * bar_w;
+                dl->AddLine(ImVec2(mxr, bar_pos.y),
+                            ImVec2(mxr, bar_pos.y + bar_h),
+                            IM_COL32(235, 205, 120, 200), 1.5f);
+                char rlbl[8];
+                std::snprintf(rlbl, sizeof(rlbl), "R%d", mk.round + 1);
+                dl->AddText(ImVec2(mxr + 3.0f, bar_pos.y + 1.0f),
+                            IM_COL32(235, 205, 120, 255), rlbl);
+            }
+        }
+
+        const bool active  = ImGui::IsItemActive();
+        const bool hovered = ImGui::IsItemHovered();
+        const bool drag_start = ImGui::IsItemActivated();
+        const bool drag_end   = ImGui::IsItemDeactivated();
+        auto timeline_target_from_mouse = [&]() {
+            const float mx = ImGui::GetIO().MousePos.x;
+            const float frac = (bar_w > 0.0f)
+                ? (mx - bar_pos.x) / bar_w : 0.0f;
+            const float clmp = (frac < 0.0f) ? 0.0f
+                : (frac > 1.0f) ? 1.0f : frac;
+            return earl
+                 + static_cast<int>(clmp * (latst - earl) + 0.5f);
+        };
+
+        if (drag_start)
+        {
+            scrub.ui_begin_drag();
+        }
+        if (active || drag_start || drag_end)
+        {
+            const int target = timeline_target_from_mouse();
+            if (target != playhead || drag_start || drag_end)
+            {
+                playhead = target;
+                scrub.ui_drag_to_seq(target);
+            }
+        }
+        if (drag_end)
+        {
+            scrub.ui_end_drag();
+        }
+
+        const float playhead_frac = (latst > earl)
+            ? static_cast<float>(playhead - earl)
+              / static_cast<float>(latst - earl)
+            : 0.0f;
+        const float px = bar_pos.x + playhead_frac * bar_w;
+        const float py_mid = bar_pos.y + bar_h * 0.5f;
+        dl->AddLine(ImVec2(px, bar_pos.y),
+                    ImVec2(px, bar_pos.y + bar_h),
+                    IM_COL32(255, 255, 255, 230), 2.0f);
+        dl->AddCircleFilled(ImVec2(px, py_mid), 6.5f,
+                            IM_COL32(255, 255, 255, 255));
+        dl->AddCircle(ImVec2(px, py_mid), 6.5f,
+                      IM_COL32( 30,  30,  40, 255), 12, 1.5f);
+
+        if (hovered)
+        {
+            const float mx = ImGui::GetIO().MousePos.x;
+            const float frac = (bar_w > 0.0f)
+                ? (mx - bar_pos.x) / bar_w : 0.0f;
+            const float clmp = (frac < 0.0f) ? 0.0f
+                : (frac > 1.0f) ? 1.0f : frac;
+            const int hf = earl
+                + static_cast<int>(clmp * (latst - earl) + 0.5f);
+            const float hsec = static_cast<float>(hf - earl) / 60.0f;
+            char hbuf[32];
+            std::snprintf(hbuf, sizeof(hbuf),
+                          "frame %d  (%.2f s)", hf, hsec);
+            ImGui::SetTooltip("%s", hbuf);
+        }
+
+        ImGui::Spacing();
+
+        auto step_seek = [&](int target) {
+            if (target < earl)  target = earl;
+            if (target > latst) target = latst;
+            playhead = target;
+            scrub.ui_step_to_seq(target);
+        };
+        if (ImGui::Button("|<<##rs_first")) step_seek(earl);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Jump to oldest timeline frame (pauses)");
+        ImGui::SameLine();
+        if (ImGui::Button("<<-10##rs_b10")) step_seek(playhead - 10);
+        ImGui::SameLine();
+        if (ImGui::Button("<-1##rs_b1")) step_seek(playhead - 1);
+        ImGui::SameLine();
+
+        timeline_view = scrub.timeline_view();
+        paused = timeline_view.paused;
+        play_block_reason =
+            replay_scrub_block_reason_text(timeline_view.block_reason);
+
+        if (paused)
+        {
+            if (!timeline_view.can_play)
+                ImGui::BeginDisabled(true);
+            if (ImGui::Button(" Play ##rs_play"))
+                scrub.ui_request_play();
+            if (!timeline_view.can_play)
+                ImGui::EndDisabled();
+        }
+        else
+        {
+            if (ImGui::Button("Pause ##rs_play"))
+                scrub.ui_pause_at_live();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            paused && !timeline_view.can_play
+              ? play_block_reason
+              : (paused
+                    ? "Resume forward replay playback from the current playhead."
+                    : "Pause replay playback at the current live edge."));
+        ImGui::SameLine();
+        if (ImGui::Button("+1>##rs_f1")) step_seek(playhead + 1);
+        ImGui::SameLine();
+        if (ImGui::Button("+10>>##rs_f10")) step_seek(playhead + 10);
+        ImGui::SameLine();
+        if (ImGui::Button(">>|##rs_last")) step_seek(latst);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Jump to latest timeline frame (pauses at live edge)");
+
+        if (!timeline_controls_enabled)
+            ImGui::EndDisabled();
     }
 
-    static const char* replay_scrub_mode_text(
-        Horse::ReplayScrub::ScrubMode mode) noexcept
+    bool render_replay_timeline_window()
     {
-        using Mode = Horse::ReplayScrub::ScrubMode;
-        switch (mode)
+        auto& scrub = Horse::ReplayScrub::instance();
+        const auto presence = Horse::GameMode::instance().current_presence();
+        if (presence != Horse::GamePresence::Replay)
+            return false;
+
+        const auto runtime = scrub.replay_ui_runtime_status();
+        if (!runtime.initialized || runtime.timeline_stale
+            || scrub.ring_count() == 0)
+            return false;
+        if (!runtime.battle_active && !runtime.generation_running)
+            return false;
+
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        float width = 880.0f;
+        if (display.x > 80.0f && display.x - 40.0f < width)
+            width = display.x - 40.0f;
+        if (width < 360.0f)
+            width = 360.0f;
+        const float y = (display.y > 220.0f) ? display.y - 150.0f : 20.0f;
+
+        ImGui::SetNextWindowSize(ImVec2(width, 0.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, y),
+                                ImGuiCond_FirstUseEver,
+                                ImVec2(0.5f, 0.0f));
+        if (ImGui::Begin("Replay Timeline##horsemod_replay_timeline",
+                         nullptr, ImGuiWindowFlags_NoCollapse))
         {
-        case Mode::Idle: return "Idle";
-        case Mode::Generated: return "Ready";
-        case Mode::Dragging: return "Seeking";
-        case Mode::PausedPreview: return "Preview";
-        case Mode::NativeSeekQueued: return "Seek queued";
-        case Mode::NativeSeekSubmitted: return "Seek submitted";
-        case Mode::NativeSeekSettling: return "Seek settling";
-        case Mode::NativeSeekLanded: return "Seek landed";
-        case Mode::NativeSeekFailed: return "Seek failed";
-        case Mode::Playing: return "Playing";
-        default: return "Unknown";
+            render_replay_timeline_controls();
         }
+        ImGui::End();
+        return true;
     }
 
     void render_replay_tab()
@@ -6400,7 +7226,7 @@ private:
         auto render_replay_file_controls = [&]() {
             // -------------------------------------------------------------
             // Replay file export/load.  These are explicit user actions
-            // only: no file I/O runs on the per-frame capture path.
+            // only: no file I/O runs on the timeline snapshot path.
             // Kept above the ReplayScrub init gate so Browse is visible
             // from the main menu while the user is choosing a file.
             // -------------------------------------------------------------
@@ -6424,8 +7250,10 @@ private:
             const bool file_busy = load_busy || start_busy;
             if (file_busy) ImGui::BeginDisabled(true);
             if (ImGui::Button("Open Replay + Lux Gen##rs_file_open"))
+            {
                 scrub.browse_and_request_start_replay_file(
                     "lux-no-render-force");
+            }
             if (file_busy) ImGui::EndDisabled();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                 "Open a Windows file picker and immediately start the\n"
@@ -6439,567 +7267,46 @@ private:
 
         render_replay_file_controls();
 
-        const size_t  cnt    = scrub.ring_count();
-        const int32_t earl   = scrub.earliest_seq();
-        const int32_t latst  = scrub.latest_seq();
-        const int32_t live   = scrub.live_frame();
+        const size_t cnt = scrub.ring_count();
         auto timeline_view = scrub.timeline_view();
-        bool paused = timeline_view.paused;
         const char* play_block_reason =
             replay_scrub_block_reason_text(timeline_view.block_reason);
 
-        const char* replay_state = "No replay loaded";
-        ImVec4 replay_state_color(0.72f, 0.72f, 0.72f, 1.0f);
-        if (runtime.in_replay && !runtime.initialized)
-        {
-            replay_state = "Replay viewer loading";
-            replay_state_color = ImVec4(0.95f, 0.82f, 0.45f, 1.0f);
-        }
-        else if (runtime.generation_running)
-        {
-            replay_state = "Generating timeline";
-            replay_state_color = ImVec4(0.95f, 0.82f, 0.45f, 1.0f);
-        }
-        else if (runtime.generation_waiting)
-        {
-            replay_state = "Waiting for replay restart";
-            replay_state_color = ImVec4(0.95f, 0.82f, 0.45f, 1.0f);
-        }
-        else if (runtime.timeline_stale)
-        {
-            replay_state = "Timeline from previous replay";
-            replay_state_color = ImVec4(0.95f, 0.55f, 0.35f, 1.0f);
-        }
-        else if (runtime.in_replay && runtime.initialized
-                 && !runtime.battle_active)
-        {
-            replay_state = "Replay menu / battle inactive";
-            replay_state_color = ImVec4(0.95f, 0.55f, 0.35f, 1.0f);
-        }
-        else if (runtime.in_replay && runtime.battle_active
-                 && runtime.timeline_complete)
-        {
-            replay_state = "Ready";
-            replay_state_color = ImVec4(0.55f, 0.85f, 0.55f, 1.0f);
-        }
-        else if (runtime.in_replay)
-        {
-            replay_state = cnt > 0
-                ? "Timeline incomplete"
-                : "Timeline not generated";
-            replay_state_color = ImVec4(0.80f, 0.80f, 0.80f, 1.0f);
-        }
-
-        ImGui::Spacing();
-        ImGui::TextDisabled("Replay state");
-        ImGui::SameLine();
-        ImGui::TextColored(replay_state_color, "%s", replay_state);
-        if (runtime.in_replay && runtime.initialized)
-        {
-            ImGui::TextDisabled(
-                "Timeline: %zu frames | selected=%d landed=%d | mode=%s seek=%s",
-                cnt, timeline_view.requested_seq, timeline_view.landed_seq,
-                replay_scrub_mode_text(timeline_view.mode),
-                replay_scrub_native_status_text(timeline_view.native_status));
-            ImGui::TextDisabled(
-                "Battle: main=0x%02X status=0x%02X required=0x%02X/0x%02X | round=%d engine=%d bm=%d",
-                static_cast<unsigned>(runtime.battle_main_state),
-                static_cast<unsigned>(runtime.battle_status),
-                static_cast<unsigned>(runtime.required_main_state),
-                static_cast<unsigned>(runtime.required_status),
-                runtime.live_round, runtime.engine_master,
-                runtime.battle_master);
-            if (timeline_view.block_reason
-                != Horse::ReplayScrub::NativeSeekFailure::None)
-            {
-                ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
-                                   "%s", play_block_reason);
-            }
-        }
-
         if (!runtime.initialized)
         {
-            ImGui::TextDisabled(
-                "(replay scrubber not initialised yet. File selection above "
-                "is available; replay patching starts after entering the "
-                "Replay viewer.)");
+            if (in_replay)
+                ImGui::TextDisabled("Replay viewer loading.");
             return;
         }
 
-        // 2026-05-16 UX fix: don't early-return when not in replay /
-        // captures empty.  Show a status notice but keep the Settings /
-        // Debug toggles below editable anytime so the user can pre-
-        // configure before entering the replay viewer.
-        const bool show_timeline_ui = in_replay && cnt > 0;
         if (!in_replay)
         {
-            ImGui::TextDisabled(
-                "(idle - enter the Replay viewer to capture.  Settings "
-                "below are editable anytime.)");
+            ImGui::Spacing();
+        }
+        else if (runtime.timeline_stale)
+        {
+            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
+                               "Timeline belongs to a previous replay.");
             ImGui::Spacing();
         }
         else if (cnt == 0)
         {
-            ImGui::TextDisabled(
-                "(timeline empty - click \"Generate timeline\" below to "
-                "fast-forward through the replay and fill it, or enable "
-                "\"Capture\" for passive 1x capture.  live=%d)", live);
+            ImGui::TextDisabled("Timeline is not ready yet.");
             ImGui::Spacing();
         }
-
-        if (show_timeline_ui)
+        if (timeline_view.block_reason
+            != Horse::ReplayScrub::NativeSeekFailure::None)
         {
-            const bool timeline_ready = runtime.timeline_complete;
-            const bool timeline_controls_enabled =
-                timeline_ready && runtime.battle_active;
-            if (!timeline_ready)
-            {
-                const bool generation_running =
-                    scrub.timeline_gen_state()
-                        == Horse::ReplayScrub::TimelineGenState::Generating;
-                ImGui::TextColored(
-                    ImVec4(0.95f, 0.75f, 0.35f, 1.0f),
-                    generation_running
-                        ? "Timeline is still generating. Wait for Done before seeking or playing."
-                        : "Timeline is incomplete. Generate must finish before seeking or playing.");
-                ImGui::Spacing();
-            }
-            else if (!runtime.battle_active)
-            {
-                ImGui::TextColored(
-                    ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
-                    "Replay battle is not active. Seeking and playback controls are disabled.");
-                ImGui::Spacing();
-            }
-            if (!timeline_controls_enabled)
-                ImGui::BeginDisabled(true);
-
-        // -----------------------------------------------------------------
-        // Time display row
-        // -----------------------------------------------------------------
-        timeline_view = scrub.timeline_view();
-        paused = timeline_view.paused;
-        play_block_reason =
-            replay_scrub_block_reason_text(timeline_view.block_reason);
-        int playhead = timeline_view.displayed_seq;
-        if (playhead < earl)  playhead = earl;
-        if (playhead > latst) playhead = latst;
-
-        auto fmt_time = [](float seconds, char* out, size_t n) {
-            const int mm = static_cast<int>(seconds) / 60;
-            const float ss = seconds - mm * 60.0f;
-            std::snprintf(out, n, "%02d:%05.2f", mm, ss);
-        };
-        // playhead is a capture-sequence coordinate (monotonic across
-        // the whole match, including round boundaries).  Resolve it to
-        // (round, within-round frame) for a round-aware read-out; the
-        // "capture N / total" still gives the overall timeline position.
-        int32_t ph_round = -1, ph_wall = -1;
-        scrub.seq_tag_info(playhead, ph_round, ph_wall);
-        char cur_buf[16];
-        fmt_time(ph_wall >= 0 ? static_cast<float>(ph_wall) / 60.0f : 0.0f,
-                 cur_buf, sizeof(cur_buf));
-        if (ph_round >= 0)
-            ImGui::Text("Round %d  -  %s  -  capture %d / %d",
-                        ph_round + 1, cur_buf,
-                        playhead - earl + 1, latst - earl + 1);
-        else
-            ImGui::Text("capture %d / %d",
-                        playhead - earl + 1, latst - earl + 1);
-        ImGui::SameLine(0.0f, 30.0f);
-        if (paused)
-            ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.35f, 1.0f), "PAUSED");
-        else
-            ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "LIVE");
-        if (timeline_view.native_pending)
-        {
-            ImGui::SameLine(0.0f, 12.0f);
-            ImGui::TextDisabled("%s",
-                                timeline_view.block_reason
-                                    == Horse::ReplayScrub::NativeSeekFailure::None
-                                      ? "Checking selected frame..."
-                                      : play_block_reason);
-        }
-        else if (paused && !timeline_view.can_play)
-        {
-            ImGui::SameLine(0.0f, 12.0f);
-            ImGui::TextDisabled("%s", play_block_reason);
+            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
+                               "%s", play_block_reason);
         }
 
-        // -----------------------------------------------------------------
-        // Custom-drawn timeline (the "playhead" UI).
-        //
-        // Layout:
-        //   +-----------------------------------------------+
-        //   - ---------------------|-----------------------   ? bar
-        //   -                       ?                      -   ? playhead
-        //   +-----------------------------------------------+
-        //
-        // The bar's mouse interaction:
-        //   * mouse-down on bar           ? on_drag_start, seek to mouse X
-        //   * drag while held             ? seek to mouse X each frame X moves
-        //   * mouse-up                    ? on_drag_end (stays paused unless auto-resume is toggled)
-        //
-        // ImGui's InvisibleButton + IsItemActive() / IsItemDeactivated()
-        // gives us all four signals cleanly.  No need for separate
-        // is-clicked-vs-dragged logic - they're the same interaction.
-        // -----------------------------------------------------------------
-        const float bar_h = 28.0f;
-        const float bar_w = ImGui::GetContentRegionAvail().x;
-        const ImVec2 bar_pos  = ImGui::GetCursorScreenPos();
-        const ImVec2 bar_max  = ImVec2(bar_pos.x + bar_w, bar_pos.y + bar_h);
-        ImGui::InvisibleButton("##rs_timeline", ImVec2(bar_w, bar_h));
-
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-
-        // Background - full bar (dark grey).
-        dl->AddRectFilled(bar_pos, bar_max,
-                          IM_COL32( 35,  35,  40, 255), 4.0f);
-
-        // Captured-range overlay - the whole bar for now since the ring's
-        // earl..latst IS the viewable timeline.  Reserved for future
-        // "full replay extent" rendering when we read nTotalRecorded-
-        // Frames; in that mode this overlay would shade only the
-        // in-buffer subset of the bar.
-        dl->AddRectFilled(bar_pos, bar_max,
-                          IM_COL32( 80, 130, 180, 110), 4.0f);
-
-        // Round-boundary markers - a thin tick + "R<n>" label wherever
-        // the replay crossed into a new round.  collect_round_markers()
-        // returns one entry per round held in the ring, keyed by the
-        // capture seq of that round's first snapshot.
-        if (latst > earl)
-        {
-            const auto markers = scrub.collect_round_markers();
-            for (const auto& mk : markers)
-            {
-                const float mf = static_cast<float>(mk.seq - earl)
-                               / static_cast<float>(latst - earl);
-                if (mf < 0.0f || mf > 1.0f) continue;
-                const float mxr = bar_pos.x + mf * bar_w;
-                dl->AddLine(ImVec2(mxr, bar_pos.y),
-                            ImVec2(mxr, bar_pos.y + bar_h),
-                            IM_COL32(235, 205, 120, 200), 1.5f);
-                char rlbl[8];
-                std::snprintf(rlbl, sizeof(rlbl), "R%d", mk.round + 1);
-                dl->AddText(ImVec2(mxr + 3.0f, bar_pos.y + 1.0f),
-                            IM_COL32(235, 205, 120, 255), rlbl);
-            }
-        }
-
-        // Mouse interaction - must run before drawing the playhead so
-        // an in-flight drag updates playhead this frame.
-        const bool active   = ImGui::IsItemActive();
-        const bool hovered  = ImGui::IsItemHovered();
-
-        // Drag-edge detection.  Use ImGui's Active/Deactivated states
-        // rather than tracking ourselves - they're correctly shaped for
-        // click-and-hold-then-release semantics.
-        const bool drag_start = ImGui::IsItemActivated();
-        const bool drag_end   = ImGui::IsItemDeactivated();
-        auto timeline_target_from_mouse = [&]() {
-            const float mx    = ImGui::GetIO().MousePos.x;
-            const float frac  = (bar_w > 0.0f)
-                                ? (mx - bar_pos.x) / bar_w : 0.0f;
-            const float clmp  = (frac < 0.0f) ? 0.0f
-                              : (frac > 1.0f) ? 1.0f : frac;
-            return earl
-                 + static_cast<int>(clmp * (latst - earl) + 0.5f);
-        };
-
-        if (drag_start)
-        {
-            scrub.ui_begin_drag();
-        }
-        if (active || drag_start || drag_end)
-        {
-            const int target = timeline_target_from_mouse();
-            if (target != playhead || drag_start || drag_end)
-            {
-                playhead = target;
-                scrub.ui_drag_to_seq(target);
-            }
-        }
-        if (drag_end)
-        {
-            scrub.ui_end_drag();
-        }
-
-        // Playhead glyph: vertical line + circle at center.
-        const float playhead_frac = (latst > earl)
-            ? static_cast<float>(playhead - earl)
-              / static_cast<float>(latst - earl)
-            : 0.0f;
-        const float px = bar_pos.x + playhead_frac * bar_w;
-        const float py_mid = bar_pos.y + bar_h * 0.5f;
-        dl->AddLine(ImVec2(px, bar_pos.y),
-                    ImVec2(px, bar_pos.y + bar_h),
-                    IM_COL32(255, 255, 255, 230), 2.0f);
-        dl->AddCircleFilled(ImVec2(px, py_mid), 6.5f,
-                            IM_COL32(255, 255, 255, 255));
-        dl->AddCircle      (ImVec2(px, py_mid), 6.5f,
-                            IM_COL32( 30,  30,  40, 255), 12, 1.5f);
-
-        // Hover preview tooltip.
-        if (hovered)
-        {
-            const float mx   = ImGui::GetIO().MousePos.x;
-            const float frac = (bar_w > 0.0f)
-                               ? (mx - bar_pos.x) / bar_w : 0.0f;
-            const float clmp = (frac < 0.0f) ? 0.0f
-                             : (frac > 1.0f) ? 1.0f : frac;
-            const int   hf   = earl
-                             + static_cast<int>(clmp * (latst - earl) + 0.5f);
-            const float hsec = static_cast<float>(hf - earl) / 60.0f;
-            char hbuf[32];
-            std::snprintf(hbuf, sizeof(hbuf),
-                          "frame %d  (%.2f s)", hf, hsec);
-            ImGui::SetTooltip("%s", hbuf);
-        }
-
-        ImGui::Spacing();
-
-        // -----------------------------------------------------------------
-        // Transport row - jump/step/play-pause.  Step buttons engage
-        // pause (frame-by-frame review UX); the timeline drag uses
-        // its own on_drag_start/on_drag_end pair instead.  Play/Pause
-        // toggles the freeze directly without going through the seek
-        // path so a Pause-then-Play round trip is a true no-op.
-        // -----------------------------------------------------------------
-        auto step_seek = [&](int target) {
-            if (target < earl)  target = earl;
-            if (target > latst) target = latst;
-            playhead = target;
-            // Step buttons explicitly engage pause - clicking +1 while
-            // playing is "advance one frame and stop", matching every
-            // video player's frame-step UX.
-            scrub.ui_step_to_seq(target);
-        };
-        if (ImGui::Button("|<<##rs_first"))      step_seek(earl);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Jump to oldest captured frame (pauses)");
-        ImGui::SameLine();
-        if (ImGui::Button("<<-10##rs_b10"))      step_seek(playhead - 10);
-        ImGui::SameLine();
-        if (ImGui::Button("<-1##rs_b1"))         step_seek(playhead - 1);
-        ImGui::SameLine();
-
-        timeline_view = scrub.timeline_view();
-        paused = timeline_view.paused;
-        play_block_reason =
-            replay_scrub_block_reason_text(timeline_view.block_reason);
-
-        // Play / Pause toggle in the middle.  Pure pause flag flip -
-        // no seek needed.  When pausing while playing, the engine
-        // state IS the latest captured frame (capture and pause read
-        // the same global frame counter), so the cursors are already
-        // in sync; freezing here is a clean halt.
-        if (paused)
-        {
-            if (!timeline_view.can_play)
-                ImGui::BeginDisabled(true);
-            if (ImGui::Button(" Play ##rs_play"))
-                scrub.ui_request_play();
-            if (!timeline_view.can_play)
-                ImGui::EndDisabled();
-        }
-        else
-        {
-            if (ImGui::Button("Pause ##rs_play"))
-                // Anchor the playhead at the live edge so the UI
-                // doesn't jump back to a stale prior-seek position
-                // (see ReplayScrub::ui_pause_at_live for the full
-                // race-free explanation).
-                scrub.ui_pause_at_live();
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            paused && !timeline_view.can_play
-              ? play_block_reason
-              : (paused
-                    ? "Resume forward replay playback from the current playhead."
-                    : "Pause replay playback at the current live edge."));
-        ImGui::SameLine();
-        if (ImGui::Button("+1>##rs_f1"))         step_seek(playhead + 1);
-        ImGui::SameLine();
-        if (ImGui::Button("+10>>##rs_f10"))      step_seek(playhead + 10);
-        ImGui::SameLine();
-        if (ImGui::Button(">>|##rs_last"))       step_seek(latst);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "Jump to most recent captured frame (pauses at live edge)");
-
-        ImGui::Spacing();
-
-        if (!timeline_controls_enabled)
-            ImGui::EndDisabled();
-
-        }  // end of: if (show_timeline_ui)
-
-        // -----------------------------------------------------------------
-        // Generate timeline - fast-forward the replay to fill the ring.
-        //
-        // Removes SC6's engine frame-rate cap (UEngine FixedFrameRate)
-        // for the duration, so the replay plays back as fast as the
-        // machine can render + simulate.  Every frame is still captured
-        // into the ring exactly as in 1x playback - only sooner.  The
-        // cap is restored automatically when the replay ends.  See
-        // ReplayScrub::FrameCapOverride for the mechanism.
-        // -----------------------------------------------------------------
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::TextDisabled("Generate timeline");
-
-        {
-            using GS = Horse::ReplayScrub::TimelineGenState;
-            const GS gen_state = scrub.timeline_gen_state();
-
-            if (!in_replay)
-            {
-                ImGui::TextDisabled(
-                    "(enter the Replay viewer, then Generate to fast-"
-                    "forward through the replay and fill the timeline)");
-            }
-            else if (gen_state == GS::Generating)
-            {
-                if (ImGui::Button("Stop##rs_gen_stop"))
-                    scrub.request_stop_generate_timeline();
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Stop fast-forwarding now and restore the 60 fps cap\n"
-                    "(and rendering, if lux-no-render skipped it).\n"
-                    "The timeline keeps whatever has been captured so far.");
-                ImGui::SameLine(0.0f, 14.0f);
-                const char* gen_label =
-                    scrub.is_battle_step_generation()
-                        ? "Generating (experimental 2 - direct engine tick)-  %zu frames"
-                        : scrub.is_lux_no_render_generation()
-                            ? "Generating (lux-no-render)-  "
-                              "%zu frames"
-                            : "Generating - replay at max speed-  %zu frames";
-                ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.35f, 1.0f),
-                    gen_label, cnt);
-                const auto prof = scrub.timeline_gen_profile();
-                if (prof.frames > 0)
-                {
-                    ImGui::TextDisabled(
-                        "Speed: %.1f ticks/s  |  capture %.1f us/frame "
-                        "(sim %.1f, IL %.1f, commit %.1f)",
-                        prof.ticks_per_second, prof.avg_total_us,
-                        prof.avg_sim_us, prof.avg_inputlog_us,
-                        prof.avg_commit_us);
-                }
-            }
-            else
-            {
-                const bool done = (gen_state == GS::Done);
-                const bool gen_locked =
-                    scrub.is_timeline_generation_locked_complete();
-                const bool gen_waiting =
-                    scrub.is_generate_armed_for_next_clean_start();
-                const bool gen_allowed =
-                    gen_waiting ? true : scrub.can_generate_timeline();
-                const char* gen_block_reason =
-                    gen_allowed ? "" : scrub.generate_block_reason();
-                const char* gen_status = scrub.generate_status_text();
-                if (gen_waiting)
-                {
-                    if (ImGui::Button("Cancel waiting##rs_gen"))
-                        scrub.cancel_generate_waiting();
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                        "Stop waiting for the next replay restart.");
-                }
-                else
-                {
-                    if (!gen_allowed)
-                        ImGui::BeginDisabled(true);
-                    if (ImGui::Button(gen_locked
-                                           ? "Timeline complete##rs_gen"
-                                           : (done ? "Regenerate Timeline##rs_gen"
-                                                   : "Generate Timeline##rs_gen")))
-                        scrub.request_generate_timeline();
-                    if (!gen_allowed)
-                        ImGui::EndDisabled();
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                        gen_status && gen_status[0]
-                            ? gen_status
-                            : gen_allowed
-                            ? "Builds the timeline so you can scrub this replay.\n"
-                              "If the replay already started, click Generate,\n"
-                              "then restart or reload the replay."
-                            : gen_block_reason);
-                }
-
-                if (!gen_allowed && gen_block_reason && gen_block_reason[0])
-                    ImGui::TextDisabled(
-                        "%s", gen_block_reason);
-                else if (gen_status && gen_status[0])
-                    ImGui::TextDisabled("%s", gen_status);
-
-                // Lux no-render variant: same replay fast-forward, but
-                // presentation work is suppressed during generation only.
-                // See ReplayScrub::RenderSkipOverride.
-                ImGui::SameLine();
-                const bool lux_gen_allowed =
-                    !gen_waiting && (gen_allowed || (in_replay && gen_locked));
-                if (!lux_gen_allowed)
-                    ImGui::BeginDisabled(true);
-                if (ImGui::Button("Lux No Render##rs_gen_lux_no_render"))
-                    scrub.request_generate_timeline_lux_no_render(true);
-                if (!lux_gen_allowed)
-                    ImGui::EndDisabled();
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Faster timeline build. Lux gameplay simulation,\n"
-                    "replay inputs, clocks, RNG, health, and result state\n"
-                    "keep running; render/overlay presentation is skipped.\n"
-                    "\n"
-                    "When a timeline is already complete, this forces a fresh\n"
-                    "lux-no-render generation for the loaded replay.");
-
-                ImGui::SameLine();
-                if (!gen_allowed || gen_waiting)
-                    ImGui::BeginDisabled(true);
-                if (ImGui::Button("Experimental 2##rs_gen_exp2"))
-                    scrub.request_generate_timeline_experimental_battle_step();
-                if (!gen_allowed || gen_waiting)
-                    ImGui::EndDisabled();
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Fastest test path. It is for debugging only.\n"
-                    "\n"
-                    "Use normal Generate for real timeline work.");
-
-                if (done)
-                {
-                    ImGui::SameLine(0.0f, 14.0f);
-                    ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f),
-                        "Done - %zu frames captured", cnt);
-                }
-            }
-        }
-
-        // -----------------------------------------------------------------
-        // Settings row - Auto-resume + Capture.
-        // ALL settings below are editable regardless of replay state.
-        // -----------------------------------------------------------------
-        bool ar = scrub.auto_resume_on_release();
-        if (ImGui::Checkbox("Auto-resume on release##rs_ar", &ar))
-            scrub.set_auto_resume_on_release(ar);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "OFF by default.  When ON, releasing the playhead resumes\n"
-            "playback after the game-thread seek lands.  When OFF,\n"
-            "the world stays paused; click Play to resume.");
-
-        ImGui::SameLine(0.0f, 20.0f);
-        bool cap_on = scrub.capture_enabled();
-        if (ImGui::Checkbox("Capture##rs_cap", &cap_on))
-            scrub.set_capture_enabled(cap_on);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "Passive capture - OFF by default.  When ON, every Replay\n"
-            "frame is snapshotted into the timeline during normal 1x\n"
-            "viewing, which has a per-frame cost.  Normally leave this\n"
-            "OFF and use \"Generate timeline\" to build the timeline -\n"
-            "generation captures regardless of this toggle.");
+        // Timeline controls render in their own replay-only window.
 
         // Timeline readout - frame count, duration, and dedup-store
-        // memory.  Capture is unbounded: the deduplicating snapshot store
+        // memory.  Generation is unbounded: the deduplicating snapshot store
         // spans the whole replay, and the only limit is a 2 GB resident-
-        // memory ceiling, so there is no capture-window setting to tune.
+        // memory ceiling, so there is no window setting to tune.
         ImGui::Spacing();
         ImGui::TextDisabled("Timeline: %zu frames  (%.1f s,  ~%zu MB)",
                             cnt, static_cast<float>(cnt) / 60.0f,
@@ -7010,7 +7317,7 @@ private:
             {
                 ImGui::TextDisabled(
                     "Last generation: %.1f ticks/s over %.2f s  |  "
-                    "capture %.1f us/frame",
+                    "snapshot %.1f us/frame",
                     prof.ticks_per_second, prof.wall_seconds,
                     prof.avg_total_us);
             }
@@ -7021,65 +7328,9 @@ private:
             ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f),
                                "[2 GB limit reached]");
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Capture stopped at the 2 GB memory ceiling.\n"
-                "The timeline keeps everything captured so far.");
+                "Timeline generation stopped at the 2 GB memory ceiling.\n"
+                "The timeline keeps everything generated so far.");
         }
-
-        // -----------------------------------------------------------------
-        // Diagnostics row -- verbose mode toggle + one-shot dump button.
-        //
-        // Verbose mode wires up:
-        //   - BASELINE_FULL log every 60 wall frames (UDemoNetDriver
-        //     state + per-chara MoveVM state)
-        //   - PRE_SEEK / POST_SEEK extended dumps
-        //   - Per-tick POST_SEEK_TICK log for 600 ticks after every seek
-        //     showing whether chara MoveVM state is advancing or frozen
-        //
-        // "Force dump" emits one full dump immediately regardless of
-        // verbose mode -- useful when the user is observing weird state
-        // and wants a snapshot without re-seeking.
-        // -----------------------------------------------------------------
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::TextDisabled("Diagnostics");
-        bool verbose = scrub.verbose_diag();
-        if (ImGui::Checkbox("Verbose log##rs_verbose", &verbose))
-            scrub.set_verbose_diag(verbose);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "When ON, dumps UDemoNetDriver + chara MoveVM state every\n"
-            "second during forward playback, and per-tick deltas for\n"
-            "600 ticks after each seek.  Look for '[ReplayScrub.diag]'\n"
-            "lines in UE4SS.log.\n"
-            "\n"
-            "Use this to confirm whether UDemoNetDriver is driving the\n"
-            "replay and whether character MoveVM state advances.");
-        ImGui::SameLine(0.0f, 20.0f);
-        if (ImGui::Button("Force diag dump##rs_force_diag"))
-            scrub.request_force_diag();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "Emit a one-shot full diagnostic dump on the next cockpit\n"
-            "tick.  Works regardless of verbose mode -- useful for\n"
-            "capturing a snapshot of engine state at a precise moment.");
-
-        if (ImGui::Button("New trace file##rs_trace_new"))
-            Horse::ReplayDebugTrace::instance().open_new_session(L"ui");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "Replay trace is always on. This starts a fresh JSONL file.\n"
-            "Critical restore failures are also written to UE4SS.log.");
-        const std::string trace_path =
-            Horse::ReplayDebugTrace::instance().current_path_utf8();
-        if (!trace_path.empty())
-        {
-            ImGui::TextWrapped("Trace: %s", trace_path.c_str());
-        }
-
-        ImGui::Spacing();
-        ImGui::TextDisabled("Strict SC6 exact seek: ON");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            "Timeline seeks reset SC6's native replay state to the target\n"
-            "round start and fast-forward to the exact captured master\n"
-            "clock. Play stays disabled until round/master/cache verification\n"
-            "lands exactly.");
     }
 
     // ==================================================================
@@ -7266,101 +7517,65 @@ private:
                     "(couldn't hook the VFX system - see UE4SS.log)");
             }
 
-            // Modded-lobby UI temporarily disabled - the v1 SlipOut path
-            // didn't work in the latest test (see UE4SS.log session
-            // 2026-05-08).  Hooks remain installed in the background;
-            // policy stays at whatever's persisted in settings.cfg
-            // (Vanilla by default).  Re-enable by removing the #if 0.
-#if 0
-            ImGui::Spacing();
             ImGui::Separator();
-            ImGui::TextUnformatted("Online (modded lobbies)");
 
+            if (ImGui::CollapsingHeader("Developer##general_developer"))
             {
-                auto& rules = Horse::OnlineRules::instance();
-                const auto current = rules.current_policy();
+                auto& scrub = Horse::ReplayScrub::instance();
 
-                // Build the dropdown items each frame.  Order: Vanilla
-                // first as the safe default, then SlipOut (the v1
-                // working policy), then the stub policies marked with
-                // "(coming soon)" suffix.  Order matches the
-                // HorsePolicy enum value sequence so an index lookup
-                // round-trips cleanly.
-                static const Horse::HorsePolicy kOrder[] = {
-                    Horse::HorsePolicy::Vanilla,
-                    Horse::HorsePolicy::SlipOut,
-                    Horse::HorsePolicy::NoRingOut,
-                    Horse::HorsePolicy::EndlessMode,
-                    Horse::HorsePolicy::DamageUp,
-                    Horse::HorsePolicy::BlowUp,
-                };
-                static_assert(
-                    sizeof(kOrder) / sizeof(kOrder[0])
-                        == Horse::kHorsePolicyCount,
-                    "kOrder must list every HorsePolicy enum value");
-
-                // Find the current selection's index in our display order.
-                int current_idx = 0;
-                for (int i = 0; i < Horse::kHorsePolicyCount; ++i)
+                bool trace_files = m_replay_trace_files_enabled.load();
+                if (ImGui::Checkbox("Replay trace files##dev_trace_files",
+                                    &trace_files))
                 {
-                    if (kOrder[i] == current) { current_idx = i; break; }
+                    m_replay_trace_files_enabled.store(trace_files);
+                    Horse::ReplayDebugTrace::instance().set_enabled(
+                        trace_files);
                 }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Gate JSONL replay trace file creation. Leave this on\n"
+                    "for replay automation, seek tests, crash triage, and\n"
+                    "normal debugging. Turn it off when you do not want\n"
+                    "HorseMod writing ReplayTrace files.");
 
-                if (ImGui::BeginCombo("HorseMod policy",
-                                       Horse::OnlineRules::policy_name(
-                                           kOrder[current_idx])))
+                if (trace_files)
                 {
-                    for (int i = 0; i < Horse::kHorsePolicyCount; ++i)
-                    {
-                        const auto p = kOrder[i];
-                        const bool selected = (i == current_idx);
-                        // Stub policies are still selectable (so the
-                        // user can see them in the menu) but typing a
-                        // disabled marker into the label keeps the
-                        // user from expecting a working effect.
-                        if (ImGui::Selectable(
-                                Horse::OnlineRules::policy_name(p),
-                                selected))
-                        {
-                            rules.set_policy(p);
-                        }
-                        if (selected) ImGui::SetItemDefaultFocus();
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip(
-                                "%s",
-                                Horse::OnlineRules::policy_tooltip(p));
-                    }
-                    ImGui::EndCombo();
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "%s",
-                        Horse::OnlineRules::policy_tooltip(current));
+                    ImGui::SameLine(0.0f, 20.0f);
+                    if (ImGui::Button("New trace file##dev_trace_new"))
+                        Horse::ReplayDebugTrace::instance()
+                            .open_new_session(L"ui");
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                        "Start a fresh JSONL trace file.");
 
-                // Status line - three states:
-                //   * Hooks not yet installed (UE class not loaded).
-                //   * Hooks installed but Vanilla policy ? no override.
-                //   * Hooks installed and a non-Vanilla policy active.
-                if (!rules.hooks_installed())
-                {
-                    ImGui::TextDisabled(
-                        "(installing hooks - start a match scene)");
-                }
-                else if (current == Horse::HorsePolicy::Vanilla)
-                {
-                    ImGui::TextDisabled(
-                        "Vanilla mode - no rule overrides active.");
+                    const std::string trace_path =
+                        Horse::ReplayDebugTrace::instance()
+                            .current_path_utf8();
+                    if (!trace_path.empty())
+                        ImGui::TextWrapped("Trace: %s", trace_path.c_str());
                 }
                 else
                 {
-                    ImGui::TextColored(
-                        ImVec4(0.3f, 0.9f, 0.3f, 1.0f),
-                        "Active: %s - both peers MUST have HorseMod\n"
-                        "with this policy or the connection will drop.",
-                        Horse::OnlineRules::policy_name(current));
+                    ImGui::SameLine(0.0f, 20.0f);
+                    ImGui::TextDisabled("Trace files off");
                 }
+
+                bool verbose = scrub.verbose_diag();
+                if (ImGui::Checkbox("Verbose replay log##dev_verbose",
+                                    &verbose))
+                {
+                    scrub.set_verbose_diag(verbose);
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Verbose replay diagnostics for investigating native\n"
+                    "replay or MoveVM stalls after seeking. This is noisy\n"
+                    "and normally should stay off.");
+
+                ImGui::SameLine(0.0f, 20.0f);
+                if (ImGui::Button("Force diag dump##dev_force_diag"))
+                    scrub.request_force_diag();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Emit a one-shot replay diagnostic dump on the next\n"
+                    "cockpit tick, even when verbose logging is off.");
             }
-#endif
 
     }
 };

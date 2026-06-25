@@ -1,0 +1,13 @@
+.vs/
+GhidraCalibur/
+*.vcxproj.user
+!GhidraCalibur.vcxproj.filters
+__pycache__/
+tools/__pycache__/
+work/
+browse/
+index/
+exported/*.log
+exported/functions.csv
+exported/sc6_decompiled.cpp
+exported/sc6_decompiled.h

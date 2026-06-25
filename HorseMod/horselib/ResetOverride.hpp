@@ -162,6 +162,8 @@ namespace Horse
         void set_enabled(bool v) noexcept
         {
             m_enabled.store(v, std::memory_order_relaxed);
+            if (!v)
+                m_apply_delay.store(0, std::memory_order_release);
         }
 
         // ---- Capture ----------------------------------------------------
@@ -235,15 +237,31 @@ namespace Horse
             // not invoking TrainingModePositionReset and we're
             // hooking the wrong function.
             const bool en = enabled();
+            bool p1_has = false;
+            bool p2_has = false;
+            {
+                std::lock_guard g(m_mutex);
+                p1_has = m_pose[0].has;
+                p2_has = m_pose[1].has;
+            }
+
+            if (!en)
+            {
+                m_apply_delay.store(0, std::memory_order_release);
+                RC::Output::send<RC::LogLevel::Default>(
+                    STR("[ResetOverride] post-hook ignored (enabled=0, "
+                        "p1.has={}, p2.has={})\n"),
+                    p1_has ? 1 : 0,
+                    p2_has ? 1 : 0);
+                return;
+            }
             RC::Output::send<RC::LogLevel::Default>(
                 STR("[ResetOverride] post-hook fired (enabled={}, "
                     "p1.has={}, p2.has={}) — queuing apply for next "
                     "cockpit tick\n"),
                 en ? 1 : 0,
-                m_pose[0].has ? 1 : 0,
-                m_pose[1].has ? 1 : 0);
-
-            if (!en) return;
+                p1_has ? 1 : 0,
+                p2_has ? 1 : 0);
 
             // Counter semantics: 0 = no pending apply, >0 = ticks left
             // before the queued write fires.  We arm with 2 so the

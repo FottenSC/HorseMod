@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "GameMode.hpp"
 #include "NativeBinding.hpp"
 #include "ReplayDebugTrace.hpp"
 #include "RngTraceHook.hpp"
@@ -37,7 +38,13 @@
 #endif
 
 #ifndef HORSEMOD_ENABLE_REPLAY_LIFECYCLE_TRACE
-#define HORSEMOD_ENABLE_REPLAY_LIFECYCLE_TRACE 0
+#define HORSEMOD_ENABLE_REPLAY_LIFECYCLE_TRACE 1
+#endif
+
+#ifndef HORSEMOD_ENABLE_REPLAY_MOVEVM_TRANSITION_TRACE
+// LuxMoveVM_TransitionToMove consumes live XMM3 state not represented by the
+// current C++ detour signature. Keep this off until it has an assembly thunk.
+#define HORSEMOD_ENABLE_REPLAY_MOVEVM_TRANSITION_TRACE 0
 #endif
 
 namespace Horse
@@ -164,97 +171,9 @@ namespace Horse
             }
 #endif
 
-            bool lifecycle_trace_ok = true;
-            lifecycle_trace_ok &= hook(
-                Slot::TickCharaInput,
-                base + kTickCharaInputRVA,
-                &NativeReplayTraceHook::detour_tick_chara_input);
-            lifecycle_trace_ok &= hook(
-                Slot::TickCharaMainSimulation,
-                base + kTickCharaMainSimulationRVA,
-                &NativeReplayTraceHook::detour_tick_chara_main_simulation);
-            lifecycle_trace_ok &= hook(
-                Slot::UpdateOpponentRelativeAngles,
-                base + kUpdateOpponentRelativeAnglesRVA,
-                &NativeReplayTraceHook::detour_update_opponent_relative_angles);
-            lifecycle_trace_ok &= hook(
-                Slot::FinalizeTickPoseAndState,
-                base + kFinalizeTickPoseAndStateRVA,
-                &NativeReplayTraceHook::detour_finalize_tick_pose_and_state);
-            lifecycle_trace_ok &= hook(
-                Slot::SolveBonePose,
-                base + kSolveBonePoseRVA,
-                &NativeReplayTraceHook::detour_solve_bone_pose);
-            lifecycle_trace_ok &= hook(
-                Slot::TickHitResolutionAndBodyCollision,
-                base + kTickHitResolutionAndBodyCollisionRVA,
-                &NativeReplayTraceHook::detour_tick_hit_resolution_and_body_collision);
-            lifecycle_trace_ok &= hook(
-                Slot::UpdateProximityBlendWeight,
-                base + kUpdateProximityBlendWeightRVA,
-                &NativeReplayTraceHook::detour_update_proximity_blend_weight);
-            lifecycle_trace_ok &= hook(
-                Slot::UpdateStanceCategory,
-                base + kUpdateStanceCategoryRVA,
-                &NativeReplayTraceHook::detour_update_stance_category);
-            lifecycle_trace_ok &= hook(
-                Slot::TickHitStateStateMachine,
-                base + kTickHitStateStateMachineRVA,
-                &NativeReplayTraceHook::detour_tick_hit_state_state_machine);
-            lifecycle_trace_ok &= hook(
-                Slot::IntegratePhysicsPerTick,
-                base + kIntegratePhysicsPerTickRVA,
-                &NativeReplayTraceHook::detour_integrate_physics_per_tick);
-            lifecycle_trace_ok &= hook(
-                Slot::EvaluateDefenseMode,
-                base + kEvaluateDefenseModeRVA,
-                &NativeReplayTraceHook::detour_evaluate_defense_mode);
-            lifecycle_trace_ok &= hook(
-                Slot::UpdateBlockStateStochastic,
-                base + kUpdateBlockStateStochasticRVA,
-                &NativeReplayTraceHook::detour_update_block_state_stochastic);
-            lifecycle_trace_ok &= hook(
-                Slot::TickDamageAndBehaviorLock,
-                base + kTickDamageAndBehaviorLockRVA,
-                &NativeReplayTraceHook::detour_tick_damage_and_behavior_lock);
-            lifecycle_trace_ok &= hook(
-                Slot::TickCharaTerrainContactBlend,
-                base + kTickCharaTerrainContactBlendRVA,
-                &NativeReplayTraceHook::detour_tick_chara_terrain_contact_blend);
-            lifecycle_trace_ok &= hook(
-                Slot::MoveVMExecuteOpStream,
-                base + kMoveVMExecuteOpStreamRVA,
-                &NativeReplayTraceHook::detour_movevm_execute_op_stream);
-            lifecycle_trace_ok &= hook(
-                Slot::MoveVMCheckTransitionTiming,
-                base + kMoveVMCheckTransitionTimingRVA,
-                &NativeReplayTraceHook::detour_movevm_check_transition_timing);
-            lifecycle_trace_ok &= hook(
-                Slot::MoveVMRunBytecodeScript,
-                base + kMoveVMRunBytecodeScriptRVA,
-                &NativeReplayTraceHook::detour_movevm_run_bytecode_script);
-            lifecycle_trace_ok &= hook(
-                Slot::MoveVMTransitionToMove,
-                base + kMoveVMTransitionToMoveRVA,
-                &NativeReplayTraceHook::detour_movevm_transition_to_move);
-            lifecycle_trace_ok &= hook(
-                Slot::MoveVMExecuteBankSlotScript,
-                base + kMoveVMExecuteBankSlotScriptRVA,
-                &NativeReplayTraceHook::detour_movevm_execute_bank_slot_script);
-            lifecycle_trace_ok &= hook(
-                Slot::MoveVMDecodeVariadicStreamArgs,
-                base + kMoveVMDecodeVariadicStreamArgsRVA,
-                &NativeReplayTraceHook::detour_movevm_decode_variadic_stream_args);
-            lifecycle_trace_ok &= hook(
-                Slot::MoveVMPushAnimNotifyOntoSecondaryStack,
-                base + kMoveVMPushAnimNotifyOntoSecondaryStackRVA,
-                &NativeReplayTraceHook::detour_movevm_push_anim_notify_onto_secondary_stack);
-            if (!lifecycle_trace_ok)
-            {
-                RC::Output::send<RC::LogLevel::Warning>(STR(
-                    "[NativeReplayTraceHook] lifecycle trace hooks "
-                    "partially failed; continuing with replay trace hooks\n"));
-            }
+            // Lifecycle probes are diagnostic-only. Keep them disarmed by
+            // default; Replay presence can include menus/setup scenes with
+            // transient chara objects before the battle runtime is stable.
 
             if (!ok)
             {
@@ -273,13 +192,15 @@ namespace Horse
                       false
 #endif
              )
-             .boolean("lifecycle_probe_trace",
+             .boolean("lifecycle_probe_trace_available",
 #if HORSEMOD_ENABLE_REPLAY_LIFECYCLE_TRACE
                       true
 #else
                       false
 #endif
-             );
+             )
+             .boolean("lifecycle_probe_trace_active",
+                      replay_lifecycle_trace_active());
             emit("native_replay_trace_hooks_installed", f);
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[NativeReplayTraceHook] installed replay native trace hooks "
@@ -287,9 +208,38 @@ namespace Horse
             return true;
         }
 
+        bool set_replay_lifecycle_trace_active(bool active)
+        {
+#if HORSEMOD_ENABLE_REPLAY_LIFECYCLE_TRACE
+            if (active)
+                return install_lifecycle_hooks();
+            uninstall_lifecycle_hooks();
+            return true;
+#else
+            (void)active;
+            return false;
+#endif
+        }
+
+        bool replay_lifecycle_trace_active() const noexcept
+        {
+            return m_lifecycle_installed.load(std::memory_order_acquire);
+        }
+
+        bool set_replay_resume_phase_signals_active(bool active)
+        {
+            if (active)
+                return install_resume_phase_signal_hooks();
+            uninstall_resume_phase_signal_hooks();
+            return true;
+        }
+
         void uninstall()
         {
             if (!m_installed.exchange(false)) return;
+            m_lifecycle_installed.store(false, std::memory_order_release);
+            m_resume_phase_signal_installed.store(
+                false, std::memory_order_release);
             for (auto& s : m_slots)
             {
                 if (s.detour)
@@ -310,6 +260,20 @@ namespace Horse
         {
             return m_latest_replay_input_overlay.load(
                 std::memory_order_acquire);
+        }
+
+        void clear_replay_input_stage_cache() noexcept
+        {
+            m_latest_replay_input_overlay.store(
+                0, std::memory_order_release);
+            for (auto& entry : m_replay_ring_cache)
+                entry = ReplayRingCacheEntry{};
+            s_stage2_enter_count.store(0, std::memory_order_release);
+            s_stage2_exit_count.store(0, std::memory_order_release);
+            s_stage3_enter_count.store(0, std::memory_order_release);
+            s_stage3_exit_count.store(0, std::memory_order_release);
+            s_input_stage_non_replay_suppress_count.store(
+                0, std::memory_order_release);
         }
 
         bool lookup_replay_ring_entry(
@@ -473,24 +437,36 @@ namespace Horse
             return static_cast<size_t>(s);
         }
         static constexpr size_t kSlotCount = static_cast<size_t>(Slot::Count);
+        static constexpr size_t kLifecycleFirstSlot =
+            static_cast<size_t>(Slot::TickCharaInput);
+        static constexpr size_t kLifecycleLastSlot =
+            static_cast<size_t>(Slot::MoveVMPushAnimNotifyOntoSecondaryStack);
+        static constexpr size_t kLifecycleHookCount =
+            kLifecycleLastSlot - kLifecycleFirstSlot + 1
+#if !HORSEMOD_ENABLE_REPLAY_MOVEVM_TRANSITION_TRACE
+            - 1
+#endif
+            ;
 
         static constexpr size_t installed_hook_count() noexcept
         {
+            size_t count =
 #if HORSEMOD_ENABLE_EXTENDED_NATIVE_REPLAY_TRACE
-            return kSlotCount;
+                slot_index(Slot::DeserializeEntryPayloadToListItem) + 1;
 #else
-            size_t count = slot_index(Slot::DeferredStageMapPathCallback) + 1;
+                slot_index(Slot::DeferredStageMapPathCallback) + 1;
+#endif
 #if HORSEMOD_ENABLE_REPLAY_INPUT_STAGE_TRACE
             count += 2;
 #endif
-            count += 21;
             return count;
-#endif
         }
 
         bool hook(Slot slot, uintptr_t target, void* detour_fn)
         {
             HookSlot& s = m_slots[slot_index(slot)];
+            if (s.detour)
+                return true;
             s.target = target;
             s.trampoline = 0;
             s.detour = std::make_unique<PLH::x64Detour>(
@@ -506,6 +482,282 @@ namespace Horse
                 return false;
             }
             return true;
+        }
+
+        void unhook_slot_index(size_t idx)
+        {
+            if (idx >= m_slots.size()) return;
+            HookSlot& s = m_slots[idx];
+            if (s.detour)
+            {
+                s.detour->unHook();
+                s.detour.reset();
+            }
+            s.trampoline = 0;
+            s.target = 0;
+        }
+
+        static bool is_resume_phase_slot(size_t i) noexcept
+        {
+            return i == static_cast<size_t>(Slot::TickCharaInput)
+                || i == static_cast<size_t>(Slot::TickCharaMainSimulation)
+                || i == static_cast<size_t>(
+                    Slot::TickHitResolutionAndBodyCollision)
+                || i == static_cast<size_t>(
+                    Slot::MoveVMPushAnimNotifyOntoSecondaryStack);
+        }
+
+        void unhook_lifecycle_slots()
+        {
+            const bool keep_resume_phase_signals =
+                m_resume_phase_signal_installed.load(
+                    std::memory_order_acquire);
+            for (size_t i = kLifecycleFirstSlot;
+                 i <= kLifecycleLastSlot;
+                 ++i)
+            {
+#if !HORSEMOD_ENABLE_REPLAY_MOVEVM_TRANSITION_TRACE
+                if (i == static_cast<size_t>(Slot::MoveVMTransitionToMove))
+                    continue;
+#endif
+                if (keep_resume_phase_signals && is_resume_phase_slot(i))
+                {
+                    continue;
+                }
+                unhook_slot_index(i);
+            }
+        }
+
+        bool install_resume_phase_signal_hooks()
+        {
+            if (m_resume_phase_signal_installed.load(
+                    std::memory_order_acquire))
+            {
+                return true;
+            }
+            if (!m_installed.load(std::memory_order_acquire) && !install())
+                return false;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            bool ok = true;
+            ok &= hook(Slot::TickCharaMainSimulation,
+                       base + kTickCharaMainSimulationRVA,
+                       &NativeReplayTraceHook::
+                           detour_tick_chara_main_simulation);
+            ok &= hook(Slot::TickHitResolutionAndBodyCollision,
+                       base + kTickHitResolutionAndBodyCollisionRVA,
+                       &NativeReplayTraceHook::
+                           detour_tick_hit_resolution_and_body_collision);
+            ok &= hook(Slot::TickCharaInput,
+                       base + kTickCharaInputRVA,
+                       &NativeReplayTraceHook::detour_tick_chara_input);
+            ok &= hook(Slot::MoveVMPushAnimNotifyOntoSecondaryStack,
+                       base + kMoveVMPushAnimNotifyOntoSecondaryStackRVA,
+                       &NativeReplayTraceHook::
+                           detour_movevm_push_anim_notify_onto_secondary_stack);
+            if (!ok)
+            {
+                for (size_t i = kLifecycleFirstSlot;
+                     i <= kLifecycleLastSlot;
+                     ++i)
+                {
+                    if (is_resume_phase_slot(i))
+                        unhook_slot_index(i);
+                }
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[NativeReplayTraceHook] resume phase signal hooks "
+                    "failed; replay seek resume-state validation may be "
+                    "deferred\n"));
+                return false;
+            }
+
+            m_resume_phase_signal_installed.store(
+                true, std::memory_order_release);
+            ReplayTraceFields f;
+            f.hex("image_base", base).integer("hook_count", 4)
+             .boolean("secondary_action_repair_hooks", true);
+            emit("native_replay_resume_phase_signal_hooks_installed", f);
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[NativeReplayTraceHook] replay resume phase signal hooks "
+                "armed\n"));
+            return true;
+        }
+
+        void uninstall_resume_phase_signal_hooks()
+        {
+            if (!m_resume_phase_signal_installed.exchange(
+                    false, std::memory_order_acq_rel))
+            {
+                return;
+            }
+            if (!m_lifecycle_installed.load(std::memory_order_acquire))
+            {
+                for (size_t i = kLifecycleFirstSlot;
+                     i <= kLifecycleLastSlot;
+                     ++i)
+                {
+                    if (is_resume_phase_slot(i))
+                        unhook_slot_index(i);
+                }
+            }
+            ReplayTraceFields f;
+            f.integer("hook_count", 4)
+             .boolean("secondary_action_repair_hooks", true);
+            emit("native_replay_resume_phase_signal_hooks_uninstalled", f);
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[NativeReplayTraceHook] replay resume phase signal hooks "
+                "disarmed\n"));
+        }
+
+        bool install_lifecycle_hooks()
+        {
+#if !HORSEMOD_ENABLE_REPLAY_LIFECYCLE_TRACE
+            return false;
+#else
+            if (m_lifecycle_installed.load(std::memory_order_acquire))
+                return true;
+            if (!m_installed.load(std::memory_order_acquire) && !install())
+                return false;
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base)
+                return false;
+
+            bool lifecycle_trace_ok = true;
+            lifecycle_trace_ok &= hook(
+                Slot::TickCharaInput,
+                base + kTickCharaInputRVA,
+                &NativeReplayTraceHook::detour_tick_chara_input);
+            lifecycle_trace_ok &= hook(
+                Slot::TickCharaMainSimulation,
+                base + kTickCharaMainSimulationRVA,
+                &NativeReplayTraceHook::detour_tick_chara_main_simulation);
+            lifecycle_trace_ok &= hook(
+                Slot::UpdateOpponentRelativeAngles,
+                base + kUpdateOpponentRelativeAnglesRVA,
+                &NativeReplayTraceHook::detour_update_opponent_relative_angles);
+            lifecycle_trace_ok &= hook(
+                Slot::FinalizeTickPoseAndState,
+                base + kFinalizeTickPoseAndStateRVA,
+                &NativeReplayTraceHook::detour_finalize_tick_pose_and_state);
+            lifecycle_trace_ok &= hook(
+                Slot::SolveBonePose,
+                base + kSolveBonePoseRVA,
+                &NativeReplayTraceHook::detour_solve_bone_pose);
+            lifecycle_trace_ok &= hook(
+                Slot::TickHitResolutionAndBodyCollision,
+                base + kTickHitResolutionAndBodyCollisionRVA,
+                &NativeReplayTraceHook::detour_tick_hit_resolution_and_body_collision);
+            lifecycle_trace_ok &= hook(
+                Slot::UpdateProximityBlendWeight,
+                base + kUpdateProximityBlendWeightRVA,
+                &NativeReplayTraceHook::detour_update_proximity_blend_weight);
+            lifecycle_trace_ok &= hook(
+                Slot::UpdateStanceCategory,
+                base + kUpdateStanceCategoryRVA,
+                &NativeReplayTraceHook::detour_update_stance_category);
+            lifecycle_trace_ok &= hook(
+                Slot::TickHitStateStateMachine,
+                base + kTickHitStateStateMachineRVA,
+                &NativeReplayTraceHook::detour_tick_hit_state_state_machine);
+            lifecycle_trace_ok &= hook(
+                Slot::IntegratePhysicsPerTick,
+                base + kIntegratePhysicsPerTickRVA,
+                &NativeReplayTraceHook::detour_integrate_physics_per_tick);
+            lifecycle_trace_ok &= hook(
+                Slot::EvaluateDefenseMode,
+                base + kEvaluateDefenseModeRVA,
+                &NativeReplayTraceHook::detour_evaluate_defense_mode);
+            lifecycle_trace_ok &= hook(
+                Slot::UpdateBlockStateStochastic,
+                base + kUpdateBlockStateStochasticRVA,
+                &NativeReplayTraceHook::detour_update_block_state_stochastic);
+            lifecycle_trace_ok &= hook(
+                Slot::TickDamageAndBehaviorLock,
+                base + kTickDamageAndBehaviorLockRVA,
+                &NativeReplayTraceHook::detour_tick_damage_and_behavior_lock);
+            lifecycle_trace_ok &= hook(
+                Slot::TickCharaTerrainContactBlend,
+                base + kTickCharaTerrainContactBlendRVA,
+                &NativeReplayTraceHook::detour_tick_chara_terrain_contact_blend);
+            lifecycle_trace_ok &= hook(
+                Slot::MoveVMExecuteOpStream,
+                base + kMoveVMExecuteOpStreamRVA,
+                &NativeReplayTraceHook::detour_movevm_execute_op_stream);
+            lifecycle_trace_ok &= hook(
+                Slot::MoveVMCheckTransitionTiming,
+                base + kMoveVMCheckTransitionTimingRVA,
+                &NativeReplayTraceHook::detour_movevm_check_transition_timing);
+            lifecycle_trace_ok &= hook(
+                Slot::MoveVMRunBytecodeScript,
+                base + kMoveVMRunBytecodeScriptRVA,
+                &NativeReplayTraceHook::detour_movevm_run_bytecode_script);
+#if HORSEMOD_ENABLE_REPLAY_MOVEVM_TRANSITION_TRACE
+            lifecycle_trace_ok &= hook(
+                Slot::MoveVMTransitionToMove,
+                base + kMoveVMTransitionToMoveRVA,
+                &NativeReplayTraceHook::detour_movevm_transition_to_move);
+#endif
+            lifecycle_trace_ok &= hook(
+                Slot::MoveVMExecuteBankSlotScript,
+                base + kMoveVMExecuteBankSlotScriptRVA,
+                &NativeReplayTraceHook::detour_movevm_execute_bank_slot_script);
+            lifecycle_trace_ok &= hook(
+                Slot::MoveVMDecodeVariadicStreamArgs,
+                base + kMoveVMDecodeVariadicStreamArgsRVA,
+                &NativeReplayTraceHook::detour_movevm_decode_variadic_stream_args);
+            lifecycle_trace_ok &= hook(
+                Slot::MoveVMPushAnimNotifyOntoSecondaryStack,
+                base + kMoveVMPushAnimNotifyOntoSecondaryStackRVA,
+                &NativeReplayTraceHook::detour_movevm_push_anim_notify_onto_secondary_stack);
+            if (!lifecycle_trace_ok)
+            {
+                unhook_lifecycle_slots();
+                m_lifecycle_installed.store(false, std::memory_order_release);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[NativeReplayTraceHook] lifecycle trace hooks "
+                    "partially failed; continuing with replay launch hooks\n"));
+                return false;
+            }
+
+            m_lifecycle_installed.store(true, std::memory_order_release);
+            ReplayTraceFields f;
+            f.hex("image_base", base)
+             .integer("hook_count",
+                      static_cast<int64_t>(
+                          installed_hook_count() + kLifecycleHookCount))
+             .boolean("movevm_transition_hook",
+#if HORSEMOD_ENABLE_REPLAY_MOVEVM_TRANSITION_TRACE
+                      true
+#else
+                      false
+#endif
+             );
+            emit("native_replay_lifecycle_trace_hooks_installed", f);
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[NativeReplayTraceHook] replay lifecycle trace hooks armed "
+                "(image_base=0x{:X}, hooks={})\n"),
+                base, static_cast<int>(kLifecycleHookCount));
+            return true;
+#endif
+        }
+
+        void uninstall_lifecycle_hooks()
+        {
+#if HORSEMOD_ENABLE_REPLAY_LIFECYCLE_TRACE
+            if (!m_lifecycle_installed.exchange(false))
+                return;
+            unhook_lifecycle_slots();
+            ReplayTraceFields f;
+            f.integer("hook_count",
+                      static_cast<int64_t>(installed_hook_count()));
+            emit("native_replay_lifecycle_trace_hooks_uninstalled", f);
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[NativeReplayTraceHook] replay lifecycle trace hooks "
+                "disarmed\n"));
+#endif
         }
 
         template <typename Fn>
@@ -916,6 +1168,7 @@ namespace Horse
             (void)chara;
             return;
 #else
+            if (!instance().replay_lifecycle_trace_active()) return;
             if (!chara) return;
             uint8_t* c = static_cast<uint8_t*>(chara);
             const int pi = player_index_for_chara(chara);
@@ -966,6 +1219,7 @@ namespace Horse
             (void)chara;
             return;
 #else
+            if (!instance().replay_lifecycle_trace_active()) return;
             if (!chara) return;
             uint8_t* c = static_cast<uint8_t*>(chara);
             const int pi = player_index_for_chara(chara);
@@ -1008,6 +1262,7 @@ namespace Horse
             (void)lane;
             return;
 #else
+            if (!instance().replay_lifecycle_trace_active()) return;
             if (!chara) return;
             uint8_t* c = static_cast<uint8_t*>(chara);
             const int pi = player_index_for_chara(chara);
@@ -1745,6 +2000,41 @@ namespace Horse
             return -1;
         }
 
+        static bool replay_input_stage_trace_active() noexcept
+        {
+            return GameMode::instance().current_presence()
+                == GamePresence::Replay;
+        }
+
+        static void note_replay_input_stage_suppressed(
+            const char* stage) noexcept
+        {
+            const uint32_t count =
+                s_input_stage_non_replay_suppress_count.fetch_add(
+                    1, std::memory_order_acq_rel) + 1;
+            if (count != 1 && count != 2 && count != 4
+                && (count % 4096) != 0)
+            {
+                return;
+            }
+
+            const auto presence = GameMode::instance().current_presence();
+            ReplayTraceFields f;
+            f.string("stage", stage ? stage : "")
+             .uinteger("suppress_count", count)
+             .integer("presence", static_cast<int64_t>(
+                          static_cast<uint8_t>(presence)))
+             .boolean("replay_presence", presence == GamePresence::Replay);
+            emit("native_replay_input_stage_suppressed", f);
+
+            if (count == 1)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[NativeReplayTraceHook] replay input-stage repair "
+                    "suppressed outside Replay presence\n"));
+            }
+        }
+
         static void add_replay_input_overlay_fields(
             ReplayTraceFields& f,
             void* chara) noexcept
@@ -2098,6 +2388,15 @@ namespace Horse
         static void __fastcall detour_process_replay_decoded_input_packets(
             void* chara)
         {
+            if (!replay_input_stage_trace_active())
+            {
+                note_replay_input_stage_suppressed("stage2");
+                if (auto fn = orig<VoidPtrFn>(
+                        Slot::ProcessReplayDecodedInputPackets))
+                    fn(chara);
+                return;
+            }
+
             if (chara)
             {
                 instance().m_latest_replay_input_overlay.store(
@@ -2135,6 +2434,14 @@ namespace Horse
         static void __fastcall detour_replay_playback_push_inputs(
             void* chara)
         {
+            if (!replay_input_stage_trace_active())
+            {
+                note_replay_input_stage_suppressed("stage3");
+                if (auto fn = orig<VoidPtrFn>(Slot::ReplayPlaybackPushInputs))
+                    fn(chara);
+                return;
+            }
+
             if (chara)
             {
                 instance().m_latest_replay_input_overlay.store(
@@ -2654,11 +2961,15 @@ namespace Horse
                    kCachedReplayRingRounds * kCachedReplayRingMasters
                        * kCachedReplayRingSlots> m_replay_ring_cache{};
         std::atomic<bool> m_installed {false};
+        std::atomic<bool> m_lifecycle_installed {false};
+        std::atomic<bool> m_resume_phase_signal_installed {false};
         std::atomic<uintptr_t> m_latest_replay_input_overlay {0};
         static inline std::atomic<uint64_t> s_seq {0};
         static inline std::atomic<uint32_t> s_stage2_enter_count {0};
         static inline std::atomic<uint32_t> s_stage2_exit_count {0};
         static inline std::atomic<uint32_t> s_stage3_enter_count {0};
         static inline std::atomic<uint32_t> s_stage3_exit_count {0};
+        static inline std::atomic<uint32_t>
+            s_input_stage_non_replay_suppress_count {0};
     };
 }

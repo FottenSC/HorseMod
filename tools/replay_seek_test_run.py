@@ -45,6 +45,7 @@ DEFAULT_WATCH_FRAMES = 600
 DEFAULT_MIN_RESUME_TICK_RATE = 58.0
 DEFAULT_RESUME_TICK_WINDOW = 120
 DEFAULT_MAX_SEEK_VALIDATION_SECONDS = 0.5
+LAUNCH_HANDOFF_GRACE_SECONDS = 30.0
 
 
 CrashCheck = Callable[[], str | None]
@@ -385,15 +386,23 @@ class GameProcessMonitor:
         self.image_name = game_exe.name or "SoulcaliburVI.exe"
         self.process = process
         self.seen_running = process is not None or expect_running
+        self.process_exit_seen_at: float | None = None
 
     def crash_reason(self) -> str | None:
         if self.process is not None:
             code = self.process.poll()
             if code is None:
                 self.seen_running = True
+                self.process_exit_seen_at = None
                 return None
             if process_exists_by_image(self.image_name):
                 self.seen_running = True
+                self.process_exit_seen_at = None
+                return None
+            now = time.time()
+            if self.process_exit_seen_at is None:
+                self.process_exit_seen_at = now
+            if now - self.process_exit_seen_at < LAUNCH_HANDOFF_GRACE_SECONDS:
                 return None
             return f"{self.image_name} exited with code {code}"
 

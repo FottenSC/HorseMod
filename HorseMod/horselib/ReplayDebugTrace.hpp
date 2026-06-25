@@ -340,10 +340,15 @@ namespace Horse
 
         void set_enabled(bool enabled) noexcept
         {
-            // Keep trace collection always available; this setter remains for
-            // older UI/config paths but no longer disables diagnostics.
-            m_enabled.store(true, std::memory_order_release);
-            if (!enabled) open_new_session(L"forced-on");
+            if (enabled)
+            {
+                m_enabled.store(true, std::memory_order_release);
+                return;
+            }
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_enabled.store(false, std::memory_order_release);
+            close_session_locked();
         }
 
         bool enabled() const noexcept
@@ -427,6 +432,7 @@ namespace Horse
         {
             if (!enabled()) return;
             std::lock_guard<std::mutex> lock(m_mutex);
+            if (!enabled()) return;
             if (m_file == INVALID_HANDLE_VALUE
                 && !open_new_session_locked(L"auto"))
                 return;
