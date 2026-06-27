@@ -20,11 +20,12 @@
 //
 //   ATTACK     (KHit list at chara+0x44498) - entries that DEAL damage
 //   BOXES      (or initiate a grab).  On by default.  Dim amber for
-//              strikes; a node is drawn bright only when the renderer's
-//              engine-truth `is_per_frame_active` predicate passes
-//              (geometry gate, attack category mask, and active-frame phase).
+//              strikes; a node is drawn bright when the active-window
+//              display predicate passes (geometry gate, active slot bit,
+//              active-frame phase).  Post-hit re-hit lockout is ignored
+//              for display so a hitbox looks the same on hit as on whiff.
 //              Grab/throw attacks are drawn magenta - the engine distinguishes them
-//              from strikes via bits 31 and 55 of the CategoryMask at
+//              from strikes via bits 31 and 55 of the node+0x08 slot mask at
 //              node+0x08 (see LuxBattle_ResolveAttackVsHurtboxMask22
 //              @ 0x14033C100).
 //
@@ -118,7 +119,7 @@
 // graceful shutdown.
 #include "horselib/ModSettings.hpp"
 
-// Captures + replays a custom (X, Y, Z + side) chara pose on training-
+// Captures + replays a custom (X, Y, Z) chara pose on training-
 // mode position reset.  Wired via a UFunction post-hook on
 // /Script/LuxorGame.LuxBattleManager:TrainingModePositionReset (see
 // hookup further down in HorseMod's ctor / on_update).
@@ -301,15 +302,16 @@ private:
     // ----------------------------------------------------------------
     //   Box-visibility filter - single master toggle.
     //
-    //   m_only_show_active   default ON   engine-live narrow filter
+    //   m_only_show_active   default ON   active-shape narrow filter
     //                                     applied to both lists:
-    //                                       hits  ? is_per_frame_active
-    //                                              && attacker_can_strike_engine
+    //                                       hits  ? selected active-window
+    //                                              geometry, ignoring
+    //                                              post-hit re-hit lockout
     //                                       hurts ? classifier_addressable
     //                                              && overlap_active
     //                                              && defender_can_react_engine
-    //                                     (what the classifier actually
-    //                                      acts on)
+    //                                     Audit still records the stricter
+    //                                     native damage-live predicate.
     //
     //   The two chara-wide gates (attacker_can_strike_engine /
     //   defender_can_react_engine - same boolean, dual-named) cover
@@ -324,7 +326,7 @@ private:
     //
     // Engine-truth predicates:
     //   is_per_frame_active = (attack_node[+0x14] != 0) &&
-    //                         (cat_mask & chara[+0x44058]) != 0
+    //                         (slot_bit_mask & chara[+0x44058]) != 0
     //                       - exact predicate of
     //                         LuxBattle_ResolveAttackVsHurtboxMask22
     //                         @ 0x14033C100 before firing damage.
@@ -879,6 +881,8 @@ private:
     // when their slot == Persistent - Normal-slot backends ignore
     // this and stick to LineBatcherBackend::kDefaultLifetime.
     std::atomic<int> m_trail_frames{30};
+    static constexpr int kKHitPersistentTrailLineBudget = 12000;
+    static constexpr int kKHitPersistentTrailLineHeadroom = 4096;
 
     // Persistent trail cadence follows the game frame counter, not the
     // cockpit/render tick.  When HorseMod freeze holds PerFrameTick, this
@@ -903,8 +907,63 @@ private:
     std::atomic<int>  m_khit_sphere_audit_slot_b{57};
     bool     m_have_sphere_audit_frame{false};
     uint32_t m_last_sphere_audit_frame{0};
-    int      m_sphere_audit_logs_this_frame{0};
-    static constexpr int kMaxKHitAuditLogsPerFrame = 96;
+    int      m_khit_audit_attack_logs_this_frame{0};
+    int      m_khit_audit_hurt_logs_this_frame{0};
+    int      m_khit_audit_pair_logs_this_frame{0};
+    int      m_khit_audit_calib_logs_this_frame{0};
+    int      m_khit_audit_cluster_logs_this_frame{0};
+    static constexpr int kMaxKHitAuditAttackLogsPerFrame = 96;
+    static constexpr int kMaxKHitAuditHurtLogsPerFrame = 96;
+    static constexpr int kMaxKHitAuditPairLogsPerFrame = 128;
+    static constexpr int kMaxKHitAuditCalibLogsPerFrame = 64;
+    static constexpr int kMaxKHitAuditClusterLogsPerFrame = 16;
+
+    struct KHitContactGuideLine
+    {
+        Horse::FVec3 a{};
+        Horse::FVec3 b{};
+        Horse::FLinColor color{};
+        float thickness = 1.0f;
+        int frames_left = 0;
+    };
+    std::vector<KHitContactGuideLine> m_khit_contact_guide_latch;
+    bool     m_have_khit_contact_guide_frame{false};
+    uint32_t m_last_khit_contact_guide_frame{0};
+    static constexpr size_t kMaxKHitContactGuideLatchLines = 4096;
+
+    struct KHitRenderCalibrationPoint
+    {
+        bool native_ok = false;
+        bool actor_ok = false;
+        bool delta_ok = false;
+        Horse::FVec3 native_root{};
+        Horse::FVec3 converted_root{};
+        Horse::FVec3 actor_root{};
+        Horse::FVec3 delta{};
+    };
+
+    struct KHitRenderCalibrationFrame
+    {
+        KHitRenderCalibrationPoint point[2]{};
+        bool has_common_delta = false;
+        bool consistent = false;
+        bool applied = false;
+        float delta_distance = 0.0f;
+        Horse::FVec3 common_delta{};
+        Horse::FVec3 active_offset{};
+        const wchar_t* status = L"missing";
+        int samples = 0;
+    };
+
+    struct KHitRenderCalibrationState
+    {
+        bool valid = false;
+        int samples = 0;
+        Horse::FVec3 offset{};
+    };
+
+    KHitRenderCalibrationState m_khit_render_calibration{};
+    Horse::Fn m_fn_khit_actor_location[2];
 
     // ---- Retrack-event overlay ----------------------------------------
     // When ON, watches each chara's facing yaw every cockpit tick and
@@ -1080,6 +1139,36 @@ private:
         return false;
     }
 
+    static bool canRenderAttackShapeThisFrame(const Horse::KHitDraw& d)
+    {
+        if (d.list != Horse::KHitList::Attack ||
+            !d.geom_active ||
+            !d.attacker_can_strike_engine ||
+            d.attack_mask_stale)
+        {
+            return false;
+        }
+
+        const bool primary_mask_selected =
+            d.active_move_valid &&
+            ((d.slot_bit_mask & d.primary_attack_mask) != 0);
+        const bool primary_window_open =
+            d.classify_enabled &&
+            (d.attack_in_master_window ||
+             d.engine_phase == Horse::KHitAttackPhase::Active);
+        const bool primary_visual_ready =
+            primary_mask_selected && primary_window_open;
+        const bool alt_visual_ready =
+            d.alt_classify_open &&
+            ((d.slot_bit_mask & d.alt_attack_mask) != 0);
+
+        // Deliberately ignore +0x16EB/+0x16FE here. Those bytes mean
+        // "this active hitbox already connected and cannot deal damage
+        // again yet"; for display, users expect the same active shape
+        // they would have seen on whiff.
+        return primary_visual_ready || alt_visual_ready;
+    }
+
     static bool read_lux_battle_game_frame(uint32_t& out_frame) noexcept
     {
         constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
@@ -1143,7 +1232,7 @@ private:
             auto matches_slot = [&](int slot) {
                 return slot >= 0 && slot < 64 &&
                        (static_cast<int>(d.bone_id_internal) == slot ||
-                        mask_has_slot(d.category_or_bone_mask, slot) ||
+                        mask_has_slot(d.slot_bit_mask, slot) ||
                         (d.defender_hurtbox_mask_valid &&
                          mask_has_slot(d.defender_hurtbox_attack_mask, slot)));
             };
@@ -1166,16 +1255,58 @@ private:
     {
         return d.list == Horse::KHitList::Attack &&
                d.geom_active &&
-               d.attack_mask_selected &&
+               (d.attack_mask_selected ||
+                d.attack_mask_stale ||
+                d.accepted_overlap_this_frame ||
+                d.accepted_exact_overlap_this_frame) &&
                d.attacker_can_strike_engine;
     }
 
-    bool consume_khit_audit_log_slot()
+    enum class KHitAuditLogBucket : uint8_t
     {
-        if (m_sphere_audit_logs_this_frame >= kMaxKHitAuditLogsPerFrame)
-            return false;
-        ++m_sphere_audit_logs_this_frame;
-        return true;
+        Attack,
+        HurtResult,
+        OverlapPair,
+        Calibration,
+        AttackCluster,
+    };
+
+    bool consume_khit_audit_log_slot(KHitAuditLogBucket bucket)
+    {
+        switch (bucket)
+        {
+            case KHitAuditLogBucket::Attack:
+                if (m_khit_audit_attack_logs_this_frame >=
+                    kMaxKHitAuditAttackLogsPerFrame)
+                    return false;
+                ++m_khit_audit_attack_logs_this_frame;
+                return true;
+            case KHitAuditLogBucket::HurtResult:
+                if (m_khit_audit_hurt_logs_this_frame >=
+                    kMaxKHitAuditHurtLogsPerFrame)
+                    return false;
+                ++m_khit_audit_hurt_logs_this_frame;
+                return true;
+            case KHitAuditLogBucket::OverlapPair:
+                if (m_khit_audit_pair_logs_this_frame >=
+                    kMaxKHitAuditPairLogsPerFrame)
+                    return false;
+                ++m_khit_audit_pair_logs_this_frame;
+                return true;
+            case KHitAuditLogBucket::Calibration:
+                if (m_khit_audit_calib_logs_this_frame >=
+                    kMaxKHitAuditCalibLogsPerFrame)
+                    return false;
+                ++m_khit_audit_calib_logs_this_frame;
+                return true;
+            case KHitAuditLogBucket::AttackCluster:
+                if (m_khit_audit_cluster_logs_this_frame >=
+                    kMaxKHitAuditClusterLogsPerFrame)
+                    return false;
+                ++m_khit_audit_cluster_logs_this_frame;
+                return true;
+        }
+        return false;
     }
 
     static Horse::FVec3 midpoint(const Horse::FVec3& a,
@@ -1208,6 +1339,95 @@ private:
         return std::sqrt(dx * dx + dy * dy + dz * dz);
     }
 
+    static Horse::FVec3 add3(const Horse::FVec3& a,
+                             const Horse::FVec3& b) noexcept
+    {
+        return Horse::FVec3{a.X + b.X, a.Y + b.Y, a.Z + b.Z};
+    }
+
+    static Horse::FVec3 sub3(const Horse::FVec3& a,
+                             const Horse::FVec3& b) noexcept
+    {
+        return Horse::FVec3{a.X - b.X, a.Y - b.Y, a.Z - b.Z};
+    }
+
+    static Horse::FVec3 scale3(const Horse::FVec3& v,
+                               float scale) noexcept
+    {
+        return Horse::FVec3{v.X * scale, v.Y * scale, v.Z * scale};
+    }
+
+    static bool normalize3(const Horse::FVec3& v,
+                           Horse::FVec3& out) noexcept
+    {
+        const float len = std::sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z);
+        if (len <= 0.001f)
+            return false;
+        out = scale3(v, 1.0f / len);
+        return true;
+    }
+
+    static float length3(const Horse::FVec3& v) noexcept
+    {
+        return std::sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z);
+    }
+
+    static bool is_sane_vec3(const Horse::FVec3& v) noexcept
+    {
+        constexpr float kMaxReasonableCoord = 10000000.0f;
+        return std::isfinite(v.X) && std::isfinite(v.Y) &&
+               std::isfinite(v.Z) &&
+               std::fabsf(v.X) < kMaxReasonableCoord &&
+               std::fabsf(v.Y) < kMaxReasonableCoord &&
+               std::fabsf(v.Z) < kMaxReasonableCoord;
+    }
+
+    static bool is_meaningful_offset(const Horse::FVec3& offset) noexcept
+    {
+        return length3(offset) > 0.001f;
+    }
+
+    static void apply_render_offset_to_khit_draw(
+        Horse::KHitDraw& d,
+        const Horse::FVec3& offset) noexcept
+    {
+        if (!is_meaningful_offset(offset))
+            return;
+
+        switch (d.kind)
+        {
+            case Horse::KHitKind::Sphere:
+                d.centre = add3(d.centre, offset);
+                break;
+
+            case Horse::KHitKind::AreaSpine:
+                d.spine_p1_world = add3(d.spine_p1_world, offset);
+                d.spine_p2_world = add3(d.spine_p2_world, offset);
+                d.prev_p1_world = add3(d.prev_p1_world, offset);
+                d.prev_p2_world = add3(d.prev_p2_world, offset);
+                break;
+
+            case Horse::KHitKind::FixAreaTri:
+                for (Horse::FVec3& corner : d.corners)
+                    corner = add3(corner, offset);
+                break;
+        }
+    }
+
+    static void apply_render_offset_to_khit_draws(
+        std::vector<Horse::KHitDraw> (&draws)[2],
+        const Horse::FVec3& offset) noexcept
+    {
+        if (!is_meaningful_offset(offset))
+            return;
+
+        for (auto& player_draws : draws)
+        {
+            for (Horse::KHitDraw& d : player_draws)
+                apply_render_offset_to_khit_draw(d, offset);
+        }
+    }
+
     static float max_float(float a, float b) noexcept
     {
         return (a > b) ? a : b;
@@ -1220,6 +1440,206 @@ private:
         float native_radius = 0.0f;
         float ue_radius = 0.0f;
     };
+
+    struct KHitAuditCharaPose
+    {
+        bool ok = false;
+        Horse::FVec3 native_pos{};
+        Horse::FVec3 ue_pos{};
+        uint8_t slot_byte = 0xff;
+        bool distance_ok = false;
+        float opponent_distance = 0.0f;
+    };
+
+    static Horse::FVec3 audit_battle_to_ue_render_world(
+        const Horse::FVec3& battleWorld) noexcept
+    {
+        // Keep audit coordinates identical to KHitWalker render coordinates:
+        // native KHit world buffers already use battle Y as vertical.
+        return Horse::FVec3{
+            battleWorld.X * Horse::kBattleToUE,
+            battleWorld.Z * Horse::kBattleToUE,
+            battleWorld.Y * Horse::kBattleToUE
+        };
+    }
+
+    static float dot3(const Horse::FVec3& a,
+                      const Horse::FVec3& b) noexcept
+    {
+        return a.X * b.X + a.Y * b.Y + a.Z * b.Z;
+    }
+
+    static Horse::FVec3 cross3(const Horse::FVec3& a,
+                               const Horse::FVec3& b) noexcept
+    {
+        return Horse::FVec3{
+            a.Y * b.Z - a.Z * b.Y,
+            a.Z * b.X - a.X * b.Z,
+            a.X * b.Y - a.Y * b.X
+        };
+    }
+
+    static KHitAuditCharaPose read_khit_audit_chara_pose(
+        void* chara) noexcept
+    {
+        KHitAuditCharaPose pose{};
+        if (!chara)
+            return pose;
+
+        auto* base = reinterpret_cast<uint8_t*>(chara);
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+        uint8_t slot_byte = 0xff;
+        const bool ok =
+            Horse::SafeReadFloat(base + 0x0C0, &x) &&
+            Horse::SafeReadFloat(base + 0x0C4, &y) &&
+            Horse::SafeReadFloat(base + 0x0C8, &z) &&
+            Horse::SafeReadUInt8(base + 0x23C, &slot_byte);
+        if (!ok)
+            return pose;
+
+        pose.ok = true;
+        pose.native_pos = Horse::FVec3{x, y, z};
+        pose.ue_pos = audit_battle_to_ue_render_world(pose.native_pos);
+        pose.slot_byte = slot_byte;
+        pose.distance_ok =
+            Horse::KHitWalker::readOpponentDistance(
+                chara, pose.opponent_distance);
+        return pose;
+    }
+
+    KHitRenderCalibrationPoint read_khit_render_calibration_point(
+        void* chara,
+        int player_index)
+    {
+        KHitRenderCalibrationPoint point{};
+        const KHitAuditCharaPose pose = read_khit_audit_chara_pose(chara);
+        if (pose.ok && is_sane_vec3(pose.native_pos) &&
+            is_sane_vec3(pose.ue_pos))
+        {
+            point.native_ok = true;
+            point.native_root = pose.native_pos;
+            point.converted_root = pose.ue_pos;
+        }
+
+        if (chara)
+        {
+            auto* obj = reinterpret_cast<UObject*>(chara);
+            if (obj && UObject::IsReal(obj))
+            {
+                Horse::Obj actor{obj};
+                const int fn_index =
+                    (player_index >= 0 && player_index < 2)
+                        ? player_index
+                        : 0;
+                const Horse::FVec3 actor_root =
+                    actor.callVec3Any(m_fn_khit_actor_location[fn_index],
+                                      L"GetActorLocation",
+                                      L"K2_GetActorLocation");
+                if (is_sane_vec3(actor_root))
+                {
+                    point.actor_ok = true;
+                    point.actor_root = actor_root;
+                }
+            }
+        }
+
+        if (point.native_ok && point.actor_ok)
+        {
+            point.delta = sub3(point.actor_root, point.converted_root);
+            point.delta_ok = is_sane_vec3(point.delta);
+        }
+
+        return point;
+    }
+
+    KHitRenderCalibrationFrame read_khit_render_calibration_frame(
+        void* const (&slot_charas)[2])
+    {
+        KHitRenderCalibrationFrame frame{};
+        frame.point[0] =
+            read_khit_render_calibration_point(slot_charas[0], 0);
+        frame.point[1] =
+            read_khit_render_calibration_point(slot_charas[1], 1);
+        return frame;
+    }
+
+    void update_khit_render_calibration(
+        KHitRenderCalibrationFrame& frame) noexcept
+    {
+        constexpr float kMaxPlayerDeltaDisagreementCm = 25.0f;
+        constexpr float kMaxRollingOffsetDriftCm = 35.0f;
+        constexpr int kMinStableSamples = 10;
+        constexpr int kMaxStableSamples = 60;
+
+        frame.samples = m_khit_render_calibration.samples;
+
+        if (!frame.point[0].delta_ok || !frame.point[1].delta_ok)
+        {
+            m_khit_render_calibration.valid = false;
+            m_khit_render_calibration.samples = 0;
+            frame.status = L"missing";
+            frame.samples = 0;
+            return;
+        }
+
+        frame.has_common_delta = true;
+        frame.delta_distance =
+            distance3(frame.point[0].delta, frame.point[1].delta);
+        frame.common_delta =
+            midpoint(frame.point[0].delta, frame.point[1].delta);
+
+        if (frame.delta_distance > kMaxPlayerDeltaDisagreementCm)
+        {
+            m_khit_render_calibration.valid = false;
+            m_khit_render_calibration.samples = 0;
+            frame.consistent = false;
+            frame.status = L"inconsistent";
+            frame.samples = 0;
+            return;
+        }
+
+        frame.consistent = true;
+        KHitRenderCalibrationState& state = m_khit_render_calibration;
+        const bool has_prior = state.samples > 0;
+        const float drift = has_prior
+            ? distance3(frame.common_delta, state.offset)
+            : 0.0f;
+        if (has_prior && drift > kMaxRollingOffsetDriftCm)
+        {
+            state.valid = false;
+            state.samples = 1;
+            state.offset = frame.common_delta;
+            frame.status = L"warming";
+            frame.samples = state.samples;
+            return;
+        }
+
+        if (!has_prior)
+        {
+            state.offset = frame.common_delta;
+            state.samples = 1;
+        }
+        else
+        {
+            const int next_samples =
+                (std::min)(state.samples + 1, kMaxStableSamples);
+            const float weight_old =
+                static_cast<float>(next_samples - 1) /
+                static_cast<float>(next_samples);
+            const float weight_new = 1.0f / static_cast<float>(next_samples);
+            state.offset = add3(scale3(state.offset, weight_old),
+                                scale3(frame.common_delta, weight_new));
+            state.samples = next_samples;
+        }
+
+        state.valid = state.samples >= kMinStableSamples;
+        frame.samples = state.samples;
+        frame.applied = state.valid;
+        frame.active_offset = state.valid ? state.offset : Horse::FVec3{};
+        frame.status = state.valid ? L"applied" : L"warming";
+    }
 
     static KHitAuditShapeMetrics audit_shape_metrics(
         const Horse::KHitDraw& d) noexcept
@@ -1295,13 +1715,76 @@ private:
         return m;
     }
 
+    static bool khit_sphere_pair_overlaps_native(
+        const Horse::KHitDraw& attack,
+        const Horse::KHitDraw& hurt,
+        float* out_native_margin = nullptr) noexcept
+    {
+        if (attack.kind != Horse::KHitKind::Sphere ||
+            hurt.kind != Horse::KHitKind::Sphere)
+        {
+            if (out_native_margin)
+                *out_native_margin = 0.0f;
+            return false;
+        }
+
+        const float native_dist =
+            distance3(attack.native_centre, hurt.native_centre);
+        const float native_rsum =
+            attack.native_radius + hurt.native_radius;
+        const float native_margin = native_rsum - native_dist;
+        if (out_native_margin)
+            *out_native_margin = native_margin;
+
+        // The defender's accepted mask is keyed by attacker slot, not by
+        // individual KHit node.  Require exact local sphere/sphere contact
+        // before crediting a same-slot sphere as the accepted visual pair.
+        constexpr float kNativeOverlapEpsilon = 0.005f;
+        return native_margin >= -kNativeOverlapEpsilon;
+    }
+
+    static bool khit_pair_has_exact_geometry(
+        const Horse::KHitDraw& attack,
+        const Horse::KHitDraw& hurt) noexcept
+    {
+        if (attack.kind == Horse::KHitKind::Sphere &&
+            hurt.kind == Horse::KHitKind::Sphere)
+        {
+            return khit_sphere_pair_overlaps_native(attack, hurt);
+        }
+
+        return false;
+    }
+
+    static bool khit_pair_geometry_plausible(
+        const Horse::KHitDraw& attack,
+        const Horse::KHitDraw& hurt) noexcept
+    {
+        if (attack.kind == Horse::KHitKind::Sphere &&
+            hurt.kind == Horse::KHitKind::Sphere)
+        {
+            return khit_pair_has_exact_geometry(attack, hurt);
+        }
+
+        // Area/fix-area native incoming masks prove that an attacker slot
+        // touched this hurtbox slot, but they do not identify a unique node
+        // when same-slot non-sphere candidates exist. Treat these as broad
+        // attribution only; mark_khit_accepted_overlap_candidates decides
+        // whether a pair can be promoted to reaction-exact.
+        return true;
+    }
+
     void service_khit_sphere_audit_frame(bool have_game_frame,
                                          uint32_t game_frame)
     {
         if (!m_khit_sphere_audit.load(std::memory_order_relaxed))
         {
             m_have_sphere_audit_frame = false;
-            m_sphere_audit_logs_this_frame = 0;
+            m_khit_audit_attack_logs_this_frame = 0;
+            m_khit_audit_hurt_logs_this_frame = 0;
+            m_khit_audit_pair_logs_this_frame = 0;
+            m_khit_audit_calib_logs_this_frame = 0;
+            m_khit_audit_cluster_logs_this_frame = 0;
             return;
         }
 
@@ -1313,7 +1796,11 @@ private:
         {
             m_have_sphere_audit_frame = true;
             m_last_sphere_audit_frame = audit_frame;
-            m_sphere_audit_logs_this_frame = 0;
+            m_khit_audit_attack_logs_this_frame = 0;
+            m_khit_audit_hurt_logs_this_frame = 0;
+            m_khit_audit_pair_logs_this_frame = 0;
+            m_khit_audit_calib_logs_this_frame = 0;
+            m_khit_audit_cluster_logs_this_frame = 0;
         }
     }
 
@@ -1332,24 +1819,49 @@ private:
         const bool is_attack_audit =
             d.list == Horse::KHitList::Attack &&
             can_expose_khit_attack_for_audit(d);
+        const bool has_raw_or_final_reaction =
+            d.raw_reaction_state != 0 ||
+            d.final_hit_result_code != 0;
+        const bool slot_filter_enabled =
+            m_khit_sphere_audit_filter_slots.load(std::memory_order_relaxed);
+        const bool slot_filter_match =
+            !slot_filter_enabled || khit_audit_matches_slot_filter(d);
+        const bool accepted_watch_summary =
+            slot_filter_enabled &&
+            slot_filter_match &&
+            d.accepted_overlap_this_frame;
         const bool is_hit_result_audit =
             d.list == Horse::KHitList::Hurtbox &&
-            (d.raw_reaction_hot ||
+            (has_raw_or_final_reaction ||
+             d.reaction_overlap_this_frame ||
              d.reaction_hot ||
-             d.final_hit_result_code != 0 ||
-             (d.defender_hurtbox_mask_valid &&
-              d.defender_hurtbox_attack_mask != 0));
+             accepted_watch_summary);
         if (!is_attack_audit && !is_hit_result_audit)
             return;
 
-        if (!khit_audit_matches_move_filter(d, attacker_lane))
-            return;
-
-        if (!consume_khit_audit_log_slot())
+        const bool move_filter_match =
+            khit_audit_matches_move_filter(d, attacker_lane);
+        const bool has_nonzero_incoming_mask =
+            d.defender_hurtbox_mask_valid &&
+            d.defender_hurtbox_attack_mask != 0;
+        if (!move_filter_match &&
+            !(is_hit_result_audit &&
+              (has_nonzero_incoming_mask || has_raw_or_final_reaction)))
             return;
 
         if (is_hit_result_audit)
         {
+            if (!has_raw_or_final_reaction &&
+                !d.reaction_overlap_this_frame &&
+                !accepted_watch_summary)
+            {
+                return;
+            }
+
+            if (!consume_khit_audit_log_slot(
+                    KHitAuditLogBucket::HurtResult))
+                return;
+
             const int attacker_player = (player == 0) ? 2 : 1;
             const bool attacker_has_move =
                 attacker_lane && attacker_lane->has_move;
@@ -1359,14 +1871,31 @@ private:
             const int attacker_low11 = attacker_has_move
                 ? (attacker_packed & 0x7ff)
                 : -1;
+            const wchar_t* summary_kind =
+                d.raw_reaction_state != 0
+                    ? L"raw"
+                    : (d.final_hit_result_code != 0
+                        ? L"final"
+                        : (d.reaction_overlap_this_frame
+                            ? L"reaction_candidate"
+                            : L"accepted"));
             Output::send<LogLevel::Default>(
                 STR("[HorseMod.KHitAudit.HurtResult] frame_ok={} frame={} "
-                    "def_p={} atk_p={} atk_move=0x{:04x}/{} hurt_node=0x{:x} "
+                    "summary={} def_p={} atk_p={} atk_move=0x{:04x}/{} "
+                    "hurt_node=0x{:x} "
                     "hurt_slot={} raw_react={} sticky_react={} final={} "
                     "mask_valid={} incoming=0x{:016x} filter_slots=({}, {}) "
-                    "phase={} defender_can_react={} overlap={} addressable={}\n"),
+                    "move_filter_match={} phase={} defender_can_react={} "
+                    "overlap={} addressable={} accepted={} accepted_bits=0x{:016x} "
+                    "accepted_pairs={} accepted_ambiguous={} "
+                    "accepted_exact={} accepted_exact_bits=0x{:016x} "
+                    "accepted_exact_pairs={} "
+                    "reaction={} reaction_bits=0x{:016x} "
+                    "reaction_pairs={} reaction_unique={} reaction_ambiguous={} "
+                    "reaction_unresolved={}\n"),
                 have_game_frame,
                 have_game_frame ? game_frame : 0,
+                summary_kind,
                 player + 1,
                 attacker_player,
                 attacker_has_move
@@ -1382,14 +1911,37 @@ private:
                 d.defender_hurtbox_attack_mask,
                 m_khit_sphere_audit_slot_a.load(std::memory_order_relaxed),
                 m_khit_sphere_audit_slot_b.load(std::memory_order_relaxed),
+                move_filter_match,
                 static_cast<int>(d.engine_phase),
                 d.defender_can_react_engine,
                 d.overlap_active,
-                d.classifier_addressable);
+                d.classifier_addressable,
+                d.accepted_overlap_this_frame,
+                d.accepted_overlap_matched_bits,
+                d.accepted_overlap_pair_count,
+                d.accepted_overlap_ambiguous,
+                d.accepted_exact_overlap_this_frame,
+                d.accepted_exact_overlap_matched_bits,
+                d.accepted_exact_overlap_pair_count,
+                d.reaction_overlap_this_frame,
+                d.reaction_overlap_matched_bits,
+                d.reaction_overlap_pair_count,
+                d.raw_reaction_state != 0 &&
+                    d.reaction_overlap_pair_count == 1,
+                d.reaction_overlap_ambiguous ||
+                    (d.raw_reaction_state != 0 &&
+                     d.reaction_overlap_pair_count > 1),
+                d.raw_reaction_state != 0 &&
+                    d.reaction_overlap_pair_count == 0 &&
+                    !d.reaction_overlap_ambiguous);
             return;
         }
 
+        if (!move_filter_match)
+            return;
         if (!khit_audit_matches_slot_filter(d))
+            return;
+        if (!consume_khit_audit_log_slot(KHitAuditLogBucket::Attack))
             return;
 
         if (d.kind == Horse::KHitKind::Sphere)
@@ -1398,11 +1950,21 @@ private:
                 STR("[HorseMod.KHitAudit.Attack] frame_ok={} frame={} p={} "
                     "move=0x{:04x}/{} sub=0x{:04x} node=0x{:x} kind=sphere "
                     "slot={} renderer={} matters={} geom={} mask_selected={} "
-                    "phase={} primary=0x{:016x} alt_open={} alt=0x{:016x} "
-                    "cat=0x{:016x} native=({:.3f},{:.3f},{:.3f}) "
+                    "active_move_valid={} mask_stale={} "
+                    "phase={} classifier_ready={} gates=({},{},{},{}) "
+                    "primary=0x{:016x} alt_open={} alt=0x{:016x} "
+                    "slot_bit=0x{:016x} accepted={} "
+                    "accepted_bits=0x{:016x} accepted_pairs={} "
+                    "accepted_exact={} accepted_exact_bits=0x{:016x} "
+                    "accepted_exact_pairs={} "
+                    "reaction={} reaction_bits=0x{:016x} reaction_pairs={} "
+                    "native=({:.3f},{:.3f},{:.3f}) "
                     "ue=({:.1f},{:.1f},{:.1f}) local=({:.3f},{:.3f},{:.3f}) "
-                    "auth_local=({:.3f},{:.3f},{:.3f}) radius_native={:.3f} "
-                    "radius_auth={:.3f} radius_ue={:.1f}\n"),
+                    "auth_local=({:.3f},{:.3f},{:.3f}) "
+                    "local_delta=({:.3f},{:.3f},{:.3f}) "
+                    "radius_native={:.3f} "
+                    "radius_auth={:.3f} radius_scale={:.3f} "
+                    "anim_modified={} radius_ue={:.1f}\n"),
                 have_game_frame,
                 have_game_frame ? game_frame : 0,
                 player + 1,
@@ -1417,11 +1979,27 @@ private:
                 matters_this_frame,
                 d.geom_active,
                 d.attack_mask_selected,
+                d.active_move_valid,
+                d.attack_mask_stale,
                 static_cast<int>(d.engine_phase),
+                d.attack_classifier_ready,
+                d.classify_enabled,
+                d.attack_in_master_window,
+                d.attack_lockout_a,
+                d.attack_lockout_b,
                 d.primary_attack_mask,
                 d.alt_classify_open,
                 d.alt_attack_mask,
-                d.category_or_bone_mask,
+                d.slot_bit_mask,
+                d.accepted_overlap_this_frame,
+                d.accepted_overlap_matched_bits,
+                d.accepted_overlap_pair_count,
+                d.accepted_exact_overlap_this_frame,
+                d.accepted_exact_overlap_matched_bits,
+                d.accepted_exact_overlap_pair_count,
+                d.reaction_overlap_this_frame,
+                d.reaction_overlap_matched_bits,
+                d.reaction_overlap_pair_count,
                 d.native_centre.X,
                 d.native_centre.Y,
                 d.native_centre.Z,
@@ -1434,8 +2012,13 @@ private:
                 d.native_authored_local_centre.X,
                 d.native_authored_local_centre.Y,
                 d.native_authored_local_centre.Z,
+                d.sphere_live_local_delta.X,
+                d.sphere_live_local_delta.Y,
+                d.sphere_live_local_delta.Z,
                 d.native_radius,
                 d.native_authored_radius,
+                d.sphere_live_radius_scale,
+                d.sphere_anim_modified,
                 d.radius);
             return;
         }
@@ -1446,8 +2029,15 @@ private:
                 STR("[HorseMod.KHitAudit.Attack] frame_ok={} frame={} p={} "
                     "move=0x{:04x}/{} sub=0x{:04x} node=0x{:x} kind=area "
                     "slot={} renderer={} matters={} geom={} mask_selected={} "
-                    "phase={} primary=0x{:016x} alt_open={} alt=0x{:016x} "
-                    "cat=0x{:016x} native_p1=({:.3f},{:.3f},{:.3f}) "
+                    "active_move_valid={} mask_stale={} "
+                    "phase={} classifier_ready={} gates=({},{},{},{}) "
+                    "primary=0x{:016x} alt_open={} alt=0x{:016x} "
+                    "slot_bit=0x{:016x} accepted={} "
+                    "accepted_bits=0x{:016x} accepted_pairs={} "
+                    "accepted_exact={} accepted_exact_bits=0x{:016x} "
+                    "accepted_exact_pairs={} "
+                    "reaction={} reaction_bits=0x{:016x} reaction_pairs={} "
+                    "native_p1=({:.3f},{:.3f},{:.3f}) "
                     "native_p2=({:.3f},{:.3f},{:.3f}) "
                     "native_prev_p1=({:.3f},{:.3f},{:.3f}) "
                     "native_prev_p2=({:.3f},{:.3f},{:.3f}) has_prev={} "
@@ -1466,11 +2056,27 @@ private:
                 matters_this_frame,
                 d.geom_active,
                 d.attack_mask_selected,
+                d.active_move_valid,
+                d.attack_mask_stale,
                 static_cast<int>(d.engine_phase),
+                d.attack_classifier_ready,
+                d.classify_enabled,
+                d.attack_in_master_window,
+                d.attack_lockout_a,
+                d.attack_lockout_b,
                 d.primary_attack_mask,
                 d.alt_classify_open,
                 d.alt_attack_mask,
-                d.category_or_bone_mask,
+                d.slot_bit_mask,
+                d.accepted_overlap_this_frame,
+                d.accepted_overlap_matched_bits,
+                d.accepted_overlap_pair_count,
+                d.accepted_exact_overlap_this_frame,
+                d.accepted_exact_overlap_matched_bits,
+                d.accepted_exact_overlap_pair_count,
+                d.reaction_overlap_this_frame,
+                d.reaction_overlap_matched_bits,
+                d.reaction_overlap_pair_count,
                 d.native_spine_p1_world.X,
                 d.native_spine_p1_world.Y,
                 d.native_spine_p1_world.Z,
@@ -1497,8 +2103,15 @@ private:
             STR("[HorseMod.KHitAudit.Attack] frame_ok={} frame={} p={} "
                 "move=0x{:04x}/{} sub=0x{:04x} node=0x{:x} kind=fixarea "
                 "slot={} renderer={} matters={} geom={} mask_selected={} "
-                "phase={} primary=0x{:016x} alt_open={} alt=0x{:016x} "
-                "cat=0x{:016x} native_p1=({:.3f},{:.3f},{:.3f}) "
+                "active_move_valid={} mask_stale={} "
+                "phase={} classifier_ready={} gates=({},{},{},{}) "
+                "primary=0x{:016x} alt_open={} alt=0x{:016x} "
+                "slot_bit=0x{:016x} accepted={} "
+                "accepted_bits=0x{:016x} accepted_pairs={} "
+                "accepted_exact={} accepted_exact_bits=0x{:016x} "
+                "accepted_exact_pairs={} "
+                "reaction={} reaction_bits=0x{:016x} reaction_pairs={} "
+                "native_p1=({:.3f},{:.3f},{:.3f}) "
                 "native_p2=({:.3f},{:.3f},{:.3f}) "
                 "native_p3=({:.3f},{:.3f},{:.3f}) "
                 "ue_p1=({:.1f},{:.1f},{:.1f}) ue_p2=({:.1f},{:.1f},{:.1f}) "
@@ -1517,11 +2130,27 @@ private:
             matters_this_frame,
             d.geom_active,
             d.attack_mask_selected,
+            d.active_move_valid,
+            d.attack_mask_stale,
             static_cast<int>(d.engine_phase),
+            d.attack_classifier_ready,
+            d.classify_enabled,
+            d.attack_in_master_window,
+            d.attack_lockout_a,
+            d.attack_lockout_b,
             d.primary_attack_mask,
             d.alt_classify_open,
             d.alt_attack_mask,
-            d.category_or_bone_mask,
+            d.slot_bit_mask,
+            d.accepted_overlap_this_frame,
+            d.accepted_overlap_matched_bits,
+            d.accepted_overlap_pair_count,
+            d.accepted_exact_overlap_this_frame,
+            d.accepted_exact_overlap_matched_bits,
+            d.accepted_exact_overlap_pair_count,
+            d.reaction_overlap_this_frame,
+            d.reaction_overlap_matched_bits,
+            d.reaction_overlap_pair_count,
             d.native_corners[0].X,
             d.native_corners[0].Y,
             d.native_corners[0].Z,
@@ -1539,12 +2168,283 @@ private:
             d.corners[1].Z,
             d.corners[2].X,
             d.corners[2].Y,
-            d.corners[2].Z);
+                            d.corners[2].Z);
+    }
+
+    static const char* khit_kind_short(Horse::KHitKind kind) noexcept
+    {
+        switch (kind)
+        {
+            case Horse::KHitKind::Sphere:     return "S";
+            case Horse::KHitKind::AreaSpine:  return "A";
+            case Horse::KHitKind::FixAreaTri: return "F";
+        }
+        return "?";
+    }
+
+    void maybe_log_khit_attack_clusters(
+        const std::vector<Horse::KHitDraw> (&draws)[2],
+        bool have_game_frame,
+        uint32_t game_frame,
+        Horse::LineBatcherSlot hit_renderer_slot)
+    {
+        if (!m_khit_sphere_audit.load(std::memory_order_relaxed))
+            return;
+
+        for (int player = 0; player < 2; ++player)
+        {
+            std::vector<const Horse::KHitDraw*> nodes;
+            nodes.reserve(draws[player].size());
+            int selected_count = 0;
+            int ready_count = 0;
+            int stale_count = 0;
+            int modified_sphere_count = 0;
+
+            for (const Horse::KHitDraw& d : draws[player])
+            {
+                if (d.list != Horse::KHitList::Attack ||
+                    !d.geom_active ||
+                    !khit_audit_matches_move_filter(d, nullptr) ||
+                    !khit_audit_matches_slot_filter(d))
+                {
+                    continue;
+                }
+
+                const bool selected_for_audit =
+                    d.attack_mask_selected ||
+                    d.attack_mask_stale ||
+                    d.accepted_overlap_this_frame ||
+                    d.accepted_exact_overlap_this_frame;
+                if (!selected_for_audit)
+                    continue;
+
+                nodes.push_back(&d);
+                if (d.attack_mask_selected)
+                    ++selected_count;
+                if (d.attack_classifier_ready)
+                    ++ready_count;
+                if (d.attack_mask_stale)
+                    ++stale_count;
+                if (d.kind == Horse::KHitKind::Sphere &&
+                    d.sphere_anim_modified)
+                {
+                    ++modified_sphere_count;
+                }
+            }
+
+            if (nodes.size() < 2)
+                continue;
+            if (!consume_khit_audit_log_slot(
+                    KHitAuditLogBucket::AttackCluster))
+                return;
+
+            const Horse::KHitDraw& first = *nodes.front();
+            std::string slot_summary;
+            slot_summary.reserve(1024);
+            size_t emitted = 0;
+            for (const Horse::KHitDraw* node : nodes)
+            {
+                if (!node || slot_summary.size() >= 1400)
+                    break;
+
+                char item[192]{};
+                if (node->kind == Horse::KHitKind::Sphere)
+                {
+                    std::snprintf(
+                        item, sizeof(item),
+                        "%s%d:r=%.3f,scale=%.3f,d=(%.3f,%.3f,%.3f)%s%s",
+                        emitted ? ";" : "",
+                        static_cast<int>(node->bone_id_internal),
+                        node->native_radius,
+                        node->sphere_live_radius_scale,
+                        node->sphere_live_local_delta.X,
+                        node->sphere_live_local_delta.Y,
+                        node->sphere_live_local_delta.Z,
+                        node->sphere_anim_modified ? ",mod" : "",
+                        node->attack_mask_stale ? ",stale" : "");
+                }
+                else
+                {
+                    std::snprintf(
+                        item, sizeof(item),
+                        "%s%d:%s%s",
+                        emitted ? ";" : "",
+                        static_cast<int>(node->bone_id_internal),
+                        khit_kind_short(node->kind),
+                        node->attack_mask_stale ? ",stale" : "");
+                }
+                slot_summary += item;
+                ++emitted;
+            }
+            if (emitted < nodes.size())
+                slot_summary += ";...";
+
+            Output::send<LogLevel::Default>(
+                STR("[HorseMod.KHitAudit.AttackCluster] frame_ok={} "
+                    "frame={} p={} move=0x{:04x}/{} sub=0x{:04x} "
+                    "renderer={} active_move_valid={} primary=0x{:016x} "
+                    "node_count={} selected_count={} ready_count={} "
+                    "stale_count={} modified_spheres={} slots={}\n"),
+                have_game_frame,
+                have_game_frame ? game_frame : 0,
+                player + 1,
+                first.has_move_identity ? first.active_packed_move : 0xFFFFu,
+                first.has_move_identity
+                    ? static_cast<int>(first.active_move_id_low11)
+                    : -1,
+                first.move_subframe_id,
+                static_cast<int>(hit_renderer_slot),
+                first.active_move_valid,
+                first.primary_attack_mask,
+                static_cast<int>(nodes.size()),
+                selected_count,
+                ready_count,
+                stale_count,
+                modified_sphere_count,
+                RC::to_generic_string(slot_summary.c_str()));
+        }
+    }
+
+    static void mark_khit_accepted_overlap_candidates(
+        std::vector<Horse::KHitDraw> (&draws)[2])
+    {
+        struct KHitOverlapCandidate
+        {
+            Horse::KHitDraw* attack = nullptr;
+            uint64_t matched_bits = 0;
+            bool exact_geometry = false;
+            bool same_slot_ambiguous = false;
+        };
+
+        for (auto& player_draws : draws)
+        {
+            for (Horse::KHitDraw& d : player_draws)
+            {
+                d.accepted_overlap_this_frame = false;
+                d.accepted_overlap_matched_bits = 0;
+                d.accepted_overlap_pair_count = 0;
+                d.accepted_overlap_ambiguous = false;
+                d.accepted_exact_overlap_this_frame = false;
+                d.accepted_exact_overlap_matched_bits = 0;
+                d.accepted_exact_overlap_pair_count = 0;
+                d.reaction_overlap_this_frame = false;
+                d.reaction_overlap_matched_bits = 0;
+                d.reaction_overlap_pair_count = 0;
+                d.reaction_overlap_ambiguous = false;
+            }
+        }
+
+        for (int defender = 0; defender < 2; ++defender)
+        {
+            const int attacker = (defender == 0) ? 1 : 0;
+            for (Horse::KHitDraw& hurt : draws[defender])
+            {
+                if (hurt.list != Horse::KHitList::Hurtbox ||
+                    !hurt.defender_hurtbox_mask_valid ||
+                    hurt.defender_hurtbox_attack_mask == 0)
+                {
+                    continue;
+                }
+
+                std::vector<KHitOverlapCandidate> candidates;
+                candidates.reserve(draws[attacker].size());
+                for (Horse::KHitDraw& attack : draws[attacker])
+                {
+                    if (attack.list != Horse::KHitList::Attack ||
+                        !attack.geom_active)
+                    {
+                        continue;
+                    }
+
+                    const uint64_t matched_bits =
+                        hurt.defender_hurtbox_attack_mask &
+                        attack.slot_bit_mask;
+                    if (matched_bits == 0)
+                        continue;
+                    if (!khit_pair_geometry_plausible(attack, hurt))
+                        continue;
+
+                    candidates.push_back(KHitOverlapCandidate{
+                        &attack,
+                        matched_bits,
+                        khit_pair_has_exact_geometry(attack, hurt),
+                        false
+                    });
+                }
+
+                for (size_t i = 0; i < candidates.size(); ++i)
+                {
+                    for (size_t j = i + 1; j < candidates.size(); ++j)
+                    {
+                        if ((candidates[i].matched_bits &
+                             candidates[j].matched_bits) == 0)
+                        {
+                            continue;
+                        }
+                        candidates[i].same_slot_ambiguous = true;
+                        candidates[j].same_slot_ambiguous = true;
+                    }
+                }
+
+                for (KHitOverlapCandidate& c : candidates)
+                {
+                    Horse::KHitDraw& attack = *c.attack;
+
+                    attack.accepted_overlap_this_frame = true;
+                    attack.accepted_overlap_matched_bits |= c.matched_bits;
+                    ++attack.accepted_overlap_pair_count;
+                    if (c.same_slot_ambiguous)
+                        attack.accepted_overlap_ambiguous = true;
+                    if (c.exact_geometry)
+                    {
+                        attack.accepted_exact_overlap_this_frame = true;
+                        attack.accepted_exact_overlap_matched_bits |=
+                            c.matched_bits;
+                        ++attack.accepted_exact_overlap_pair_count;
+                    }
+
+                    hurt.accepted_overlap_this_frame = true;
+                    hurt.accepted_overlap_matched_bits |= c.matched_bits;
+                    ++hurt.accepted_overlap_pair_count;
+                    if (c.same_slot_ambiguous)
+                        hurt.accepted_overlap_ambiguous = true;
+                    if (c.exact_geometry)
+                    {
+                        hurt.accepted_exact_overlap_this_frame = true;
+                        hurt.accepted_exact_overlap_matched_bits |=
+                            c.matched_bits;
+                        ++hurt.accepted_exact_overlap_pair_count;
+                    }
+
+                    if (hurt.raw_reaction_state != 0 &&
+                        canMatterThisFrame(attack))
+                    {
+                        const bool can_promote_to_reaction =
+                            c.exact_geometry || !c.same_slot_ambiguous;
+                        if (!can_promote_to_reaction)
+                        {
+                            attack.reaction_overlap_ambiguous = true;
+                            hurt.reaction_overlap_ambiguous = true;
+                            continue;
+                        }
+
+                        attack.reaction_overlap_this_frame = true;
+                        attack.reaction_overlap_matched_bits |= c.matched_bits;
+                        ++attack.reaction_overlap_pair_count;
+
+                        hurt.reaction_overlap_this_frame = true;
+                        hurt.reaction_overlap_matched_bits |= c.matched_bits;
+                        ++hurt.reaction_overlap_pair_count;
+                    }
+                }
+            }
+        }
     }
 
     void maybe_log_khit_overlap_pairs(
         const std::vector<Horse::KHitDraw> (&draws)[2],
         const Horse::KHitWalker::LaneSnapshot (&lane_snapshots)[2],
+        const KHitRenderCalibrationFrame& render_calib,
         bool have_game_frame,
         uint32_t game_frame,
         Horse::LineBatcherSlot hit_renderer_slot,
@@ -1574,8 +2474,8 @@ private:
                 {
                     continue;
                 }
-                if (!khit_audit_matches_move_filter(hurt, attacker_lane))
-                    continue;
+                const bool move_filter_match =
+                    khit_audit_matches_move_filter(hurt, attacker_lane);
 
                 for (const Horse::KHitDraw& attack : draws[attacker])
                 {
@@ -1584,10 +2484,12 @@ private:
 
                     const uint64_t matched_bits =
                         hurt.defender_hurtbox_attack_mask &
-                        attack.category_or_bone_mask;
+                        attack.slot_bit_mask;
                     if (matched_bits == 0)
                         continue;
                     if (!attack.geom_active)
+                        continue;
+                    if (!khit_pair_geometry_plausible(attack, hurt))
                         continue;
 
                     if (m_khit_sphere_audit_filter_slots.load(
@@ -1597,8 +2499,24 @@ private:
                     {
                         continue;
                     }
-                    if (!consume_khit_audit_log_slot())
+                    if (!consume_khit_audit_log_slot(
+                            KHitAuditLogBucket::OverlapPair))
                         return;
+
+                    const bool atk_matters = canMatterThisFrame(attack);
+                    const bool hurt_matters =
+                        canMatterThisFrame(hurt) ||
+                        hurt.raw_reaction_state != 0;
+                    const bool reaction_candidate =
+                        (hurt.reaction_overlap_matched_bits &
+                         attack.slot_bit_mask) != 0;
+                    const bool exact_geometry =
+                        khit_pair_has_exact_geometry(attack, hurt);
+                    const bool accepted_exact_pair =
+                        (hurt.accepted_exact_overlap_matched_bits &
+                         attack.slot_bit_mask) != 0;
+                    const bool accepted_only =
+                        accepted_exact_pair && !reaction_candidate;
 
                     const KHitAuditShapeMetrics atk_m =
                         audit_shape_metrics(attack);
@@ -1614,16 +2532,88 @@ private:
                         atk_m.native_radius + hurt_m.native_radius;
                     const float ue_rsum =
                         atk_m.ue_radius + hurt_m.ue_radius;
+                    const KHitAuditCharaPose atk_pose =
+                        read_khit_audit_chara_pose(
+                            Horse::KHitWalker::charaSlotFromGlobal(
+                                static_cast<uint32_t>(attacker)));
+                    const KHitAuditCharaPose def_pose =
+                        read_khit_audit_chara_pose(
+                            Horse::KHitWalker::charaSlotFromGlobal(
+                                static_cast<uint32_t>(defender)));
+
+                    Horse::FVec3 native_contact = midpoint(
+                        atk_m.native_center, hurt_m.native_center);
+                    bool native_contact_valid = false;
+                    Horse::FVec3 native_contact_dir{};
+                    if (normalize3(sub3(hurt_m.native_center,
+                                        atk_m.native_center),
+                                   native_contact_dir))
+                    {
+                        const Horse::FVec3 attack_shell =
+                            add3(atk_m.native_center,
+                                 scale3(native_contact_dir,
+                                        atk_m.native_radius));
+                        const Horse::FVec3 hurt_shell =
+                            sub3(hurt_m.native_center,
+                                 scale3(native_contact_dir,
+                                        hurt_m.native_radius));
+                        native_contact = midpoint(attack_shell, hurt_shell);
+                        native_contact_valid = true;
+                    }
+                    const Horse::FVec3 ue_contact =
+                        audit_battle_to_ue_render_world(native_contact);
+
+                    Horse::FVec3 attacker_to_defender_axis{};
+                    bool attacker_to_defender_axis_valid = false;
+                    if (atk_pose.ok && def_pose.ok)
+                    {
+                        Horse::FVec3 flat_delta =
+                            sub3(def_pose.native_pos, atk_pose.native_pos);
+                        flat_delta.Y = 0.0f;
+                        attacker_to_defender_axis_valid =
+                            normalize3(flat_delta,
+                                       attacker_to_defender_axis);
+                    }
+                    const Horse::FVec3 attacker_right_axis{
+                        attacker_to_defender_axis.Z,
+                        0.0f,
+                        -attacker_to_defender_axis.X
+                    };
+                    auto signed_forward = [&](const Horse::FVec3& p) {
+                        return attacker_to_defender_axis_valid
+                            ? dot3(sub3(p, atk_pose.native_pos),
+                                   attacker_to_defender_axis)
+                            : 0.0f;
+                    };
+                    auto signed_right = [&](const Horse::FVec3& p) {
+                        return attacker_to_defender_axis_valid
+                            ? dot3(sub3(p, atk_pose.native_pos),
+                                   attacker_right_axis)
+                            : 0.0f;
+                    };
+                    auto signed_up = [&](const Horse::FVec3& p) {
+                        return atk_pose.ok ? (p.Y - atk_pose.native_pos.Y)
+                                           : 0.0f;
+                    };
+
                     Output::send<LogLevel::Default>(
                         STR("[HorseMod.KHitAudit.OverlapPair] frame_ok={} "
                             "frame={} def_p={} atk_p={} "
                             "atk_move=0x{:04x}/{} "
                             "hurt_node=0x{:x} hurt_kind={} hurt_slot={} "
                             "atk_node=0x{:x} atk_kind={} atk_slot={} "
-                            "matched=0x{:016x} incoming=0x{:016x} "
+                            "atk_slot_bit=0x{:016x} matched=0x{:016x} "
+                            "incoming=0x{:016x} move_filter_match={} "
                             "raw_react={} sticky_react={} final={} "
                             "atk_phase={} atk_geom={} atk_mask_selected={} "
+                            "atk_active_move_valid={} atk_mask_stale={} "
+                            "atk_matters={} hurt_matters={} "
+                            "reaction_candidate={} reaction_pair_count={} "
+                            "exact_geometry={} accepted_exact={} "
+                            "accepted_only={} accepted_ambiguous={} "
+                            "reaction_ambiguous={} "
                             "renderer_hit={} renderer_hurt={} "
+                            "atk_local=({:.3f},{:.3f},{:.3f}) "
                             "native_atk=({:.3f},{:.3f},{:.3f}) "
                             "native_hurt=({:.3f},{:.3f},{:.3f}) "
                             "native_dist={:.3f} native_rsum={:.3f} "
@@ -1649,16 +2639,34 @@ private:
                         attack.source_node,
                         static_cast<int>(attack.kind),
                         static_cast<int>(attack.bone_id_internal),
+                        attack.slot_bit_mask,
                         matched_bits,
                         hurt.defender_hurtbox_attack_mask,
+                        move_filter_match,
                         hurt.raw_reaction_state,
                         hurt.reaction_state,
                         hurt.final_hit_result_code,
                         static_cast<int>(attack.engine_phase),
                         attack.geom_active,
                         attack.attack_mask_selected,
+                        attack.active_move_valid,
+                        attack.attack_mask_stale,
+                        atk_matters,
+                        hurt_matters,
+                        reaction_candidate,
+                        hurt.reaction_overlap_pair_count,
+                        exact_geometry,
+                        accepted_exact_pair,
+                        accepted_only,
+                        attack.accepted_overlap_ambiguous ||
+                            hurt.accepted_overlap_ambiguous,
+                        attack.reaction_overlap_ambiguous ||
+                            hurt.reaction_overlap_ambiguous,
                         static_cast<int>(hit_renderer_slot),
                         static_cast<int>(hurt_renderer_slot),
+                        attack.native_live_local_centre.X,
+                        attack.native_live_local_centre.Y,
+                        attack.native_live_local_centre.Z,
                         atk_m.native_center.X,
                         atk_m.native_center.Y,
                         atk_m.native_center.Z,
@@ -1681,8 +2689,499 @@ private:
                         hurt_m.native_radius,
                         atk_m.ue_radius,
                         hurt_m.ue_radius);
+
+                    Output::send<LogLevel::Default>(
+                        STR("[HorseMod.KHitAudit.OverlapSpace] frame_ok={} "
+                            "frame={} def_p={} atk_p={} "
+                            "atk_node=0x{:x} hurt_node=0x{:x} "
+                            "atk_pose_ok={} def_pose_ok={} "
+                            "atk_pos=({:.3f},{:.3f},{:.3f}) "
+                            "def_pos=({:.3f},{:.3f},{:.3f}) "
+                            "atk_slot_byte={} def_slot_byte={} "
+                            "atk_opp_dist_ok={} atk_opp_dist={:.3f} "
+                            "axis_ok={} atk_to_def_axis=({:.3f},{:.3f},{:.3f}) "
+                            "contact_ok={} native_contact=({:.3f},{:.3f},{:.3f}) "
+                            "ue_contact=({:.1f},{:.1f},{:.1f}) "
+                            "atk_center_rel=({:.3f},{:.3f},{:.3f}) "
+                            "contact_rel=({:.3f},{:.3f},{:.3f}) "
+                            "hurt_center_rel=({:.3f},{:.3f},{:.3f}) "
+                            "atk_per_frame={} atk_can_strike={} atk_matters={} "
+                            "hurt_addressable={} hurt_overlap={} "
+                            "hurt_can_react={} hurt_matters={}\n"),
+                        have_game_frame,
+                        have_game_frame ? game_frame : 0,
+                        defender + 1,
+                        attacker + 1,
+                        attack.source_node,
+                        hurt.source_node,
+                        atk_pose.ok,
+                        def_pose.ok,
+                        atk_pose.native_pos.X,
+                        atk_pose.native_pos.Y,
+                        atk_pose.native_pos.Z,
+                        def_pose.native_pos.X,
+                        def_pose.native_pos.Y,
+                        def_pose.native_pos.Z,
+                        static_cast<unsigned>(atk_pose.slot_byte),
+                        static_cast<unsigned>(def_pose.slot_byte),
+                        atk_pose.distance_ok,
+                        atk_pose.opponent_distance,
+                        attacker_to_defender_axis_valid,
+                        attacker_to_defender_axis.X,
+                        attacker_to_defender_axis.Y,
+                        attacker_to_defender_axis.Z,
+                        native_contact_valid,
+                        native_contact.X,
+                        native_contact.Y,
+                        native_contact.Z,
+                        ue_contact.X,
+                        ue_contact.Y,
+                        ue_contact.Z,
+                        signed_forward(atk_m.native_center),
+                        signed_right(atk_m.native_center),
+                        signed_up(atk_m.native_center),
+                        signed_forward(native_contact),
+                        signed_right(native_contact),
+                        signed_up(native_contact),
+                        signed_forward(hurt_m.native_center),
+                        signed_right(hurt_m.native_center),
+                        signed_up(hurt_m.native_center),
+                        attack.is_per_frame_active,
+                        attack.attacker_can_strike_engine,
+                        canMatterThisFrame(attack),
+                        hurt.classifier_addressable,
+                        hurt.overlap_active,
+                        hurt.defender_can_react_engine,
+                        canMatterThisFrame(hurt));
+
+                    if ((hurt.raw_reaction_state != 0 ||
+                         reaction_candidate) &&
+                        consume_khit_audit_log_slot(
+                            KHitAuditLogBucket::Calibration))
+                    {
+                        const KHitRenderCalibrationPoint& atk_cal =
+                            render_calib.point[attacker];
+                        const KHitRenderCalibrationPoint& def_cal =
+                            render_calib.point[defender];
+                        const Horse::FVec3 candidate_ue =
+                            midpoint(atk_m.ue_center, hurt_m.ue_center);
+                        const Horse::FVec3 draw_contact_ue =
+                            add3(ue_contact, render_calib.active_offset);
+
+                        Output::send<LogLevel::Default>(
+                            STR("[HorseMod.KHitRenderCalib] frame_ok={} "
+                                "frame={} status={} applied={} samples={} "
+                                "consistent={} delta_dist={:.1f} "
+                                "offset=({:.1f},{:.1f},{:.1f}) "
+                                "def_p={} atk_p={} atk_node=0x{:x} "
+                                "hurt_node=0x{:x} reaction_candidate={} "
+                                "raw_react={} final={} "
+                                "atk_native_root=({:.3f},{:.3f},{:.3f}) "
+                                "atk_root_ue=({:.1f},{:.1f},{:.1f}) "
+                                "atk_actor_ue=({:.1f},{:.1f},{:.1f}) "
+                                "atk_delta=({:.1f},{:.1f},{:.1f}) "
+                                "def_native_root=({:.3f},{:.3f},{:.3f}) "
+                                "def_root_ue=({:.1f},{:.1f},{:.1f}) "
+                                "def_actor_ue=({:.1f},{:.1f},{:.1f}) "
+                                "def_delta=({:.1f},{:.1f},{:.1f}) "
+                                "candidate_ue=({:.1f},{:.1f},{:.1f}) "
+                                "native_contact=({:.3f},{:.3f},{:.3f}) "
+                                "converted_contact=({:.1f},{:.1f},{:.1f}) "
+                                "draw_contact=({:.1f},{:.1f},{:.1f})\n"),
+                            have_game_frame,
+                            have_game_frame ? game_frame : 0,
+                            render_calib.status,
+                            render_calib.applied,
+                            render_calib.samples,
+                            render_calib.consistent,
+                            render_calib.delta_distance,
+                            render_calib.active_offset.X,
+                            render_calib.active_offset.Y,
+                            render_calib.active_offset.Z,
+                            defender + 1,
+                            attacker + 1,
+                            attack.source_node,
+                            hurt.source_node,
+                            reaction_candidate,
+                            hurt.raw_reaction_state,
+                            hurt.final_hit_result_code,
+                            atk_cal.native_root.X,
+                            atk_cal.native_root.Y,
+                            atk_cal.native_root.Z,
+                            atk_cal.converted_root.X,
+                            atk_cal.converted_root.Y,
+                            atk_cal.converted_root.Z,
+                            atk_cal.actor_root.X,
+                            atk_cal.actor_root.Y,
+                            atk_cal.actor_root.Z,
+                            atk_cal.delta.X,
+                            atk_cal.delta.Y,
+                            atk_cal.delta.Z,
+                            def_cal.native_root.X,
+                            def_cal.native_root.Y,
+                            def_cal.native_root.Z,
+                            def_cal.converted_root.X,
+                            def_cal.converted_root.Y,
+                            def_cal.converted_root.Z,
+                            def_cal.actor_root.X,
+                            def_cal.actor_root.Y,
+                            def_cal.actor_root.Z,
+                            def_cal.delta.X,
+                            def_cal.delta.Y,
+                            def_cal.delta.Z,
+                            candidate_ue.X,
+                            candidate_ue.Y,
+                            candidate_ue.Z,
+                            native_contact.X,
+                            native_contact.Y,
+                            native_contact.Z,
+                            ue_contact.X,
+                            ue_contact.Y,
+                            ue_contact.Z,
+                            draw_contact_ue.X,
+                            draw_contact_ue.Y,
+                            draw_contact_ue.Z);
+                    }
                 }
             }
+        }
+    }
+
+    static void draw_khit_accepted_overlap_guides(
+        Horse::ILineOverlay& overlay,
+        const std::vector<Horse::KHitDraw> (&draws)[2],
+        const bool show_attack_for_player[2],
+        const bool show_hurt_for_player[2],
+        bool only_active,
+        float thickness,
+        std::vector<KHitContactGuideLine>* latch_lines,
+        int latch_frames)
+    {
+        const Horse::FLinColor guide_col{1.0f, 0.05f, 0.05f, 1.0f};
+        const Horse::FLinColor accepted_only_col{0.10f, 0.80f, 1.0f, 1.0f};
+        const Horse::FLinColor center_col{1.0f, 1.0f, 1.0f, 1.0f};
+        const Horse::FLinColor accepted_only_center_col{
+            0.70f, 1.0f, 1.0f, 1.0f
+        };
+        const Horse::FLinColor snapshot_attack_col{1.0f, 1.0f, 1.0f, 0.80f};
+        const Horse::FLinColor snapshot_hurt_col{1.0f, 0.18f, 0.18f, 0.80f};
+        const Horse::FLinColor accepted_only_snapshot_attack_col{
+            0.10f, 0.80f, 1.0f, 0.85f
+        };
+        const Horse::FLinColor accepted_only_snapshot_hurt_col{
+            0.70f, 1.0f, 1.0f, 0.85f
+        };
+        int drawn = 0;
+
+        auto emit_line = [&](const Horse::FVec3& a,
+                             const Horse::FVec3& b,
+                             const Horse::FLinColor& col,
+                             float line_thickness) {
+            overlay.drawLine(a, b, col, line_thickness);
+            if (latch_lines && latch_frames > 0 &&
+                latch_lines->size() < kMaxKHitContactGuideLatchLines)
+            {
+                latch_lines->push_back(
+                    KHitContactGuideLine{a, b, col, line_thickness,
+                                         latch_frames});
+            }
+        };
+
+        auto draw_cross = [&](const Horse::FVec3& c,
+                              float size,
+                              const Horse::FLinColor& col) {
+            emit_line(Horse::FVec3{c.X - size, c.Y, c.Z},
+                      Horse::FVec3{c.X + size, c.Y, c.Z},
+                      col, thickness + 0.5f);
+            emit_line(Horse::FVec3{c.X, c.Y - size, c.Z},
+                      Horse::FVec3{c.X, c.Y + size, c.Z},
+                      col, thickness + 0.5f);
+            emit_line(Horse::FVec3{c.X, c.Y, c.Z - size},
+                      Horse::FVec3{c.X, c.Y, c.Z + size},
+                      col, thickness + 0.5f);
+        };
+
+        auto draw_ring = [&](const Horse::FVec3& c,
+                             const Horse::FVec3& axis_u,
+                             const Horse::FVec3& axis_v,
+                             float radius,
+                             const Horse::FLinColor& col) {
+            constexpr float two_pi = 6.283185307179586f;
+            constexpr int segments = 24;
+            Horse::FVec3 prev{};
+            for (int i = 0; i <= segments; ++i)
+            {
+                const float a = two_pi * static_cast<float>(i) /
+                                static_cast<float>(segments);
+                const float ca = radius * std::cosf(a);
+                const float sa = radius * std::sinf(a);
+                Horse::FVec3 p{
+                    c.X + axis_u.X * ca + axis_v.X * sa,
+                    c.Y + axis_u.Y * ca + axis_v.Y * sa,
+                    c.Z + axis_u.Z * ca + axis_v.Z * sa
+                };
+                if (i > 0)
+                    emit_line(prev, p, col, thickness + 1.0f);
+                prev = p;
+            }
+        };
+
+        auto draw_snapshot_sphere = [&](const Horse::FVec3& c,
+                                        float radius,
+                                        const Horse::FLinColor& col) {
+            const Horse::FVec3 world_x{1.0f, 0.0f, 0.0f};
+            const Horse::FVec3 world_y{0.0f, 1.0f, 0.0f};
+            const Horse::FVec3 world_z{0.0f, 0.0f, 1.0f};
+            const bool large_sphere = radius >= 75.0f;
+            const int meridians = large_sphere ? 12 : 4;
+            const int latitudes = large_sphere ? 7 : 3;
+            constexpr float two_pi = 6.283185307179586f;
+
+            draw_ring(c, world_x, world_y, radius, col);
+
+            for (int i = 1; i <= latitudes; ++i)
+            {
+                const float t = static_cast<float>(i) /
+                                static_cast<float>(latitudes + 1);
+                const float z =
+                    radius * std::sinf((t - 0.5f) * 3.141592653589793f);
+                const float r =
+                    std::sqrtf((std::max)(0.0f,
+                                          radius * radius - z * z));
+                if (r >= 1.0f)
+                {
+                    draw_ring(Horse::FVec3{c.X, c.Y, c.Z + z},
+                              world_x, world_y, r, col);
+                }
+            }
+
+            for (int i = 0; i < meridians; ++i)
+            {
+                const float a =
+                    two_pi * static_cast<float>(i) /
+                    static_cast<float>(meridians);
+                const Horse::FVec3 radial{
+                    std::cosf(a),
+                    std::sinf(a),
+                    0.0f
+                };
+                draw_ring(c, radial, world_z, radius, col);
+            }
+        };
+
+        for (int defender = 0; defender < 2; ++defender)
+        {
+            const int attacker = (defender == 0) ? 1 : 0;
+            if (!show_hurt_for_player[defender] ||
+                !show_attack_for_player[attacker])
+            {
+                continue;
+            }
+
+            for (const Horse::KHitDraw& hurt : draws[defender])
+            {
+                if (hurt.list != Horse::KHitList::Hurtbox ||
+                    hurt.kind != Horse::KHitKind::Sphere ||
+                    !hurt.defender_hurtbox_mask_valid ||
+                    hurt.defender_hurtbox_attack_mask == 0 ||
+                    !(hurt.reaction_overlap_this_frame ||
+                      hurt.accepted_exact_overlap_this_frame))
+                {
+                    continue;
+                }
+
+                for (const Horse::KHitDraw& attack : draws[attacker])
+                {
+                    if (attack.list != Horse::KHitList::Attack ||
+                        attack.kind != Horse::KHitKind::Sphere ||
+                        !attack.geom_active)
+                    {
+                        continue;
+                    }
+
+                    const uint64_t reaction_bits =
+                        hurt.reaction_overlap_matched_bits &
+                        attack.slot_bit_mask;
+                    const uint64_t accepted_exact_bits =
+                        hurt.accepted_exact_overlap_matched_bits &
+                        attack.slot_bit_mask;
+                    const bool reaction_pair = (reaction_bits != 0);
+                    const bool accepted_exact_pair =
+                        (accepted_exact_bits != 0);
+                    if (!reaction_pair && !accepted_exact_pair)
+                        continue;
+                    if (only_active && reaction_pair &&
+                        (!canMatterThisFrame(attack) ||
+                         !(canMatterThisFrame(hurt) ||
+                           hurt.reaction_overlap_this_frame)))
+                    {
+                        continue;
+                    }
+                    if (!khit_sphere_pair_overlaps_native(attack, hurt))
+                        continue;
+                    const bool accepted_only =
+                        accepted_exact_pair && !reaction_pair;
+                    const Horse::FLinColor pair_guide_col =
+                        accepted_only ? accepted_only_col : guide_col;
+                    const Horse::FLinColor pair_center_col =
+                        accepted_only ? accepted_only_center_col : center_col;
+                    const Horse::FLinColor pair_snapshot_attack_col =
+                        accepted_only ? accepted_only_snapshot_attack_col
+                                      : snapshot_attack_col;
+                    const Horse::FLinColor pair_snapshot_hurt_col =
+                        accepted_only ? accepted_only_snapshot_hurt_col
+                                      : snapshot_hurt_col;
+
+                    const float center_dist =
+                        distance3(attack.centre, hurt.centre);
+                    if (center_dist <= 0.001f)
+                        continue;
+                    Horse::FVec3 dir =
+                        scale3(sub3(hurt.centre, attack.centre),
+                               1.0f / center_dist);
+
+                    const Horse::FVec3 attack_shell =
+                        add3(attack.centre, scale3(dir, attack.radius));
+                    const Horse::FVec3 hurt_shell =
+                        sub3(hurt.centre, scale3(dir, hurt.radius));
+                    const Horse::FVec3 contact_mid =
+                        midpoint(attack_shell, hurt_shell);
+
+                    Horse::FVec3 tangent_u{};
+                    const Horse::FVec3 world_z{0.0f, 0.0f, 1.0f};
+                    const Horse::FVec3 world_x{1.0f, 0.0f, 0.0f};
+                    const Horse::FVec3 ref_axis =
+                        (std::fabsf(dot3(dir, world_z)) > 0.9f)
+                            ? world_x
+                            : world_z;
+                    if (!normalize3(cross3(dir, ref_axis), tangent_u))
+                        continue;
+                    Horse::FVec3 tangent_v{};
+                    if (!normalize3(cross3(dir, tangent_u), tangent_v))
+                        continue;
+                    const float marker_radius =
+                        (std::max)(18.0f,
+                                   (std::min)(36.0f,
+                                               hurt.radius * 0.9f));
+
+                    // Not a hitbox: this marks the exact native-accepted
+                    // sphere/sphere shell overlap so shallow contacts remain
+                    // visible even when the two wire lattices barely intersect.
+                    draw_snapshot_sphere(attack.centre, attack.radius,
+                                         pair_snapshot_attack_col);
+                    draw_snapshot_sphere(hurt.centre, hurt.radius,
+                                         pair_snapshot_hurt_col);
+                    emit_line(attack.centre, attack_shell,
+                              pair_guide_col, thickness + 0.75f);
+                    emit_line(hurt.centre, hurt_shell,
+                              pair_center_col, thickness + 0.75f);
+                    emit_line(attack_shell, hurt_shell,
+                              pair_guide_col, thickness + 2.0f);
+
+                    const float r0 = attack.radius;
+                    const float r1 = hurt.radius;
+                    const float x =
+                        ((center_dist * center_dist) - (r1 * r1) +
+                         (r0 * r0)) /
+                        (2.0f * center_dist);
+                    const float h2 = (r0 * r0) - (x * x);
+                    if (h2 >= -4.0f)
+                    {
+                        const float ring_radius =
+                            std::sqrtf((std::max)(0.0f, h2));
+                        const Horse::FVec3 intersection_center =
+                            add3(attack.centre, scale3(dir, x));
+                        if (ring_radius >= 2.0f)
+                        {
+                            draw_ring(intersection_center,
+                                      tangent_u, tangent_v,
+                                      ring_radius, pair_guide_col);
+                        }
+                        draw_cross(intersection_center,
+                                   (std::max)(10.0f,
+                                              (std::min)(30.0f,
+                                                         ring_radius * 0.35f)),
+                                   pair_guide_col);
+                    }
+                    else
+                    {
+                        draw_ring(contact_mid, tangent_u, tangent_v,
+                                  marker_radius, pair_guide_col);
+                        draw_cross(contact_mid, marker_radius, pair_guide_col);
+                    }
+
+                    draw_ring(attack_shell, tangent_u, tangent_v,
+                              marker_radius * 0.65f, pair_guide_col);
+                    draw_ring(hurt_shell, tangent_u, tangent_v,
+                              marker_radius * 0.65f, pair_center_col);
+                    draw_cross(attack_shell, marker_radius * 0.65f,
+                               pair_guide_col);
+                    draw_cross(hurt_shell, marker_radius * 0.65f,
+                               pair_center_col);
+                    draw_cross(hurt.centre,
+                               (std::max)(8.0f, hurt.radius * 0.35f),
+                               pair_center_col);
+
+                    if (++drawn >= 64)
+                        return;
+                }
+            }
+        }
+    }
+
+    void age_khit_contact_guide_latch(bool have_game_frame,
+                                      uint32_t game_frame)
+    {
+        if (m_khit_contact_guide_latch.empty())
+        {
+            m_have_khit_contact_guide_frame = have_game_frame;
+            m_last_khit_contact_guide_frame = game_frame;
+            return;
+        }
+
+        int elapsed = 0;
+        if (have_game_frame)
+        {
+            if (m_have_khit_contact_guide_frame)
+                elapsed = static_cast<int>(
+                    game_frame - m_last_khit_contact_guide_frame);
+            m_have_khit_contact_guide_frame = true;
+            m_last_khit_contact_guide_frame = game_frame;
+        }
+        else
+        {
+            elapsed = 1;
+            m_have_khit_contact_guide_frame = false;
+        }
+
+        if (elapsed <= 0)
+            return;
+
+        size_t write = 0;
+        for (size_t read = 0; read < m_khit_contact_guide_latch.size();
+             ++read)
+        {
+            KHitContactGuideLine line =
+                m_khit_contact_guide_latch[read];
+            line.frames_left -= elapsed;
+            if (line.frames_left <= 0)
+                continue;
+            if (write != read)
+                m_khit_contact_guide_latch[write] = line;
+            else
+                m_khit_contact_guide_latch[write].frames_left =
+                    line.frames_left;
+            ++write;
+        }
+        m_khit_contact_guide_latch.resize(write);
+    }
+
+    void draw_latched_khit_contact_guides(Horse::ILineOverlay& overlay)
+    {
+        for (const KHitContactGuideLine& line :
+             m_khit_contact_guide_latch)
+        {
+            overlay.drawLine(line.a, line.b, line.color, line.thickness);
         }
     }
 
@@ -1701,6 +3200,9 @@ private:
         m_backend_hurt.hideAll();
         m_backend_hit_once.hideAll();
         m_backend_hurt_once.hideAll();
+        m_khit_contact_guide_latch.clear();
+        m_have_khit_contact_guide_frame = false;
+        m_khit_render_calibration = {};
         m_have_trail_game_frame = false;
     }
 
@@ -1820,8 +3322,6 @@ private:
                 p.pos_x     = S.get_float((base + "_x").c_str(),    0.0f);
                 p.pos_y     = S.get_float((base + "_y").c_str(),    0.0f);
                 p.pos_z     = S.get_float((base + "_z").c_str(),    0.0f);
-                p.side_flag = static_cast<uint8_t>(
-                    S.get_int((base + "_side").c_str(),    0));
                 ro.set_pose(pi, p);
             }
         }
@@ -1905,7 +3405,6 @@ private:
                 S.set((base + "_x").c_str(),    p.pos_x);
                 S.set((base + "_y").c_str(),    p.pos_y);
                 S.set((base + "_z").c_str(),    p.pos_z);
-                S.set((base + "_side").c_str(), static_cast<int>(p.side_flag));
             }
         }
 
@@ -2021,6 +3520,9 @@ private:
     // unlikely but survivable).
     bool m_logged_pcm_resolve  = false;
     bool m_logged_pcm_fallback = false;
+    uint64_t m_chara_slot_validation_last_sig = 0;
+    int      m_chara_slot_validation_log_count = 0;
+    static constexpr int kCharaSlotValidationMaxLogsPerPresence = 8;
 
     static LONG CALLBACK vectored_exception_handler(
         EXCEPTION_POINTERS* ep) noexcept
@@ -2604,6 +4106,7 @@ public:
             scrub.service_state_snapshot_request();
             scrub.service_replay_file_start_request();
             service_replay_scrub_update_fallback();
+            service_chara_slot_runtime_validation("update");
         }
 
         const bool all_reset_registered = std::all_of(
@@ -4280,6 +5783,152 @@ private:
         m_backend_stage.invalidate();
         m_stage_boundary.invalidate();
         m_stage_visuals.invalidate();
+        m_chara_slot_validation_last_sig = 0;
+        m_chara_slot_validation_log_count = 0;
+    }
+
+    struct CharaSlotValidationSnap
+    {
+        bool ok = false;
+        uintptr_t ptr = 0;
+        uintptr_t opponent = 0;
+        uint8_t b23c = 0xff;
+        uint8_t b23e = 0xff;
+        uint16_t w24c = 0xffff;
+        uint16_t w24e = 0xffff;
+        uint16_t w250 = 0xffff;
+        uint16_t w252 = 0xffff;
+        uint16_t w254 = 0xffff;
+        uint16_t w256 = 0xffff;
+        int32_t n3a0 = INT32_MIN;
+        int32_t n3a4 = INT32_MIN;
+        int32_t n3a8 = INT32_MIN;
+    };
+
+    static CharaSlotValidationSnap read_chara_slot_validation_snap(
+        uintptr_t base, int player_index) noexcept
+    {
+        CharaSlotValidationSnap s{};
+        const uintptr_t slot_rva = player_index == 0
+            ? Horse::ReplayScrubDiag::kRVA_CharaSlotP1
+            : Horse::ReplayScrubDiag::kRVA_CharaSlotP2;
+
+        void* chara_raw = nullptr;
+        if (!Horse::SafeReadPtr(reinterpret_cast<const void*>(base + slot_rva),
+                                &chara_raw) || !chara_raw)
+            return s;
+
+        s.ok = true;
+        s.ptr = reinterpret_cast<uintptr_t>(chara_raw);
+        auto* c = static_cast<uint8_t*>(chara_raw);
+        void* opponent_raw = nullptr;
+        if (Horse::SafeReadPtr(c + 0x973E8, &opponent_raw))
+            s.opponent = reinterpret_cast<uintptr_t>(opponent_raw);
+        (void)Horse::SafeReadUInt8 (c + 0x23C, &s.b23c);
+        (void)Horse::SafeReadUInt8 (c + 0x23E, &s.b23e);
+        (void)Horse::SafeReadUInt16(c + 0x24C, &s.w24c);
+        (void)Horse::SafeReadUInt16(c + 0x24E, &s.w24e);
+        (void)Horse::SafeReadUInt16(c + 0x250, &s.w250);
+        (void)Horse::SafeReadUInt16(c + 0x252, &s.w252);
+        (void)Horse::SafeReadUInt16(c + 0x254, &s.w254);
+        (void)Horse::SafeReadUInt16(c + 0x256, &s.w256);
+        (void)Horse::SafeReadInt32 (c + 0x3A0, &s.n3a0);
+        (void)Horse::SafeReadInt32 (c + 0x3A4, &s.n3a4);
+        (void)Horse::SafeReadInt32 (c + 0x3A8, &s.n3a8);
+        return s;
+    }
+
+    static uint64_t mix_chara_slot_validation_sig(
+        uint64_t seed, const CharaSlotValidationSnap& s) noexcept
+    {
+        auto mix = [](uint64_t acc, uint64_t v) noexcept {
+            acc ^= v + 0x9E3779B97F4A7C15ull + (acc << 6) + (acc >> 2);
+            return acc;
+        };
+
+        seed = mix(seed, s.ok ? 1u : 0u);
+        seed = mix(seed, s.ptr);
+        seed = mix(seed, s.opponent);
+        seed = mix(seed, s.b23c);
+        seed = mix(seed, s.b23e);
+        seed = mix(seed, s.w24c);
+        seed = mix(seed, s.w24e);
+        seed = mix(seed, s.w250);
+        seed = mix(seed, s.w252);
+        seed = mix(seed, s.w254);
+        seed = mix(seed, s.w256);
+        seed = mix(seed, static_cast<uint32_t>(s.n3a0));
+        seed = mix(seed, static_cast<uint32_t>(s.n3a4));
+        seed = mix(seed, static_cast<uint32_t>(s.n3a8));
+        return seed;
+    }
+
+    void service_chara_slot_runtime_validation(const char* source)
+    {
+        const uintptr_t base = Horse::NativeBinding::imageBase();
+        if (!base)
+            return;
+
+        const CharaSlotValidationSnap p0 =
+            read_chara_slot_validation_snap(base, 0);
+        const CharaSlotValidationSnap p1 =
+            read_chara_slot_validation_snap(base, 1);
+        if (!p0.ok && !p1.ok)
+            return;
+
+        uint64_t sig = 0x5343365F323343ull;
+        sig = mix_chara_slot_validation_sig(sig, p0);
+        sig = mix_chara_slot_validation_sig(sig, p1);
+        if (sig == m_chara_slot_validation_last_sig)
+            return;
+        m_chara_slot_validation_last_sig = sig;
+
+        if (m_chara_slot_validation_log_count
+            >= kCharaSlotValidationMaxLogsPerPresence)
+            return;
+        ++m_chara_slot_validation_log_count;
+
+        Output::send<LogLevel::Default>(
+            STR("[Horse.CharaSlotValidation] source={} presence={} "
+                "P0 ok={} chara=0x{:x} opp=0x{:x} "
+                "+23c={} +23e={} +24c={} +24e={} +250={} +252={} "
+                "+254={} +256={} +3a0={} +3a4={} +3a8={} | "
+                "P1 ok={} chara=0x{:x} opp=0x{:x} "
+                "+23c={} +23e={} +24c={} +24e={} +250={} +252={} "
+                "+254={} +256={} +3a0={} +3a4={} +3a8={} "
+                "(validation: +23c should stay 0/1 if it is the "
+                "battle slot byte, not the character kind)\n"),
+            RC::to_generic_string(source ? source : "?"),
+            Horse::presence_name(
+                Horse::GameMode::instance().current_presence()),
+            p0.ok ? 1 : 0,
+            p0.ptr,
+            p0.opponent,
+            static_cast<unsigned>(p0.b23c),
+            static_cast<unsigned>(p0.b23e),
+            static_cast<unsigned>(p0.w24c),
+            static_cast<unsigned>(p0.w24e),
+            static_cast<unsigned>(p0.w250),
+            static_cast<unsigned>(p0.w252),
+            static_cast<unsigned>(p0.w254),
+            static_cast<unsigned>(p0.w256),
+            p0.n3a0,
+            p0.n3a4,
+            p0.n3a8,
+            p1.ok ? 1 : 0,
+            p1.ptr,
+            p1.opponent,
+            static_cast<unsigned>(p1.b23c),
+            static_cast<unsigned>(p1.b23e),
+            static_cast<unsigned>(p1.w24c),
+            static_cast<unsigned>(p1.w24e),
+            static_cast<unsigned>(p1.w250),
+            static_cast<unsigned>(p1.w252),
+            static_cast<unsigned>(p1.w254),
+            static_cast<unsigned>(p1.w256),
+            p1.n3a0,
+            p1.n3a4,
+            p1.n3a8);
     }
 
     void service_replay_scrub_update_fallback()
@@ -4418,6 +6067,7 @@ private:
                 Horse::GameMode::instance().current_presence()))
         {
             m_have_sphere_audit_frame = false;
+            m_khit_render_calibration = {};
             return;
         }
 
@@ -4426,6 +6076,7 @@ private:
         if (!wants_line_overlay)
         {
             m_have_sphere_audit_frame = false;
+            m_khit_render_calibration = {};
             return;
         }
 
@@ -4592,6 +6243,11 @@ private:
         }
         service_khit_sphere_audit_frame(have_trail_game_frame,
                                         trail_game_frame);
+        // Keep overlap rendering main-branch style: draw the native boxes
+        // only, then color the overlapping hurtbox.  Clear any stale guide
+        // latch from older accepted-contact-guide builds.
+        m_khit_contact_guide_latch.clear();
+        m_have_khit_contact_guide_frame = false;
 
         if (trail_frames_elapsed > 0)
         {
@@ -4599,6 +6255,20 @@ private:
                 static_cast<float>(trail_frames_elapsed) / 60.0f;
             m_backend_hit.advanceLifetime(game_seconds);
             m_backend_hurt.advanceLifetime(game_seconds);
+        }
+        auto trim_persistent_trails = [&](int target_lines) {
+            if (target_lines < 0)
+                target_lines = 0;
+            if (m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hit.trimOldestLines(target_lines);
+            if (m_backend_hurt.slot() == Horse::LineBatcherSlot::Persistent)
+                (void)m_backend_hurt.trimOldestLines(target_lines);
+        };
+        if (append_persistent_this_tick)
+        {
+            trim_persistent_trails(
+                kKHitPersistentTrailLineBudget -
+                kKHitPersistentTrailLineHeadroom);
         }
 
         m_backend_hit.beginFrame();
@@ -4611,6 +6281,10 @@ private:
             Horse::KHitWalker::charaSlotFromGlobal(0),
             Horse::KHitWalker::charaSlotFromGlobal(1),
         };
+        KHitRenderCalibrationFrame khit_render_calib =
+            read_khit_render_calibration_frame(slot_charas);
+        update_khit_render_calibration(khit_render_calib);
+
         Horse::KHitWalker::LaneSnapshot lane_snapshots[2] = {
             Horse::KHitWalker::readLaneSnapshot(slot_charas[0]),
             Horse::KHitWalker::readLaneSnapshot(slot_charas[1]),
@@ -4632,10 +6306,18 @@ private:
                 });
         }
 
+        mark_khit_accepted_overlap_candidates(khit_draws);
+        if (khit_render_calib.applied)
+            apply_render_offset_to_khit_draws(khit_draws,
+                                              khit_render_calib.active_offset);
+
         maybe_log_khit_overlap_pairs(
-            khit_draws, lane_snapshots,
+            khit_draws, lane_snapshots, khit_render_calib,
             have_trail_game_frame, trail_game_frame,
             desired_hit_slot, desired_hurt_slot);
+        maybe_log_khit_attack_clusters(
+            khit_draws, have_trail_game_frame, trail_game_frame,
+            desired_hit_slot);
 
         for (uint32_t pi = 0; pi < 2; ++pi)
         {
@@ -4650,21 +6332,47 @@ private:
                 shouldShow(player, Horse::KHitList::Body);
 
             // Snapshot the master visibility filter (see
-            // m_only_show_active block).  When enabled, attacks and hurts
-            // must pass the same engine-truth gates as before; only the
-            // owner source changed from UObject iteration to CharaSlot.
+            // m_only_show_active block).  Damage/audit truth still uses
+            // canMatterThisFrame(); attack rendering uses a visual-active
+            // predicate so hitboxes do not disappear just because they
+            // already connected and native re-hit lockout is set.
             const bool only_active = only_active_this_frame;
             if (!show_hurt && !show_atk && !show_body) continue;
 
             for (const Horse::KHitDraw& d : khit_draws[pi])
             {
                 const bool matters_this_frame = canMatterThisFrame(d);
-                const bool audit_exposes_this_frame =
-                    m_khit_sphere_audit.load(std::memory_order_relaxed) &&
-                    khit_audit_matches_filter(d, audit_attacker_lane) &&
-                    can_expose_khit_attack_for_audit(d);
+                Horse::LineBatcherSlot renderer_slot =
+                    Horse::LineBatcherSlot::Foreground;
+                switch (d.list)
+                {
+                    case Horse::KHitList::Attack:
+                        renderer_slot = m_backend_hit.slot();
+                        break;
+                    case Horse::KHitList::Hurtbox:
+                    case Horse::KHitList::Body:
+                        renderer_slot = m_backend_hurt.slot();
+                        break;
+                }
+                maybe_log_khit_audit(
+                    d, player, matters_this_frame,
+                    have_trail_game_frame, trail_game_frame,
+                    renderer_slot, audit_attacker_lane);
+
+                // Audit is observability only. Accepted overlap may keep the
+                // defender's hurtbox visible for color-only contact
+                // inspection, but it must not promote inactive attack
+                // candidates into hitboxes.
+                const bool hurt_overlap_highlight =
+                    d.list == Horse::KHitList::Hurtbox &&
+                    (d.reaction_overlap_this_frame ||
+                     d.accepted_exact_overlap_this_frame);
+                const bool attack_active_display =
+                    canRenderAttackShapeThisFrame(d);
                 const bool visible_when_filtered =
-                    matters_this_frame || audit_exposes_this_frame;
+                    matters_this_frame ||
+                    attack_active_display ||
+                    hurt_overlap_highlight;
                 switch (d.list)
                 {
                     case Horse::KHitList::Hurtbox:
@@ -4683,10 +6391,12 @@ private:
                 }
 
                 const Horse::FLinColor col = colourFor(d, player);
+                const bool trail_sample_eligible =
+                    matters_this_frame ||
+                    attack_active_display ||
+                    hurt_overlap_highlight;
                 Horse::LineBatcherBackend* trail_backend = nullptr;
                 Horse::LineBatcherBackend* current_backend = nullptr;
-                Horse::LineBatcherSlot renderer_slot =
-                    Horse::LineBatcherSlot::Foreground;
                 switch (d.list)
                 {
                     case Horse::KHitList::Attack:
@@ -4694,7 +6404,7 @@ private:
                         if (renderer_slot ==
                             Horse::LineBatcherSlot::Persistent)
                         {
-                            if (matters_this_frame &&
+                            if (trail_sample_eligible &&
                                 append_persistent_this_tick)
                             {
                                 trail_backend = &m_backend_hit;
@@ -4711,7 +6421,7 @@ private:
                         if (renderer_slot ==
                             Horse::LineBatcherSlot::Persistent)
                         {
-                            if (matters_this_frame &&
+                            if (trail_sample_eligible &&
                                 append_persistent_this_tick)
                             {
                                 trail_backend = &m_backend_hurt;
@@ -4732,17 +6442,20 @@ private:
                                 : &m_backend_hurt;
                         break;
                 }
-                maybe_log_khit_audit(
-                    d, player, matters_this_frame,
-                    have_trail_game_frame, trail_game_frame,
-                    renderer_slot, audit_attacker_lane);
                 if (trail_backend)
-                    Horse::DrawKHitDraw(*trail_backend, d, col, T);
+                    Horse::DrawKHitDrawTrailSample(*trail_backend, d, col, T);
                 if (current_backend)
-                    Horse::DrawKHitDraw(*current_backend, d, col, T);
+                {
+                    if (d.list == Horse::KHitList::Hurtbox)
+                        Horse::DrawKHitDrawCompact(
+                            *current_backend, d, col, T);
+                    else
+                        Horse::DrawKHitDraw(*current_backend, d, col, T);
+                }
             }
         }
 
+        trim_persistent_trails(kKHitPersistentTrailLineBudget);
         m_backend_hit.endFrame();
         m_backend_hurt.endFrame();
         m_backend_hit_once.endFrame();
@@ -4789,6 +6502,7 @@ private:
         }
 
         service_presence_transition_safety("cockpit");
+        service_chara_slot_runtime_validation("cockpit");
 
         if (replay_scrub.should_suppress_timeline_presentation())
         {
@@ -5109,8 +6823,9 @@ private:
 
     // ------------------------------------------------------------------
     // Colour scheme (engine-role driven, not size-heuristic)
-    //   Hurtboxes - green (receive volumes).  Bright red when reaction_hot
-    //               (this slot just got hit - sticky-extended).
+    //   Hurtboxes - green (receive volumes).  Bright red when native
+    //               overlap/reaction attribution marks this hurtbox, or
+    //               while the normal sticky hit flash is active.
     //   Attacks   - amber (strike) / magenta (throw/grab).  Hot (the
     //               currently-active cell) overrides to bright yellow for
     //               strikes or bright pink for throws so you can still see
@@ -5127,8 +6842,12 @@ private:
         {
             case Horse::KHitList::Hurtbox:
             {
-                if (d.reaction_hot)
+                if (d.reaction_overlap_this_frame ||
+                    d.accepted_exact_overlap_this_frame ||
+                    d.reaction_hot)
+                {
                     return Horse::FLinColor{ 1.0f, 0.15f, 0.15f, 1.0f };
+                }
 
                 // Chara-wide engine-frozen state.  Battle not
                 // running, chara incapacitated / dead, or chara in
@@ -5212,6 +6931,11 @@ private:
             {
                 const bool is_throw =
                     (d.attack_role == Horse::KHitAttackRole::Throw);
+                const bool visually_active =
+                    canRenderAttackShapeThisFrame(d);
+
+                if (d.reaction_overlap_this_frame)
+                    return Horse::FLinColor{ 1.0f, 1.0f, 1.0f, 1.0f };
 
                 // Throws keep the pink/magenta scheme - tier doesn't
                 // apply to grabs.  Hot vs cold variants only.  When the
@@ -5229,13 +6953,13 @@ private:
                     const bool gate_fail = !d.throw_height_gate_ok;
                     if (gate_fail)
                     {
-                        return d.is_per_frame_active
+                        return visually_active
                             ? Horse::FLinColor{ 0.65f, 0.50f, 0.60f, 0.85f }
                             : Horse::FLinColor{ 0.45f * player_tint,
                                                 0.35f,
                                                 0.40f * player_tint, 0.45f };
                     }
-                    return d.is_per_frame_active
+                    return visually_active
                         ? Horse::FLinColor{ 1.0f, 0.30f, 0.85f, 1.0f }  // hot throw = pink
                         : Horse::FLinColor{ 0.85f * player_tint,
                                             0.15f,
@@ -5259,7 +6983,7 @@ private:
                 // Hot (live this frame) variants are full saturation;
                 // cold variants are tinted by player_tint with 0.6 alpha.
                 const Horse::KHitAttackTier tier = d.attack_tier;
-                if (d.is_per_frame_active)
+                if (visually_active)
                 {
                     // Hot strike - pop out from other strikes.
                     switch (tier)
@@ -5931,7 +7655,8 @@ private:
             // free of inert controls.  Persistent batchers accumulate only
             // engine-live hit/hurt trail samples. Current active boxes,
             // inactive broad-view boxes, and body boxes are routed to
-            // one-frame Foreground fallbacks.
+            // one-frame Foreground fallbacks. Dense moves are line-capped
+            // and old trail samples are trimmed before the renderer stalls.
             const bool any_persistent =
                 m_slot_hit.load()  == Horse::LineBatcherSlot::Persistent ||
                 m_slot_hurt.load() == Horse::LineBatcherSlot::Persistent;
@@ -5951,12 +7676,19 @@ private:
                     "when SC6's game-frame counter advances, so freeze "
                     "holds the trail and F6 step drains one frame. "
                     "Only active hit/hurt boxes enter the trail; current "
-                    "boxes still redraw once per render frame.");
+                    "attack boxes still redraw detailed once per render "
+                    "frame, while hurtboxes and trail samples use compact "
+                    "rings. Dense moves auto-trim old trail samples to "
+                    "protect FPS.");
             }
 
             auto reset_sphere_audit_cadence = [&]() {
                 m_have_sphere_audit_frame = false;
-                m_sphere_audit_logs_this_frame = 0;
+                m_khit_audit_attack_logs_this_frame = 0;
+                m_khit_audit_hurt_logs_this_frame = 0;
+                m_khit_audit_pair_logs_this_frame = 0;
+                m_khit_audit_calib_logs_this_frame = 0;
+                m_khit_audit_cluster_logs_this_frame = 0;
             };
 
             bool audit = m_khit_sphere_audit.load();
@@ -5969,7 +7701,8 @@ private:
                 "Logs native KHit attack shapes, defender hit-result masks, "
                 "and paired attacker/hurtbox geometry to UE4SS.log once per "
                 "game frame. Use OverlapPair lines to compare native vs UE "
-                "centers for the exact incoming bit the engine accepted.");
+                "centers for the exact incoming bit the engine accepted. "
+                "This does not make extra boxes visible.");
 
             if (audit)
             {
@@ -6028,10 +7761,10 @@ private:
                 }
                 ImGui::PopItemWidth();
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "For attack nodes, matches node slot or category-mask "
+                    "For attack nodes, matches node slot or node+0x08 slot "
                     "bit. For hurt-result lines, the full incoming mask is "
-                    "logged when the move filter matches, so leave this off "
-                    "when searching for a missing contributor.");
+                    "logged whenever native wrote a nonzero mask, even if "
+                    "the move filter misses.");
 
                 if (ImGui::Button("Use 328 / all active slots"))
                 {
@@ -6679,6 +8412,21 @@ private:
 
     }
 
+    static bool read_labbing_live_distance(float& out) noexcept
+    {
+        for (uint32_t pi = 0; pi < 2; ++pi)
+        {
+            void* chara = Horse::KHitWalker::charaSlotFromGlobal(pi);
+            float distance = 0.0f;
+            if (Horse::KHitWalker::readOpponentDistance(chara, distance))
+            {
+                out = distance;
+                return true;
+            }
+        }
+        return false;
+    }
+
     // ==================================================================
     // Labbing tab - training-mode utilities for practising specific
     // setups: capture a custom reset pose and have the in-game training
@@ -6689,7 +8437,7 @@ private:
             // --- Reset position override -----------------------------
             // When enabled and the user has captured a pose, our post-
             // hook on TrainingModePositionReset replays the captured
-            // (X, Y, Z + side) for both players after the engine's
+            // (X, Y, Z) for both players after the engine's
             // own reset has run.  Press the in-game training-reset
             // bind (default Select on a pad) to trigger.
             ImGui::TextUnformatted("Reset position override");
@@ -6720,7 +8468,7 @@ private:
                     }
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Snapshot both characters' position and side. "
+                    "Snapshot both characters' positions. "
                     "Persistent across restarts.");
 
                 ImGui::SameLine();
@@ -6804,14 +8552,23 @@ private:
                     if (p.has)
                     {
                         ImGui::TextDisabled(
-                            "P%d  pos=(%.1f, %.1f, %.1f)  side=%s",
-                            pi + 1, p.pos_x, p.pos_y, p.pos_z,
-                            p.side_flag ? "right" : "left");
+                            "P%d  pos=(%.1f, %.1f, %.1f)",
+                            pi + 1, p.pos_x, p.pos_y, p.pos_z);
                     }
                     else
                     {
                         ImGui::TextDisabled("P%d  not captured yet", pi + 1);
                     }
+                }
+
+                float live_distance = 0.0f;
+                if (read_labbing_live_distance(live_distance))
+                {
+                    ImGui::TextDisabled("Live distance  %.2f", live_distance);
+                }
+                else
+                {
+                    ImGui::TextDisabled("Live distance  --");
                 }
 
                 const bool any_reset_registered = std::any_of(

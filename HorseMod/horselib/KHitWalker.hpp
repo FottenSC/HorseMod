@@ -32,9 +32,10 @@
 //                                                SolvePhys iterates
 //                                                param_1+0x400 = chara+0x44478.)
 //     +0x44498  KHitBase*  AttackListHead       (deal damage or initiate a
-//                                                grab.  The CategoryMask at
-//                                                node+0x08 drives classifier
-//                                                decisions.  Proof: tick pass
+//                                                grab.  The slot bit at
+//                                                node+0x08 is OR'd into
+//                                                defender hit-result masks.
+//                                                Proof: tick pass
 //                                                in LuxBattleChara_
 //                                                UpdateAllKHitWorldCenters
 //                                                @ 0x14030D6A0 iterates this
@@ -82,8 +83,8 @@
 //                                                per-frame active gate) to
 //                                                decide "hot" instead.)
 //     +0x44078  u64[22]    PerHurtboxBitmask    (defender-side aggregation —
-//                                                bitmask of attacking
-//                                                categories hitting hurtbox i)
+//                                                bitmask of attacker slot
+//                                                bits touching hurtbox i)
 //     +0x1c74   int32[22]  PerHurtboxReactionState (classifier output:
 //                                                0=None 1=Hit 2=BlockedLow
 //                                                3=BlockedHigh 4=MH_Loser
@@ -135,7 +136,7 @@
 //
 // The three lists therefore answer the user's three questions directly:
 //   * AttackList  → entries that DEAL damage (or initiate a grab if the
-//                   throw bits are set in the CategoryMask).
+//                   throw slot bits are set in the node+0x08 mask).
 //   * HurtboxList → entries that RECEIVE damage / reactions.
 //   * BodyList    → "other" — character-to-character pushing (physics).
 //                   Not involved in hit resolution.
@@ -189,7 +190,7 @@
 //                                            attack nodes this is the
 //                                            classifier slot (drives the
 //                                            Strike/Throw partition in the
-//                                            64-bit CategoryMask). For
+//                                            64-bit slot mask). For
 //                                            hurt/body nodes this is the
 //                                            defender-side kind index used
 //                                            directly into
@@ -272,6 +273,7 @@ namespace Horse
         constexpr uintptr_t OwnActiveAttackCell           = 0x44058;  // u64** -> u64 mask at [0]
         constexpr uintptr_t OpponentActiveAttackCellCopy  = 0x44048;  // u64** -> u64 mask at [0]
         constexpr uintptr_t CurrentActiveAttackCell       = 0x44048;  // legacy alias
+        constexpr uintptr_t OpponentDistance              = 0x15A0;   // float, XZ distance to opponent
 
         // --- Adjacent hit/move state pointers in the 0x44040..0x44070 cluster ---
         // Mapped 2026-04 (Ghidra pass).  Each is an 8-byte pointer into
@@ -372,9 +374,9 @@ namespace Horse
         constexpr uintptr_t BodyListCount           = 0x44470;  // head-0x8 (best-guess adjacency)
 
         // Attack list — deals damage (or initiates a grab if throw bits set
-        // in the CategoryMask).  Iterated by UpdateAllKHitWorldCenters
+        // in the node+0x08 slot mask).  Iterated by UpdateAllKHitWorldCenters
         // @ 0x14030D6A0 as the ATTACKER side; each node's +0x08
-        // CategoryMask is OR'd into opponent's PerHurtboxBitmask at the
+        // slot bit is OR'd into opponent's PerHurtboxBitmask at the
         // slot given by node+0x17.  Tick @ 0x14033CCA0 activates nodes
         // here via `*(node+0x14) = (hotMask >> node[+0x17]) & 1`.
         constexpr uintptr_t AttackListHead          = 0x44498;
@@ -880,8 +882,9 @@ namespace Horse
         //                           pipeline uses it for the physics
         //                           pair de-dup table at +0x44278.
         //
-        // We keep aliases for historical call sites that expected a
-        // "CategoryMask"-style u64; they all resolve to +0x08.
+        // We keep aliases for historical call sites that expected old
+        // names; they all resolve to +0x08.
+        constexpr uintptr_t SlotBitMask       = 0x08;   // Role-dependent raw u64.
         constexpr uintptr_t PerAttackerBit    = 0x08;   // Attack role  (1<<slotIdx)
         constexpr uintptr_t PerHurtboxBit     = 0x08;   // Hurtbox role (1<<boneSlot)
         constexpr uintptr_t BoneBitFlag       = 0x08;   // Hurtbox/Body (legacy alias)
@@ -1265,15 +1268,15 @@ namespace Horse
     constexpr uint64_t kAttackRoleThrowMask  = 0x0080000080000000ull;
     constexpr uint64_t kAttackRoleStrikeMask = 0xFF7FFFFF7FFFFFFFull;
 
-    // Classify an attack node's CategoryMask into a role.  Throw bits
+    // Classify an attack node's slot bit into a role.  Throw bits
     // take priority — if either grab bit is set, we call it a throw
     // regardless of strike-region content (matches the classifier's
     // pre-scan behaviour which bails out of the strike loop on any
     // throw bit).
-    inline KHitAttackRole ClassifyAttackRole(uint64_t categoryMask)
+    inline KHitAttackRole ClassifyAttackRole(uint64_t slotBitMask)
     {
-        if (categoryMask & kAttackRoleThrowMask)  return KHitAttackRole::Throw;
-        if (categoryMask & kAttackRoleStrikeMask) return KHitAttackRole::Strike;
+        if (slotBitMask & kAttackRoleThrowMask)  return KHitAttackRole::Throw;
+        if (slotBitMask & kAttackRoleStrikeMask) return KHitAttackRole::Strike;
         // Mask is all zero — unusual but not fatal.  Default to Strike so
         // the overlay still renders the box.
         return KHitAttackRole::Strike;
@@ -1317,7 +1320,7 @@ namespace Horse
         // own per-tick frame-window phase tag at chara+0x1980:
         //
         //   is_per_frame_active = (node[+0x14] != 0)                  // geom-hot
-        //                      && ((node.CategoryMask & per_move_cell) != 0)
+        //                      && ((node.slot_bit_mask & per_move_cell) != 0)
         //                      && (chara->FrameWindowPhase == Active)  // 2026-05
         //
         // *** PHASE TAG ADDITION (2026-05) ***
@@ -1343,16 +1346,16 @@ namespace Horse
         //     per-frame sub-cell.
         //   * For the damage classifier: bit C = "category C is
         //     active this frame" — ANDed with the attack node's
-        //     authored CategoryMask at node[+0x08] to decide if
+        //     authored slot bit at node[+0x08] to decide if
         //     overlap → damage.
         //
         // Same 64 bits, different semantic.  This filter intersects
-        // the attack's CategoryMask with the cell, mirroring the
+        // the attack's slot bit with the cell, mirroring the
         // classifier path.  That correctly handles both:
         //   * Floor-slot attacks (slots 0, 2..17 — body-attached
         //     hitboxes whose +0x14 is always set by the floor).
         //     Hidden during neutral (cell == 0); shown during moves
-        //     whose categories overlap this node's authored CategoryMask
+        //     whose active slot mask overlaps this node's authored bit
         //     AND only during the Active frames of those moves.
         //   * Non-floor attacks (slot >= 18).  +0x14 already requires
         //     the slot bit in the cell, so the category intersection
@@ -1365,11 +1368,17 @@ namespace Horse
         //       every attack.
         //   v2: +0x14 minus 0x3FFFD floor — hid the floor-slot
         //       attacks (body-attached hitboxes).
-        //   v3: +0x14 != 0 AND (cat_mask & ownAttackMask) != 0 —
+        //   v3: +0x14 != 0 AND (slot_bit_mask & ownAttackMask) != 0 —
         //       worked, but spanned all three phases (the "active
         //       through entire move" bug).
-        //   v4 (current): v3 AND (phase == Active) — narrows to
+        //   v4: v3 AND (phase == Active) — narrows to
         //       authored hit-window frames only.
+        //   v5 (current): +0x14 AND the native classifier readiness gates:
+        //       primary pass requires +0x16E5, +0x16EA, quiet +0x16EB/
+        //       +0x16FE, and a slot/category match in ownAttackMask; Lane 2
+        //       alt-classify can still make a matching attack live through
+        //       alt_attack_mask. engine_phase is retained for HUD/audit
+        //       context, but phase==Active is not the final damage-live gate.
         //
         // Always false for hurtbox / body entries.
         bool        is_per_frame_active;
@@ -1402,6 +1411,16 @@ namespace Horse
         // window).  HUD active indicators should prefer this for
         // exact engine-truth fidelity.
         bool        in_master_window = false;
+
+        // Native classifier gate diagnostics, read from the attacker chara
+        // and stamped onto every draw for that chara. These are the gates
+        // ResolveAttackVsHurtboxMask22 relies on before treating a primary
+        // attack slot as damage-live.
+        bool        classify_enabled = false;        // chara+0x16E5 != 0
+        bool        attack_in_master_window = false; // chara+0x16EA != 0
+        bool        attack_lockout_a = false;        // chara+0x16EB != 0
+        bool        attack_lockout_b = false;        // chara+0x16FE != 0
+        bool        attack_classifier_ready = false;
 
         // MasterWindow start/end frames from the active cell (+0x36/+0x38).
         // 0/0 when no cell is active.  These are i16 in animation-frame
@@ -1619,11 +1638,36 @@ namespace Horse
         // assignment site for rationale.  -1 for non-hurtbox nodes.
         int         hurtbox_slot;
 
-        // Raw u64 at node+0x08.  Meaning depends on `list`:
-        //   Attack  → CategoryMask (what bits trigger what reactions)
-        //   Hurt    → BoneBitFlag
-        //   Body    → BoneBitFlag
-        uint64_t    category_or_bone_mask = 0;
+        // Raw u64 at node+0x08. Meaning depends on `list`:
+        //   Attack  -> PerAttackerBit
+        //   Hurt    -> PerHurtboxBit
+        //   Body    -> PerBodyBit
+        // Native code derives it as 1ULL << (node[+0x17] & 0x3F).
+        uint64_t    slot_bit_mask = 0;
+
+        // Set after both players' KHit lists are collected.
+        //
+        // accepted_overlap_* is the broad native geometry/mask set: defender
+        // PerHurtboxBitmask[hurt_slot] contains this attack node's +0x08 bit,
+        // and the reconstructed geometry is plausible.
+        //
+        // reaction_overlap_* is narrower: the defender slot also had a raw
+        // PerHurtboxReactionState pulse, and the attack node passed the
+        // damage-live predicate for that frame.  This is still a candidate
+        // set, not proof of a single winning node, because native reaction
+        // state is per defender slot while multiple attack nodes can share
+        // or simultaneously satisfy the incoming mask.
+        bool        accepted_overlap_this_frame = false;
+        uint64_t    accepted_overlap_matched_bits = 0;
+        int         accepted_overlap_pair_count = 0;
+        bool        accepted_overlap_ambiguous = false;
+        bool        accepted_exact_overlap_this_frame = false;
+        uint64_t    accepted_exact_overlap_matched_bits = 0;
+        int         accepted_exact_overlap_pair_count = 0;
+        bool        reaction_overlap_this_frame = false;
+        uint64_t    reaction_overlap_matched_bits = 0;
+        int         reaction_overlap_pair_count = 0;
+        bool        reaction_overlap_ambiguous = false;
 
         // Engine-derived role for Attack-list entries.  Always NotAttack
         // for Hurtbox / Body so the UI can gate uniformly.
@@ -1660,6 +1704,8 @@ namespace Horse
         FVec3       native_spine_p2_world{};
         FVec3       native_prev_p1_world{};
         FVec3       native_prev_p2_world{};
+        bool        native_shape_active = true;
+        bool        native_prev_shape_active = true;
 
         // FixAreaTri uses corners[0..2] as native world P1/P2/P3 converted
         // to UE render world.
@@ -1672,8 +1718,11 @@ namespace Horse
         FVec3       native_centre;
         FVec3       native_live_local_centre;
         FVec3       native_authored_local_centre;
+        FVec3       sphere_live_local_delta{};
         float       native_radius = 0.0f;
         float       native_authored_radius = 0.0f;
+        float       sphere_live_radius_scale = 1.0f;
+        bool        sphere_anim_modified = false;
 
         // ==== Active attack cell metadata (chara+0x44058 -> cell) ====
         // The currently-active LuxBattleAttackCell on THIS chara — the
@@ -1851,11 +1900,13 @@ namespace Horse
         // TickHitResolutionAndBodyCollision when selecting the active
         // attack cell for this game frame.
         bool        has_move_identity       = false;
+        bool        active_move_valid       = false;
         uint16_t    active_packed_move      = 0xFFFFu;
         uint16_t    active_move_id_low11    = 0xFFFFu;
         uint16_t    move_subframe_id        = 0xFFFFu;
         uint64_t    primary_attack_mask     = 0;
         bool        attack_mask_selected    = false;
+        bool        attack_mask_stale       = false;
     };
 
     class KHitWalker
@@ -1889,6 +1940,22 @@ namespace Horse
             if (!SafeReadPtr(reinterpret_cast<const void*>(slot_addr), &chara))
                 return nullptr;
             return chara;
+        }
+
+        // Read the engine-cached raw opponent distance used by the MoveVM
+        // attack-range predicate.  This is an XZ-plane distance, not a KHit
+        // volume intersection or weapon reach measurement.
+        static bool readOpponentDistance(void* chara, float& out) noexcept
+        {
+            if (!chara) return false;
+            auto* bytes = reinterpret_cast<const uint8_t*>(chara);
+            float distance = 0.0f;
+            if (!SafeReadFloat(bytes + ChaOffsets::OpponentDistance, &distance))
+                return false;
+            if (!std::isfinite(distance))
+                return false;
+            out = distance;
+            return true;
         }
 
         // Read this chara's 64-bit "own active attack cell" mask — the
@@ -3107,6 +3174,22 @@ namespace Horse
                           &in_master_window_byte);
             const bool in_master_window = (in_master_window_byte != 0);
 
+            uint8_t classify_enabled_byte = 0;
+            uint8_t lockout_a_byte = 0;
+            uint8_t lockout_b_byte = 0;
+            SafeReadUInt8(bytes + ChaOffsets::ClassifyEnableGate,
+                          &classify_enabled_byte);
+            SafeReadUInt8(bytes + ChaOffsets::SubWindowInhibitorA,
+                          &lockout_a_byte);
+            SafeReadUInt8(bytes + ChaOffsets::SubWindowInhibitorB,
+                          &lockout_b_byte);
+            const bool classify_enabled =
+                (classify_enabled_byte != 0);
+            const bool attack_lockout_a =
+                (lockout_a_byte != 0);
+            const bool attack_lockout_b =
+                (lockout_b_byte != 0);
+
             // Active-cell attack flags (cell+0x32) and input cond (cell+0x34).
             // Stamped onto every attack KHitDraw so callers can colour /
             // label hitboxes by tier (High / Mid / Low / Unblockable).
@@ -3155,6 +3238,7 @@ namespace Horse
                      reactions, reactions_hot,
                      hurt_slot_count, defender_can_react,
                      chara_phase, mwin_start, mwin_end, in_master_window,
+                     classify_enabled, attack_lockout_a, attack_lockout_b,
                      cell_attack_flags, cell_input_cond, cell_attack_tier,
                      stance, throw_height, hurt_invul, final_hit_result,
                      alt_snap, visit);
@@ -3166,6 +3250,7 @@ namespace Horse
                      reactions, reactions_hot,
                      hurt_slot_count, defender_can_react,
                      chara_phase, mwin_start, mwin_end, in_master_window,
+                     classify_enabled, attack_lockout_a, attack_lockout_b,
                      cell_attack_flags, cell_input_cond, cell_attack_tier,
                      stance, throw_height, hurt_invul, final_hit_result,
                      alt_snap, visit);
@@ -3177,6 +3262,7 @@ namespace Horse
                      reactions, reactions_hot,
                      hurt_slot_count, defender_can_react,
                      chara_phase, mwin_start, mwin_end, in_master_window,
+                     classify_enabled, attack_lockout_a, attack_lockout_b,
                      cell_attack_flags, cell_input_cond, cell_attack_tier,
                      stance, throw_height, hurt_invul, final_hit_result,
                      alt_snap, visit);
@@ -3260,6 +3346,9 @@ namespace Horse
                              // Boolean from chara+0x16EA — same as
                              // (phase == Active) AND inhibitors quiet.
                              bool     charaInMasterWindow,
+                             bool     charaClassifyEnabled,
+                             bool     charaAttackLockoutA,
+                             bool     charaAttackLockoutB,
                              // Active cell metadata (cell+0x32 AttackFlags
                              // + cell+0x34 InputCond + derived tier).
                              // Pre-read once per chara per tick.  Stamped
@@ -3325,7 +3414,7 @@ namespace Horse
                 uint8_t  boneId    = 0;
                 uint16_t activeGate= 0;   // +0x14, engine's per-frame live bit
                 uint32_t flags10   = 0;
-                uint64_t cat_mask  = 0;   // +0x08, CategoryMask or BoneBitFlag
+                uint64_t slot_bit_mask = 0;   // +0x08, role-dependent slot bit.
                 void*    next      = nullptr;
                 if (!SafeReadUInt8(nbytes + KHitOffsets::StreamTypeTag, &streamTag))
                     break;
@@ -3333,7 +3422,8 @@ namespace Horse
                     break;
                 SafeReadUInt16(nbytes + KHitOffsets::IsActiveThisFrame, &activeGate);
                 SafeReadUInt32(nbytes + KHitOffsets::Flags10, &flags10);
-                SafeReadUInt64(nbytes + KHitOffsets::CategoryMask, &cat_mask);
+                SafeReadUInt64(nbytes + KHitOffsets::SlotBitMask,
+                               &slot_bit_mask);
                 SafeReadPtr(nbytes + KHitOffsets::Next, &next);
                 ++walked;
 
@@ -3470,12 +3560,14 @@ namespace Horse
                 // the unified engine-live visibility filter, which
                 // uses is_per_frame_active.)
                 d.is_damage_active      = (listKind == KHitList::Attack &&
+                                           hasMoveIdentity &&
+                                           activePackedMove != 0xFFFFu &&
                                            slotBitInMask(boneId,
                                                          ownAttackMask));
                 // Per-frame damage gate — mirrors the classifier
                 // predicate at ResolveAttackVsHurtboxMask22 (0x14033C100):
                 //   capable_of_damage iff (+0x14 != 0)
-                //                       && ((node.CategoryMask & per_move_cell) != 0)
+                //                       && ((node.slot_bit_mask & per_move_cell) != 0)
                 //
                 // This handles BOTH cases correctly:
                 //   * Floor-slot attacks (slots 0, 2..17, body-attached
@@ -3498,6 +3590,10 @@ namespace Horse
                 // for this tick — see KHitDraw doc for rationale.
                 d.engine_phase          = charaPhase;
                 d.in_master_window      = charaInMasterWindow;
+                d.classify_enabled      = charaClassifyEnabled;
+                d.attack_in_master_window = charaInMasterWindow;
+                d.attack_lockout_a      = charaAttackLockoutA;
+                d.attack_lockout_b      = charaAttackLockoutB;
                 d.master_window_start   = charaMasterWindowStart;
                 d.master_window_end     = charaMasterWindowEnd;
 
@@ -3546,6 +3642,8 @@ namespace Horse
                 d.alt_classify_open  = charaAltSnap.is_open;
                 d.alt_attack_mask    = charaAltSnap.lane2_mask;
                 d.has_move_identity  = hasMoveIdentity;
+                d.active_move_valid  = hasMoveIdentity &&
+                                       activePackedMove != 0xFFFFu;
                 d.active_packed_move = activePackedMove;
                 d.active_move_id_low11 = activeMoveIdLow11;
                 d.move_subframe_id   = moveSubFrameId;
@@ -3569,19 +3667,34 @@ namespace Horse
                 // not in the primary cell would otherwise be incorrectly
                 // hidden by the engine-live visibility filter.
                 const bool primary_active =
-                    (cat_mask & ownAttackMask) != 0;
+                    d.active_move_valid &&
+                    (slot_bit_mask & ownAttackMask) != 0;
                 const bool alt_active =
                     charaAltSnap.is_open &&
-                    (cat_mask & charaAltSnap.lane2_mask) != 0;
+                    (slot_bit_mask & charaAltSnap.lane2_mask) != 0;
+                // Current predicate: phase is diagnostic only. The primary
+                // path requires the native classify/master-window bytes,
+                // quiet lockout bytes, and a primary slot/category match;
+                // Lane 2 remains eligible through its own open mask.
+                const bool primary_ready =
+                    charaClassifyEnabled &&
+                    charaInMasterWindow &&
+                    !charaAttackLockoutA &&
+                    !charaAttackLockoutB &&
+                    primary_active;
+                const bool alt_ready = alt_active;
                 d.attack_mask_selected = primary_active || alt_active;
+                d.attack_mask_stale = (listKind == KHitList::Attack &&
+                                       !d.active_move_valid &&
+                                       (slot_bit_mask & ownAttackMask) != 0);
+                d.attack_classifier_ready = primary_ready || alt_ready;
                 d.is_per_frame_active = (listKind == KHitList::Attack &&
                                          activeGate != 0 &&
-                                         (primary_active || alt_active) &&
-                                         charaPhase == KHitAttackPhase::Active);
+                                         d.attack_classifier_ready);
                 d.stream_tag            = streamTag;
                 d.bone_id_internal      = boneId;
                 d.flags10               = flags10;
-                d.category_or_bone_mask = cat_mask;
+                d.slot_bit_mask         = slot_bit_mask;
                 // Hurtbox slot is the node's authored +0x17 (SubIdOrBoneId),
                 // NOT the linked-list position.  The engine's classifier at
                 // 0x14033C100 writes PerHurtboxReactionState[slotIndex] where
@@ -3600,7 +3713,7 @@ namespace Horse
 
                 // Engine-derived role — only meaningful for attacks.
                 d.attack_role = (listKind == KHitList::Attack)
-                                ? ClassifyAttackRole(cat_mask)
+                                ? ClassifyAttackRole(slot_bit_mask)
                                 : KHitAttackRole::NotAttack;
 
                 // Defender-side reaction lookup.  `reactions[]` is the
@@ -3688,6 +3801,8 @@ namespace Horse
 
         static FVec3 BattleWorldToUERenderWorld(const FVec3& battleWorld)
         {
+            // Native KHit world buffers already use battle Y as vertical.
+            // Do not mirror this to compensate for Scuffle/local-axis edits.
             return FVec3{
                 battleWorld.X * kBattleToUE,
                 battleWorld.Z * kBattleToUE,
@@ -3726,15 +3841,44 @@ namespace Horse
             out.native_centre = nativeWorld;
             out.native_radius = radius;
             out.native_live_local_centre = local;
-            (void)readVec3(node + KHitOffsets::SphereAuthoredLocalCenter,
-                           out.native_authored_local_centre);
+            FVec3 authoredLocal{};
+            const bool haveAuthoredLocal =
+                readVec3(node + KHitOffsets::SphereAuthoredLocalCenter,
+                         authoredLocal);
+            if (haveAuthoredLocal)
+                out.native_authored_local_centre = authoredLocal;
             float authoredRadius = 0.0f;
-            if (SafeReadFloat(node + KHitOffsets::SphereRadiusAuthored,
-                              &authoredRadius))
+            const bool haveAuthoredRadius =
+                SafeReadFloat(node + KHitOffsets::SphereRadiusAuthored,
+                              &authoredRadius);
+            if (haveAuthoredRadius)
             {
                 if (authoredRadius < 0.0f) authoredRadius = -authoredRadius;
                 out.native_authored_radius = authoredRadius;
             }
+            if (haveAuthoredLocal)
+            {
+                out.sphere_live_local_delta = FVec3{
+                    local.X - authoredLocal.X,
+                    local.Y - authoredLocal.Y,
+                    local.Z - authoredLocal.Z
+                };
+            }
+            if (haveAuthoredRadius && authoredRadius > 0.000001f)
+                out.sphere_live_radius_scale = radius / authoredRadius;
+            else
+                out.sphere_live_radius_scale = 1.0f;
+
+            const float dx = out.sphere_live_local_delta.X;
+            const float dy = out.sphere_live_local_delta.Y;
+            const float dz = out.sphere_live_local_delta.Z;
+            const bool localModified =
+                haveAuthoredLocal &&
+                (dx * dx + dy * dy + dz * dz) > 0.000001f;
+            const bool radiusModified =
+                haveAuthoredRadius &&
+                std::fabsf(radius - authoredRadius) > 0.0005f;
+            out.sphere_anim_modified = localModified || radiusModified;
 
             out.centre = BattleWorldToUERenderWorld(nativeWorld);
             return true;
@@ -3773,6 +3917,8 @@ namespace Horse
             out.prev_p1_world  = out.spine_p1_world;
             out.prev_p2_world  = out.spine_p2_world;
             out.has_prev_spine = false;
+            out.native_shape_active = true;
+            out.native_prev_shape_active = false;
             if (readVec3(node + prevBase, prevP1) &&
                 readVec3(node + prevBase + 0x10, prevP2))
             {
@@ -3783,6 +3929,23 @@ namespace Horse
                 out.has_prev_spine =
                     !(sameVec3(out.prev_p1_world, out.spine_p1_world) &&
                       sameVec3(out.prev_p2_world, out.spine_p2_world));
+                if (out.has_prev_spine)
+                {
+                    KHitObbScratchBlock curScratch{};
+                    if (NativeBinding::buildKHitObbScratch(
+                            curScratch, curP1, curP2, prevP2))
+                    {
+                        out.native_shape_active = (curScratch.Active != 0);
+                    }
+
+                    KHitObbScratchBlock prevScratch{};
+                    if (NativeBinding::buildKHitObbScratch(
+                            prevScratch, curP1, prevP2, prevP1))
+                    {
+                        out.native_prev_shape_active =
+                            (prevScratch.Active != 0);
+                    }
+                }
             }
             return true;
         }
@@ -3806,6 +3969,14 @@ namespace Horse
             out.corners[0] = BattleWorldToUERenderWorld(worldP1);
             out.corners[1] = BattleWorldToUERenderWorld(worldP2);
             out.corners[2] = BattleWorldToUERenderWorld(worldP3);
+            out.native_shape_active = true;
+            out.native_prev_shape_active = false;
+            KHitObbScratchBlock scratch{};
+            if (NativeBinding::buildKHitObbScratch(
+                    scratch, worldP1, worldP2, worldP3))
+            {
+                out.native_shape_active = (scratch.Active != 0);
+            }
             out.kind = KHitKind::FixAreaTri;
             return true;
         }
@@ -3832,6 +4003,11 @@ namespace Horse
                                  color, thickness);
                 overlay.drawLine(d.spine_p2_world, d.prev_p2_world,
                                  color, thickness);
+                if (d.native_shape_active || d.native_prev_shape_active)
+                {
+                    overlay.drawLine(d.spine_p1_world, d.prev_p2_world,
+                                     color, thickness);
+                }
             }
             return;
         }
@@ -3840,33 +4016,127 @@ namespace Horse
         {
             overlay.drawLine(d.corners[0], d.corners[1], color, thickness);
             overlay.drawLine(d.corners[0], d.corners[2], color, thickness);
+            if (d.native_shape_active)
+            {
+                overlay.drawLine(d.corners[1], d.corners[2],
+                                 color, thickness);
+            }
             return;
         }
 
-        // Sphere: approximate with 3 axis-aligned rings at centre.
-        // Each ring is N segments; 16 looks smooth at normal camera distance.
-        constexpr int N = 16;
+        // Sphere: draw a small latitude/longitude lattice instead of only
+        // three great circles. Large edited hitboxes can make shallow
+        // shell-to-shell contacts that fall between the old fixed rings,
+        // which made the authoritative sphere look visually disconnected.
+        const bool largeSphere = d.radius >= 75.0f;
+        const int segments = largeSphere ? 40 : 20;
+        const int meridians = largeSphere ? 16 : 6;
+        const int latitudes = largeSphere ? 11 : 5;
         constexpr float TWO_PI = 6.283185307179586f;
-        auto ring = [&](int axis) {
+        auto draw_circle = [&](const FVec3& centre,
+                               const FVec3& axis_u,
+                               const FVec3& axis_v,
+                               float radius) {
             FVec3 prev{};
-            for (int i = 0; i <= N; ++i)
+            for (int i = 0; i <= segments; ++i)
             {
                 const float a = TWO_PI * static_cast<float>(i)
-                              / static_cast<float>(N);
-                const float c = d.radius * std::cosf(a);
-                const float s = d.radius * std::sinf(a);
-                FVec3 p;
-                switch (axis)
-                {
-                    case 0: p = FVec3{d.centre.X,     d.centre.Y + c, d.centre.Z + s}; break;
-                    case 1: p = FVec3{d.centre.X + c, d.centre.Y,     d.centre.Z + s}; break;
-                    default: p = FVec3{d.centre.X + c, d.centre.Y + s, d.centre.Z};    break;
-                }
+                              / static_cast<float>(segments);
+                const float c = radius * std::cosf(a);
+                const float s = radius * std::sinf(a);
+                FVec3 p{
+                    centre.X + axis_u.X * c + axis_v.X * s,
+                    centre.Y + axis_u.Y * c + axis_v.Y * s,
+                    centre.Z + axis_u.Z * c + axis_v.Z * s
+                };
                 if (i > 0) overlay.drawLine(prev, p, color, thickness);
                 prev = p;
             }
         };
-        ring(0); ring(1); ring(2);
+
+        constexpr FVec3 world_x{1.0f, 0.0f, 0.0f};
+        constexpr FVec3 world_y{0.0f, 1.0f, 0.0f};
+        constexpr FVec3 world_z{0.0f, 0.0f, 1.0f};
+
+        // Equator plus horizontal latitude rings around UE world-Z.
+        draw_circle(d.centre, world_x, world_y, d.radius);
+        for (int i = 1; i <= latitudes; ++i)
+        {
+            const float t = static_cast<float>(i) /
+                            static_cast<float>(latitudes + 1);
+            const float z = d.radius * std::sinf((t - 0.5f) * 3.141592653589793f);
+            if (std::fabsf(z) < 0.001f)
+                continue;
+            const float r = std::sqrtf((std::max)(0.0f, d.radius * d.radius - z * z));
+            draw_circle(FVec3{d.centre.X, d.centre.Y, d.centre.Z + z},
+                        world_x, world_y, r);
+        }
+
+        // Vertical meridians at several azimuths.
+        for (int i = 0; i < meridians; ++i)
+        {
+            const float a = TWO_PI * static_cast<float>(i)
+                          / static_cast<float>(meridians);
+            const FVec3 radial{std::cosf(a), std::sinf(a), 0.0f};
+            draw_circle(d.centre, radial, world_z, d.radius);
+        }
+    }
+
+    inline void DrawKHitDrawCompact(ILineOverlay& overlay,
+                                    const KHitDraw& d,
+                                    const FLinColor& color,
+                                    float thickness)
+    {
+        if (d.kind == KHitKind::AreaSpine ||
+            d.kind == KHitKind::FixAreaTri)
+        {
+            DrawKHitDraw(overlay, d, color, thickness);
+            return;
+        }
+
+        // Compact sphere draw for dense visual layers.  This preserves the
+        // native center/radius and the familiar three-axis sphere read while
+        // avoiding the full latitude/longitude lattice cost.
+        const int segments = (d.radius >= 75.0f) ? 24 : 16;
+        constexpr float TWO_PI = 6.283185307179586f;
+        auto draw_circle = [&](const FVec3& centre,
+                               const FVec3& axis_u,
+                               const FVec3& axis_v,
+                               float radius) {
+            FVec3 prev{};
+            for (int i = 0; i <= segments; ++i)
+            {
+                const float a = TWO_PI * static_cast<float>(i)
+                              / static_cast<float>(segments);
+                const float c = radius * std::cosf(a);
+                const float s = radius * std::sinf(a);
+                FVec3 p{
+                    centre.X + axis_u.X * c + axis_v.X * s,
+                    centre.Y + axis_u.Y * c + axis_v.Y * s,
+                    centre.Z + axis_u.Z * c + axis_v.Z * s
+                };
+                if (i > 0) overlay.drawLine(prev, p, color, thickness);
+                prev = p;
+            }
+        };
+
+        constexpr FVec3 world_x{1.0f, 0.0f, 0.0f};
+        constexpr FVec3 world_y{0.0f, 1.0f, 0.0f};
+        constexpr FVec3 world_z{0.0f, 0.0f, 1.0f};
+        draw_circle(d.centre, world_x, world_y, d.radius);
+        draw_circle(d.centre, world_x, world_z, d.radius);
+        draw_circle(d.centre, world_y, world_z, d.radius);
+    }
+
+    inline void DrawKHitDrawTrailSample(ILineOverlay& overlay,
+                                        const KHitDraw& d,
+                                        const FLinColor& color,
+                                        float thickness)
+    {
+        // Persistent trails can accumulate thousands of samples.  Store
+        // trail history using compact geometry so dense multi-hit moves
+        // stay affordable.
+        DrawKHitDrawCompact(overlay, d, color, thickness);
     }
 
 } // namespace Horse

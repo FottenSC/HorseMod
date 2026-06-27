@@ -106,11 +106,14 @@ namespace Horse
     // Confirmed in Ghidra at Z_Construct_UClass_UWorld:
     //   LineBatcher            @ +0x40   depth-tested, per-frame  (REMOVED)
     //   PersistentLineBatcher  @ +0x48   depth-tested, persist until flush
-    //   ForegroundLineBatcher  @ +0x50   NO depth test, always-on-top
+    //   ForegroundLineBatcher  @ +0x50   foreground debug batcher
     //
     // Persistent vs Foreground:
     //   Foreground — always-on-top.  Best general default.  Hitbox /
     //                hurtbox shapes read cleanly at any camera angle.
+    //                Direct TArray writes must also stamp each FBatchedLine
+    //                with SDPG_Foreground; the batcher pointer alone is not
+    //                enough because the scene proxy consumes DepthPriority.
     //   Persistent — depth-tested + lines remain alive until the caller
     //                advances/clears their lifetime.  Useful for tracing
     //                engine-live hitbox / hurtbox paths across a move.
@@ -292,7 +295,12 @@ namespace Horse
             slot->Color             = color;
             slot->Thickness         = (thickness > 0.0f) ? thickness : 1.0f;
             slot->RemainingLifeTime = m_lifetime;
-            slot->DepthPriority     = 0;   // SDPG_World — depth-tested
+            constexpr uint8_t kSDPGWorld = 0;
+            constexpr uint8_t kSDPGForeground = 1;
+            slot->DepthPriority =
+                (m_slot == LineBatcherSlot::Foreground)
+                    ? kSDPGForeground
+                    : kSDPGWorld;
             slot->_pad[0] = slot->_pad[1] = slot->_pad[2] = 0;
             arr->Num += 1;
         }
@@ -327,6 +335,37 @@ namespace Horse
                 Horse::NativeBinding::markRenderStateDirty(m_lbc);
             }
             return cleared;
+        }
+
+        int32_t trimOldestLines(int32_t max_lines)
+        {
+            if (!isReady()) return 0;
+            if (max_lines < 0) max_lines = 0;
+            if (max_lines > kMaxLineCapacity)
+                max_lines = kMaxLineCapacity;
+
+            auto* arr = batchedLinesHeader();
+            if (!saneBatchedLinesHeaderForTrim(arr))
+            {
+                logInvalidHeader(arr, L"trimOldestLines");
+                invalidate();
+                return 0;
+            }
+            if (arr->Num <= max_lines)
+                return 0;
+
+            const int32_t removed = arr->Num - max_lines;
+            if (max_lines > 0)
+            {
+                auto* lines = static_cast<FBatchedLine*>(arr->Data);
+                std::memmove(lines,
+                             lines + removed,
+                             static_cast<size_t>(max_lines) *
+                                 sizeof(FBatchedLine));
+            }
+            arr->Num = max_lines;
+            Horse::NativeBinding::markRenderStateDirty(m_lbc);
+            return removed;
         }
 
         void hideAll() override
@@ -439,13 +478,20 @@ namespace Horse
 
         bool saneBatchedLinesHeader(const TArrHdr* arr) const
         {
+            if (!saneBatchedLinesHeaderForTrim(arr))
+                return false;
+            if (arr->Num >= kMaxLinesPerFrame)
+                return false;
+            return true;
+        }
+
+        bool saneBatchedLinesHeaderForTrim(const TArrHdr* arr) const
+        {
             if (!writableCommitted(arr, sizeof(TArrHdr)))
                 return false;
             if (arr->Num < 0 || arr->Max < 0)
                 return false;
             if (arr->Num > arr->Max)
-                return false;
-            if (arr->Num >= kMaxLinesPerFrame)
                 return false;
             if (arr->Max > kMaxLineCapacity)
                 return false;

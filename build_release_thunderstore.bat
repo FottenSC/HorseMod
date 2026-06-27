@@ -92,12 +92,20 @@ setlocal enabledelayedexpansion
 
 set REPO_ROOT=%~dp0
 if not "%REPO_ROOT:~-1%"=="\" set REPO_ROOT=%REPO_ROOT%\
+set REPO_ROOT_PS=%REPO_ROOT%.
 
 set BUILD_DIR=build_cmake_LessEqual421__Shipping__Win64
 set BUILT_DLL=%REPO_ROOT%%BUILD_DIR%\HorseMod\HorseMod.dll
 set DIST_DIR=%REPO_ROOT%dist
 set STAGE_DIR=%DIST_DIR%\stage_thunderstore
 set ICON_SRC=%REPO_ROOT%release_resources\icon.png
+set PUBLISH_SCRIPT=%REPO_ROOT%tools\publish_thunderstore.ps1
+set THUNDERSTORE_REPOSITORY=https://thunderstore.io
+set THUNDERSTORE_NAMESPACE=Fotten
+set THUNDERSTORE_PACKAGE=HorseMod
+set THUNDERSTORE_COMMUNITY=soulcalibur-vi
+set THUNDERSTORE_CATEGORY=tools
+set THUNDERSTORE_ENV=%REPO_ROOT%.env
 
 rem Pinned dependency on the SC6 community's unreal-shimloader package.
 rem Format: Author-Name-Version, matching the package URL on
@@ -116,6 +124,29 @@ if "%VERSION%"=="" (
     exit /b 1
 )
 echo [release.thunderstore] version: %VERSION%
+
+rem ---- Thunderstore version gate ------------------------------------------
+rem Fail before the expensive build if this VERSION is not strictly newer
+rem than the currently published Thunderstore package version.  The publish
+rem helper repeats this check immediately before upload to catch races.
+if not exist "%PUBLISH_SCRIPT%" (
+    echo [release.thunderstore] missing publish helper: %PUBLISH_SCRIPT%
+    exit /b 1
+)
+echo [release.thunderstore] checking published Thunderstore version ...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PUBLISH_SCRIPT%" ^
+    -CheckOnly ^
+    -RepoRoot "%REPO_ROOT_PS%" ^
+    -LocalVersion "%VERSION%" ^
+    -RepositoryUrl "%THUNDERSTORE_REPOSITORY%" ^
+    -Namespace "%THUNDERSTORE_NAMESPACE%" ^
+    -PackageName "%THUNDERSTORE_PACKAGE%" ^
+    -Community "%THUNDERSTORE_COMMUNITY%" ^
+    -Category "%THUNDERSTORE_CATEGORY%"
+if !ERRORLEVEL! NEQ 0 (
+    echo [release.thunderstore] version gate failed (exit !ERRORLEVEL!^)
+    exit /b !ERRORLEVEL!
+)
 
 rem ---- Icon presence check (Thunderstore requires it) ----------------------
 if not exist "%ICON_SRC%" (
@@ -245,6 +276,22 @@ rem ---- Cleanup staging dir (zip is the deliverable) ------------------------
 rmdir /S /Q "%STAGE_DIR%"
 
 echo.
+echo [release.thunderstore] publishing to Thunderstore ...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PUBLISH_SCRIPT%" ^
+    -RepoRoot "%REPO_ROOT_PS%" ^
+    -LocalVersion "%VERSION%" ^
+    -PackageZip "%OUTPUT%" ^
+    -EnvPath "%THUNDERSTORE_ENV%" ^
+    -RepositoryUrl "%THUNDERSTORE_REPOSITORY%" ^
+    -Namespace "%THUNDERSTORE_NAMESPACE%" ^
+    -PackageName "%THUNDERSTORE_PACKAGE%" ^
+    -Community "%THUNDERSTORE_COMMUNITY%" ^
+    -Category "%THUNDERSTORE_CATEGORY%"
+if !ERRORLEVEL! NEQ 0 (
+    echo [release.thunderstore] publish failed (exit !ERRORLEVEL!^)
+    exit /b !ERRORLEVEL!
+)
+
+echo.
 echo [release.thunderstore] done.
-echo [release.thunderstore] upload via https://thunderstore.io/c/^<community^>/upload/
 exit /b 0

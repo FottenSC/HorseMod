@@ -30,6 +30,7 @@ DEFAULT_SAVED_DIR = Path(
     r"\Binaries\Win64\ue4ss\Mods\HorseMod\Saved"
 )
 ANALYZER = REPO_ROOT / "tools" / "replay_seek_test_analyze.py"
+DEFAULT_REPORT_DIR = REPO_ROOT / "reports" / "replay_tests"
 DEFAULT_GAME_EXE = Path(
     r"E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI"
     r"\Binaries\Win64\SoulcaliburVI.exe"
@@ -45,6 +46,12 @@ DEFAULT_WATCH_FRAMES = 600
 DEFAULT_MIN_RESUME_TICK_RATE = 58.0
 DEFAULT_RESUME_TICK_WINDOW = 120
 DEFAULT_MAX_SEEK_VALIDATION_SECONDS = 0.5
+DEFAULT_MAX_RESUME_TICK_GAP_SECONDS = 0.100
+DEFAULT_MAX_FIRST_RESUME_TICK_SECONDS = 0.200
+DEFAULT_MAX_SEEK_QUEUE_SECONDS = 0.250
+DEFAULT_MAX_SEEK_LAND_SECONDS = 0.500
+DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS = 0.250
+DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS = 1.000
 LAUNCH_HANDOFF_GRACE_SECONDS = 30.0
 
 
@@ -207,6 +214,8 @@ def effective_generation_full_frame_trace(
     args: argparse.Namespace,
     request_override: dict[str, Any] | None = None,
 ) -> bool:
+    if getattr(args, "case_preset", "") == "damage-watch":
+        return True
     if getattr(args, "generation_full_frame_trace", False):
         return True
     if not isinstance(request_override, dict):
@@ -281,6 +290,163 @@ def load_json_file(path: Path) -> dict[str, Any] | None:
 
 def event_name(event: dict[str, Any]) -> str:
     return str(event.get("event") or event.get("name") or "")
+
+
+VITAL_ORACLE_FIELDS = (
+    "vital_scale",
+    "vital_candidate",
+    "vital_ko_gate",
+    "vital_displayed",
+    "vital_category_bits",
+    "vital_state",
+)
+
+
+def int_value(value: Any, default: int = -1) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def oracle_frame_segments(trace: Path) -> list[list[dict[str, Any]]]:
+    segments: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] | None = None
+    loose: list[dict[str, Any]] = []
+    for event in load_jsonl(trace):
+        name = event_name(event)
+        if name == "generate_start":
+            if current:
+                segments.append(current)
+            current = []
+            continue
+        if name == "generate_complete":
+            if current:
+                segments.append(current)
+            current = None
+            continue
+        if name != "oracle_frame":
+            continue
+        target = current if current is not None else loose
+        target.append(event)
+    if current:
+        segments.append(current)
+    if not segments and loose:
+        segments.append(loose)
+    return segments
+
+
+def vital_signature(frame: dict[str, Any], player_prefix: str) -> tuple[Any, ...]:
+    return tuple(
+        frame.get(f"{player_prefix}_{field}") for field in VITAL_ORACLE_FIELDS
+    )
+
+
+def oracle_frame_seq(frame: dict[str, Any]) -> int:
+    return int_value(frame.get("seq"))
+
+
+def oracle_frame_round(frame: dict[str, Any]) -> int:
+    return int_value(frame.get("round"))
+
+
+def frame_is_active_oracle(frame: dict[str, Any]) -> bool:
+    return bool(frame.get("valid")) and int_value(frame.get("last_round_result"), 0) == 0
+
+
+def has_active_oracle_window(
+    frames_by_seq: dict[int, dict[str, Any]],
+    target_seq: int,
+    resume_frames: int,
+) -> bool:
+    start = frames_by_seq.get(target_seq)
+    if not start or not frame_is_active_oracle(start):
+        return False
+    round_id = oracle_frame_round(start)
+    if round_id < 0:
+        return False
+    for seq in range(target_seq, target_seq + max(1, resume_frames) + 1):
+        frame = frames_by_seq.get(seq)
+        if (
+            not frame
+            or oracle_frame_round(frame) != round_id
+            or not frame_is_active_oracle(frame)
+        ):
+            return False
+    return True
+
+
+def damage_watch_cases_from_trace(
+    trace: Path,
+    resume_frames: int,
+    validation_mode: str,
+    pre_frames: int,
+    max_cases: int,
+    min_gap: int,
+) -> list[dict[str, Any]]:
+    segments = oracle_frame_segments(trace)
+    if not segments:
+        raise ValueError(f"no oracle_frame events found in {trace}")
+
+    frames = sorted(segments[-1], key=oracle_frame_seq)
+    frames_by_seq = {
+        oracle_frame_seq(frame): frame
+        for frame in frames
+        if oracle_frame_seq(frame) >= 0
+    }
+    first_seq_by_round: dict[int, int] = {}
+    for frame in frames:
+        seq = oracle_frame_seq(frame)
+        round_id = oracle_frame_round(frame)
+        if seq < 0 or round_id < 0:
+            continue
+        first_seq_by_round.setdefault(round_id, seq)
+
+    previous: dict[str, tuple[Any, ...]] = {}
+    selected_targets: list[int] = []
+    cases: list[dict[str, Any]] = []
+    for frame in frames:
+        seq = oracle_frame_seq(frame)
+        round_id = oracle_frame_round(frame)
+        if seq < 0 or round_id < 0:
+            continue
+
+        changed_players: list[str] = []
+        for player in ("p1", "p2"):
+            signature = vital_signature(frame, player)
+            prior = previous.get(player)
+            if prior is not None and signature != prior:
+                changed_players.append(player)
+            previous[player] = signature
+
+        if not changed_players:
+            continue
+        first_round_seq = first_seq_by_round.get(round_id, seq)
+        target_seq = max(first_round_seq, seq - max(0, pre_frames))
+        if any(abs(target_seq - prior) < max(1, min_gap) for prior in selected_targets):
+            continue
+        if not has_active_oracle_window(frames_by_seq, target_seq, resume_frames):
+            continue
+
+        selected_targets.append(target_seq)
+        players = "".join(player[-1] for player in changed_players)
+        frames_label = max(1, resume_frames)
+        cases.append(
+            {
+                "label": f"damage_p{players}_{target_seq}_{frames_label}f",
+                "target_seq": target_seq,
+                "resume_frames": frames_label,
+                "validation_mode": validation_mode,
+            }
+        )
+        if len(cases) >= max(1, max_cases):
+            break
+    if not cases:
+        raise ValueError(
+            "no vital-changing oracle windows were suitable for damage-watch "
+            f"(trace={trace}, resume_frames={resume_frames})"
+        )
+    return cases
 
 
 def recent_traces(root: Path, since: float, limit: int = 12) -> list[Path]:
@@ -746,6 +912,14 @@ def run_analyzer(
     min_resume_tick_rate: float = DEFAULT_MIN_RESUME_TICK_RATE,
     resume_tick_window: int = DEFAULT_RESUME_TICK_WINDOW,
     max_seek_validation_seconds: float = DEFAULT_MAX_SEEK_VALIDATION_SECONDS,
+    max_resume_tick_gap_seconds: float = DEFAULT_MAX_RESUME_TICK_GAP_SECONDS,
+    max_first_resume_tick_seconds: float = DEFAULT_MAX_FIRST_RESUME_TICK_SECONDS,
+    max_seek_queue_seconds: float = DEFAULT_MAX_SEEK_QUEUE_SECONDS,
+    max_seek_land_seconds: float = DEFAULT_MAX_SEEK_LAND_SECONDS,
+    max_seek_resume_handoff_seconds: float = (
+        DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS
+    ),
+    max_seek_total_resume_seconds: float = DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS,
 ) -> tuple[int, str]:
     cmd = [sys.executable, str(ANALYZER), str(trace), "--require-tests"]
     if run_id:
@@ -755,6 +929,30 @@ def run_analyzer(
     cmd += [
         "--max-seek-validation-seconds",
         f"{max_seek_validation_seconds:.3f}",
+    ]
+    cmd += [
+        "--max-resume-tick-gap-seconds",
+        f"{max_resume_tick_gap_seconds:.3f}",
+    ]
+    cmd += [
+        "--max-first-resume-tick-seconds",
+        f"{max_first_resume_tick_seconds:.3f}",
+    ]
+    cmd += [
+        "--max-seek-queue-seconds",
+        f"{max_seek_queue_seconds:.3f}",
+    ]
+    cmd += [
+        "--max-seek-land-seconds",
+        f"{max_seek_land_seconds:.3f}",
+    ]
+    cmd += [
+        "--max-seek-resume-handoff-seconds",
+        f"{max_seek_resume_handoff_seconds:.3f}",
+    ]
+    cmd += [
+        "--max-seek-total-resume-seconds",
+        f"{max_seek_total_resume_seconds:.3f}",
     ]
     if strict:
         cmd += ["--strict"]
@@ -834,6 +1032,19 @@ def write_reports(
     ]
     txt_path.write_text("\n".join(lines), encoding="utf-8")
     return json_path, txt_path
+
+
+def write_request_report(
+    report_dir: Path | None,
+    run_id: str,
+    request: dict[str, Any],
+) -> Path | None:
+    if report_dir is None:
+        return None
+    report_dir.mkdir(parents=True, exist_ok=True)
+    path = report_dir / f"replay_seek_request_{run_id}.json"
+    path.write_text(json.dumps(request, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def finish_run(
@@ -980,7 +1191,77 @@ def main() -> int:
             f"Default: {DEFAULT_MAX_SEEK_VALIDATION_SECONDS:.2f}s"
         ),
     )
-    parser.add_argument("--report-dir", help="Directory for E2E JSON/TXT report files")
+    parser.add_argument(
+        "--max-seek-land-seconds",
+        type=float,
+        default=DEFAULT_MAX_SEEK_LAND_SECONDS,
+        help=(
+            "Maximum time from captured seek queue to captured seek landing "
+            "for watched cases before strict mode flags a slow seek. Use 0 "
+            "to disable. "
+            f"Default: {DEFAULT_MAX_SEEK_LAND_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--max-seek-queue-seconds",
+        type=float,
+        default=DEFAULT_MAX_SEEK_QUEUE_SECONDS,
+        help=(
+            "Maximum time from seek-test case start to captured seek queue "
+            "before strict mode flags the harness as stalled. Use 0 to "
+            "disable. "
+            f"Default: {DEFAULT_MAX_SEEK_QUEUE_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--max-seek-resume-handoff-seconds",
+        type=float,
+        default=DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS,
+        help=(
+            "Maximum time from captured seek landing to automated resume "
+            "start before strict mode flags a handoff stall. Use 0 to "
+            "disable. "
+            f"Default: {DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--max-seek-total-resume-seconds",
+        type=float,
+        default=DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS,
+        help=(
+            "Maximum time from seek-test case start to automated resume "
+            "start before strict mode flags the whole automated seek as slow. "
+            f"Use 0 to disable. Default: "
+            f"{DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--max-resume-tick-gap-seconds",
+        type=float,
+        default=DEFAULT_MAX_RESUME_TICK_GAP_SECONDS,
+        help=(
+            "Maximum wall-clock gap per native replay tick during resumed "
+            "watchback before strict mode flags a hitch. Use 0 to disable. "
+            f"Default: {DEFAULT_MAX_RESUME_TICK_GAP_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--max-first-resume-tick-seconds",
+        type=float,
+        default=DEFAULT_MAX_FIRST_RESUME_TICK_SECONDS,
+        help=(
+            "Maximum delay from resume command service to the first native "
+            "playback tick. Use 0 to disable. "
+            f"Default: {DEFAULT_MAX_FIRST_RESUME_TICK_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--report-dir",
+        help=(
+            "Directory for E2E JSON/TXT report files and generated request "
+            f"copies. Default: {DEFAULT_REPORT_DIR}"
+        ),
+    )
     parser.add_argument(
         "--menu-script",
         help="Legacy JSON key macro to navigate menus/start a replay",
@@ -1017,11 +1298,12 @@ def main() -> int:
     parser.add_argument(
         "--case-preset",
         default="both",
-        choices=["static", "watch", "both"],
+        choices=["static", "watch", "both", "damage-watch"],
         help=(
             "Default seek-test cases to emit when --request is omitted. "
             "'watch' seeks to timeline sections and plays forward; 'both' "
-            "keeps static seek checks and adds watch-back playback checks."
+            "keeps static seek checks and adds watch-back playback checks; "
+            "'damage-watch' derives watch cases from oracle vital changes."
         ),
     )
     parser.add_argument(
@@ -1060,6 +1342,28 @@ def main() -> int:
             "target_to_next validates one native step after the selected frame."
         ),
     )
+    parser.add_argument(
+        "--damage-watch-pre-frames",
+        type=int,
+        default=90,
+        help=(
+            "Frames before a vital change to start each damage-watch case. "
+            "The default leaves native replay enough pre-hit setup to own "
+            "attack, hit-cue, and damage advancement after seek release."
+        ),
+    )
+    parser.add_argument(
+        "--damage-watch-max-cases",
+        type=int,
+        default=16,
+        help="Maximum damage-watch cases to generate from oracle vital changes",
+    )
+    parser.add_argument(
+        "--damage-watch-min-gap",
+        type=int,
+        default=90,
+        help="Minimum target-seq gap between generated damage-watch cases",
+    )
     parser.add_argument("--case-timeout", type=int, default=600)
     parser.add_argument("--timeout", type=int, default=900, help="Wait timeout seconds")
     parser.add_argument("--request", help="Path to custom seek request JSON")
@@ -1074,6 +1378,12 @@ def main() -> int:
             args.min_resume_tick_rate,
             args.resume_tick_window,
             args.max_seek_validation_seconds,
+            args.max_resume_tick_gap_seconds,
+            args.max_first_resume_tick_seconds,
+            args.max_seek_queue_seconds,
+            args.max_seek_land_seconds,
+            args.max_seek_resume_handoff_seconds,
+            args.max_seek_total_resume_seconds,
         )
         return code
 
@@ -1081,7 +1391,7 @@ def main() -> int:
         print("error: --strict requires --wait", file=sys.stderr)
         return 2
 
-    if not args.request:
+    if not args.request and args.case_preset != "damage-watch":
         try:
             args.generated_cases = default_cases(args)
         except ValueError as exc:
@@ -1090,7 +1400,7 @@ def main() -> int:
 
     saved_dir = Path(args.saved_dir)
     trace_root = trace_dir(saved_dir)
-    report_dir = Path(args.report_dir) if args.report_dir else None
+    report_dir = Path(args.report_dir) if args.report_dir else DEFAULT_REPORT_DIR
     run_id = args.run_id or datetime.now().strftime("%Y%m%d-%H%M%S-seek")
     expected_presence = parse_presence_set(args.expect_presence)
     require_known_presence = not args.allow_unknown_presence
@@ -1325,6 +1635,46 @@ def main() -> int:
     else:
         print("game prerequisite: SC6 must already be running with HorseMod loaded and in a replay")
 
+    if request_override is None and args.case_preset == "damage-watch":
+        if start_trace is None:
+            print(
+                "error: --case-preset damage-watch requires --start-replay "
+                "so generated oracle frames can be parsed",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            args.generated_cases = damage_watch_cases_from_trace(
+                start_trace,
+                args.watch_frames,
+                args.watch_validation_mode,
+                args.damage_watch_pre_frames,
+                args.damage_watch_max_cases,
+                args.damage_watch_min_gap,
+            )
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return finish_run(
+                report_dir,
+                run_id,
+                replay_start_result,
+                last_replay_start_event,
+                start_trace,
+                "",
+                0,
+                None,
+                2,
+                preflight_state_snapshot,
+                preflight_state_trace,
+                preflight_state_status,
+            )
+        print(
+            "damage-watch cases: "
+            f"trace={start_trace} count={len(args.generated_cases)} "
+            f"pre_frames={args.damage_watch_pre_frames} "
+            f"watch_frames={args.watch_frames}"
+        )
+
     request = (
         request_override
         if request_override is not None
@@ -1372,6 +1722,9 @@ def main() -> int:
     saved_dir.mkdir(parents=True, exist_ok=True)
     seek_path = seek_request_path(saved_dir)
     summary_since = time.time()
+    request_report = write_request_report(report_dir, run_id, request)
+    if request_report:
+        print(f"request report: {request_report}")
     write_json_atomic(seek_path, request)
     print(f"wrote seek request: {seek_path}")
     print(f"run_id: {run_id}")
@@ -1430,6 +1783,12 @@ def main() -> int:
             args.min_resume_tick_rate,
             args.resume_tick_window,
             args.max_seek_validation_seconds,
+            args.max_resume_tick_gap_seconds,
+            args.max_first_resume_tick_seconds,
+            args.max_seek_queue_seconds,
+            args.max_seek_land_seconds,
+            args.max_seek_resume_handoff_seconds,
+            args.max_seek_total_resume_seconds,
         )
 
     exit_code = analyzer_code or (0 if summary.get("passed") else 1)

@@ -467,11 +467,10 @@ namespace Horse
             RC::Output::send<RC::LogLevel::Default>(
                 STR("[SetStartPositionHook] override P{} ({:.2f}, {:.2f}, "
                     "{:.2f}) -> ({:.2f}, {:.2f}, {:.2f}) [Y forced to 0.0] "
-                    "side={} chara=0x{:X}\n"),
+                    "chara=0x{:X}\n"),
                 matched_player + 1,
                 x, y, z,
                 pose.pos_x, y_for_engine, pose.pos_z,
-                static_cast<uint32_t>(pose.side_flag),
                 reinterpret_cast<uintptr_t>(chara));
 
             // Forward with the substituted (X, 0.0, Z).  The engine's
@@ -481,19 +480,7 @@ namespace Horse
             orig(chara, pose.pos_x, y_for_engine, pose.pos_z);
 
             RC::Output::send<RC::LogLevel::Default>(
-                STR("[SetStartPositionHook] P{} post-orig OK\n"),
-                matched_player + 1);
-
-            // Write side-flag separately (engine helper does NOT touch
-            // +0x23C — that field is normally maintained by
-            // PositionCharasSymmetrically, which runs OUTSIDE this
-            // function).  Doing it here means a free-yaw user pose still
-            // forces the chara to face the captured side after reset.
-            auto* base = reinterpret_cast<uint8_t*>(chara);
-            *(base + 0x23C) = pose.side_flag;
-
-            RC::Output::send<RC::LogLevel::Default>(
-                STR("[SetStartPositionHook] P{} post-flag OK (returning to caller)\n"),
+                STR("[SetStartPositionHook] P{} post-orig OK (returning to caller)\n"),
                 matched_player + 1);
         }
 

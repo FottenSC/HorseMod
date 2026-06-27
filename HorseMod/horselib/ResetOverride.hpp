@@ -1,5 +1,5 @@
 // ============================================================================
-// Horse::ResetOverride — overwrite character position + facing on training-
+// Horse::ResetOverride — overwrite character position on training-
 // mode position reset.
 //
 // What this does
@@ -12,8 +12,8 @@
 //
 // When this module is enabled and the user has captured a pose via
 // capture_both(), our UFunction post-hook on TrainingModePositionReset
-// overwrites each chara's position + side-facing flag AFTER the game's
-// own reset has run — leaving the chara at the user-chosen pose.
+// overwrites each chara's position AFTER the game's own reset has run,
+// leaving the chara at the user-chosen pose.
 //
 // Capture / Override semantics
 // ----------------------------
@@ -23,7 +23,7 @@
 //                     unavailable (e.g. before a match starts).
 //
 //   apply_to_charas(): write our captured poses back to each chara's
-//                     position + facing fields.  Called by the post-hook
+//                     position fields.  Called by the post-hook
 //                     when m_enabled is true and m_pose[i].has is true.
 //                     Players whose pose hasn't been captured are left
 //                     alone (no clobber of vanilla reset).
@@ -43,15 +43,15 @@
 //   +0x0C4  current-position Y
 //   +0x0C8  current-position Z
 //   +0x22C  facing-derived X      (= +0x094 + chara[+0x96554])
-//   +0x23C  side flag (byte, 0=P1 side / 1=P2 side; controls facing
-//                       direction in PositionCharasSymmetrically)
+//   +0x23C  battle slot byte      (0=P1 slot, 1=P2 slot; maintained
+//                                  by the engine, not a free facing flag)
 //   +0x2090 render-pose X
 //   +0x2094 render-pose Y + DAT_143e8a33c
 //   +0x2098 render-pose Z
 //
 // We write to the 0xa0 / 0xc0 / 0x2090 groups (the canonical position
-// triples that LuxBattleChara_SetStartPosition itself updates), zero the
-// velocity at +0x90/+0x94/+0x98, and update the side byte at +0x23C.
+// triples that LuxBattleChara_SetStartPosition itself updates) and zero
+// the velocity at +0x90/+0x94/+0x98.
 //
 // What we DON'T touch (and why)
 // ----------------------------
@@ -59,6 +59,10 @@
 //                    engine recomputes them itself on the very next tick
 //                    once movement physics resume, so writing them here
 //                    is redundant.
+//   +0x23c           runtime validation showed this is the battle slot byte
+//                    for live ALuxBattleChara objects.  Do not write it from
+//                    user-captured poses; corrupting it breaks per-slot VM /
+//                    input selection.
 //   +0x96554         per-chara facing offset constant — read by the
 //                    engine, not written.
 //
@@ -103,14 +107,10 @@
 //
 // Note on facing override
 // -----------------------
-// SC6 represents per-chara facing as a single byte (P1 side vs P2 side)
-// rather than a free yaw angle.  We capture that byte on capture_both()
-// and write it back on apply, which lets the user "swap sides" by
-// capturing while a chara is on the opposite side from its default.
-// Captures from arbitrary mid-move yaws (e.g. mid-spin) are rounded to
-// the nearest side flag — a free-yaw override would require touching
-// the post-tick rotation writers (LuxBattleChara::SetCurrentRotation
-// etc.) which are out of scope for v1.
+// This feature no longer attempts to persist facing.  Earlier builds treated
+// chara+0x23C as a side/facing byte; runtime validation showed it is the
+// battle slot byte.  A real facing override should target a separate,
+// validated facing field instead of rewriting +0x23C.
 // ============================================================================
 
 #pragma once
@@ -143,7 +143,6 @@ namespace Horse
             float   pos_x{0.0f};
             float   pos_y{0.0f};
             float   pos_z{0.0f};
-            uint8_t side_flag{0};   // 0 = P1 side, 1 = P2 side
             bool    has{false};
         };
 
@@ -189,9 +188,8 @@ namespace Horse
 
                 RC::Output::send<RC::LogLevel::Verbose>(
                     STR("[ResetOverride] captured P{} pos=({:.2f}, {:.2f}, "
-                        "{:.2f}) side={}\n"),
-                    pi + 1, pose.pos_x, pose.pos_y, pose.pos_z,
-                    static_cast<uint32_t>(pose.side_flag));
+                        "{:.2f})\n"),
+                    pi + 1, pose.pos_x, pose.pos_y, pose.pos_z);
             }
             return captured > 0;
         }
@@ -353,10 +351,9 @@ namespace Horse
 
                 RC::Output::send<RC::LogLevel::Default>(
                     STR("[ResetOverride] writing P{} pose ({:.2f}, {:.2f}, "
-                        "{:.2f}) side={} to chara at 0x{:X}\n"),
+                        "{:.2f}) to chara at 0x{:X}\n"),
                     pi + 1,
                     snap[pi].pos_x, snap[pi].pos_y, snap[pi].pos_z,
-                    static_cast<uint32_t>(snap[pi].side_flag),
                     reinterpret_cast<uintptr_t>(chara));
                 write_chara_pose(chara, snap[pi]);
                 RC::Output::send<RC::LogLevel::Default>(
@@ -367,8 +364,8 @@ namespace Horse
         // ---- Clipboard JSON serialisation (Labbing tab Copy/Paste) ------
         //
         // Compact one-line JSON, e.g.
-        //   {"v":1,"p1":{"x":1.95,"y":0.93,"z":-5.09,"side":0},
-        //          "p2":{"x":3.08,"y":1.09,"z":-3.98,"side":1}}
+        //   {"v":1,"p1":{"x":1.95,"y":0.93,"z":-5.09},
+        //          "p2":{"x":3.08,"y":1.09,"z":-3.98}}
         //
         // Slots whose has-flag is false are omitted from the output and
         // accepted as "absent" on input (paste of a P1-only snapshot
@@ -380,8 +377,9 @@ namespace Horse
         //   - well-formed shape (the keys we look for are present)
         //   - "v" == 1
         //   - every present player has x / y / z (finite floats)
-        //     and side (0 or 1)
         //   - at least one of p1 / p2 is present
+        // Legacy payloads may include a "side" key; it is ignored because
+        // +0x23C is the battle slot byte, not a user pose field.
         // Out-of-bounds / NaN / Inf values are rejected.  Position
         // legality (inside the stage, on the ground, etc.) is NOT
         // checked — pasted poses are trusted to be sane.
@@ -450,8 +448,6 @@ namespace Horse
         static constexpr std::ptrdiff_t kRender_Y = 0x2094;
         static constexpr std::ptrdiff_t kRender_Z = 0x2098;
 
-        static constexpr std::ptrdiff_t kSideFlag = 0x23C;
-
         // Sub-component linked-list head walked by the engine's
         // SetStartPosition helper.  Used as a "is this chara fully
         // constructed?" sentinel by tick().  Sourced from the plate
@@ -465,18 +461,15 @@ namespace Horse
             auto* base = reinterpret_cast<uint8_t*>(chara_void);
 
             float x{}, y{}, z{};
-            uint8_t side{};
             bool ok = true;
             ok &= SafeReadFloat(base + kCur_X, &x);
             ok &= SafeReadFloat(base + kCur_Y, &y);
             ok &= SafeReadFloat(base + kCur_Z, &z);
-            ok &= SafeReadUInt8 (base + kSideFlag, &side);
             if (!ok) return false;
 
             out.pos_x     = x;
             out.pos_y     = y;
             out.pos_z     = z;
-            out.side_flag = side;
             out.has       = true;
             return true;
         }
@@ -520,11 +513,7 @@ namespace Horse
                 *reinterpret_cast<float*>(base + kRender_Z) = p.pos_z;
             }
 
-            // Side / facing flag — independent of the position write.  The
-            // engine's SetStartPosition does NOT touch +0x23C, so we always
-            // do this ourselves regardless of which path wrote position.
-            auto* base = reinterpret_cast<uint8_t*>(chara_void);
-            *(base + kSideFlag) = p.side_flag;
+            (void)chara_void;
         }
 
         // ---- JSON build helpers (called from poses_to_json) ----
@@ -551,8 +540,6 @@ namespace Horse
             out += format_float(p.pos_y);
             out += ",\"z\":";
             out += format_float(p.pos_z);
-            out += ",\"side\":";
-            out += (p.side_flag ? '1' : '0');
             out += '}';
         }
 
@@ -629,17 +616,13 @@ namespace Horse
 
         static bool parse_player(std::string_view block, FCharaPose& out)
         {
-            float x = 0.0f, y = 0.0f, z = 0.0f, side_f = 0.0f;
+            float x = 0.0f, y = 0.0f, z = 0.0f;
             if (!find_number(block, "x",    x))    return false;
             if (!find_number(block, "y",    y))    return false;
             if (!find_number(block, "z",    z))    return false;
-            if (!find_number(block, "side", side_f)) return false;
-            const int side_i = static_cast<int>(side_f);
-            if (side_i != 0 && side_i != 1) return false;
             out.pos_x     = x;
             out.pos_y     = y;
             out.pos_z     = z;
-            out.side_flag = static_cast<uint8_t>(side_i);
             out.has       = true;
             return true;
         }
@@ -676,7 +659,7 @@ namespace Horse
             {
                 if (!parse_player(p1_block, p1))
                 {
-                    error_out = "p1 block invalid (missing/bad x/y/z/side)";
+                    error_out = "p1 block invalid (missing/bad x/y/z)";
                     return false;
                 }
             }
@@ -684,7 +667,7 @@ namespace Horse
             {
                 if (!parse_player(p2_block, p2))
                 {
-                    error_out = "p2 block invalid (missing/bad x/y/z/side)";
+                    error_out = "p2 block invalid (missing/bad x/y/z)";
                     return false;
                 }
             }

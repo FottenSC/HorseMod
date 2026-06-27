@@ -68,6 +68,12 @@ node_modules/
 *.swp
 *~
 
+# --- Local secrets ----------------------------------------------------------
+# Used by release scripts for Thunderstore service account tokens.
+.env
+.env.*
+!.env.example
+
 # --- OS metadata ------------------------------------------------------------
 .DS_Store
 Thumbs.db
@@ -75,6 +81,9 @@ Thumbs.db
 # --- Logs / temp ------------------------------------------------------------
 *.log
 tmp/
+/tmp_*.py
+/cmp_all.json
+/sirkura/
 
 # --- Test run artifacts -----------------------------------------------------
 test_runs/
@@ -101,4 +110,4 @@ dist/
 # CP_*.uasset, cpuai*.dtp) used to reverse-engineer move bytecode for the
 # multi-hit-step bug investigation.  Do NOT commit — licensed game assets.
 # Regenerable from a local UnrealPak dump.
-dump/
+/dump/

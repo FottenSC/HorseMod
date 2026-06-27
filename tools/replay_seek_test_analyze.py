@@ -21,6 +21,20 @@ HITCUE_FIELD_RE = re.compile(r"^hitcue(\d+)-")
 DEFAULT_MIN_RESUME_TICK_RATE = 58.0
 DEFAULT_RESUME_TICK_WINDOW = 120
 DEFAULT_MAX_SEEK_VALIDATION_SECONDS = 0.5
+DEFAULT_MAX_RESUME_TICK_GAP_SECONDS = 0.100
+DEFAULT_MAX_FIRST_RESUME_TICK_SECONDS = 0.200
+DEFAULT_MAX_SEEK_QUEUE_SECONDS = 0.250
+DEFAULT_MAX_SEEK_LAND_SECONDS = 0.500
+DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS = 0.250
+DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS = 1.000
+PER_TICK_ASSIST_EVENTS = {
+    "resume_motion_provider_cache_restore",
+    "resume_movement_scalar_restore",
+    "resume_hit_reaction_state_restore",
+    "resume_hit_cue_state_restore",
+    "resume_vital_state_restore",
+    "resume_oracle_playback_overlay",
+}
 
 
 def qpc_frequency() -> int | None:
@@ -432,6 +446,103 @@ def estimate_tick_rate(
     }
 
 
+def percentile_value(values: list[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    clamped = min(1.0, max(0.0, percentile))
+    index = int(round((len(ordered) - 1) * clamped))
+    return ordered[index]
+
+
+def collect_tick_gap_stats(
+    samples: list[dict[str, Any]],
+    field: str,
+    frequency: int,
+) -> dict[str, Any] | None:
+    valid: list[tuple[int, int, dict[str, Any]]] = []
+    for sample in samples:
+        qpc = qpc_field(sample)
+        value = int_field(sample.get(field), -1)
+        if qpc is not None and value >= 0:
+            valid.append((qpc, value, sample))
+
+    if len(valid) < 2:
+        return None
+
+    tick_gaps: list[float] = []
+    sample_gaps: list[float] = []
+    max_tick_gap = 0.0
+    max_sample_gap = 0.0
+    max_tick_gap_before: int | None = None
+    max_tick_gap_after: int | None = None
+    max_sample_gap_before: int | None = None
+    max_sample_gap_after: int | None = None
+    max_tick_gap_delta = 0
+    max_sample_gap_delta = 0
+    max_tick_gap_qpc_delta = 0.0
+    max_sample_gap_qpc_delta = 0.0
+
+    prev_qpc, prev_value, _prev_sample = valid[0]
+    for qpc, value, _sample in valid[1:]:
+        qpc_delta = qpc - prev_qpc
+        value_delta = value - prev_value
+        if qpc_delta <= 0:
+            prev_qpc, prev_value = qpc, value
+            continue
+        if value_delta < 0:
+            # Round-local counters can reset across round boundaries. Treat the
+            # next positive segment as a fresh timing run.
+            prev_qpc, prev_value = qpc, value
+            continue
+        if value_delta == 0:
+            prev_qpc, prev_value = qpc, value
+            continue
+
+        elapsed = qpc_delta / frequency
+        per_tick = elapsed / value_delta
+        tick_gaps.append(per_tick)
+        sample_gaps.append(elapsed)
+
+        if per_tick > max_tick_gap:
+            max_tick_gap = per_tick
+            max_tick_gap_before = prev_value
+            max_tick_gap_after = value
+            max_tick_gap_delta = value_delta
+            max_tick_gap_qpc_delta = elapsed
+        if elapsed > max_sample_gap:
+            max_sample_gap = elapsed
+            max_sample_gap_before = prev_value
+            max_sample_gap_after = value
+            max_sample_gap_delta = value_delta
+            max_sample_gap_qpc_delta = elapsed
+
+        prev_qpc, prev_value = qpc, value
+
+    if not tick_gaps:
+        return None
+
+    return {
+        "samples": len(valid),
+        "gap_count": len(tick_gaps),
+        "max_tick_gap_seconds": max_tick_gap,
+        "p95_tick_gap_seconds": percentile_value(tick_gaps, 0.95),
+        "avg_tick_gap_seconds": sum(tick_gaps) / len(tick_gaps),
+        "max_sample_gap_seconds": max_sample_gap,
+        "p95_sample_gap_seconds": percentile_value(sample_gaps, 0.95),
+        "max_tick_gap_before": max_tick_gap_before,
+        "max_tick_gap_after": max_tick_gap_after,
+        "max_tick_gap_delta": max_tick_gap_delta,
+        "max_tick_gap_qpc_delta_seconds": max_tick_gap_qpc_delta,
+        "max_sample_gap_before": max_sample_gap_before,
+        "max_sample_gap_after": max_sample_gap_after,
+        "max_sample_gap_delta": max_sample_gap_delta,
+        "max_sample_gap_qpc_delta_seconds": max_sample_gap_qpc_delta,
+    }
+
+
 def collect_resume_tick_stats(
     events: list[dict[str, Any]],
     frequency: int | None,
@@ -510,6 +621,17 @@ def collect_resume_tick_stats(
         )
         chosen_source = "bm_frame_advance" if bm_rate else "master"
         chosen_rate = bm_rate or master_rate
+        bm_gap = collect_tick_gap_stats(
+            native_samples,
+            "bm_frame_advance",
+            frequency,
+        )
+        master_gap = collect_tick_gap_stats(
+            native_samples,
+            "master",
+            frequency,
+        )
+        chosen_gap = bm_gap if bm_rate else master_gap
         first_tick_latency: float | None = None
         if native_samples:
             first_qpc = qpc_field(native_samples[0])
@@ -531,6 +653,40 @@ def collect_resume_tick_stats(
             "first_tick_latency_seconds": first_tick_latency,
             "bm_tick_rate": bm_rate.get("rate") if bm_rate else None,
             "master_tick_rate": master_rate.get("rate") if master_rate else None,
+            "max_tick_gap_seconds": (
+                chosen_gap.get("max_tick_gap_seconds") if chosen_gap else None
+            ),
+            "p95_tick_gap_seconds": (
+                chosen_gap.get("p95_tick_gap_seconds") if chosen_gap else None
+            ),
+            "avg_tick_gap_seconds": (
+                chosen_gap.get("avg_tick_gap_seconds") if chosen_gap else None
+            ),
+            "max_sample_gap_seconds": (
+                chosen_gap.get("max_sample_gap_seconds") if chosen_gap else None
+            ),
+            "p95_sample_gap_seconds": (
+                chosen_gap.get("p95_sample_gap_seconds") if chosen_gap else None
+            ),
+            "max_tick_gap_before": (
+                chosen_gap.get("max_tick_gap_before") if chosen_gap else None
+            ),
+            "max_tick_gap_after": (
+                chosen_gap.get("max_tick_gap_after") if chosen_gap else None
+            ),
+            "max_tick_gap_delta": (
+                chosen_gap.get("max_tick_gap_delta") if chosen_gap else None
+            ),
+            "max_tick_gap_qpc_delta_seconds": (
+                chosen_gap.get("max_tick_gap_qpc_delta_seconds")
+                if chosen_gap else None
+            ),
+            "bm_max_tick_gap_seconds": (
+                bm_gap.get("max_tick_gap_seconds") if bm_gap else None
+            ),
+            "master_max_tick_gap_seconds": (
+                master_gap.get("max_tick_gap_seconds") if master_gap else None
+            ),
         }
 
     return stats
@@ -540,6 +696,8 @@ def collect_resume_tick_failures(
     events: list[dict[str, Any]],
     min_tick_rate: float,
     window_ticks: int = DEFAULT_RESUME_TICK_WINDOW,
+    max_tick_gap_seconds: float = DEFAULT_MAX_RESUME_TICK_GAP_SECONDS,
+    max_first_tick_seconds: float = DEFAULT_MAX_FIRST_RESUME_TICK_SECONDS,
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
     frequency = qpc_frequency()
     stats = collect_resume_tick_stats(events, frequency, window_ticks)
@@ -565,6 +723,32 @@ def collect_resume_tick_failures(
                 f"{rate:.1f} t/s < {min_tick_rate:.1f} t/s "
                 f"(source={stat.get('tick_source', '?')} "
                 f"window_ticks={window_ticks})"
+            )
+        first_tick = stat.get("first_tick_latency_seconds")
+        if (
+            max_first_tick_seconds > 0.0
+            and first_tick is not None
+            and float_field(first_tick) > max_first_tick_seconds
+        ):
+            failures.append(
+                f"case {label} first native replay tick too late: "
+                f"{float_field(first_tick):.3f}s > "
+                f"{max_first_tick_seconds:.3f}s"
+            )
+        max_gap = stat.get("max_tick_gap_seconds")
+        if (
+            max_tick_gap_seconds > 0.0
+            and max_gap is not None
+            and float_field(max_gap) > max_tick_gap_seconds
+        ):
+            before = stat.get("max_tick_gap_before", "?")
+            after = stat.get("max_tick_gap_after", "?")
+            failures.append(
+                f"case {label} native replay tick gap spike: "
+                f"{float_field(max_gap):.3f}s > "
+                f"{max_tick_gap_seconds:.3f}s "
+                f"(source={stat.get('tick_source', '?')} "
+                f"values={before}->{after})"
             )
     return stats, failures
 
@@ -684,11 +868,200 @@ def collect_seek_validation_failures(
     return stats, failures
 
 
+def collect_seek_lifecycle_stats(
+    events: list[dict[str, Any]],
+    frequency: int | None,
+) -> dict[str, dict[str, Any]]:
+    if frequency is None or frequency <= 0:
+        return {}
+
+    stats: dict[str, dict[str, Any]] = {}
+    current_case: str | None = None
+
+    def elapsed(start: Any, end: Any) -> float | None:
+        start_qpc = int_field(start)
+        end_qpc = int_field(end)
+        if start_qpc <= 0 or end_qpc < start_qpc:
+            return None
+        return (end_qpc - start_qpc) / frequency
+
+    for event in events:
+        name = event_name(event)
+        label = str(event.get("label") or "")
+        qpc = qpc_field(event)
+
+        if name == "replay_seek_test_case_start" and label and qpc:
+            current_case = label
+            stat = stats.setdefault(label, {"label": label})
+            stat["case_start_qpc"] = qpc
+            stat["target_seq"] = event.get("target_seq")
+            stat["target_round"] = event.get("target_round")
+            stat["target_master"] = event.get("target_master")
+            stat["resume_frames_requested"] = int_field(
+                event.get("resume_frames_requested")
+            )
+            continue
+
+        if name == "captured_seek_queued" and qpc:
+            seek_label = (
+                current_case
+                if current_case and label in {"USER", "", "?"}
+                else label
+            )
+            if not seek_label:
+                continue
+            stat = stats.setdefault(seek_label, {"label": seek_label})
+            stat["queued_qpc"] = qpc
+            stat["target_seq"] = event.get(
+                "target_seq", stat.get("target_seq")
+            )
+            stat["target_round"] = event.get(
+                "target_round", stat.get("target_round")
+            )
+            stat["target_master"] = event.get(
+                "target_master", stat.get("target_master")
+            )
+            stat["validation_mode"] = str(event.get("validation_mode") or "")
+            stat["reset_context"] = bool_field(event.get("reset_context"))
+            stat["cross_round_reset"] = bool_field(
+                event.get("cross_round_reset")
+            )
+            stat["case_start_to_queued_seconds"] = elapsed(
+                stat.get("case_start_qpc"), qpc
+            )
+            continue
+
+        if name == "captured_seek_landed" and qpc:
+            seek_label = (
+                current_case
+                if current_case and label in {"USER", "", "?"}
+                else label
+            )
+            if not seek_label:
+                continue
+            stat = stats.setdefault(seek_label, {"label": seek_label})
+            stat["landed_qpc"] = qpc
+            stat["queue_to_landed_seconds"] = elapsed(
+                stat.get("queued_qpc"), qpc
+            )
+            stat["case_start_to_landed_seconds"] = elapsed(
+                stat.get("case_start_qpc"), qpc
+            )
+            stat["frames_advanced"] = int_field(event.get("frames_advanced"))
+            continue
+
+        if name == "replay_seek_test_resume_start" and label and qpc:
+            stat = stats.setdefault(label, {"label": label})
+            stat["resume_start_qpc"] = qpc
+            stat["landed_to_resume_seconds"] = elapsed(
+                stat.get("landed_qpc"), qpc
+            )
+            stat["queue_to_resume_seconds"] = elapsed(
+                stat.get("queued_qpc"), qpc
+            )
+            stat["case_start_to_resume_seconds"] = elapsed(
+                stat.get("case_start_qpc"), qpc
+            )
+            stat["resume_start_seq"] = event.get("resume_start_seq")
+            stat["resume_start_master"] = event.get("resume_start_master")
+            continue
+
+        if name == "replay_seek_test_case_result" and label:
+            stat = stats.setdefault(label, {"label": label})
+            stat["result_seen"] = True
+            if current_case == label:
+                current_case = None
+
+    return {
+        label: stat
+        for label, stat in stats.items()
+        if stat.get("case_start_qpc") is not None
+        or stat.get("resume_frames_requested") is not None
+    }
+
+
+def collect_seek_lifecycle_failures(
+    events: list[dict[str, Any]],
+    max_queue_seconds: float = DEFAULT_MAX_SEEK_QUEUE_SECONDS,
+    max_land_seconds: float = DEFAULT_MAX_SEEK_LAND_SECONDS,
+    max_resume_handoff_seconds: float = DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS,
+    max_total_resume_seconds: float = DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    frequency = qpc_frequency()
+    stats = collect_seek_lifecycle_stats(events, frequency)
+    failures: list[str] = []
+    if frequency is None:
+        failures.append("seek lifecycle check unavailable: no QPC frequency")
+        return stats, failures
+
+    for label, stat in stats.items():
+        requested = int_field(stat.get("resume_frames_requested"))
+        if requested <= 0:
+            continue
+        queued = stat.get("case_start_to_queued_seconds")
+        if (
+            max_queue_seconds > 0.0
+            and queued is not None
+            and float_field(queued) > max_queue_seconds
+        ):
+            failures.append(
+                f"case {label} seek queue handoff too slow: "
+                f"{float_field(queued):.3f}s > "
+                f"{max_queue_seconds:.3f}s "
+                f"(target_seq={stat.get('target_seq', '?')})"
+            )
+        land = stat.get("queue_to_landed_seconds")
+        if (
+            max_land_seconds > 0.0
+            and land is not None
+            and float_field(land) > max_land_seconds
+        ):
+            failures.append(
+                f"case {label} seek landing too slow: "
+                f"{float_field(land):.3f}s > {max_land_seconds:.3f}s "
+                f"(target_seq={stat.get('target_seq', '?')})"
+            )
+        handoff = stat.get("landed_to_resume_seconds")
+        if (
+            max_resume_handoff_seconds > 0.0
+            and handoff is not None
+            and float_field(handoff) > max_resume_handoff_seconds
+        ):
+            failures.append(
+                f"case {label} seek resume handoff too slow: "
+                f"{float_field(handoff):.3f}s > "
+                f"{max_resume_handoff_seconds:.3f}s "
+                f"(target_seq={stat.get('target_seq', '?')})"
+            )
+        total = stat.get("case_start_to_resume_seconds")
+        if (
+            max_total_resume_seconds > 0.0
+            and total is not None
+            and float_field(total) > max_total_resume_seconds
+        ):
+            failures.append(
+                f"case {label} automated seek lifecycle too slow: "
+                f"{float_field(total):.3f}s > "
+                f"{max_total_resume_seconds:.3f}s "
+                f"(target_seq={stat.get('target_seq', '?')})"
+            )
+
+    return stats, failures
+
+
 def summarize_test_events(
     events: list[dict[str, Any]],
     min_resume_tick_rate: float = DEFAULT_MIN_RESUME_TICK_RATE,
     resume_tick_window: int = DEFAULT_RESUME_TICK_WINDOW,
     max_seek_validation_seconds: float = DEFAULT_MAX_SEEK_VALIDATION_SECONDS,
+    max_resume_tick_gap_seconds: float = DEFAULT_MAX_RESUME_TICK_GAP_SECONDS,
+    max_first_resume_tick_seconds: float = DEFAULT_MAX_FIRST_RESUME_TICK_SECONDS,
+    max_seek_queue_seconds: float = DEFAULT_MAX_SEEK_QUEUE_SECONDS,
+    max_seek_land_seconds: float = DEFAULT_MAX_SEEK_LAND_SECONDS,
+    max_seek_resume_handoff_seconds: float = (
+        DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS
+    ),
+    max_seek_total_resume_seconds: float = DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS,
 ) -> int | None:
     results = [e for e in events if event_name(e) == "replay_seek_test_case_result"]
     summaries = [e for e in events if event_name(e) == "replay_seek_test_summary"]
@@ -700,10 +1073,19 @@ def summarize_test_events(
         events,
         min_resume_tick_rate,
         resume_tick_window,
+        max_resume_tick_gap_seconds,
+        max_first_resume_tick_seconds,
     )
     validation_stats, validation_failures = collect_seek_validation_failures(
         events,
         max_seek_validation_seconds,
+    )
+    lifecycle_stats, lifecycle_failures = collect_seek_lifecycle_failures(
+        events,
+        max_seek_queue_seconds,
+        max_seek_land_seconds,
+        max_seek_resume_handoff_seconds,
+        max_seek_total_resume_seconds,
     )
 
     if starts:
@@ -803,14 +1185,63 @@ def summarize_test_events(
             latency_part = ""
             if first_tick is not None:
                 latency_part = f" first_tick={float_field(first_tick):.3f}s"
+            max_gap = tick_stat.get("max_tick_gap_seconds")
+            gap_part = ""
+            if max_gap is not None:
+                gap_part = f" max_gap={float_field(max_gap):.3f}s"
+            p95_gap = tick_stat.get("p95_tick_gap_seconds")
+            p95_gap_part = ""
+            if p95_gap is not None:
+                p95_gap_part = f" p95_gap={float_field(p95_gap):.3f}s"
+            sample_gap = tick_stat.get("max_sample_gap_seconds")
+            sample_gap_part = ""
+            if sample_gap is not None:
+                sample_gap_part = (
+                    f" sample_gap={float_field(sample_gap):.3f}s"
+                )
+            gap_before = tick_stat.get("max_tick_gap_before")
+            gap_after = tick_stat.get("max_tick_gap_after")
+            gap_at_part = ""
+            if gap_before is not None and gap_after is not None:
+                gap_at_part = f" gap_at={gap_before}->{gap_after}"
             print(
                 "  native ticks: "
                 f"source={tick_stat.get('tick_source', '?')} "
                 f"rate={float_field(tick_stat.get('tick_rate')):.1f}t/s "
                 f"ticks={int_field(tick_stat.get('tick_delta'))} "
                 f"elapsed={float_field(tick_stat.get('tick_elapsed_seconds')):.2f}s"
-                f"{bm_part}{master_part}{latency_part} "
+                f"{bm_part}{master_part}{latency_part}"
+                f"{gap_part}{p95_gap_part}{sample_gap_part}{gap_at_part} "
                 f"samples={int_field(tick_stat.get('native_samples'))}"
+            )
+        lifecycle_stat = lifecycle_stats.get(label)
+        if resume_requested > 0 and lifecycle_stat:
+            queued = lifecycle_stat.get("case_start_to_queued_seconds")
+            land = lifecycle_stat.get("queue_to_landed_seconds")
+            handoff = lifecycle_stat.get("landed_to_resume_seconds")
+            total = lifecycle_stat.get("case_start_to_resume_seconds")
+            queue_part = ""
+            if queued is not None:
+                queue_part = (
+                    f" start_to_queue={float_field(queued):.3f}s"
+                )
+            land_part = ""
+            if land is not None:
+                land_part = f" queue_to_landed={float_field(land):.3f}s"
+            handoff_part = ""
+            if handoff is not None:
+                handoff_part = (
+                    f" landed_to_resume={float_field(handoff):.3f}s"
+                )
+            total_part = ""
+            if total is not None:
+                total_part = f" total_to_resume={float_field(total):.3f}s"
+            print(
+                "  seek lifecycle:"
+                f"{queue_part}{land_part}{handoff_part}{total_part} "
+                f"reset={bool_field(lifecycle_stat.get('reset_context'))} "
+                f"cross_round="
+                f"{bool_field(lifecycle_stat.get('cross_round_reset'))}"
             )
 
     print(f"cases: passed={passed} failed={failed} raw_diagnostics={raw_diag}")
@@ -830,21 +1261,111 @@ def summarize_test_events(
             if int_field(stat.get("requested")) > 0
             and stat.get("tick_rate") is not None
         ]
+        gap_values = [
+            float_field(stat.get("max_tick_gap_seconds"))
+            for stat in tick_stats.values()
+            if int_field(stat.get("requested")) > 0
+            and stat.get("max_tick_gap_seconds") is not None
+        ]
+        first_tick_values = [
+            float_field(stat.get("first_tick_latency_seconds"))
+            for stat in tick_stats.values()
+            if int_field(stat.get("requested")) > 0
+            and stat.get("first_tick_latency_seconds") is not None
+        ]
+        spike_cases = sum(
+            1 for gap in gap_values
+            if max_resume_tick_gap_seconds > 0.0
+            and gap > max_resume_tick_gap_seconds
+        )
+        late_cases = sum(
+            1 for first_tick in first_tick_values
+            if max_first_resume_tick_seconds > 0.0
+            and first_tick > max_first_resume_tick_seconds
+        )
         if rates:
+            gap_part = ""
+            if gap_values:
+                gap_part = (
+                    f" max_gap={max(gap_values):.3f}s "
+                    f"gap_threshold={max_resume_tick_gap_seconds:.3f}s "
+                    f"spike_cases={spike_cases}"
+                )
+            first_tick_part = ""
+            if first_tick_values:
+                first_tick_part = (
+                    f" max_first_tick={max(first_tick_values):.3f}s "
+                    f"first_tick_threshold="
+                    f"{max_first_resume_tick_seconds:.3f}s "
+                    f"late_cases={late_cases}"
+                )
             print(
                 "watchback ticks: "
                 f"min={min(rates):.1f}t/s "
                 f"avg={sum(rates) / len(rates):.1f}t/s "
                 f"threshold={min_resume_tick_rate:.1f}t/s "
                 f"window={resume_tick_window}ticks "
-                f"slow_cases={len(tick_failures)}"
+                f"failed_cases={len(tick_failures)}"
+                f"{gap_part}{first_tick_part}"
             )
         elif tick_failures:
             print(
                 "watchback ticks: "
                 f"unavailable threshold={min_resume_tick_rate:.1f}t/s "
                 f"window={resume_tick_window}ticks "
-                f"slow_cases={len(tick_failures)}"
+                f"failed_cases={len(tick_failures)}"
+            )
+        lifecycle_watch_stats = [
+            stat for stat in lifecycle_stats.values()
+            if int_field(stat.get("resume_frames_requested")) > 0
+        ]
+        if lifecycle_watch_stats:
+            queue_values = [
+                float_field(stat.get("case_start_to_queued_seconds"))
+                for stat in lifecycle_watch_stats
+                if stat.get("case_start_to_queued_seconds") is not None
+            ]
+            land_values = [
+                float_field(stat.get("queue_to_landed_seconds"))
+                for stat in lifecycle_watch_stats
+                if stat.get("queue_to_landed_seconds") is not None
+            ]
+            handoff_values = [
+                float_field(stat.get("landed_to_resume_seconds"))
+                for stat in lifecycle_watch_stats
+                if stat.get("landed_to_resume_seconds") is not None
+            ]
+            total_values = [
+                float_field(stat.get("case_start_to_resume_seconds"))
+                for stat in lifecycle_watch_stats
+                if stat.get("case_start_to_resume_seconds") is not None
+            ]
+            queue_part = (
+                f" max_queue={max(queue_values):.3f}s "
+                f"queue_threshold={max_seek_queue_seconds:.3f}s"
+                if queue_values else ""
+            )
+            land_part = (
+                f" max_land={max(land_values):.3f}s "
+                f"land_threshold={max_seek_land_seconds:.3f}s"
+                if land_values else ""
+            )
+            handoff_part = (
+                f" max_handoff={max(handoff_values):.3f}s "
+                f"handoff_threshold="
+                f"{max_seek_resume_handoff_seconds:.3f}s"
+                if handoff_values else ""
+            )
+            total_part = (
+                f" max_total={max(total_values):.3f}s "
+                f"total_threshold={max_seek_total_resume_seconds:.3f}s"
+                if total_values else ""
+            )
+            print(
+                "seek lifecycle: "
+                f"cases={len(lifecycle_watch_stats)}"
+                f"{queue_part}{land_part}{handoff_part}{total_part} "
+                f"failed_cases={len(lifecycle_failures)}"
             )
     if validation_stats:
         elapsed_values = [
@@ -927,6 +1448,14 @@ def strict_failures(
     min_resume_tick_rate: float = DEFAULT_MIN_RESUME_TICK_RATE,
     resume_tick_window: int = DEFAULT_RESUME_TICK_WINDOW,
     max_seek_validation_seconds: float = DEFAULT_MAX_SEEK_VALIDATION_SECONDS,
+    max_resume_tick_gap_seconds: float = DEFAULT_MAX_RESUME_TICK_GAP_SECONDS,
+    max_first_resume_tick_seconds: float = DEFAULT_MAX_FIRST_RESUME_TICK_SECONDS,
+    max_seek_queue_seconds: float = DEFAULT_MAX_SEEK_QUEUE_SECONDS,
+    max_seek_land_seconds: float = DEFAULT_MAX_SEEK_LAND_SECONDS,
+    max_seek_resume_handoff_seconds: float = (
+        DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS
+    ),
+    max_seek_total_resume_seconds: float = DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS,
 ) -> list[str]:
     failures: list[str] = []
     complete = [e for e in events if event_name(e) == "generate_complete"]
@@ -1015,6 +1544,8 @@ def strict_failures(
             events,
             min_resume_tick_rate,
             resume_tick_window,
+            max_resume_tick_gap_seconds,
+            max_first_resume_tick_seconds,
         )
         failures.extend(tick_failures)
         _, validation_failures = collect_seek_validation_failures(
@@ -1022,6 +1553,14 @@ def strict_failures(
             max_seek_validation_seconds,
         )
         failures.extend(validation_failures)
+        _, lifecycle_failures = collect_seek_lifecycle_failures(
+            events,
+            max_seek_queue_seconds,
+            max_seek_land_seconds,
+            max_seek_resume_handoff_seconds,
+            max_seek_total_resume_seconds,
+        )
+        failures.extend(lifecycle_failures)
 
     mismatch_events = [
         e for e in events
@@ -1031,13 +1570,18 @@ def strict_failures(
         failures.append(f"resume state mismatch events: {len(mismatch_events)}")
 
     overlay_events = [
-        e for e in events
-        if event_name(e) == "resume_oracle_playback_overlay"
+        e for e in events if event_name(e) in PER_TICK_ASSIST_EVENTS
     ]
     if overlay_events:
+        counts = Counter(event_name(e) for e in overlay_events)
+        detail = ", ".join(
+            f"{name}={count}" for name, count in sorted(counts.items())
+        )
         failures.append(
-            "resume oracle playback overlay ran "
-            f"({len(overlay_events)} events)"
+            "per-tick resume assist writer ran "
+            f"({len(overlay_events)} events"
+            + (f": {detail}" if detail else "")
+            + ")"
         )
 
     observation_count, drain_events, has_drain_marker, boundary_issues = (
@@ -1120,6 +1664,66 @@ def main() -> int:
             f"Default: {DEFAULT_MAX_SEEK_VALIDATION_SECONDS:.2f}s"
         ),
     )
+    parser.add_argument(
+        "--max-seek-land-seconds",
+        type=float,
+        default=DEFAULT_MAX_SEEK_LAND_SECONDS,
+        help=(
+            "Maximum time from captured seek queue to captured seek landing "
+            "for watched cases. Use 0 to disable. "
+            f"Default: {DEFAULT_MAX_SEEK_LAND_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--max-seek-queue-seconds",
+        type=float,
+        default=DEFAULT_MAX_SEEK_QUEUE_SECONDS,
+        help=(
+            "Maximum time from seek-test case start to captured seek queue. "
+            "Use 0 to disable. "
+            f"Default: {DEFAULT_MAX_SEEK_QUEUE_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--max-seek-resume-handoff-seconds",
+        type=float,
+        default=DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS,
+        help=(
+            "Maximum time from captured seek landing to automated resume "
+            "start. Use 0 to disable. "
+            f"Default: {DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--max-seek-total-resume-seconds",
+        type=float,
+        default=DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS,
+        help=(
+            "Maximum time from seek-test case start to automated resume "
+            "start. Use 0 to disable. "
+            f"Default: {DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--max-resume-tick-gap-seconds",
+        type=float,
+        default=DEFAULT_MAX_RESUME_TICK_GAP_SECONDS,
+        help=(
+            "Maximum wall-clock gap per native replay tick during resumed "
+            "watchback. Use 0 to disable. "
+            f"Default: {DEFAULT_MAX_RESUME_TICK_GAP_SECONDS:.3f}s"
+        ),
+    )
+    parser.add_argument(
+        "--max-first-resume-tick-seconds",
+        type=float,
+        default=DEFAULT_MAX_FIRST_RESUME_TICK_SECONDS,
+        help=(
+            "Maximum delay from resume command service to the first native "
+            "playback tick. Use 0 to disable. "
+            f"Default: {DEFAULT_MAX_FIRST_RESUME_TICK_SECONDS:.3f}s"
+        ),
+    )
     args = parser.parse_args()
 
     path = Path(args.trace) if args.trace else latest_trace(Path(args.latest_dir))
@@ -1152,6 +1756,12 @@ def main() -> int:
         args.min_resume_tick_rate,
         args.resume_tick_window,
         args.max_seek_validation_seconds,
+        args.max_resume_tick_gap_seconds,
+        args.max_first_resume_tick_seconds,
+        args.max_seek_queue_seconds,
+        args.max_seek_land_seconds,
+        args.max_seek_resume_handoff_seconds,
+        args.max_seek_total_resume_seconds,
     )
     if args.strict:
         failures = strict_failures(
@@ -1159,6 +1769,12 @@ def main() -> int:
             args.min_resume_tick_rate,
             args.resume_tick_window,
             args.max_seek_validation_seconds,
+            args.max_resume_tick_gap_seconds,
+            args.max_first_resume_tick_seconds,
+            args.max_seek_queue_seconds,
+            args.max_seek_land_seconds,
+            args.max_seek_resume_handoff_seconds,
+            args.max_seek_total_resume_seconds,
         )
         if failures:
             print("strict: FAIL")

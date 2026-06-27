@@ -2,10 +2,17 @@
 
 Always think longer term short term fixes are not a good solution.
 
+## Agent roles
+
+- Codex owns first-pass exploration and implementation work: search the repo, read code/docs/logs, run local tools, and ground conclusions in evidence before asking for validation.
+- Hermes validates, corrects, and steers after Codex has gathered evidence or drafted a plan/change. Use Hermes to challenge assumptions, spot missing checks, and redirect scope; do not use Hermes as a substitute for Codex's own exploration.
+- When Codex and Hermes disagree, re-check primary sources: code, logs, replay tests, Ghidra MCP, dumps, and the SC6ModdingDocs repo. State the concrete evidence before editing.
+
 Repo layout:
 - `HorseMod/` — C++ ASI mod (PolyHook2 + custom hooks) for Soulcalibur VI
 - `RE-UE4SS/` — UE4SS integration
 - `dump/` — UE header/asset dumps used as RE inputs. a full dump can be found at `C:\Users\prest\Documents\SoulcaliburModding\SCVI Sound Tools\dump` move the files you end up using to the repo dump folder
+- `E:\DevShitPosts\SC6Mods\SC6ModdingDocs` — MkDocs knowledge base for reusable SC6 reverse-engineering facts; follow that repo's `AGENTS.md` when editing it.
 - `E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\ue4ss\UE4SS.log` — Can be used to check ue4ss logs
 
 ## Replay testing

@@ -1765,7 +1765,6 @@ namespace Horse
 
             if (!ReplayDebugTrace::instance().enabled()) return;
             if (!RngTraceHook::instance().active()) return;
-            if (sub_id_mode != 0xfffffffeu) return;
 
             const uintptr_t base = NativeBinding::imageBase();
             const uintptr_t stack_addr = reinterpret_cast<uintptr_t>(stack_base);
@@ -1816,7 +1815,10 @@ namespace Horse
              .hex("return_rva", caller_rva)
              .boolean("variant_changed", variant_before != variant_after);
             if (!caller_fn.empty()) f.string("return_fn", caller_fn.c_str());
-            emit("secondary_action_stack_push_random_variant", f);
+            emit(sub_id_mode == 0xfffffffeu
+                     ? "secondary_action_stack_push_random_variant"
+                     : "secondary_action_stack_push_variant",
+                 f);
 #endif
         }
 
