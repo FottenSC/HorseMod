@@ -884,6 +884,307 @@ def _move_metrics(move: dict[str, Any], khd: KhdFile | None) -> dict[str, Any]:
     }
 
 
+def _parse_frame_value(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    if value is None:
+        return None
+    match = re.search(r"[+-]?\d+", str(value))
+    return int(match.group(0)) if match else None
+
+
+def _damage_total(values: Any) -> int | None:
+    if not isinstance(values, list) or not values:
+        return None
+    total = 0
+    seen = False
+    for value in values:
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            total += int(value)
+            seen = True
+    return total if seen else None
+
+
+def _row_looks_like_launcher(row: dict[str, Any]) -> bool:
+    metrics = row.get("metrics", {}) or {}
+    blob = f"{metrics.get('hit', '')} {metrics.get('counterHit', '')} {row.get('notes', '')}".upper()
+    return re.search(r"\b(LNC|KND|STN|LAUNCH|KNOCK)", blob) is not None
+
+
+def _family_metric_summary(family: dict[str, Any]) -> dict[str, Any]:
+    rows = family.get("rows", []) or []
+    startups = [
+        value
+        for value in (row.get("metrics", {}).get("startup") for row in rows)
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    ]
+    damages = [
+        total
+        for total in (_damage_total(row.get("metrics", {}).get("damage")) for row in rows)
+        if total is not None
+    ]
+    blocks = [
+        (row.get("metrics", {}).get("block"), parsed)
+        for row in rows
+        for parsed in [_parse_frame_value(row.get("metrics", {}).get("block"))]
+        if parsed is not None
+    ]
+    hits = [
+        (row.get("metrics", {}).get("hit"), parsed)
+        for row in rows
+        for parsed in [_parse_frame_value(row.get("metrics", {}).get("hit"))]
+        if parsed is not None
+    ]
+    unsafe_count = sum(1 for _, parsed in blocks if parsed <= -10)
+    plus_count = sum(1 for _, parsed in blocks if parsed > 0)
+    blocks.sort(key=lambda item: item[1])
+    hits.sort(key=lambda item: item[1], reverse=True)
+    return {
+        "startup": min(startups) if startups else None,
+        "damage": max(damages) if damages else None,
+        "block": blocks[0][0] if blocks else None,
+        "hit": hits[0][0] if hits else None,
+        "rowCount": len(rows),
+        "unsafeCount": unsafe_count,
+        "plusCount": plus_count,
+        "launcherCount": sum(1 for row in rows if _row_looks_like_launcher(row)),
+    }
+
+
+def _normalize_command_key(value: str) -> str:
+    return (
+        (value or "")
+        .upper()
+        .replace(" ", "")
+        .replace(",", "")
+        .replace(">", "")
+        .replace(".", "")
+        .replace("(", "")
+        .replace(")", "")
+        .replace("-", "")
+    )
+
+
+def _family_search_text(char_name: str, family: dict[str, Any]) -> str:
+    parts: list[str] = [
+        char_name,
+        family.get("cid", ""),
+        family.get("rootCommand", ""),
+        family.get("rootName", ""),
+        family.get("context", ""),
+        family.get("confidence", ""),
+        " ".join(family.get("relations", []) or []),
+    ]
+    for row in family.get("rows", []) or []:
+        metrics = row.get("metrics", {}) or {}
+        parts.extend([
+            row.get("displayCommand", ""),
+            row.get("displayName", ""),
+            row.get("context", ""),
+            row.get("source", ""),
+            row.get("confidence", ""),
+            row.get("timelineStatus", ""),
+            " ".join(metrics.get("hitLevels", []) or []),
+            row.get("notes", ""),
+        ])
+    return " ".join(str(part) for part in parts if part).lower()
+
+
+def _family_command_keys(family: dict[str, Any]) -> list[str]:
+    values = [family.get("rootCommand", "")]
+    values.extend(row.get("displayCommand", "") for row in family.get("rows", []) or [])
+    return sorted({key for key in (_normalize_command_key(value) for value in values) if key})
+
+
+def _source_counts_for_family(family: dict[str, Any]) -> dict[str, int]:
+    counts = Counter(row.get("source", "unknown") for row in family.get("rows", []) or [])
+    return dict(counts)
+
+
+def _timeline_counts_for_family(family: dict[str, Any]) -> dict[str, int]:
+    counts = Counter(row.get("timelineStatus", "unknown") for row in family.get("rows", []) or [])
+    return dict(counts)
+
+
+def _build_player_dashboard(families: list[dict[str, Any]]) -> dict[str, Any]:
+    stats_by_family = {family["id"]: _family_metric_summary(family) for family in families}
+
+    def family_stats(family: dict[str, Any]) -> dict[str, Any]:
+        return stats_by_family.get(family["id"], {})
+
+    fastest = sorted(
+        (family for family in families if family_stats(family).get("startup") is not None),
+        key=lambda family: (family_stats(family).get("startup") or 9999, family.get("rootCommand", "")),
+    )[:8]
+    unsafe = sorted(
+        (family for family in families if family_stats(family).get("unsafeCount", 0) > 0),
+        key=lambda family: (_parse_frame_value(family_stats(family).get("block")) or 9999, family.get("rootCommand", "")),
+    )[:8]
+    plus = sorted(
+        (family for family in families if family_stats(family).get("plusCount", 0) > 0),
+        key=lambda family: (_parse_frame_value(family_stats(family).get("block")) or -9999, family.get("rootCommand", "")),
+        reverse=True,
+    )[:8]
+    launchers = [
+        family for family in families
+        if family_stats(family).get("launcherCount", 0) > 0
+    ][:8]
+    return {
+        "statsByFamily": stats_by_family,
+        "fastestFamilyIds": [family["id"] for family in fastest],
+        "unsafeFamilyIds": [family["id"] for family in unsafe],
+        "plusFamilyIds": [family["id"] for family in plus],
+        "launcherFamilyIds": [family["id"] for family in launchers],
+    }
+
+
+def build_v2_player_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Slim character payload for normal v2 browsing.
+
+    It intentionally excludes heavyweight native KHD arrays (`slots`,
+    `cells`, `slotEdges`, and event records). Those remain in the legacy
+    full JSON for explicit debug/evidence workflows.
+    """
+    movelist = payload.get("movelist") or {}
+    families = movelist.get("playerMoveFamilies", []) or []
+    khd = payload.get("khd") or {}
+    native_summary = {
+        key: khd.get(key)
+        for key in (
+            "moveCount",
+            "movelistId",
+            "totalCells",
+            "throwCount",
+            "attackCount",
+            "headerCount",
+            "sentinelCount",
+            "nonDamagingCount",
+            "slotCount",
+            "eventRecordCount",
+            "parsedEventRecordCount",
+        )
+        if key in khd
+    }
+    return {
+        "cid": payload.get("cid", ""),
+        "name": payload.get("name", ""),
+        "kind": payload.get("kind", "unknown"),
+        "uncertain": payload.get("uncertain", False),
+        "files": payload.get("files", {}),
+        "nativeSummary": native_summary,
+        "playerMoveFamilies": families,
+        "playerMoveSummary": movelist.get("playerMoveSummary") or {
+            "rawMoveRows": len(movelist.get("moves", []) or []),
+            "playerFamilies": len(families),
+            "playerRows": sum(len(family.get("rows", []) or []) for family in families),
+            "communityRows": 0,
+            "communityCoveredParserRows": 0,
+            "parserFallbackFamilies": 0,
+            "sourceCounts": {},
+            "confidenceCounts": {},
+            "timelineStatusCounts": {},
+        },
+        "dashboard": _build_player_dashboard(families),
+    }
+
+
+def _move_metrics_from_payload(move: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    if move.get("communityFrame"):
+        return _move_metrics(move, None)
+    cells = payload.get("khd", {}).get("cells", []) or []
+    _, native_cells = _move_native_refs(move)
+    for idx in native_cells:
+        if 0 <= idx < len(cells):
+            cell = cells[idx]
+            if cell.get("role") != "Attack":
+                continue
+            return {
+                "startup": cell.get("activeStart"),
+                "damage": [cell.get("damage")] if cell.get("damage") else [],
+                "block": cell.get("onBlock"),
+                "hit": cell.get("onHitStanding"),
+                "counterHit": None,
+                "hitLevels": move.get("hitClasses", []) or ([cell.get("class")] if cell.get("class") else []),
+            }
+    return _move_metrics(move, None)
+
+
+def build_v2_raw_movelist_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    movelist = payload.get("movelist") or {}
+    rows = []
+    for move in movelist.get("moves", []) or []:
+        slots, cells = _move_native_refs(move)
+        rows.append({
+            "order": move.get("order"),
+            "moveId": move.get("moveId"),
+            "category": move.get("category"),
+            "name": move.get("name", ""),
+            "condition": move.get("condition", ""),
+            "input": move.get("input", ""),
+            "fullCommand": move.get("fullCommand", ""),
+            "note": move.get("note", ""),
+            "isMovementOnly": move.get("isMovementOnly", False),
+            "isThrowInput": move.get("isThrowInput", False),
+            "hasInputAlternatives": move.get("hasInputAlternatives", False),
+            "hitClasses": move.get("hitClasses", []),
+            "effectTags": move.get("effectTags", []),
+            "mainTip": move.get("mainTip", ""),
+            "lethalHitCondition": move.get("lethalHitCondition", ""),
+            "groupIds": move.get("groupIds", []),
+            "metrics": _move_metrics_from_payload(move, payload),
+            "nativeSlots": slots,
+            "nativeCells": cells,
+        })
+    return {
+        "cid": payload.get("cid", ""),
+        "name": payload.get("name", ""),
+        "kind": payload.get("kind", "unknown"),
+        "categories": movelist.get("categories", []),
+        "moveGroups": movelist.get("moveGroups", []),
+        "rows": rows,
+    }
+
+
+def build_v2_lookup_index(player_payloads: list[dict[str, Any]]) -> dict[str, Any]:
+    chars = []
+    families = []
+    for player in player_payloads:
+        chars.append({
+            "cid": player.get("cid", ""),
+            "name": player.get("name", ""),
+            "kind": player.get("kind", "unknown"),
+            "uncertain": player.get("uncertain", False),
+        })
+        stats_by_family = player.get("dashboard", {}).get("statsByFamily", {})
+        for family in player.get("playerMoveFamilies", []) or []:
+            families.append({
+                "cid": player.get("cid", ""),
+                "charName": player.get("name", ""),
+                "kind": player.get("kind", "unknown"),
+                "familyId": family.get("id", ""),
+                "rootCommand": family.get("rootCommand", ""),
+                "rootName": family.get("rootName", ""),
+                "context": family.get("context", "Neutral"),
+                "confidence": family.get("confidence", "unknown"),
+                "relations": family.get("relations", []),
+                "rowCount": len(family.get("rows", []) or []),
+                "metrics": stats_by_family.get(family.get("id"), _family_metric_summary(family)),
+                "sourceCounts": _source_counts_for_family(family),
+                "timelineStatusCounts": _timeline_counts_for_family(family),
+                "commandKeys": _family_command_keys(family),
+                "searchText": _family_search_text(player.get("name", ""), family),
+            })
+    return {
+        "schemaVersion": 1,
+        "chars": chars,
+        "families": families,
+    }
+
+
 def _community_confidence(value: str, has_parser_anchor: bool) -> str:
     if has_parser_anchor:
         return "mixed-supported"
@@ -1579,7 +1880,7 @@ def char_summary(cid: str, paths: dict[str, str]) -> dict[str, Any]:
     return out
 
 
-def export_char(cid: str, paths: dict[str, str], out_path: str) -> None:
+def export_char(cid: str, paths: dict[str, str], out_path: str) -> dict[str, Any]:
     """Write the full per-character JSON."""
     payload: dict[str, Any] = {
         "cid": cid,
@@ -1692,6 +1993,19 @@ def export_char(cid: str, paths: dict[str, str], out_path: str) -> None:
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, separators=(",", ":"))
+    return payload
+
+
+def write_v2_char_shards(payload: dict[str, Any], out_dir: str) -> dict[str, Any]:
+    player_payload = build_v2_player_payload(payload)
+    raw_payload = build_v2_raw_movelist_payload(payload)
+    char_dir = os.path.join(out_dir, "v2", "chars", str(payload.get("cid", "")))
+    os.makedirs(char_dir, exist_ok=True)
+    with open(os.path.join(char_dir, "player.json"), "w", encoding="utf-8") as f:
+        json.dump(player_payload, f, separators=(",", ":"))
+    with open(os.path.join(char_dir, "raw-movelist.json"), "w", encoding="utf-8") as f:
+        json.dump(raw_payload, f, separators=(",", ":"))
+    return player_payload
 
 
 def discover_chars(root: str) -> dict[str, dict[str, str]]:
@@ -1738,17 +2052,31 @@ def main() -> int:
     os.makedirs(os.path.join(args.out_dir, "chars"), exist_ok=True)
 
     roster = []
+    v2_player_payloads: list[dict[str, Any]] = []
     for cid in sorted(chars):
         summary = char_summary(cid, chars[cid])
         roster.append(summary)
-        export_char(cid, chars[cid], os.path.join(args.out_dir, "chars", f"{cid}.json"))
+        char_path = os.path.join(args.out_dir, "chars", f"{cid}.json")
+        payload = export_char(cid, chars[cid], char_path)
+        if payload is None:
+            try:
+                with open(char_path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+            except Exception:
+                payload = None
+        if payload is not None:
+            player_payload = write_v2_char_shards(payload, args.out_dir)
+            v2_player_payloads.append(player_payload)
         ac = summary.get("attackCount", "-")
         td = summary.get("topDamage", "-")
         print(f"  {cid}  {summary['name']:<18}  attacks={ac:>4}  topDmg={td}")
 
     with open(os.path.join(args.out_dir, "roster.json"), "w", encoding="utf-8") as f:
         json.dump({"chars": roster}, f, indent=2)
-    print(f"\nWrote roster + {len(roster)} char files to {args.out_dir}")
+    os.makedirs(os.path.join(args.out_dir, "v2"), exist_ok=True)
+    with open(os.path.join(args.out_dir, "v2", "lookup-index.json"), "w", encoding="utf-8") as f:
+        json.dump(build_v2_lookup_index(v2_player_payloads), f, separators=(",", ":"))
+    print(f"\nWrote roster + {len(roster)} char files + v2 shards to {args.out_dir}")
     return 0
 
 

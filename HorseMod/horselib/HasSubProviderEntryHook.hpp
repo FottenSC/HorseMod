@@ -201,13 +201,13 @@ namespace Horse
                 return false;
             }
 
-            // Vanilla / other policies: forward to the original.  Log
-            // first passthrough fire for diagnostic confirmation that
-            // the hook is active and being called.
+            // Vanilla / other policies: forward to the original.  Keep the
+            // first passthrough confirmation at Verbose; normal users only
+            // need Default logs when an override is actually active.
             static std::atomic<int> s_passthrough_seen{0};
             if (s_passthrough_seen.fetch_add(1) == 0)
             {
-                RC::Output::send<RC::LogLevel::Default>(
+                RC::Output::send<RC::LogLevel::Verbose>(
                     STR("[HasSubProviderEntryHook] FIRST passthrough fire "
                         "(providerSet=0x{:X}, policy={})\n"),
                     reinterpret_cast<uintptr_t>(providerSet),

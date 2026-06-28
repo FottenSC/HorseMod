@@ -723,7 +723,7 @@ namespace Horse
             }
         }
 
-        std::atomic<bool> m_enabled {true};
+        std::atomic<bool> m_enabled {false};
         std::atomic<bool> m_mirror_to_log {false};
         std::atomic<bool> m_verbose_slices {false};
         mutable std::mutex m_mutex;

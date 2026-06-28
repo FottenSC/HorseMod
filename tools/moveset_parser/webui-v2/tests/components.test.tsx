@@ -22,14 +22,20 @@ describe("FamilyTable", () => {
       relations: ["prefix"],
     });
 
-    render(<FamilyTable families={[family]} familyUrl={() => "/family-aa"} />);
+    render(
+      <FamilyTable
+        families={[family]}
+        familyLink={() => <span className="text-link">Open family evidence</span>}
+      />,
+    );
 
     expect(screen.getAllByText("Double Slice").length).toBeGreaterThan(0);
     expect(screen.getByText("1 rows")).toBeInTheDocument();
+    expect(screen.queryByText("test row")).not.toBeInTheDocument();
 
     await user.click(screen.getAllByText("Double Slice")[0]);
 
-    expect(screen.getByText("Open family evidence")).toHaveAttribute("href", "/family-aa");
+    expect(screen.getByText("Open family evidence")).toBeInTheDocument();
     expect(screen.getByText("test row")).toBeInTheDocument();
   });
 });

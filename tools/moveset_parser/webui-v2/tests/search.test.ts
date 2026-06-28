@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { filterFamilies, rankFamily } from "../app/lib/search";
+import { filterFamilies, rankFamily, rankLookupFamily } from "../app/lib/search";
+import type { LookupFamilySummary } from "../app/data/types";
 import { makeFamily } from "./fixtures";
 
 describe("family search", () => {
@@ -27,5 +28,28 @@ describe("family search", () => {
     slow.rows[0].metrics.startup = 24;
 
     expect(filterFamilies([slow, fast], "")).toEqual([slow, fast]);
+  });
+
+  it("ranks exact command matches from lookup-index summaries", () => {
+    const exact: LookupFamilySummary = {
+      cid: "003",
+      charName: "Taki",
+      kind: "base",
+      familyId: "aa",
+      rootCommand: "A.A",
+      rootName: "Double Slice",
+      context: "Neutral",
+      confidence: "mixed-supported",
+      relations: [],
+      rowCount: 1,
+      metrics: { startup: 10, damage: 16, block: -8, hit: 2, rowCount: 1, unsafeCount: 0, plusCount: 0, launcherCount: 0 },
+      sourceCounts: { mixed: 1 },
+      timelineStatusCounts: { partial: 1 },
+      commandKeys: ["AA"],
+      searchText: "taki double slice aa high",
+    };
+    const text = { ...exact, familyId: "note", rootCommand: "3B", commandKeys: ["3B"], searchText: "taki aa crusher" };
+
+    expect(rankLookupFamily(exact, "AA")).toBeGreaterThan(rankLookupFamily(text, "AA"));
   });
 });

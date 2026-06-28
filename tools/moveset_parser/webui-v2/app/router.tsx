@@ -7,8 +7,8 @@ import {
   createRouter,
   useNavigate,
 } from "@tanstack/react-router";
-import type { AppSearch, CharData, Roster } from "./data/types";
-import { loadChar, loadRoster } from "./data/api";
+import type { AppSearch, PlayerCharPayload, Roster } from "./data/types";
+import { loadLookupIndex, loadPlayerChar, loadRawMovelist, loadRoster } from "./data/api";
 import { MatchupSelector } from "./components/MatchupSelector";
 import { CharacterDashboardPage, CharacterFamiliesPage, CharacterFamilyDetailPage, CharacterRawPage } from "./pages/CharacterPage";
 import { LookupPage } from "./pages/LookupPage";
@@ -108,7 +108,7 @@ export const rootRoute = createRootRoute({
   errorComponent: ({ error }) => <ErrorView error={error instanceof Error ? error : new Error(String(error))} />,
 });
 
-function useCharacterNav(char: CharData, search: AppSearch) {
+function useCharacterNav(char: PlayerCharPayload, search: AppSearch) {
   const navigate = useNavigate();
   return (tab: "dashboard" | "families" | "raw") => {
     const to = tab === "dashboard"
@@ -133,13 +133,14 @@ const indexRoute = createRoute({
 const lookupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/lookup",
+  loader: loadLookupIndex,
   component: () => {
-    const roster = rootRoute.useLoaderData();
+    const index = lookupRoute.useLoaderData();
     const search = rootRoute.useSearch();
     const navigate = useNavigate();
     return (
       <LookupPage
-        roster={roster}
+        index={index}
         search={search}
         onQueryChange={(q) => navigateLoose(navigate, { to: "/lookup", search: { ...search, q: q || undefined }, replace: true })}
       />
@@ -150,7 +151,7 @@ const lookupRoute = createRoute({
 const characterRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/c/$cid",
-  loader: ({ params }) => loadChar(params.cid),
+  loader: ({ params }) => loadPlayerChar(params.cid),
   component: () => {
     const char = characterRoute.useLoaderData();
     const search = rootRoute.useSearch();
@@ -168,7 +169,7 @@ const characterRoute = createRoute({
 const characterFamiliesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/c/$cid/families",
-  loader: ({ params }) => loadChar(params.cid),
+  loader: ({ params }) => loadPlayerChar(params.cid),
   component: () => {
     const char = characterFamiliesRoute.useLoaderData();
     const search = rootRoute.useSearch();
@@ -186,7 +187,7 @@ const characterFamiliesRoute = createRoute({
 const characterFamilyDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/c/$cid/families/$familyId",
-  loader: ({ params }) => loadChar(params.cid),
+  loader: ({ params }) => loadPlayerChar(params.cid),
   component: () => {
     const char = characterFamilyDetailRoute.useLoaderData();
     const params = characterFamilyDetailRoute.useParams();
@@ -206,13 +207,17 @@ const characterFamilyDetailRoute = createRoute({
 const characterRawRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/c/$cid/raw",
-  loader: ({ params }) => loadChar(params.cid),
+  loader: async ({ params }) => ({
+    char: await loadPlayerChar(params.cid),
+    raw: await loadRawMovelist(params.cid),
+  }),
   component: () => {
-    const char = characterRawRoute.useLoaderData();
+    const { char, raw } = characterRawRoute.useLoaderData();
     const search = rootRoute.useSearch();
     return (
       <CharacterRawPage
         char={char}
+        raw={raw}
         search={search}
         activeTab="raw"
         onTabChange={useCharacterNav(char, search)}
@@ -233,7 +238,7 @@ const routeTree = rootRoute.addChildren([
 export const router = createRouter({
   routeTree,
   defaultPreload: "intent",
-  defaultStaleTime: 60_000,
+  defaultStaleTime: Infinity,
 });
 
 declare module "@tanstack/react-router" {

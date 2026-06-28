@@ -85,9 +85,6 @@
 
 #include <polyhook2/Detour/x64Detour.hpp>
 
-#include <commdlg.h>
-#pragma comment(lib, "Comdlg32.lib")
-
 #ifndef HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG
 #define HORSEMOD_REPLAY_ENABLE_LEGACY_SEEK_DIAG 0
 #endif
@@ -13665,107 +13662,9 @@ namespace Horse
             return queue_replay_file_start(path, auto_generate_mode);
         }
 
-        bool browse_and_request_load_replay_file() noexcept
+        std::wstring replay_files_directory_path() const noexcept
         {
-            wchar_t file_name[MAX_PATH]{};
-            OPENFILENAMEW ofn{};
-            ofn.lStructSize = sizeof(ofn);
-            ofn.hwndOwner = nullptr;
-            ofn.lpstrFile = file_name;
-            ofn.nMaxFile = MAX_PATH;
-            ofn.lpstrFilter =
-                L"Replay files (*.hmreplay;*.bin)\0*.hmreplay;*.bin\0"
-                L"HorseMod replay wrapper (*.hmreplay)\0*.hmreplay\0"
-                L"Native replay payload (*.bin)\0*.bin\0"
-                L"All files (*.*)\0*.*\0";
-            ofn.nFilterIndex = 1;
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
-                        OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
-
-            if (!GetOpenFileNameW(&ofn))
-            {
-                const DWORD err = CommDlgExtendedError();
-                if (err != 0)
-                {
-                    ReplayFileMetadata meta{};
-                    char detail[64]{};
-                    std::snprintf(detail, sizeof(detail),
-                                  "file dialog failed 0x%lX", err);
-                    set_replay_file_status("Load Replay File", true, false,
-                                           L"", 0, meta, detail);
-                    RC::Output::send<RC::LogLevel::Warning>(STR(
-                        "[ReplayFile] load failure: {}\n"),
-                        RC::to_generic_string(detail));
-                }
-                return false;
-            }
-
-            std::wstring path = file_name;
-            std::string reason;
-            if (!validate_absolute_replay_path(path, reason))
-            {
-                ReplayFileMetadata meta{};
-                RC::Output::send<RC::LogLevel::Warning>(STR(
-                    "[ReplayFile] load failure path='{}' reason={}\n"),
-                    RC::to_generic_string(narrow_path(path)),
-                    RC::to_generic_string(reason));
-                set_replay_file_status("Load Replay File", true, false,
-                                       path, 0, meta, reason.c_str());
-                return false;
-            }
-            return queue_replay_file_load(path);
-        }
-
-        bool browse_and_request_start_replay_file(
-            const char* auto_generate_mode = nullptr) noexcept
-        {
-            wchar_t file_name[MAX_PATH]{};
-            OPENFILENAMEW ofn{};
-            ofn.lStructSize = sizeof(ofn);
-            ofn.hwndOwner = nullptr;
-            ofn.lpstrFile = file_name;
-            ofn.nMaxFile = MAX_PATH;
-            ofn.lpstrFilter =
-                L"Replay files (*.hmreplay;*.bin)\0*.hmreplay;*.bin\0"
-                L"HorseMod replay wrapper (*.hmreplay)\0*.hmreplay\0"
-                L"Native replay payload (*.bin)\0*.bin\0"
-                L"All files (*.*)\0*.*\0";
-            ofn.nFilterIndex = 1;
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
-                        OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
-
-            if (!GetOpenFileNameW(&ofn))
-            {
-                const DWORD err = CommDlgExtendedError();
-                if (err != 0)
-                {
-                    ReplayFileMetadata meta{};
-                    char detail[64]{};
-                    std::snprintf(detail, sizeof(detail),
-                                  "file dialog failed 0x%lX", err);
-                    set_replay_file_status("Start Replay File", true, false,
-                                           L"", 0, meta, detail);
-                    RC::Output::send<RC::LogLevel::Warning>(STR(
-                        "[ReplayFile] start failure: {}\n"),
-                        RC::to_generic_string(detail));
-                }
-                return false;
-            }
-
-            std::wstring path = file_name;
-            std::string reason;
-            if (!validate_absolute_replay_path(path, reason))
-            {
-                ReplayFileMetadata meta{};
-                RC::Output::send<RC::LogLevel::Warning>(STR(
-                    "[ReplayFile] start failure path='{}' reason={}\n"),
-                    RC::to_generic_string(narrow_path(path)),
-                    RC::to_generic_string(reason));
-                set_replay_file_status("Start Replay File", true, false,
-                                       path, 0, meta, reason.c_str());
-                return false;
-            }
-            return queue_replay_file_start(path, auto_generate_mode);
+            return replay_files_dir();
         }
 
         using GateReleaseCallback = void (*)(const char*) noexcept;

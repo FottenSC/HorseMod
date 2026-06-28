@@ -189,7 +189,8 @@ namespace Horse
             // function's doc-comment for the full rationale.
             apply_policy_to_launcher(launcher, policy);
 
-            // Log EVERY fire (with a per-process counter for triage).
+            // Log every fire for triage, but keep Vanilla-policy noise at
+            // Verbose so a fresh install does not spam normal logs.
             // The 2026-04-28 desync investigation needs to know:
             //  * how many times Start fires per match (1? several?)
             //  * whether host AND joiner both fire it, or just host
@@ -205,13 +206,26 @@ namespace Horse
              .hex("start_param", reinterpret_cast<uintptr_t>(InStartParam));
             ReplayDebugTrace::instance().event(
                 "native_replay_ui_battle_launcher_start", f);
-            RC::Output::send<RC::LogLevel::Default>(
-                STR("[LuxBattleLauncherStartHook] fire #{} policy={} "
-                    "launcher=0x{:X} start_param=0x{:X}\n"),
-                n,
-                static_cast<int>(policy),
-                reinterpret_cast<uintptr_t>(launcher),
-                reinterpret_cast<uintptr_t>(InStartParam));
+            if (policy == HorsePolicy::Vanilla)
+            {
+                RC::Output::send<RC::LogLevel::Verbose>(
+                    STR("[LuxBattleLauncherStartHook] fire #{} policy={} "
+                        "launcher=0x{:X} start_param=0x{:X}\n"),
+                    n,
+                    static_cast<int>(policy),
+                    reinterpret_cast<uintptr_t>(launcher),
+                    reinterpret_cast<uintptr_t>(InStartParam));
+            }
+            else
+            {
+                RC::Output::send<RC::LogLevel::Default>(
+                    STR("[LuxBattleLauncherStartHook] fire #{} policy={} "
+                        "launcher=0x{:X} start_param=0x{:X}\n"),
+                    n,
+                    static_cast<int>(policy),
+                    reinterpret_cast<uintptr_t>(launcher),
+                    reinterpret_cast<uintptr_t>(InStartParam));
+            }
 
             if (orig) orig(launcher, InStartParam);
         }

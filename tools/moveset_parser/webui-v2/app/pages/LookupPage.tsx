@@ -1,54 +1,31 @@
-import { Alert, Search, Tag } from "@digdir/designsystemet-react";
-import { useEffect, useMemo, useState } from "react";
-import type { AppSearch, CharData, Roster } from "../data/types";
-import { loadAllPlayableChars } from "../data/api";
+import { Search, Tag } from "@digdir/designsystemet-react";
+import { Link } from "@tanstack/react-router";
+import { useMemo } from "react";
+import type { AppSearch, LookupIndex } from "../data/types";
+import { prefetchFamilyDetail } from "../data/api";
 import { CommandText } from "../components/CommandText";
 import { ConfidenceTag, FrameTag } from "../components/StatusTags";
 import { displayFrame } from "../lib/frames";
-import { ensurePlayerFamilies, familyStats } from "../lib/families";
-import { rankFamily } from "../lib/search";
+import { rankLookupFamily } from "../lib/search";
 
 export function LookupPage({
-  roster,
+  index,
   search,
   onQueryChange,
 }: {
-  roster: Roster;
+  index: LookupIndex;
   search: AppSearch;
   onQueryChange: (query: string) => void;
 }) {
-  const [chars, setChars] = useState<CharData[]>([]);
-  const [loading, setLoading] = useState(true);
   const query = search.q ?? "";
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    loadAllPlayableChars(roster)
-      .then((loaded) => {
-        if (!cancelled) setChars(loaded);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [roster]);
-
   const results = useMemo(() => {
-    const enriched = chars.map((char) => ({
-      char,
-      families: ensurePlayerFamilies(char).families,
-    }));
-    return enriched
-      .flatMap(({ char, families }) =>
-        families.map((family) => ({ char, family, score: rankFamily(family, query) })),
-      )
+    return index.families
+      .map((family) => ({ family, score: rankLookupFamily(family, query) }))
       .filter((result) => !query.trim() || result.score > 0)
-      .sort((a, b) => b.score - a.score || a.char.name.localeCompare(b.char.name))
+      .sort((a, b) => b.score - a.score || a.family.charName.localeCompare(b.family.charName))
       .slice(0, 120);
-  }, [chars, query]);
+  }, [index.families, query]);
 
   return (
     <div className="page-stack">
@@ -70,22 +47,24 @@ export function LookupPage({
         </Search>
       </section>
 
-      {loading ? <Alert data-color="info">Loading character data...</Alert> : null}
-
       <div className="lookup-results">
         <div className="section-heading">
           <h2>{query ? "Matches" : "Sample families"}</h2>
           <Tag variant="outline">{results.length} shown</Tag>
         </div>
-        {results.map(({ char, family }) => {
-          const stats = familyStats(family);
+        {results.map(({ family }) => {
+          const stats = family.metrics;
           return (
-            <a
-              key={`${char.cid}-${family.id}`}
+            <Link
+              key={`${family.cid}-${family.familyId}`}
               className="lookup-result"
-              href={`/c/${char.cid}/families/${encodeURIComponent(family.id)}${window.location.search}`}
+              to="/c/$cid/families/$familyId"
+              params={{ cid: family.cid, familyId: family.familyId }}
+              search={search}
+              onFocus={() => { void prefetchFamilyDetail(family.cid, family.familyId).catch(() => {}); }}
+              onMouseEnter={() => { void prefetchFamilyDetail(family.cid, family.familyId).catch(() => {}); }}
             >
-              <span className="lookup-char">{char.name}</span>
+              <span className="lookup-char">{family.charName}</span>
               <span className="lookup-command"><CommandText value={family.rootCommand} /></span>
               <span className="lookup-name">{family.rootName}</span>
               <span className="lookup-metrics">
@@ -94,10 +73,10 @@ export function LookupPage({
                 <FrameTag value={displayFrame(stats.block)} />
               </span>
               <ConfidenceTag value={family.confidence} />
-            </a>
+            </Link>
           );
         })}
-        {!loading && !results.length ? <p className="empty-state">No matches found.</p> : null}
+        {!results.length ? <p className="empty-state">No matches found.</p> : null}
       </div>
     </div>
   );

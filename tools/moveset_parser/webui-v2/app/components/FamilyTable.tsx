@@ -1,31 +1,54 @@
 import { Details, Tag } from "@digdir/designsystemet-react";
+import type { ReactNode } from "react";
+import { useMemo, useState } from "react";
 import type { PlayerMoveFamily } from "../data/types";
 import { displayFrame } from "../lib/frames";
-import { familyStats } from "../lib/families";
+import { buildFamilyViewModels, type FamilyViewModel } from "../lib/families";
 import { CommandText } from "./CommandText";
 import { FamilyRowsTable } from "./FamilyRowsTable";
 import { ConfidenceTag, FrameTag } from "./StatusTags";
 
 export interface FamilyTableProps {
-  families: PlayerMoveFamily[];
-  familyUrl?: (family: PlayerMoveFamily) => string;
+  families?: PlayerMoveFamily[];
+  familyViews?: FamilyViewModel[];
+  familyLink?: (family: PlayerMoveFamily) => ReactNode;
   initiallyOpenFirst?: boolean;
 }
 
-export function FamilyTable({ families, familyUrl, initiallyOpenFirst = false }: FamilyTableProps) {
-  if (!families.length) {
+export function FamilyTable({ families = [], familyViews, familyLink, initiallyOpenFirst = false }: FamilyTableProps) {
+  const views = useMemo(
+    () => familyViews ?? buildFamilyViewModels(families),
+    [families, familyViews],
+  );
+  const [openFamilyIds, setOpenFamilyIds] = useState<Set<string>>(() => (
+    initiallyOpenFirst && views[0] ? new Set([views[0].family.id]) : new Set()
+  ));
+
+  if (!views.length) {
     return <p className="empty-state">No move families match the current filters.</p>;
   }
 
   return (
     <div className="family-list" data-size="sm">
-      {families.map((family, idx) => {
-        const stats = familyStats(family);
+      {views.map(({ family, stats }, idx) => {
+        const isOpen = openFamilyIds.has(family.id);
         return (
           <Details
             key={family.id}
             className="family-disclosure"
             defaultOpen={initiallyOpenFirst && idx === 0}
+            onToggle={(event) => {
+              const details = event.currentTarget as HTMLDetailsElement;
+              setOpenFamilyIds((current) => {
+                const next = new Set(current);
+                if (details.open) {
+                  next.add(family.id);
+                } else {
+                  next.delete(family.id);
+                }
+                return next;
+              });
+            }}
           >
             <Details.Summary>
               <span className="family-summary-grid">
@@ -60,11 +83,11 @@ export function FamilyTable({ families, familyUrl, initiallyOpenFirst = false }:
                   ) : (
                     <span className="muted">No explicit relation edges yet.</span>
                   )}
-                  {familyUrl ? (
-                    <a className="text-link" href={familyUrl(family)}>Open family evidence</a>
+                  {familyLink ? (
+                    familyLink(family)
                   ) : null}
                 </div>
-                <FamilyRowsTable rows={family.rows} compact />
+                {isOpen ? <FamilyRowsTable rows={family.rows} compact /> : null}
               </div>
             </Details.Content>
           </Details>

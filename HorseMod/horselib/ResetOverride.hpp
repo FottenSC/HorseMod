@@ -229,11 +229,8 @@ namespace Horse
         // tick() checks both before doing anything.
         void apply_to_charas()
         {
-            // Log unconditionally so we can see in UE4SS.log whether
-            // the hook is firing at all when the user presses their
-            // reset bind.  If we never see this line, the bind is
-            // not invoking TrainingModePositionReset and we're
-            // hooking the wrong function.
+            // Keep the disabled path quiet for normal users; Verbose still
+            // confirms whether the hook fires while diagnosing reset binds.
             const bool en = enabled();
             bool p1_has = false;
             bool p2_has = false;
@@ -246,7 +243,7 @@ namespace Horse
             if (!en)
             {
                 m_apply_delay.store(0, std::memory_order_release);
-                RC::Output::send<RC::LogLevel::Default>(
+                RC::Output::send<RC::LogLevel::Verbose>(
                     STR("[ResetOverride] post-hook ignored (enabled=0, "
                         "p1.has={}, p2.has={})\n"),
                     p1_has ? 1 : 0,

@@ -209,6 +209,128 @@ def test_move_metrics_native_fallback_uses_current_cell_fields():
     }
 
 
+def _fake_full_payload(cid: str, name: str) -> dict:
+    move = _fake_export_move(0, "Fast Slice", "AA", cell_idx=0, slot_idx=10)
+    family_row = {
+        "id": f"{cid}-row-aa",
+        "displayCommand": "AA",
+        "displayName": "Fast Slice",
+        "context": "Neutral",
+        "source": "movelist",
+        "confidence": "native-inferred",
+        "parserMoveOrders": [0],
+        "nativeSlots": [10],
+        "nativeCells": [0],
+        "metrics": {
+            "startup": 10,
+            "damage": [8, 8],
+            "block": -8,
+            "hit": 2,
+            "counterHit": None,
+            "hitLevels": ["High", "High"],
+        },
+        "notes": "quick poke",
+        "timelineStatus": "native-cell-only",
+    }
+    return {
+        "cid": cid,
+        "name": name,
+        "kind": "base",
+        "files": {"khd": True, "mot": False, "dtp": False, "atkhit": False, "bodyhit": False, "yararehit": False},
+        "khd": {
+            "moveCount": 300,
+            "attackCount": 120,
+            "slotCount": 500,
+            "totalCells": 200,
+            "cells": [{
+                "idx": 0,
+                "role": "Attack",
+                "class": "High",
+                "damage": 16,
+                "activeStart": 10,
+                "onBlock": -8,
+                "onHitStanding": 2,
+            }],
+            "slots": [{"idx": 10}],
+            "slotEdges": [{"src": 1, "dst": 2}],
+            "eventRecords": [{"idx": 0}],
+        },
+        "movelist": {
+            "ryuuhaType": 0,
+            "categories": [{"index": 0, "name": "Horizontal", "itemOrders": [0]}],
+            "moves": [move],
+            "moveGroups": [],
+            "playerMoveFamilies": [{
+                "id": f"player-family-{cid}-aa",
+                "cid": cid,
+                "kind": "single-row",
+                "rootCommand": "AA",
+                "rootName": "Fast Slice",
+                "context": "Neutral",
+                "confidence": "native-inferred",
+                "relations": [],
+                "rows": [family_row],
+                "edges": [],
+            }],
+            "playerMoveSummary": {
+                "rawMoveRows": 1,
+                "playerFamilies": 1,
+                "playerRows": 1,
+                "communityRows": 0,
+                "communityCoveredParserRows": 0,
+                "parserFallbackFamilies": 1,
+                "sourceCounts": {"movelist": 1},
+                "confidenceCounts": {"native-inferred": 1},
+                "timelineStatusCounts": {"native-cell-only": 1},
+            },
+        },
+    }
+
+
+def test_v2_player_payload_keeps_families_but_drops_heavy_khd_arrays():
+    player = export_webui_data.build_v2_player_payload(_fake_full_payload("003", "Taki"))
+
+    assert player["cid"] == "003"
+    assert player["playerMoveFamilies"][0]["rootCommand"] == "AA"
+    assert player["nativeSummary"]["attackCount"] == 120
+    assert "khd" not in player
+    encoded = json.dumps(player)
+    for heavy_key in ('"slots"', '"cells"', '"slotEdges"', '"eventRecords"'):
+        assert heavy_key not in encoded
+
+
+def test_v2_raw_movelist_payload_contains_compact_rows_with_native_metrics():
+    raw = export_webui_data.build_v2_raw_movelist_payload(_fake_full_payload("003", "Taki"))
+
+    assert raw["cid"] == "003"
+    assert raw["categories"][0]["name"] == "Horizontal"
+    assert raw["rows"][0]["nativeSlots"] == [10]
+    assert raw["rows"][0]["nativeCells"] == [0]
+    assert raw["rows"][0]["metrics"]["startup"] == 10
+    encoded = json.dumps(raw)
+    assert '"commandSets"' not in encoded
+    assert '"slots"' not in encoded
+
+
+def test_v2_lookup_index_contains_searchable_family_summaries_for_key_chars():
+    payloads = [
+        export_webui_data.build_v2_player_payload(_fake_full_payload("003", "Taki")),
+        export_webui_data.build_v2_player_payload(_fake_full_payload("060", "2B")),
+        export_webui_data.build_v2_player_payload(_fake_full_payload("016", "Talim")),
+        export_webui_data.build_v2_player_payload(_fake_full_payload("009", "Hwang")),
+    ]
+
+    index = export_webui_data.build_v2_lookup_index(payloads)
+
+    names = {char["name"] for char in index["chars"]}
+    assert {"Taki", "2B", "Talim", "Hwang"} <= names
+    assert len(index["families"]) == 4
+    taki_family = next(item for item in index["families"] if item["charName"] == "Taki")
+    assert taki_family["commandKeys"] == ["AA"]
+    assert "taki" in taki_family["searchText"]
+    assert "quick poke" in taki_family["searchText"]
+
+
 def test_export_main_out_dir_alias_writes_to_alternate_directory(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
 

@@ -202,6 +202,111 @@ export interface PlayerMoveSummary {
   timelineStatusCounts: Record<string, number>;
 }
 
+export interface PlayerFamilyStats {
+  startup: number | null;
+  damage: number | null;
+  block: string | number | null;
+  hit: string | number | null;
+  rowCount: number;
+  unsafeCount: number;
+  plusCount: number;
+  launcherCount: number;
+}
+
+export interface PlayerDashboard {
+  statsByFamily: Record<string, PlayerFamilyStats>;
+  fastestFamilyIds: string[];
+  unsafeFamilyIds: string[];
+  plusFamilyIds: string[];
+  launcherFamilyIds: string[];
+}
+
+export interface NativeSummary {
+  moveCount?: number;
+  movelistId?: number;
+  totalCells?: number;
+  throwCount?: number;
+  attackCount?: number;
+  headerCount?: number;
+  sentinelCount?: number;
+  nonDamagingCount?: number;
+  slotCount?: number;
+  eventRecordCount?: number;
+  parsedEventRecordCount?: number;
+}
+
+export interface PlayerCharPayload {
+  cid: string;
+  name: string;
+  kind: CharaKind;
+  uncertain?: boolean;
+  files: Record<string, boolean>;
+  nativeSummary: NativeSummary;
+  playerMoveFamilies: PlayerMoveFamily[];
+  playerMoveSummary: PlayerMoveSummary;
+  dashboard: PlayerDashboard;
+}
+
+export interface LookupFamilySummary {
+  cid: string;
+  charName: string;
+  kind: CharaKind;
+  familyId: string;
+  rootCommand: string;
+  rootName: string;
+  context: string;
+  confidence: SourceConfidence;
+  relations: string[];
+  rowCount: number;
+  metrics: PlayerFamilyStats;
+  sourceCounts: Record<string, number>;
+  timelineStatusCounts: Record<string, number>;
+  commandKeys: string[];
+  searchText: string;
+}
+
+export interface LookupIndex {
+  schemaVersion: number;
+  chars: {
+    cid: string;
+    name: string;
+    kind: CharaKind;
+    uncertain?: boolean;
+  }[];
+  families: LookupFamilySummary[];
+}
+
+export interface RawMovelistRow {
+  order: number;
+  moveId: number;
+  category: number;
+  name: string;
+  condition: string;
+  input: string;
+  fullCommand: string;
+  note: string;
+  isMovementOnly: boolean;
+  isThrowInput: boolean;
+  hasInputAlternatives: boolean;
+  hitClasses: string[];
+  effectTags: { code: string; label: string }[];
+  mainTip: string;
+  lethalHitCondition: string;
+  groupIds: string[];
+  metrics: PlayerMoveFamilyMetrics;
+  nativeSlots: number[];
+  nativeCells: number[];
+}
+
+export interface RawMovelistPayload {
+  cid: string;
+  name: string;
+  kind: CharaKind;
+  categories: MovelistCategory[];
+  moveGroups: MovelistGroup[];
+  rows: RawMovelistRow[];
+}
+
 export interface Movelist {
   ryuuhaType: number;
   categories: MovelistCategory[];

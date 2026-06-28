@@ -2,6 +2,8 @@ import type {
   Cell,
   CharData,
   MovelistMove,
+  PlayerCharPayload,
+  PlayerDashboard,
   PlayerMoveFamily,
   PlayerMoveFamilyMetrics,
   PlayerMoveFamilyRow,
@@ -20,6 +22,13 @@ export interface FamilyStats {
   unsafeCount: number;
   plusCount: number;
   launcherCount: number;
+}
+
+export interface FamilyViewModel {
+  family: PlayerMoveFamily;
+  stats: FamilyStats;
+  searchText: string;
+  commandKeys: string[];
 }
 
 export function normalizeCommand(input: string): string {
@@ -109,10 +118,21 @@ function fallbackSummary(char: CharData, families: PlayerMoveFamily[]): PlayerMo
   };
 }
 
-export function ensurePlayerFamilies(char: CharData): {
+function isPlayerPayload(char: CharData | PlayerCharPayload): char is PlayerCharPayload {
+  return "playerMoveFamilies" in char;
+}
+
+export function ensurePlayerFamilies(char: CharData | PlayerCharPayload): {
   families: PlayerMoveFamily[];
   summary: PlayerMoveSummary | null;
 } {
+  if (isPlayerPayload(char)) {
+    return {
+      families: char.playerMoveFamilies ?? [],
+      summary: char.playerMoveSummary ?? null,
+    };
+  }
+
   const existing = char.movelist?.playerMoveFamilies;
   if (existing?.length) {
     return { families: existing, summary: char.movelist?.playerMoveSummary ?? null };
@@ -186,6 +206,24 @@ export function familySearchText(family: PlayerMoveFamily): string {
   ]
     .join(" ")
     .toLowerCase();
+}
+
+export function familyCommandKeys(family: PlayerMoveFamily): string[] {
+  return [...new Set([family.rootCommand, ...family.rows.map((row) => row.displayCommand)]
+    .map(normalizeCommand)
+    .filter(Boolean))];
+}
+
+export function buildFamilyViewModels(
+  families: PlayerMoveFamily[],
+  dashboard?: PlayerDashboard,
+): FamilyViewModel[] {
+  return families.map((family) => ({
+    family,
+    stats: dashboard?.statsByFamily?.[family.id] ?? familyStats(family),
+    searchText: familySearchText(family),
+    commandKeys: familyCommandKeys(family),
+  }));
 }
 
 export function confidenceRank(confidence: SourceConfidence): number {

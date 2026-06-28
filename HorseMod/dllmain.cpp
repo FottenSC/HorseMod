@@ -212,6 +212,8 @@
 #include <Input/KeyDef.hpp>
 #include <Input/Handler.hpp>
 
+#include "ImGuiFileDialog.h"
+
 #include <imgui.h>
 #include <shellapi.h>
 
@@ -718,7 +720,7 @@ private:
     // and reapplies at a low cadence instead of scanning every tick.
     Horse::StageVisualSuppressor m_stage_visuals{};
     std::atomic<bool> m_hide_stage_visuals{false};
-    std::atomic<bool> m_replay_trace_files_enabled{true};
+    std::atomic<bool> m_replay_trace_files_enabled{false};
 
     // ---- Freeze frame (WorldTickGate-driven) --------------------------------
     // Replaces the broken Horse::GamePause helper (which patched a chara
@@ -2968,7 +2970,7 @@ private:
         m_hide_stage_visuals     .store(S.get_bool ("hide_stage_visuals",    false));
         m_show_retrack_events    .store(S.get_bool ("show_retrack_events",   false));
         m_replay_trace_files_enabled.store(
-            S.get_bool("replay_trace_files_enabled", true));
+            S.get_bool("replay_trace_files_enabled", false));
         Horse::ReplayDebugTrace::instance().set_enabled(
             m_replay_trace_files_enabled.load());
 
@@ -3191,10 +3193,6 @@ private:
     // unlikely but survivable).
     bool m_logged_pcm_resolve  = false;
     bool m_logged_pcm_fallback = false;
-    uint64_t m_chara_slot_validation_last_sig = 0;
-    int      m_chara_slot_validation_log_count = 0;
-    static constexpr int kCharaSlotValidationMaxLogsPerPresence = 8;
-
     static LONG CALLBACK vectored_exception_handler(
         EXCEPTION_POINTERS* ep) noexcept
     {
@@ -3777,7 +3775,6 @@ public:
             scrub.service_state_snapshot_request();
             scrub.service_replay_file_start_request();
             service_replay_scrub_update_fallback();
-            service_chara_slot_runtime_validation("update");
         }
 
         const bool all_reset_registered = std::all_of(
@@ -3921,9 +3918,20 @@ private:
                 // Identify which path fired via the tag we passed at
                 // registration time (the slot's func_path c_str()).
                 const wchar_t* path = static_cast<const wchar_t*>(custom_data);
-                Output::send<LogLevel::Default>(
-                    STR("[HorseMod] reset hook fired: {}\n"),
-                    path ? path : STR("(unknown path)"));
+                const bool reset_override_enabled =
+                    Horse::ResetOverride::instance().enabled();
+                if (reset_override_enabled)
+                {
+                    Output::send<LogLevel::Default>(
+                        STR("[HorseMod] reset hook fired: {}\n"),
+                        path ? path : STR("(unknown path)"));
+                }
+                else
+                {
+                    Output::send<LogLevel::Verbose>(
+                        STR("[HorseMod] reset hook ignored while disabled: {}\n"),
+                        path ? path : STR("(unknown path)"));
+                }
 
                 // Apply the captured pose.  Idempotent if multiple hooks
                 // fire on the same reset (engine may chain through more
@@ -5454,152 +5462,6 @@ private:
         m_backend_stage.invalidate();
         m_stage_boundary.invalidate();
         m_stage_visuals.invalidate();
-        m_chara_slot_validation_last_sig = 0;
-        m_chara_slot_validation_log_count = 0;
-    }
-
-    struct CharaSlotValidationSnap
-    {
-        bool ok = false;
-        uintptr_t ptr = 0;
-        uintptr_t opponent = 0;
-        uint8_t b23c = 0xff;
-        uint8_t b23e = 0xff;
-        uint16_t w24c = 0xffff;
-        uint16_t w24e = 0xffff;
-        uint16_t w250 = 0xffff;
-        uint16_t w252 = 0xffff;
-        uint16_t w254 = 0xffff;
-        uint16_t w256 = 0xffff;
-        int32_t n3a0 = INT32_MIN;
-        int32_t n3a4 = INT32_MIN;
-        int32_t n3a8 = INT32_MIN;
-    };
-
-    static CharaSlotValidationSnap read_chara_slot_validation_snap(
-        uintptr_t base, int player_index) noexcept
-    {
-        CharaSlotValidationSnap s{};
-        const uintptr_t slot_rva = player_index == 0
-            ? Horse::ReplayScrubDiag::kRVA_CharaSlotP1
-            : Horse::ReplayScrubDiag::kRVA_CharaSlotP2;
-
-        void* chara_raw = nullptr;
-        if (!Horse::SafeReadPtr(reinterpret_cast<const void*>(base + slot_rva),
-                                &chara_raw) || !chara_raw)
-            return s;
-
-        s.ok = true;
-        s.ptr = reinterpret_cast<uintptr_t>(chara_raw);
-        auto* c = static_cast<uint8_t*>(chara_raw);
-        void* opponent_raw = nullptr;
-        if (Horse::SafeReadPtr(c + 0x973E8, &opponent_raw))
-            s.opponent = reinterpret_cast<uintptr_t>(opponent_raw);
-        (void)Horse::SafeReadUInt8 (c + 0x23C, &s.b23c);
-        (void)Horse::SafeReadUInt8 (c + 0x23E, &s.b23e);
-        (void)Horse::SafeReadUInt16(c + 0x24C, &s.w24c);
-        (void)Horse::SafeReadUInt16(c + 0x24E, &s.w24e);
-        (void)Horse::SafeReadUInt16(c + 0x250, &s.w250);
-        (void)Horse::SafeReadUInt16(c + 0x252, &s.w252);
-        (void)Horse::SafeReadUInt16(c + 0x254, &s.w254);
-        (void)Horse::SafeReadUInt16(c + 0x256, &s.w256);
-        (void)Horse::SafeReadInt32 (c + 0x3A0, &s.n3a0);
-        (void)Horse::SafeReadInt32 (c + 0x3A4, &s.n3a4);
-        (void)Horse::SafeReadInt32 (c + 0x3A8, &s.n3a8);
-        return s;
-    }
-
-    static uint64_t mix_chara_slot_validation_sig(
-        uint64_t seed, const CharaSlotValidationSnap& s) noexcept
-    {
-        auto mix = [](uint64_t acc, uint64_t v) noexcept {
-            acc ^= v + 0x9E3779B97F4A7C15ull + (acc << 6) + (acc >> 2);
-            return acc;
-        };
-
-        seed = mix(seed, s.ok ? 1u : 0u);
-        seed = mix(seed, s.ptr);
-        seed = mix(seed, s.opponent);
-        seed = mix(seed, s.b23c);
-        seed = mix(seed, s.b23e);
-        seed = mix(seed, s.w24c);
-        seed = mix(seed, s.w24e);
-        seed = mix(seed, s.w250);
-        seed = mix(seed, s.w252);
-        seed = mix(seed, s.w254);
-        seed = mix(seed, s.w256);
-        seed = mix(seed, static_cast<uint32_t>(s.n3a0));
-        seed = mix(seed, static_cast<uint32_t>(s.n3a4));
-        seed = mix(seed, static_cast<uint32_t>(s.n3a8));
-        return seed;
-    }
-
-    void service_chara_slot_runtime_validation(const char* source)
-    {
-        const uintptr_t base = Horse::NativeBinding::imageBase();
-        if (!base)
-            return;
-
-        const CharaSlotValidationSnap p0 =
-            read_chara_slot_validation_snap(base, 0);
-        const CharaSlotValidationSnap p1 =
-            read_chara_slot_validation_snap(base, 1);
-        if (!p0.ok && !p1.ok)
-            return;
-
-        uint64_t sig = 0x5343365F323343ull;
-        sig = mix_chara_slot_validation_sig(sig, p0);
-        sig = mix_chara_slot_validation_sig(sig, p1);
-        if (sig == m_chara_slot_validation_last_sig)
-            return;
-        m_chara_slot_validation_last_sig = sig;
-
-        if (m_chara_slot_validation_log_count
-            >= kCharaSlotValidationMaxLogsPerPresence)
-            return;
-        ++m_chara_slot_validation_log_count;
-
-        Output::send<LogLevel::Default>(
-            STR("[Horse.CharaSlotValidation] source={} presence={} "
-                "P0 ok={} chara=0x{:x} opp=0x{:x} "
-                "+23c={} +23e={} +24c={} +24e={} +250={} +252={} "
-                "+254={} +256={} +3a0={} +3a4={} +3a8={} | "
-                "P1 ok={} chara=0x{:x} opp=0x{:x} "
-                "+23c={} +23e={} +24c={} +24e={} +250={} +252={} "
-                "+254={} +256={} +3a0={} +3a4={} +3a8={} "
-                "(validation: +23c should stay 0/1 if it is the "
-                "battle slot byte, not the character kind)\n"),
-            RC::to_generic_string(source ? source : "?"),
-            Horse::presence_name(
-                Horse::GameMode::instance().current_presence()),
-            p0.ok ? 1 : 0,
-            p0.ptr,
-            p0.opponent,
-            static_cast<unsigned>(p0.b23c),
-            static_cast<unsigned>(p0.b23e),
-            static_cast<unsigned>(p0.w24c),
-            static_cast<unsigned>(p0.w24e),
-            static_cast<unsigned>(p0.w250),
-            static_cast<unsigned>(p0.w252),
-            static_cast<unsigned>(p0.w254),
-            static_cast<unsigned>(p0.w256),
-            p0.n3a0,
-            p0.n3a4,
-            p0.n3a8,
-            p1.ok ? 1 : 0,
-            p1.ptr,
-            p1.opponent,
-            static_cast<unsigned>(p1.b23c),
-            static_cast<unsigned>(p1.b23e),
-            static_cast<unsigned>(p1.w24c),
-            static_cast<unsigned>(p1.w24e),
-            static_cast<unsigned>(p1.w250),
-            static_cast<unsigned>(p1.w252),
-            static_cast<unsigned>(p1.w254),
-            static_cast<unsigned>(p1.w256),
-            p1.n3a0,
-            p1.n3a4,
-            p1.n3a8);
     }
 
     void service_replay_scrub_update_fallback()
@@ -6167,7 +6029,6 @@ private:
         }
 
         service_presence_transition_safety("cockpit");
-        service_chara_slot_runtime_validation("cockpit");
 
         if (replay_scrub.should_suppress_timeline_presentation())
         {
@@ -8681,10 +8542,79 @@ private:
             const bool start_busy = scrub.has_pending_replay_file_start();
             const bool file_busy = load_busy || start_busy;
             if (file_busy) ImGui::BeginDisabled(true);
-            if (ImGui::Button("Open Replay + Lux Gen##rs_file_open"))
+            if (ImGui::Button("Open Replay##rs_file_open"))
             {
-                if (scrub.browse_and_request_start_replay_file(
-                        "lux-no-render-force"))
+                IGFD::FileDialogConfig config;
+                config.countSelectionMax = 1;
+                config.path = horsemod_wide_to_utf8(
+                    scrub.replay_files_directory_path());
+                config.flags =
+                    ImGuiFileDialogFlags_Modal |
+                    ImGuiFileDialogFlags_CaseInsensitiveExtentionFiltering |
+                    ImGuiFileDialogFlags_DisableCreateDirectoryButton |
+                    ImGuiFileDialogFlags_DisableThumbnailMode |
+                    ImGuiFileDialogFlags_ShowDevicesButton;
+
+                ImGuiFileDialog::Instance()->OpenDialog(
+                    "HorseReplayOpenDialog",
+                    "Open Replay",
+                    "Replay files (*.hmreplay *.bin){.hmreplay,.bin},"
+                    "HorseMod replay wrapper (*.hmreplay){.hmreplay},"
+                    "Native replay payload (*.bin){.bin}",
+                    config);
+            }
+            if (file_busy) ImGui::EndDisabled();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Open an in-game file picker and immediately start the\n"
+                "selected .hmreplay or raw .bin replay file, then force\n"
+                "a fresh lux-no-render timeline generation.");
+
+            const ImVec2 dialog_display = ImGui::GetIO().DisplaySize;
+            auto clamp_dialog_size = [](float value,
+                                        float low,
+                                        float high) noexcept {
+                if (value < low) return low;
+                if (value > high) return high;
+                return value;
+            };
+            float dialog_max_w =
+                (dialog_display.x > 160.0f) ? dialog_display.x - 80.0f
+                                             : 960.0f;
+            float dialog_max_h =
+                (dialog_display.y > 160.0f) ? dialog_display.y - 80.0f
+                                             : 640.0f;
+            if (dialog_max_w < 360.0f) dialog_max_w = 360.0f;
+            if (dialog_max_h < 260.0f) dialog_max_h = 260.0f;
+            const ImVec2 dialog_max_size(dialog_max_w, dialog_max_h);
+            ImVec2 dialog_size(
+                clamp_dialog_size(dialog_display.x * 0.56f, 720.0f, 1100.0f),
+                clamp_dialog_size(dialog_display.y * 0.58f, 460.0f, 700.0f));
+            if (dialog_size.x > dialog_max_size.x)
+                dialog_size.x = dialog_max_size.x;
+            if (dialog_size.y > dialog_max_size.y)
+                dialog_size.y = dialog_max_size.y;
+            const ImVec2 dialog_min_size(
+                dialog_size.x < 520.0f ? dialog_size.x : 520.0f,
+                dialog_size.y < 320.0f ? dialog_size.y : 320.0f);
+            ImGui::SetNextWindowSize(dialog_size, ImGuiCond_Appearing);
+            if (ImGuiFileDialog::Instance()->Display(
+                    "HorseReplayOpenDialog",
+                    ImGuiWindowFlags_NoCollapse,
+                    dialog_min_size,
+                    dialog_max_size))
+            {
+                const bool ok = ImGuiFileDialog::Instance()->IsOk();
+                std::string selected;
+                if (ok)
+                {
+                    selected = ImGuiFileDialog::Instance()->GetFilePathName(
+                        IGFD_ResultMode_KeepInputFile);
+                }
+
+                ImGuiFileDialog::Instance()->Close();
+
+                if (ok && scrub.request_start_replay_file(
+                        selected.c_str(), "lux-no-render-force"))
                 {
                     Horse::GameImGui::set_visible(false);
                     Output::send<LogLevel::Default>(STR(
@@ -8692,11 +8622,7 @@ private:
                         "replay start queued\n"));
                 }
             }
-            if (file_busy) ImGui::EndDisabled();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Open a Windows file picker and immediately start the\n"
-                "selected .hmreplay or raw .bin replay file, then force\n"
-                "a fresh lux-no-render timeline generation.");
+
             const std::string replay_file_status =
                 scrub.replay_file_status_text();
             if (!replay_file_status.empty())
@@ -8993,10 +8919,9 @@ private:
                         trace_files);
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Gate JSONL replay trace file creation. Leave this on\n"
-                    "for replay automation, seek tests, crash triage, and\n"
-                    "normal debugging. Turn it off when you do not want\n"
-                    "HorseMod writing ReplayTrace files.");
+                    "Gate JSONL replay trace file creation. Leave this off\n"
+                    "for normal play. Enable it for replay automation,\n"
+                    "seek tests, crash triage, or debugging sessions.");
 
                 if (trace_files)
                 {

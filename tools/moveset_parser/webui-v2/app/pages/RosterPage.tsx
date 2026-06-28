@@ -1,6 +1,7 @@
 import { Button, Card, Tag } from "@digdir/designsystemet-react";
 import { Link } from "@tanstack/react-router";
 import type { AppSearch, CharaKind, Roster } from "../data/types";
+import { prefetchPlayerChar } from "../data/api";
 
 const KIND_ORDER: CharaKind[] = ["base", "dlc", "boss", "shared", "unknown"];
 
@@ -44,18 +45,29 @@ export function RosterPage({ roster, search }: { roster: Roster; search: AppSear
               <Tag variant="outline">{chars.length} styles</Tag>
             </div>
             <div className="roster-grid">
-              {chars.map((char) => (
-                <Card key={char.cid} className="roster-card" asChild>
-                  <Link to="/c/$cid" params={{ cid: char.cid }} search={search}>
-                    <strong>{char.name}</strong>
-                    <span className="muted mono">{char.cid}</span>
-                    <span className="roster-card-meta">
-                      {char.attackCount ?? "-"} attacks
-                      <span>{char.slotCount ?? "-"} slots</span>
-                    </span>
-                  </Link>
-                </Card>
-              ))}
+              {chars.map((char) => {
+                const prefetch = () => {
+                  void prefetchPlayerChar(char.cid).catch(() => {});
+                };
+                return (
+                  <Card key={char.cid} className="roster-card" asChild>
+                    <Link
+                      to="/c/$cid"
+                      params={{ cid: char.cid }}
+                      search={search}
+                      onFocus={prefetch}
+                      onMouseEnter={prefetch}
+                    >
+                      <strong>{char.name}</strong>
+                      <span className="muted mono">{char.cid}</span>
+                      <span className="roster-card-meta">
+                        {char.attackCount ?? "-"} attacks
+                        <span>{char.slotCount ?? "-"} slots</span>
+                      </span>
+                    </Link>
+                  </Card>
+                );
+              })}
             </div>
           </section>
         );

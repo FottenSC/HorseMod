@@ -1,5 +1,8 @@
 set(TARGET HorseMod)
 
+option(HORSEMOD_ENABLE_EBTRACER
+    "Enable the native chara+0x16EB transition tracer" OFF)
+
 file(GLOB_RECURSE SCVI_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/SoulCaliburVI/*.h"
 )
@@ -35,11 +38,22 @@ set(HORSELIB_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ReplayScrubDiag.hpp
 )
 
+set(HORSEMOD_IMGUIFILEDIALOG_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ImGuiFileDialog/ImGuiFileDialog.cpp
+)
+
 add_library(${TARGET} SHARED
     dllmain.cpp
     ${SCVI_HEADERS}
     ${HORSELIB_GAMEIMGUI_HEADERS}
     ${HORSELIB_HEADERS}
+    ${HORSEMOD_IMGUIFILEDIALOG_SOURCES}
+)
+
+set(_horsemod_enable_ebtracer ${HORSEMOD_ENABLE_EBTRACER})
+
+target_compile_definitions(${TARGET} PRIVATE
+    HORSE_ENABLE_EBTRACER=$<BOOL:${_horsemod_enable_ebtracer}>
 )
 
 set(HORSEMOD_REPLAY_FUNCTION_MAP
@@ -50,6 +64,7 @@ target_include_directories(${TARGET} PRIVATE
     .
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib
     ${CMAKE_CURRENT_SOURCE_DIR}/include/SoulCaliburVI
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ImGuiFileDialog
 )
 
 # ----------------------------------------------------------------------------
