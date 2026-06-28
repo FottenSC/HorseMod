@@ -232,8 +232,22 @@ class TestEmulator:
         assert len(result.transitions) == 1
         t = result.transitions[0]
         assert t.next_move_id_raw == 0x123
-        assert t.next_move_slot == 0x123 & 0xFFF
+        assert t.next_move_slot == 0x123 & 0x7FF
         assert t.next_move_bank == 0
+
+    def test_transition_packed_slot_masks_bit_11(self):
+        script = StackVMScript(bytecode_offset=0, instructions=[
+            _push_imm(0x1ABC, pc=0),
+            _callcond(0x05, 1, pc=3),
+            _ret(pc=6),
+        ])
+        result = emulate(script, slot_idx=7)
+        assert len(result.transitions) == 1
+        t = result.transitions[0]
+        assert t.next_move_id_raw == 0x1ABC
+        assert t.next_move_bank == 1
+        assert t.next_move_slot == 0x2BC
+        assert t.next_move_ignored_bit_11 is True
 
     def test_predicate_gates_transition(self):
         # PUSH sub_op=1; PUSH 0x0001 (A button); CALLCOND 0x00 (EvalIf), 2

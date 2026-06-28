@@ -304,7 +304,7 @@ def _slot_info(
         slot=slot.slot_index,
         animation_index=slot.wAnimationIndex_00,
         animation_hex=f"{slot.wAnimationIndex_00:04X}",
-        animation_length=round(slot.flAnimLength_30, 4),
+        animation_length=float(slot.total_frames),
         motion_flags=slot.wMotionFlags_06,
         bytecode_offset=slot.dwBytecodeOffset_38,
         has_attack_cell=_slot_has_attack_cell(slot),

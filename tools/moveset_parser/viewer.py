@@ -936,7 +936,8 @@ def slots_overview(cid: str):
             f'<td class="num">{s.wAnimationIndex_00}</td>'
             f'<td class="hex">0x{s.dwBytecodeOffset_38:X}</td>'
             f'<td class="num">{len(s.bytecode.instructions) if s.bytecode else 0}</td>'
-            f'<td class="num">{s.flAnimLength_30:.1f}</td>'
+            f'<td class="num">{s.total_frames}</td>'
+            f'<td class="num">{s.playback_speed_scalar:.3f}x</td>'
             f'<td>{s.nCellBoneIndexPerVariant}</td>'
             f'<td>{callcond_fingerprint}</td>'
             f'</tr>'
@@ -960,7 +961,7 @@ Total decoded bytecode instructions across all slots: <b>{total_instr:,}</b>.</p
 Click a slot index to see its full bytecode listing.</span></p>
 <table>
 <tr><th>slot</th><th>anim</th><th>bc_off</th><th>#ops</th>
-    <th>animLen</th><th>cellVariants[6]</th><th>top CALLCONDs</th></tr>
+    <th>frames</th><th>speed</th><th>cellVariants[6]</th><th>top CALLCONDs</th></tr>
 {''.join(slot_rows)}
 </table>
 {show_more}
@@ -999,8 +1000,9 @@ def slot_detail(cid: str, slot_idx: int):
         ('dwAltBytecodeOffset_1C', f'0x{s.dwAltBytecodeOffset_1C:08X}'),
         ('qwInputMask_20',      f'0x{s.qwInputMask_20:016X}'),
         ('qwInputMask_28',      f'0x{s.qwInputMask_28:016X}'),
-        ('flAnimLength_30',     f'{s.flAnimLength_30:.3f}f'),
-        ('nAnimLengthFlag_34',  f'{s.nAnimLengthFlag_34}'),
+        ('flPlaybackSpeed60ths_30', f'{s.flPlaybackSpeed60ths_30:.3f}'),
+        ('playbackSpeedScalar', f'{s.playback_speed_scalar:.6f}x'),
+        ('wTotalFrames',        f'{s.wTotalFrames}'),
         ('nHitWindowStart_36',  f'{s.nHitWindowStart_36}'),
         ('dwBytecodeOffset_38', f'0x{s.dwBytecodeOffset_38:08X}'),
         ('nCellBoneIndexPerVariant', f'{s.nCellBoneIndexPerVariant}'),

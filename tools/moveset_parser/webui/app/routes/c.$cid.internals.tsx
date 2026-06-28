@@ -63,7 +63,8 @@ function InternalsTab() {
                 <tr>
                   <th>#</th>
                   <th>Anim</th>
-                  <th>Anim len</th>
+                  <th>Frames</th>
+                  <th>Speed</th>
                   <th>BC offset</th>
                   <th>BC size</th>
                   <th>Top callconds</th>
@@ -82,7 +83,8 @@ function InternalsTab() {
                     <tr key={s.idx}>
                       <td className="num muted mono">{s.idx}</td>
                       <td className="num">{s.animationIndex}</td>
-                      <td className="num">{s.animLength.toFixed(1)}f</td>
+                      <td className="num">{s.totalFrames}f</td>
+                      <td className="num">{(s.playbackSpeed ?? 0).toFixed(3)}x</td>
                       <td className="num mono muted">0x{s.bytecodeOffset.toString(16).toUpperCase()}</td>
                       <td className="num">{s.bytecode?.instructionCount ?? 0} ops</td>
                       <td className="mono" style={{ fontSize: 12 }}>{topCC}</td>

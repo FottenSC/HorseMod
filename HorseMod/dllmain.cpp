@@ -213,6 +213,7 @@
 #include <Input/Handler.hpp>
 
 #include <imgui.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <atomic>
@@ -272,6 +273,29 @@ static const char* horsemod_window_title()
         init = true;
     }
     return buf;
+}
+
+static std::string horsemod_wide_to_utf8(const std::wstring& in)
+{
+    if (in.empty()) return {};
+    const int need = WideCharToMultiByte(
+        CP_UTF8, 0, in.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (need <= 1) return {};
+    std::string out(static_cast<size_t>(need - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, in.c_str(), -1, out.data(), need,
+                        nullptr, nullptr);
+    return out;
+}
+
+static bool horsemod_show_file_in_explorer(
+    const std::wstring& path) noexcept
+{
+    if (path.empty()) return false;
+    const std::wstring args = L"/select,\"" + path + L"\"";
+    const HINSTANCE result = ShellExecuteW(
+        nullptr, L"open", L"explorer.exe", args.c_str(), nullptr,
+        SW_SHOWNORMAL);
+    return reinterpret_cast<intptr_t>(result) > 32;
 }
 
 // ----------------------------------------------------------------------------
@@ -917,19 +941,6 @@ private:
     static constexpr int kMaxKHitAuditPairLogsPerFrame = 128;
     static constexpr int kMaxKHitAuditCalibLogsPerFrame = 64;
     static constexpr int kMaxKHitAuditClusterLogsPerFrame = 16;
-
-    struct KHitContactGuideLine
-    {
-        Horse::FVec3 a{};
-        Horse::FVec3 b{};
-        Horse::FLinColor color{};
-        float thickness = 1.0f;
-        int frames_left = 0;
-    };
-    std::vector<KHitContactGuideLine> m_khit_contact_guide_latch;
-    bool     m_have_khit_contact_guide_frame{false};
-    uint32_t m_last_khit_contact_guide_frame{0};
-    static constexpr size_t kMaxKHitContactGuideLatchLines = 4096;
 
     struct KHitRenderCalibrationPoint
     {
@@ -2847,344 +2858,6 @@ private:
         }
     }
 
-    static void draw_khit_accepted_overlap_guides(
-        Horse::ILineOverlay& overlay,
-        const std::vector<Horse::KHitDraw> (&draws)[2],
-        const bool show_attack_for_player[2],
-        const bool show_hurt_for_player[2],
-        bool only_active,
-        float thickness,
-        std::vector<KHitContactGuideLine>* latch_lines,
-        int latch_frames)
-    {
-        const Horse::FLinColor guide_col{1.0f, 0.05f, 0.05f, 1.0f};
-        const Horse::FLinColor accepted_only_col{0.10f, 0.80f, 1.0f, 1.0f};
-        const Horse::FLinColor center_col{1.0f, 1.0f, 1.0f, 1.0f};
-        const Horse::FLinColor accepted_only_center_col{
-            0.70f, 1.0f, 1.0f, 1.0f
-        };
-        const Horse::FLinColor snapshot_attack_col{1.0f, 1.0f, 1.0f, 0.80f};
-        const Horse::FLinColor snapshot_hurt_col{1.0f, 0.18f, 0.18f, 0.80f};
-        const Horse::FLinColor accepted_only_snapshot_attack_col{
-            0.10f, 0.80f, 1.0f, 0.85f
-        };
-        const Horse::FLinColor accepted_only_snapshot_hurt_col{
-            0.70f, 1.0f, 1.0f, 0.85f
-        };
-        int drawn = 0;
-
-        auto emit_line = [&](const Horse::FVec3& a,
-                             const Horse::FVec3& b,
-                             const Horse::FLinColor& col,
-                             float line_thickness) {
-            overlay.drawLine(a, b, col, line_thickness);
-            if (latch_lines && latch_frames > 0 &&
-                latch_lines->size() < kMaxKHitContactGuideLatchLines)
-            {
-                latch_lines->push_back(
-                    KHitContactGuideLine{a, b, col, line_thickness,
-                                         latch_frames});
-            }
-        };
-
-        auto draw_cross = [&](const Horse::FVec3& c,
-                              float size,
-                              const Horse::FLinColor& col) {
-            emit_line(Horse::FVec3{c.X - size, c.Y, c.Z},
-                      Horse::FVec3{c.X + size, c.Y, c.Z},
-                      col, thickness + 0.5f);
-            emit_line(Horse::FVec3{c.X, c.Y - size, c.Z},
-                      Horse::FVec3{c.X, c.Y + size, c.Z},
-                      col, thickness + 0.5f);
-            emit_line(Horse::FVec3{c.X, c.Y, c.Z - size},
-                      Horse::FVec3{c.X, c.Y, c.Z + size},
-                      col, thickness + 0.5f);
-        };
-
-        auto draw_ring = [&](const Horse::FVec3& c,
-                             const Horse::FVec3& axis_u,
-                             const Horse::FVec3& axis_v,
-                             float radius,
-                             const Horse::FLinColor& col) {
-            constexpr float two_pi = 6.283185307179586f;
-            constexpr int segments = 24;
-            Horse::FVec3 prev{};
-            for (int i = 0; i <= segments; ++i)
-            {
-                const float a = two_pi * static_cast<float>(i) /
-                                static_cast<float>(segments);
-                const float ca = radius * std::cosf(a);
-                const float sa = radius * std::sinf(a);
-                Horse::FVec3 p{
-                    c.X + axis_u.X * ca + axis_v.X * sa,
-                    c.Y + axis_u.Y * ca + axis_v.Y * sa,
-                    c.Z + axis_u.Z * ca + axis_v.Z * sa
-                };
-                if (i > 0)
-                    emit_line(prev, p, col, thickness + 1.0f);
-                prev = p;
-            }
-        };
-
-        auto draw_snapshot_sphere = [&](const Horse::FVec3& c,
-                                        float radius,
-                                        const Horse::FLinColor& col) {
-            const Horse::FVec3 world_x{1.0f, 0.0f, 0.0f};
-            const Horse::FVec3 world_y{0.0f, 1.0f, 0.0f};
-            const Horse::FVec3 world_z{0.0f, 0.0f, 1.0f};
-            const bool large_sphere = radius >= 75.0f;
-            const int meridians = large_sphere ? 12 : 4;
-            const int latitudes = large_sphere ? 7 : 3;
-            constexpr float two_pi = 6.283185307179586f;
-
-            draw_ring(c, world_x, world_y, radius, col);
-
-            for (int i = 1; i <= latitudes; ++i)
-            {
-                const float t = static_cast<float>(i) /
-                                static_cast<float>(latitudes + 1);
-                const float z =
-                    radius * std::sinf((t - 0.5f) * 3.141592653589793f);
-                const float r =
-                    std::sqrtf((std::max)(0.0f,
-                                          radius * radius - z * z));
-                if (r >= 1.0f)
-                {
-                    draw_ring(Horse::FVec3{c.X, c.Y, c.Z + z},
-                              world_x, world_y, r, col);
-                }
-            }
-
-            for (int i = 0; i < meridians; ++i)
-            {
-                const float a =
-                    two_pi * static_cast<float>(i) /
-                    static_cast<float>(meridians);
-                const Horse::FVec3 radial{
-                    std::cosf(a),
-                    std::sinf(a),
-                    0.0f
-                };
-                draw_ring(c, radial, world_z, radius, col);
-            }
-        };
-
-        for (int defender = 0; defender < 2; ++defender)
-        {
-            const int attacker = (defender == 0) ? 1 : 0;
-            if (!show_hurt_for_player[defender] ||
-                !show_attack_for_player[attacker])
-            {
-                continue;
-            }
-
-            for (const Horse::KHitDraw& hurt : draws[defender])
-            {
-                if (hurt.list != Horse::KHitList::Hurtbox ||
-                    hurt.kind != Horse::KHitKind::Sphere ||
-                    !hurt.defender_hurtbox_mask_valid ||
-                    hurt.defender_hurtbox_attack_mask == 0 ||
-                    !(hurt.reaction_overlap_this_frame ||
-                      hurt.accepted_exact_overlap_this_frame))
-                {
-                    continue;
-                }
-
-                for (const Horse::KHitDraw& attack : draws[attacker])
-                {
-                    if (attack.list != Horse::KHitList::Attack ||
-                        attack.kind != Horse::KHitKind::Sphere ||
-                        !attack.geom_active)
-                    {
-                        continue;
-                    }
-
-                    const uint64_t reaction_bits =
-                        hurt.reaction_overlap_matched_bits &
-                        attack.slot_bit_mask;
-                    const uint64_t accepted_exact_bits =
-                        hurt.accepted_exact_overlap_matched_bits &
-                        attack.slot_bit_mask;
-                    const bool reaction_pair = (reaction_bits != 0);
-                    const bool accepted_exact_pair =
-                        (accepted_exact_bits != 0);
-                    if (!reaction_pair && !accepted_exact_pair)
-                        continue;
-                    if (only_active && reaction_pair &&
-                        (!canMatterThisFrame(attack) ||
-                         !(canMatterThisFrame(hurt) ||
-                           hurt.reaction_overlap_this_frame)))
-                    {
-                        continue;
-                    }
-                    if (!khit_sphere_pair_overlaps_native(attack, hurt))
-                        continue;
-                    const bool accepted_only =
-                        accepted_exact_pair && !reaction_pair;
-                    const Horse::FLinColor pair_guide_col =
-                        accepted_only ? accepted_only_col : guide_col;
-                    const Horse::FLinColor pair_center_col =
-                        accepted_only ? accepted_only_center_col : center_col;
-                    const Horse::FLinColor pair_snapshot_attack_col =
-                        accepted_only ? accepted_only_snapshot_attack_col
-                                      : snapshot_attack_col;
-                    const Horse::FLinColor pair_snapshot_hurt_col =
-                        accepted_only ? accepted_only_snapshot_hurt_col
-                                      : snapshot_hurt_col;
-
-                    const float center_dist =
-                        distance3(attack.centre, hurt.centre);
-                    if (center_dist <= 0.001f)
-                        continue;
-                    Horse::FVec3 dir =
-                        scale3(sub3(hurt.centre, attack.centre),
-                               1.0f / center_dist);
-
-                    const Horse::FVec3 attack_shell =
-                        add3(attack.centre, scale3(dir, attack.radius));
-                    const Horse::FVec3 hurt_shell =
-                        sub3(hurt.centre, scale3(dir, hurt.radius));
-                    const Horse::FVec3 contact_mid =
-                        midpoint(attack_shell, hurt_shell);
-
-                    Horse::FVec3 tangent_u{};
-                    const Horse::FVec3 world_z{0.0f, 0.0f, 1.0f};
-                    const Horse::FVec3 world_x{1.0f, 0.0f, 0.0f};
-                    const Horse::FVec3 ref_axis =
-                        (std::fabsf(dot3(dir, world_z)) > 0.9f)
-                            ? world_x
-                            : world_z;
-                    if (!normalize3(cross3(dir, ref_axis), tangent_u))
-                        continue;
-                    Horse::FVec3 tangent_v{};
-                    if (!normalize3(cross3(dir, tangent_u), tangent_v))
-                        continue;
-                    const float marker_radius =
-                        (std::max)(18.0f,
-                                   (std::min)(36.0f,
-                                               hurt.radius * 0.9f));
-
-                    // Not a hitbox: this marks the exact native-accepted
-                    // sphere/sphere shell overlap so shallow contacts remain
-                    // visible even when the two wire lattices barely intersect.
-                    draw_snapshot_sphere(attack.centre, attack.radius,
-                                         pair_snapshot_attack_col);
-                    draw_snapshot_sphere(hurt.centre, hurt.radius,
-                                         pair_snapshot_hurt_col);
-                    emit_line(attack.centre, attack_shell,
-                              pair_guide_col, thickness + 0.75f);
-                    emit_line(hurt.centre, hurt_shell,
-                              pair_center_col, thickness + 0.75f);
-                    emit_line(attack_shell, hurt_shell,
-                              pair_guide_col, thickness + 2.0f);
-
-                    const float r0 = attack.radius;
-                    const float r1 = hurt.radius;
-                    const float x =
-                        ((center_dist * center_dist) - (r1 * r1) +
-                         (r0 * r0)) /
-                        (2.0f * center_dist);
-                    const float h2 = (r0 * r0) - (x * x);
-                    if (h2 >= -4.0f)
-                    {
-                        const float ring_radius =
-                            std::sqrtf((std::max)(0.0f, h2));
-                        const Horse::FVec3 intersection_center =
-                            add3(attack.centre, scale3(dir, x));
-                        if (ring_radius >= 2.0f)
-                        {
-                            draw_ring(intersection_center,
-                                      tangent_u, tangent_v,
-                                      ring_radius, pair_guide_col);
-                        }
-                        draw_cross(intersection_center,
-                                   (std::max)(10.0f,
-                                              (std::min)(30.0f,
-                                                         ring_radius * 0.35f)),
-                                   pair_guide_col);
-                    }
-                    else
-                    {
-                        draw_ring(contact_mid, tangent_u, tangent_v,
-                                  marker_radius, pair_guide_col);
-                        draw_cross(contact_mid, marker_radius, pair_guide_col);
-                    }
-
-                    draw_ring(attack_shell, tangent_u, tangent_v,
-                              marker_radius * 0.65f, pair_guide_col);
-                    draw_ring(hurt_shell, tangent_u, tangent_v,
-                              marker_radius * 0.65f, pair_center_col);
-                    draw_cross(attack_shell, marker_radius * 0.65f,
-                               pair_guide_col);
-                    draw_cross(hurt_shell, marker_radius * 0.65f,
-                               pair_center_col);
-                    draw_cross(hurt.centre,
-                               (std::max)(8.0f, hurt.radius * 0.35f),
-                               pair_center_col);
-
-                    if (++drawn >= 64)
-                        return;
-                }
-            }
-        }
-    }
-
-    void age_khit_contact_guide_latch(bool have_game_frame,
-                                      uint32_t game_frame)
-    {
-        if (m_khit_contact_guide_latch.empty())
-        {
-            m_have_khit_contact_guide_frame = have_game_frame;
-            m_last_khit_contact_guide_frame = game_frame;
-            return;
-        }
-
-        int elapsed = 0;
-        if (have_game_frame)
-        {
-            if (m_have_khit_contact_guide_frame)
-                elapsed = static_cast<int>(
-                    game_frame - m_last_khit_contact_guide_frame);
-            m_have_khit_contact_guide_frame = true;
-            m_last_khit_contact_guide_frame = game_frame;
-        }
-        else
-        {
-            elapsed = 1;
-            m_have_khit_contact_guide_frame = false;
-        }
-
-        if (elapsed <= 0)
-            return;
-
-        size_t write = 0;
-        for (size_t read = 0; read < m_khit_contact_guide_latch.size();
-             ++read)
-        {
-            KHitContactGuideLine line =
-                m_khit_contact_guide_latch[read];
-            line.frames_left -= elapsed;
-            if (line.frames_left <= 0)
-                continue;
-            if (write != read)
-                m_khit_contact_guide_latch[write] = line;
-            else
-                m_khit_contact_guide_latch[write].frames_left =
-                    line.frames_left;
-            ++write;
-        }
-        m_khit_contact_guide_latch.resize(write);
-    }
-
-    void draw_latched_khit_contact_guides(Horse::ILineOverlay& overlay)
-    {
-        for (const KHitContactGuideLine& line :
-             m_khit_contact_guide_latch)
-        {
-            overlay.drawLine(line.a, line.b, line.color, line.thickness);
-        }
-    }
-
     void clear_persistent_khit_trails()
     {
         if (m_backend_hit.slot() == Horse::LineBatcherSlot::Persistent)
@@ -3200,8 +2873,6 @@ private:
         m_backend_hurt.hideAll();
         m_backend_hit_once.hideAll();
         m_backend_hurt_once.hideAll();
-        m_khit_contact_guide_latch.clear();
-        m_have_khit_contact_guide_frame = false;
         m_khit_render_calibration = {};
         m_have_trail_game_frame = false;
     }
@@ -6243,11 +5914,6 @@ private:
         }
         service_khit_sphere_audit_frame(have_trail_game_frame,
                                         trail_game_frame);
-        // Keep overlap rendering main-branch style: draw the native boxes
-        // only, then color the overlapping hurtbox.  Clear any stale guide
-        // latch from older accepted-contact-guide builds.
-        m_khit_contact_guide_latch.clear();
-        m_have_khit_contact_guide_frame = false;
 
         if (trail_frames_elapsed > 0)
         {
@@ -6359,20 +6025,19 @@ private:
                     have_trail_game_frame, trail_game_frame,
                     renderer_slot, audit_attacker_lane);
 
-                // Audit is observability only. Accepted overlap may keep the
-                // defender's hurtbox visible for color-only contact
-                // inspection, but it must not promote inactive attack
-                // candidates into hitboxes.
-                const bool hurt_overlap_highlight =
+                // Audit is observability only. Accepted-only overlap stays
+                // out of the visual damage highlight; bright red is reserved
+                // for a current native hurtbox reaction/damage pulse.
+                const bool hurt_damage_highlight =
                     d.list == Horse::KHitList::Hurtbox &&
                     (d.reaction_overlap_this_frame ||
-                     d.accepted_exact_overlap_this_frame);
+                     d.raw_reaction_hot);
                 const bool attack_active_display =
                     canRenderAttackShapeThisFrame(d);
                 const bool visible_when_filtered =
                     matters_this_frame ||
                     attack_active_display ||
-                    hurt_overlap_highlight;
+                    hurt_damage_highlight;
                 switch (d.list)
                 {
                     case Horse::KHitList::Hurtbox:
@@ -6394,7 +6059,7 @@ private:
                 const bool trail_sample_eligible =
                     matters_this_frame ||
                     attack_active_display ||
-                    hurt_overlap_highlight;
+                    hurt_damage_highlight;
                 Horse::LineBatcherBackend* trail_backend = nullptr;
                 Horse::LineBatcherBackend* current_backend = nullptr;
                 switch (d.list)
@@ -6823,9 +6488,10 @@ private:
 
     // ------------------------------------------------------------------
     // Colour scheme (engine-role driven, not size-heuristic)
-    //   Hurtboxes - green (receive volumes).  Bright red when native
-    //               overlap/reaction attribution marks this hurtbox, or
-    //               while the normal sticky hit flash is active.
+    //   Hurtboxes - green (receive volumes).  Bright red only for a
+    //               current raw-frame reaction/damage candidate.  Sticky
+    //               recent-hit memory is muted so accepted-only overlap
+    //               cannot masquerade as damage.
     //   Attacks   - amber (strike) / magenta (throw/grab).  Hot (the
     //               currently-active cell) overrides to bright yellow for
     //               strikes or bright pink for throws so you can still see
@@ -6843,10 +6509,15 @@ private:
             case Horse::KHitList::Hurtbox:
             {
                 if (d.reaction_overlap_this_frame ||
-                    d.accepted_exact_overlap_this_frame ||
-                    d.reaction_hot)
+                    d.raw_reaction_hot)
                 {
                     return Horse::FLinColor{ 1.0f, 0.15f, 0.15f, 1.0f };
+                }
+                if (d.reaction_hot)
+                {
+                    return Horse::FLinColor{ 0.70f * player_tint,
+                                             0.20f,
+                                             0.18f * player_tint, 0.45f };
                 }
 
                 // Chara-wide engine-frozen state.  Battle not
@@ -9008,8 +8679,14 @@ private:
             if (file_busy) ImGui::BeginDisabled(true);
             if (ImGui::Button("Open Replay + Lux Gen##rs_file_open"))
             {
-                scrub.browse_and_request_start_replay_file(
-                    "lux-no-render-force");
+                if (scrub.browse_and_request_start_replay_file(
+                        "lux-no-render-force"))
+                {
+                    Horse::GameImGui::set_visible(false);
+                    Output::send<LogLevel::Default>(STR(
+                        "[ReplayFile] hiding HorseMod overlay after "
+                        "replay start queued\n"));
+                }
             }
             if (file_busy) ImGui::EndDisabled();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip(
@@ -9020,6 +8697,29 @@ private:
                 scrub.replay_file_status_text();
             if (!replay_file_status.empty())
                 ImGui::TextWrapped("%s", replay_file_status.c_str());
+            const std::wstring last_export_path =
+                scrub.last_replay_export_path();
+            if (!last_export_path.empty())
+            {
+                const std::string last_export_text =
+                    horsemod_wide_to_utf8(last_export_path);
+                if (!last_export_text.empty())
+                    ImGui::TextWrapped("Last exported: %s",
+                                       last_export_text.c_str());
+                if (ImGui::Button(
+                        "Show in File Explorer##rs_file_export_explorer"))
+                {
+                    if (!horsemod_show_file_in_explorer(last_export_path))
+                    {
+                        Output::send<LogLevel::Warning>(STR(
+                            "[ReplayFile] failed to open export in Explorer "
+                            "path='{}'\n"),
+                            RC::to_generic_string(last_export_text));
+                    }
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Open the exported replay location.");
+            }
         };
 
         render_replay_file_controls();

@@ -4024,14 +4024,11 @@ namespace Horse
             return;
         }
 
-        // Sphere: draw a small latitude/longitude lattice instead of only
-        // three great circles. Large edited hitboxes can make shallow
-        // shell-to-shell contacts that fall between the old fixed rings,
-        // which made the authoritative sphere look visually disconnected.
-        const bool largeSphere = d.radius >= 75.0f;
-        const int segments = largeSphere ? 40 : 20;
-        const int meridians = largeSphere ? 16 : 6;
-        const int latitudes = largeSphere ? 11 : 5;
+        // Sphere: match the main-branch visual style: three axis-aligned
+        // rings at the native center/radius.  Dense latitude/longitude
+        // meshes made large edited spheres noisy and expensive in show-all
+        // and persistent-trail views.
+        constexpr int segments = 16;
         constexpr float TWO_PI = 6.283185307179586f;
         auto draw_circle = [&](const FVec3& centre,
                                const FVec3& axis_u,
@@ -4057,29 +4054,9 @@ namespace Horse
         constexpr FVec3 world_x{1.0f, 0.0f, 0.0f};
         constexpr FVec3 world_y{0.0f, 1.0f, 0.0f};
         constexpr FVec3 world_z{0.0f, 0.0f, 1.0f};
-
-        // Equator plus horizontal latitude rings around UE world-Z.
         draw_circle(d.centre, world_x, world_y, d.radius);
-        for (int i = 1; i <= latitudes; ++i)
-        {
-            const float t = static_cast<float>(i) /
-                            static_cast<float>(latitudes + 1);
-            const float z = d.radius * std::sinf((t - 0.5f) * 3.141592653589793f);
-            if (std::fabsf(z) < 0.001f)
-                continue;
-            const float r = std::sqrtf((std::max)(0.0f, d.radius * d.radius - z * z));
-            draw_circle(FVec3{d.centre.X, d.centre.Y, d.centre.Z + z},
-                        world_x, world_y, r);
-        }
-
-        // Vertical meridians at several azimuths.
-        for (int i = 0; i < meridians; ++i)
-        {
-            const float a = TWO_PI * static_cast<float>(i)
-                          / static_cast<float>(meridians);
-            const FVec3 radial{std::cosf(a), std::sinf(a), 0.0f};
-            draw_circle(d.centre, radial, world_z, d.radius);
-        }
+        draw_circle(d.centre, world_x, world_z, d.radius);
+        draw_circle(d.centre, world_y, world_z, d.radius);
     }
 
     inline void DrawKHitDrawCompact(ILineOverlay& overlay,
@@ -4097,7 +4074,7 @@ namespace Horse
         // Compact sphere draw for dense visual layers.  This preserves the
         // native center/radius and the familiar three-axis sphere read while
         // avoiding the full latitude/longitude lattice cost.
-        const int segments = (d.radius >= 75.0f) ? 24 : 16;
+        constexpr int segments = 16;
         constexpr float TWO_PI = 6.283185307179586f;
         auto draw_circle = [&](const FVec3& centre,
                                const FVec3& axis_u,

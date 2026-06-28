@@ -43,6 +43,37 @@ import struct
 from dataclasses import dataclass, field
 from typing import Optional
 
+PACKED_SLOT_BANK_SHIFT = 12
+PACKED_SLOT_BANK_MASK = 0xF
+PACKED_SLOT_INDEX_MASK = 0x7FF
+PACKED_SLOT_IGNORED_BIT = 0x0800
+
+
+@dataclass(frozen=True)
+class PackedSlotId:
+    """Native MoveVM packed slot id decoded like LuxMoveVM_ResolveBankSlot."""
+
+    raw: int
+    bank: int
+    slot: int
+    ignored_bit_11: bool
+
+
+def decode_packed_slot_id(packed_move_id: int) -> PackedSlotId:
+    """Decode a packed MoveVM bank/slot id.
+
+    Ghidra reference: LuxMoveVM_ResolveBankSlot uses bits 15..12 as the
+    FLuxMoveBank bucket and bits 10..0 as the slot within that bucket.
+    Bit 11 is masked out by the native slot index calculation.
+    """
+    raw = packed_move_id & 0xFFFF
+    return PackedSlotId(
+        raw=raw,
+        bank=(raw >> PACKED_SLOT_BANK_SHIFT) & PACKED_SLOT_BANK_MASK,
+        slot=raw & PACKED_SLOT_INDEX_MASK,
+        ignored_bit_11=(raw & PACKED_SLOT_IGNORED_BIT) != 0,
+    )
+
 
 # ----------------------------------------------------------------------
 # Generic offset-table header (.dtp and some small tables)
@@ -1061,8 +1092,8 @@ class FLuxMoveBankSlotView:
     dwAltBytecodeOffset_1C: int = 0     # +0x1C alt bytecode (typically unused)
     qwInputMask_20: int = 0             # +0x20 input mask (copied to lane+0x448)
     qwInputMask_28: int = 0             # +0x28
-    flAnimLength_30: float = 0.0        # +0x30
-    nAnimLengthFlag_34: int = 0         # +0x34
+    flPlaybackSpeed60ths_30: float = 0.0  # +0x30 playback speed seed, divided by 60 at transition
+    wTotalFrames: int = 0               # +0x34 authored total animation frames
     nHitWindowStart_36: int = 0         # +0x36
     dwBytecodeOffset_38: int = 0        # +0x38 STACK VM bytecode (BYTE offset, NOT u32-aligned)
     nCellBoneIndexPerVariant: list[int] = field(default_factory=list)  # +0x3C..+0x46 i16[6]
@@ -1073,7 +1104,22 @@ class FLuxMoveBankSlotView:
     @property
     def total_frames(self) -> int:
         """Total authored animation frames from slot+0x34."""
-        return self.nAnimLengthFlag_34 & 0xFFFF
+        return self.wTotalFrames & 0xFFFF
+
+    @property
+    def playback_speed_scalar(self) -> float:
+        """Runtime playback-speed scalar after the native /60 conversion."""
+        return self.flPlaybackSpeed60ths_30 / 60.0
+
+    @property
+    def flAnimLength_30(self) -> float:
+        """Backward-compatible alias for the old, misleading field name."""
+        return self.flPlaybackSpeed60ths_30
+
+    @property
+    def nAnimLengthFlag_34(self) -> int:
+        """Backward-compatible alias for the old total-frame field name."""
+        return self.wTotalFrames
 
     @property
     def attack_cell_indices(self) -> list[int]:
@@ -1125,8 +1171,9 @@ class KhdFile:
         return self.section_offsets[2] if len(self.section_offsets) > 2 else 0
 
     def resolve_packed_slot(self, packed_move_id: int) -> int | None:
-        bucket_idx = (packed_move_id >> 12) & 0xF
-        slot_in_bucket = packed_move_id & 0x7FF
+        decoded = decode_packed_slot_id(packed_move_id)
+        bucket_idx = decoded.bank
+        slot_in_bucket = decoded.slot
         if bucket_idx >= len(self.slot_buckets):
             return None
         start, count = self.slot_buckets[bucket_idx]
@@ -1301,8 +1348,8 @@ def parse_khd(data: bytes) -> KhdFile:
         sub_a, sub_b = struct.unpack_from("<II", raw_slot, 0x10)
         alt_bc = struct.unpack_from("<I", raw_slot, 0x1C)[0]
         mask_a, mask_b = struct.unpack_from("<QQ", raw_slot, 0x20)
-        anim_len = struct.unpack_from("<f", raw_slot, 0x30)[0]
-        len_flag, hit_win = struct.unpack_from("<hh", raw_slot, 0x34)
+        playback_speed_60ths = struct.unpack_from("<f", raw_slot, 0x30)[0]
+        total_frames, hit_win = struct.unpack_from("<Hh", raw_slot, 0x34)
         bc_off = struct.unpack_from("<I", raw_slot, 0x38)[0]
         cells = list(struct.unpack_from("<6h", raw_slot, 0x3C))
         sv = FLuxMoveBankSlotView(
@@ -1317,8 +1364,8 @@ def parse_khd(data: bytes) -> KhdFile:
             dwAltBytecodeOffset_1C=alt_bc,
             qwInputMask_20=mask_a,
             qwInputMask_28=mask_b,
-            flAnimLength_30=anim_len,
-            nAnimLengthFlag_34=len_flag,
+            flPlaybackSpeed60ths_30=playback_speed_60ths,
+            wTotalFrames=total_frames,
             nHitWindowStart_36=hit_win,
             dwBytecodeOffset_38=bc_off,
             nCellBoneIndexPerVariant=cells,

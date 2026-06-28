@@ -137,6 +137,11 @@ namespace Horse
 
     void replay_scrub_run_direct_boost_slice_from_engine_loop() noexcept;
     bool replay_scrub_try_replace_engine_loop_tick_for_generation() noexcept;
+    bool replay_scrub_capture_native_replay_entry_payload(
+        void* container,
+        uint64_t request_id,
+        const void* payload_data,
+        size_t payload_size) noexcept;
 
     // ------------------------------------------------------------------
     // HgCpuBufferShim - HorseMod's implementation of the engine's
@@ -7090,7 +7095,15 @@ namespace Horse
         static constexpr uintptr_t kRVA_ReplayListItemDestroy    = 0x4EEBA0;
         static constexpr uintptr_t kRVA_LuxReplayGetSaveManager  = 0x50BDA0;
         static constexpr uintptr_t kRVA_LuxReplayDecompressUlx1  = 0x2DCE6F0;
+        static constexpr uintptr_t kRVA_LuxReplaySerializeEntryHeaderAndZlibBody =
+            0x2DC6160;
         static constexpr uintptr_t kRVA_LuxReplayDeserializeItem  = 0x5B17F0;
+        static constexpr uintptr_t kRVA_LuxCharacterToBattleSetupIndex =
+            0x4B6950;
+        static constexpr uintptr_t kRVA_SetActiveStageMapPathByHexStageNumber =
+            0x550D70;
+        static constexpr uintptr_t
+            kRVA_UIGameFlowManagerCurrentSceneStopComplete = 0x2F0AE70;
         static constexpr uintptr_t kRVA_CopyBattleReplayData      = 0x538580;
         static constexpr uintptr_t kRVA_CopyReplayListItemData    = 0x57E1B0;
         static constexpr uintptr_t kRVA_ConstructReplayListContainerClass = 0xB77900;
@@ -9285,6 +9298,7 @@ namespace Horse
             trace_pending_native_step_event(
                 "sc6_validation_step_abandoned", "shutdown");
             release_replay_file_profile_container();
+            clear_cached_native_replay_entry_payload();
 
             // Restore the engine frame cap + screen percentage + redraw
             // hook first - none of them must outlive the module if
@@ -9320,7 +9334,11 @@ namespace Horse
         //   * Frame counter advanced since last observation
         void tick_capture()
         {
-            if (!is_initialized()) return;
+            if (!is_initialized())
+            {
+                refresh_replay_ui_runtime_status_cache();
+                return;
+            }
 
             // One master-clock read per cockpit tick.  The engine does
             // not advance between here and the end of this function (we
@@ -9330,6 +9348,7 @@ namespace Horse
             // position() to extrapolate a smooth playhead post-seek.
             const int32_t tick_master = read_engine_master_clock();
             m_live_master_cached.store(tick_master, std::memory_order_release);
+            refresh_replay_ui_runtime_status_cache(tick_master);
 
             // Post-seek tick logging runs UNCONDITIONALLY (even when
             // paused / generation inactive / outside Replay presence) so
@@ -12303,7 +12322,8 @@ namespace Horse
 
         void ui_pause_at_live() noexcept
         {
-            const int32_t live_round = read_current_round();
+            const int32_t live_round =
+                m_live_round_cached.load(std::memory_order_acquire);
             const int32_t live_master =
                 m_live_master_cached.load(std::memory_order_acquire);
             const int32_t exact_seq =
@@ -12394,30 +12414,107 @@ namespace Horse
             return v;
         }
 
-        ReplayUiRuntimeStatus replay_ui_runtime_status() noexcept
+        void refresh_replay_ui_runtime_status_cache(
+            int32_t engine_master_hint = INT32_MIN) noexcept
+        {
+            const GamePresence presence =
+                GameMode::instance().current_presence();
+            const bool initialized = is_initialized();
+            const bool timeline_complete =
+                has_context_valid_completed_timeline();
+            const bool timeline_stale = has_stale_preserved_timeline();
+            const bool generation_running =
+                timeline_gen_state() == TimelineGenState::Generating;
+            const bool generation_waiting =
+                is_generate_armed_for_next_clean_start();
+
+            uint8_t battle_main_state = 0;
+            uint8_t battle_status = 0;
+            bool battle_main_state_ok = false;
+            bool battle_status_ok = false;
+            int32_t live_round = -1;
+            int32_t engine_master = -1;
+            int32_t battle_master = -1;
+
+            if (initialized)
+            {
+                battle_main_state_ok =
+                    read_battle_manager_main_state(battle_main_state);
+                battle_status_ok =
+                    read_battle_manager_status(battle_status);
+                live_round = read_current_round();
+                engine_master =
+                    engine_master_hint != INT32_MIN
+                        ? engine_master_hint
+                        : read_engine_master_clock();
+                battle_master = read_battle_manager_master_clock();
+            }
+
+            m_ui_cached_presence.store(
+                static_cast<uint8_t>(presence), std::memory_order_release);
+            m_ui_cached_initialized.store(
+                initialized, std::memory_order_release);
+            m_ui_cached_timeline_complete.store(
+                timeline_complete, std::memory_order_release);
+            m_ui_cached_timeline_stale.store(
+                timeline_stale, std::memory_order_release);
+            m_ui_cached_generation_running.store(
+                generation_running, std::memory_order_release);
+            m_ui_cached_generation_waiting.store(
+                generation_waiting, std::memory_order_release);
+            m_ui_cached_battle_main_state_ok.store(
+                battle_main_state_ok, std::memory_order_release);
+            m_ui_cached_battle_status_ok.store(
+                battle_status_ok, std::memory_order_release);
+            m_ui_cached_battle_main_state.store(
+                battle_main_state, std::memory_order_release);
+            m_ui_cached_battle_status.store(
+                battle_status, std::memory_order_release);
+            m_live_round_cached.store(
+                live_round, std::memory_order_release);
+            m_live_master_cached.store(
+                engine_master, std::memory_order_release);
+            m_battle_master_cached.store(
+                battle_master, std::memory_order_release);
+        }
+
+        ReplayUiRuntimeStatus replay_ui_runtime_status() const noexcept
         {
             ReplayUiRuntimeStatus s{};
-            s.in_replay = GameMode::instance().current_presence()
+            s.in_replay =
+                static_cast<GamePresence>(
+                    m_ui_cached_presence.load(std::memory_order_acquire))
                 == GamePresence::Replay;
-            s.initialized = is_initialized();
-            s.timeline_complete = has_context_valid_completed_timeline();
-            s.timeline_stale = has_stale_preserved_timeline();
-            s.generation_running =
-                timeline_gen_state() == TimelineGenState::Generating;
-            s.generation_waiting = is_generate_armed_for_next_clean_start();
+            s.initialized = m_ui_cached_initialized.load(
+                std::memory_order_acquire);
+            s.timeline_complete = m_ui_cached_timeline_complete.load(
+                std::memory_order_acquire);
+            s.timeline_stale = m_ui_cached_timeline_stale.load(
+                std::memory_order_acquire);
+            s.generation_running = m_ui_cached_generation_running.load(
+                std::memory_order_acquire);
+            s.generation_waiting = m_ui_cached_generation_waiting.load(
+                std::memory_order_acquire);
             s.required_main_state = kBM_MainStateActiveBattle;
             s.required_status = kBM_StatusActiveBattle;
-            s.battle_main_state_ok =
-                read_battle_manager_main_state(s.battle_main_state);
-            s.battle_status_ok =
-                read_battle_manager_status(s.battle_status);
+            s.battle_main_state_ok = m_ui_cached_battle_main_state_ok.load(
+                std::memory_order_acquire);
+            s.battle_status_ok = m_ui_cached_battle_status_ok.load(
+                std::memory_order_acquire);
+            s.battle_main_state = m_ui_cached_battle_main_state.load(
+                std::memory_order_acquire);
+            s.battle_status = m_ui_cached_battle_status.load(
+                std::memory_order_acquire);
             s.battle_active = s.battle_main_state_ok
                 && s.battle_status_ok
                 && s.battle_main_state == kBM_MainStateActiveBattle
                 && s.battle_status == kBM_StatusActiveBattle;
-            s.live_round = read_current_round();
-            s.engine_master = read_engine_master_clock();
-            s.battle_master = read_battle_manager_master_clock();
+            s.live_round = m_live_round_cached.load(
+                std::memory_order_acquire);
+            s.engine_master = m_live_master_cached.load(
+                std::memory_order_acquire);
+            s.battle_master = m_battle_master_cached.load(
+                std::memory_order_acquire);
             return s;
         }
 
@@ -12892,7 +12989,8 @@ namespace Horse
 
             if (!is_paused())
             {
-                const int32_t live_round = read_current_round();
+                const int32_t live_round =
+                    m_live_round_cached.load(std::memory_order_acquire);
                 const int32_t live_master =
                     m_live_master_cached.load(std::memory_order_acquire);
                 const int32_t live_seq =
@@ -12953,12 +13051,16 @@ namespace Horse
             publish_preview_status(PreviewStatus::Idle);
             publish_mode(ScrubMode::Idle);
 
-            size_t loaded_payload_bytes = m_loaded_replay_payload.size();
-            if (!m_loaded_replay_payload.empty())
+            size_t loaded_payload_bytes = 0;
             {
-                std::fill(m_loaded_replay_payload.begin(),
-                          m_loaded_replay_payload.end(), 0);
-                m_loaded_replay_payload.clear();
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                loaded_payload_bytes = m_loaded_replay_payload.size();
+                if (!m_loaded_replay_payload.empty())
+                {
+                    std::fill(m_loaded_replay_payload.begin(),
+                              m_loaded_replay_payload.end(), 0);
+                    m_loaded_replay_payload.clear();
+                }
             }
 
             // This runs after the mode has already left Replay.  At that
@@ -13034,6 +13136,7 @@ namespace Horse
                 reason ? reason : "new-replay-reset", true);
             clear_replay_live_state_for_non_replay_presence(
                 reason ? reason : "reset");
+            clear_cached_native_replay_entry_payload();
             NativeReplayTraceHook::instance()
                 .clear_replay_input_stage_cache();
             drop_ring();
@@ -13086,7 +13189,17 @@ namespace Horse
             m_last_seek_target.store(-1, std::memory_order_release);
             m_usable_latest_seq.store(-1, std::memory_order_release);
             m_last_seek_master_tag.store(-1, std::memory_order_release);
+            m_live_round_cached.store(-1, std::memory_order_release);
             m_live_master_cached.store(-1, std::memory_order_release);
+            m_battle_master_cached.store(-1, std::memory_order_release);
+            m_ui_cached_battle_main_state_ok.store(
+                false, std::memory_order_release);
+            m_ui_cached_battle_status_ok.store(
+                false, std::memory_order_release);
+            m_ui_cached_battle_main_state.store(
+                0, std::memory_order_release);
+            m_ui_cached_battle_status.store(
+                0, std::memory_order_release);
             m_post_seek_countdown.store(0, std::memory_order_release);
             // Cancel any in-progress timeline generation - restore the
             // engine frame cap + screen percentage + redraw hook and
@@ -13312,8 +13425,18 @@ namespace Horse
             bool existing_replay_watch_cancel_requested {false};
             bool existing_replay_watch_end_requested {false};
             bool existing_replay_battle_terminate_requested {false};
+            bool existing_replay_battle_end_to_lobby_requested {false};
+            bool existing_replay_battle_end_requested {false};
+            bool existing_replay_back_lobby_requested {false};
+            bool existing_replay_request_to_stop_requested {false};
+            bool existing_replay_ready_to_stop_requested {false};
+            bool existing_replay_manager_stop_complete_requested {false};
             bool existing_replay_exit_wait_emitted {false};
             bool existing_replay_exit_ready_emitted {false};
+            bool stale_replay_scene_menus_closed {false};
+            bool stale_replay_console_reroute_requested {false};
+            bool stale_replay_scene_launch_ready {false};
+            bool stage_map_request_submitted {false};
             bool replay_setup_reached {false};
             bool auto_generate_armed {false};
             bool battle_runtime_wait_emitted {false};
@@ -13334,6 +13457,11 @@ namespace Horse
             uint32_t existing_replay_exit_attempts {0};
             uint32_t existing_replay_watch_exit_attempts {0};
             uint32_t existing_replay_battle_terminate_attempts {0};
+            uint32_t existing_replay_session_exit_attempts {0};
+            uint32_t existing_replay_request_to_stop_attempts {0};
+            uint32_t existing_replay_ready_to_stop_attempts {0};
+            uint32_t existing_replay_manager_stop_complete_attempts {0};
+            uint32_t stale_replay_console_reroute_attempts {0};
             uint32_t navigator_attempts {0};
             uint32_t title_decide_attempts {0};
             uint32_t native_profile_request_attempts {0};
@@ -13362,6 +13490,12 @@ namespace Horse
             return narrow_path(replay_file_basename(m_replay_file_last_path));
         }
 
+        std::wstring last_replay_export_path() const
+        {
+            std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+            return m_replay_file_last_export_path;
+        }
+
         bool has_pending_replay_file_load() const noexcept
         {
             return m_replay_file_load_pending.load(std::memory_order_acquire);
@@ -13382,6 +13516,12 @@ namespace Horse
             service_state_snapshot_request_impl();
         }
 
+        bool capture_native_replay_entry_payload(
+            void* container,
+            uint64_t request_id,
+            const void* payload_data,
+            size_t payload_size) noexcept;
+
         void export_current_replay_file() noexcept
         {
             std::vector<uint8_t> payload;
@@ -13401,13 +13541,16 @@ namespace Horse
                 return;
             }
 
+            const std::string source = reason.empty() ? "unknown" : reason;
             out_path = make_replay_export_path();
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayFile] export start path='{}' bytes={} "
+                "source={} "
                 "rounds={} current_round={} frames={} stage={} "
                 "charL={} charR={} timestamp={}\n"),
                 RC::to_generic_string(narrow_path(out_path)),
-                payload.size(), meta.total_rounds, meta.current_round,
+                payload.size(), RC::to_generic_string(source),
+                meta.total_rounds, meta.current_round,
                 meta.total_recorded_frames, meta.stage_index,
                 meta.left_chara_id, meta.right_chara_id,
                 static_cast<unsigned long long>(meta.timestamp_unix));
@@ -13429,19 +13572,22 @@ namespace Horse
             {
                 std::lock_guard<std::mutex> lock(m_replay_file_mutex);
                 m_replay_file_last_path = out_path;
+                m_replay_file_last_export_path = out_path;
             }
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayFile] export success path='{}' bytes={} "
+                "source={} "
                 "rounds={} current_round={} frames={} stage={} "
                 "charL={} charR={} timestamp={}\n"),
                 RC::to_generic_string(narrow_path(out_path)),
-                payload.size(), meta.total_rounds, meta.current_round,
+                payload.size(), RC::to_generic_string(source),
+                meta.total_rounds, meta.current_round,
                 meta.total_recorded_frames, meta.stage_index,
                 meta.left_chara_id, meta.right_chara_id,
                 static_cast<unsigned long long>(meta.timestamp_unix));
             set_replay_file_status("Export Replay", true, true,
-                                   out_path, payload.size(), meta,
-                                   "success");
+                                    out_path, payload.size(), meta,
+                                    "");
         }
 
         bool request_load_replay_file(const char* user_name) noexcept
@@ -13652,8 +13798,16 @@ namespace Horse
         using LuxReplayGetSaveManagerFn = void* (__fastcall*)(bool);
         using LuxReplayDecompressUlx1Fn = bool (__fastcall*)(
             TArrayByteNative*, TArrayByteNative*);
+        using LuxReplaySerializeEntryHeaderAndZlibBodyFn =
+            bool (__fastcall*)(TArrayByteNative*, TArrayByteNative*);
         using LuxReplayDeserializeItemFn = bool (__fastcall*)(
             TArrayByteNative*, void*);
+        using LuxCharacterToBattleSetupIndexFn =
+            int32_t (__fastcall*)(uint8_t);
+        using SetActiveStageMapPathByHexStageNumberFn =
+            void (__fastcall*)(void*, uint8_t, uint8_t, int32_t);
+        using UIGameFlowManagerCurrentSceneStopCompleteFn =
+            void (__fastcall*)(void*);
         using CopyBattleReplayDataFn = void* (__fastcall*)(void*, void*);
         using CopyReplayListItemDataFn = void* (__fastcall*)(void*, void*);
         using ConstructReplayListContainerClassFn =
@@ -13742,6 +13896,22 @@ namespace Horse
             }
         }
 
+        static bool safe_native_serialize_replay_entry(
+            LuxReplaySerializeEntryHeaderAndZlibBodyFn fn,
+            TArrayByteNative* out,
+            TArrayByteNative* input) noexcept
+        {
+            if (!fn || !out || !input) return false;
+            __try
+            {
+                return fn(out, input);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
         static bool safe_native_deserialize_replay_item(
             LuxReplayDeserializeItemFn fn,
             TArrayByteNative* payload,
@@ -13751,6 +13921,60 @@ namespace Horse
             __try
             {
                 return fn(payload, item);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        static bool safe_native_convert_character_to_setup_index(
+            LuxCharacterToBattleSetupIndexFn fn,
+            uint8_t chara,
+            int32_t& out) noexcept
+        {
+            out = -1;
+            if (!fn) return false;
+            __try
+            {
+                out = fn(chara);
+                return out >= 0;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                out = -1;
+                return false;
+            }
+        }
+
+        static bool safe_native_set_active_stage_map_path(
+            SetActiveStageMapPathByHexStageNumberFn fn,
+            void* game_instance,
+            uint8_t left_chara,
+            uint8_t right_chara,
+            int32_t stage_index) noexcept
+        {
+            if (!fn || !game_instance) return false;
+            __try
+            {
+                fn(game_instance, left_chara, right_chara, stage_index);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        static bool safe_native_complete_gameflow_current_scene_stop(
+            UIGameFlowManagerCurrentSceneStopCompleteFn fn,
+            void* game_flow_manager) noexcept
+        {
+            if (!fn || !game_flow_manager) return false;
+            __try
+            {
+                fn(game_flow_manager);
+                return true;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -14035,7 +14259,15 @@ namespace Horse
         ReplayListItemDestroyFn m_replay_list_item_destroy {nullptr};
         LuxReplayGetSaveManagerFn m_lux_replay_get_save_manager {nullptr};
         LuxReplayDecompressUlx1Fn m_lux_replay_decompress_ulx1 {nullptr};
+        LuxReplaySerializeEntryHeaderAndZlibBodyFn
+            m_lux_replay_serialize_entry_header_and_zlib_body {nullptr};
         LuxReplayDeserializeItemFn m_lux_replay_deserialize_item {nullptr};
+        LuxCharacterToBattleSetupIndexFn
+            m_lux_character_to_battle_setup_index {nullptr};
+        SetActiveStageMapPathByHexStageNumberFn
+            m_set_active_stage_map_path_by_hex_stage_number {nullptr};
+        UIGameFlowManagerCurrentSceneStopCompleteFn
+            m_gameflow_current_scene_stop_complete {nullptr};
         CopyBattleReplayDataFn m_copy_battle_replay_data {nullptr};
         CopyReplayListItemDataFn m_copy_replay_list_item_data {nullptr};
         ConstructReplayListContainerClassFn
@@ -14108,10 +14340,36 @@ namespace Horse
         static constexpr size_t kNativeReplaySaveTemporaryListItemOff = 0x19E0;
         static constexpr uintptr_t kGI_ManualLaunchGateWeakObject_Off = 0x1F0;
         static constexpr uintptr_t kGI_ManualLaunchGateRequested_Off = 0x468;
+        static constexpr uintptr_t kLuxBattleSetupLeftPlayerOff = 0x1E0;
+        static constexpr uintptr_t kLuxBattleSetupRightPlayerOff = 0x1E8;
+        static constexpr uintptr_t kLuxBattleSetupStageSetupOff = 0x200;
+        static constexpr uintptr_t kLuxBattlePlayerSetupCharacterOffA = 0x1A4;
+        static constexpr uintptr_t kLuxBattlePlayerSetupCharacterOffB = 0x1A8;
+        static constexpr uintptr_t kLuxBattlePlayerSetupCharacterOffC = 0x1B0;
+        static constexpr uintptr_t kLuxBattleStageSetupStageIndexOff = 0x148;
         static_assert(kNativeReplayListItemBattleDataOff +
                           kNativeBattleReplayDataBytes ==
                           kNativeReplayListItemBytes,
                       "native replay item battle data layout changed");
+
+        enum class NativeReplayEntryPayloadKind : uint8_t
+        {
+            None = 0,
+            DecompressedEntry = 1,
+        };
+
+        struct CachedNativeReplayEntryPayload
+        {
+            bool valid {false};
+            NativeReplayEntryPayloadKind kind {
+                NativeReplayEntryPayloadKind::None
+            };
+            uintptr_t container {0};
+            uint64_t request_id {0};
+            uint64_t captured_timestamp_unix {0};
+            uint64_t payload_hash {0};
+            std::vector<uint8_t> payload;
+        };
 
         // Single shim, re-targeted onto each ring slot in turn.  The
         // engine treats the buffer as opaque so we can repurpose it
@@ -14123,6 +14381,7 @@ namespace Horse
         mutable std::mutex m_replay_file_mutex;
         std::string m_replay_file_status;
         std::wstring m_replay_file_last_path;
+        std::wstring m_replay_file_last_export_path;
         std::wstring m_replay_file_pending_path;
         std::wstring m_replay_file_start_pending_path;
         std::string m_replay_file_start_pending_generate_mode;
@@ -14130,6 +14389,8 @@ namespace Horse
         ReplayFileStartAutomationState m_replay_file_start_automation;
         RC::Unreal::UObject* m_replay_file_profile_container {nullptr};
         bool m_replay_file_profile_request_ok {false};
+        CachedNativeReplayEntryPayload
+            m_cached_native_replay_entry_payload {};
         std::vector<uint8_t> m_loaded_replay_payload;
         std::atomic<GateReleaseCallback> m_gate_release_callback {nullptr};
         std::atomic<bool> m_replay_file_load_pending {false};
@@ -14138,7 +14399,6 @@ namespace Horse
         Fn m_fn_gi_can_launch_battle_manually;
         Fn m_fn_gi_apply_replay_to_battle_setup;
         Fn m_fn_gi_request_battle_asset;
-        Fn m_fn_gi_quick_battle_request;
         Fn m_fn_gi_has_any_battle_request;
         Fn m_fn_gi_manual_launch_battle;
         Fn m_fn_gi_terminate_battle;
@@ -14163,6 +14423,10 @@ namespace Horse
         Fn m_fn_session_hub_get_match_data;
         Fn m_fn_session_hub_request_watch_cancel;
         Fn m_fn_session_hub_request_watch_end;
+        Fn m_fn_session_hub_request_battle_end_to_lobby;
+        Fn m_fn_session_hub_request_battle_end;
+        Fn m_fn_session_hub_request_back_lobby;
+        Fn m_fn_gameflow_scene_ready_to_stop;
 
         struct SteamPersonaResolver
         {
@@ -14635,10 +14899,10 @@ namespace Horse
         // project_sc6_replay_scrub_design.md and
         // project_sc6_hgcpu_buffer_contract.md memory entries).
         // pBM->pReplayDataBlock @ BM+0x460.  Indirects to a
-        // FLuxReplayDataBlock (1021 bytes per Ghidra struct), which
+        // FLuxReplayDataBlock (1022 bytes per Ghidra struct), which
         // holds the Stage 1 decoder state - file read cursor, decoded
         // buffer write cursor, Stage 2's read cursor, working frame
-        // ID, working playback cursor, running flag, etc.
+        // ID, working playback cursor, running flag, encode-busy flag, etc.
         //
         // CRITICAL FOR SCRUB-BACK (2026-05-11 finding): when the user
         // pauses at frame F and scrubs back to frame T (F > T+1), the
@@ -14652,7 +14916,7 @@ namespace Horse
         // - which is exactly the "plays inputs from later in the
         // round" symptom the user reported.
         //
-        // Capture/restore the full 1021 bytes of pReplayDataBlock per
+        // Capture/restore the full 1022 bytes of pReplayDataBlock per
         // snapshot.  This includes pointer fields (pDecodedPacketBuffer
         // @ +0x3A8, pFileBuffer @ +0x3C8, pVerifyPtr @ +0x3A0); those
         // are stable for the replay-session's lifetime so
@@ -14661,7 +14925,7 @@ namespace Horse
         // mismatches are not a concern because on_presence_change
         // clears the ring before any new session can start.
         static constexpr uintptr_t kBM_pReplayDataBlock_Off       = 0x460;
-        static constexpr size_t    kRDB_Bytes                     = 1021;
+        static constexpr size_t    kRDB_Bytes                     = 1022;
         static constexpr uintptr_t kBM_BattleFrameInputLog_Off    = 0x478;
         static constexpr uintptr_t kBM_pReplayCharaSnapshot_Off   = 0x1360;
         static constexpr uintptr_t kBM_bMoveStateByte_Off         = 0x1463;
@@ -15243,7 +15507,7 @@ namespace Horse
         RegionStore m_il_store;
 
         // Decoder-state region: the Stage 1 decoder's FLuxReplayDataBlock
-        // (1021 bytes at *pBM+0x460) - file/decoded-buffer cursors,
+        // (1022 bytes at *pBM+0x460) - file/decoded-buffer cursors,
         // working frame ID, running flag.  2026-05-11 finding: without
         // rewinding these on a backward seek the decoder stays at the
         // live-edge file position and feeds "inputs from later in the
@@ -15521,10 +15785,25 @@ namespace Horse
         //
         // m_live_master_cached is updated every cockpit tick from
         // read_engine_master_clock() so the UI thread can read a
-        // stable value without racing the game thread.  Both fields
-        // are atomic for the UI-vs-game-thread access.
+        // stable value without racing the game thread.  Replay UI also
+        // reads the cached round/status fields below because ImGui draws
+        // from the DXGI Present hook on the render thread; it must not
+        // resolve UObjects or walk Horse::GlobalPtr directly.
         std::atomic<int32_t> m_last_seek_master_tag {-1};
+        std::atomic<int32_t> m_live_round_cached    {-1};
         std::atomic<int32_t> m_live_master_cached   {-1};
+        std::atomic<int32_t> m_battle_master_cached {-1};
+        std::atomic<uint8_t> m_ui_cached_presence {
+            static_cast<uint8_t>(GamePresence::Unknown)};
+        std::atomic<bool> m_ui_cached_initialized {false};
+        std::atomic<bool> m_ui_cached_timeline_complete {false};
+        std::atomic<bool> m_ui_cached_timeline_stale {false};
+        std::atomic<bool> m_ui_cached_generation_running {false};
+        std::atomic<bool> m_ui_cached_generation_waiting {false};
+        std::atomic<bool> m_ui_cached_battle_main_state_ok {false};
+        std::atomic<bool> m_ui_cached_battle_status_ok {false};
+        std::atomic<uint8_t> m_ui_cached_battle_main_state {0};
+        std::atomic<uint8_t> m_ui_cached_battle_status {0};
         int32_t m_playback_diag_last_master {-1};
         int32_t m_playback_diag_last_round {-1};
         int32_t m_playback_diag_last_result {0};
@@ -16445,6 +16724,64 @@ namespace Horse
             return info;
         }
 
+        static int hex_digit_value(char ch) noexcept
+        {
+            if (ch >= '0' && ch <= '9') return ch - '0';
+            if (ch >= 'A' && ch <= 'F') return 10 + (ch - 'A');
+            if (ch >= 'a' && ch <= 'f') return 10 + (ch - 'a');
+            return -1;
+        }
+
+        static bool parse_stage_index_from_text(
+            const std::string& text,
+            int32_t& out) noexcept
+        {
+            for (size_t pos = text.find("STG");
+                 pos != std::string::npos;
+                 pos = text.find("STG", pos + 1))
+            {
+                if (pos + 6 > text.size()) continue;
+                int32_t value = 0;
+                bool valid = true;
+                for (size_t i = 0; i < 3; ++i)
+                {
+                    const int digit = hex_digit_value(text[pos + 3 + i]);
+                    if (digit < 0)
+                    {
+                        valid = false;
+                        break;
+                    }
+                    value = (value << 4) | digit;
+                }
+                if (valid)
+                {
+                    out = value;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static bool parse_stage_index_from_identity(
+            const UObjectIdentity& info,
+            int32_t& out) noexcept
+        {
+            return parse_stage_index_from_text(info.path, out)
+                || parse_stage_index_from_text(info.full_name, out)
+                || parse_stage_index_from_text(info.name, out);
+        }
+
+        static int32_t replay_stage_map_index(int32_t raw_stage) noexcept
+        {
+            // Native replay saves can carry high packed stage flags
+            // (for example 0x111).  The borrowed quick-battle map helper
+            // formats its argument directly as STG%03X, so pass the literal
+            // map stage byte instead of the packed replay value.
+            if (raw_stage > 0xff)
+                return raw_stage & 0xff;
+            return raw_stage;
+        }
+
         static void add_uobject_identity_fields(
             ReplayTraceFields& f,
             const char* prefix,
@@ -16887,6 +17224,68 @@ namespace Horse
             return true;
         }
 
+        bool change_current_gameflow_scene(NavigatorObjects& nav,
+                                           const wchar_t* transition_tag,
+                                           std::string& reason) noexcept
+        {
+            if (!nav.current_scene)
+                nav = resolve_navigator_objects();
+            if (!nav.current_scene)
+            {
+                reason = "Current GameFlow scene unavailable";
+                return false;
+            }
+            auto* fn = nav.current_scene->GetFunctionByNameInChain(
+                L"ChangeScene");
+            if (!fn)
+            {
+                reason = "Current GameFlow scene ChangeScene unavailable";
+                return false;
+            }
+
+            struct SceneChangeParams
+            {
+                RC::Unreal::FString TransitionTag;
+                LuxDataTablePathNative InheritedData{};
+                NullScriptDelegateNative ChangeSceneParam{};
+
+                explicit SceneChangeParams(const wchar_t* tag)
+                    : TransitionTag(tag ? tag : L"")
+                {}
+            };
+            static_assert(sizeof(SceneChangeParams) == 0x38,
+                          "UBaseGameFlowScene.ChangeScene params drifted");
+
+            if (!resolve_natives() || !m_lux_datatable_path_init_as_null ||
+                !m_lux_datatable_path_dtor)
+            {
+                reason = "native UIDataObject initializer unavailable";
+                return false;
+            }
+
+            SceneChangeParams params{transition_tag};
+            if (!safe_native_lux_datatable_path_init_as_null(
+                    m_lux_datatable_path_init_as_null,
+                    &params.InheritedData))
+            {
+                reason = "native UIDataObject init failed";
+                return false;
+            }
+
+            const bool event_ok = safe_process_event(nav.current_scene,
+                                                     fn, &params);
+            safe_native_lux_datatable_path_dtor(m_lux_datatable_path_dtor,
+                                                &params.InheritedData);
+            if (!event_ok)
+            {
+                reason = "Current GameFlow scene ChangeScene failed";
+                return false;
+            }
+
+            reason = "called CurrentScene.ChangeScene";
+            return true;
+        }
+
         bool request_replay_battle_scene(
             ReplayFileStartAutomationState& state,
             bool& scene_complete,
@@ -16915,8 +17314,8 @@ namespace Horse
             {
                 if (stop_at_setup_scene)
                 {
-                    transition_tag = L"replay_list";
-                    transition_tag_utf8 = "replay_list";
+                    transition_tag = L"replaylist";
+                    transition_tag_utf8 = "replaylist";
                 }
                 else
                 {
@@ -16933,8 +17332,8 @@ namespace Horse
                 }
                 else
                 {
-                    transition_tag = L"battle";
-                    transition_tag_utf8 = "battle";
+                    transition_tag = L"replaybattle";
+                    transition_tag_utf8 = "replaybattle";
                 }
             }
             else if (in_replay_list_scene)
@@ -16943,8 +17342,22 @@ namespace Horse
                 transition_tag_utf8 = "battlesetup";
             }
 
+            const bool prefer_current_scene_change =
+                in_replay_battle_scene && stop_at_setup_scene;
+            const char* transition_owner = prefer_current_scene_change
+                ? "current_scene"
+                : "game_flow_manager";
+            bool current_scene_change_queued = false;
+            bool manager_fallback_attempted = false;
+            bool manager_change_queued = false;
+            std::string manager_fallback_reason;
             bool ok = scene_complete;
-            if (!ok && !nav.game_flow_manager)
+            if (!ok && prefer_current_scene_change && !nav.current_scene)
+            {
+                reason = "Current GameFlow scene unavailable";
+            }
+            else if (!ok && !prefer_current_scene_change &&
+                     !nav.game_flow_manager)
             {
                 reason = "UIGameFlowManager unavailable";
             }
@@ -16955,7 +17368,123 @@ namespace Horse
             }
             else if (!ok)
             {
-                ok = change_gameflow_scene(nav, transition_tag, reason);
+                if (prefer_current_scene_change)
+                {
+                    ok = change_current_gameflow_scene(
+                        nav, transition_tag, reason);
+                    if (ok)
+                    {
+                        NavigatorObjects after_nav =
+                            resolve_navigator_objects();
+                        current_scene_change_queued =
+                            after_nav.next_scene != nullptr ||
+                            after_nav.next_scene_direct != nullptr;
+                        if (!current_scene_change_queued &&
+                            nav.game_flow_manager)
+                        {
+                            manager_fallback_attempted = true;
+                            const std::string scene_reason = reason;
+                            const bool manager_ok = change_gameflow_scene(
+                                nav, transition_tag,
+                                manager_fallback_reason);
+                            if (manager_ok)
+                            {
+                                NavigatorObjects after_manager_nav =
+                                    resolve_navigator_objects();
+                                manager_change_queued =
+                                    after_manager_nav.next_scene != nullptr ||
+                                    after_manager_nav.next_scene_direct !=
+                                        nullptr;
+                                if (manager_change_queued)
+                                {
+                                    transition_owner =
+                                        "current_scene_then_manager";
+                                    reason =
+                                        scene_reason +
+                                        " but did not queue NextScene; "
+                                        "fallback " +
+                                        manager_fallback_reason;
+                                }
+                                else
+                                {
+                                    ok = false;
+                                    transition_owner =
+                                        "current_scene_manager_unqueued";
+                                    reason =
+                                        scene_reason +
+                                        " but did not queue NextScene; "
+                                        "fallback " +
+                                        manager_fallback_reason +
+                                        " but did not queue NextScene";
+                                }
+                            }
+                            else
+                            {
+                                ok = false;
+                                transition_owner =
+                                    "current_scene_failed_manager";
+                                reason =
+                                    scene_reason +
+                                    " but did not queue NextScene; manager "
+                                    "fallback failed: " +
+                                    manager_fallback_reason;
+                            }
+                        }
+                        else if (!current_scene_change_queued)
+                        {
+                            ok = false;
+                            reason =
+                                "CurrentScene.ChangeScene returned ok but "
+                                "did not queue NextScene";
+                        }
+                    }
+                    else if (nav.game_flow_manager)
+                    {
+                        manager_fallback_attempted = true;
+                        const std::string scene_reason = reason;
+                        const bool manager_ok = change_gameflow_scene(
+                            nav, transition_tag,
+                            manager_fallback_reason);
+                        if (manager_ok)
+                        {
+                            NavigatorObjects after_manager_nav =
+                                resolve_navigator_objects();
+                            manager_change_queued =
+                                after_manager_nav.next_scene != nullptr ||
+                                after_manager_nav.next_scene_direct != nullptr;
+                            if (manager_change_queued)
+                            {
+                                ok = true;
+                                transition_owner =
+                                    "current_scene_then_manager";
+                                reason =
+                                    "CurrentScene.ChangeScene failed: " +
+                                    scene_reason + "; fallback " +
+                                    manager_fallback_reason;
+                            }
+                            else
+                            {
+                                transition_owner =
+                                    "current_scene_manager_unqueued";
+                                reason =
+                                    "CurrentScene.ChangeScene failed: " +
+                                    scene_reason + "; fallback " +
+                                    manager_fallback_reason +
+                                    " but did not queue NextScene";
+                            }
+                        }
+                        else
+                        {
+                            reason = "CurrentScene.ChangeScene failed: " +
+                                scene_reason + "; manager fallback failed: " +
+                                manager_fallback_reason;
+                        }
+                    }
+                }
+                else
+                {
+                    ok = change_gameflow_scene(nav, transition_tag, reason);
+                }
             }
 
             ReplayTraceFields f;
@@ -16963,6 +17492,13 @@ namespace Horse
              .boolean("ok", ok)
              .string("reason", reason)
              .string("transition_tag", transition_tag_utf8)
+             .string("transition_owner", transition_owner)
+             .boolean("current_scene_change_queued",
+                      current_scene_change_queued)
+             .boolean("manager_fallback_attempted",
+                      manager_fallback_attempted)
+             .boolean("manager_change_queued", manager_change_queued)
+             .string("manager_fallback_reason", manager_fallback_reason)
              .boolean("stop_at_setup_scene", stop_at_setup_scene)
              .boolean("scene_complete", scene_complete)
              .integer("submit_attempts", state.submit_attempts)
@@ -16987,6 +17523,275 @@ namespace Horse
             return ok;
         }
 
+        bool close_current_gameflow_scene_menus(
+            NavigatorObjects& nav,
+            std::string& reason) noexcept
+        {
+            if (!nav.current_scene)
+                nav = resolve_navigator_objects();
+            if (!nav.current_scene)
+            {
+                reason = "Current GameFlow scene unavailable";
+                return false;
+            }
+            auto* fn = nav.current_scene->GetFunctionByNameInChain(
+                L"CloseMenuAllFocibly");
+            if (!fn)
+            {
+                reason = "Current GameFlow scene CloseMenuAllFocibly unavailable";
+                return false;
+            }
+
+            struct CloseMenuAllFociblyParams
+            {
+                bool bEnableFadeAnimation = false;
+            } params{};
+            if (!safe_process_event(nav.current_scene, fn, &params))
+            {
+                reason = "Current GameFlow scene CloseMenuAllFocibly failed";
+                return false;
+            }
+
+            reason = "closed current GameFlow scene menus";
+            return true;
+        }
+
+        bool request_current_gameflow_scene_to_stop(
+            ReplayFileStartAutomationState& state,
+            NavigatorObjects& nav,
+            std::string& reason) noexcept
+        {
+            if (!nav.current_scene)
+                nav = resolve_navigator_objects();
+            enrich_navigator_status(nav);
+            if (!nav.current_scene)
+            {
+                reason = "Current GameFlow scene unavailable";
+                return false;
+            }
+
+            auto* fn = nav.current_scene->GetFunctionByNameInChain(
+                L"OnRequestToStop");
+            bool ok = false;
+            if (!fn)
+            {
+                reason =
+                    "Current GameFlow scene OnRequestToStop unavailable";
+            }
+            else
+            {
+                char no_params[1]{};
+                ok = safe_process_event(nav.current_scene, fn, no_params);
+                if (ok)
+                {
+                    state.existing_replay_request_to_stop_requested = true;
+                    reason = "called CurrentScene.OnRequestToStop";
+                }
+                else
+                {
+                    reason =
+                        "Current GameFlow scene OnRequestToStop failed";
+                }
+            }
+
+            const UObjectIdentity current_scene_info =
+                describe_uobject(nav.current_scene);
+            ReplayTraceFields f;
+            f.string("run_id", state.run_id.c_str())
+             .boolean("ok", ok)
+             .string("reason", reason)
+             .integer("submit_attempts", state.submit_attempts)
+             .integer("existing_replay_exit_attempts",
+                      state.existing_replay_exit_attempts)
+             .integer("existing_replay_request_to_stop_attempts",
+                      state.existing_replay_request_to_stop_attempts)
+             .boolean("existing_replay_request_to_stop_requested",
+                      state.existing_replay_request_to_stop_requested)
+             .boolean("enable_change_scene_query_ok",
+                      nav.enable_change_scene_ok)
+             .boolean("enable_change_scene", nav.enable_change_scene)
+             .boolean("ready_to_start_query_ok", nav.ready_to_start_ok)
+             .boolean("ready_to_start", nav.ready_to_start)
+             .string("current_scene_name", nav.current_scene_name)
+             .string("current_scene_class", current_scene_info.class_name)
+             .hex("game_flow_manager",
+                  reinterpret_cast<uintptr_t>(nav.game_flow_manager))
+             .hex("current_scene",
+                  reinterpret_cast<uintptr_t>(nav.current_scene));
+            add_navigator_raw_fields(f, nav);
+            add_uobject_identity_fields(
+                f, "current_scene", current_scene_info);
+            ReplayDebugTrace::instance().event(
+                "replay_file_start_current_scene_request_to_stop", f);
+            return ok;
+        }
+
+        bool mark_current_gameflow_scene_ready_to_stop(
+            ReplayFileStartAutomationState& state,
+            NavigatorObjects& nav,
+            std::string& reason) noexcept
+        {
+            if (!nav.current_scene)
+                nav = resolve_navigator_objects();
+            enrich_navigator_status(nav);
+            if (!nav.current_scene)
+            {
+                reason = "Current GameFlow scene unavailable";
+                return false;
+            }
+
+            auto* fn = m_fn_gameflow_scene_ready_to_stop.on(
+                nav.current_scene, L"ReadyToStop");
+            bool ok = false;
+            if (!fn)
+            {
+                reason = "Current GameFlow scene ReadyToStop unavailable";
+            }
+            else
+            {
+                char no_params[1]{};
+                ok = safe_process_event(nav.current_scene, fn, no_params);
+                if (ok)
+                {
+                    state.existing_replay_ready_to_stop_requested = true;
+                    reason = "called CurrentScene.ReadyToStop";
+                }
+                else
+                {
+                    reason = "Current GameFlow scene ReadyToStop failed";
+                }
+            }
+
+            const UObjectIdentity current_scene_info =
+                describe_uobject(nav.current_scene);
+            ReplayTraceFields f;
+            f.string("run_id", state.run_id.c_str())
+             .boolean("ok", ok)
+             .string("reason", reason)
+             .integer("submit_attempts", state.submit_attempts)
+             .integer("existing_replay_exit_attempts",
+                      state.existing_replay_exit_attempts)
+             .integer("existing_replay_ready_to_stop_attempts",
+                      state.existing_replay_ready_to_stop_attempts)
+             .boolean("existing_replay_ready_to_stop_requested",
+                      state.existing_replay_ready_to_stop_requested)
+             .boolean("enable_change_scene_query_ok",
+                      nav.enable_change_scene_ok)
+             .boolean("enable_change_scene", nav.enable_change_scene)
+             .boolean("ready_to_start_query_ok", nav.ready_to_start_ok)
+             .boolean("ready_to_start", nav.ready_to_start)
+             .string("current_scene_name", nav.current_scene_name)
+             .string("current_scene_class", current_scene_info.class_name)
+             .hex("game_flow_manager",
+                  reinterpret_cast<uintptr_t>(nav.game_flow_manager))
+             .hex("current_scene",
+                  reinterpret_cast<uintptr_t>(nav.current_scene));
+            add_navigator_raw_fields(f, nav);
+            add_uobject_identity_fields(
+                f, "current_scene", current_scene_info);
+            ReplayDebugTrace::instance().event(
+                "replay_file_start_current_scene_ready_to_stop", f);
+            return ok;
+        }
+
+        bool complete_gameflow_current_scene_stop(
+            ReplayFileStartAutomationState& state,
+            NavigatorObjects& nav,
+            std::string& reason) noexcept
+        {
+            if (!nav.game_flow_manager)
+                nav = resolve_navigator_objects();
+            enrich_navigator_status(nav);
+            if (!nav.game_flow_manager)
+            {
+                reason = "UIGameFlowManager unavailable";
+                return false;
+            }
+            if (!nav.current_scene)
+            {
+                reason = "Current GameFlow scene unavailable";
+                return false;
+            }
+            if (!m_gameflow_current_scene_stop_complete && !resolve_natives())
+            {
+                reason = "native GameFlow scene stop completion unresolved";
+                return false;
+            }
+
+            const bool before_enable_ok = nav.enable_change_scene_ok;
+            const bool before_enable = nav.enable_change_scene;
+            const UObjectIdentity before_scene_info =
+                describe_uobject(nav.current_scene);
+            const bool call_ok =
+                safe_native_complete_gameflow_current_scene_stop(
+                    m_gameflow_current_scene_stop_complete,
+                    nav.game_flow_manager);
+            NavigatorObjects after_nav = resolve_navigator_objects();
+            enrich_navigator_status(after_nav);
+            const UObjectIdentity after_scene_info =
+                describe_uobject(after_nav.current_scene);
+
+            const bool unlocked =
+                call_ok && after_nav.enable_change_scene_ok &&
+                after_nav.enable_change_scene;
+            if (call_ok)
+            {
+                state.existing_replay_manager_stop_complete_requested = true;
+                reason = unlocked
+                    ? "called UIGameFlowManager current scene stop completion"
+                    : "called UIGameFlowManager current scene stop completion "
+                      "but ChangeScene remains disabled";
+            }
+            else
+            {
+                reason = "UIGameFlowManager current scene stop completion failed";
+            }
+
+            ReplayTraceFields f;
+            f.string("run_id", state.run_id.c_str())
+             .boolean("ok", unlocked)
+             .boolean("call_ok", call_ok)
+             .string("reason", reason)
+             .integer("submit_attempts", state.submit_attempts)
+             .integer("existing_replay_exit_attempts",
+                      state.existing_replay_exit_attempts)
+             .integer("existing_replay_manager_stop_complete_attempts",
+                      state.existing_replay_manager_stop_complete_attempts)
+             .boolean("before_enable_change_scene_query_ok",
+                      before_enable_ok)
+             .boolean("before_enable_change_scene", before_enable)
+             .boolean("after_enable_change_scene_query_ok",
+                      after_nav.enable_change_scene_ok)
+             .boolean("after_enable_change_scene",
+                      after_nav.enable_change_scene)
+             .boolean("before_ready_to_start_query_ok",
+                      nav.ready_to_start_ok)
+             .boolean("before_ready_to_start", nav.ready_to_start)
+             .boolean("after_ready_to_start_query_ok",
+                      after_nav.ready_to_start_ok)
+             .boolean("after_ready_to_start", after_nav.ready_to_start)
+             .hex("game_flow_manager",
+                  reinterpret_cast<uintptr_t>(nav.game_flow_manager))
+             .hex("before_current_scene",
+                  reinterpret_cast<uintptr_t>(nav.current_scene))
+             .hex("after_current_scene",
+                  reinterpret_cast<uintptr_t>(after_nav.current_scene))
+             .hex("after_next_scene",
+                  reinterpret_cast<uintptr_t>(after_nav.next_scene))
+             .hex("after_next_scene_direct",
+                  reinterpret_cast<uintptr_t>(after_nav.next_scene_direct));
+            add_uobject_identity_fields(
+                f, "before_current_scene", before_scene_info);
+            add_uobject_identity_fields(
+                f, "after_current_scene", after_scene_info);
+            add_navigator_raw_fields(f, after_nav);
+            ReplayDebugTrace::instance().event(
+                "replay_file_start_gameflow_scene_stop_complete", f);
+
+            nav = after_nav;
+            return unlocked;
+        }
+
         static bool state_console_command_is_allowed(
             const std::string& command) noexcept
         {
@@ -16997,6 +17802,7 @@ namespace Horse
                 "GameFlowChangeScene replaylist",
                 "GameFlowChangeScene replay_setup",
                 "GameFlowChangeScene replay",
+                "GameFlowChangeScene replaybattle",
                 "GameFlowChangeScene battle",
                 "GameFlowChangeScene battlesetup",
             };
@@ -18895,10 +19701,30 @@ namespace Horse
                          state.existing_replay_watch_end_requested)
                 .boolean("existing_replay_battle_terminate_requested",
                          state.existing_replay_battle_terminate_requested)
+                .boolean("existing_replay_battle_end_to_lobby_requested",
+                         state.existing_replay_battle_end_to_lobby_requested)
+                .boolean("existing_replay_battle_end_requested",
+                         state.existing_replay_battle_end_requested)
+                .boolean("existing_replay_back_lobby_requested",
+                         state.existing_replay_back_lobby_requested)
+                .boolean("existing_replay_request_to_stop_requested",
+                         state.existing_replay_request_to_stop_requested)
+                .boolean("existing_replay_ready_to_stop_requested",
+                         state.existing_replay_ready_to_stop_requested)
+                .boolean("existing_replay_manager_stop_complete_requested",
+                         state.existing_replay_manager_stop_complete_requested)
                 .boolean("existing_replay_exit_wait_emitted",
                          state.existing_replay_exit_wait_emitted)
                 .boolean("existing_replay_exit_ready_emitted",
                          state.existing_replay_exit_ready_emitted)
+                .boolean("stale_replay_scene_menus_closed",
+                         state.stale_replay_scene_menus_closed)
+                .boolean("stale_replay_console_reroute_requested",
+                         state.stale_replay_console_reroute_requested)
+                .boolean("stale_replay_scene_launch_ready",
+                         state.stale_replay_scene_launch_ready)
+                .boolean("stage_map_request_submitted",
+                         state.stage_map_request_submitted)
                 .boolean("replay_setup_reached", state.replay_setup_reached)
                .string("auto_generate_mode", state.auto_generate_mode.c_str())
                .boolean("generation_full_frame_trace",
@@ -18913,11 +19739,14 @@ namespace Horse
                         state.native_profile_request_ok)
                .boolean("native_profile_applied",
                         state.native_profile_applied)
-               .integer("native_profile_request_attempts",
-                        state.native_profile_request_attempts)
-               .integer("stage", state.native_replay_meta.stage_index)
-               .integer("left_chara", state.native_replay_meta.left_chara_id)
-               .integer("right_chara", state.native_replay_meta.right_chara_id)
+                .integer("native_profile_request_attempts",
+                         state.native_profile_request_attempts)
+                .integer("stage", state.native_replay_meta.stage_index)
+                .integer("stage_map",
+                         replay_stage_map_index(
+                             state.native_replay_meta.stage_index))
+                .integer("left_chara", state.native_replay_meta.left_chara_id)
+                .integer("right_chara", state.native_replay_meta.right_chara_id)
                .string("left_chara_label",
                        replay_style_label(
                            state.native_replay_meta.left_chara_id))
@@ -18975,6 +19804,16 @@ namespace Horse
                          state.existing_replay_watch_exit_attempts)
                 .integer("existing_replay_battle_terminate_attempts",
                          state.existing_replay_battle_terminate_attempts)
+                .integer("existing_replay_session_exit_attempts",
+                         state.existing_replay_session_exit_attempts)
+                .integer("existing_replay_request_to_stop_attempts",
+                         state.existing_replay_request_to_stop_attempts)
+                .integer("existing_replay_ready_to_stop_attempts",
+                         state.existing_replay_ready_to_stop_attempts)
+                .integer("existing_replay_manager_stop_complete_attempts",
+                         state.existing_replay_manager_stop_complete_attempts)
+                .integer("stale_replay_console_reroute_attempts",
+                         state.stale_replay_console_reroute_attempts)
                 .integer("navigator_attempts", state.navigator_attempts)
                .integer("timeout_seconds", state.timeout_seconds);
             ReplayDebugTrace::instance().event(
@@ -19529,6 +20368,234 @@ namespace Horse
             m_replay_file_status = std::move(status);
         }
 
+        void clear_cached_native_replay_entry_payload() noexcept
+        {
+            std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+            m_cached_native_replay_entry_payload.valid = false;
+            m_cached_native_replay_entry_payload.kind =
+                NativeReplayEntryPayloadKind::None;
+            m_cached_native_replay_entry_payload.container = 0;
+            m_cached_native_replay_entry_payload.request_id = 0;
+            m_cached_native_replay_entry_payload.captured_timestamp_unix = 0;
+            m_cached_native_replay_entry_payload.payload_hash = 0;
+            m_cached_native_replay_entry_payload.payload.clear();
+        }
+
+        void enrich_live_replay_export_metadata(
+            ReplayFileMetadata& meta) noexcept
+        {
+            const ReplayScrubDiag::ReplayPlayerSnap rp =
+                ReplayScrubDiag::read_replay_player();
+            if (rp.readable)
+            {
+                meta.total_rounds = rp.total_rounds;
+                meta.current_round = rp.current_round;
+                meta.current_time = rp.current_time;
+            }
+
+            const int32_t frames = read_total_recorded_frames();
+            if (frames >= 0)
+                meta.total_recorded_frames = frames;
+            if (meta.timestamp_unix == 0)
+                meta.timestamp_unix = unix_timestamp_now();
+        }
+
+        bool serialize_cached_native_replay_entry_payload(
+            std::vector<uint8_t>& out,
+            ReplayFileMetadata& meta,
+            std::string& reason) noexcept
+        {
+            std::vector<uint8_t> decoded_payload;
+            uintptr_t cached_container = 0;
+            uint64_t cached_request_id = 0;
+            uint64_t cached_timestamp = 0;
+            uint64_t cached_hash = 0;
+
+            try
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                const CachedNativeReplayEntryPayload& cached =
+                    m_cached_native_replay_entry_payload;
+                if (!cached.valid ||
+                    cached.kind !=
+                        NativeReplayEntryPayloadKind::DecompressedEntry ||
+                    cached.payload.empty())
+                {
+                    reason =
+                        "no cached native replay-entry payload; "
+                        "live ReplayDataBlock only holds input opcodes";
+                    return false;
+                }
+                decoded_payload = cached.payload;
+                cached_container = cached.container;
+                cached_request_id = cached.request_id;
+                cached_timestamp = cached.captured_timestamp_unix;
+                cached_hash = cached.payload_hash;
+            }
+            catch (const std::bad_alloc&)
+            {
+                reason = "cached native replay payload copy allocation failed";
+                return false;
+            }
+
+            if (decoded_payload.empty() ||
+                decoded_payload.size() > kReplayFileMaxPayloadBytes ||
+                decoded_payload.size() > static_cast<size_t>(0x7fffffff))
+            {
+                reason = "cached native replay payload size invalid";
+                return false;
+            }
+
+            if ((!m_lux_replay_serialize_entry_header_and_zlib_body ||
+                 !m_fmemory_free) &&
+                !resolve_natives())
+            {
+                reason = "native replay serializer unresolved";
+                return false;
+            }
+
+            TArrayByteNative input{};
+            input.data = decoded_payload.data();
+            input.num = static_cast<int32_t>(decoded_payload.size());
+            input.max = input.num;
+
+            TArrayByteNative serialized{};
+            const bool serialized_ok = safe_native_serialize_replay_entry(
+                m_lux_replay_serialize_entry_header_and_zlib_body,
+                &serialized, &input);
+            if (!serialized_ok)
+            {
+                free_native_byte_array(serialized);
+                reason = "native replay serializer failed";
+                return false;
+            }
+            if (!serialized.data || serialized.num <= 0 ||
+                static_cast<size_t>(serialized.num) >
+                    kReplayFileMaxPayloadBytes)
+            {
+                free_native_byte_array(serialized);
+                reason = "native replay serializer output invalid";
+                return false;
+            }
+
+            try
+            {
+                out.assign(static_cast<size_t>(serialized.num), 0);
+            }
+            catch (const std::bad_alloc&)
+            {
+                free_native_byte_array(serialized);
+                reason = "serialized native replay payload allocation failed";
+                return false;
+            }
+
+            if (!SafeReadBytes(serialized.data, out.data(), out.size()))
+            {
+                out.clear();
+                free_native_byte_array(serialized);
+                reason = "serialized native replay payload copy failed";
+                return false;
+            }
+            free_native_byte_array(serialized);
+
+            if (out.size() < 8 || std::memcmp(out.data(), "ULX1", 4) != 0)
+            {
+                out.clear();
+                reason = "native replay serializer returned non-ULX1 payload";
+                return false;
+            }
+
+            std::string meta_reason;
+            if (!parse_native_replay_metadata(out, meta, meta_reason))
+            {
+                out.clear();
+                reason = "serialized native replay metadata parse failed: " +
+                    meta_reason;
+                return false;
+            }
+            if (meta.timestamp_unix == 0)
+                meta.timestamp_unix =
+                    cached_timestamp ? cached_timestamp : unix_timestamp_now();
+            enrich_live_replay_export_metadata(meta);
+
+            ReplayTraceFields f;
+            f.hex("container", cached_container)
+             .uinteger("request_id", cached_request_id)
+             .uinteger("decoded_bytes", decoded_payload.size())
+             .uinteger("serialized_bytes", out.size())
+             .hex("decoded_hash", cached_hash)
+             .hex("serialized_hash", replay_payload_hash(out));
+            ReplayDebugTrace::instance().event(
+                "native_replay_entry_payload_serialized", f);
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] native replay entry payload serialized "
+                "container=0x{:X} request_id={} decoded_bytes={} "
+                "serialized_bytes={} decoded_hash=0x{:X} "
+                "serialized_hash=0x{:X}\n"),
+                cached_container,
+                static_cast<unsigned long long>(cached_request_id),
+                decoded_payload.size(), out.size(), cached_hash,
+                replay_payload_hash(out));
+
+            reason = "serialized-cached-entry";
+            return true;
+        }
+
+        bool copy_cached_ulx1_replay_payload(
+            std::vector<uint8_t>& out,
+            ReplayFileMetadata& meta,
+            std::string& reason) noexcept
+        {
+            std::vector<uint8_t> cached_payload;
+            try
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                if (m_loaded_replay_payload.empty())
+                {
+                    reason = "no replay-file ULX1 payload cached";
+                    return false;
+                }
+                cached_payload = m_loaded_replay_payload;
+            }
+            catch (const std::bad_alloc&)
+            {
+                reason = "cached replay-file payload copy allocation failed";
+                return false;
+            }
+
+            if (cached_payload.size() < 8 ||
+                std::memcmp(cached_payload.data(), "ULX1", 4) != 0)
+            {
+                reason = "cached replay-file payload is not ULX1";
+                return false;
+            }
+
+            std::string meta_reason;
+            if (!parse_native_replay_metadata(cached_payload, meta,
+                                              meta_reason))
+            {
+                reason = "cached ULX1 metadata parse failed: " +
+                    meta_reason;
+                return false;
+            }
+            enrich_live_replay_export_metadata(meta);
+
+            const uint64_t hash = replay_payload_hash(cached_payload);
+            ReplayTraceFields f;
+            f.uinteger("bytes", cached_payload.size())
+             .hex("hash", hash);
+            ReplayDebugTrace::instance().event(
+                "cached_ulx1_replay_payload_selected_for_export", f);
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] cached ULX1 replay payload selected "
+                "for export bytes={} hash=0x{:X}\n"),
+                cached_payload.size(), hash);
+
+            out = std::move(cached_payload);
+            reason = "cached-ulx1";
+            return true;
+        }
+
         bool read_live_replay_payload(std::vector<uint8_t>& out,
                                       ReplayFileMetadata& meta,
                                       std::string& reason) noexcept
@@ -19540,66 +20607,31 @@ namespace Horse
                 return false;
             }
 
-            const ReplayScrubDiag::ReplayPlayerSnap rp =
-                ReplayScrubDiag::read_replay_player();
-            if (!rp.readable)
+            std::string native_reason;
+            if (serialize_cached_native_replay_entry_payload(
+                    out, meta, native_reason))
             {
-                reason = "LuxBattleReplayPlayer unavailable";
-                return false;
+                reason = native_reason;
+                return true;
             }
-            meta.total_rounds = rp.total_rounds;
-            meta.current_round = rp.current_round;
-            meta.current_time = rp.current_time;
-            meta.timestamp_unix = unix_timestamp_now();
 
-            RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
-            if (!bm_obj)
+            const bool no_native_cache =
+                native_reason.find("no cached native replay-entry payload")
+                != std::string::npos;
+            if (no_native_cache)
             {
-                reason = "LuxBattleManager unavailable";
-                return false;
-            }
-            uint8_t* bm = reinterpret_cast<uint8_t*>(bm_obj);
-            void* rdb_raw = nullptr;
-            if (!SafeReadPtr(bm + kBM_pReplayDataBlock_Off, &rdb_raw) ||
-                !rdb_raw)
-            {
-                reason = "ReplayDataBlock unavailable";
-                return false;
-            }
-            uint8_t* rdb = reinterpret_cast<uint8_t*>(rdb_raw);
-            void* payload_ptr = nullptr;
-            int32_t payload_size = 0;
-            if (!SafeReadPtr(rdb + 0x3C8, &payload_ptr) || !payload_ptr ||
-                !SafeReadInt32(rdb + 0x3D0, &payload_size))
-            {
-                reason = "native replay file buffer unreadable";
-                return false;
-            }
-            if (payload_size <= 0 ||
-                static_cast<size_t>(payload_size) > kReplayFileMaxPayloadBytes)
-            {
-                reason = "native replay file buffer size invalid";
+                std::string ulx1_reason;
+                if (copy_cached_ulx1_replay_payload(out, meta, ulx1_reason))
+                {
+                    reason = ulx1_reason;
+                    return true;
+                }
+                reason = native_reason + "; " + ulx1_reason;
                 return false;
             }
 
-            void* il_raw = nullptr;
-            if (SafeReadPtr(bm + kBM_BattleFrameInputLog_Off, &il_raw) && il_raw)
-            {
-                int32_t frames = -1;
-                if (SafeReadInt32(reinterpret_cast<uint8_t*>(il_raw) +
-                                      kIL_nTotalRecordedFrames_Off,
-                                  &frames))
-                    meta.total_recorded_frames = frames;
-            }
-
-            out.assign(static_cast<size_t>(payload_size), 0);
-            if (!SafeReadBytes(payload_ptr, out.data(), out.size()))
-            {
-                out.clear();
-                reason = "native replay file buffer copy failed";
-                return false;
-            }
-            return true;
+            reason = native_reason;
+            return false;
         }
 
         bool write_replay_file(const std::wstring& path,
@@ -20155,12 +21187,32 @@ namespace Horse
                 return false;
             }
 
-            m_loaded_replay_payload = payload;
+            void* payload_ptr = nullptr;
+            int32_t payload_size = 0;
+            uint64_t payload_limit = 0;
+            try
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                m_loaded_replay_payload = payload;
+                payload_ptr = m_loaded_replay_payload.data();
+                payload_size = static_cast<int32_t>(
+                    m_loaded_replay_payload.size());
+                payload_limit = m_loaded_replay_payload.size();
+            }
+            catch (const std::bad_alloc&)
+            {
+                reason = "loaded replay payload cache allocation failed";
+                return false;
+            }
+
+            ReplayTraceFields cache_fields;
+            cache_fields.string("source", "load")
+             .uinteger("bytes", payload.size())
+             .hex("hash", replay_payload_hash(payload));
+            ReplayDebugTrace::instance().event(
+                "cached_ulx1_replay_payload", cache_fields);
+
             uint8_t* rdb = reinterpret_cast<uint8_t*>(rdb_raw);
-            void* payload_ptr = m_loaded_replay_payload.data();
-            const int32_t payload_size = static_cast<int32_t>(
-                m_loaded_replay_payload.size());
-            const uint64_t payload_limit = m_loaded_replay_payload.size();
             const uint64_t zero64 = 0;
             const uint16_t zero16 = 0;
             const uint8_t running = 1;
@@ -20641,6 +21693,61 @@ namespace Horse
             return false;
         }
 
+        bool read_current_world_stage_index(
+            int32_t& out,
+            UObjectIdentity* out_world_info = nullptr,
+            std::string* out_reason = nullptr) noexcept
+        {
+            out = -1;
+            void* engine_raw = nullptr;
+            if (!ReplayScrubDiag::read_gengine_ptr(&engine_raw) ||
+                !engine_raw)
+            {
+                if (out_reason) *out_reason = "GEngine unavailable";
+                return false;
+            }
+
+            void* viewport_raw = nullptr;
+            if (!SafeReadPtr(static_cast<uint8_t*>(engine_raw) +
+                                 ReplayScrubDiag::kUEngine_GameViewport_Off,
+                             &viewport_raw) ||
+                !viewport_raw)
+            {
+                if (out_reason) *out_reason = "GameViewport unavailable";
+                return false;
+            }
+
+            void* world_raw = nullptr;
+            bool world_ok = ReplayScrubDiag::safe_get_world_vfunc_138(
+                                viewport_raw, &world_raw) &&
+                            world_raw;
+            if (!world_ok)
+            {
+                world_ok = ReplayScrubDiag::safe_get_world(
+                               reinterpret_cast<RC::Unreal::UObject*>(
+                                   viewport_raw),
+                               &world_raw) &&
+                           world_raw;
+            }
+            if (!world_ok)
+            {
+                if (out_reason) *out_reason = "UWorld unavailable";
+                return false;
+            }
+
+            const UObjectIdentity world_info = describe_uobject(
+                reinterpret_cast<RC::Unreal::UObject*>(world_raw));
+            if (out_world_info) *out_world_info = world_info;
+            if (!parse_stage_index_from_identity(world_info, out))
+            {
+                if (out_reason) *out_reason = "current world stage unavailable";
+                return false;
+            }
+
+            if (out_reason) *out_reason = "current world stage resolved";
+            return true;
+        }
+
         bool request_existing_replay_battle_terminate(
             ReplayFileStartAutomationState& state,
             std::string& reason) noexcept
@@ -21091,6 +22198,110 @@ namespace Horse
                 f, "session_hub", describe_uobject(session_hub));
             ReplayDebugTrace::instance().event(
                 "replay_file_start_existing_replay_watch_exit_request", f);
+            return ok;
+        }
+
+        enum class ExistingReplaySessionExitMethod : uint8_t
+        {
+            BattleEndToLobby,
+            BattleEnd,
+            BackLobby,
+        };
+
+        bool request_existing_replay_session_exit(
+            ReplayFileStartAutomationState& state,
+            ExistingReplaySessionExitMethod method,
+            std::string& reason) noexcept
+        {
+            RC::Unreal::UObject* session_hub = nullptr;
+            if (!get_active_luxor_session_hub(session_hub, reason))
+                return false;
+
+            const wchar_t* fn_name = L"RequestBattleEndToLobby";
+            const char* method_name = "RequestBattleEndToLobby";
+            RC::Unreal::UFunction* fn = nullptr;
+            switch (method)
+            {
+            case ExistingReplaySessionExitMethod::BattleEnd:
+                fn_name = L"RequestBattleEnd";
+                method_name = "RequestBattleEnd";
+                fn = m_fn_session_hub_request_battle_end.on(
+                    session_hub, fn_name);
+                break;
+            case ExistingReplaySessionExitMethod::BackLobby:
+                fn_name = L"RequestBackLobby";
+                method_name = "RequestBackLobby";
+                fn = m_fn_session_hub_request_back_lobby.on(
+                    session_hub, fn_name);
+                break;
+            case ExistingReplaySessionExitMethod::BattleEndToLobby:
+            default:
+                fn = m_fn_session_hub_request_battle_end_to_lobby.on(
+                    session_hub, fn_name);
+                break;
+            }
+
+            bool ok = false;
+            if (!fn)
+            {
+                reason = std::string("ULuxorSessionHub.") + method_name +
+                    " unavailable";
+            }
+            else if (method == ExistingReplaySessionExitMethod::BackLobby)
+            {
+                char no_params[1]{};
+                ok = safe_process_event(session_hub, fn, no_params);
+            }
+            else
+            {
+                struct BattleEndParams
+                {
+                    int32_t inResult = 0;
+                } params{};
+                ok = safe_process_event(session_hub, fn, &params);
+            }
+
+            if (ok)
+            {
+                reason = std::string("called ULuxorSessionHub.") +
+                    method_name;
+                switch (method)
+                {
+                case ExistingReplaySessionExitMethod::BattleEnd:
+                    state.existing_replay_battle_end_requested = true;
+                    break;
+                case ExistingReplaySessionExitMethod::BackLobby:
+                    state.existing_replay_back_lobby_requested = true;
+                    break;
+                case ExistingReplaySessionExitMethod::BattleEndToLobby:
+                default:
+                    state.existing_replay_battle_end_to_lobby_requested =
+                        true;
+                    break;
+                }
+            }
+            else if (reason.empty())
+            {
+                reason = std::string("ULuxorSessionHub.") + method_name +
+                    " failed";
+            }
+
+            ReplayTraceFields f;
+            f.string("run_id", state.run_id.c_str())
+             .boolean("ok", ok)
+             .string("reason", reason)
+             .string("method", method_name)
+             .integer("submit_attempts", state.submit_attempts)
+             .integer("existing_replay_exit_attempts",
+                      state.existing_replay_exit_attempts)
+             .integer("existing_replay_session_exit_attempts",
+                      state.existing_replay_session_exit_attempts)
+             .hex("session_hub",
+                  reinterpret_cast<uintptr_t>(session_hub));
+            add_uobject_identity_fields(
+                f, "session_hub", describe_uobject(session_hub));
+            ReplayDebugTrace::instance().event(
+                "replay_file_start_existing_replay_session_exit_request", f);
             return ok;
         }
 
@@ -21739,6 +22950,245 @@ namespace Horse
             return true;
         }
 
+        bool patch_battle_setup_replay_selection(
+            RC::Unreal::UObject* battle_setup,
+            const ReplayFileMetadata& meta,
+            const char* phase,
+            std::string& reason) noexcept
+        {
+            if (!battle_setup)
+            {
+                reason = "ULuxBattleSetup unavailable";
+                return false;
+            }
+            const int32_t stage_map_index =
+                replay_stage_map_index(meta.stage_index);
+            if (meta.stage_index < 0 || meta.stage_index > 0xfff ||
+                stage_map_index < 0 || stage_map_index > 0xff ||
+                meta.left_chara_id < 0 || meta.left_chara_id > 0xfe ||
+                meta.right_chara_id < 0 || meta.right_chara_id > 0xfe)
+            {
+                char buf[160]{};
+                std::snprintf(buf, sizeof(buf),
+                              "battle setup selection metadata invalid "
+                              "stage=%d stage_map=%d left=%d right=%d",
+                              meta.stage_index, stage_map_index,
+                              meta.left_chara_id, meta.right_chara_id);
+                reason = buf;
+                return false;
+            }
+            if (!m_lux_character_to_battle_setup_index && !resolve_natives())
+            {
+                reason = "native character setup converter unresolved";
+                return false;
+            }
+
+            int32_t left_setup_chara = -1;
+            int32_t right_setup_chara = -1;
+            const bool left_convert_ok =
+                safe_native_convert_character_to_setup_index(
+                    m_lux_character_to_battle_setup_index,
+                    static_cast<uint8_t>(meta.left_chara_id),
+                    left_setup_chara);
+            const bool right_convert_ok =
+                safe_native_convert_character_to_setup_index(
+                    m_lux_character_to_battle_setup_index,
+                    static_cast<uint8_t>(meta.right_chara_id),
+                    right_setup_chara);
+
+            uint8_t* setup = reinterpret_cast<uint8_t*>(battle_setup);
+            void* left_player = nullptr;
+            void* right_player = nullptr;
+            void* stage_setup = nullptr;
+            const bool left_ptr_ok =
+                SafeReadPtr(setup + kLuxBattleSetupLeftPlayerOff,
+                            &left_player);
+            const bool right_ptr_ok =
+                SafeReadPtr(setup + kLuxBattleSetupRightPlayerOff,
+                            &right_player);
+            const bool stage_ptr_ok =
+                SafeReadPtr(setup + kLuxBattleSetupStageSetupOff,
+                            &stage_setup);
+
+            auto write_i32 = [](void* base, uintptr_t off,
+                                int32_t value) noexcept -> bool
+            {
+                return base && SafeWriteBytes(
+                    static_cast<uint8_t*>(base) + off,
+                    &value, sizeof(value));
+            };
+
+            bool left_write_ok = false;
+            if (left_convert_ok && left_player)
+            {
+                left_write_ok =
+                    write_i32(left_player,
+                              kLuxBattlePlayerSetupCharacterOffA,
+                              left_setup_chara) &&
+                    write_i32(left_player,
+                              kLuxBattlePlayerSetupCharacterOffB,
+                              left_setup_chara) &&
+                    write_i32(left_player,
+                              kLuxBattlePlayerSetupCharacterOffC,
+                              left_setup_chara);
+            }
+            bool right_write_ok = false;
+            if (right_convert_ok && right_player)
+            {
+                right_write_ok =
+                    write_i32(right_player,
+                              kLuxBattlePlayerSetupCharacterOffA,
+                              right_setup_chara) &&
+                    write_i32(right_player,
+                              kLuxBattlePlayerSetupCharacterOffB,
+                              right_setup_chara) &&
+                    write_i32(right_player,
+                              kLuxBattlePlayerSetupCharacterOffC,
+                              right_setup_chara);
+            }
+            const bool stage_write_ok =
+                write_i32(stage_setup, kLuxBattleStageSetupStageIndexOff,
+                          stage_map_index);
+
+            const bool ok = left_convert_ok && right_convert_ok &&
+                left_ptr_ok && right_ptr_ok && stage_ptr_ok &&
+                left_player && right_player && stage_setup &&
+                left_write_ok && right_write_ok && stage_write_ok;
+
+            ReplayTraceFields f;
+            f.boolean("ok", ok)
+             .string("phase", phase ? phase : "?")
+             .hex("battle_setup", reinterpret_cast<uintptr_t>(battle_setup))
+             .hex("left_player", reinterpret_cast<uintptr_t>(left_player))
+             .hex("right_player", reinterpret_cast<uintptr_t>(right_player))
+             .hex("stage_setup", reinterpret_cast<uintptr_t>(stage_setup))
+             .integer("stage", meta.stage_index)
+             .integer("stage_map", stage_map_index)
+             .integer("left_chara", meta.left_chara_id)
+             .integer("right_chara", meta.right_chara_id)
+             .integer("left_setup_chara", left_setup_chara)
+             .integer("right_setup_chara", right_setup_chara)
+             .boolean("left_convert_ok", left_convert_ok)
+             .boolean("right_convert_ok", right_convert_ok)
+             .boolean("left_ptr_ok", left_ptr_ok)
+             .boolean("right_ptr_ok", right_ptr_ok)
+             .boolean("stage_ptr_ok", stage_ptr_ok)
+             .boolean("left_write_ok", left_write_ok)
+             .boolean("right_write_ok", right_write_ok)
+             .boolean("stage_write_ok", stage_write_ok);
+            ReplayDebugTrace::instance().event(
+                "replay_file_start_battle_setup_selection_patch", f);
+
+            reason = ok ? "battle setup replay selection patched"
+                        : "battle setup replay selection patch failed";
+            return ok;
+        }
+
+        bool request_stage_map_for_replay(
+            RC::Unreal::UObject* gi,
+            const ReplayFileMetadata& meta,
+            bool& submitted,
+            std::string& reason) noexcept
+        {
+            submitted = false;
+            if (!gi)
+            {
+                reason = "OwningGameInstance unavailable";
+                return false;
+            }
+            const int32_t stage_map_index =
+                replay_stage_map_index(meta.stage_index);
+            if (meta.stage_index < 0 || meta.stage_index > 0xfff ||
+                stage_map_index < 0 || stage_map_index > 0xff ||
+                meta.left_chara_id < 0 || meta.left_chara_id > 0xfe ||
+                meta.right_chara_id < 0 || meta.right_chara_id > 0xfe)
+            {
+                char buf[160]{};
+                std::snprintf(buf, sizeof(buf),
+                              "stage map request metadata invalid "
+                              "stage=%d stage_map=%d left=%d right=%d",
+                              meta.stage_index, stage_map_index,
+                              meta.left_chara_id, meta.right_chara_id);
+                reason = buf;
+                return false;
+            }
+            if (!m_set_active_stage_map_path_by_hex_stage_number &&
+                !resolve_natives())
+            {
+                reason = "native stage map request helper unresolved";
+                return false;
+            }
+
+            int32_t current_stage = -1;
+            UObjectIdentity world_info{};
+            std::string stage_reason;
+            const bool current_stage_ok =
+                read_current_world_stage_index(
+                    current_stage, &world_info, &stage_reason);
+            const bool needs_stage_map =
+                current_stage_ok && current_stage != stage_map_index;
+
+            bool request_ok = false;
+            if (needs_stage_map)
+            {
+                bool battle_request_pending = false;
+                std::string pending_reason;
+                if (!has_any_battle_request(battle_request_pending,
+                                            pending_reason))
+                {
+                    reason = pending_reason;
+                    return false;
+                }
+                if (battle_request_pending)
+                {
+                    reason = "HasAnyBattleRequest true";
+                    return false;
+                }
+                request_ok = safe_native_set_active_stage_map_path(
+                    m_set_active_stage_map_path_by_hex_stage_number,
+                    gi,
+                    static_cast<uint8_t>(meta.left_chara_id),
+                    static_cast<uint8_t>(meta.right_chara_id),
+                    stage_map_index);
+                submitted = request_ok;
+            }
+
+            ReplayTraceFields f;
+            f.boolean("current_stage_ok", current_stage_ok)
+             .integer("current_stage", current_stage)
+             .integer("target_stage", meta.stage_index)
+             .integer("target_stage_map", stage_map_index)
+             .integer("left_chara", meta.left_chara_id)
+             .integer("right_chara", meta.right_chara_id)
+             .boolean("needs_stage_map", needs_stage_map)
+             .boolean("submitted", submitted)
+             .boolean("ok", !needs_stage_map || request_ok)
+             .string("reason", stage_reason)
+             .hex("game_instance", reinterpret_cast<uintptr_t>(gi));
+            add_uobject_identity_fields(f, "world", world_info);
+            ReplayDebugTrace::instance().event(
+                "replay_file_start_stage_map_request", f);
+
+            if (!current_stage_ok)
+            {
+                reason = "current stage map unavailable; using asset request";
+                return true;
+            }
+            if (!needs_stage_map)
+            {
+                reason = "current stage map matches replay stage";
+                return true;
+            }
+            if (!request_ok)
+            {
+                reason = "native stage map request failed";
+                return false;
+            }
+
+            reason = "stage map request submitted; waiting for map open";
+            return true;
+        }
+
         bool get_battle_setup_object(RC::Unreal::UObject* gi,
                                      RC::Unreal::UObject*& out,
                                      std::string& reason) noexcept
@@ -21831,67 +23281,6 @@ namespace Horse
             return true;
         }
 
-        bool request_quick_battle(RC::Unreal::UObject* gi,
-                                  const ReplayFileMetadata& meta,
-                                  std::string& reason) noexcept
-        {
-            if (!gi)
-            {
-                reason = "OwningGameInstance unavailable";
-                return false;
-            }
-            if (meta.stage_index < 0 || meta.stage_index > 0xfff ||
-                meta.left_chara_id < 0 || meta.left_chara_id > 0xfe ||
-                meta.right_chara_id < 0 || meta.right_chara_id > 0xfe)
-            {
-                char buf[160]{};
-                std::snprintf(buf, sizeof(buf),
-                              "QuickBattleRequest metadata invalid "
-                              "stage=%d left=%d right=%d",
-                              meta.stage_index, meta.left_chara_id,
-                              meta.right_chara_id);
-                reason = buf;
-                return false;
-            }
-
-            auto* request_fn = m_fn_gi_quick_battle_request.on(
-                gi, L"QuickBattleRequest");
-            if (!request_fn)
-            {
-                reason = "QuickBattleRequest unavailable";
-                return false;
-            }
-
-            struct QuickBattleRequestParams
-            {
-                uint8_t InLeft = 0;
-                uint8_t InRight = 0;
-                uint8_t Padding[2]{};
-                int32_t InStage = 0;
-            } params{};
-            static_assert(sizeof(QuickBattleRequestParams) == 8,
-                          "QuickBattleRequest params drifted");
-            params.InLeft = static_cast<uint8_t>(meta.left_chara_id);
-            params.InRight = static_cast<uint8_t>(meta.right_chara_id);
-            params.InStage = meta.stage_index;
-
-            ReplayTraceFields f;
-            f.hex("game_instance", reinterpret_cast<uintptr_t>(gi))
-             .integer("stage", meta.stage_index)
-             .integer("left_chara", meta.left_chara_id)
-             .integer("right_chara", meta.right_chara_id);
-            ReplayDebugTrace::instance().event(
-                "replay_file_start_quick_battle_request", f);
-
-            if (!safe_process_event(gi, request_fn, &params))
-            {
-                reason = "QuickBattleRequest failed";
-                return false;
-            }
-            reason = "QuickBattleRequest submitted";
-            return true;
-        }
-
         bool has_any_battle_request(bool& pending,
                                     std::string& reason) noexcept
         {
@@ -21940,7 +23329,14 @@ namespace Horse
                 || reason == "ReplayBattleScene not active"
                 || reason == "UIGameFlowManager.ChangeScene unavailable"
                 || reason == "UIGameFlowManager.ChangeScene failed"
+                || reason == "stage map request submitted; waiting for map open"
                 || reason == "ULuxorSessionHub unavailable"
+                || reason == "ULuxorSessionHub.RequestBattleEndToLobby unavailable"
+                || reason == "ULuxorSessionHub.RequestBattleEndToLobby failed"
+                || reason == "ULuxorSessionHub.RequestBattleEnd unavailable"
+                || reason == "ULuxorSessionHub.RequestBattleEnd failed"
+                || reason == "ULuxorSessionHub.RequestBackLobby unavailable"
+                || reason == "ULuxorSessionHub.RequestBackLobby failed"
                 || reason == "ULuxorMatchData unavailable"
                 || reason == "LuxReplay_GetReplaySaveManager returned null"
                 || reason == "native replay import helpers unresolved";
@@ -21951,11 +23347,11 @@ namespace Horse
                                       std::string& reason,
                                       bool require_ready = true,
                                       bool request_assets = true,
-                                       bool* requested_assets = nullptr,
-                                       bool request_battle_scene = false,
-                                       ReplayFileStartAutomationState* state = nullptr,
-                                       bool* requested_battle_scene = nullptr,
-                                       bool stop_at_setup_scene = false) noexcept
+                                      bool* requested_assets = nullptr,
+                                      bool request_battle_scene = false,
+                                      ReplayFileStartAutomationState* state = nullptr,
+                                      bool* requested_battle_scene = nullptr,
+                                      bool stop_at_setup_scene = false) noexcept
         {
             if (requested_assets) *requested_assets = false;
             if (requested_battle_scene) *requested_battle_scene = false;
@@ -21994,7 +23390,32 @@ namespace Horse
 
             if (request_assets)
             {
-                (void)meta;
+                std::string selection_reason;
+                (void)patch_battle_setup_replay_selection(
+                    battle_setup, meta, "before_request_assets",
+                    selection_reason);
+                bool stage_map_submitted = false;
+                std::string stage_map_reason;
+                if (!request_stage_map_for_replay(
+                        gi, meta, stage_map_submitted, stage_map_reason))
+                {
+                    reason = stage_map_reason;
+                    return false;
+                }
+                if (stage_map_submitted)
+                {
+                    if (!get_battle_setup_object(gi, battle_setup, reason) ||
+                        !set_replay_launch_path_on_setup(
+                            battle_setup, launch_path,
+                            "after_stage_map_request", reason))
+                    {
+                        return false;
+                    }
+                    if (requested_assets) *requested_assets = true;
+                    if (state) state->stage_map_request_submitted = true;
+                    reason = stage_map_reason;
+                    return false;
+                }
                 if (!request_battle_asset(gi, reason)) return false;
                 if (!get_battle_setup_object(gi, battle_setup, reason) ||
                     !set_replay_launch_path_on_setup(
@@ -22185,24 +23606,48 @@ namespace Horse
             }
 
             if (presence == GamePresence::Replay &&
-                state.replay_setup_reached &&
+                (state.replay_setup_reached ||
+                 state.stale_replay_scene_launch_ready) &&
                 state.battle_asset_requested)
             {
-                const char* wait_reason = state.auto_generate_armed
-                    ? "waiting for replay battle runtime before generation"
-                    : "waiting for replay battle runtime";
-                set_replay_file_status("Start Replay File", false, false,
-                                       state.resolved_path, 0,
-                                       state.native_replay_meta,
-                                       wait_reason);
-                if (!state.battle_runtime_wait_emitted)
+                if (state.stage_map_request_submitted)
                 {
-                    state.battle_runtime_wait_emitted = true;
-                    replay_file_start_emit_event(
-                        "replay_file_start_waiting_ready", state, false,
-                        wait_reason);
+                    state.submitted = false;
+                    if (!state.battle_runtime_wait_emitted)
+                    {
+                        state.battle_runtime_wait_emitted = true;
+                        replay_file_start_emit_event(
+                            "replay_file_start_stage_map_request_ready",
+                            state, true,
+                            "stage map request drained; native launch ready");
+                    }
                 }
-                return;
+                else
+                {
+                    bool launch_ready = false;
+                    std::string launch_ready_reason;
+                    const bool launch_query_ok =
+                        can_launch_battle_manually(
+                            launch_ready, launch_ready_reason);
+                    if (!launch_query_ok || !launch_ready)
+                    {
+                        const char* wait_reason = state.auto_generate_armed
+                            ? "waiting for replay battle runtime before generation"
+                            : "waiting for replay battle runtime";
+                        set_replay_file_status("Start Replay File", false,
+                                               false, state.resolved_path, 0,
+                                               state.native_replay_meta,
+                                               wait_reason);
+                        if (!state.battle_runtime_wait_emitted)
+                        {
+                            state.battle_runtime_wait_emitted = true;
+                            replay_file_start_emit_event(
+                                "replay_file_start_waiting_ready", state,
+                                false, wait_reason);
+                        }
+                        return;
+                    }
+                }
             }
 
             if (state.submitted)
@@ -22238,7 +23683,8 @@ namespace Horse
                 const bool in_replay_list_scene =
                     current_scene_info.class_name.find(
                         "ReplayListScene") != std::string::npos;
-                if (in_replay_battle_scene)
+                if (in_replay_battle_scene &&
+                    !state.existing_replay_exit_ready_emitted)
                 {
                     if (!state.existing_replay_exit_requested)
                     {
@@ -22249,6 +23695,8 @@ namespace Horse
                             "active replay battle scene detected");
                     }
                     ++state.existing_replay_exit_attempts;
+                    bool current_replay_runtime_ready =
+                        replay_battle_runtime_ready();
                     const bool should_use_watch_end =
                         state.existing_replay_watch_cancel_requested &&
                         state.existing_replay_exit_attempts >= 5;
@@ -22276,80 +23724,235 @@ namespace Horse
                         if (request_existing_replay_battle_terminate(
                                 state, terminate_reason))
                         {
+                            current_replay_runtime_ready =
+                                replay_battle_runtime_ready();
+                            if (current_replay_runtime_ready ||
+                                state.existing_replay_exit_attempts < 4)
+                            {
+                                state.next_attempt =
+                                    now + std::chrono::seconds(1);
+                                set_replay_file_status(
+                                    "Start Replay File", false, false,
+                                    state.resolved_path, 0,
+                                    ReplayFileMetadata{},
+                                    terminate_reason.c_str());
+                                if (!state.existing_replay_exit_wait_emitted)
+                                {
+                                    state.existing_replay_exit_wait_emitted =
+                                        true;
+                                    replay_file_start_emit_event(
+                                        "replay_file_start_existing_replay_exit_wait",
+                                        state, false,
+                                        terminate_reason.c_str());
+                                }
+                                return;
+                            }
+                        }
+                    }
+
+                    std::string ready_to_stop_reason;
+                    const bool stale_replay_runtime_terminated =
+                        state.existing_replay_battle_terminate_requested &&
+                        !current_replay_runtime_ready;
+                    if (stale_replay_runtime_terminated &&
+                        state.existing_replay_exit_attempts >= 6 &&
+                        !state.existing_replay_back_lobby_requested)
+                    {
+                        std::string back_lobby_reason;
+                        ++state.existing_replay_session_exit_attempts;
+                        if (request_existing_replay_session_exit(
+                                state, ExistingReplaySessionExitMethod::BackLobby,
+                                back_lobby_reason))
+                        {
                             state.next_attempt =
                                 now + std::chrono::seconds(1);
                             set_replay_file_status(
                                 "Start Replay File", false, false,
-                                state.resolved_path, 0, ReplayFileMetadata{},
-                                terminate_reason.c_str());
-                            if (!state.existing_replay_exit_wait_emitted)
-                            {
-                                state.existing_replay_exit_wait_emitted = true;
-                                replay_file_start_emit_event(
-                                    "replay_file_start_existing_replay_exit_wait",
-                                    state, false, terminate_reason.c_str());
-                            }
+                                state.resolved_path, 0,
+                                ReplayFileMetadata{},
+                                back_lobby_reason.c_str());
+                            replay_file_start_emit_event(
+                                "replay_file_start_existing_replay_exit_wait",
+                                state, false, back_lobby_reason.c_str());
                             return;
                         }
                     }
-                    bool launch_ready = false;
-                    std::string launch_ready_reason;
-                    const bool launch_query_ok =
-                        can_launch_battle_manually(
-                            launch_ready, launch_ready_reason);
-                    bool battle_request_pending = false;
-                    std::string battle_request_reason;
-                    const bool pending_query_ok =
-                        has_any_battle_request(battle_request_pending,
-                                               battle_request_reason);
-                    const bool force_after_exit_escalation =
-                        state.existing_replay_battle_terminate_requested &&
-                        state.existing_replay_watch_cancel_requested &&
-                        state.existing_replay_watch_end_requested &&
-                        state.existing_replay_exit_attempts >= 5 &&
-                        pending_query_ok &&
-                        !battle_request_pending;
-                    if (state.existing_replay_battle_terminate_requested &&
-                        ((launch_query_ok && launch_ready &&
-                          !replay_battle_runtime_ready()) ||
-                         force_after_exit_escalation))
+
+                    if (stale_replay_runtime_terminated &&
+                        nav.enable_change_scene_ok &&
+                        !nav.enable_change_scene &&
+                        !state.existing_replay_manager_stop_complete_requested &&
+                        (!state.existing_replay_request_to_stop_requested ||
+                         (state.existing_replay_exit_attempts % 3) == 0))
                     {
-                        state.replay_setup_reached = true;
-                        state.force_native_launch = true;
-                        state.readiness_grace_deadline = now;
-                        force_launch_allowed = true;
-                        if (!state.existing_replay_exit_ready_emitted)
+                        std::string request_to_stop_reason;
+                        ++state.existing_replay_request_to_stop_attempts;
+                        if (request_current_gameflow_scene_to_stop(
+                                state, nav, request_to_stop_reason))
                         {
-                            state.existing_replay_exit_ready_emitted = true;
-                            replay_file_start_emit_event(
-                                "replay_file_start_existing_replay_exit_ready",
-                                state, true,
-                                force_after_exit_escalation
-                                    ? "current replay exit escalated; forcing native launch"
-                                    : "current replay terminated; native launch ready");
-                        }
-                    }
-                    else if (state.existing_replay_watch_cancel_requested ||
-                             state.existing_replay_watch_end_requested)
-                    {
-                        state.next_attempt = now + std::chrono::seconds(1);
-                        std::string wait_reason = !terminate_reason.empty()
-                            ? terminate_reason
-                            : (watch_exit_reason.empty()
-                            ? "leaving current replay; waiting for watch exit"
-                            : watch_exit_reason);
-                        set_replay_file_status("Start Replay File", false,
-                                               false, state.resolved_path, 0,
-                                               ReplayFileMetadata{},
-                                               wait_reason.c_str());
-                        if (!state.existing_replay_exit_wait_emitted)
-                        {
-                            state.existing_replay_exit_wait_emitted = true;
+                            state.next_attempt = now + std::chrono::seconds(1);
+                            set_replay_file_status(
+                                "Start Replay File", false, false,
+                                state.resolved_path, 0, ReplayFileMetadata{},
+                                request_to_stop_reason.c_str());
                             replay_file_start_emit_event(
                                 "replay_file_start_existing_replay_exit_wait",
-                                state, false, wait_reason.c_str());
+                                state, false,
+                                request_to_stop_reason.c_str());
+                            return;
                         }
                     }
+
+                    if (stale_replay_runtime_terminated &&
+                        nav.enable_change_scene_ok &&
+                        !nav.enable_change_scene &&
+                        !state.existing_replay_manager_stop_complete_requested &&
+                        (!state.existing_replay_ready_to_stop_requested ||
+                         (state.existing_replay_exit_attempts % 3) == 0))
+                    {
+                        ++state.existing_replay_ready_to_stop_attempts;
+                        if (mark_current_gameflow_scene_ready_to_stop(
+                                state, nav, ready_to_stop_reason))
+                        {
+                            state.next_attempt = now + std::chrono::seconds(1);
+                            set_replay_file_status(
+                                "Start Replay File", false, false,
+                                state.resolved_path, 0, ReplayFileMetadata{},
+                                ready_to_stop_reason.c_str());
+                            replay_file_start_emit_event(
+                                "replay_file_start_existing_replay_exit_wait",
+                                state, false,
+                                ready_to_stop_reason.c_str());
+                            return;
+                        }
+                    }
+
+                    if (stale_replay_runtime_terminated &&
+                        nav.enable_change_scene_ok &&
+                        !nav.enable_change_scene &&
+                        state.existing_replay_ready_to_stop_requested &&
+                        (!state.existing_replay_manager_stop_complete_requested ||
+                         (state.existing_replay_exit_attempts % 3) == 0))
+                    {
+                        std::string complete_reason;
+                        ++state.existing_replay_manager_stop_complete_attempts;
+                        const bool unlocked =
+                            complete_gameflow_current_scene_stop(
+                                state, nav, complete_reason);
+                        state.next_attempt = unlocked
+                            ? now
+                            : now + std::chrono::seconds(1);
+                        set_replay_file_status(
+                            "Start Replay File", false, false,
+                            state.resolved_path, 0, ReplayFileMetadata{},
+                            complete_reason.c_str());
+                        replay_file_start_emit_event(
+                            "replay_file_start_existing_replay_exit_wait",
+                            state, unlocked, complete_reason.c_str());
+                        return;
+                    }
+
+                    if (stale_replay_runtime_terminated &&
+                        state.existing_replay_back_lobby_requested &&
+                        state.existing_replay_exit_attempts >= 8 &&
+                        nav.enable_change_scene_ok &&
+                        nav.enable_change_scene)
+                    {
+                        state.existing_replay_exit_ready_emitted = true;
+                        state.next_attempt = now;
+                        const char* wait_reason =
+                            "current replay runtime terminated; routing stale ReplayBattleScene to setup";
+                        set_replay_file_status(
+                            "Start Replay File", false, false,
+                            state.resolved_path, 0, ReplayFileMetadata{},
+                            wait_reason);
+                        replay_file_start_emit_event(
+                            "replay_file_start_stale_replay_scene_exit_ready",
+                            state, true, wait_reason);
+                        return;
+                    }
+
+                    std::string session_exit_reason;
+                    if (state.existing_replay_battle_terminate_requested)
+                    {
+                        ExistingReplaySessionExitMethod session_method =
+                            ExistingReplaySessionExitMethod::BattleEndToLobby;
+                        bool should_request_session_exit = false;
+                        if (!state.existing_replay_battle_end_to_lobby_requested ||
+                            (state.existing_replay_exit_attempts % 3) == 0)
+                        {
+                            session_method =
+                                ExistingReplaySessionExitMethod::BattleEndToLobby;
+                            should_request_session_exit = true;
+                        }
+                        else if (state.existing_replay_exit_attempts >= 4 &&
+                                 (!state.existing_replay_battle_end_requested ||
+                                  (state.existing_replay_exit_attempts % 6) == 0))
+                        {
+                            session_method =
+                                ExistingReplaySessionExitMethod::BattleEnd;
+                            should_request_session_exit = true;
+                        }
+                        else if (state.existing_replay_exit_attempts >= 6 &&
+                                 (!state.existing_replay_back_lobby_requested ||
+                                  (state.existing_replay_exit_attempts % 8) == 0))
+                        {
+                            session_method =
+                                ExistingReplaySessionExitMethod::BackLobby;
+                            should_request_session_exit = true;
+                        }
+
+                        if (should_request_session_exit)
+                        {
+                            ++state.existing_replay_session_exit_attempts;
+                            if (request_existing_replay_session_exit(
+                                    state, session_method,
+                                    session_exit_reason))
+                            {
+                                state.next_attempt =
+                                    now + std::chrono::seconds(1);
+                                set_replay_file_status(
+                                    "Start Replay File", false, false,
+                                    state.resolved_path, 0,
+                                    ReplayFileMetadata{},
+                                    session_exit_reason.c_str());
+                                replay_file_start_emit_event(
+                                    "replay_file_start_existing_replay_exit_wait",
+                                    state, false,
+                                    session_exit_reason.c_str());
+                                return;
+                            }
+                        }
+                    }
+
+                    state.next_attempt = now + std::chrono::seconds(1);
+                    std::string wait_reason = !session_exit_reason.empty()
+                        ? session_exit_reason
+                        : (!ready_to_stop_reason.empty()
+                        ? ready_to_stop_reason
+                        : (!terminate_reason.empty()
+                        ? terminate_reason
+                        : (watch_exit_reason.empty()
+                        ? "leaving current replay; waiting for replay scene exit"
+                        : watch_exit_reason)));
+                    if (state.existing_replay_battle_terminate_requested &&
+                        !current_replay_runtime_ready)
+                    {
+                        wait_reason =
+                            "current replay runtime terminated; waiting for replay scene exit";
+                    }
+                    set_replay_file_status("Start Replay File", false,
+                                           false, state.resolved_path, 0,
+                                           ReplayFileMetadata{},
+                                           wait_reason.c_str());
+                    if (!state.existing_replay_exit_wait_emitted)
+                    {
+                        state.existing_replay_exit_wait_emitted = true;
+                        replay_file_start_emit_event(
+                            "replay_file_start_existing_replay_exit_wait",
+                            state, false, wait_reason.c_str());
+                    }
+                    return;
                 }
                 else if (state.existing_replay_exit_requested &&
                          !state.existing_replay_exit_ready_emitted &&
@@ -22361,7 +23964,303 @@ namespace Horse
                         state, true, "current replay scene cleared");
                 }
 
+                if (!state.replay_setup_reached &&
+                    !state.stale_replay_scene_launch_ready &&
+                    in_replay_battle_scene &&
+                    state.existing_replay_exit_ready_emitted &&
+                    state.existing_replay_battle_terminate_requested &&
+                    !replay_battle_runtime_ready())
+                {
+                    if (!state.stale_replay_scene_menus_closed)
+                    {
+                        std::string close_reason;
+                        const bool close_ok =
+                            close_current_gameflow_scene_menus(
+                                nav, close_reason);
+                        if (!close_ok)
+                        {
+                            state.next_attempt =
+                                now + std::chrono::seconds(1);
+                            set_replay_file_status(
+                                "Start Replay File", false, false,
+                                state.resolved_path, 0,
+                                ReplayFileMetadata{},
+                                close_reason.c_str());
+                            replay_file_start_emit_event(
+                                "replay_file_start_stale_replay_scene_menu_close",
+                                state, false, close_reason.c_str());
+                            return;
+                        }
+
+                        state.stale_replay_scene_menus_closed = true;
+                        state.next_attempt =
+                            now + std::chrono::seconds(1);
+                        set_replay_file_status(
+                            "Start Replay File", false, false,
+                            state.resolved_path, 0,
+                            ReplayFileMetadata{},
+                            close_reason.c_str());
+                        replay_file_start_emit_event(
+                            "replay_file_start_stale_replay_scene_menu_close",
+                            state, true, close_reason.c_str());
+                        return;
+                    }
+
+                    bool launch_ready = false;
+                    std::string launch_ready_reason;
+                    const bool launch_query_ok =
+                        can_launch_battle_manually(
+                            launch_ready, launch_ready_reason);
+
+                    if (nav.next_scene || nav.next_scene_direct)
+                    {
+                        const char* wait_reason =
+                            "stale ReplayBattleScene transition queued; waiting";
+                        state.next_attempt = now + std::chrono::seconds(1);
+                        set_replay_file_status(
+                            "Start Replay File", false, false,
+                            state.resolved_path, 0, ReplayFileMetadata{},
+                            wait_reason);
+                        replay_file_start_emit_event(
+                            "replay_file_start_stale_replay_scene_wait",
+                            state, false, wait_reason);
+                        return;
+                    }
+
+                    if (!state.stale_replay_console_reroute_requested)
+                    {
+                        state.stale_replay_console_reroute_requested = true;
+                        ++state.stale_replay_console_reroute_attempts;
+
+                        bool console_ok = false;
+                        std::string console_reason;
+                        RC::Unreal::UObject* gi = nullptr;
+                        if (!resolve_active_game_instance(gi,
+                                                          console_reason))
+                        {
+                            if (console_reason.empty())
+                                console_reason =
+                                    "OwningGameInstance unavailable";
+                        }
+                        else
+                        {
+                            RC::Unreal::UObject* pc_obj =
+                                m_pc_ptr.get(L"PlayerController");
+                            console_ok = execute_state_console_command(
+                                "GameFlowChangeScene replaylist",
+                                gi, pc_obj, console_reason);
+                        }
+
+                        bool post_launch_ready = false;
+                        bool post_launch_query_ok = false;
+                        std::string post_launch_reason;
+                        if (console_ok)
+                        {
+                            post_launch_query_ok =
+                                can_launch_battle_manually(
+                                    post_launch_ready, post_launch_reason);
+                        }
+
+                        ReplayTraceFields f;
+                        f.string("run_id", state.run_id.c_str())
+                         .boolean("ok", console_ok)
+                         .string("reason", console_reason)
+                         .string("command",
+                                 "GameFlowChangeScene replaylist")
+                         .integer("submit_attempts",
+                                  state.submit_attempts)
+                         .integer("attempts",
+                                  state.stale_replay_console_reroute_attempts)
+                         .boolean("launch_query_ok", launch_query_ok)
+                         .boolean("launch_ready", launch_ready)
+                         .string("launch_ready_reason",
+                                 launch_ready_reason)
+                         .boolean("post_launch_query_ok",
+                                  post_launch_query_ok)
+                         .boolean("post_launch_ready", post_launch_ready)
+                         .string("post_launch_reason",
+                                 post_launch_reason)
+                         .boolean("stale_replay_scene_launch_ready",
+                                  state.stale_replay_scene_launch_ready)
+                         .boolean("ready_to_start_query_ok",
+                                  nav.ready_to_start_ok)
+                         .boolean("ready_to_start", nav.ready_to_start)
+                         .boolean("enable_change_scene_query_ok",
+                                  nav.enable_change_scene_ok)
+                         .boolean("enable_change_scene",
+                                  nav.enable_change_scene)
+                         .string("current_scene_name",
+                                 nav.current_scene_name)
+                         .string("current_scene_class",
+                                 current_scene_info.class_name)
+                         .hex("game_flow_manager",
+                              reinterpret_cast<uintptr_t>(
+                                  nav.game_flow_manager))
+                         .hex("current_scene",
+                              reinterpret_cast<uintptr_t>(
+                                  nav.current_scene))
+                         .hex("next_scene",
+                              reinterpret_cast<uintptr_t>(
+                                  nav.next_scene));
+                        add_navigator_raw_fields(f, nav);
+                        add_uobject_identity_fields(
+                            f, "current_scene", current_scene_info);
+                        ReplayDebugTrace::instance().event(
+                            "replay_file_start_stale_replay_scene_console_reroute",
+                            f);
+
+                        std::string wait_reason;
+                        state.next_attempt =
+                            now + std::chrono::seconds(1);
+                        wait_reason = console_ok
+                            ? "executed GameFlowChangeScene replaylist; "
+                              "waiting for replay scene transition"
+                            : console_reason;
+                        if (wait_reason.empty())
+                            wait_reason =
+                                "GameFlowChangeScene replaylist failed";
+                        set_replay_file_status(
+                            "Start Replay File", false, false,
+                            state.resolved_path, 0, ReplayFileMetadata{},
+                            wait_reason.c_str());
+                        return;
+                    }
+
+                    if (nav.enable_change_scene_ok &&
+                        nav.enable_change_scene)
+                    {
+                        bool setup_scene_complete = false;
+                        std::string setup_reason;
+                        if (request_replay_battle_scene(
+                                state, setup_scene_complete, setup_reason,
+                                true))
+                        {
+                            state.battle_scene_requested = true;
+                            if (setup_scene_complete)
+                            {
+                                state.replay_setup_reached = true;
+                            }
+                            else
+                            {
+                                state.next_attempt =
+                                    now + std::chrono::seconds(1);
+                                const char* wait_reason =
+                                    setup_reason.empty()
+                                        ? "routing to replay setup scene"
+                                        : setup_reason.c_str();
+                                set_replay_file_status(
+                                    "Start Replay File", false, false,
+                                    state.resolved_path, 0,
+                                    ReplayFileMetadata{}, wait_reason);
+                                replay_file_start_emit_event(
+                                    "replay_file_start_stale_replay_scene_reroute",
+                                    state, true, wait_reason);
+                                return;
+                            }
+                            const char* wait_reason =
+                                "stale ReplayBattleScene reached setup scene";
+                            state.next_attempt =
+                                now + std::chrono::seconds(1);
+                            set_replay_file_status(
+                                "Start Replay File", false, false,
+                                state.resolved_path, 0,
+                                ReplayFileMetadata{}, wait_reason);
+                            replay_file_start_emit_event(
+                                "replay_file_start_stale_replay_scene_reroute",
+                                state, true, wait_reason);
+                            return;
+                        }
+                    }
+
+                    if (nav.enable_change_scene_ok &&
+                        !nav.enable_change_scene &&
+                        !state.existing_replay_manager_stop_complete_requested &&
+                        (!state.existing_replay_request_to_stop_requested ||
+                         (state.submit_attempts % 3) == 0))
+                    {
+                        std::string request_to_stop_reason;
+                        ++state.existing_replay_request_to_stop_attempts;
+                        if (request_current_gameflow_scene_to_stop(
+                                state, nav, request_to_stop_reason))
+                        {
+                            state.next_attempt =
+                                now + std::chrono::seconds(1);
+                            set_replay_file_status(
+                                "Start Replay File", false, false,
+                                state.resolved_path, 0, ReplayFileMetadata{},
+                                request_to_stop_reason.c_str());
+                            replay_file_start_emit_event(
+                                "replay_file_start_existing_replay_exit_wait",
+                                state, false,
+                                request_to_stop_reason.c_str());
+                            return;
+                        }
+                    }
+
+                    if (nav.enable_change_scene_ok &&
+                        !nav.enable_change_scene &&
+                        !state.existing_replay_manager_stop_complete_requested &&
+                        (!state.existing_replay_ready_to_stop_requested ||
+                         (state.submit_attempts % 3) == 0))
+                    {
+                        std::string ready_to_stop_reason;
+                        ++state.existing_replay_ready_to_stop_attempts;
+                        if (mark_current_gameflow_scene_ready_to_stop(
+                                state, nav, ready_to_stop_reason))
+                        {
+                            state.next_attempt =
+                                now + std::chrono::seconds(1);
+                            set_replay_file_status(
+                                "Start Replay File", false, false,
+                                state.resolved_path, 0, ReplayFileMetadata{},
+                                ready_to_stop_reason.c_str());
+                            replay_file_start_emit_event(
+                                "replay_file_start_existing_replay_exit_wait",
+                                state, false,
+                                ready_to_stop_reason.c_str());
+                            return;
+                        }
+                    }
+
+                    if (nav.enable_change_scene_ok &&
+                        !nav.enable_change_scene &&
+                        state.existing_replay_ready_to_stop_requested &&
+                        (!state.existing_replay_manager_stop_complete_requested ||
+                         (state.submit_attempts % 3) == 0))
+                    {
+                        std::string complete_reason;
+                        ++state.existing_replay_manager_stop_complete_attempts;
+                        const bool unlocked =
+                            complete_gameflow_current_scene_stop(
+                                state, nav, complete_reason);
+                        state.next_attempt = unlocked
+                            ? now
+                            : now + std::chrono::seconds(1);
+                        set_replay_file_status(
+                            "Start Replay File", false, false,
+                            state.resolved_path, 0, ReplayFileMetadata{},
+                            complete_reason.c_str());
+                        replay_file_start_emit_event(
+                            "replay_file_start_existing_replay_exit_wait",
+                            state, unlocked, complete_reason.c_str());
+                        return;
+                    }
+
+                    const char* wait_reason =
+                        "stale ReplayBattleScene awaiting setup scene reroute";
+                    state.next_attempt = now + std::chrono::seconds(1);
+                    set_replay_file_status(
+                        "Start Replay File", false, false,
+                        state.resolved_path, 0, ReplayFileMetadata{},
+                        wait_reason);
+                    replay_file_start_emit_event(
+                        "replay_file_start_stale_replay_scene_wait",
+                        state, false, wait_reason);
+                    return;
+                }
+
                 if (!state.replay_setup_reached && in_replay_battle_scene &&
+                    !state.stale_replay_scene_launch_ready &&
                     nav.enable_change_scene_ok &&
                     !nav.enable_change_scene)
                 {
@@ -22387,7 +24286,8 @@ namespace Horse
                     return;
                 }
 
-                if (!state.replay_setup_reached)
+                if (!state.replay_setup_reached &&
+                    !state.stale_replay_scene_launch_ready)
                 {
                     bool setup_scene_complete = false;
                     std::string setup_reason;
@@ -22573,6 +24473,32 @@ namespace Horse
                     (state.native_profile_request_ok
                         ? std::chrono::seconds(2)
                         : std::chrono::seconds(0));
+                try
+                {
+                    std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                    m_loaded_replay_payload = payload;
+                    m_replay_file_last_path = state.resolved_path;
+                    m_replay_file_launch_path = launch_path;
+                }
+                catch (const std::bad_alloc&)
+                {
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayFile] native import export-payload cache "
+                        "allocation failed path='{}' bytes={}\n"),
+                        RC::to_generic_string(
+                            narrow_path(state.resolved_path)),
+                        payload.size());
+                }
+                if (!payload.empty())
+                {
+                    ReplayTraceFields cache_fields;
+                    cache_fields.string("source", "native_import")
+                     .string("path", narrow_path(state.resolved_path))
+                     .uinteger("bytes", payload.size())
+                     .hex("hash", replay_payload_hash(payload));
+                    ReplayDebugTrace::instance().event(
+                        "cached_ulx1_replay_payload", cache_fields);
+                }
                 replay_file_start_emit_event("native_replay_payload_imported",
                                              state, true, reason.c_str());
             }
@@ -22589,7 +24515,8 @@ namespace Horse
                     current_scene_info.class_name.find("ReplayListScene") !=
                     std::string::npos;
                 const bool can_apply_summary =
-                    in_replay_list_scene || state.replay_setup_reached;
+                    in_replay_list_scene || state.replay_setup_reached ||
+                    state.stale_replay_scene_launch_ready;
 
                 if (!state.native_profile_request_ok &&
                     state.native_profile_container_ready &&
@@ -22697,16 +24624,24 @@ namespace Horse
             const ReplayFileMetadata& start_meta =
                 state.native_replay_metadata_valid ? state.native_replay_meta
                                                    : meta;
+            const bool replay_start_gate_reached =
+                state.replay_setup_reached ||
+                state.stale_replay_scene_launch_ready;
             const bool need_replay_setup =
-                !state.replay_setup_reached && !state.battle_asset_requested;
+                !replay_start_gate_reached && !state.battle_asset_requested;
+            const bool require_launch_ready =
+                !force_launch_allowed ||
+                (state.battle_asset_requested &&
+                 !state.stage_map_request_submitted);
             const bool started = start_native_replay_file(
-                launch_path, start_meta, reason, !force_launch_allowed,
-                state.replay_setup_reached && !state.battle_asset_requested,
+                launch_path, start_meta, reason, require_launch_ready,
+                replay_start_gate_reached && !state.battle_asset_requested,
                 &requested_assets,
                 need_replay_setup, &state,
                 &reached_replay_setup, need_replay_setup);
             if (requested_assets) state.battle_asset_requested = true;
             if (reached_replay_setup) state.replay_setup_reached = true;
+            if (started) state.stage_map_request_submitted = false;
 
             if (!started)
             {
@@ -22744,6 +24679,29 @@ namespace Horse
                 std::lock_guard<std::mutex> lock(m_replay_file_mutex);
                 m_replay_file_last_path = state.resolved_path;
                 m_replay_file_launch_path = launch_path;
+            }
+            try
+            {
+                std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+                m_loaded_replay_payload = payload;
+            }
+            catch (const std::bad_alloc&)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] start export-payload cache allocation "
+                    "failed path='{}' bytes={}\n"),
+                    RC::to_generic_string(narrow_path(state.resolved_path)),
+                    payload.size());
+            }
+            if (!payload.empty())
+            {
+                ReplayTraceFields cache_fields;
+                cache_fields.string("source", "start")
+                 .string("path", narrow_path(state.resolved_path))
+                 .uinteger("bytes", payload.size())
+                 .hex("hash", replay_payload_hash(payload));
+                ReplayDebugTrace::instance().event(
+                    "cached_ulx1_replay_payload", cache_fields);
             }
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayFile] start success path='{}' launch_path='{}' "
@@ -22875,9 +24833,21 @@ namespace Horse
             m_lux_replay_decompress_ulx1 =
                 reinterpret_cast<LuxReplayDecompressUlx1Fn>(
                     base + kRVA_LuxReplayDecompressUlx1);
+            m_lux_replay_serialize_entry_header_and_zlib_body =
+                reinterpret_cast<LuxReplaySerializeEntryHeaderAndZlibBodyFn>(
+                    base + kRVA_LuxReplaySerializeEntryHeaderAndZlibBody);
             m_lux_replay_deserialize_item =
                 reinterpret_cast<LuxReplayDeserializeItemFn>(
                     base + kRVA_LuxReplayDeserializeItem);
+            m_lux_character_to_battle_setup_index =
+                reinterpret_cast<LuxCharacterToBattleSetupIndexFn>(
+                    base + kRVA_LuxCharacterToBattleSetupIndex);
+            m_set_active_stage_map_path_by_hex_stage_number =
+                reinterpret_cast<SetActiveStageMapPathByHexStageNumberFn>(
+                    base + kRVA_SetActiveStageMapPathByHexStageNumber);
+            m_gameflow_current_scene_stop_complete =
+                reinterpret_cast<UIGameFlowManagerCurrentSceneStopCompleteFn>(
+                    base + kRVA_UIGameFlowManagerCurrentSceneStopComplete);
             m_copy_battle_replay_data =
                 reinterpret_cast<CopyBattleReplayDataFn>(
                     base + kRVA_CopyBattleReplayData);
@@ -22950,7 +24920,11 @@ namespace Horse
                 && m_replay_list_item_destroy != nullptr
                 && m_lux_replay_get_save_manager != nullptr
                 && m_lux_replay_decompress_ulx1 != nullptr
+                && m_lux_replay_serialize_entry_header_and_zlib_body != nullptr
                 && m_lux_replay_deserialize_item != nullptr
+                && m_lux_character_to_battle_setup_index != nullptr
+                && m_set_active_stage_map_path_by_hex_stage_number != nullptr
+                && m_gameflow_current_scene_stop_complete != nullptr
                 && m_copy_battle_replay_data != nullptr
                 && m_copy_replay_list_item_data != nullptr
                 && m_construct_replay_list_container_class != nullptr
@@ -26583,7 +28557,7 @@ namespace Horse
         }
 
         // Capture the Stage 1 decoder's full state (FLuxReplayDataBlock
-        // at *(pBM+0x460), 1021 bytes) verbatim into `dst` (the decoder
+        // at *(pBM+0x460), 1022 bytes) verbatim into `dst` (the decoder
         // region's staging buffer).
         //
         // This is the KEY missing piece identified 2026-05-11: the
@@ -26619,7 +28593,7 @@ namespace Horse
         // +0x3D0, +0x3D8) are SKIPPED.
         //
         // 2026-05-11 crash investigation: blindly memcpy'ing the full
-        // 1021 bytes caused a crash on un-pause after a drag-scrub.
+        // 1022 bytes caused a crash on un-pause after a drag-scrub.
         // Most likely the pointer fields were stale (different round,
         // re-allocated buffer, or a subtle within-session change we
         // don't fully understand) and overwriting them pointed the
@@ -43055,7 +45029,7 @@ namespace Horse
             restore_input_cache(il_blob);
 
             // Step 3: Restore the Stage 1 decoder's state (*pBM+0x460,
-            // FLuxReplayDataBlock, 1021 bytes).  This rewinds the
+            // FLuxReplayDataBlock, 1022 bytes).  This rewinds the
             // file-read cursor, decoded-buffer read/write cursors,
             // and working-frame state to where the decoder had them
             // at the snapshot frame.  Without this, the engine's
@@ -44034,6 +46008,85 @@ namespace Horse
         }
     };
 
+    inline bool ReplayScrub::capture_native_replay_entry_payload(
+        void* container,
+        uint64_t request_id,
+        const void* payload_data,
+        size_t payload_size) noexcept
+    {
+        if (!payload_data || payload_size == 0 ||
+            payload_size > kReplayFileMaxPayloadBytes ||
+            payload_size > static_cast<size_t>(0x7fffffff))
+        {
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayFile] native replay entry payload capture refused "
+                "container=0x{:X} request_id={} bytes={}\n"),
+                reinterpret_cast<uintptr_t>(container),
+                static_cast<unsigned long long>(request_id),
+                payload_size);
+            return false;
+        }
+
+        std::vector<uint8_t> payload;
+        try
+        {
+            payload.assign(payload_size, 0);
+        }
+        catch (const std::bad_alloc&)
+        {
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayFile] native replay entry payload capture "
+                "allocation failed container=0x{:X} request_id={} "
+                "bytes={}\n"),
+                reinterpret_cast<uintptr_t>(container),
+                static_cast<unsigned long long>(request_id),
+                payload_size);
+            return false;
+        }
+
+        if (!SafeReadBytes(payload_data, payload.data(), payload.size()))
+        {
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayFile] native replay entry payload capture copy "
+                "failed container=0x{:X} request_id={} bytes={}\n"),
+                reinterpret_cast<uintptr_t>(container),
+                static_cast<unsigned long long>(request_id),
+                payload_size);
+            return false;
+        }
+
+        const uint64_t hash = replay_payload_hash(payload);
+        const uint64_t captured_timestamp = unix_timestamp_now();
+        {
+            std::lock_guard<std::mutex> lock(m_replay_file_mutex);
+            CachedNativeReplayEntryPayload& cached =
+                m_cached_native_replay_entry_payload;
+            cached.valid = true;
+            cached.kind = NativeReplayEntryPayloadKind::DecompressedEntry;
+            cached.container = reinterpret_cast<uintptr_t>(container);
+            cached.request_id = request_id;
+            cached.captured_timestamp_unix = captured_timestamp;
+            cached.payload_hash = hash;
+            cached.payload = std::move(payload);
+        }
+
+        ReplayTraceFields f;
+        f.hex("container", reinterpret_cast<uintptr_t>(container))
+         .uinteger("request_id", request_id)
+         .uinteger("bytes", payload_size)
+         .hex("hash", hash)
+         .uinteger("captured_timestamp_unix", captured_timestamp);
+        ReplayDebugTrace::instance().event(
+            "native_replay_entry_payload_cached", f);
+        RC::Output::send<RC::LogLevel::Default>(STR(
+            "[ReplayFile] native replay entry payload cached "
+            "container=0x{:X} request_id={} bytes={} hash=0x{:X}\n"),
+            reinterpret_cast<uintptr_t>(container),
+            static_cast<unsigned long long>(request_id),
+            payload_size, hash);
+        return true;
+    }
+
     inline void replay_scrub_run_direct_boost_slice_from_engine_loop()
         noexcept
     {
@@ -44446,6 +46499,16 @@ namespace Horse
     inline void replay_scrub_note_hit_resolution_exit() noexcept
     {
         ReplayScrub::instance().note_hit_resolution_exit();
+    }
+
+    inline bool replay_scrub_capture_native_replay_entry_payload(
+        void* container,
+        uint64_t request_id,
+        const void* payload_data,
+        size_t payload_size) noexcept
+    {
+        return ReplayScrub::instance().capture_native_replay_entry_payload(
+            container, request_id, payload_data, payload_size);
     }
 
 }  // namespace Horse

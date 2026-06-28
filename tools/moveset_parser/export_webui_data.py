@@ -32,6 +32,7 @@ from move_graph import (
 import uassetparse
 import locales
 import community_framedata
+from player_move_families import build_community_families
 
 BATTLE_ROOT_DEFAULT = r"E:\myMods\dump\Battle"
 OUT_DIR_DEFAULT = os.path.join(
@@ -52,6 +53,8 @@ ARCHIVE_PATH = os.path.join(
 )
 HAVE_UE4_DATA = os.path.isdir(STYLE_ROOT) and os.path.isfile(ARCHIVE_PATH)
 _COMMUNITY_FRAME_DATA: dict[str, Any] | None = None
+COMMUNITY_JSON_PATH: str | None = None
+COMMUNITY_XLSX_PATH: str | None = None
 
 
 def load_movelist_for_chara(
@@ -98,13 +101,19 @@ def load_movelist_for_chara(
     move_meta = _load_move_table_metadata(cid, archive)
 
     community_index = _community_frame_index(cid)
-    return _build_movelist_payload(data, movelist_idx, khd, slot_graph, move_meta, community_index)
+    return _build_movelist_payload(cid, data, movelist_idx, khd, slot_graph, move_meta, community_index)
 
 
 def _load_community_frame_data() -> dict[str, Any]:
     global _COMMUNITY_FRAME_DATA
     if _COMMUNITY_FRAME_DATA is None:
-        _COMMUNITY_FRAME_DATA = community_framedata.load()
+        if COMMUNITY_JSON_PATH or COMMUNITY_XLSX_PATH:
+            _COMMUNITY_FRAME_DATA = community_framedata.load(
+                json_path=COMMUNITY_JSON_PATH or community_framedata.JSON_PATH,
+                xlsx_path=COMMUNITY_XLSX_PATH or community_framedata.XLSX_PATH,
+            )
+        else:
+            _COMMUNITY_FRAME_DATA = community_framedata.load()
     return _COMMUNITY_FRAME_DATA
 
 
@@ -712,7 +721,482 @@ def _merge_tracking(command_sets: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _is_input_family_extension(long_input: str, short_input: str) -> bool:
+    """True when `long_input` extends `short_input` at a string boundary."""
+    return (
+        len(long_input) > len(short_input)
+        and long_input.startswith(short_input)
+        and long_input[len(short_input)] in ".~"
+    )
+
+
+def _build_move_groups(moves: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build player-facing grouping hints for movelist rows.
+
+    This intentionally does not delete or merge moves. It exports grouping
+    metadata so consumers can choose whether to show raw rows, duplicate-folded
+    rows, or string/follow-up families.
+    """
+    for move in moves:
+        move["groupIds"] = []
+
+    groups: list[dict[str, Any]] = []
+    group_ids_by_order: dict[int, list[str]] = {}
+
+    def attach_group(kind: str, members: list[dict[str, Any]], reason: str) -> None:
+        if len(members) < 2:
+            return
+        root = min(members, key=lambda m: (len(m.get("input") or ""), m.get("order", 0)))
+        group_id = f"{kind}-{len(groups)}"
+        orders = sorted(int(m["order"]) for m in members)
+        groups.append({
+            "id": group_id,
+            "kind": kind,
+            "reason": reason,
+            "rootOrder": int(root["order"]),
+            "orders": orders,
+            "moveIds": sorted({int(m.get("moveId", 0) or 0) for m in members}),
+            "condition": root.get("condition", ""),
+            "baseInput": root.get("input", ""),
+            "displayName": root.get("name", ""),
+        })
+        for order in orders:
+            group_ids_by_order.setdefault(order, []).append(group_id)
+
+    by_move_id: dict[int, list[dict[str, Any]]] = {}
+    for move in moves:
+        move_id = int(move.get("moveId", 0) or 0)
+        if move_id:
+            by_move_id.setdefault(move_id, []).append(move)
+    for members in by_move_id.values():
+        attach_group(
+            "duplicate-move-id",
+            members,
+            "same DA_MovePlayData MoveListID appears in multiple movelist rows",
+        )
+
+    # Connected components over same-condition inputs. Exact duplicates and
+    # input extensions at "."/"~" boundaries belong to the same string family.
+    parent = list(range(len(moves)))
+
+    def find(idx: int) -> int:
+        while parent[idx] != idx:
+            parent[idx] = parent[parent[idx]]
+            idx = parent[idx]
+        return idx
+
+    def union(a: int, b: int) -> None:
+        ra = find(a)
+        rb = find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for i, a in enumerate(moves):
+        input_a = a.get("input", "") or ""
+        if not input_a:
+            continue
+        for j in range(i + 1, len(moves)):
+            b = moves[j]
+            if a.get("condition", "") != b.get("condition", ""):
+                continue
+            input_b = b.get("input", "") or ""
+            if not input_b:
+                continue
+            if (
+                input_a == input_b
+                or _is_input_family_extension(input_a, input_b)
+                or _is_input_family_extension(input_b, input_a)
+            ):
+                union(i, j)
+
+    components: dict[int, list[dict[str, Any]]] = {}
+    for i, move in enumerate(moves):
+        components.setdefault(find(i), []).append(move)
+    for members in components.values():
+        attach_group(
+            "input-family",
+            members,
+            "same condition and exact/extended input at '.' or '~' continuation boundary",
+        )
+
+    for move in moves:
+        move["groupIds"] = group_ids_by_order.get(int(move["order"]), [])
+    return groups
+
+
+def _split_move_inputs(raw_input: str) -> list[str]:
+    inputs = [part.strip() for part in (raw_input or "").split("|") if part.strip()]
+    return inputs or ([raw_input] if raw_input else [])
+
+
+def _move_native_refs(move: dict[str, Any]) -> tuple[list[int], list[int]]:
+    slots: set[int] = set()
+    cells: set[int] = set()
+    for cs in move.get("commandSets", []):
+        slot_idx = int(cs.get("slotIdx", -1) or -1)
+        cell_idx = int(cs.get("cellIdx", -1) or -1)
+        if slot_idx >= 0:
+            slots.add(slot_idx)
+        if cell_idx >= 0:
+            cells.add(cell_idx)
+    return sorted(slots), sorted(cells)
+
+
+def _move_metrics(move: dict[str, Any], khd: KhdFile | None) -> dict[str, Any]:
+    community_frame = move.get("communityFrame")
+    if community_frame:
+        return {
+            "startup": community_frame.get("startup"),
+            "damage": community_frame.get("damage", []),
+            "block": community_frame.get("onBlock") or None,
+            "hit": community_frame.get("onHit") or None,
+            "counterHit": community_frame.get("onCounterHit") or None,
+            "hitLevels": move.get("hitClasses", []),
+        }
+
+    cell = None
+    if khd and khd.sections:
+        cells = khd.sections[0].entries
+        for cs in move.get("commandSets", []):
+            cell_idx = int(cs.get("cellIdx", -1) or -1)
+            if 0 <= cell_idx < len(cells):
+                cell = cells[cell_idx]
+                break
+    if cell is None:
+        return {
+            "startup": None,
+            "damage": [],
+            "block": None,
+            "hit": None,
+            "counterHit": None,
+            "hitLevels": move.get("hitClasses", []),
+        }
+    return {
+        "startup": int(cell.wI16MasterWindowStart),
+        "damage": [int(cell.wI16BaseDamage)] if cell.wI16BaseDamage else [],
+        "block": int(cell.wI16BlockStun),
+        "hit": int(cell.wI16HitStunStanding),
+        "counterHit": None,
+        "hitLevels": move.get("hitClasses", []),
+    }
+
+
+def _community_confidence(value: str, has_parser_anchor: bool) -> str:
+    if has_parser_anchor:
+        return "mixed-supported"
+    if value in {"strong-community", "community-calibrated", "single-row"}:
+        return "community-confirmed"
+    if value == "weak":
+        return "weak"
+    return "community-confirmed"
+
+
+def _edge_confidence(value: str) -> str:
+    if value == "strong":
+        return "community-confirmed"
+    if value == "medium":
+        return "community-confirmed"
+    if value == "weak":
+        return "weak"
+    return "unknown"
+
+
+def _family_confidence(rows: list[dict[str, Any]], fallback: str = "unknown") -> str:
+    confidences = {row.get("confidence") for row in rows}
+    if "conflict" in confidences:
+        return "conflict"
+    if "mixed-supported" in confidences:
+        return "mixed-supported"
+    if "community-confirmed" in confidences:
+        return "community-confirmed"
+    if "native-inferred" in confidences:
+        return "native-inferred"
+    if "weak" in confidences:
+        return "weak"
+    return fallback
+
+
+def _parser_match_index(moves: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    index: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for move in moves:
+        name_key = community_framedata.norm_name(move.get("name", ""))
+        for raw_input in _split_move_inputs(move.get("input", "")):
+            key = (name_key, community_framedata.norm_input_key(raw_input))
+            index.setdefault(key, []).append(move)
+    return index
+
+
+def _context_score(context: str, move: dict[str, Any]) -> int:
+    context_key = community_framedata.norm_name(context)
+    condition_key = community_framedata.norm_name(move.get("condition", ""))
+    if context_key in {"", "neutral"} and not condition_key:
+        return 3
+    if context_key == condition_key:
+        return 3
+    if context_key and context_key in condition_key:
+        return 2
+    if condition_key and condition_key in context_key:
+        return 1
+    return 0
+
+
+def _matching_parser_moves(
+    row: dict[str, Any],
+    parser_index: dict[tuple[str, str], list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    key = (
+        community_framedata.norm_name(row.get("name", "")),
+        community_framedata.norm_input_key(row.get("command", "")),
+    )
+    candidates = parser_index.get(key, [])
+    if not candidates:
+        return []
+    best_score = max(_context_score(row.get("context", ""), move) for move in candidates)
+    return [move for move in candidates if _context_score(row.get("context", ""), move) == best_score]
+
+
+def _player_row_from_community(
+    row: dict[str, Any],
+    matches: list[dict[str, Any]],
+    family_confidence: str,
+) -> dict[str, Any]:
+    parser_orders = sorted({int(move["order"]) for move in matches})
+    slots: set[int] = set()
+    cells: set[int] = set()
+    hit_levels: list[str] = list(row.get("hitLevels", []))
+    for move in matches:
+        move_slots, move_cells = _move_native_refs(move)
+        slots.update(move_slots)
+        cells.update(move_cells)
+        if not hit_levels and move.get("hitClasses"):
+            hit_levels = list(move.get("hitClasses", []))
+    has_anchor = bool(matches)
+    return {
+        "id": row["id"],
+        "displayCommand": row.get("command", ""),
+        "displayName": row.get("name", ""),
+        "rootName": row.get("rootName", row.get("name", "")),
+        "context": row.get("context", "Neutral") or "Neutral",
+        "category": row.get("category", ""),
+        "tokens": row.get("tokens", []),
+        "source": "mixed" if has_anchor else "community",
+        "confidence": _community_confidence(family_confidence, has_anchor),
+        "parserMoveOrders": parser_orders,
+        "nativeSlots": sorted(slots),
+        "nativeCells": sorted(cells),
+        "metrics": {
+            "startup": row.get("startup"),
+            "damage": list(row.get("damage", [])),
+            "block": row.get("block") or None,
+            "hit": row.get("hit") or None,
+            "counterHit": row.get("counterHit") or None,
+            "hitLevels": hit_levels,
+        },
+        "notes": row.get("notes", ""),
+        "guardBurst": row.get("guardBurst"),
+        "timelineStatus": "partial" if has_anchor else "unresolved",
+    }
+
+
+def _player_row_from_parser_move(
+    cid: str,
+    move: dict[str, Any],
+    khd: KhdFile | None,
+    source: str = "movelist",
+    confidence: str = "native-inferred",
+) -> dict[str, Any]:
+    slots, cells = _move_native_refs(move)
+    return {
+        "id": f"movelist-{cid}-{int(move['order']):05d}",
+        "displayCommand": move.get("input", ""),
+        "displayName": move.get("name", ""),
+        "rootName": re.split(r"\s*~\s*", move.get("name", ""), maxsplit=1)[0],
+        "context": move.get("condition", "") or "Neutral",
+        "category": str(move.get("category", "")),
+        "tokens": [],
+        "source": source,
+        "confidence": confidence,
+        "parserMoveOrders": [int(move["order"])],
+        "nativeSlots": slots,
+        "nativeCells": cells,
+        "metrics": _move_metrics(move, khd),
+        "notes": move.get("note", ""),
+        "guardBurst": move.get("communityFrame", {}).get("guardBurst") if move.get("communityFrame") else None,
+        "timelineStatus": "partial" if move.get("communityFrame") else "native-cell-only",
+    }
+
+
+def _normalize_export_family(family: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    edge_order = {row["id"]: i for i, row in enumerate(rows)}
+    edges = []
+    for edge in family.get("edges", []):
+        if edge.get("parentRowId") not in edge_order or edge.get("childRowId") not in edge_order:
+            continue
+        edges.append({
+            "id": edge.get("id", ""),
+            "parentRowId": edge.get("parentRowId", ""),
+            "childRowId": edge.get("childRowId", ""),
+            "relation": edge.get("relation", ""),
+            "confidence": _edge_confidence(edge.get("confidence", "")),
+            "reasons": edge.get("reasons", []),
+            "source": edge.get("source", "community-calibration"),
+        })
+    return {
+        "id": family["id"],
+        "cid": family.get("cid", ""),
+        "kind": family.get("kind", "command-tree"),
+        "rootCommand": family.get("rootCommand", rows[0].get("displayCommand", "") if rows else ""),
+        "rootName": family.get("rootName", rows[0].get("displayName", "") if rows else ""),
+        "context": family.get("context", rows[0].get("context", "Neutral") if rows else "Neutral"),
+        "confidence": _family_confidence(rows),
+        "relations": sorted({edge["relation"] for edge in edges}),
+        "rows": rows,
+        "edges": edges,
+    }
+
+
+def _parser_fallback_family(
+    cid: str,
+    seq: int,
+    members: list[dict[str, Any]],
+    khd: KhdFile | None,
+    relation: str,
+    reason: str,
+) -> dict[str, Any]:
+    members = sorted(members, key=lambda move: int(move.get("order", 0)))
+    rows = [_player_row_from_parser_move(cid, move, khd) for move in members]
+    root = min(rows, key=lambda row: (len(row.get("displayCommand", "")), row["parserMoveOrders"][0]))
+    edges = []
+    for row in rows:
+        if row["id"] == root["id"]:
+            continue
+        edges.append({
+            "id": f"edge-{root['id']}-{row['id']}-{relation}",
+            "parentRowId": root["id"],
+            "childRowId": row["id"],
+            "relation": relation,
+            "confidence": "native-inferred",
+            "reasons": [reason],
+            "source": "parser-fallback",
+        })
+    return {
+        "id": f"player-family-{cid}-fallback-{seq:05d}",
+        "cid": cid,
+        "kind": "parser-fallback" if len(rows) > 1 else "single-row",
+        "rootCommand": root.get("displayCommand", ""),
+        "rootName": root.get("rootName", root.get("displayName", "")),
+        "context": root.get("context", "Neutral"),
+        "confidence": _family_confidence(rows, "native-inferred"),
+        "relations": sorted({edge["relation"] for edge in edges}),
+        "rows": rows,
+        "edges": edges,
+    }
+
+
+def _build_parser_fallback_families(
+    cid: str,
+    moves: list[dict[str, Any]],
+    move_groups: list[dict[str, Any]],
+    khd: KhdFile | None,
+    covered_orders: set[int],
+    start_seq: int,
+) -> list[dict[str, Any]]:
+    moves_by_order = {int(move["order"]): move for move in moves}
+    assigned: set[int] = set()
+    families: list[dict[str, Any]] = []
+
+    def add_group(group: dict[str, Any], relation: str, reason: str) -> None:
+        nonlocal start_seq
+        orders = [int(order) for order in group.get("orders", [])]
+        orders = [order for order in orders if order not in covered_orders and order not in assigned and order in moves_by_order]
+        if len(orders) < 2:
+            return
+        members = [moves_by_order[order] for order in orders]
+        families.append(_parser_fallback_family(cid, start_seq, members, khd, relation, reason))
+        assigned.update(orders)
+        start_seq += 1
+
+    for group in move_groups:
+        if group.get("kind") == "input-family":
+            add_group(group, "prefix", "parser input-family moveGroup")
+    for group in move_groups:
+        if group.get("kind") == "duplicate-move-id":
+            add_group(group, "duplicate-listing", "same MoveListID appears in multiple parser rows")
+
+    for move in moves:
+        order = int(move["order"])
+        if order in covered_orders or order in assigned:
+            continue
+        families.append(_parser_fallback_family(
+            cid,
+            start_seq,
+            [move],
+            khd,
+            "single-row",
+            "parser movelist row without community-calibrated family",
+        ))
+        assigned.add(order)
+        start_seq += 1
+    return families
+
+
+def _build_player_move_families(
+    cid: str,
+    moves: list[dict[str, Any]],
+    move_groups: list[dict[str, Any]],
+    khd: KhdFile | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    community_data = _load_community_frame_data()
+    community_moves = community_data.get("chars", {}).get(cid, {}).get("moves", [])
+    parser_index = _parser_match_index(moves)
+    families: list[dict[str, Any]] = []
+    covered_orders: set[int] = set()
+
+    if community_moves:
+        for family in build_community_families(cid, community_moves):
+            export_rows = []
+            for row in family.get("rows", []):
+                matches = _matching_parser_moves(row, parser_index)
+                covered_orders.update(int(move["order"]) for move in matches)
+                export_rows.append(_player_row_from_community(row, matches, family.get("confidence", "")))
+            families.append(_normalize_export_family(family, export_rows))
+
+    families.extend(_build_parser_fallback_families(
+        cid,
+        moves,
+        move_groups,
+        khd,
+        covered_orders,
+        len(families),
+    ))
+
+    source_counts = Counter()
+    confidence_counts = Counter()
+    timeline_counts = Counter()
+    player_row_count = 0
+    for family in families:
+        confidence_counts[family["confidence"]] += 1
+        player_row_count += len(family["rows"])
+        for row in family["rows"]:
+            source_counts[row["source"]] += 1
+            timeline_counts[row["timelineStatus"]] += 1
+
+    summary = {
+        "rawMoveRows": len(moves),
+        "playerFamilies": len(families),
+        "playerRows": player_row_count,
+        "communityRows": len(community_moves),
+        "communityCoveredParserRows": len(covered_orders),
+        "parserFallbackFamilies": sum(1 for family in families if family.get("kind") == "parser-fallback"),
+        "sourceCounts": dict(source_counts),
+        "confidenceCounts": dict(confidence_counts),
+        "timelineStatusCounts": dict(timeline_counts),
+    }
+    return families, summary
+
+
 def _build_movelist_payload(
+    cid: str,
     data: dict[str, Any],
     movelist_idx: dict[int, Any],
     khd: KhdFile | None,
@@ -863,10 +1347,20 @@ def _build_movelist_payload(
             "name": locales.movelist_category_name(cat_idx),
             "itemOrders": cat_items,
         })
+    move_groups = _build_move_groups(moves)
+    player_families, player_summary = _build_player_move_families(
+        cid,
+        moves,
+        move_groups,
+        khd,
+    )
     return {
         "ryuuhaType": data.get("RyuuhaType", 0) or 0,
         "categories": categories,
         "moves": moves,
+        "moveGroups": move_groups,
+        "playerMoveFamilies": player_families,
+        "playerMoveSummary": player_summary,
     }
 
 # Canonical SC6 chara id -> display name + roster kind.
@@ -1043,8 +1537,10 @@ def slot_to_dict(s, effect_events: list[Any] | None = None) -> dict[str, Any]:
     return {
         "idx": s.slot_index,
         "animationIndex": s.wAnimationIndex_00,
-        "animLength": round(s.flAnimLength_30, 3),
+        "animLength": s.total_frames,
         "totalFrames": s.total_frames,
+        "playbackSpeed60ths": round(s.flPlaybackSpeed60ths_30, 3),
+        "playbackSpeed": round(s.playback_speed_scalar, 6),
         "hitWindowStart": s.nHitWindowStart_36,
         "cellVariants": list(s.nCellBoneIndexPerVariant),
         "attackCellRefs": s.attack_cell_indices,
@@ -1221,28 +1717,35 @@ def discover_chars(root: str) -> dict[str, dict[str, str]]:
 
 
 def main() -> int:
+    global COMMUNITY_JSON_PATH, COMMUNITY_XLSX_PATH, _COMMUNITY_FRAME_DATA
     ap = argparse.ArgumentParser(description="Export SC6 moveset data to JSON for the webui")
     ap.add_argument("--root", default=BATTLE_ROOT_DEFAULT, help="Battle data root")
-    ap.add_argument("--out", default=OUT_DIR_DEFAULT, help="Output directory")
+    ap.add_argument("--out-dir", "--out", dest="out_dir", default=OUT_DIR_DEFAULT, help="Output directory")
+    ap.add_argument("--community-json", help="Optional parsed community frame-data JSON")
+    ap.add_argument("--community-xlsx", help="Optional downloaded community frame-data spreadsheet")
     args = ap.parse_args()
+
+    COMMUNITY_JSON_PATH = args.community_json
+    COMMUNITY_XLSX_PATH = args.community_xlsx
+    _COMMUNITY_FRAME_DATA = None
 
     chars = discover_chars(args.root)
     print(f"Discovered {len(chars)} characters under {args.root}")
-    os.makedirs(args.out, exist_ok=True)
-    os.makedirs(os.path.join(args.out, "chars"), exist_ok=True)
+    os.makedirs(args.out_dir, exist_ok=True)
+    os.makedirs(os.path.join(args.out_dir, "chars"), exist_ok=True)
 
     roster = []
     for cid in sorted(chars):
         summary = char_summary(cid, chars[cid])
         roster.append(summary)
-        export_char(cid, chars[cid], os.path.join(args.out, "chars", f"{cid}.json"))
+        export_char(cid, chars[cid], os.path.join(args.out_dir, "chars", f"{cid}.json"))
         ac = summary.get("attackCount", "-")
         td = summary.get("topDamage", "-")
         print(f"  {cid}  {summary['name']:<18}  attacks={ac:>4}  topDmg={td}")
 
-    with open(os.path.join(args.out, "roster.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(args.out_dir, "roster.json"), "w", encoding="utf-8") as f:
         json.dump({"chars": roster}, f, indent=2)
-    print(f"\nWrote roster + {len(roster)} char files to {args.out}")
+    print(f"\nWrote roster + {len(roster)} char files to {args.out_dir}")
     return 0
 
 

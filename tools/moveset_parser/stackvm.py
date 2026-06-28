@@ -15,7 +15,7 @@ Opcode encoding (verified against the dispatch switch):
     BIG-ENDIAN u16 immediate (3 bytes total).
 
     0x00            NOP / pad                 (1 byte)
-    0x01 BE16       PUSH_IMM   <u16>          (3 bytes)
+    0x01 BE16       FRAME     <local_count>   (3 bytes)
     0x02            RET2                      (1 byte)
     0x03 BE16       SET_ACC_U16 (no push)     (3 bytes)
     0x04 BE16       SET_ACC_U16 (no push)     (3 bytes)
@@ -88,7 +88,7 @@ from typing import Optional
 # None / "" = no immediate.
 _OPCODE_TABLE: dict[int, tuple[str, str]] = {
     0x00: ("NOP",         ""),
-    0x01: ("PUSH_IMM",    "BE16"),
+    0x01: ("FRAME",       "BE16"),
     0x02: ("RET2",        ""),
     0x03: ("SET_ACC_U16", "BE16"),
     0x04: ("SET_ACC_U16", "BE16"),
@@ -220,7 +220,7 @@ class StackVMInstruction:
     opcode: int              # opcode_byte & 0x7F
     push_flag: bool          # opcode_byte & 0x80
     mnemonic: str
-    imm_u16: Optional[int] = None     # BE u16 immediate (LOAD/STORE/PUSH_IMM/JMP/etc.)
+    imm_u16: Optional[int] = None     # BE u16 immediate (LOAD/STORE/FRAME/JMP/etc.)
     imm_b0: Optional[int] = None      # First byte of BB (CALLCOND fnIdx)
     imm_b1: Optional[int] = None      # Second byte of BB (CALLCOND argc)
 

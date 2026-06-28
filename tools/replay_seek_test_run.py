@@ -11,6 +11,7 @@ different timeline percentages and let playback run forward for real frames.
 from __future__ import annotations
 
 import argparse
+import csv
 import ctypes
 import json
 import os
@@ -53,6 +54,8 @@ DEFAULT_MAX_SEEK_LAND_SECONDS = 0.500
 DEFAULT_MAX_SEEK_RESUME_HANDOFF_SECONDS = 0.250
 DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS = 1.000
 LAUNCH_HANDOFF_GRACE_SECONDS = 30.0
+DEFAULT_KILL_TIMEOUT_SECONDS = 30
+WM_CLOSE = 0x0010
 
 
 CrashCheck = Callable[[], str | None]
@@ -542,6 +545,53 @@ def process_exists_by_image(image_name: str) -> bool:
     return image_name.lower() in output.lower()
 
 
+def process_ids_by_image(image_name: str) -> list[int]:
+    completed = subprocess.run(
+        ["tasklist", "/FI", f"IMAGENAME eq {image_name}", "/FO", "CSV", "/NH"],
+        capture_output=True,
+        text=True,
+    )
+    pids: list[int] = []
+    for row in csv.reader((completed.stdout or "").splitlines()):
+        if len(row) < 2:
+            continue
+        if row[0].strip().lower() != image_name.lower():
+            continue
+        try:
+            pids.append(int(row[1]))
+        except ValueError:
+            continue
+    return pids
+
+
+def window_handles_for_pids(pids: set[int]) -> list[int]:
+    user32 = ctypes.windll.user32
+    handles: list[int] = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def enum_proc(hwnd: int, _lparam: int) -> bool:
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        pid = ctypes.c_ulong(0)
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if int(pid.value) in pids:
+            handles.append(hwnd)
+        return True
+
+    user32.EnumWindows(enum_proc, 0)
+    return handles
+
+
+def wait_for_image_exit(image_name: str, pids: set[int], timeout: float) -> bool:
+    deadline = time.time() + max(0.0, timeout)
+    while time.time() <= deadline:
+        running = set(process_ids_by_image(image_name))
+        if not (running & pids):
+            return True
+        time.sleep(0.25)
+    return False
+
+
 class GameProcessMonitor:
     def __init__(
         self,
@@ -800,10 +850,52 @@ def run_build() -> int:
     return completed.returncode
 
 
-def kill_game() -> None:
-    print("killing game: taskkill /IM SoulcaliburVI.exe /F")
+def kill_game(timeout: int, force: bool = False) -> bool:
+    image_name = "SoulcaliburVI.exe"
+    pids = set(process_ids_by_image(image_name))
+    if not pids:
+        print(f"close game: {image_name} is not running")
+        return True
+
+    handles = window_handles_for_pids(pids)
+    if handles:
+        print(
+            "closing game gracefully: "
+            f"WM_CLOSE to {len(handles)} window(s), pid(s)={sorted(pids)}"
+        )
+        user32 = ctypes.windll.user32
+        for hwnd in handles:
+            user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+    else:
+        print(
+            "closing game gracefully: no visible window found; "
+            "trying taskkill without /F"
+        )
+        completed = subprocess.run(
+            ["taskkill", "/IM", image_name],
+            capture_output=True,
+            text=True,
+        )
+        if completed.stdout:
+            print(completed.stdout.strip())
+        if completed.returncode != 0 and completed.stderr:
+            print(f"taskkill warning: {completed.stderr.strip()}")
+
+    if wait_for_image_exit(image_name, pids, timeout):
+        print("game closed cleanly")
+        return True
+
+    if not force:
+        print(
+            "game did not close within "
+            f"{timeout}s; leaving it running to avoid UE crash dialog. "
+            "Use --force-kill-game to force terminate."
+        )
+        return False
+
+    print("force-killing game after graceful close timed out")
     completed = subprocess.run(
-        ["taskkill", "/IM", "SoulcaliburVI.exe", "/F"],
+        ["taskkill", "/IM", image_name, "/F"],
         capture_output=True,
         text=True,
     )
@@ -811,6 +903,7 @@ def kill_game() -> None:
         print(completed.stdout.strip())
     if completed.returncode != 0 and completed.stderr:
         print(f"taskkill warning: {completed.stderr.strip()}")
+    return wait_for_image_exit(image_name, pids, 5.0)
 
 
 def launch_game(game_exe: Path, steam_appid: str) -> subprocess.Popen[Any] | None:
@@ -1095,7 +1188,32 @@ def finish_run(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--kill-game", action="store_true", help="Kill SoulcaliburVI.exe first")
+    parser.add_argument(
+        "--kill-game",
+        action="store_true",
+        help=(
+            "Close SoulcaliburVI.exe first. Uses WM_CLOSE by default so UE "
+            "does not show a crash dialog."
+        ),
+    )
+    parser.add_argument(
+        "--kill-timeout",
+        type=int,
+        default=DEFAULT_KILL_TIMEOUT_SECONDS,
+        help=(
+            "Seconds to wait for graceful --kill-game shutdown before "
+            f"failing or using --force-kill-game. Default: "
+            f"{DEFAULT_KILL_TIMEOUT_SECONDS}"
+        ),
+    )
+    parser.add_argument(
+        "--force-kill-game",
+        action="store_true",
+        help=(
+            "Force taskkill /F only after graceful --kill-game timeout. "
+            "This may trigger the UE crash dialog."
+        ),
+    )
     parser.add_argument("--build", action="store_true", help="Run build_and_deploy.bat first")
     parser.add_argument("--launch-game", action="store_true", help="Launch SC6 before writing request")
     parser.add_argument("--game-exe", default=str(DEFAULT_GAME_EXE))
@@ -1408,12 +1526,25 @@ def main() -> int:
     game_process: subprocess.Popen[Any] | None = None
 
     if args.kill_game:
-        kill_game()
+        if not kill_game(args.kill_timeout, args.force_kill_game):
+            return 6
 
     if args.build:
         code = run_build()
         if code != 0:
             return code
+
+    should_drive_game = bool(
+        args.launch_game
+        or args.focus_game
+        or args.menu_script
+        or args.state_only
+        or args.start_replay
+        or args.request
+        or args.wait
+    )
+    if (args.kill_game or args.build) and not should_drive_game:
+        return 0
 
     if args.launch_game:
         game_process = launch_game(game_exe, args.steam_appid)

@@ -75,6 +75,7 @@ export function makeMovelistMove(
     effectTags: p.effectTags ?? [],
     mainTip: p.mainTip ?? "",
     lethalHitCondition: p.lethalHitCondition ?? "",
+    groupIds: p.groupIds ?? [],
     commandSets: p.commandSets ?? [],
   };
 }

@@ -85,6 +85,8 @@ export interface Slot {
   animationIndex: number;
   animLength: number;
   totalFrames: number;
+  playbackSpeed60ths: number;
+  playbackSpeed: number;
   hitWindowStart: number;
   cellVariants: number[];
   attackCellRefs: number[];
@@ -359,6 +361,7 @@ export interface MovelistMove {
   effectTags: { code: string; label: string }[];
   mainTip: string;
   lethalHitCondition: string;
+  groupIds: string[];
   commandSets: MovelistCommandSet[];
 }
 
@@ -368,8 +371,21 @@ export interface MovelistCategory {
   itemOrders: number[];   // indices into Movelist.moves
 }
 
+export interface MovelistGroup {
+  id: string;
+  kind: "duplicate-move-id" | "input-family";
+  reason: string;
+  rootOrder: number;
+  orders: number[];
+  moveIds: number[];
+  condition: string;
+  baseInput: string;
+  displayName: string;
+}
+
 export interface Movelist {
   ryuuhaType: number;
   categories: MovelistCategory[];
   moves: MovelistMove[];
+  moveGroups: MovelistGroup[];
 }

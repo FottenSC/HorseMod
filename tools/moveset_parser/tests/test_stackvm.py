@@ -69,10 +69,18 @@ def test_jz_both_branches():
 
 
 def test_truncated_immediate():
-    # PUSH_IMM (0x01) needs 3 bytes; with only 2 we must mark truncated
+    # FRAME (0x01) needs 3 bytes; with only 2 we must mark truncated
     buf = bytes([0x01, 0x12])
     s = walk_stackvm(buf, 0)
     assert s.truncated
+
+
+def test_opcode_01_is_frame_not_push_immediate():
+    buf = bytes([0x01, 0x00, 0x02, 0x05])
+    s = walk_stackvm(buf, 0)
+    assert s.instructions[0].opcode == 0x01
+    assert s.instructions[0].mnemonic == "FRAME"
+    assert "FRAME" in s.instructions[0].render()
 
 
 def test_callcond_summary():

@@ -6,6 +6,12 @@ rem Produces a Thunderstore-format zip of HorseMod for SoulCalibur VI.
 rem
 rem Output: dist\HorseMod-thunderstore-<VERSION>.zip
 rem
+rem Default mode only builds the local Thunderstore-format zip. It does not
+rem upload anything. Pass `--publish` explicitly to publish to Thunderstore.
+rem
+rem   build_release_thunderstore.bat             local build + zip only
+rem   build_release_thunderstore.bat --publish   build + zip + upload
+rem
 rem Thunderstore expects a flat zip with these files at the root:
 rem
 rem   manifest.json
@@ -90,6 +96,45 @@ rem ============================================================================
 
 setlocal enabledelayedexpansion
 
+set SCRIPT_NAME=%~nx0
+set PUBLISH_TO_THUNDERSTORE=0
+if /I "%THUNDERSTORE_PUBLISH%"=="1" set PUBLISH_TO_THUNDERSTORE=1
+
+:parse_args
+if "%~1"=="" goto args_done
+if /I "%~1"=="--publish" (
+    set PUBLISH_TO_THUNDERSTORE=1
+    shift
+    goto parse_args
+)
+if /I "%~1"=="/publish" (
+    set PUBLISH_TO_THUNDERSTORE=1
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--no-publish" (
+    set PUBLISH_TO_THUNDERSTORE=0
+    shift
+    goto parse_args
+)
+if /I "%~1"=="/no-publish" (
+    set PUBLISH_TO_THUNDERSTORE=0
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--help" (
+    echo Usage: %SCRIPT_NAME% [--publish^|--no-publish]
+    echo.
+    echo Default: build the Thunderstore zip only.
+    echo --publish: also upload to Thunderstore after packaging.
+    exit /b 0
+)
+echo [release.thunderstore] unknown argument: %~1
+echo [release.thunderstore] usage: %SCRIPT_NAME% [--publish^|--no-publish]
+exit /b 2
+
+:args_done
+
 set REPO_ROOT=%~dp0
 if not "%REPO_ROOT:~-1%"=="\" set REPO_ROOT=%REPO_ROOT%\
 set REPO_ROOT_PS=%REPO_ROOT%.
@@ -110,7 +155,7 @@ set THUNDERSTORE_ENV=%REPO_ROOT%.env
 rem Pinned dependency on the SC6 community's unreal-shimloader package.
 rem Format: Author-Name-Version, matching the package URL on
 rem https://thunderstore.io/c/soulcalibur-vi/p/Thunderstore/unreal_shimloader/
-set SHIMLOADER_DEP=Thunderstore-unreal_shimloader-1.1.4
+set SHIMLOADER_DEP=Thunderstore-unreal_shimloader-1.1.7
 
 rem ---- Read VERSION file ----------------------------------------------------
 if not exist "%REPO_ROOT%VERSION" (
@@ -126,26 +171,34 @@ if "%VERSION%"=="" (
 echo [release.thunderstore] version: %VERSION%
 
 rem ---- Thunderstore version gate ------------------------------------------
-rem Fail before the expensive build if this VERSION is not strictly newer
-rem than the currently published Thunderstore package version.  The publish
-rem helper repeats this check immediately before upload to catch races.
+rem Only contact Thunderstore in explicit publish mode. Local package builds
+rem must be safe to run offline and must not accidentally upload anything.
+rem In publish mode, fail before the expensive build if this VERSION is not
+rem strictly newer than the currently published Thunderstore package version.
+rem The publish helper repeats this check immediately before upload to catch
+rem races.
 if not exist "%PUBLISH_SCRIPT%" (
     echo [release.thunderstore] missing publish helper: %PUBLISH_SCRIPT%
     exit /b 1
 )
-echo [release.thunderstore] checking published Thunderstore version ...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PUBLISH_SCRIPT%" ^
-    -CheckOnly ^
-    -RepoRoot "%REPO_ROOT_PS%" ^
-    -LocalVersion "%VERSION%" ^
-    -RepositoryUrl "%THUNDERSTORE_REPOSITORY%" ^
-    -Namespace "%THUNDERSTORE_NAMESPACE%" ^
-    -PackageName "%THUNDERSTORE_PACKAGE%" ^
-    -Community "%THUNDERSTORE_COMMUNITY%" ^
-    -Category "%THUNDERSTORE_CATEGORY%"
-if !ERRORLEVEL! NEQ 0 (
-    echo [release.thunderstore] version gate failed (exit !ERRORLEVEL!^)
-    exit /b !ERRORLEVEL!
+if "%PUBLISH_TO_THUNDERSTORE%"=="1" (
+    echo [release.thunderstore] publish mode enabled
+    echo [release.thunderstore] checking published Thunderstore version ...
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%PUBLISH_SCRIPT%" ^
+        -CheckOnly ^
+        -RepoRoot "%REPO_ROOT_PS%" ^
+        -LocalVersion "%VERSION%" ^
+        -RepositoryUrl "%THUNDERSTORE_REPOSITORY%" ^
+        -Namespace "%THUNDERSTORE_NAMESPACE%" ^
+        -PackageName "%THUNDERSTORE_PACKAGE%" ^
+        -Community "%THUNDERSTORE_COMMUNITY%" ^
+        -Category "%THUNDERSTORE_CATEGORY%"
+    if !ERRORLEVEL! NEQ 0 (
+        echo [release.thunderstore] version gate failed (exit !ERRORLEVEL!^)
+        exit /b !ERRORLEVEL!
+    )
+) else (
+    echo [release.thunderstore] local package mode; skipping Thunderstore version gate
 )
 
 rem ---- Icon presence check (Thunderstore requires it) ----------------------
@@ -274,6 +327,13 @@ powershell -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.Fil
 
 rem ---- Cleanup staging dir (zip is the deliverable) ------------------------
 rmdir /S /Q "%STAGE_DIR%"
+
+if not "%PUBLISH_TO_THUNDERSTORE%"=="1" (
+    echo.
+    echo [release.thunderstore] package built locally; not publishing.
+    echo [release.thunderstore] run "%SCRIPT_NAME% --publish" to upload this release.
+    exit /b 0
+)
 
 echo.
 echo [release.thunderstore] publishing to Thunderstore ...

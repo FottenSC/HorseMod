@@ -65,6 +65,7 @@ endif()
 
 add_subdirectory(RE-UE4SS)
 add_subdirectory(HorseMod)
+add_subdirectory(DotVanisher)
 add_subdirectory(RuntimeOracle)
 
 # Apply the dev-iteration LTO opt-out AFTER UE4SS has been declared so the

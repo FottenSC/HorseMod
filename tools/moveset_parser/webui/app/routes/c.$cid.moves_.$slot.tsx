@@ -250,8 +250,12 @@ function MoveSlotDetail() {
               <div className="stat-value">{primaryCell.activeFrames}<span className="stat-unit">f</span></div>
             </div>
             <div className="stat-block">
-              <div className="stat-label" title="Animation length in frames (slot.flAnimLength_30)">Anim len</div>
-              <div className="stat-value">{Math.round(slot.animLength)}<span className="stat-unit">f</span></div>
+              <div className="stat-label" title="Authored total frames from slot+0x34">Frames</div>
+              <div className="stat-value">{slot.totalFrames}<span className="stat-unit">f</span></div>
+            </div>
+            <div className="stat-block">
+              <div className="stat-label" title="Playback speed seed from slot+0x30 after native /60 conversion">Speed</div>
+              <div className="stat-value">{(slot.playbackSpeed ?? 0).toFixed(3)}<span className="stat-unit">x</span></div>
             </div>
           </div>
         ) : primaryCell ? (
@@ -538,7 +542,8 @@ function MoveSlotDetail() {
           <p className="muted" style={{ fontSize: 13 }}>
             slot <code className="mono">{slot.idx}</code>{" "}
             - anim <code className="mono">{slot.animationIndex}</code>
-            {" "}- length <code className="mono">{slot.animLength.toFixed(1)}f</code>
+            {" "}- frames <code className="mono">{slot.totalFrames}f</code>
+            {" "}- speed <code className="mono">{(slot.playbackSpeed ?? 0).toFixed(3)}x</code>
             {primaryCell && (
               <>
                 {" "}-{" "}

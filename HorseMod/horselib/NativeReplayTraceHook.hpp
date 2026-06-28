@@ -62,6 +62,11 @@ namespace Horse
     void replay_scrub_note_tick_chara_main_simulation_exit(
         void* chara) noexcept;
     void replay_scrub_note_hit_resolution_exit() noexcept;
+    bool replay_scrub_capture_native_replay_entry_payload(
+        void* container,
+        uint64_t request_id,
+        const void* payload_data,
+        size_t payload_size) noexcept;
 
     class NativeReplayTraceHook
     {
@@ -142,9 +147,6 @@ namespace Horse
             ok &= hook(Slot::HandleReplayFileRequest,
                        base + kHandleReplayFileRequestRVA,
                        &NativeReplayTraceHook::detour_handle_replay_file_request);
-            ok &= hook(Slot::HandleReplayFileRequestComplete,
-                       base + kHandleReplayFileRequestCompleteRVA,
-                       &NativeReplayTraceHook::detour_handle_replay_file_request_complete);
             ok &= hook(Slot::DecompressUlx1EntryBlob,
                        base + kDecompressUlx1EntryBlobRVA,
                        &NativeReplayTraceHook::detour_decompress_ulx1_entry_blob);
@@ -152,6 +154,9 @@ namespace Horse
                        base + kDeserializeEntryPayloadToListItemRVA,
                        &NativeReplayTraceHook::detour_deserialize_entry_payload_to_list_item);
 #endif
+            ok &= hook(Slot::HandleReplayFileRequestComplete,
+                       base + kHandleReplayFileRequestCompleteRVA,
+                       &NativeReplayTraceHook::detour_handle_replay_file_request_complete);
 
 #if HORSEMOD_ENABLE_REPLAY_INPUT_STAGE_TRACE
             bool input_stage_trace_ok = true;
@@ -455,6 +460,9 @@ namespace Horse
                 slot_index(Slot::DeserializeEntryPayloadToListItem) + 1;
 #else
                 slot_index(Slot::DeferredStageMapPathCallback) + 1;
+#endif
+#if !HORSEMOD_ENABLE_EXTENDED_NATIVE_REPLAY_TRACE
+            ++count; // HandleReplayFileRequestComplete payload capture.
 #endif
 #if HORSEMOD_ENABLE_REPLAY_INPUT_STAGE_TRACE
             count += 2;
@@ -2888,10 +2896,22 @@ namespace Horse
         static void __fastcall detour_handle_replay_file_request_complete(
             void* container, uint64_t request_id, bool succeeded, void* payload)
         {
+            const TArrayByteNative payload_header =
+                safe_read_tarray_header(payload);
+            bool captured = false;
+            if (succeeded && payload_header.data && payload_header.num > 0 &&
+                payload_header.max >= payload_header.num)
+            {
+                captured = replay_scrub_capture_native_replay_entry_payload(
+                    container, request_id, payload_header.data,
+                    static_cast<size_t>(payload_header.num));
+            }
+
             ReplayTraceFields f;
             f.hex("container", reinterpret_cast<uintptr_t>(container))
              .uinteger("request_id", request_id)
              .boolean("succeeded", succeeded)
+             .boolean("captured", captured)
              .integer("current_replay_version_before",
                       replay_container_current_version(container));
             add_tarray_fields(f, "payload", payload);
@@ -2903,15 +2923,16 @@ namespace Horse
             out.hex("container", reinterpret_cast<uintptr_t>(container))
                .uinteger("request_id", request_id)
                .boolean("succeeded", succeeded)
+               .boolean("captured", captured)
                .integer("current_replay_version_after",
                         replay_container_current_version(container));
             add_tarray_fields(out, "payload", payload);
             emit("native_replay_handle_file_request_complete_exit", out);
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[NativeReplayTrace] handle_file_request_complete id={} "
-                "succeeded={} payload_num={} version={}\n"),
+                "succeeded={} captured={} payload_num={} version={}\n"),
                 request_id, succeeded ? 1 : 0,
-                safe_read_tarray_header(payload).num,
+                captured ? 1 : 0, payload_header.num,
                 replay_container_current_version(container));
         }
 

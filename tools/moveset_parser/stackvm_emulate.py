@@ -13,16 +13,16 @@ from CALLCOND opcodes. Specifically it captures:
 
 The emulator is single-pass and linear over the instructions in PC order.
 Stack values are tagged abstract:
-    "concrete"  - a known u16 from PUSH_IMM / SET_ACC_U16 / folded math
+    "concrete"  - a known u16 from SET_ACC_U16 / folded math
     "varref"    - a LOAD_VAR result whose runtime value we don't know
     "unknown"   - the result of an operation we couldn't fold
 
 Each TransitionEvent is annotated with the most recently captured
 predicate (last_predicate). In SC6 bytecode the canonical pattern is:
 
-    PUSH_IMM <sub_op>; ...; CALLCOND 0x00 (EvaluateIfOpcode), argc
+    SET_ACC_U16+PUSH <sub_op>; ...; CALLCOND 0x00 (EvaluateIfOpcode), argc
     JZ <skip>
-    PUSH_IMM <next_move_id>; ...; CALLCOND 0x05 (TransitionAuthor), argc
+    SET_ACC_U16+PUSH <next_move_id>; ...; CALLCOND 0x05 (TransitionAuthor), argc
 
 So the "last_predicate" heuristic correlates the gating predicate to the
 transition it gates. False positives are possible (predicates used for
@@ -74,6 +74,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Union
 import struct
 
+from luxformats import decode_packed_slot_id
 from stackvm import StackVMInstruction, StackVMScript
 
 
@@ -214,14 +215,21 @@ class TransitionEvent:
         raw = self.next_move_id_raw
         if raw is None:
             return None
-        return (raw >> 12) & 0xF
+        return decode_packed_slot_id(raw).bank
 
     @property
     def next_move_slot(self) -> Optional[int]:
         raw = self.next_move_id_raw
         if raw is None:
             return None
-        return raw & 0x7FF
+        return decode_packed_slot_id(raw).slot
+
+    @property
+    def next_move_ignored_bit_11(self) -> Optional[bool]:
+        raw = self.next_move_id_raw
+        if raw is None:
+            return None
+        return decode_packed_slot_id(raw).ignored_bit_11
 
     @property
     def is_indirect(self) -> bool:

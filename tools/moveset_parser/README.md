@@ -121,6 +121,9 @@ python compare_community_vs_parsed.py --community-xlsx path\to\community_frameda
 
 # Or compare against a pre-parsed local JSON snapshot.
 python compare_community_vs_parsed.py --community-json path\to\community_framedata.json
+
+# Build the experimental player-facing family calibration report.
+python player_move_families.py --community-xlsx path\to\community_framedata.xlsx --parsed-data-dir webui\public\data --summary-json path\to\player_family_report.json
 ```
 
 Programmatic use:
@@ -141,6 +144,35 @@ for r in hit.records:
         print(f"sphere @ bone {r.slot}: ({r.pos_x}, {r.pos_y}, {r.pos_z}) r={r.radius}")
 ```
 
+### Move grouping model
+
+The parser exports three move granularities:
+
+| Layer | JSON field | Use |
+|-------|------------|-----|
+| Slot/debug moves | `khd.flatMoves` | Every attack-cell-bearing slot reachable from bytecode; useful for RE/debugging, too granular for player-facing move lists |
+| In-game movelist rows | `movelist.moves` | Bandai's UI-facing move entries from `DA_MovePlayData` + localization; best default for players |
+| Grouping hints | `movelist.moveGroups` / `moves[].groupIds` | Non-destructive links between rows that should often be displayed together |
+
+`moveGroups` currently includes two confidence levels:
+
+- `duplicate-move-id`: strong; the same `MoveListID` appears in multiple
+  movelist rows/categories.
+- `input-family`: heuristic; same condition and exact/extended input at a
+  `.` or `~` continuation boundary, e.g. `214A` grouped with `214A.A`.
+
+Consumers should group for display without deleting the raw rows. Multi-hit
+strings, stance follow-ups, and direction variants often need all underlying
+slots/cells preserved for editor work.
+
+For player-facing grouping beyond the current lightweight hints, use
+`player_move_families.py` as the calibration reference. It builds explicit
+command-tree edges (`prefix`, `hold-variant`, `direction-alternative`,
+`stance-transition`) from the community sheet and reports which inferred family
+rows are already anchored by generated parser JSON. This is not promoted to the
+web export yet; it is the reproducible study artifact for the future
+`playerMoveFamilies` layer.
+
 ## File format references
 
 ### KH11 (`.khd`) on-disk layout
@@ -153,8 +185,8 @@ for r in hit.records:
 +0x10  u32       off_section_A
 +0x14  u32       off_section_B
 +0x18  u32       off_section_C
-+0x1C..+0x2F     u16 pairs (counts / aux indices)
-+0x30..section_A   large pad / trailer (~200 KB in shipping files)
++0x1C..+0x2F     four u16 start/count bucket pairs for packed move ids
++0x30..section_A   FLuxMoveBankSlotView table, then opaque/unused bytes
 ```
 
 **Section A** is a 0x70-stride array of lookup records (150-452 entries
@@ -177,7 +209,24 @@ sub-arrays:
 |-------------|-------------|--------|-----------|
 | A (offset @ +0x10) | `LuxBattleAttackCell` | 0x70 | **Attack property cells** — the FULL list of attack-state slots with damage / frames / blockstun / hitstun / reaction IDs / ranges per slot |
 | B (offset @ +0x14) | `LuxBattleNonAttackMoveDescr` | 0x06 | Non-attack move descriptors — `(damage_multiplier, passthrough_tag, duration_60ths)` triples |
-| C (offset @ +0x18) | (event records, partial) | variable | Move-event records — typed header-prefix (0x30 stride, ~3-94 records) + opaque payload (~99% of section) |
+| C (offset @ +0x18) | (event records, partial) | variable | Move-event records - typed header-prefix (0x30 stride, ~3-94 records) + opaque payload (~99% of section) |
+
+**Slot table (`FLuxMoveBankSlotView`, stride 0x48):**
+
+Packed move ids are resolved like `LuxMoveVM_ResolveBankSlot`: bits
+15..12 select one of the four `FLuxMoveBank` buckets at header
+`+0x1C..+0x2F`, bits 10..0 select the slot within that bucket, and bit
+11 is masked out by the native slot-index calculation.
+
+| Offset | Type | Field | Meaning |
+|--------|------|-------|---------|
+| +0x00 | ushort | `wAnimationIndex_00` | motion id |
+| +0x02 | ushort | `wMotionPlaybackParam_02` | native 16-bit slot header field, exact meaning still open |
+| +0x06 | ushort | `wMotionFlags_06` | native 16-bit slot flags |
+| +0x30 | float | `flPlaybackSpeed60ths_30` | playback speed seed; transition code divides by 60 |
+| +0x34 | ushort | `wTotalFrames` | authored total animation frames |
+| +0x38 | u32 | `dwBytecodeOffset_38` | bank-relative stack-VM bytecode/cancel offset |
+| +0x3C..+0x46 | i16[6] | `nCellBoneIndexPerVariant` | attack-cell refs; refs with bit 0x1000 point at Section-B throw cells |
 
 **Section A field list per cell** (canonical from Ghidra
 `LuxBattleAttackCell` struct):

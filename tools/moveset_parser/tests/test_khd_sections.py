@@ -24,7 +24,7 @@ def _synthetic_kh11() -> bytes:
     struct.pack_into("<II", data, slot + 0x10, 0, 0)
     struct.pack_into("<I", data, slot + 0x1C, 0)
     struct.pack_into("<QQ", data, slot + 0x20, 0, 0)
-    struct.pack_into("<fhhI", data, slot + 0x30, 42.0, 42, 5, 0)
+    struct.pack_into("<fHHI", data, slot + 0x30, 120.0, 42, 5, 0)
     struct.pack_into("<6h", data, slot + 0x3C, 1, 0x1000, 0x1001, -1, -1, -1)
 
     for i in range(4):
@@ -51,10 +51,13 @@ def test_parse_khd_throw_and_event_records():
 
     slot = k.slots[0]
     assert slot.total_frames == 42
+    assert slot.flPlaybackSpeed60ths_30 == 120.0
+    assert slot.playback_speed_scalar == 2.0
     assert slot.attack_cell_indices == [1]
     assert slot.throw_cell_indices == [0, 1]
     assert k.cell_to_slots == {1: [(0, 0)]}
     assert k.throw_to_slots == {0: [(0, 1)], 1: [(0, 2)]}
+    assert k.resolve_packed_slot(0x0800) == 0
 
     assert [t.wDamage for t in k.sections[1].throw_cells] == [55, 70]
     assert len(k.sections[2].event_records) == 2
@@ -80,7 +83,10 @@ def test_export_helpers_include_throw_slot_and_event_fields():
     k = parse_khd(_synthetic_kh11())
 
     slot_payload = slot_to_dict(k.slots[0])
+    assert slot_payload["animLength"] == 42
     assert slot_payload["totalFrames"] == 42
+    assert slot_payload["playbackSpeed60ths"] == 120.0
+    assert slot_payload["playbackSpeed"] == 2.0
     assert slot_payload["attackCellRefs"] == [1]
     assert slot_payload["throwCellRefs"] == [0, 1]
 
