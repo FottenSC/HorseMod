@@ -141,6 +141,7 @@ set REPO_ROOT_PS=%REPO_ROOT%.
 
 set BUILD_DIR=build_cmake_LessEqual421__Shipping__Win64
 set BUILT_DLL=%REPO_ROOT%%BUILD_DIR%\HorseMod\HorseMod.dll
+set BUILT_LAUNCHER=%REPO_ROOT%%BUILD_DIR%\HorseMod\HorseReplayLauncher.exe
 set DIST_DIR=%REPO_ROOT%dist
 set STAGE_DIR=%DIST_DIR%\stage_thunderstore
 set ICON_SRC=%REPO_ROOT%release_resources\icon.png
@@ -224,6 +225,10 @@ if not exist "%BUILT_DLL%" (
     echo [release.thunderstore] expected DLL not found at %BUILT_DLL%
     exit /b 1
 )
+if not exist "%BUILT_LAUNCHER%" (
+    echo [release.thunderstore] expected replay launcher not found at %BUILT_LAUNCHER%
+    exit /b 1
+)
 
 rem ---- Stage Thunderstore zip layout ---------------------------------------
 rem Mod payload goes under `mod\` — see header comment for the routing
@@ -232,10 +237,16 @@ rem drop it under `<profile>\shimloader\mod\<author>-<package>\` on disk,
 rem which is what shimloader rewrites UE4SS's runtime lookups to.
 if exist "%STAGE_DIR%" rmdir /S /Q "%STAGE_DIR%"
 mkdir "%STAGE_DIR%\mod\dlls"
+mkdir "%STAGE_DIR%\mod\tools"
 
 copy /Y "%BUILT_DLL%" "%STAGE_DIR%\mod\dlls\main.dll" >nul
 if !ERRORLEVEL! NEQ 0 (
     echo [release.thunderstore] failed to copy DLL into stage
+    exit /b 1
+)
+copy /Y "%BUILT_LAUNCHER%" "%STAGE_DIR%\mod\tools\HorseReplayLauncher.exe" >nul
+if !ERRORLEVEL! NEQ 0 (
+    echo [release.thunderstore] failed to copy replay launcher into stage
     exit /b 1
 )
 type nul > "%STAGE_DIR%\mod\enabled.txt"

@@ -26,10 +26,13 @@ if not "%REPO_ROOT:~-1%"=="\" set REPO_ROOT=%REPO_ROOT%\
 
 set BUILD_DIR=build_cmake_LessEqual421__Shipping__Win64
 set BUILT_DLL=%REPO_ROOT%%BUILD_DIR%\HorseMod\HorseMod.dll
+set BUILT_LAUNCHER=%REPO_ROOT%%BUILD_DIR%\HorseMod\HorseReplayLauncher.exe
 
 set GAME_DIR=E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64
 set MOD_NAME=HorseMod
-set DEPLOY_DIR=%GAME_DIR%\ue4ss\Mods\%MOD_NAME%\dlls
+set DEPLOY_MOD_DIR=%GAME_DIR%\ue4ss\Mods\%MOD_NAME%
+set DEPLOY_DIR=%DEPLOY_MOD_DIR%\dlls
+set DEPLOY_TOOLS_DIR=%DEPLOY_MOD_DIR%\tools
 
 rem ---- Build (delegate to the pure build script) ---------------------------
 call "%REPO_ROOT%build_horse_mod.bat"
@@ -42,9 +45,14 @@ if not exist "%BUILT_DLL%" (
     echo [build_and_deploy] expected DLL not found at %BUILT_DLL%
     exit /b 1
 )
+if not exist "%BUILT_LAUNCHER%" (
+    echo [build_and_deploy] expected replay launcher not found at %BUILT_LAUNCHER%
+    exit /b 1
+)
 
 rem ---- Deploy --------------------------------------------------------------
 if not exist "%DEPLOY_DIR%" mkdir "%DEPLOY_DIR%"
+if not exist "%DEPLOY_TOOLS_DIR%" mkdir "%DEPLOY_TOOLS_DIR%"
 
 echo Copying main.dll to game directory...
 copy /Y "%BUILT_DLL%" "%DEPLOY_DIR%\main.dll"
@@ -57,6 +65,15 @@ if !ERRORLEVEL! NEQ 0 (
 )
 
 echo Copied successfully to %DEPLOY_DIR%\main.dll
+
+echo Copying HorseReplayLauncher.exe to game directory...
+copy /Y "%BUILT_LAUNCHER%" "%DEPLOY_TOOLS_DIR%\HorseReplayLauncher.exe"
+if !ERRORLEVEL! NEQ 0 (
+    echo.
+    echo [build_and_deploy] launcher copy failed
+    exit /b !ERRORLEVEL!
+)
+echo Copied successfully to %DEPLOY_TOOLS_DIR%\HorseReplayLauncher.exe
 echo.
 echo [build_and_deploy] finished at %DATE% %TIME%
 exit /b 0

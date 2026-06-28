@@ -300,6 +300,201 @@ static bool horsemod_show_file_in_explorer(
     return reinterpret_cast<intptr_t>(result) > 32;
 }
 
+static std::wstring horsemod_current_module_path() noexcept
+{
+    HMODULE h = nullptr;
+    if (!GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&horsemod_current_module_path), &h) ||
+        !h)
+        return {};
+
+    wchar_t buf[MAX_PATH]{};
+    const DWORD n = GetModuleFileNameW(h, buf, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return {};
+    return buf;
+}
+
+static std::wstring horsemod_parent_dir(std::wstring path) noexcept
+{
+    while (!path.empty() && (path.back() == L'\\' || path.back() == L'/'))
+        path.pop_back();
+    const size_t slash = path.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return {};
+    path.resize(slash + 1);
+    return path;
+}
+
+static std::wstring horsemod_mod_root_dir() noexcept
+{
+    std::wstring dir = horsemod_parent_dir(horsemod_current_module_path());
+    if (dir.empty()) return {};
+    std::wstring lowered = dir;
+    for (wchar_t& c : lowered)
+        if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c + 32);
+    if (lowered.ends_with(L"\\dlls\\") || lowered.ends_with(L"/dlls/"))
+        dir = horsemod_parent_dir(dir);
+    return dir;
+}
+
+static std::wstring horsemod_replay_launcher_path() noexcept
+{
+    const std::wstring root = horsemod_mod_root_dir();
+    if (root.empty()) return {};
+    return root + L"tools\\HorseReplayLauncher.exe";
+}
+
+static std::wstring horsemod_replay_link_command() noexcept
+{
+    const std::wstring launcher = horsemod_replay_launcher_path();
+    if (launcher.empty()) return {};
+    return L"\"" + launcher + L"\" \"%1\"";
+}
+
+static bool horsemod_file_exists(const std::wstring& path) noexcept
+{
+    const DWORD attrs = GetFileAttributesW(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES &&
+           (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+static bool horsemod_set_reg_string(
+    HKEY key,
+    const wchar_t* value_name,
+    const std::wstring& value) noexcept
+{
+    const DWORD bytes =
+        static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t));
+    return RegSetValueExW(key, value_name, 0, REG_SZ,
+                          reinterpret_cast<const BYTE*>(value.c_str()),
+                          bytes) == ERROR_SUCCESS;
+}
+
+static std::wstring horsemod_get_reg_string(
+    HKEY root,
+    const wchar_t* subkey,
+    const wchar_t* value_name) noexcept
+{
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(root, subkey, 0, KEY_READ, &key) != ERROR_SUCCESS)
+        return {};
+
+    DWORD type = 0;
+    DWORD bytes = 0;
+    const LONG q = RegQueryValueExW(
+        key, value_name, nullptr, &type, nullptr, &bytes);
+    if (q != ERROR_SUCCESS || type != REG_SZ || bytes < sizeof(wchar_t))
+    {
+        RegCloseKey(key);
+        return {};
+    }
+
+    std::wstring value(bytes / sizeof(wchar_t), L'\0');
+    if (RegQueryValueExW(key, value_name, nullptr, &type,
+                         reinterpret_cast<BYTE*>(value.data()),
+                         &bytes) != ERROR_SUCCESS)
+    {
+        RegCloseKey(key);
+        return {};
+    }
+    RegCloseKey(key);
+    while (!value.empty() && value.back() == L'\0') value.pop_back();
+    return value;
+}
+
+static bool horsemod_reg_string_value_exists(
+    HKEY root,
+    const wchar_t* subkey,
+    const wchar_t* value_name) noexcept
+{
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(root, subkey, 0, KEY_READ, &key) != ERROR_SUCCESS)
+        return false;
+    DWORD type = 0;
+    DWORD bytes = 0;
+    const LONG q = RegQueryValueExW(
+        key, value_name, nullptr, &type, nullptr, &bytes);
+    RegCloseKey(key);
+    return q == ERROR_SUCCESS && type == REG_SZ;
+}
+
+static bool horsemod_replay_link_handler_registered() noexcept
+{
+    const std::wstring launcher = horsemod_replay_launcher_path();
+    const std::wstring command = horsemod_replay_link_command();
+    if (launcher.empty() || command.empty() || !horsemod_file_exists(launcher))
+        return false;
+
+    const bool protocol = horsemod_reg_string_value_exists(
+        HKEY_CURRENT_USER, L"Software\\Classes\\sc6replay",
+        L"URL Protocol");
+    const std::wstring current = horsemod_get_reg_string(
+        HKEY_CURRENT_USER,
+        L"Software\\Classes\\sc6replay\\shell\\open\\command",
+        nullptr);
+    return protocol && current == command;
+}
+
+static bool horsemod_register_replay_link_handler() noexcept
+{
+    const std::wstring launcher = horsemod_replay_launcher_path();
+    const std::wstring command = horsemod_replay_link_command();
+    if (launcher.empty() || command.empty() || !horsemod_file_exists(launcher))
+    {
+        Output::send<LogLevel::Warning>(STR(
+            "[ReplayLink] launcher missing path='{}'\n"),
+            RC::to_generic_string(horsemod_wide_to_utf8(launcher)));
+        return false;
+    }
+
+    HKEY root = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\Classes\\sc6replay",
+                        0, nullptr, 0, KEY_WRITE, nullptr, &root,
+                        nullptr) != ERROR_SUCCESS)
+    {
+        Output::send<LogLevel::Warning>(
+            STR("[ReplayLink] failed to create HKCU protocol key\n"));
+        return false;
+    }
+
+    bool ok = horsemod_set_reg_string(
+        root, nullptr, L"URL:HorseMod SC6 Replay");
+    ok = horsemod_set_reg_string(root, L"URL Protocol", L"") && ok;
+    RegCloseKey(root);
+
+    HKEY icon = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\Classes\\sc6replay\\DefaultIcon",
+                        0, nullptr, 0, KEY_WRITE, nullptr, &icon,
+                        nullptr) == ERROR_SUCCESS)
+    {
+        (void)horsemod_set_reg_string(icon, nullptr, launcher);
+        RegCloseKey(icon);
+    }
+
+    HKEY command_key = nullptr;
+    if (RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            L"Software\\Classes\\sc6replay\\shell\\open\\command",
+            0, nullptr, 0, KEY_WRITE, nullptr, &command_key,
+            nullptr) != ERROR_SUCCESS)
+    {
+        Output::send<LogLevel::Warning>(
+            STR("[ReplayLink] failed to create protocol command key\n"));
+        return false;
+    }
+    ok = horsemod_set_reg_string(command_key, nullptr, command) && ok;
+    RegCloseKey(command_key);
+
+    Output::send<LogLevel::Default>(STR(
+        "[ReplayLink] protocol handler {} launcher='{}'\n"),
+        ok ? STR("registered") : STR("registration failed"),
+        RC::to_generic_string(horsemod_wide_to_utf8(launcher)));
+    return ok && horsemod_replay_link_handler_registered();
+}
+
 // ----------------------------------------------------------------------------
 class HorseMod final : public CppUserModBase
 {
@@ -721,6 +916,7 @@ private:
     Horse::StageVisualSuppressor m_stage_visuals{};
     std::atomic<bool> m_hide_stage_visuals{false};
     std::atomic<bool> m_replay_trace_files_enabled{false};
+    std::atomic<bool> m_replay_link_handler_registered{false};
 
     // ---- Freeze frame (WorldTickGate-driven) --------------------------------
     // Replaces the broken Horse::GamePause helper (which patched a chara
@@ -3355,6 +3551,10 @@ public:
         // Thunderstore profiles inspectable even if the user exits from
         // the title screen before the periodic save runs.
         save_persisted_settings();
+
+        m_replay_link_handler_registered.store(
+            horsemod_register_replay_link_handler(),
+            std::memory_order_release);
 
         // Populate reset-hook candidate list.  Registration is attempted
         // (and retried) from on_update once each slot's containing class
@@ -8943,6 +9143,23 @@ private:
                     ImGui::SameLine(0.0f, 20.0f);
                     ImGui::TextDisabled("Trace files off");
                 }
+
+                ImGui::Spacing();
+                const bool link_handler =
+                    m_replay_link_handler_registered.load(
+                        std::memory_order_acquire);
+                ImGui::Text("Replay link handler: %s",
+                            link_handler ? "registered" : "missing");
+                ImGui::SameLine(0.0f, 20.0f);
+                if (ImGui::Button("Repair replay link handler##dev_link_repair"))
+                {
+                    m_replay_link_handler_registered.store(
+                        horsemod_register_replay_link_handler(),
+                        std::memory_order_release);
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Register sc6replay:// links for the current Windows\n"
+                    "user. This uses HKCU and does not require admin.");
 
                 bool verbose = scrub.verbose_diag();
                 if (ImGui::Checkbox("Verbose replay log##dev_verbose",

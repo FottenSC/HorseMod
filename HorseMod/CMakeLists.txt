@@ -50,6 +50,14 @@ add_library(${TARGET} SHARED
     ${HORSEMOD_IMGUIFILEDIALOG_SOURCES}
 )
 
+add_executable(HorseReplayLauncher WIN32
+    tools/HorseReplayLauncher.cpp
+)
+set_target_properties(HorseReplayLauncher PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+)
+target_link_libraries(HorseReplayLauncher PRIVATE winhttp shell32)
+
 set(_horsemod_enable_ebtracer ${HORSEMOD_ENABLE_EBTRACER})
 
 target_compile_definitions(${TARGET} PRIVATE
@@ -127,6 +135,8 @@ if(EXISTS "${HORSEMOD_REPLAY_FUNCTION_MAP}")
         COMMENT "Copying replay function map next to HorseMod.dll"
     )
 endif()
+
+add_dependencies(${TARGET} HorseReplayLauncher)
 
 # Copy the DLL to the game's mod directory after building (optional, adjust path as needed)
 # add_custom_command(TARGET ${TARGET} POST_BUILD
