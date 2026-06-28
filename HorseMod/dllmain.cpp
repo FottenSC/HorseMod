@@ -6172,7 +6172,7 @@ private:
         if (replay_scrub.should_suppress_timeline_presentation())
         {
             sync_timeline_visual_actor_tick_gate();
-            replay_scrub.tick_capture();
+            replay_scrub.tick_capture(false);
             tick_generate_timeline_with_replay_window(replay_scrub);
             sync_timeline_visual_actor_tick_gate();
             if (replay_scrub.should_suppress_timeline_presentation())
@@ -6297,7 +6297,11 @@ private:
         // viewer don't pay any memory cost.  Subsequent ticks find
         // is_initialized()=true and skip.  Capture is unbounded (2 GB
         // ceiling); there is no capture-window setting.
-        replay_scrub.tick_capture();
+        const bool refresh_replay_ui_runtime =
+            Horse::GameImGui::visible()
+            && !m_replay_timeline_only_overlay.load(
+                std::memory_order_relaxed);
+        replay_scrub.tick_capture(refresh_replay_ui_runtime);
         // 2026-05-16: "Generate timeline" driver.  Services the UI
         // start/stop request and, while generating, watches for the
         // end of the recording.  The fast-forward itself is done by

@@ -9332,11 +9332,12 @@ namespace Horse
         //     explicit gate makes the intent obvious.
         //   * Presence == Replay
         //   * Frame counter advanced since last observation
-        void tick_capture()
+        void tick_capture(bool refresh_ui_runtime_cache = false)
         {
             if (!is_initialized())
             {
-                refresh_replay_ui_runtime_status_cache();
+                if (refresh_ui_runtime_cache)
+                    maybe_refresh_replay_ui_runtime_status_cache(INT32_MIN);
                 return;
             }
 
@@ -9348,7 +9349,8 @@ namespace Horse
             // position() to extrapolate a smooth playhead post-seek.
             const int32_t tick_master = read_engine_master_clock();
             m_live_master_cached.store(tick_master, std::memory_order_release);
-            refresh_replay_ui_runtime_status_cache(tick_master);
+            if (refresh_ui_runtime_cache)
+                maybe_refresh_replay_ui_runtime_status_cache(tick_master);
 
             // Post-seek tick logging runs UNCONDITIONALLY (even when
             // paused / generation inactive / outside Replay presence) so
@@ -12476,6 +12478,37 @@ namespace Horse
                 engine_master, std::memory_order_release);
             m_battle_master_cached.store(
                 battle_master, std::memory_order_release);
+        }
+
+        void maybe_refresh_replay_ui_runtime_status_cache(
+            int32_t engine_master_hint) noexcept
+        {
+            const uint32_t tick =
+                m_ui_runtime_cache_tick_counter.fetch_add(
+                    1, std::memory_order_relaxed);
+            bool refresh = (tick % kUiRuntimeCacheRefreshTickStep) == 0;
+
+            if (engine_master_hint >= 0)
+            {
+                const int32_t last =
+                    m_ui_runtime_cache_last_master.load(
+                        std::memory_order_acquire);
+                refresh = refresh
+                    || last == INT32_MIN
+                    || engine_master_hint < last
+                    || (engine_master_hint - last)
+                        >= kUiRuntimeCacheRefreshMasterStep;
+            }
+
+            if (!refresh)
+                return;
+
+            refresh_replay_ui_runtime_status_cache(engine_master_hint);
+            if (engine_master_hint >= 0)
+            {
+                m_ui_runtime_cache_last_master.store(
+                    engine_master_hint, std::memory_order_release);
+            }
         }
 
         ReplayUiRuntimeStatus replay_ui_runtime_status() const noexcept
@@ -15785,10 +15818,11 @@ namespace Horse
         //
         // m_live_master_cached is updated every cockpit tick from
         // read_engine_master_clock() so the UI thread can read a
-        // stable value without racing the game thread.  Replay UI also
-        // reads the cached round/status fields below because ImGui draws
-        // from the DXGI Present hook on the render thread; it must not
-        // resolve UObjects or walk Horse::GlobalPtr directly.
+        // stable value without racing the game thread.  The heavier
+        // cached round/status fields below are refreshed only when a
+        // game-thread caller asks for them because ImGui draws from the
+        // DXGI Present hook on the render thread; it must not resolve
+        // UObjects or walk Horse::GlobalPtr directly.
         std::atomic<int32_t> m_last_seek_master_tag {-1};
         std::atomic<int32_t> m_live_round_cached    {-1};
         std::atomic<int32_t> m_live_master_cached   {-1};
@@ -15804,6 +15838,10 @@ namespace Horse
         std::atomic<bool> m_ui_cached_battle_status_ok {false};
         std::atomic<uint8_t> m_ui_cached_battle_main_state {0};
         std::atomic<uint8_t> m_ui_cached_battle_status {0};
+        static constexpr uint32_t kUiRuntimeCacheRefreshTickStep = 15;
+        static constexpr int32_t kUiRuntimeCacheRefreshMasterStep = 15;
+        std::atomic<uint32_t> m_ui_runtime_cache_tick_counter {0};
+        std::atomic<int32_t> m_ui_runtime_cache_last_master {INT32_MIN};
         int32_t m_playback_diag_last_master {-1};
         int32_t m_playback_diag_last_round {-1};
         int32_t m_playback_diag_last_result {0};
@@ -17307,6 +17345,9 @@ namespace Horse
             const bool in_replay_list_scene =
                 current_scene_info.class_name.find("ReplayListScene") !=
                 std::string::npos;
+            const bool in_creation_scene =
+                current_scene_info.class_name.find("CreationScene") !=
+                std::string::npos;
 
             const wchar_t* transition_tag = L"replay_list";
             const char* transition_tag_utf8 = "replay_list";
@@ -17341,9 +17382,15 @@ namespace Horse
                 transition_tag = L"battlesetup";
                 transition_tag_utf8 = "battlesetup";
             }
+            else if (in_creation_scene)
+            {
+                transition_tag = L"mainmenu";
+                transition_tag_utf8 = "mainmenu";
+            }
 
             const bool prefer_current_scene_change =
-                in_replay_battle_scene && stop_at_setup_scene;
+                (in_replay_battle_scene && stop_at_setup_scene) ||
+                in_creation_scene;
             const char* transition_owner = prefer_current_scene_change
                 ? "current_scene"
                 : "game_flow_manager";
@@ -17360,6 +17407,32 @@ namespace Horse
                      !nav.game_flow_manager)
             {
                 reason = "UIGameFlowManager unavailable";
+            }
+            else if (!ok && in_creation_scene &&
+                     nav.enable_change_scene_ok &&
+                     !nav.enable_change_scene)
+            {
+                if (!state.existing_replay_request_to_stop_requested)
+                {
+                    ++state.existing_replay_request_to_stop_attempts;
+                    ok = request_current_gameflow_scene_to_stop(
+                        state, nav, reason);
+                    transition_owner = "current_scene_request_to_stop";
+                }
+                else if (!state.existing_replay_ready_to_stop_requested)
+                {
+                    ++state.existing_replay_ready_to_stop_attempts;
+                    ok = mark_current_gameflow_scene_ready_to_stop(
+                        state, nav, reason);
+                    transition_owner = "current_scene_ready_to_stop";
+                }
+                else
+                {
+                    ++state.existing_replay_manager_stop_complete_attempts;
+                    ok = complete_gameflow_current_scene_stop(
+                        state, nav, reason);
+                    transition_owner = "game_flow_manager_stop_complete";
+                }
             }
             else if (!ok && nav.enable_change_scene_ok &&
                      !nav.enable_change_scene)
@@ -17380,6 +17453,14 @@ namespace Horse
                             after_nav.next_scene != nullptr ||
                             after_nav.next_scene_direct != nullptr;
                         if (!current_scene_change_queued &&
+                            in_creation_scene)
+                        {
+                            transition_owner = "current_scene_async";
+                            reason =
+                                "called CurrentScene.ChangeScene; "
+                                "waiting for Creation transition";
+                        }
+                        else if (!current_scene_change_queued &&
                             nav.game_flow_manager)
                         {
                             manager_fallback_attempted = true;
@@ -17805,6 +17886,8 @@ namespace Horse
                 "GameFlowChangeScene replaybattle",
                 "GameFlowChangeScene battle",
                 "GameFlowChangeScene battlesetup",
+                "GameFlowChangeScene mainmenu",
+                "GameFlowChangeScene creation",
             };
             for (const char* allowed : kAllowedGameFlowChanges)
             {
@@ -17827,6 +17910,64 @@ namespace Horse
             if (!world_context)
             {
                 reason = "WorldContext unavailable";
+                return false;
+            }
+
+            static constexpr const char* kGameFlowChangePrefix =
+                "GameFlowChangeScene ";
+            if (command.rfind(kGameFlowChangePrefix, 0) == 0)
+            {
+                const std::string tag =
+                    command.substr(sizeof("GameFlowChangeScene ") - 1);
+                const std::wstring wide_tag = widen_path(tag.c_str());
+                if (wide_tag.empty())
+                {
+                    reason = "GameFlowChangeScene tag is empty";
+                    return false;
+                }
+
+                NavigatorObjects nav = resolve_navigator_objects();
+                enrich_navigator_status(nav);
+
+                std::string current_reason;
+                bool current_queued = false;
+                const bool current_ok = change_current_gameflow_scene(
+                    nav, wide_tag.c_str(), current_reason);
+                if (current_ok)
+                {
+                    NavigatorObjects after_current =
+                        resolve_navigator_objects();
+                    current_queued =
+                        after_current.next_scene != nullptr ||
+                        after_current.next_scene_direct != nullptr;
+                    if (current_queued)
+                    {
+                        reason = "current scene queued " + tag;
+                        return true;
+                    }
+                }
+
+                std::string manager_reason;
+                bool manager_queued = false;
+                const bool manager_ok = change_gameflow_scene(
+                    nav, wide_tag.c_str(), manager_reason);
+                if (manager_ok)
+                {
+                    NavigatorObjects after_manager =
+                        resolve_navigator_objects();
+                    manager_queued =
+                        after_manager.next_scene != nullptr ||
+                        after_manager.next_scene_direct != nullptr;
+                    if (manager_queued)
+                    {
+                        reason = "manager queued " + tag;
+                        return true;
+                    }
+                }
+
+                reason = "GameFlowChangeScene " + tag +
+                    " did not queue; current=" + current_reason +
+                    "; manager=" + manager_reason;
                 return false;
             }
 

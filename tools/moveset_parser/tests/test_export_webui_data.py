@@ -180,6 +180,35 @@ def test_player_move_families_fallback_when_community_missing(monkeypatch):
     assert contract["kind"] == "single-row"
 
 
+def test_move_metrics_native_fallback_uses_current_cell_fields():
+    class FakeCell:
+        wI16MasterWindowStart = 12
+        wI16BaseDamage = 24
+        wI16BlockstunFrames = -14
+        wI16HitstunStandingNormal = 6
+        attack_class = "Mid"
+
+    class FakeSection:
+        entries = [FakeCell()]
+
+    class FakeKhd:
+        sections = [FakeSection()]
+
+    move = _fake_export_move(0, "Launcher", "3B", cell_idx=0, slot_idx=10)
+    move["hitClasses"] = []
+
+    metrics = export_webui_data._move_metrics(move, FakeKhd())
+
+    assert metrics == {
+        "startup": 12,
+        "damage": [24],
+        "block": -14,
+        "hit": 6,
+        "counterHit": None,
+        "hitLevels": ["Mid"],
+    }
+
+
 def test_export_main_out_dir_alias_writes_to_alternate_directory(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
 

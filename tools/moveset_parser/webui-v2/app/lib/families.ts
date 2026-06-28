@@ -26,7 +26,7 @@ export function normalizeCommand(input: string): string {
   return input
     .toUpperCase()
     .replace(/\s+/g, "")
-    .replace(/[,>]/g, ".")
+    .replace(/[,>.]/g, "")
     .replace(/[()]/g, "")
     .replace(/-/g, "");
 }
@@ -56,8 +56,8 @@ function metricsFromMove(move: MovelistMove, cells: Cell[]): PlayerMoveFamilyMet
       : cell?.role === "Attack"
         ? [cell.damage]
         : [],
-    block: move.communityFrame?.onBlock || cell?.onBlock ?? null,
-    hit: move.communityFrame?.onHit || cell?.onHitStanding ?? null,
+    block: move.communityFrame?.onBlock || (cell?.onBlock ?? null),
+    hit: move.communityFrame?.onHit || (cell?.onHitStanding ?? null),
     counterHit: move.communityFrame?.onCounterHit || null,
     hitLevels: move.hitClasses?.length ? move.hitClasses : cell?.class ? [cell.class] : [],
   };

@@ -35,9 +35,10 @@ export function rankFamily(family: PlayerMoveFamily, query: string): number {
 
 export function filterFamilies(families: PlayerMoveFamily[], query: string): PlayerMoveFamily[] {
   const q = query.trim();
+  if (!q) return [...families];
   const scored = families
     .map((family) => ({ family, score: rankFamily(family, q) }))
-    .filter((item) => !q || item.score > 0);
+    .filter((item) => item.score > 0);
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     const aStats = familyStats(a.family);

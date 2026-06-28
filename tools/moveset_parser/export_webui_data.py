@@ -833,8 +833,10 @@ def _move_native_refs(move: dict[str, Any]) -> tuple[list[int], list[int]]:
     slots: set[int] = set()
     cells: set[int] = set()
     for cs in move.get("commandSets", []):
-        slot_idx = int(cs.get("slotIdx", -1) or -1)
-        cell_idx = int(cs.get("cellIdx", -1) or -1)
+        raw_slot_idx = cs.get("slotIdx", -1)
+        raw_cell_idx = cs.get("cellIdx", -1)
+        slot_idx = int(raw_slot_idx) if raw_slot_idx is not None else -1
+        cell_idx = int(raw_cell_idx) if raw_cell_idx is not None else -1
         if slot_idx >= 0:
             slots.add(slot_idx)
         if cell_idx >= 0:
@@ -858,7 +860,8 @@ def _move_metrics(move: dict[str, Any], khd: KhdFile | None) -> dict[str, Any]:
     if khd and khd.sections:
         cells = khd.sections[0].entries
         for cs in move.get("commandSets", []):
-            cell_idx = int(cs.get("cellIdx", -1) or -1)
+            raw_cell_idx = cs.get("cellIdx", -1)
+            cell_idx = int(raw_cell_idx) if raw_cell_idx is not None else -1
             if 0 <= cell_idx < len(cells):
                 cell = cells[cell_idx]
                 break
@@ -874,10 +877,10 @@ def _move_metrics(move: dict[str, Any], khd: KhdFile | None) -> dict[str, Any]:
     return {
         "startup": int(cell.wI16MasterWindowStart),
         "damage": [int(cell.wI16BaseDamage)] if cell.wI16BaseDamage else [],
-        "block": int(cell.wI16BlockStun),
-        "hit": int(cell.wI16HitStunStanding),
+        "block": int(cell.wI16BlockstunFrames),
+        "hit": int(cell.wI16HitstunStandingNormal),
         "counterHit": None,
-        "hitLevels": move.get("hitClasses", []),
+        "hitLevels": move.get("hitClasses", []) or [cell.attack_class],
     }
 
 
