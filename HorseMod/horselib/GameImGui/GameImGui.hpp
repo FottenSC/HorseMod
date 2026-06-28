@@ -39,8 +39,8 @@
 // -----------------
 // `set_visible(false)` makes every tab invisible AND disables input
 // capture (mouse/keyboard passes through to the game even if an ImGui
-// widget would otherwise claim focus).  Callbacks still run — if your
-// HUD draws even when "hidden", guard against that inside the callback.
+// widget would otherwise claim focus).  Tab callbacks run only while the
+// overlay is visible; use passive draw callbacks for hidden-mode HUD/toasts.
 //
 // Thread-safety
 // -------------
@@ -75,6 +75,7 @@ namespace Horse::GameImGui
     // diagnostic logging; it does NOT implicitly wrap the callback in
     // an ImGui::Begin/End.
     using TabCallback = std::function<void()>;
+    using PassiveDrawCallback = std::function<bool()>;
 
     // ------------------------------------------------------------------
     // Lifecycle.  initialize() is idempotent; subsequent calls are
@@ -219,6 +220,28 @@ namespace Horse::GameImGui
         PresentHook::instance().unregister_frame_callback(token);
         RC::Output::send<RC::LogLevel::Verbose>(
             STR("[GameImGui] unregistered tab token={}\n"), token);
+    }
+
+    inline uint64_t register_passive_draw_callback(PassiveDrawCallback cb)
+    {
+        const uint64_t token = PresentHook::instance()
+            .register_passive_draw_callback(std::move(cb));
+        RC::Output::send<RC::LogLevel::Verbose>(
+            STR("[GameImGui] registered passive draw token={}\n"), token);
+        return token;
+    }
+
+    inline void unregister_passive_draw_callback(uint64_t token)
+    {
+        if (!token) return;
+        PresentHook::instance().unregister_passive_draw_callback(token);
+        RC::Output::send<RC::LogLevel::Verbose>(
+            STR("[GameImGui] unregistered passive draw token={}\n"), token);
+    }
+
+    inline void request_passive_draw(bool requested = true) noexcept
+    {
+        PresentHook::instance().request_passive_draw(requested);
     }
 
     // ------------------------------------------------------------------

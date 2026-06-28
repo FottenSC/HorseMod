@@ -5,13 +5,18 @@
 #define NOMINMAX
 #endif
 
+#include <WinSock2.h>
+#include <WS2tcpip.h>
 #include <Windows.h>
 #include <Winhttp.h>
 #include <TlHelp32.h>
 #include <shellapi.h>
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
+#include <cwchar>
 #include <cwctype>
 #include <string>
 #include <vector>
@@ -19,7 +24,11 @@
 namespace
 {
     constexpr size_t kMaxReplayBytes = 64ull * 1024ull * 1024ull;
+    constexpr uint16_t kStatusPort = 54475;
+    constexpr char kStatusVersion[] = "0.10.0";
     constexpr wchar_t kSteamRunGameUrl[] = L"steam://rungameid/544750";
+    constexpr wchar_t kStatusServerMutex[] =
+        L"Local\\HorseModReplayStatusServer";
 
     std::wstring dirname(std::wstring path)
     {
@@ -501,12 +510,290 @@ namespace
         }
         return reinterpret_cast<intptr_t>(result) > 32;
     }
+
+    class WsaSession
+    {
+    public:
+        WsaSession()
+        {
+            WSADATA data{};
+            m_ok = WSAStartup(MAKEWORD(2, 2), &data) == 0;
+        }
+        ~WsaSession()
+        {
+            if (m_ok) WSACleanup();
+        }
+        bool ok() const { return m_ok; }
+
+    private:
+        bool m_ok{false};
+    };
+
+    bool send_all(SOCKET s, const char* data, size_t len)
+    {
+        size_t sent_total = 0;
+        while (sent_total < len)
+        {
+            const int chunk = static_cast<int>(
+                std::min<size_t>(len - sent_total, 32 * 1024));
+            const int sent = send(s, data + sent_total, chunk, 0);
+            if (sent <= 0) return false;
+            sent_total += static_cast<size_t>(sent);
+        }
+        return true;
+    }
+
+    bool ascii_iequals(std::string a, std::string b)
+    {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i)
+        {
+            unsigned char ca = static_cast<unsigned char>(a[i]);
+            unsigned char cb = static_cast<unsigned char>(b[i]);
+            if (ca >= 'A' && ca <= 'Z') ca = static_cast<unsigned char>(ca + 32);
+            if (cb >= 'A' && cb <= 'Z') cb = static_cast<unsigned char>(cb + 32);
+            if (ca != cb) return false;
+        }
+        return true;
+    }
+
+    std::string trim_ascii(std::string value)
+    {
+        while (!value.empty() &&
+               (value.front() == ' ' || value.front() == '\t'))
+            value.erase(value.begin());
+        while (!value.empty() &&
+               (value.back() == ' ' || value.back() == '\t' ||
+                value.back() == '\r' || value.back() == '\n'))
+            value.pop_back();
+        return value;
+    }
+
+    std::string header_value(const std::string& request,
+                             const char* wanted_name)
+    {
+        size_t pos = 0;
+        for (;;)
+        {
+            const size_t line_end = request.find("\r\n", pos);
+            if (line_end == std::string::npos) break;
+            if (line_end == pos) break;
+            const std::string line = request.substr(pos, line_end - pos);
+            pos = line_end + 2;
+
+            const size_t colon = line.find(':');
+            if (colon == std::string::npos) continue;
+            if (ascii_iequals(line.substr(0, colon), wanted_name))
+                return trim_ascii(line.substr(colon + 1));
+        }
+        return {};
+    }
+
+    bool safe_origin_value(const std::string& origin)
+    {
+        if (origin.empty() || origin.size() > 512) return false;
+        for (char c : origin)
+        {
+            if (c == '\r' || c == '\n' || c == '\0') return false;
+        }
+        return true;
+    }
+
+    void send_status_response(SOCKET client,
+                              int status,
+                              const char* reason,
+                              const std::string& body,
+                              const std::string& origin)
+    {
+        std::string headers;
+        headers += "HTTP/1.1 ";
+        headers += std::to_string(status);
+        headers += " ";
+        headers += reason ? reason : "OK";
+        headers += "\r\n";
+        headers += "Content-Type: application/json; charset=utf-8\r\n";
+        headers += "Cache-Control: no-store\r\n";
+        headers += "Access-Control-Allow-Origin: ";
+        headers += safe_origin_value(origin) ? origin : "*";
+        headers += "\r\n";
+        headers += "Vary: Origin\r\n";
+        headers += "Access-Control-Allow-Methods: GET, OPTIONS\r\n";
+        headers += "Access-Control-Allow-Headers: Accept, Content-Type\r\n";
+        headers += "Access-Control-Allow-Private-Network: true\r\n";
+        headers += "Connection: close\r\n";
+        headers += "Content-Length: ";
+        headers += std::to_string(body.size());
+        headers += "\r\n\r\n";
+        (void)send_all(client, headers.data(), headers.size());
+        if (!body.empty())
+            (void)send_all(client, body.data(), body.size());
+    }
+
+    bool parse_http_request_line(const std::string& request,
+                                 std::string& method,
+                                 std::string& target)
+    {
+        const size_t line_end = request.find("\r\n");
+        const std::string line =
+            request.substr(0, line_end == std::string::npos
+                                  ? request.size()
+                                  : line_end);
+        const size_t first_space = line.find(' ');
+        if (first_space == std::string::npos) return false;
+        const size_t second_space = line.find(' ', first_space + 1);
+        if (second_space == std::string::npos) return false;
+        method = line.substr(0, first_space);
+        target = line.substr(first_space + 1,
+                             second_space - first_space - 1);
+        return true;
+    }
+
+    bool status_target_matches(const std::string& target)
+    {
+        if (target == "/status") return true;
+        return target.rfind("/status?", 0) == 0;
+    }
+
+    void handle_status_client(SOCKET client)
+    {
+        DWORD timeout_ms = 2000;
+        (void)setsockopt(client, SOL_SOCKET, SO_RCVTIMEO,
+                         reinterpret_cast<const char*>(&timeout_ms),
+                         sizeof(timeout_ms));
+        (void)setsockopt(client, SOL_SOCKET, SO_SNDTIMEO,
+                         reinterpret_cast<const char*>(&timeout_ms),
+                         sizeof(timeout_ms));
+
+        char buffer[4096]{};
+        const int got = recv(client, buffer, sizeof(buffer) - 1, 0);
+        if (got <= 0) return;
+
+        const std::string request(buffer, got);
+        const std::string origin = header_value(request, "Origin");
+        std::string method;
+        std::string target;
+        if (!parse_http_request_line(request, method, target))
+        {
+            send_status_response(
+                client, 400, "Bad Request",
+                "{\"error\":\"bad_request\"}\n", origin);
+            return;
+        }
+
+        if (method == "OPTIONS" && status_target_matches(target))
+        {
+            send_status_response(client, 204, "No Content", "", origin);
+            return;
+        }
+
+        if (method != "GET" || !status_target_matches(target))
+        {
+            send_status_response(
+                client, 404, "Not Found",
+                "{\"error\":\"not_found\"}\n", origin);
+            return;
+        }
+
+        std::string body;
+        body += "{";
+        body += "\"installed\":true,";
+        body += "\"version\":\"";
+        body += kStatusVersion;
+        body += "\",";
+        body += "\"protocol\":\"sc6replay\"";
+        body += "}\n";
+        send_status_response(client, 200, "OK", body, origin);
+    }
+
+    int run_status_server()
+    {
+        HANDLE mutex = CreateMutexW(nullptr, TRUE, kStatusServerMutex);
+        if (!mutex)
+        {
+            log_line(L"status server mutex creation failed: %lu",
+                     GetLastError());
+            return 0;
+        }
+        if (GetLastError() == ERROR_ALREADY_EXISTS)
+        {
+            log_line(L"status server already running");
+            CloseHandle(mutex);
+            return 0;
+        }
+
+        WsaSession wsa;
+        if (!wsa.ok())
+        {
+            log_line(L"status server WSAStartup failed: %d",
+                     WSAGetLastError());
+            CloseHandle(mutex);
+            return 0;
+        }
+
+        SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (listener == INVALID_SOCKET)
+        {
+            log_line(L"status server socket failed: %d", WSAGetLastError());
+            CloseHandle(mutex);
+            return 0;
+        }
+
+        BOOL exclusive = TRUE;
+        (void)setsockopt(listener, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                         reinterpret_cast<const char*>(&exclusive),
+                         sizeof(exclusive));
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(kStatusPort);
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (bind(listener, reinterpret_cast<sockaddr*>(&addr),
+                 sizeof(addr)) == SOCKET_ERROR)
+        {
+            log_line(L"status server bind 127.0.0.1:%u failed: %d",
+                     static_cast<unsigned>(kStatusPort), WSAGetLastError());
+            closesocket(listener);
+            CloseHandle(mutex);
+            return 0;
+        }
+
+        if (listen(listener, SOMAXCONN) == SOCKET_ERROR)
+        {
+            log_line(L"status server listen failed: %d", WSAGetLastError());
+            closesocket(listener);
+            CloseHandle(mutex);
+            return 0;
+        }
+
+        log_line(L"status server listening on 127.0.0.1:%u version=%S",
+                 static_cast<unsigned>(kStatusPort), kStatusVersion);
+
+        for (;;)
+        {
+            SOCKET client = accept(listener, nullptr, nullptr);
+            if (client == INVALID_SOCKET)
+            {
+                const int err = WSAGetLastError();
+                log_line(L"status server accept failed: %d", err);
+                Sleep(250);
+                continue;
+            }
+            handle_status_client(client);
+            shutdown(client, SD_BOTH);
+            closesocket(client);
+        }
+    }
 }
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv && argc >= 2 && std::wcscmp(argv[1], L"--status-server") == 0)
+    {
+        LocalFree(argv);
+        return run_status_server();
+    }
     if (!argv || argc < 2)
         fail(L"Missing sc6replay:// link argument.");
 

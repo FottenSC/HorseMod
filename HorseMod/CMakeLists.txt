@@ -17,6 +17,7 @@ set(HORSELIB_GAMEIMGUI_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/GameImGui/GameImGui.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/GameImGui/DX11State.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/GameImGui/PresentHook.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/GameImGui/Toast.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/GameImGui/WndProcHook.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/GameImGui/GamepadInput.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/GameImGui/XInputHook.hpp
@@ -56,7 +57,7 @@ add_executable(HorseReplayLauncher WIN32
 set_target_properties(HorseReplayLauncher PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 )
-target_link_libraries(HorseReplayLauncher PRIVATE winhttp shell32)
+target_link_libraries(HorseReplayLauncher PRIVATE winhttp shell32 ws2_32)
 
 set(_horsemod_enable_ebtracer ${HORSEMOD_ENABLE_EBTRACER})
 

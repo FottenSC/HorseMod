@@ -6668,6 +6668,8 @@ namespace Horse
             bool state_reset_data_ok {false};
             bool clean_start {false};
             int32_t round {-1};
+            int32_t total_rounds {-1};
+            int32_t expected_total_rounds {-1};
             int32_t input_master {-1};
             int32_t battle_master {-1};
             Sc6ContextSource seek_context_source {
@@ -10339,6 +10341,10 @@ namespace Horse
         // same request/handoff pattern as request_seek).
         void request_generate_timeline() noexcept
         {
+            m_timeline_no_render_retry_count.store(
+                0, std::memory_order_release);
+            m_timeline_no_render_active_request_mode.store(
+                kGenReqNone, std::memory_order_release);
             ReplayTraceFields f;
             f.string("mode", "normal").boolean("armed", false);
             ReplayDebugTrace::instance().event("generate_request", f);
@@ -10362,6 +10368,8 @@ namespace Horse
         void request_generate_timeline_lux_no_render(
             bool force_regenerate) noexcept
         {
+            m_timeline_no_render_retry_count.store(
+                0, std::memory_order_release);
             ReplayTraceFields f;
             f.string("mode", "lux-no-render")
              .boolean("armed", false)
@@ -10390,6 +10398,10 @@ namespace Horse
         // (bypassing UE4 rendering) instead of replay fast-forward.
         void request_generate_timeline_experimental_battle_step() noexcept
         {
+            m_timeline_no_render_retry_count.store(
+                0, std::memory_order_release);
+            m_timeline_no_render_active_request_mode.store(
+                kGenReqNone, std::memory_order_release);
             ReplayTraceFields f;
             f.string("mode", "battle_step").boolean("armed", false);
             ReplayDebugTrace::instance().event("generate_request", f);
@@ -10453,6 +10465,132 @@ namespace Horse
              .string("reason", reason ? reason : "replay_file_start");
             ReplayDebugTrace::instance().event("generate_request", f);
             return true;
+        }
+
+        int current_lux_no_render_retry_request_mode() const noexcept
+        {
+            const int active =
+                m_timeline_no_render_active_request_mode.load(
+                    std::memory_order_acquire);
+            if (active == kGenReqStartLuxNoRender ||
+                active == kGenReqForceStartLuxNoRender)
+            {
+                return active;
+            }
+
+            if (m_replay_file_start_automation.active)
+            {
+                const int automation_mode = generate_request_mode_from_string(
+                    m_replay_file_start_automation.auto_generate_mode);
+                if (automation_mode == kGenReqStartLuxNoRender ||
+                    automation_mode == kGenReqForceStartLuxNoRender)
+                {
+                    return automation_mode;
+                }
+            }
+
+            return kGenReqStartLuxNoRender;
+        }
+
+        int32_t expected_replay_file_generation_total_rounds()
+            const noexcept
+        {
+            if (!m_replay_file_start_automation.active ||
+                !m_replay_file_start_automation.native_replay_metadata_valid)
+            {
+                return -1;
+            }
+
+            const int32_t rounds =
+                m_replay_file_start_automation.native_replay_meta.total_rounds;
+            return rounds > 0 && rounds <= kMaxSc6ReplayRounds
+                ? rounds
+                : -1;
+        }
+
+        static bool replay_total_rounds_sane(int32_t rounds) noexcept
+        {
+            return rounds > 0 && rounds <= kMaxSc6ReplayRounds;
+        }
+
+        void emit_timeline_no_render_retry(
+            const char* reason,
+            int32_t retry_index,
+            int request_mode) noexcept
+        {
+            ReplayTraceFields f;
+            f.string("mode", "lux-no-render")
+             .string("reason", reason ? reason : "?")
+             .integer("retry", retry_index)
+             .integer("max_retries", kTimelineNoRenderMaxRetries)
+             .boolean("force_regenerate",
+                      request_mode == kGenReqForceStartLuxNoRender);
+            ReplayDebugTrace::instance().event(
+                "timeline_no_render_retry", f);
+        }
+
+        bool retry_lux_no_render_generation_or_fail(
+            const char* reason,
+            bool restart_required,
+            bool reached_end,
+            bool seek_data_valid) noexcept
+        {
+            const char* failure_reason =
+                reason && *reason ? reason : "generation_stopped";
+            emit_timeline_no_render_failure(failure_reason, restart_required,
+                                            reached_end, seek_data_valid);
+
+            m_timeline_gen_state.store(
+                static_cast<int>(TimelineGenState::Idle),
+                std::memory_order_release);
+            m_timeline_seek_data_valid.store(
+                false, std::memory_order_release);
+            m_timeline_context_valid.store(
+                false, std::memory_order_release);
+
+            const int request_mode =
+                current_lux_no_render_retry_request_mode();
+            const int32_t retry_index =
+                m_timeline_no_render_retry_count.fetch_add(
+                    1, std::memory_order_acq_rel) + 1;
+            if (retry_index <= kTimelineNoRenderMaxRetries)
+            {
+                m_gen_armed_mode.store(request_mode,
+                                       std::memory_order_release);
+                reset_armed_generate_wait_log();
+                emit_timeline_no_render_retry(
+                    failure_reason, retry_index, request_mode);
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayScrub] lux-no-render generation failed "
+                    "({}); retrying lux-no-render {}/{} "
+                    "(normal-generation fallback is disabled)\n"),
+                    RC::to_generic_string(failure_reason), retry_index,
+                    kTimelineNoRenderMaxRetries);
+                return true;
+            }
+
+            m_gen_armed_mode.store(kGenReqNone,
+                                   std::memory_order_release);
+            reset_armed_generate_wait_log();
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayScrub] lux-no-render generation failed "
+                "({}); retries exhausted {}/{} "
+                "(normal-generation fallback is disabled)\n"),
+                RC::to_generic_string(failure_reason),
+                kTimelineNoRenderMaxRetries,
+                kTimelineNoRenderMaxRetries);
+
+            if (m_replay_file_start_automation.active &&
+                m_replay_file_start_automation.auto_generate_armed)
+            {
+                std::string automation_reason =
+                    "lux-no-render generation failed after retries";
+                automation_reason += ": ";
+                automation_reason += failure_reason;
+                replay_file_start_emit_result_and_clear(
+                    false, automation_reason.c_str());
+            }
+            return false;
         }
 
         void trace_generate_rearm_after_reset(
@@ -10810,7 +10948,8 @@ namespace Horse
                 RC::Output::send<RC::LogLevel::Warning>(STR(
                     "[ReplayScrub] Generate timeline blocked - replay is "
                     "not at start (reason={} context_ok={} round={} "
-                    "input_master={} battle_master={} source={} "
+                    "input_master={} battle_master={} total_rounds={} "
+                    "expected_total_rounds={} source={} "
                     "object_bm=0x{:X} object_il=0x{:X} wmp_bm=0x{:X} "
                     "wmp_il=0x{:X} chosen_bm=0x{:X} chosen_il=0x{:X} "
                     "seek_context_ok={} sub=0x{:X} rp=0x{:X} "
@@ -10818,6 +10957,7 @@ namespace Horse
                     RC::to_generic_string(ready.reason),
                     ready.context_ok ? 1 : 0, ready.round,
                     ready.input_master, ready.battle_master,
+                    ready.total_rounds, ready.expected_total_rounds,
                     RC::to_generic_string(sc6_context_source_name(
                         ready.seek_context_source)),
                     ready.object_registry_battle_manager,
@@ -10884,12 +11024,17 @@ namespace Horse
             // the frame cap alone does not fast-forward):
             //   lux-no-render - enter a scoped presentation-suppression
             //     mode that skips scene redraw. If the redraw hook can't
-            //     engage, fall back immediately to normal generation.
+            //     engage, retry lux-no-render; normal generation fallback
+            //     is intentionally disabled.
             //   normal - just drop the render resolution.
-            // Either way generation still runs if this fails, just
-            // render-limited.
             m_timeline_generation_mode.store(
                 static_cast<int>(mode), std::memory_order_release);
+            m_timeline_no_render_active_request_mode.store(
+                lux_no_render
+                    ? (force_regenerate ? kGenReqForceStartLuxNoRender
+                                        : kGenReqStartLuxNoRender)
+                    : kGenReqStart,
+                std::memory_order_release);
             m_gen_mode.store(
                 lux_no_render
                     ? static_cast<int>(BattleStepMode::RenderSkip)
@@ -10906,10 +11051,7 @@ namespace Horse
                 {
                     RC::Output::send<RC::LogLevel::Warning>(STR(
                         "[ReplayScrub] lux-no-render could not engage "
-                        "render suppression - falling back to normal "
-                        "generation\n"));
-                    emit_timeline_no_render_fallback(
-                        "render_skip_enter_failed", false, false, false);
+                        "render suppression; generation failed\n"));
                     m_gen_mode.store(
                         static_cast<int>(BattleStepMode::None),
                         std::memory_order_release);
@@ -10919,7 +11061,16 @@ namespace Horse
                     m_frame_cap.disengage();
                     m_screen_pct.disengage();
                     m_render_skip.disengage();
-                    start_generate_timeline(TimelineGenerationMode::Normal);
+                    const bool retrying =
+                        retry_lux_no_render_generation_or_fail(
+                            "render_skip_enter_failed", false, false, false);
+                    if (!retrying)
+                    {
+                        publish_native_status(
+                            NativeSeekStatus::Failed,
+                            NativeSeekFailure::TimelineIncomplete);
+                        publish_mode(ScrubMode::NativeSeekFailed);
+                    }
                     return;
                 }
             }
@@ -10978,7 +11129,14 @@ namespace Horse
             m_gen_playback_gone_ticks = 0;
             m_gen_match_undecided_seen = false;
             m_engine_loop_replace_fallback_logged = false;
-            m_gen_total_rounds        = -1;
+            m_gen_expected_total_rounds =
+                ready.expected_total_rounds > 0
+                    ? ready.expected_total_rounds
+                    : (replay_total_rounds_sane(ready.total_rounds)
+                        ? ready.total_rounds
+                        : -1);
+            m_gen_total_rounds = m_gen_expected_total_rounds;
+            m_gen_total_round_mismatch_logged = false;
             m_gen_final_round_first_safe_seq = -1;
             m_gen_final_round_last_safe_seq  = -1;
             m_gen_final_round_first_result_seq = -1;
@@ -11235,7 +11393,14 @@ namespace Horse
             m_gen_seen_playing_back   = false;
             m_gen_playback_gone_ticks = 0;
             m_gen_match_undecided_seen = false;
-            m_gen_total_rounds        = -1;
+            m_gen_expected_total_rounds =
+                ready.expected_total_rounds > 0
+                    ? ready.expected_total_rounds
+                    : (replay_total_rounds_sane(ready.total_rounds)
+                        ? ready.total_rounds
+                        : -1);
+            m_gen_total_rounds = m_gen_expected_total_rounds;
+            m_gen_total_round_mismatch_logged = false;
             m_gen_final_round_first_safe_seq = -1;
             m_gen_final_round_last_safe_seq  = -1;
             m_gen_final_round_first_result_seq = -1;
@@ -11683,31 +11848,23 @@ namespace Horse
 
             const bool user_stop =
                 reason && std::strcmp(reason, "user") == 0;
-            const bool needs_no_render_fallback =
+            const bool no_render_failed =
                 was_lux_no_render && was_generating && !user_stop
                 && !memory_ceiling_stop
                 && ((!reached_end)
                     || (completed_generation_validated
                         && !completed_seek_data_valid));
-            if (needs_no_render_fallback)
+            bool no_render_retry_scheduled = false;
+            if (no_render_failed)
             {
-                emit_timeline_no_render_fallback(
+                const char* failure_reason =
                     completed_generation_validated
                         ? "timeline_validation_failed"
-                        : (reason ? reason : "generation_stopped"),
-                    true,
-                    reached_end,
-                    completed_seek_data_valid);
-                m_timeline_gen_state.store(
-                    static_cast<int>(TimelineGenState::Idle),
-                    std::memory_order_release);
-                m_timeline_seek_data_valid.store(
-                    false, std::memory_order_release);
-                m_timeline_context_valid.store(
-                    false, std::memory_order_release);
-                m_gen_armed_mode.store(kGenReqStart,
-                                       std::memory_order_release);
-                reset_armed_generate_wait_log();
+                        : (reason ? reason : "generation_stopped");
+                no_render_retry_scheduled =
+                    retry_lux_no_render_generation_or_fail(
+                        failure_reason, true, reached_end,
+                        completed_seek_data_valid);
             }
 
             if (was_generating)
@@ -11800,6 +11957,16 @@ namespace Horse
             m_gen_cached_battle_manager.store(0, std::memory_order_release);
             m_generation_full_frame_trace_requested.store(
                 false, std::memory_order_release);
+            if (was_generating && reached_end && !no_render_failed)
+            {
+                m_timeline_no_render_retry_count.store(
+                    0, std::memory_order_release);
+            }
+            if (!no_render_retry_scheduled)
+            {
+                m_timeline_no_render_active_request_mode.store(
+                    kGenReqNone, std::memory_order_release);
+            }
             m_timeline_generation_mode.store(
                 static_cast<int>(TimelineGenerationMode::Normal),
                 std::memory_order_release);
@@ -11935,8 +12102,7 @@ namespace Horse
             // after a scene transition).  Latching the first sane reading
             // keeps a transient -1 from dropping in_final_round mid-match
             // and letting generation run on into the menu.
-            const int32_t tr_now = read_total_rounds();
-            if (tr_now > 0) m_gen_total_rounds = tr_now;
+            update_generation_total_rounds_latch("tick_generate");
 
             // In the FINAL round of the match?  CurrentRound is 0-based
             // and nTotalRounds is the recorded round count, so the last
@@ -13265,6 +13431,13 @@ namespace Horse
                     preserved_armed_mode, reason,
                     "new_replay_reset");
             }
+            else
+            {
+                m_timeline_no_render_retry_count.store(
+                    0, std::memory_order_release);
+                m_timeline_no_render_active_request_mode.store(
+                    kGenReqNone, std::memory_order_release);
+            }
             m_gen_mode.store(static_cast<int>(BattleStepMode::None),
                              std::memory_order_release);
             m_gen_battle_step_generate.store(false,
@@ -13500,6 +13673,9 @@ namespace Horse
             std::string auto_generate_mode;
             std::wstring resolved_path;
             ReplayFileMetadata native_replay_meta{};
+            std::chrono::steady_clock::time_point request_loaded_at {};
+            std::chrono::steady_clock::time_point native_start_request_at {};
+            std::chrono::steady_clock::time_point launch_submitted_at {};
             std::chrono::steady_clock::time_point next_attempt {};
             std::chrono::steady_clock::time_point native_profile_apply_after {};
             std::chrono::steady_clock::time_point
@@ -13535,6 +13711,19 @@ namespace Horse
         {
             return m_replay_file_start_pending.load(std::memory_order_acquire)
                 || m_replay_file_start_automation.active;
+        }
+
+        bool consume_replay_file_start_seek_test_auto_open_suppression()
+            noexcept
+        {
+            if (m_replay_file_start_automation.active
+                && m_replay_file_start_automation.run_id.find("-seek")
+                    != std::string::npos)
+            {
+                return true;
+            }
+            return m_last_replay_file_start_was_seek_test.exchange(
+                false, std::memory_order_acq_rel);
         }
 
         // File-driven, read-only state probe for external automation.  This is
@@ -14327,6 +14516,7 @@ namespace Horse
         std::atomic<GateReleaseCallback> m_gate_release_callback {nullptr};
         std::atomic<bool> m_replay_file_load_pending {false};
         std::atomic<bool> m_replay_file_start_pending {false};
+        std::atomic<bool> m_last_replay_file_start_was_seek_test {false};
         Fn m_fn_gi_get_battle_setup;
         Fn m_fn_gi_can_launch_battle_manually;
         Fn m_fn_gi_apply_replay_to_battle_setup;
@@ -15804,6 +15994,8 @@ namespace Horse
             m_lux_per_frame_presentation_skip;
         std::atomic<int>     m_gen_request               {0};
         std::atomic<int>     m_gen_armed_mode            {0};
+        std::atomic<int>     m_timeline_no_render_active_request_mode {0};
+        std::atomic<int32_t> m_timeline_no_render_retry_count {0};
         std::atomic<int32_t> m_gen_armed_last_log_round  {INT32_MIN};
         std::atomic<int32_t> m_gen_armed_last_log_master_bucket {INT32_MIN};
         std::atomic<int>     m_gen_armed_last_log_state  {0};
@@ -15830,6 +16022,7 @@ namespace Horse
         static constexpr int kGenReqStartBattleStep   = 4;
         static constexpr int kGenReqBattleStepProbe   = 5;
         static constexpr int kGenReqForceStartLuxNoRender = 6;
+        static constexpr int32_t kTimelineNoRenderMaxRetries = 5;
 
         // Keep direct-step loops responsive by capping work per game tick.
         static constexpr int32_t kExp2MaxFramesPerSlice = 32;
@@ -15880,6 +16073,8 @@ namespace Horse
         std::chrono::steady_clock::time_point m_gen_started_at  {};
         std::chrono::steady_clock::time_point m_gen_finished_at {};
         std::chrono::steady_clock::time_point m_gen_last_advance{};
+        std::chrono::steady_clock::time_point
+            m_replay_file_auto_arm_suppress_until {};
         std::atomic<uint64_t> m_gen_profile_frames    {0};
         std::atomic<uint64_t> m_gen_profile_total_us  {0};
         std::atomic<uint64_t> m_gen_profile_sim_us    {0};
@@ -16019,6 +16214,8 @@ namespace Horse
         // after a scene transition); caching keeps a later -1 from
         // dropping in_final_round / the match-ended detector.
         int32_t m_gen_total_rounds {-1};
+        int32_t m_gen_expected_total_rounds {-1};
+        bool m_gen_total_round_mismatch_logged {false};
         int32_t m_gen_final_round_first_safe_seq {-1};
         int32_t m_gen_final_round_last_safe_seq  {-1};
         int32_t m_gen_final_round_first_result_seq {-1};
@@ -19713,6 +19910,26 @@ namespace Horse
             return narrow_path(std::wstring(wide));
         }
 
+        static int64_t replay_file_start_elapsed_ms(
+            std::chrono::steady_clock::time_point from,
+            std::chrono::steady_clock::time_point to) noexcept
+        {
+            if (from == std::chrono::steady_clock::time_point{})
+                return -1;
+            return std::chrono::duration_cast<std::chrono::milliseconds>(
+                       to - from)
+                .count();
+        }
+
+        static bool replay_file_start_request_file_exists() noexcept
+        {
+            const std::wstring path = replay_file_start_request_path();
+            if (path.empty()) return false;
+            const DWORD attrs = GetFileAttributesW(path.c_str());
+            return attrs != INVALID_FILE_ATTRIBUTES &&
+                (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+        }
+
         void replay_file_start_emit_event(
             const char* event_name,
             const ReplayFileStartAutomationState& state,
@@ -19721,6 +19938,7 @@ namespace Horse
         {
             const GamePresence presence =
                 GameMode::instance().current_presence();
+            const auto now = std::chrono::steady_clock::now();
             ReplayTraceFields f;
             f.string("run_id", state.run_id.c_str())
              .string("path", state.requested_path.c_str())
@@ -19855,7 +20073,16 @@ namespace Horse
                 .integer("stale_replay_console_reroute_attempts",
                          state.stale_replay_console_reroute_attempts)
                 .integer("navigator_attempts", state.navigator_attempts)
-               .integer("timeout_seconds", state.timeout_seconds);
+               .integer("timeout_seconds", state.timeout_seconds)
+               .integer("ms_since_request_loaded",
+                        replay_file_start_elapsed_ms(
+                            state.request_loaded_at, now))
+               .integer("ms_since_native_start_request",
+                        replay_file_start_elapsed_ms(
+                            state.native_start_request_at, now))
+               .integer("ms_since_launch_submitted",
+                        replay_file_start_elapsed_ms(
+                            state.launch_submitted_at, now));
             ReplayDebugTrace::instance().event(
                 event_name ? event_name : "replay_file_start_event", f);
         }
@@ -19864,6 +20091,8 @@ namespace Horse
             bool ok,
             const char* reason) noexcept
         {
+            const bool auto_generated =
+                m_replay_file_start_automation.auto_generate_armed;
             if (!ok && m_replay_file_start_automation.auto_generate_armed)
             {
                 m_gen_armed_mode.store(kGenReqNone,
@@ -19873,8 +20102,18 @@ namespace Horse
             replay_file_start_emit_event("replay_file_start_result",
                                          m_replay_file_start_automation,
                                          ok, reason);
+            if (ok && auto_generated)
+            {
+                m_replay_file_auto_arm_suppress_until =
+                    std::chrono::steady_clock::now() +
+                    std::chrono::seconds(5);
+            }
             release_replay_file_profile_container();
             m_replay_file_start_automation = {};
+            m_timeline_no_render_retry_count.store(
+                0, std::memory_order_release);
+            m_timeline_no_render_active_request_mode.store(
+                kGenReqNone, std::memory_order_release);
         }
 
         void replay_file_start_emit_timeout_and_clear(
@@ -19884,6 +20123,75 @@ namespace Horse
                                          m_replay_file_start_automation,
                                          false, reason);
             replay_file_start_emit_result_and_clear(false, reason);
+        }
+
+        void replay_file_start_cancel_for_superseded_request(
+            const char* reason) noexcept
+        {
+            if (!m_replay_file_start_automation.active)
+                return;
+
+            ReplayFileStartAutomationState old_state =
+                m_replay_file_start_automation;
+            const char* detail = reason && *reason
+                ? reason
+                : "superseded by newer replay start request";
+
+            replay_file_start_emit_event("replay_file_start_superseded",
+                                         old_state, false, detail);
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayFile] start superseded path='{}' attempts={} "
+                "battle_asset_requested={} auto_generate_armed={} "
+                "elapsed_ms={} reason={}\n"),
+                RC::to_generic_string(narrow_path(old_state.resolved_path)),
+                old_state.submit_attempts,
+                old_state.battle_asset_requested ? 1 : 0,
+                old_state.auto_generate_armed ? 1 : 0,
+                replay_file_start_elapsed_ms(
+                    old_state.request_loaded_at,
+                    std::chrono::steady_clock::now()),
+                RC::to_generic_string(detail));
+
+            release_replay_file_profile_container();
+            m_replay_file_start_automation = {};
+            m_gen_request.store(kGenReqNone, std::memory_order_release);
+            m_gen_armed_mode.store(kGenReqNone, std::memory_order_release);
+            reset_armed_generate_wait_log();
+            m_timeline_no_render_retry_count.store(
+                0, std::memory_order_release);
+            m_timeline_no_render_active_request_mode.store(
+                kGenReqNone, std::memory_order_release);
+            m_generation_full_frame_trace_requested.store(
+                false, std::memory_order_release);
+
+            m_timeline_no_render_scope.exit("replay-start-superseded", false);
+            m_frame_cap.disengage();
+            m_screen_pct.disengage();
+            m_render_skip.disengage();
+            m_timeline_generation_mode.store(
+                static_cast<int>(TimelineGenerationMode::Normal),
+                std::memory_order_release);
+            m_timeline_no_render_active.store(
+                false, std::memory_order_release);
+            m_timeline_gen_state.store(
+                static_cast<int>(TimelineGenState::Idle),
+                std::memory_order_release);
+            m_timeline_context_valid.store(false,
+                                           std::memory_order_release);
+            m_timeline_seek_data_valid.store(false,
+                                             std::memory_order_release);
+            m_gen_mode.store(static_cast<int>(BattleStepMode::None),
+                             std::memory_order_release);
+            m_gen_battle_step_generate.store(false,
+                                             std::memory_order_release);
+            m_gen_battle_step_probe.store(false,
+                                          std::memory_order_release);
+            m_direct_engine_tick_active.store(false,
+                                              std::memory_order_release);
+            m_paused.store(false, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::None),
+                std::memory_order_release);
         }
 
         void replay_file_start_begin_automation(
@@ -19906,9 +20214,17 @@ namespace Horse
             state.requested_path = requested_path;
             state.auto_generate_mode = auto_generate_mode;
             state.generation_full_frame_trace = generation_full_frame_trace;
+            m_last_replay_file_start_was_seek_test.store(
+                run_id.find("-seek") != std::string::npos,
+                std::memory_order_release);
+            m_timeline_no_render_retry_count.store(
+                0, std::memory_order_release);
+            m_timeline_no_render_active_request_mode.store(
+                kGenReqNone, std::memory_order_release);
             m_generation_full_frame_trace_requested.store(
                 generation_full_frame_trace,
                 std::memory_order_release);
+            m_replay_file_auto_arm_suppress_until = {};
             if (generate_request_mode_from_string(
                     state.auto_generate_mode) != kGenReqNone)
             {
@@ -19918,6 +20234,7 @@ namespace Horse
                 state.auto_generate_mode, "replay_file_start");
             state.resolved_path = resolved_path;
             const auto now = std::chrono::steady_clock::now();
+            state.request_loaded_at = now;
             state.next_attempt = now;
             state.readiness_grace_deadline = now + std::chrono::seconds(10);
             state.deadline = now
@@ -23534,13 +23851,27 @@ namespace Horse
                         m_replay_file_start_pending_generate_mode;
                     m_replay_file_start_pending_generate_mode.clear();
                 }
+                if (m_replay_file_start_automation.active)
+                {
+                    replay_file_start_cancel_for_superseded_request(
+                        "superseded by direct replay start request");
+                }
                 replay_file_start_begin_automation("", narrow_path(path),
                                                    path, 180, true,
                                                    auto_generate_mode);
             }
 
-            if (!m_replay_file_start_automation.active)
+            if (m_replay_file_start_automation.active &&
+                replay_file_start_request_file_exists())
+            {
+                replay_file_start_cancel_for_superseded_request(
+                    "superseded by replay link request file");
                 (void)replay_file_start_load_request();
+            }
+            else if (!m_replay_file_start_automation.active)
+            {
+                (void)replay_file_start_load_request();
+            }
             if (!m_replay_file_start_automation.active) return;
 
             ReplayFileStartAutomationState& state =
@@ -24454,16 +24785,21 @@ namespace Horse
             if (!state.start_request_emitted)
             {
                 state.start_request_emitted = true;
+                state.native_start_request_at =
+                    std::chrono::steady_clock::now();
                 RC::Output::send<RC::LogLevel::Default>(STR(
                     "[ReplayFile] start request path='{}' launch_path='{}' "
                     "bytes={} rounds={} current_round={} frames={} stage={} "
-                    "charL={} charR={} timestamp={}\n"),
+                    "charL={} charR={} timestamp={} elapsed_ms={}\n"),
                     RC::to_generic_string(narrow_path(state.resolved_path)),
                     RC::to_generic_string(narrow_path(launch_path)),
                     payload.size(), meta.total_rounds, meta.current_round,
                     meta.total_recorded_frames, meta.stage_index,
                     meta.left_chara_id, meta.right_chara_id,
-                    static_cast<unsigned long long>(meta.timestamp_unix));
+                    static_cast<unsigned long long>(meta.timestamp_unix),
+                    replay_file_start_elapsed_ms(
+                        state.request_loaded_at,
+                        state.native_start_request_at));
             }
 
             if (now >= state.readiness_grace_deadline
@@ -24715,6 +25051,7 @@ namespace Horse
                 return;
             }
 
+            state.launch_submitted_at = std::chrono::steady_clock::now();
             {
                 std::lock_guard<std::mutex> lock(m_replay_file_mutex);
                 m_replay_file_last_path = state.resolved_path;
@@ -24745,10 +25082,15 @@ namespace Horse
             }
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayFile] start success path='{}' launch_path='{}' "
-                "bytes={} detail={}\n"),
+                "bytes={} detail={} elapsed_ms={} since_request_ms={}\n"),
                 RC::to_generic_string(narrow_path(state.resolved_path)),
                 RC::to_generic_string(narrow_path(launch_path)),
-                payload.size(), RC::to_generic_string(reason));
+                payload.size(), RC::to_generic_string(reason),
+                replay_file_start_elapsed_ms(
+                    state.request_loaded_at, state.launch_submitted_at),
+                replay_file_start_elapsed_ms(
+                    state.native_start_request_at,
+                    state.launch_submitted_at));
             set_replay_file_status("Start Replay File", true, true,
                                    state.resolved_path, payload.size(), meta,
                                    reason.c_str());
@@ -25238,6 +25580,55 @@ namespace Horse
             return n;
         }
 
+        void latch_generation_total_rounds(
+            int32_t observed,
+            const char* source) noexcept
+        {
+            if (observed <= 0)
+                return;
+
+            if (!replay_total_rounds_sane(observed))
+            {
+                if (!m_gen_total_round_mismatch_logged)
+                {
+                    m_gen_total_round_mismatch_logged = true;
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub] ignoring impossible replay "
+                        "totalRounds={} during generation source={} "
+                        "expected={} current_latch={}\n"),
+                        observed,
+                        RC::to_generic_string(source ? source : "?"),
+                        m_gen_expected_total_rounds, m_gen_total_rounds);
+                }
+                return;
+            }
+
+            if (m_gen_expected_total_rounds > 0
+                && observed != m_gen_expected_total_rounds)
+            {
+                if (!m_gen_total_round_mismatch_logged)
+                {
+                    m_gen_total_round_mismatch_logged = true;
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayScrub] ignoring replay totalRounds={} "
+                        "during generation source={} because replay-file "
+                        "metadata expects {}\n"),
+                        observed,
+                        RC::to_generic_string(source ? source : "?"),
+                        m_gen_expected_total_rounds);
+                }
+                return;
+            }
+
+            m_gen_total_rounds = observed;
+        }
+
+        void update_generation_total_rounds_latch(
+            const char* source) noexcept
+        {
+            latch_generation_total_rounds(read_total_rounds(), source);
+        }
+
         int32_t read_total_recorded_frames() noexcept
         {
             RC::Unreal::UObject* bm_obj = m_bm_ptr.get(L"LuxBattleManager");
@@ -25688,6 +26079,40 @@ namespace Horse
                 "timeline_no_render_fallback", f);
         }
 
+        void emit_timeline_no_render_failure(
+            const char* reason,
+            bool restart_required,
+            bool reached_end,
+            bool seek_data_valid) noexcept
+        {
+            const auto render = m_render_skip.counters();
+            const uint64_t cockpit =
+                m_timeline_no_render_cockpit_overlay_suppressed.load(
+                    std::memory_order_acquire);
+            const uint64_t imgui =
+                m_timeline_no_render_imgui_overlay_suppressed.load(
+                    std::memory_order_acquire);
+            const uint64_t tick_task_group_skipped =
+                m_tick_task_group_skip.suppressed_groups();
+            ReplayTraceFields f;
+            f.string("mode", "lux-no-render")
+             .string("reason", reason ? reason : "?")
+             .boolean("restart_required", restart_required)
+             .boolean("reached_end", reached_end)
+             .boolean("seek_data_valid", seek_data_valid)
+             .uinteger("render_redraw_calls", render.calls)
+             .uinteger("render_redraw_forwarded", render.forwarded)
+             .uinteger("render_redraw_skipped", render.skipped)
+             .uinteger("cockpit_overlay_suppressed", cockpit)
+             .uinteger("imgui_overlay_suppressed", imgui)
+             .uinteger("tick_task_group_skipped", tick_task_group_skipped)
+             .uinteger("suppressed_total",
+                       render.skipped + cockpit + imgui
+                           + tick_task_group_skipped);
+            ReplayDebugTrace::instance().event(
+                "timeline_no_render_failed", f);
+        }
+
         static uint64_t hash_bytes64(const uint8_t* p,
                                      size_t n) noexcept
         {
@@ -26119,8 +26544,7 @@ namespace Horse
                 return;
             }
 
-            const int32_t tr_now = read_total_rounds();
-            if (tr_now > 0) m_gen_total_rounds = tr_now;
+            update_generation_total_rounds_latch("battle_step_generate");
 
             const bool in_final_round =
                 (m_gen_seen_progress && m_gen_total_rounds > 0
@@ -30117,6 +30541,8 @@ namespace Horse
         GenerateStartReadiness read_generate_start_readiness() noexcept
         {
             GenerateStartReadiness out{};
+            out.expected_total_rounds =
+                expected_replay_file_generation_total_rounds();
             out.in_replay = GameMode::instance().current_presence()
                 == GamePresence::Replay;
             if (!out.in_replay)
@@ -30188,6 +30614,33 @@ namespace Horse
             {
                 seek_ctx = resolve_sc6_replay_seek_context_report();
             }
+            if (out.expected_total_rounds > 0
+                && (!seek_ctx.readable
+                    || seek_ctx.total_rounds != out.expected_total_rounds)
+                && out.world_mode_pump_battle_manager
+                && out.world_mode_pump_battle_manager
+                    != out.object_registry_battle_manager)
+            {
+                Sc6ReplaySeekContext wmp_ctx =
+                    resolve_sc6_replay_seek_context_for_bm(
+                        Sc6ContextSource::WorldModePumpBattleManager,
+                        out.world_mode_pump_battle_manager,
+                        world_mode_pump, sub_driver);
+                wmp_ctx.object_registry_battle_manager =
+                    out.object_registry_battle_manager;
+                wmp_ctx.world_mode_pump_battle_manager =
+                    out.world_mode_pump_battle_manager;
+                if (wmp_ctx.readable
+                    && wmp_ctx.total_rounds == out.expected_total_rounds)
+                {
+                    seek_ctx = wmp_ctx;
+                }
+                else if (!seek_ctx.readable)
+                {
+                    seek_ctx =
+                        choose_better_sc6_context_failure(seek_ctx, wmp_ctx);
+                }
+            }
 
             out.seek_context_failure = seek_ctx.failure;
             out.seek_context_source = seek_ctx.source;
@@ -30200,6 +30653,7 @@ namespace Horse
             out.state_reset_data_ok = seek_ctx.state_reset_data_ok;
             out.input_master = seek_ctx.input_master;
             out.battle_master = seek_ctx.battle_master;
+            out.total_rounds = seek_ctx.total_rounds;
             if (seek_ctx.readable)
                 out.seek_context_ok = true;
 
@@ -30241,6 +30695,21 @@ namespace Horse
                 out.reason =
                     "Replay is still loading. Try again in a moment.";
                 return out;
+            }
+            if (out.expected_total_rounds > 0)
+            {
+                if (out.total_rounds <= 0)
+                {
+                    out.reason =
+                        "Replay metadata is still loading. Wait at the start before generating.";
+                    return out;
+                }
+                if (out.total_rounds != out.expected_total_rounds)
+                {
+                    out.reason =
+                        "Replay context still belongs to a different replay. Wait at the start before generating.";
+                    return out;
+                }
             }
 
             out.context_ok = true;
@@ -30333,6 +30802,7 @@ namespace Horse
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayScrub] {} (state={} reason={} failure={} "
                 "source={} round={} input_master={} battle_master={} "
+                "total_rounds={} expected_total_rounds={} "
                 "object_bm=0x{:X} object_il=0x{:X} wmp_bm=0x{:X} "
                 "wmp_il=0x{:X} chosen_bm=0x{:X} chosen_il=0x{:X} "
                 "seek_context_ok={} reset_source_ok={} "
@@ -30344,6 +30814,7 @@ namespace Horse
                 RC::to_generic_string(sc6_context_source_name(
                     ready.seek_context_source)),
                 ready.round, ready.input_master, ready.battle_master,
+                ready.total_rounds, ready.expected_total_rounds,
                 ready.object_registry_battle_manager,
                 ready.object_registry_input_log,
                 ready.world_mode_pump_battle_manager,
@@ -30370,7 +30841,8 @@ namespace Horse
                 "[ReplayScrub] armed Generate holding replay at clean "
                 "start while exact reset source resolves "
                 "(reason={} failure={} source={} round={} input_master={} "
-                "battle_master={} object_bm=0x{:X} object_il=0x{:X} "
+                "battle_master={} total_rounds={} "
+                "expected_total_rounds={} object_bm=0x{:X} object_il=0x{:X} "
                 "wmp_bm=0x{:X} wmp_il=0x{:X} chosen_bm=0x{:X} "
                 "chosen_il=0x{:X} live_bm_reset_ok={} "
                 "state_reset_data_ok={})\n"),
@@ -30380,6 +30852,7 @@ namespace Horse
                 RC::to_generic_string(sc6_context_source_name(
                     ready.seek_context_source)),
                 ready.round, ready.input_master, ready.battle_master,
+                ready.total_rounds, ready.expected_total_rounds,
                 ready.object_registry_battle_manager,
                 ready.object_registry_input_log,
                 ready.world_mode_pump_battle_manager,
@@ -30436,9 +30909,11 @@ namespace Horse
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayScrub] armed Generate starting on clean replay "
                 "start mode={} round={} input_master={} "
-                "battle_master={} reset_source_ok={} source={} "
+                "battle_master={} total_rounds={} "
+                "expected_total_rounds={} reset_source_ok={} source={} "
                 "live_bm_reset_ok={}\n"),
                 mode, ready.round, ready.input_master, ready.battle_master,
+                ready.total_rounds, ready.expected_total_rounds,
                 ready.reset_source_ok ? 1 : 0,
                 RC::to_generic_string(sc6_context_source_name(
                     ready.seek_context_source)),
@@ -30539,6 +31014,23 @@ namespace Horse
             if (m_timeline_gen_state.load(std::memory_order_acquire)
                     == static_cast<int>(TimelineGenState::Generating))
                 return;
+            const auto now = std::chrono::steady_clock::now();
+            if (now < m_replay_file_auto_arm_suppress_until)
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[ReplayScrub] skipped replay-load lux-no-render "
+                    "auto-arm after replay-file generation "
+                    "(reason={})\n"),
+                    RC::to_generic_string(reason ? reason : "?"));
+                ReplayTraceFields f;
+                f.string("mode", "lux-no-render")
+                 .boolean("armed", false)
+                 .boolean("auto_replay_load", true)
+                 .boolean("suppressed_after_replay_file_generation", true)
+                 .string("reason", reason ? reason : "?");
+                ReplayDebugTrace::instance().event("generate_request", f);
+                return;
+            }
 
             int expected = kGenReqNone;
             if (!m_gen_armed_mode.compare_exchange_strong(
@@ -30548,6 +31040,10 @@ namespace Horse
                 return;
 
             reset_armed_generate_wait_log();
+            m_timeline_no_render_retry_count.store(
+                0, std::memory_order_release);
+            m_timeline_no_render_active_request_mode.store(
+                kGenReqForceStartLuxNoRender, std::memory_order_release);
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayScrub] auto-armed lux-no-render timeline generation "
                 "for replay load (reason={})\n"),

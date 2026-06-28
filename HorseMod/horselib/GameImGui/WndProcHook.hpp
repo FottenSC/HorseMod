@@ -40,8 +40,8 @@
 // Horse::GameImGui exposes set_visible(bool) so HorseMod can drive
 // a show/hide toggle via its existing hotkey framework.  When hidden:
 //
-//   * frame callbacks still run (they can decide to early-out if the
-//     overlay is hidden, or keep drawing non-interactive HUD elements);
+//   * tab callbacks stop; passive draw callbacks may still render
+//     non-interactive HUD elements such as toasts;
 //   * WndProcHook short-circuits WantCaptureMouse / WantCaptureKeyboard
 //     to false, so no input is ever eaten.
 // ============================================================================

@@ -112,6 +112,7 @@
 // eliminates the focus-stealing external "UE4SS Debugging Tools" window
 // that breaks Shift+Tab for the user.
 #include "horselib/GameImGui/GameImGui.hpp"
+#include "horselib/GameImGui/Toast.hpp"
 
 // Persists toggle / slider state between game sessions.  Loaded once in
 // the ctor (before any atomic is first read for rendering), saved
@@ -493,6 +494,53 @@ static bool horsemod_register_replay_link_handler() noexcept
         ok ? STR("registered") : STR("registration failed"),
         RC::to_generic_string(horsemod_wide_to_utf8(launcher)));
     return ok && horsemod_replay_link_handler_registered();
+}
+
+static bool horsemod_start_replay_link_status_server() noexcept
+{
+    const std::wstring launcher = horsemod_replay_launcher_path();
+    if (launcher.empty() || !horsemod_file_exists(launcher))
+    {
+        Output::send<LogLevel::Warning>(STR(
+            "[ReplayLink] status server launcher missing path='{}'\n"),
+            RC::to_generic_string(horsemod_wide_to_utf8(launcher)));
+        return false;
+    }
+
+    std::wstring command = L"\"" + launcher + L"\" --status-server";
+    std::vector<wchar_t> mutable_command(command.begin(), command.end());
+    mutable_command.push_back(L'\0');
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi{};
+    const std::wstring workdir = horsemod_parent_dir(launcher);
+    const BOOL ok = CreateProcessW(
+        launcher.c_str(),
+        mutable_command.data(),
+        nullptr,
+        nullptr,
+        FALSE,
+        CREATE_NO_WINDOW,
+        nullptr,
+        workdir.empty() ? nullptr : workdir.c_str(),
+        &si,
+        &pi);
+    if (!ok)
+    {
+        Output::send<LogLevel::Warning>(STR(
+            "[ReplayLink] failed to start status server error={}\n"),
+            static_cast<uint32_t>(GetLastError()));
+        return false;
+    }
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    Output::send<LogLevel::Default>(
+        STR("[ReplayLink] status server start requested\n"));
+    return true;
 }
 
 // ----------------------------------------------------------------------------
@@ -917,6 +965,7 @@ private:
     std::atomic<bool> m_hide_stage_visuals{false};
     std::atomic<bool> m_replay_trace_files_enabled{false};
     std::atomic<bool> m_replay_link_handler_registered{false};
+    std::atomic<bool> m_replay_link_status_server_started{false};
 
     // ---- Freeze frame (WorldTickGate-driven) --------------------------------
     // Replaces the broken Horse::GamePause helper (which patched a chara
@@ -3361,6 +3410,7 @@ private:
     // after Horse::GameImGui::register_tab returns; passed to
     // unregister_tab on teardown.
     uint64_t m_gameimgui_tab_token = 0;
+    uint64_t m_gameimgui_toast_token = 0;
 
     RC::Unreal::Hook::GlobalCallbackId m_engine_tick_callback_id{
         RC::Unreal::Hook::ERROR_ID};
@@ -3379,6 +3429,9 @@ private:
     int m_current_tab = 0;
     std::atomic<int> m_requested_tab{-1};
     std::atomic<bool> m_replay_timeline_only_overlay{false};
+    std::string m_replay_file_last_toast_status;
+    bool m_replay_file_toast_active = false;
+    bool m_timeline_generation_toast_active = false;
 
     // One-shot log flags so UE4SS.log doesn't fill with repeats.
     bool m_logged_native_missing = false;
@@ -3554,6 +3607,9 @@ public:
 
         m_replay_link_handler_registered.store(
             horsemod_register_replay_link_handler(),
+            std::memory_order_release);
+        m_replay_link_status_server_started.store(
+            horsemod_start_replay_link_status_server(),
             std::memory_order_release);
 
         // Populate reset-hook candidate list.  Registration is attempted
@@ -3747,6 +3803,12 @@ public:
             Horse::GameImGui::unregister_tab(m_gameimgui_tab_token);
             m_gameimgui_tab_token = 0;
         }
+        if (m_gameimgui_toast_token)
+        {
+            Horse::GameImGui::unregister_passive_draw_callback(
+                m_gameimgui_toast_token);
+            m_gameimgui_toast_token = 0;
+        }
         Horse::GameImGui::shutdown();
 
         if (m_hook_registered && !m_hook_path.empty())
@@ -3837,6 +3899,10 @@ public:
         }
         m_gameimgui_tab_token = Horse::GameImGui::register_tab(
             L"HorseMod", [this] { this->render_tab_impl(); });
+        m_gameimgui_toast_token =
+            Horse::GameImGui::register_passive_draw_callback([] {
+                return Horse::GameImGui::ToastManager::instance().draw();
+            });
 
         RC::Unreal::Hook::FCallbackOptions replay_start_tick_opts{};
         replay_start_tick_opts.bReadonly = true;
@@ -3851,6 +3917,7 @@ public:
                     auto& scrub = Horse::ReplayScrub::instance();
                     scrub.service_state_snapshot_request();
                     scrub.service_replay_file_start_request();
+                    self->tick_replay_file_start_toast(scrub);
                     self->draw_line_overlays_after_battle_tick();
                 }, replay_start_tick_opts);
         Output::send<LogLevel::Default>(STR(
@@ -6199,6 +6266,141 @@ private:
         Horse::GameImGui::set_visible(true);
     }
 
+    static bool replay_toast_status_contains(
+        const std::string& status,
+        const char* needle) noexcept
+    {
+        return needle && *needle
+            && status.find(needle) != std::string::npos;
+    }
+
+    void tick_replay_file_start_toast(
+        Horse::ReplayScrub& replay_scrub) noexcept
+    {
+        try
+        {
+            const bool pending =
+                replay_scrub.has_pending_replay_file_start();
+            const std::string status =
+                replay_scrub.replay_file_status_text();
+            const bool status_changed =
+                status != m_replay_file_last_toast_status;
+
+            auto& toasts = Horse::GameImGui::ToastManager::instance();
+            if (pending)
+            {
+                if (!m_replay_file_toast_active || status_changed)
+                {
+                    toasts.show_working(
+                        "replay-file-start",
+                        status.empty()
+                            ? "Starting replay..."
+                            : status);
+                }
+                m_replay_file_toast_active = true;
+            }
+            else if (m_replay_file_toast_active)
+            {
+                const std::string message =
+                    status.empty() ? "Replay start finished" : status;
+                if (replay_toast_status_contains(status, "failed"))
+                {
+                    toasts.show_failure("replay-file-start", message);
+                }
+                else if (replay_toast_status_contains(status, "success"))
+                {
+                    toasts.show_success("replay-file-start", message);
+                }
+                else
+                {
+                    toasts.show_info("replay-file-start", message);
+                }
+                m_replay_file_toast_active = false;
+            }
+
+            m_replay_file_last_toast_status = status;
+        }
+        catch (...)
+        {
+            // Toasts are user feedback only; replay automation must continue.
+        }
+    }
+
+    void sync_timeline_generation_toast_state(
+        Horse::ReplayScrub& replay_scrub,
+        Horse::ReplayScrub::TimelineGenState after) noexcept
+    {
+        using GS = Horse::ReplayScrub::TimelineGenState;
+
+        try
+        {
+            auto& toasts = Horse::GameImGui::ToastManager::instance();
+            if (after == GS::Generating)
+            {
+                if (!m_timeline_generation_toast_active)
+                {
+                    toasts.show_working("timeline-generation",
+                                        "Generating replay timeline...");
+                    Output::send<LogLevel::Verbose>(STR(
+                        "[HorseMod.Toast] timeline generation toast "
+                        "working\n"));
+                }
+                m_timeline_generation_toast_active = true;
+                return;
+            }
+
+            if (m_timeline_generation_toast_active)
+            {
+                if (after == GS::Done)
+                {
+                    toasts.show_success("timeline-generation",
+                                        "Timeline ready");
+                    const bool suppress_window =
+                        replay_scrub
+                            .consume_replay_file_start_seek_test_auto_open_suppression();
+                    if (!suppress_window)
+                    {
+                        request_replay_timeline_window_visible();
+                    }
+                    Output::send<LogLevel::Verbose>(STR(
+                        "[HorseMod.Toast] timeline generation toast "
+                        "success\n"));
+                    if (suppress_window)
+                    {
+                        Output::send<LogLevel::Default>(STR(
+                            "[HorseMod] replay timeline overlay auto-open "
+                            "suppressed for seek-test automation\n"));
+                    }
+                    else
+                    {
+                        Output::send<LogLevel::Default>(STR(
+                            "[HorseMod] replay timeline overlay shown after "
+                            "generation completed\n"));
+                    }
+                }
+                else
+                {
+                    toasts.show_failure(
+                        "timeline-generation",
+                        "Timeline generation stopped before completion");
+                    Output::send<LogLevel::Verbose>(STR(
+                        "[HorseMod.Toast] timeline generation toast "
+                        "failure\n"));
+                }
+                m_timeline_generation_toast_active = false;
+            }
+            else
+            {
+                toasts.clear_if_kind("timeline-generation",
+                                     Horse::GameImGui::ToastKind::Working);
+            }
+        }
+        catch (...)
+        {
+            // Toasts are user feedback only; generation state is authoritative.
+        }
+    }
+
     void tick_generate_timeline_with_replay_window(
         Horse::ReplayScrub& replay_scrub) noexcept
     {
@@ -6206,8 +6408,8 @@ private:
         const GS before = replay_scrub.timeline_gen_state();
         replay_scrub.tick_generate_timeline();
         const GS after = replay_scrub.timeline_gen_state();
-        if (before != GS::Generating && after == GS::Generating)
-            request_replay_timeline_window_visible();
+        static_cast<void>(before);
+        sync_timeline_generation_toast_state(replay_scrub, after);
     }
 
     // ------------------------------------------------------------------
@@ -6359,9 +6561,7 @@ private:
         // is_initialized()=true and skip.  Capture is unbounded (2 GB
         // ceiling); there is no capture-window setting.
         const bool refresh_replay_ui_runtime =
-            Horse::GameImGui::visible()
-            && !m_replay_timeline_only_overlay.load(
-                std::memory_order_relaxed);
+            Horse::GameImGui::visible();
         replay_scrub.tick_capture(refresh_replay_ui_runtime);
         // 2026-05-16: "Generate timeline" driver.  Services the UI
         // start/stop request and, while generating, watches for the
@@ -7056,6 +7256,24 @@ private:
             if (render_replay_timeline_window())
                 return;
 
+            {
+                Horse::ReplayScrub& replay_scrub =
+                    Horse::ReplayScrub::instance();
+                const auto runtime =
+                    replay_scrub.replay_ui_runtime_status();
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] replay timeline-only overlay closed: "
+                    "presence={} initialized={} stale={} complete={} "
+                    "generation={} battle_active={} ring_count={}\n"),
+                    Horse::presence_name(
+                        Horse::GameMode::instance().current_presence()),
+                    runtime.initialized ? 1 : 0,
+                    runtime.timeline_stale ? 1 : 0,
+                    runtime.timeline_complete ? 1 : 0,
+                    runtime.generation_running ? 1 : 0,
+                    runtime.battle_active ? 1 : 0,
+                    replay_scrub.ring_count());
+            }
             m_replay_timeline_only_overlay.store(
                 false, std::memory_order_relaxed);
             Horse::GameImGui::set_visible(false);
@@ -8682,10 +8900,17 @@ private:
             return false;
 
         const auto runtime = scrub.replay_ui_runtime_status();
-        if (!runtime.initialized || runtime.timeline_stale
-            || scrub.ring_count() == 0)
+        const bool initialized =
+            runtime.initialized || scrub.is_initialized();
+        const bool timeline_stale =
+            runtime.timeline_stale || scrub.has_stale_preserved_timeline();
+        const bool timeline_complete =
+            runtime.timeline_complete
+            || scrub.has_context_valid_completed_timeline();
+        if (!initialized || timeline_stale || scrub.ring_count() == 0)
             return false;
-        if (!runtime.battle_active && !runtime.generation_running)
+        if (!runtime.battle_active && !runtime.generation_running
+            && !timeline_complete)
             return false;
 
         const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -8694,11 +8919,27 @@ private:
             width = display.x - 40.0f;
         if (width < 360.0f)
             width = 360.0f;
+        float height = 180.0f;
+        if (display.y > 80.0f && display.y - 40.0f < height)
+            height = display.y - 40.0f;
+        if (height < 140.0f)
+            height = 140.0f;
+        float max_width =
+            display.x > 80.0f ? display.x - 20.0f : width;
+        if (max_width < 360.0f)
+            max_width = 360.0f;
+        float max_height =
+            display.y > 80.0f ? display.y - 20.0f : height;
+        if (max_height < 140.0f)
+            max_height = 140.0f;
         const float y = (display.y > 220.0f) ? display.y - 150.0f : 20.0f;
 
-        ImGui::SetNextWindowSize(ImVec2(width, 0.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2(360.0f, 140.0f),
+            ImVec2(max_width, max_height));
+        ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, y),
-                                ImGuiCond_FirstUseEver,
+                                ImGuiCond_Appearing,
                                 ImVec2(0.5f, 0.0f));
         if (ImGui::Begin("Replay Timeline##horsemod_replay_timeline",
                          nullptr, ImGuiWindowFlags_NoCollapse))
@@ -9160,6 +9401,22 @@ private:
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                     "Register sc6replay:// links for the current Windows\n"
                     "user. This uses HKCU and does not require admin.");
+
+                const bool link_status_server =
+                    m_replay_link_status_server_started.load(
+                        std::memory_order_acquire);
+                ImGui::Text("Replay link companion: %s",
+                            link_status_server ? "started" : "not started");
+                ImGui::SameLine(0.0f, 20.0f);
+                if (ImGui::Button("Start replay link companion##dev_link_status_start"))
+                {
+                    m_replay_link_status_server_started.store(
+                        horsemod_start_replay_link_status_server(),
+                        std::memory_order_release);
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "Start the local readiness endpoint used by the archive:\n"
+                    "http://127.0.0.1:54475/status");
 
                 bool verbose = scrub.verbose_diag();
                 if (ImGui::Checkbox("Verbose replay log##dev_verbose",

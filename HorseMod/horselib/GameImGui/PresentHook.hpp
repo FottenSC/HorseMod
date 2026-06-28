@@ -91,6 +91,7 @@ namespace Horse::GameImGui
     // and Render.  Register via GameImGui::register_tab.
     // ------------------------------------------------------------------
     using FrameCallback = std::function<void()>;
+    using PassiveDrawCallback = std::function<bool()>;
 
     class PresentHook
     {
@@ -115,6 +116,23 @@ namespace Horse::GameImGui
         // registration.  Returns a token used for unregister().
         uint64_t register_frame_callback(FrameCallback cb);
         void     unregister_frame_callback(uint64_t token);
+
+        // Register a passive, non-interactive draw callback.  Passive
+        // callbacks may render while the main overlay is hidden, but they
+        // must not depend on input.  Return true while another passive frame
+        // is needed.
+        uint64_t register_passive_draw_callback(PassiveDrawCallback cb);
+        void     unregister_passive_draw_callback(uint64_t token);
+        void     request_passive_draw(bool requested = true) noexcept
+        {
+            if (requested)
+            {
+                m_passive_draw_generation.fetch_add(
+                    1, std::memory_order_acq_rel);
+            }
+            m_passive_draw_requested.store(requested,
+                                           std::memory_order_release);
+        }
 
         // Set a callback invoked on the rising edge of the gamepad
         // BACK (Select / View) button.  Used by GameImGui::initialize
@@ -149,6 +167,8 @@ namespace Horse::GameImGui
         {
             m_callbacks.store(
                 std::make_shared<const std::vector<CallbackEntry>>());
+            m_passive_callbacks.store(
+                std::make_shared<const std::vector<PassiveCallbackEntry>>());
         }
         ~PresentHook() { uninstall(); }
         PresentHook(const PresentHook&)            = delete;
@@ -232,8 +252,16 @@ namespace Horse::GameImGui
         // Using a shared_ptr to a const vector so we can swap it
         // atomically under a mutex-free reader.
         struct CallbackEntry { uint64_t token; FrameCallback cb; };
+        struct PassiveCallbackEntry
+        {
+            uint64_t token;
+            PassiveDrawCallback cb;
+        };
         mutable std::atomic<std::shared_ptr<const std::vector<CallbackEntry>>> m_callbacks;
+        mutable std::atomic<std::shared_ptr<const std::vector<PassiveCallbackEntry>>> m_passive_callbacks;
         std::atomic<uint64_t> m_next_token{1};
+        std::atomic<bool>     m_passive_draw_requested{false};
+        std::atomic<uint64_t> m_passive_draw_generation{0};
 
         // Rising-edge callback for gamepad BACK button.  Written by
         // set_on_gamepad_back (from init thread), read by the render
@@ -261,6 +289,9 @@ namespace Horse::GameImGui
         // Publish an empty callback vector so imgui-wants-input reads
         // are safe from first-frame races.
         m_callbacks.store(std::make_shared<const std::vector<CallbackEntry>>());
+        m_passive_callbacks.store(
+            std::make_shared<const std::vector<PassiveCallbackEntry>>());
+        m_passive_draw_requested.store(false, std::memory_order_release);
 
         if (!create_probe_swap_chain() || !m_probe_swap_chain)
         {
@@ -409,6 +440,37 @@ namespace Horse::GameImGui
         m_callbacks.store(std::shared_ptr<const std::vector<CallbackEntry>>(next));
     }
 
+    inline uint64_t PresentHook::register_passive_draw_callback(
+        PassiveDrawCallback cb)
+    {
+        const uint64_t token = m_next_token.fetch_add(1,
+            std::memory_order_relaxed);
+        auto current = m_passive_callbacks.load();
+        auto next =
+            std::make_shared<std::vector<PassiveCallbackEntry>>(*current);
+        next->push_back({token, std::move(cb)});
+        m_passive_callbacks.store(
+            std::shared_ptr<const std::vector<PassiveCallbackEntry>>(next));
+        return token;
+    }
+
+    inline void PresentHook::unregister_passive_draw_callback(uint64_t token)
+    {
+        auto current = m_passive_callbacks.load();
+        auto next = std::make_shared<std::vector<PassiveCallbackEntry>>();
+        next->reserve(current->size());
+        for (const auto& e : *current)
+        {
+            if (e.token != token) next->push_back(e);
+        }
+        m_passive_callbacks.store(
+            std::shared_ptr<const std::vector<PassiveCallbackEntry>>(next));
+        if (next->empty())
+        {
+            m_passive_draw_requested.store(false, std::memory_order_release);
+        }
+    }
+
     // -----------------------------------------------------------------
     // Context-safe IO query.  WndProc runs on the UI thread while the
     // render thread is inside Present (possibly flipping the current
@@ -531,21 +593,36 @@ namespace Horse::GameImGui
 
         const bool visible =
             g_overlay_visible.load(std::memory_order_relaxed);
+        const bool passive_requested =
+            m_passive_draw_requested.load(std::memory_order_acquire);
+        const uint64_t passive_generation =
+            m_passive_draw_generation.load(std::memory_order_acquire);
 
-        if (visible && init_ok && state.imgui_context())
+        if ((visible || passive_requested) && init_ok
+            && state.imgui_context())
         {
             // Bind OUR context before any ImGui:: call.  UE4SS might
             // have set its own context via UE4SS_ENABLE_IMGUI(), and
             // tab callbacks will run ImGui:: functions.  They must
             // target our context, not UE4SS's.
             state.bind_imgui_context();
+            ImGuiIO& io = ImGui::GetIO();
+            const ImGuiConfigFlags saved_config_flags = io.ConfigFlags;
+            if (!visible)
+            {
+                io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            }
 
             // Feed the cached gamepad state into ImGui for nav.  We
             // only call this when the frame is actually going to
             // NewFrame / Render — otherwise the queued AddKeyEvent
             // calls would pile up in a context that never processes
             // them (leak).
-            GamepadInput::instance().feed_nav_to_imgui(state.imgui_context());
+            if (visible)
+            {
+                GamepadInput::instance().feed_nav_to_imgui(
+                    state.imgui_context());
+            }
 
             // --- ImGui frame ---
             ImGui_ImplDX11_NewFrame();
@@ -555,18 +632,58 @@ namespace Horse::GameImGui
             // Dispatch registered callbacks.  Snapshot the pointer
             // under acquire semantics so register/unregister racing
             // with us doesn't observe a torn vector.
-            auto cbs = m_callbacks.load();
-            if (cbs)
+            if (visible)
             {
-                for (const auto& entry : *cbs)
+                auto cbs = m_callbacks.load();
+                if (cbs)
                 {
-                    // Each callback is a stand-alone widget; exceptions
-                    // in one must not poison the others.
-                    try { entry.cb(); } catch (...) { /* swallow */ }
+                    for (const auto& entry : *cbs)
+                    {
+                        // Each callback is a stand-alone widget; exceptions
+                        // in one must not poison the others.
+                        try { entry.cb(); } catch (...) { /* swallow */ }
+                    }
+                }
+            }
+
+            bool passive_keep_alive = false;
+            if (passive_requested)
+            {
+                auto passive_cbs = m_passive_callbacks.load();
+                if (passive_cbs)
+                {
+                    for (const auto& entry : *passive_cbs)
+                    {
+                        try
+                        {
+                            passive_keep_alive =
+                                entry.cb() || passive_keep_alive;
+                        }
+                        catch (...)
+                        {
+                            // Passive drawing is best-effort only.
+                        }
+                    }
                 }
             }
 
             ImGui::Render();
+            io.ConfigFlags = saved_config_flags;
+            if (passive_requested)
+            {
+                if (passive_keep_alive)
+                {
+                    m_passive_draw_requested.store(true,
+                                                   std::memory_order_release);
+                }
+                else if (m_passive_draw_generation.load(
+                             std::memory_order_acquire)
+                         == passive_generation)
+                {
+                    m_passive_draw_requested.store(
+                        false, std::memory_order_release);
+                }
+            }
 
             // Bind the game's back buffer and draw our vertex data
             // onto it.  We intentionally leave the preceding render-
