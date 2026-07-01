@@ -49,6 +49,14 @@ if(EXISTS "${HORSEMOD_VERSION_FILE}")
     file(READ "${HORSEMOD_VERSION_FILE}" HORSEMOD_VERSION)
     string(STRIP "${HORSEMOD_VERSION}" HORSEMOD_VERSION)
 endif()
+set(HORSEMOD_VERSION_MAJOR 0)
+set(HORSEMOD_VERSION_MINOR 0)
+set(HORSEMOD_VERSION_PATCH 0)
+if(HORSEMOD_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+    set(HORSEMOD_VERSION_MAJOR "${CMAKE_MATCH_1}")
+    set(HORSEMOD_VERSION_MINOR "${CMAKE_MATCH_2}")
+    set(HORSEMOD_VERSION_PATCH "${CMAKE_MATCH_3}")
+endif()
 
 add_library(${TARGET} SHARED
     dllmain.cpp
@@ -68,9 +76,20 @@ set_target_properties(HorseReplayLauncher PROPERTIES
 target_include_directories(HorseReplayLauncher PRIVATE
     ${CMAKE_SOURCE_DIR}/release_resources
 )
-target_link_libraries(HorseReplayLauncher PRIVATE winhttp shell32 ws2_32 advapi32)
+target_link_libraries(HorseReplayLauncher PRIVATE
+    winhttp
+    shell32
+    ws2_32
+    advapi32
+    ole32
+    propsys
+    uuid
+)
 target_compile_definitions(HorseReplayLauncher PRIVATE
     HORSEMOD_VERSION="${HORSEMOD_VERSION}"
+    HORSEMOD_VERSION_MAJOR=${HORSEMOD_VERSION_MAJOR}
+    HORSEMOD_VERSION_MINOR=${HORSEMOD_VERSION_MINOR}
+    HORSEMOD_VERSION_PATCH=${HORSEMOD_VERSION_PATCH}
 )
 
 set(_horsemod_enable_ebtracer ${HORSEMOD_ENABLE_EBTRACER})

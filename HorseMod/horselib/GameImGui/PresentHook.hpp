@@ -272,6 +272,7 @@ namespace Horse::GameImGui
         std::function<void()> m_on_gamepad_back;
 
         std::atomic<uint64_t> m_present_count{0};
+        std::atomic<uint64_t> m_reentrant_present_count{0};
     };
 
     // ------------------------------------------------------------------
@@ -479,6 +480,16 @@ namespace Horse::GameImGui
     // -----------------------------------------------------------------
     namespace detail
     {
+        inline thread_local int g_present_depth = 0;
+
+        struct PresentDepthScope
+        {
+            PresentDepthScope() noexcept { ++g_present_depth; }
+            ~PresentDepthScope() noexcept { --g_present_depth; }
+            PresentDepthScope(const PresentDepthScope&) = delete;
+            PresentDepthScope& operator=(const PresentDepthScope&) = delete;
+        };
+
         inline const ImGuiIO* scoped_io_read(ImGuiContext* target)
         {
             if (!target) return nullptr;
@@ -562,6 +573,26 @@ namespace Horse::GameImGui
                 STR("[GameImGui] Present_detour with no trampoline?!\n"));
             return DXGI_ERROR_INVALID_CALL;
         }
+
+        if (detail::g_present_depth > 0)
+        {
+            // Steam's overlay can call Present through the swap-chain vtable
+            // while it is already inside the DXGI Present body we chained to.
+            // Since our vtable slot points back here, chaining again would
+            // recurse HorseMod -> Steam -> HorseMod until stack overflow.
+            const uint64_t n = m_reentrant_present_count.fetch_add(
+                1, std::memory_order_relaxed) + 1;
+            if (n <= 5 || (n % 300) == 0)
+            {
+                RC::Output::send<RC::LogLevel::Warning>(
+                    STR("[GameImGui] nested Present detected; returning "
+                        "S_OK to break Steam overlay recursion (count={})\n"),
+                    n);
+            }
+            return S_OK;
+        }
+
+        detail::PresentDepthScope present_depth_scope;
 
         auto& state = DX11State::instance();
 

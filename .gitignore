@@ -99,6 +99,7 @@ tools/moveset_parser/.tmp_*.py
 tools/moveset_parser/_tmp_*.json
 tools/moveset_parser/tmp_*.json
 tools/moveset_parser/tmp_*.py
+tools/inferno_rankmatch_proof.py
 
 # --- Release artifacts ------------------------------------------------------
 # Output of build_release_github.bat / build_release_thunderstore.bat —

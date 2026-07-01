@@ -380,6 +380,16 @@ static std::wstring horsemod_ascii_lower(std::wstring value) noexcept
     return value;
 }
 
+static std::wstring horsemod_normalize_path_separators(
+    std::wstring value) noexcept
+{
+    for (wchar_t& c : value)
+    {
+        if (c == L'/') c = L'\\';
+    }
+    return value;
+}
+
 static bool horsemod_iequals_path_part(
     const std::wstring& a,
     const std::wstring& b) noexcept
@@ -444,6 +454,79 @@ static bool horsemod_find_child_dir_ci(
     return false;
 }
 
+static std::wstring horsemod_child_launcher_if_present(
+    const std::wstring& mod_parent,
+    const std::wstring& child_name) noexcept
+{
+    if (mod_parent.empty() || child_name.empty()) return {};
+    std::wstring child = horsemod_normalize_path_separators(mod_parent);
+    if (!child.empty() && child.back() != L'\\' && child.back() != L'/')
+        child += L'\\';
+    child += child_name;
+    child += L'\\';
+    const std::wstring launcher =
+        child + L"tools\\HorseReplayLauncher.exe";
+    return horsemod_file_exists(launcher) ? launcher : std::wstring{};
+}
+
+static std::wstring horsemod_replay_launcher_from_mod_parent(
+    std::wstring mod_parent,
+    const std::wstring& package_dir) noexcept
+{
+    if (mod_parent.empty()) return {};
+    mod_parent = horsemod_normalize_path_separators(mod_parent);
+    if (!mod_parent.empty() && mod_parent.back() != L'\\' &&
+        mod_parent.back() != L'/')
+        mod_parent += L'\\';
+
+    const std::wstring preferred_names[] = {
+        package_dir,
+        L"HorseMod-HorseMod",
+        L"Fotten-HorseMod",
+    };
+    for (const std::wstring& name : preferred_names)
+    {
+        const std::wstring launcher =
+            horsemod_child_launcher_if_present(mod_parent, name);
+        if (!launcher.empty()) return launcher;
+    }
+
+    std::wstring pattern = mod_parent + L"*";
+    WIN32_FIND_DATAW data{};
+    HANDLE h = FindFirstFileW(pattern.c_str(), &data);
+    if (h == INVALID_HANDLE_VALUE) return {};
+    do
+    {
+        if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+            continue;
+        if (std::wcscmp(data.cFileName, L".") == 0 ||
+            std::wcscmp(data.cFileName, L"..") == 0)
+            continue;
+
+        const std::wstring child = data.cFileName;
+        const std::wstring lower_child = horsemod_ascii_lower(child);
+        const std::wstring lower_package = horsemod_ascii_lower(package_dir);
+        const std::wstring suffix = L"-" + lower_package;
+        if (!horsemod_iequals_path_part(child, package_dir) &&
+            (lower_child.size() < suffix.size() ||
+             lower_child.compare(lower_child.size() - suffix.size(),
+                                 suffix.size(), suffix) != 0))
+        {
+            continue;
+        }
+
+        const std::wstring launcher =
+            horsemod_child_launcher_if_present(mod_parent, child);
+        if (!launcher.empty())
+        {
+            FindClose(h);
+            return launcher;
+        }
+    } while (FindNextFileW(h, &data));
+    FindClose(h);
+    return {};
+}
+
 static std::wstring horsemod_replay_launcher_from_profile_root(
     const std::wstring& profile_root,
     const std::wstring& package_dir) noexcept
@@ -455,16 +538,7 @@ static std::wstring horsemod_replay_launcher_from_profile_root(
         mod_parent += L'\\';
     mod_parent += L"shimloader\\mod\\";
 
-    std::wstring actual_package_dir;
-    if (!horsemod_find_child_dir_ci(
-            mod_parent, package_dir, actual_package_dir))
-    {
-        return {};
-    }
-
-    const std::wstring launcher =
-        actual_package_dir + L"tools\\HorseReplayLauncher.exe";
-    return horsemod_file_exists(launcher) ? launcher : std::wstring{};
+    return horsemod_replay_launcher_from_mod_parent(mod_parent, package_dir);
 }
 
 static std::wstring horsemod_known_profile_launcher(
@@ -529,6 +603,16 @@ static std::wstring horsemod_replay_launcher_path() noexcept
     const std::wstring package_dir = horsemod_leaf_dir(root);
     const std::wstring direct = root + L"tools\\HorseReplayLauncher.exe";
 
+    std::wstring command_line_mod_dir;
+    if (horsemod_command_line_option_value(L"--mod-dir",
+                                           command_line_mod_dir))
+    {
+        const std::wstring command_line_profile =
+            horsemod_replay_launcher_from_mod_parent(
+                command_line_mod_dir, package_dir);
+        if (!command_line_profile.empty()) return command_line_profile;
+    }
+
     const std::wstring dwmapi_profile =
         horsemod_replay_launcher_from_profile_root(
             horsemod_module_dir(L"dwmapi.dll"), package_dir);
@@ -551,6 +635,13 @@ static std::wstring horsemod_replay_link_command() noexcept
     const std::wstring launcher = horsemod_replay_launcher_path();
     if (launcher.empty()) return {};
     return L"\"" + launcher + L"\" \"%1\"";
+}
+
+static std::wstring horsemod_replay_link_icon_value() noexcept
+{
+    const std::wstring launcher = horsemod_replay_launcher_path();
+    if (launcher.empty()) return {};
+    return L"\"" + launcher + L"\",0";
 }
 
 static bool horsemod_file_exists(const std::wstring& path) noexcept
@@ -624,6 +715,7 @@ static bool horsemod_replay_link_handler_registered() noexcept
 {
     const std::wstring launcher = horsemod_replay_launcher_path();
     const std::wstring command = horsemod_replay_link_command();
+    const std::wstring icon_value = horsemod_replay_link_icon_value();
     if (launcher.empty() || command.empty() || !horsemod_file_exists(launcher))
         return false;
 
@@ -634,13 +726,18 @@ static bool horsemod_replay_link_handler_registered() noexcept
         HKEY_CURRENT_USER,
         L"Software\\Classes\\sc6replay\\shell\\open\\command",
         nullptr);
-    return protocol && current == command;
+    const std::wstring current_icon = horsemod_get_reg_string(
+        HKEY_CURRENT_USER,
+        L"Software\\Classes\\sc6replay\\DefaultIcon",
+        nullptr);
+    return protocol && current == command && current_icon == icon_value;
 }
 
 static bool horsemod_register_replay_link_handler() noexcept
 {
     const std::wstring launcher = horsemod_replay_launcher_path();
     const std::wstring command = horsemod_replay_link_command();
+    const std::wstring icon_value = horsemod_replay_link_icon_value();
     if (launcher.empty() || command.empty() || !horsemod_file_exists(launcher))
     {
         Output::send<LogLevel::Warning>(STR(
@@ -671,7 +768,7 @@ static bool horsemod_register_replay_link_handler() noexcept
                         0, nullptr, 0, KEY_WRITE, nullptr, &icon,
                         nullptr) == ERROR_SUCCESS)
     {
-        (void)horsemod_set_reg_string(icon, nullptr, launcher);
+        ok = horsemod_set_reg_string(icon, nullptr, icon_value) && ok;
         RegCloseKey(icon);
     }
 
@@ -688,6 +785,42 @@ static bool horsemod_register_replay_link_handler() noexcept
     }
     ok = horsemod_set_reg_string(command_key, nullptr, command) && ok;
     RegCloseKey(command_key);
+
+    HKEY app_key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\Classes\\Applications\\"
+                        L"HorseReplayLauncher.exe",
+                        0, nullptr, 0, KEY_WRITE, nullptr, &app_key,
+                        nullptr) == ERROR_SUCCESS)
+    {
+        ok = horsemod_set_reg_string(
+                 app_key, L"FriendlyAppName",
+                 L"HorseMod Replay Launcher") &&
+             ok;
+        RegCloseKey(app_key);
+    }
+
+    HKEY app_icon = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\Classes\\Applications\\"
+                        L"HorseReplayLauncher.exe\\DefaultIcon",
+                        0, nullptr, 0, KEY_WRITE, nullptr, &app_icon,
+                        nullptr) == ERROR_SUCCESS)
+    {
+        ok = horsemod_set_reg_string(app_icon, nullptr, icon_value) && ok;
+        RegCloseKey(app_icon);
+    }
+
+    HKEY app_command = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                        L"Software\\Classes\\Applications\\"
+                        L"HorseReplayLauncher.exe\\shell\\open\\command",
+                        0, nullptr, 0, KEY_WRITE, nullptr, &app_command,
+                        nullptr) == ERROR_SUCCESS)
+    {
+        ok = horsemod_set_reg_string(app_command, nullptr, command) && ok;
+        RegCloseKey(app_command);
+    }
 
     Output::send<LogLevel::Default>(STR(
         "[ReplayLink] protocol handler {} launcher='{}'\n"),
@@ -3611,6 +3744,10 @@ private:
     // unregister_tab on teardown.
     uint64_t m_gameimgui_tab_token = 0;
     uint64_t m_gameimgui_toast_token = 0;
+    bool m_gameimgui_init_pending = false;
+    bool m_gameimgui_init_attempted = false;
+    int m_gameimgui_init_delay_ticks_remaining = 0;
+    static constexpr int kGameImGuiDeferredInstallTicks = 180;
 
     RC::Unreal::Hook::GlobalCallbackId m_engine_tick_callback_id{
         RC::Unreal::Hook::ERROR_ID};
@@ -4081,22 +4218,22 @@ public:
         // -----------------------------------------------------------
         // In-game ImGui overlay bring-up.
         //
-        // Ordering rationale: on_unreal_init runs after UE has
-        // constructed its D3D device + swap chain and, importantly,
-        // after Steam's gameoverlayrenderer64.dll has installed its
-        // Present hook during the game's initial DLL loading.  Our
-        // PresentHook::install() reads the DXGI vtable and performs a
-        // PolyHook VFuncSwap - chaining ON TOP of Steam's hook rather
-        // than fighting it.  The actual per-frame rendering and
-        // WndProc attachment both kick in lazily on the first hooked
-        // Present() (see GameImGui.hpp for the bootstrap callback).
+        // Register callbacks now, but delay the DXGI vtable swap for a
+        // few game-thread updates.  Fresh Steam launches can still be
+        // finishing gameoverlayrenderer64.dll's first Present path when
+        // on_unreal_init runs; installing our vtable hook immediately can
+        // let Steam re-enter Present through our slot and recurse until
+        // stack overflow.  The delayed install gives Steam's code-patched
+        // DXGI hook a few normal frames before HorseMod starts rendering.
         // -----------------------------------------------------------
-        if (!Horse::GameImGui::initialize())
-        {
-            Output::send<LogLevel::Error>(
-                STR("[HorseMod] Horse::GameImGui::initialize() failed; "
-                    "the in-game ImGui overlay will not appear.\n"));
-        }
+        m_gameimgui_init_pending = true;
+        m_gameimgui_init_attempted = false;
+        m_gameimgui_init_delay_ticks_remaining =
+            kGameImGuiDeferredInstallTicks;
+        Output::send<LogLevel::Default>(
+            STR("[HorseMod] scheduled GameImGui install after {} "
+                "game-thread ticks\n"),
+            kGameImGuiDeferredInstallTicks);
         m_gameimgui_tab_token = Horse::GameImGui::register_tab(
             L"HorseMod", [this] { this->render_tab_impl(); });
         m_gameimgui_toast_token =
@@ -4239,6 +4376,7 @@ public:
         }();
         if (in_game_thread)
         {
+            service_gameimgui_deferred_install();
             auto& scrub = Horse::ReplayScrub::instance();
             scrub.service_state_snapshot_request();
             scrub.service_replay_file_start_request();
@@ -4271,6 +4409,29 @@ public:
     }
 
 private:
+    void service_gameimgui_deferred_install()
+    {
+        if (!m_gameimgui_init_pending || m_gameimgui_init_attempted) return;
+        if (m_gameimgui_init_delay_ticks_remaining > 0)
+        {
+            --m_gameimgui_init_delay_ticks_remaining;
+            return;
+        }
+
+        m_gameimgui_init_pending = false;
+        m_gameimgui_init_attempted = true;
+        if (!Horse::GameImGui::initialize())
+        {
+            Output::send<LogLevel::Error>(
+                STR("[HorseMod] Horse::GameImGui::initialize() failed; "
+                    "the in-game ImGui overlay will not appear.\n"));
+            return;
+        }
+
+        Output::send<LogLevel::Default>(
+            STR("[HorseMod] deferred GameImGui install complete\n"));
+    }
+
     void try_register_cockpit_hook()
     {
         Horse::Obj cockpit = m_lux.cockpit();

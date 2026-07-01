@@ -10,6 +10,10 @@
 #include <Windows.h>
 #include <Winhttp.h>
 #include <TlHelp32.h>
+#include <Objbase.h>
+#include <Propkey.h>
+#include <ShObjIdl.h>
+#include <ShlObj.h>
 #include <shellapi.h>
 
 #include <algorithm>
@@ -35,6 +39,8 @@ namespace
     constexpr wchar_t kSteamRunGameUrl[] = L"steam://rungameid/544750";
     constexpr wchar_t kStatusServerMutex[] =
         L"Local\\HorseModReplayStatusServer";
+    constexpr wchar_t kAppUserModelId[] =
+        L"no.horseface.HorseMod.ReplayLauncher";
 
     std::wstring dirname(std::wstring path)
     {
@@ -98,6 +104,154 @@ namespace
         std::fclose(f);
     }
 
+    std::wstring roaming_appdata_path()
+    {
+        wchar_t base[MAX_PATH]{};
+        const DWORD n = GetEnvironmentVariableW(L"APPDATA", base, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH) return {};
+        std::wstring path = base;
+        if (!path.empty() && path.back() != L'\\') path += L'\\';
+        return path;
+    }
+
+    bool init_propvariant_from_string(
+        const wchar_t* value,
+        PROPVARIANT& prop)
+    {
+        PropVariantInit(&prop);
+        prop.vt = VT_LPWSTR;
+        const size_t chars = std::wcslen(value) + 1;
+        prop.pwszVal = static_cast<wchar_t*>(
+            CoTaskMemAlloc(chars * sizeof(wchar_t)));
+        if (!prop.pwszVal)
+        {
+            PropVariantInit(&prop);
+            return false;
+        }
+        std::wmemcpy(prop.pwszVal, value, chars);
+        return true;
+    }
+
+    void ensure_notification_identity_shortcut()
+    {
+        const std::wstring appdata = roaming_appdata_path();
+        const std::wstring exe_path = module_path();
+        if (appdata.empty() || exe_path.empty())
+        {
+            log_line(L"notification identity shortcut skipped: missing path");
+            return;
+        }
+
+        std::wstring shortcut_dir =
+            appdata +
+            L"Microsoft\\Windows\\Start Menu\\Programs\\HorseMod\\";
+        if (!ensure_dir(shortcut_dir))
+        {
+            log_line(L"notification identity shortcut dir failed: %s",
+                     shortcut_dir.c_str());
+            return;
+        }
+        const std::wstring shortcut_path =
+            shortcut_dir + L"HorseMod Replay Launcher.lnk";
+
+        const HRESULT coinit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        const bool should_uninitialize = SUCCEEDED(coinit);
+        if (FAILED(coinit) && coinit != RPC_E_CHANGED_MODE)
+        {
+            log_line(L"notification identity COM init failed: 0x%08lx",
+                     static_cast<unsigned long>(coinit));
+            return;
+        }
+
+        IShellLinkW* link = nullptr;
+        HRESULT hr = CoCreateInstance(CLSID_ShellLink, nullptr,
+                                      CLSCTX_INPROC_SERVER,
+                                      IID_PPV_ARGS(&link));
+        if (FAILED(hr) || !link)
+        {
+            log_line(L"notification identity shell link create failed: 0x%08lx",
+                     static_cast<unsigned long>(hr));
+            if (should_uninitialize) CoUninitialize();
+            return;
+        }
+
+        link->SetPath(exe_path.c_str());
+        link->SetDescription(L"HorseMod Replay Launcher");
+        link->SetIconLocation(exe_path.c_str(), 0);
+
+        IPropertyStore* store = nullptr;
+        hr = link->QueryInterface(IID_PPV_ARGS(&store));
+        if (SUCCEEDED(hr) && store)
+        {
+            PROPVARIANT app_id{};
+            if (init_propvariant_from_string(kAppUserModelId, app_id))
+            {
+                hr = store->SetValue(PKEY_AppUserModel_ID, app_id);
+                PropVariantClear(&app_id);
+                if (SUCCEEDED(hr)) hr = store->Commit();
+            }
+            else
+            {
+                hr = E_OUTOFMEMORY;
+            }
+            if (FAILED(hr))
+            {
+                log_line(L"notification identity appid set failed: 0x%08lx",
+                         static_cast<unsigned long>(hr));
+            }
+            store->Release();
+        }
+        else
+        {
+            log_line(L"notification identity property store failed: 0x%08lx",
+                     static_cast<unsigned long>(hr));
+        }
+
+        IPersistFile* persist = nullptr;
+        hr = link->QueryInterface(IID_PPV_ARGS(&persist));
+        if (SUCCEEDED(hr) && persist)
+        {
+            hr = persist->Save(shortcut_path.c_str(), TRUE);
+            if (FAILED(hr))
+            {
+                log_line(L"notification identity shortcut save failed: 0x%08lx",
+                         static_cast<unsigned long>(hr));
+            }
+            else
+            {
+                log_line(L"notification identity shortcut ready: %s",
+                         shortcut_path.c_str());
+                SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr,
+                               nullptr);
+            }
+            persist->Release();
+        }
+        else
+        {
+            log_line(L"notification identity persist failed: 0x%08lx",
+                     static_cast<unsigned long>(hr));
+        }
+
+        link->Release();
+        if (should_uninitialize) CoUninitialize();
+    }
+
+    void ensure_notification_app_identity()
+    {
+        static bool attempted = false;
+        if (attempted) return;
+        attempted = true;
+
+        const HRESULT hr =
+            SetCurrentProcessExplicitAppUserModelID(kAppUserModelId);
+        if (FAILED(hr))
+        {
+            log_line(L"notification AppUserModelID failed: 0x%08lx",
+                     static_cast<unsigned long>(hr));
+        }
+        ensure_notification_identity_shortcut();
+    }
+
     [[noreturn]] void fail(const std::wstring& message)
     {
         log_line(L"error: %s", message.c_str());
@@ -112,6 +266,29 @@ namespace
         dst[0] = L'\0';
         if (src && *src)
             (void)wcsncpy_s(dst, N, src, _TRUNCATE);
+    }
+
+    HICON load_launcher_icon(int width, int height)
+    {
+        HINSTANCE instance = GetModuleHandleW(nullptr);
+        HICON icon = static_cast<HICON>(LoadImageW(
+            instance, MAKEINTRESOURCEW(IDI_HORSE_REPLAY_APP), IMAGE_ICON,
+            width, height, LR_DEFAULTCOLOR));
+        if (!icon)
+        {
+            icon = static_cast<HICON>(LoadImageW(
+                instance, MAKEINTRESOURCEW(IDI_HORSE_REPLAY_NOTIFICATION),
+                IMAGE_ICON, width, height, LR_DEFAULTCOLOR));
+        }
+        if (!icon)
+        {
+            icon = static_cast<HICON>(LoadImageW(
+                nullptr, MAKEINTRESOURCEW(32516), IMAGE_ICON, width, height,
+                LR_SHARED));
+        }
+        if (!icon)
+            icon = LoadIconW(nullptr, MAKEINTRESOURCEW(32516));
+        return icon;
     }
 
     LRESULT CALLBACK notification_window_proc(
@@ -134,6 +311,10 @@ namespace
         wc.lpfnWndProc = notification_window_proc;
         wc.hInstance = instance;
         wc.lpszClassName = kClassName;
+        wc.hIcon = load_launcher_icon(GetSystemMetrics(SM_CXICON),
+                                      GetSystemMetrics(SM_CYICON));
+        wc.hIconSm = load_launcher_icon(GetSystemMetrics(SM_CXSMICON),
+                                        GetSystemMetrics(SM_CYSMICON));
         if (!RegisterClassExW(&wc) &&
             GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
         {
@@ -143,6 +324,90 @@ namespace
         return CreateWindowExW(0, kClassName, L"HorseMod", WS_OVERLAPPED,
                                0, 0, 0, 0, nullptr, nullptr, instance,
                                nullptr);
+    }
+
+    void pump_notification_messages(DWORD milliseconds)
+    {
+        const DWORD start = GetTickCount();
+        MSG msg{};
+        for (;;)
+        {
+            while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+            {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+
+            const DWORD elapsed = GetTickCount() - start;
+            if (elapsed >= milliseconds) break;
+            const DWORD remaining = milliseconds - elapsed;
+            MsgWaitForMultipleObjects(
+                0, nullptr, FALSE, std::min<DWORD>(remaining, 50),
+                QS_ALLINPUT);
+        }
+    }
+
+    bool show_starting_replay_notification_with_size(
+        HWND hwnd,
+        HICON tray_icon,
+        HICON balloon_icon,
+        DWORD notify_icon_data_size,
+        const wchar_t* size_label)
+    {
+        NOTIFYICONDATAW nid{};
+        nid.cbSize = notify_icon_data_size;
+        nid.hWnd = hwnd;
+        nid.uID = 1;
+        nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+        nid.uCallbackMessage = WM_APP + 1;
+        nid.hIcon = tray_icon;
+        copy_notification_text(nid.szTip, L"HorseMod");
+
+        if (!Shell_NotifyIconW(NIM_ADD, &nid))
+        {
+            log_line(L"notification add failed (%s): %lu", size_label,
+                     GetLastError());
+            return false;
+        }
+
+        NOTIFYICONDATAW version_nid = nid;
+        version_nid.uVersion =
+#ifdef NOTIFYICON_VERSION_4
+            (notify_icon_data_size == sizeof(NOTIFYICONDATAW))
+                ? NOTIFYICON_VERSION_4
+                :
+#endif
+                NOTIFYICON_VERSION;
+        if (!Shell_NotifyIconW(NIM_SETVERSION, &version_nid))
+        {
+            log_line(L"notification set-version failed (%s): %lu",
+                     size_label, GetLastError());
+        }
+
+        NOTIFYICONDATAW info_nid{};
+        info_nid.cbSize = notify_icon_data_size;
+        info_nid.hWnd = hwnd;
+        info_nid.uID = 1;
+        info_nid.uFlags = NIF_INFO | NIF_ICON;
+        info_nid.hIcon = balloon_icon ? balloon_icon : tray_icon;
+        info_nid.uTimeout = 10000;
+        info_nid.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON | NIIF_NOSOUND;
+        info_nid.hBalloonIcon = balloon_icon ? balloon_icon : tray_icon;
+        copy_notification_text(info_nid.szInfoTitle, L"HorseMod");
+        copy_notification_text(info_nid.szInfo,
+                               L"Starting replay in Soulcalibur VI.");
+        if (!Shell_NotifyIconW(NIM_MODIFY, &info_nid))
+        {
+            log_line(L"notification modify failed (%s): %lu", size_label,
+                     GetLastError());
+            (void)Shell_NotifyIconW(NIM_DELETE, &nid);
+            return false;
+        }
+
+        log_line(L"notification shown (%s)", size_label);
+        pump_notification_messages(3500);
+        (void)Shell_NotifyIconW(NIM_DELETE, &nid);
+        return true;
     }
 
     void show_starting_replay_notification()
@@ -155,41 +420,23 @@ namespace
             return;
         }
 
-        NOTIFYICONDATAW nid{};
-        nid.cbSize = sizeof(nid);
-        nid.hWnd = hwnd;
-        nid.uID = 1;
-        nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
-        nid.uCallbackMessage = WM_APP + 1;
-        HINSTANCE instance = GetModuleHandleW(nullptr);
-        HICON notification_icon = LoadIconW(
-            instance, MAKEINTRESOURCEW(IDI_HORSE_REPLAY_NOTIFICATION));
-        if (!notification_icon)
-            notification_icon = LoadIconW(nullptr, MAKEINTRESOURCEW(32516));
-        nid.hIcon = notification_icon;
-        copy_notification_text(nid.szTip, L"HorseMod");
+        HICON tray_icon = load_launcher_icon(GetSystemMetrics(SM_CXSMICON),
+                                             GetSystemMetrics(SM_CYSMICON));
+        HICON balloon_icon = load_launcher_icon(64, 64);
 
-        if (!Shell_NotifyIconW(NIM_ADD, &nid))
+#ifdef NOTIFYICONDATAW_V3_SIZE
+        if (!show_starting_replay_notification_with_size(
+                hwnd, tray_icon, balloon_icon, NOTIFYICONDATAW_V3_SIZE, L"v3"))
         {
-            log_line(L"notification add failed: %lu", GetLastError());
-            DestroyWindow(hwnd);
-            return;
+            (void)show_starting_replay_notification_with_size(
+                hwnd, tray_icon, balloon_icon, sizeof(NOTIFYICONDATAW),
+                L"full");
         }
+#else
+        (void)show_starting_replay_notification_with_size(
+            hwnd, tray_icon, balloon_icon, sizeof(NOTIFYICONDATAW), L"full");
+#endif
 
-        nid.uFlags = NIF_INFO;
-        nid.dwInfoFlags = notification_icon ? (NIIF_USER | NIIF_NOSOUND)
-                                            : (NIIF_INFO | NIIF_NOSOUND);
-        nid.hBalloonIcon = notification_icon;
-        copy_notification_text(nid.szInfoTitle, L"HorseMod");
-        copy_notification_text(
-            nid.szInfo, L"Starting replay in Soulcalibur VI.");
-        if (!Shell_NotifyIconW(NIM_MODIFY, &nid))
-        {
-            log_line(L"notification modify failed: %lu", GetLastError());
-        }
-
-        Sleep(3500);
-        (void)Shell_NotifyIconW(NIM_DELETE, &nid);
         DestroyWindow(hwnd);
     }
 
@@ -1239,6 +1486,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    ensure_notification_app_identity();
+    if (argv && argc >= 2 && std::wcscmp(argv[1], L"--test-notification") == 0)
+    {
+        LocalFree(argv);
+        show_starting_replay_notification();
+        return 0;
+    }
     if (argv && argc >= 2 && std::wcscmp(argv[1], L"--status-server") == 0)
     {
         LocalFree(argv);
