@@ -1,0 +1,20 @@
+{
+  "leaderboard": "RankmatchWorld",
+  "leaderboard_id": 2667916,
+  "steam_id": "76561198201141039",
+  "steam_username": "ulvunge1",
+  "entry": {
+    "steam_id": "76561198201141039",
+    "rank": 500548,
+    "score": 0,
+    "ugc_handle": "1592540764128610868",
+    "details": [
+      2,
+      2,
+      -1,
+      0
+    ],
+    "details_b64": "AgAAAAIAAAD/////AAAAAA=="
+  },
+  "note": "Saved before inferno_rankmatch_proof.py write action."
+}

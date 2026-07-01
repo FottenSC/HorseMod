@@ -6540,6 +6540,7 @@ namespace Horse
             StartCase,
             ParkForCase,
             WaitSeek,
+            WaitUiStep,
             StartResume,
             WaitResume,
             Complete,
@@ -6552,12 +6553,21 @@ namespace Horse
             double percent {-1.0};
             int32_t expected_round {-1};
             std::string validation_mode;
+            std::string action;
             int32_t resume_frames {0};
 
             int32_t target_seq {-1};
             int32_t target_tick {-1};
             int32_t target_round {-1};
             int32_t target_master {-1};
+            int32_t ui_step_source_seq {-1};
+            int32_t ui_step_source_tick {-1};
+            int32_t ui_step_source_round {-1};
+            int32_t ui_step_source_master {-1};
+            int32_t ui_step_target_seq {-1};
+            int32_t ui_step_target_tick {-1};
+            int32_t ui_step_target_round {-1};
+            int32_t ui_step_target_master {-1};
             int32_t live_round_after_seek {-1};
             int32_t live_master_after_seek {-1};
             int32_t resume_start_master {-1};
@@ -6587,6 +6597,8 @@ namespace Horse
             std::string resume_terminal_reason;
             bool landed {false};
             bool blocked {false};
+            bool ui_step_requested {false};
+            bool ui_step_landed {false};
             bool passed {false};
             std::string failure;
             std::string oracle_failure;
@@ -12485,6 +12497,109 @@ namespace Horse
             }
         }
 
+        bool ui_step_forward_one_native() noexcept
+        {
+            if (!has_context_valid_completed_timeline())
+                return false;
+            if (!is_paused() || has_pending_native_seek())
+                return false;
+            if (m_ui_dragging.load(std::memory_order_acquire))
+                return false;
+            if (m_ui_native_step_active.load(std::memory_order_acquire))
+                return true;
+
+            const NativeSeekStatus status =
+                static_cast<NativeSeekStatus>(
+                    m_native_status.load(std::memory_order_acquire));
+            if (status != NativeSeekStatus::Landed)
+                return false;
+
+            const int32_t source_seq = clamp_seq_to_timeline(
+                m_last_seek_target.load(std::memory_order_acquire));
+            const int32_t requested = clamp_seq_to_timeline(
+                m_ui_requested_seq.load(std::memory_order_acquire));
+            if (source_seq < 0 || requested != source_seq)
+                return false;
+
+            const int32_t target_seq = clamp_seq_to_timeline(source_seq + 1);
+            if (target_seq <= source_seq)
+                return false;
+
+            const int32_t source_tick = find_slot_for_seq(source_seq);
+            const int32_t target_tick = find_slot_for_seq(target_seq);
+            if (source_tick < 0 || target_tick < 0)
+                return false;
+
+            int32_t source_tag_seq = -1, source_round = -1;
+            int32_t source_wall = -1, source_master = -1;
+            int32_t target_tag_seq = -1, target_round = -1;
+            int32_t target_wall = -1, target_master = -1;
+            if (!m_tags.get(static_cast<size_t>(source_tick),
+                            source_tag_seq, source_round,
+                            source_wall, source_master)
+                || !m_tags.get(static_cast<size_t>(target_tick),
+                               target_tag_seq, target_round,
+                               target_wall, target_master))
+            {
+                return false;
+            }
+            if (source_tag_seq != source_seq || target_tag_seq != target_seq
+                || source_round < 0 || target_round != source_round
+                || source_master < 0
+                || target_master != source_master + 1)
+            {
+                return false;
+            }
+
+            m_paused.store(true, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::ValidationStep),
+                std::memory_order_release);
+            m_ui_dragging.store(false, std::memory_order_release);
+            m_ui_wants_play.store(false, std::memory_order_release);
+
+            m_ui_native_step_source_seq.store(
+                source_seq, std::memory_order_release);
+            m_ui_native_step_target_seq.store(
+                target_seq, std::memory_order_release);
+            m_ui_native_step_target_round.store(
+                target_round, std::memory_order_release);
+            m_ui_native_step_source_master.store(
+                source_master, std::memory_order_release);
+            m_ui_native_step_target_master.store(
+                target_master, std::memory_order_release);
+            m_ui_native_step_granted_before.store(
+                m_sc6_native_step_granted.load(std::memory_order_acquire),
+                std::memory_order_release);
+            m_ui_native_step_drained_before.store(
+                m_sc6_native_step_drained.load(std::memory_order_acquire),
+                std::memory_order_release);
+            m_ui_native_step_wait_services.store(
+                0, std::memory_order_release);
+            m_ui_native_step_active.store(true, std::memory_order_release);
+
+            publish_ui_target(target_seq);
+            publish_native_status(NativeSeekStatus::Queued,
+                                  NativeSeekFailure::None);
+            publish_mode(ScrubMode::NativeSeekQueued);
+            m_sc6_native_step_request.store(1, std::memory_order_release);
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.ui] native +1 step requested seq {} -> {} "
+                "round={} master {} -> {}\n"),
+                source_seq, target_seq, target_round,
+                source_master, target_master);
+            ReplayTraceFields f;
+            f.integer("source_seq", source_seq)
+             .integer("target_seq", target_seq)
+             .integer("target_round", target_round)
+             .integer("source_master", source_master)
+             .integer("target_master", target_master);
+            ReplayDebugTrace::instance().event(
+                "ui_native_step_requested", f);
+            return true;
+        }
+
         void ui_pause_at_live() noexcept
         {
             const int32_t live_round =
@@ -13017,11 +13132,13 @@ namespace Horse
         {
             if (credits <= 0) return;
             const bool validation_active = has_active_validation_step();
+            const bool sc6_seek_active =
+                sc6_exact_seek_phase_active(m_sc6_seek_job.phase);
             const int32_t total =
                 m_sc6_native_step_granted.fetch_add(
                     credits, std::memory_order_acq_rel)
                 + credits;
-            if (validation_active)
+            if (sc6_seek_active)
             {
                 m_sc6_seek_job.native_step_last_grant_gate_policy_before =
                     gate_policy_before;
@@ -13064,11 +13181,13 @@ namespace Horse
         {
             if (credits <= 0) return;
             const bool validation_active = has_active_validation_step();
+            const bool sc6_seek_active =
+                sc6_exact_seek_phase_active(m_sc6_seek_job.phase);
             const int32_t total =
                 m_sc6_native_step_drained.fetch_add(
                     credits, std::memory_order_acq_rel)
                 + credits;
-            if (validation_active)
+            if (sc6_seek_active)
             {
                 m_sc6_seek_job.native_step_last_drain_gate_policy_before =
                     gate_policy_before;
@@ -13235,6 +13354,7 @@ namespace Horse
                 static_cast<int32_t>(SeekCommandKind::None),
                 std::memory_order_release);
             m_seek_command_seq.store(-1, std::memory_order_release);
+            clear_ui_native_step_state();
             m_resume_after_seek.store(false, std::memory_order_release);
             m_ui_dragging.store(false, std::memory_order_release);
             m_ui_wants_play.store(false, std::memory_order_release);
@@ -15761,6 +15881,16 @@ namespace Horse
         std::atomic<int32_t> m_sc6_native_step_drained {0};
         std::atomic<bool> m_sc6_direct_prev_warmup_primed {false};
 
+        std::atomic<bool> m_ui_native_step_active {false};
+        std::atomic<int32_t> m_ui_native_step_source_seq {-1};
+        std::atomic<int32_t> m_ui_native_step_target_seq {-1};
+        std::atomic<int32_t> m_ui_native_step_target_round {-1};
+        std::atomic<int32_t> m_ui_native_step_source_master {-1};
+        std::atomic<int32_t> m_ui_native_step_target_master {-1};
+        std::atomic<int32_t> m_ui_native_step_granted_before {0};
+        std::atomic<int32_t> m_ui_native_step_drained_before {0};
+        std::atomic<int32_t> m_ui_native_step_wait_services {0};
+
         std::atomic<int32_t> m_seek_command_kind {
             static_cast<int32_t>(SeekCommandKind::None)};
         std::atomic<int32_t> m_seek_command_seq {-1};
@@ -16380,6 +16510,203 @@ namespace Horse
             }
         }
 
+        void clear_ui_native_step_state() noexcept
+        {
+            m_ui_native_step_active.store(false, std::memory_order_release);
+            m_ui_native_step_source_seq.store(-1, std::memory_order_release);
+            m_ui_native_step_target_seq.store(-1, std::memory_order_release);
+            m_ui_native_step_target_round.store(-1, std::memory_order_release);
+            m_ui_native_step_source_master.store(
+                -1, std::memory_order_release);
+            m_ui_native_step_target_master.store(
+                -1, std::memory_order_release);
+            m_ui_native_step_granted_before.store(
+                0, std::memory_order_release);
+            m_ui_native_step_drained_before.store(
+                0, std::memory_order_release);
+            m_ui_native_step_wait_services.store(
+                0, std::memory_order_release);
+        }
+
+        void fail_ui_native_step(NativeSeekFailure failure,
+                                 const char* reason) noexcept
+        {
+            if (failure == NativeSeekFailure::None)
+                failure = NativeSeekFailure::InvalidTarget;
+
+            const int32_t source_seq =
+                m_ui_native_step_source_seq.load(
+                    std::memory_order_acquire);
+            const int32_t target_seq =
+                m_ui_native_step_target_seq.load(
+                    std::memory_order_acquire);
+            const int32_t target_round =
+                m_ui_native_step_target_round.load(
+                    std::memory_order_acquire);
+            const int32_t source_master =
+                m_ui_native_step_source_master.load(
+                    std::memory_order_acquire);
+            const int32_t target_master =
+                m_ui_native_step_target_master.load(
+                    std::memory_order_acquire);
+
+            m_sc6_native_step_request.store(
+                0, std::memory_order_release);
+            clear_ui_native_step_state();
+            m_paused.store(true, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(
+                    ReplayScrubHoldKind::RestoredFrameHold),
+                std::memory_order_release);
+            if (source_seq >= 0)
+                publish_ui_target(source_seq);
+            publish_native_status(NativeSeekStatus::Failed, failure);
+            publish_mode(ScrubMode::NativeSeekFailed);
+
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayScrub.ui] native +1 step failed reason={} "
+                "failure={} seq {} -> {} round={} master {} -> {}\n"),
+                RC::to_generic_string(reason ? reason : "?"),
+                RC::to_generic_string(native_seek_failure_name(failure)),
+                source_seq, target_seq, target_round,
+                source_master, target_master);
+            ReplayTraceFields f;
+            f.string("reason", reason ? reason : "?")
+             .string("failure", native_seek_failure_name(failure))
+             .integer("source_seq", source_seq)
+             .integer("target_seq", target_seq)
+             .integer("target_round", target_round)
+             .integer("source_master", source_master)
+             .integer("target_master", target_master);
+            ReplayDebugTrace::instance().event("ui_native_step_failed", f);
+        }
+
+        void service_ui_native_step() noexcept
+        {
+            if (!m_ui_native_step_active.load(std::memory_order_acquire))
+                return;
+            if (sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
+            {
+                fail_ui_native_step(
+                    NativeSeekFailure::DriverBusy, "exact-seek-active");
+                return;
+            }
+
+            const int32_t source_seq =
+                m_ui_native_step_source_seq.load(
+                    std::memory_order_acquire);
+            const int32_t target_seq =
+                m_ui_native_step_target_seq.load(
+                    std::memory_order_acquire);
+            const int32_t target_round =
+                m_ui_native_step_target_round.load(
+                    std::memory_order_acquire);
+            const int32_t source_master =
+                m_ui_native_step_source_master.load(
+                    std::memory_order_acquire);
+            const int32_t target_master =
+                m_ui_native_step_target_master.load(
+                    std::memory_order_acquire);
+            const int32_t granted_before =
+                m_ui_native_step_granted_before.load(
+                    std::memory_order_acquire);
+            const int32_t drained_before =
+                m_ui_native_step_drained_before.load(
+                    std::memory_order_acquire);
+            const int32_t granted_total =
+                m_sc6_native_step_granted.load(
+                    std::memory_order_acquire);
+            const int32_t drained_total =
+                m_sc6_native_step_drained.load(
+                    std::memory_order_acquire);
+
+            if (target_seq < 0 || target_round < 0 || target_master < 0)
+            {
+                fail_ui_native_step(
+                    NativeSeekFailure::InvalidTarget, "invalid-target");
+                return;
+            }
+
+            constexpr int32_t kCredits = 1;
+            if (granted_total < granted_before + kCredits
+                || drained_total < drained_before + kCredits)
+            {
+                const int32_t waited =
+                    m_ui_native_step_wait_services.fetch_add(
+                        1, std::memory_order_acq_rel)
+                    + 1;
+                if (waited > kSc6NativeStepMaxDrainWaitServices)
+                {
+                    fail_ui_native_step(
+                        NativeSeekFailure::
+                            InteractiveReplayFastForwardStalled,
+                        "drain-timeout");
+                }
+                return;
+            }
+
+            const int32_t live_round = read_current_round();
+            const int32_t live_master = read_engine_master_clock();
+            if (live_round != target_round || live_master != target_master)
+            {
+                fail_ui_native_step(
+                    NativeSeekFailure::SemanticMismatch,
+                    "clock-mismatch");
+                ReplayTraceFields mismatch;
+                mismatch.integer("source_seq", source_seq)
+                        .integer("target_seq", target_seq)
+                        .integer("target_round", target_round)
+                        .integer("live_round", live_round)
+                        .integer("source_master", source_master)
+                        .integer("target_master", target_master)
+                        .integer("live_master", live_master)
+                        .integer("granted_total", granted_total)
+                        .integer("drained_total", drained_total)
+                        .integer("granted_before", granted_before)
+                        .integer("drained_before", drained_before);
+                ReplayDebugTrace::instance().event(
+                    "ui_native_step_clock_mismatch", mismatch);
+                return;
+            }
+
+            clear_ui_native_step_state();
+            m_last_seek_target.store(target_seq, std::memory_order_release);
+            m_last_seek_master_tag.store(
+                target_master, std::memory_order_release);
+            m_live_round_cached.store(target_round, std::memory_order_release);
+            m_live_master_cached.store(
+                target_master, std::memory_order_release);
+            m_native.adjusted_seq = target_seq;
+            m_native.round = target_round;
+            m_native.master = target_master;
+            m_native.target_ms = -1;
+            m_paused.store(true, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(
+                    ReplayScrubHoldKind::RestoredFrameHold),
+                std::memory_order_release);
+            publish_ui_target(target_seq);
+            publish_native_status(NativeSeekStatus::Landed);
+            publish_mode(ScrubMode::NativeSeekLanded);
+
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.ui] native +1 step landed seq {} -> {} "
+                "round={} master {} -> {}\n"),
+                source_seq, target_seq, target_round,
+                source_master, target_master);
+            ReplayTraceFields f;
+            f.integer("source_seq", source_seq)
+             .integer("target_seq", target_seq)
+             .integer("target_round", target_round)
+             .integer("source_master", source_master)
+             .integer("target_master", target_master)
+             .integer("granted_total", granted_total)
+             .integer("drained_total", drained_total)
+             .integer("granted_before", granted_before)
+             .integer("drained_before", drained_before);
+            ReplayDebugTrace::instance().event("ui_native_step_landed", f);
+        }
+
         void clear_scrub_state() noexcept
         {
             exit_seek_presentation_suppression(
@@ -16401,6 +16728,7 @@ namespace Horse
             m_last_drag_preview_seq.store(-1, std::memory_order_release);
             m_ui_dragging.store(false, std::memory_order_release);
             m_ui_wants_play.store(false, std::memory_order_release);
+            clear_ui_native_step_state();
             m_hold_kind.store(
                 static_cast<int32_t>(ReplayScrubHoldKind::None),
                 std::memory_order_release);
@@ -16635,7 +16963,8 @@ namespace Horse
             std::string& out) noexcept
         {
             HANDLE h = CreateFileW(path.c_str(), GENERIC_READ,
-                                   FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE |
+                                       FILE_SHARE_DELETE,
                                    nullptr, OPEN_EXISTING,
                                    FILE_ATTRIBUTE_NORMAL, nullptr);
             if (h == INVALID_HANDLE_VALUE)
@@ -16658,6 +16987,29 @@ namespace Horse
             if (!ok) return false;
             out.resize(static_cast<size_t>(got));
             return true;
+        }
+
+        static void consume_request_file_best_effort(
+            const std::wstring& path) noexcept
+        {
+            if (path.empty()) return;
+            (void)SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_NORMAL);
+            if (DeleteFileW(path.c_str()))
+                return;
+
+            // If a concurrent reader briefly blocks deletion, make the file
+            // inert so it cannot repeatedly supersede active replay startup.
+            HANDLE h = CreateFileW(
+                path.c_str(), GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+                return;
+            static constexpr char kDisabled[] = "{\"enabled\":false}\n";
+            DWORD wrote = 0;
+            (void)WriteFile(h, kDisabled, sizeof(kDisabled) - 1, &wrote,
+                            nullptr);
+            CloseHandle(h);
         }
 
         static std::wstring replay_seek_test_mod_root_dir() noexcept
@@ -18435,6 +18787,9 @@ namespace Horse
                 (void)json_get_int(obj, "expected_round", c.expected_round);
                 (void)json_get_string(obj, "validation_mode",
                                       c.validation_mode);
+                (void)json_get_string(obj, "action", c.action);
+                if (c.action.empty())
+                    (void)json_get_string(obj, "test_action", c.action);
                 (void)json_get_int(obj, "resume_frames", c.resume_frames);
                 if (c.resume_frames < 0) c.resume_frames = 0;
                 if (c.requested_seq >= 0 || c.percent >= 0.0)
@@ -18561,6 +18916,17 @@ namespace Horse
              .integer("timeout_seconds",
                       m_replay_seek_test.timeout_seconds);
             ReplayDebugTrace::instance().event("replay_seek_test_start", f);
+        }
+
+        static bool replay_seek_test_is_ui_step_forward_one(
+            const ReplaySeekTestCase& c) noexcept
+        {
+            const std::string& a = c.action;
+            return a == "ui_step_forward_one"
+                || a == "ui-step-forward-one"
+                || a == "step_forward_one"
+                || a == "step-forward-one"
+                || a == "+1";
         }
 
         bool replay_seek_test_resolve_case(ReplaySeekTestCase& c)
@@ -18705,6 +19071,45 @@ namespace Horse
             c.target_tick = tick;
             c.target_round = round;
             c.target_master = master;
+            c.ui_step_source_seq = seq;
+            c.ui_step_source_tick = tick;
+            c.ui_step_source_round = round;
+            c.ui_step_source_master = master;
+            if (replay_seek_test_is_ui_step_forward_one(c))
+            {
+                c.action = "ui_step_forward_one";
+                c.resume_frames = 0;
+                const int32_t next_seq = seq + 1;
+                const int32_t next_tick = find_slot_for_seq(next_seq);
+                if (next_tick < 0)
+                {
+                    c.failure = "InvalidTarget";
+                    c.pass_fail_reason = "ui_step_target_unresolved";
+                    return false;
+                }
+                int32_t next_tag_seq = -1, next_round = -1;
+                int32_t next_wall = -1, next_master = -1;
+                if (!m_tags.get(static_cast<size_t>(next_tick),
+                                next_tag_seq, next_round,
+                                next_wall, next_master))
+                {
+                    c.failure = "InvalidTarget";
+                    c.pass_fail_reason = "ui_step_target_tag_unreadable";
+                    return false;
+                }
+                if (next_tag_seq != next_seq
+                    || next_round != round
+                    || next_master != master + 1)
+                {
+                    c.failure = "InvalidTarget";
+                    c.pass_fail_reason = "ui_step_target_not_adjacent";
+                    return false;
+                }
+                c.ui_step_target_seq = next_tag_seq;
+                c.ui_step_target_tick = next_tick;
+                c.ui_step_target_round = next_round;
+                c.ui_step_target_master = next_master;
+            }
             const CapturedSeekValidationMode mode =
                 parse_captured_seek_validation_mode(
                     c.validation_mode.c_str(),
@@ -18729,6 +19134,13 @@ namespace Horse
              .integer("target_master", c.target_master)
               .integer("expected_round", c.expected_round)
               .string("validation_mode", c.validation_mode.c_str())
+              .string("action", c.action.c_str())
+              .integer("ui_step_source_seq", c.ui_step_source_seq)
+              .integer("ui_step_source_round", c.ui_step_source_round)
+              .integer("ui_step_source_master", c.ui_step_source_master)
+              .integer("ui_step_target_seq", c.ui_step_target_seq)
+              .integer("ui_step_target_round", c.ui_step_target_round)
+              .integer("ui_step_target_master", c.ui_step_target_master)
               .integer("resume_frames_requested", c.resume_frames)
               .boolean("force_reset_context",
                        m_replay_seek_test.force_round_reset_context_next);
@@ -18774,6 +19186,17 @@ namespace Horse
              .integer("target_master", c.target_master)
              .boolean("landed", c.landed)
              .boolean("blocked", c.blocked)
+             .string("action", c.action.c_str())
+             .boolean("ui_step_requested", c.ui_step_requested)
+             .boolean("ui_step_landed", c.ui_step_landed)
+             .integer("ui_step_source_seq", c.ui_step_source_seq)
+             .integer("ui_step_source_tick", c.ui_step_source_tick)
+             .integer("ui_step_source_round", c.ui_step_source_round)
+             .integer("ui_step_source_master", c.ui_step_source_master)
+             .integer("ui_step_target_seq", c.ui_step_target_seq)
+             .integer("ui_step_target_tick", c.ui_step_target_tick)
+             .integer("ui_step_target_round", c.ui_step_target_round)
+             .integer("ui_step_target_master", c.ui_step_target_master)
              .string("native_status", native_seek_status_name(
                          static_cast<NativeSeekStatus>(
                              m_native_status.load(
@@ -19240,6 +19663,37 @@ namespace Horse
                     c.target_tick = m_sc6_seek_job.target_tick;
                     c.target_round = m_sc6_seek_job.target_round;
                     c.target_master = m_sc6_seek_job.target_master;
+                    if (replay_seek_test_is_ui_step_forward_one(c))
+                    {
+                        c.ui_step_source_seq = c.target_seq;
+                        c.ui_step_source_tick = c.target_tick;
+                        c.ui_step_source_round = c.target_round;
+                        c.ui_step_source_master = c.target_master;
+                        const int32_t next_seq = c.target_seq + 1;
+                        const int32_t next_tick =
+                            find_slot_for_seq(next_seq);
+                        int32_t next_tag_seq = -1, next_round = -1;
+                        int32_t next_wall = -1, next_master = -1;
+                        if (next_tick < 0
+                            || !m_tags.get(
+                                static_cast<size_t>(next_tick),
+                                next_tag_seq, next_round,
+                                next_wall, next_master)
+                            || next_tag_seq != next_seq
+                            || next_round != c.target_round
+                            || next_master != c.target_master + 1)
+                        {
+                            c.failure = "InvalidTarget";
+                            replay_seek_test_finish_case(
+                                c, false,
+                                "ui_step_adjusted_target_not_adjacent");
+                            return;
+                        }
+                        c.ui_step_target_seq = next_tag_seq;
+                        c.ui_step_target_tick = next_tick;
+                        c.ui_step_target_round = next_round;
+                        c.ui_step_target_master = next_master;
+                    }
                 }
                 m_replay_seek_test_last_raw_mismatch.clear();
                 m_replay_seek_test.phase = ReplaySeekTestPhase::WaitSeek;
@@ -19262,6 +19716,51 @@ namespace Horse
                     && m_last_seek_target.load(std::memory_order_acquire)
                         == c.target_seq)
                 {
+                    if (replay_seek_test_is_ui_step_forward_one(c))
+                    {
+                        if (c.ui_step_target_seq < 0)
+                        {
+                            replay_seek_test_finish_case(
+                                c, false, "ui_step_target_unresolved");
+                            return;
+                        }
+                        c.ui_step_source_seq = c.target_seq;
+                        c.ui_step_source_tick = c.target_tick;
+                        c.ui_step_source_round = c.target_round;
+                        c.ui_step_source_master = c.target_master;
+                        if (!ui_step_forward_one_native())
+                        {
+                            c.blocked = true;
+                            c.failure = "ui_step_request_rejected";
+                            replay_seek_test_finish_case(
+                                c, false, "ui_step_request_rejected");
+                            return;
+                        }
+                        c.ui_step_requested = true;
+                        c.target_seq = c.ui_step_target_seq;
+                        c.target_tick = c.ui_step_target_tick;
+                        c.target_round = c.ui_step_target_round;
+                        c.target_master = c.ui_step_target_master;
+                        ReplayTraceFields f;
+                        f.string("build", replay_seek_test_build_marker())
+                         .string("run_id", m_replay_seek_test.run_id.c_str())
+                         .string("label", c.label.c_str())
+                         .integer("case_index",
+                                  static_cast<int64_t>(
+                                      m_replay_seek_test.case_index))
+                         .integer("source_seq", c.ui_step_source_seq)
+                         .integer("source_round", c.ui_step_source_round)
+                         .integer("source_master", c.ui_step_source_master)
+                         .integer("target_seq", c.target_seq)
+                         .integer("target_round", c.target_round)
+                         .integer("target_master", c.target_master);
+                        ReplayDebugTrace::instance().event(
+                            "replay_seek_test_ui_step_posted", f);
+                        m_replay_seek_test.phase =
+                            ReplaySeekTestPhase::WaitUiStep;
+                        replay_seek_test_set_deadline();
+                        return;
+                    }
                     c.landed = true;
                     c.failure = "None";
                     if (c.expected_round >= 0
@@ -19307,6 +19806,94 @@ namespace Horse
                 }
                 if (m_replay_seek_test.phase == ReplaySeekTestPhase::WaitSeek)
                     return;
+            }
+
+            if (m_replay_seek_test.phase == ReplaySeekTestPhase::WaitUiStep)
+            {
+                ReplaySeekTestCase& c =
+                    m_replay_seek_test.cases[m_replay_seek_test.case_index];
+                const NativeSeekStatus status = static_cast<NativeSeekStatus>(
+                    m_native_status.load(std::memory_order_acquire));
+                c.live_round_after_seek = read_current_round();
+                c.live_master_after_seek = read_engine_master_clock();
+
+                if (status == NativeSeekStatus::Landed
+                    && m_last_seek_target.load(std::memory_order_acquire)
+                        == c.target_seq)
+                {
+                    c.landed = true;
+                    c.ui_step_landed = true;
+                    c.failure = "None";
+                    CapturedFrameOracleCompareReport report{};
+                    const bool oracle_ok = compare_oracle_to_captured_tick(
+                        c.target_tick, report, false, false, false, true);
+                    if (!oracle_ok)
+                    {
+                        c.blocked = true;
+                        c.failure = "ui_step_oracle_mismatch";
+                        c.oracle_failure =
+                            report.reason ? report.reason : "unknown";
+                        ReplayTraceFields f;
+                        f.string("build", replay_seek_test_build_marker())
+                         .string("run_id", m_replay_seek_test.run_id.c_str())
+                         .string("label", c.label.c_str())
+                         .integer("case_index",
+                                  static_cast<int64_t>(
+                                      m_replay_seek_test.case_index))
+                         .integer("source_seq", c.ui_step_source_seq)
+                         .integer("target_seq", c.target_seq)
+                         .integer("expected_round", report.expected_round)
+                         .integer("expected_master", report.expected_master)
+                         .integer("live_round", report.live_round)
+                         .integer("live_master", report.live_master)
+                         .string("reason",
+                                 report.reason ? report.reason : "unknown");
+                        ReplayDebugTrace::instance().event(
+                            "replay_seek_test_ui_step_oracle_mismatch", f);
+                        replay_seek_test_finish_case(
+                            c, false, "ui_step_oracle_mismatch");
+                        return;
+                    }
+                    ReplayTraceFields f;
+                    f.string("build", replay_seek_test_build_marker())
+                     .string("run_id", m_replay_seek_test.run_id.c_str())
+                     .string("label", c.label.c_str())
+                     .integer("case_index",
+                              static_cast<int64_t>(
+                                  m_replay_seek_test.case_index))
+                     .integer("source_seq", c.ui_step_source_seq)
+                     .integer("source_round", c.ui_step_source_round)
+                     .integer("source_master", c.ui_step_source_master)
+                     .integer("target_seq", c.target_seq)
+                     .integer("target_round", c.target_round)
+                     .integer("target_master", c.target_master)
+                     .integer("live_round", c.live_round_after_seek)
+                     .integer("live_master", c.live_master_after_seek)
+                     .boolean("oracle_ok", true);
+                    ReplayDebugTrace::instance().event(
+                        "replay_seek_test_ui_step_landed", f);
+                    replay_seek_test_finish_case(c, true, "ui_step_ok");
+                    return;
+                }
+
+                if (status == NativeSeekStatus::ClockLanded
+                    || status == NativeSeekStatus::Failed)
+                {
+                    c.blocked = true;
+                    c.failure = native_seek_failure_name(m_native.failure);
+                    replay_seek_test_finish_case(
+                        c, false, c.failure.c_str());
+                    return;
+                }
+
+                if (replay_seek_test_timed_out())
+                {
+                    c.blocked = true;
+                    c.failure = "ui_step_timeout";
+                    replay_seek_test_finish_case(c, false, "ui_step_timeout");
+                    return;
+                }
+                return;
             }
 
             if (m_replay_seek_test.phase == ReplaySeekTestPhase::StartResume)
@@ -20258,14 +20845,15 @@ namespace Horse
                                    state.resolved_path, 0, meta, reason);
         }
 
-        bool replay_file_start_load_request() noexcept
+        bool replay_file_start_load_request(
+            bool cancel_existing_on_success = false) noexcept
         {
             const std::wstring path = replay_file_start_request_path();
             if (path.empty()) return false;
 
             std::string text;
             if (!replay_seek_test_read_file(path, text)) return false;
-            DeleteFileW(path.c_str());
+            consume_request_file_best_effort(path);
 
             bool enabled = true;
             (void)json_get_bool(text, "enabled", enabled);
@@ -20314,6 +20902,12 @@ namespace Horse
                 return false;
             }
 
+            if (cancel_existing_on_success &&
+                m_replay_file_start_automation.active)
+            {
+                replay_file_start_cancel_for_superseded_request(
+                    "superseded by replay link request file");
+            }
             replay_file_start_begin_automation(parsed.run_id,
                                                parsed.requested_path,
                                                resolved,
@@ -23028,6 +23622,114 @@ namespace Horse
                 "native_replay_match_data_summary_reapply", f);
         }
 
+        bool validate_native_replay_payload_for_open(
+            const std::vector<uint8_t>& payload,
+            ReplayFileMetadata& meta,
+            std::string& reason) noexcept
+        {
+            if (payload.empty() || payload.size() > kReplayFileMaxPayloadBytes ||
+                payload.size() > static_cast<size_t>(0x7fffffff))
+            {
+                reason = "payload size invalid";
+                return false;
+            }
+            if (payload.size() < 4 ||
+                std::memcmp(payload.data(), "ULX1", 4) != 0)
+            {
+                reason = "missing ULX1 magic";
+                return false;
+            }
+            if (!m_replay_list_item_initialize ||
+                !m_replay_list_item_destroy ||
+                !m_lux_replay_decompress_ulx1 ||
+                !m_lux_replay_deserialize_item || !m_fmemory_free)
+            {
+                if (!resolve_natives())
+                {
+                    reason = "native replay import helpers unresolved";
+                    return false;
+                }
+            }
+
+            TArrayByteNative input{};
+            input.data = const_cast<uint8_t*>(payload.data());
+            input.num = static_cast<int32_t>(payload.size());
+            input.max = input.num;
+
+            TArrayByteNative decompressed{};
+            alignas(16) std::array<uint8_t, kNativeReplayListItemBytes>
+                item_bytes{};
+            uint8_t* item = item_bytes.data();
+            bool item_initialized = false;
+            bool ok = false;
+            int32_t replay_version = -1;
+            int32_t decompressed_bytes = 0;
+
+            if (!safe_native_initialize_replay_item(
+                    m_replay_list_item_initialize, item))
+            {
+                reason = "native replay item initialize failed";
+            }
+            else
+            {
+                item_initialized = true;
+                if (!safe_native_decompress_ulx1(
+                        m_lux_replay_decompress_ulx1, &decompressed, &input))
+                {
+                    reason = "native ULX1 decompress failed";
+                }
+                else if (decompressed.num <= 0 || !decompressed.data)
+                {
+                    reason = "native ULX1 decompressed payload empty";
+                }
+                else if (!safe_native_deserialize_replay_item(
+                             m_lux_replay_deserialize_item, &decompressed,
+                             item))
+                {
+                    reason = "native replay payload deserialize failed";
+                }
+                else
+                {
+                    std::memcpy(&replay_version, item + 0x18,
+                                sizeof(replay_version));
+                    ReplayFileMetadata native_meta = meta;
+                    if (extract_native_replay_start_metadata(
+                            item, native_meta, reason))
+                    {
+                        meta = native_meta;
+                        reason = "native replay payload validated";
+                        ok = true;
+                    }
+                }
+            }
+
+            decompressed_bytes = decompressed.num;
+            if (item_initialized)
+            {
+                if (!safe_native_destroy_replay_item(
+                        m_replay_list_item_destroy, item) && ok)
+                {
+                    reason = "native replay item destroy failed";
+                    ok = false;
+                }
+            }
+            free_native_byte_array(decompressed);
+
+            ReplayTraceFields f;
+            f.boolean("ok", ok)
+             .string("reason", reason.c_str())
+             .integer("input_bytes", static_cast<int64_t>(payload.size()))
+             .integer("decompressed_bytes", decompressed_bytes)
+             .integer("replay_version", replay_version)
+             .integer("stage", meta.stage_index)
+             .integer("left_chara", meta.left_chara_id)
+             .integer("right_chara", meta.right_chara_id);
+            ReplayDebugTrace::instance().event(
+                "native_replay_payload_validation", f);
+
+            return ok;
+        }
+
         bool import_native_replay_payload(
             const std::vector<uint8_t>& payload,
             ReplayFileMetadata& meta,
@@ -23861,16 +24563,10 @@ namespace Horse
                                                    auto_generate_mode);
             }
 
-            if (m_replay_file_start_automation.active &&
-                replay_file_start_request_file_exists())
+            if (replay_file_start_request_file_exists())
             {
-                replay_file_start_cancel_for_superseded_request(
-                    "superseded by replay link request file");
-                (void)replay_file_start_load_request();
-            }
-            else if (!m_replay_file_start_automation.active)
-            {
-                (void)replay_file_start_load_request();
+                (void)replay_file_start_load_request(
+                    m_replay_file_start_automation.active);
             }
             if (!m_replay_file_start_automation.active) return;
 
@@ -24751,8 +25447,11 @@ namespace Horse
             ReplayFileMetadata meta{};
             std::vector<uint8_t> payload;
             std::string reason;
+            const std::wstring launch_path = make_replay_start_payload_path();
             if (!read_replay_file(state.resolved_path, payload, meta, reason))
             {
+                if (!launch_path.empty())
+                    (void)DeleteFileW(launch_path.c_str());
                 RC::Output::send<RC::LogLevel::Warning>(STR(
                     "[ReplayFile] start failure path='{}' reason={}\n"),
                     RC::to_generic_string(narrow_path(state.resolved_path)),
@@ -24765,7 +25464,34 @@ namespace Horse
                 return;
             }
 
-            const std::wstring launch_path = make_replay_start_payload_path();
+            if (!validate_native_replay_payload_for_open(
+                    payload, meta, reason))
+            {
+                if (!launch_path.empty())
+                    (void)DeleteFileW(launch_path.c_str());
+                if (replay_file_start_not_ready_reason(reason))
+                {
+                    set_replay_file_status("Start Replay File", false,
+                                           false, state.resolved_path,
+                                           payload.size(), meta,
+                                           reason.c_str());
+                    return;
+                }
+
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] start failure path='{}' bytes={} "
+                    "reason={}\n"),
+                    RC::to_generic_string(narrow_path(state.resolved_path)),
+                    payload.size(),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Start Replay File", true, false,
+                                       state.resolved_path, payload.size(), meta,
+                                       reason.c_str());
+                replay_file_start_emit_result_and_clear(false,
+                                                        reason.c_str());
+                return;
+            }
+
             if (!write_raw_replay_payload(launch_path, payload, reason))
             {
                 RC::Output::send<RC::LogLevel::Warning>(STR(
@@ -25122,6 +25848,19 @@ namespace Horse
                     RC::to_generic_string(reason));
                 set_replay_file_status("Load Replay File", true, false,
                                        path, 0, meta, reason.c_str());
+                return;
+            }
+            if (!validate_native_replay_payload_for_open(
+                    payload, meta, reason))
+            {
+                RC::Output::send<RC::LogLevel::Warning>(STR(
+                    "[ReplayFile] load failure path='{}' bytes={} "
+                    "reason={}\n"),
+                    RC::to_generic_string(narrow_path(path)), payload.size(),
+                    RC::to_generic_string(reason));
+                set_replay_file_status("Load Replay File", true, false,
+                                       path, payload.size(), meta,
+                                       reason.c_str());
                 return;
             }
             RC::Output::send<RC::LogLevel::Default>(STR(

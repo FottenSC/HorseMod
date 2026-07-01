@@ -43,6 +43,7 @@ DEFAULT_WATCH_SECTIONS = ",".join(
     f"{section:.2f}" for section in DEFAULT_WATCH_SECTION_VALUES
 )
 DEFAULT_WATCH_SEEK_COUNT = len(DEFAULT_WATCH_SECTION_VALUES)
+DEFAULT_UI_STEP_SECTIONS = DEFAULT_WATCH_SECTIONS
 DEFAULT_WATCH_FRAMES = 600
 DEFAULT_MIN_RESUME_TICK_RATE = 58.0
 DEFAULT_RESUME_TICK_WINDOW = 120
@@ -173,20 +174,43 @@ def watch_back_cases(
     return cases
 
 
+def ui_step_forward_one_cases(section_text: str) -> list[dict[str, Any]]:
+    cases: list[dict[str, Any]] = []
+    for percent in parse_percent_list(section_text):
+        cases.append(
+            {
+                "label": f"ui_step_{percent_label(percent)}",
+                "percent": percent,
+                "resume_frames": 0,
+                "validation_mode": "static_target",
+                "action": "ui_step_forward_one",
+            }
+        )
+    return cases
+
+
 def default_cases(args: argparse.Namespace) -> list[dict[str, Any]]:
+    cases: list[dict[str, Any]]
     if args.case_preset == "static":
-        return static_seek_cases(args.static_sections)
-    if args.case_preset == "watch":
-        return watch_back_cases(
+        cases = static_seek_cases(args.static_sections)
+    elif args.case_preset == "watch":
+        cases = watch_back_cases(
             args.watch_sections,
             args.watch_frames,
             args.watch_validation_mode,
         )
-    return static_seek_cases(args.static_sections) + watch_back_cases(
-        args.watch_sections,
-        args.watch_frames,
-        args.watch_validation_mode,
-    )
+    elif args.case_preset == "ui-step":
+        cases = ui_step_forward_one_cases(args.ui_step_sections)
+    else:
+        cases = static_seek_cases(args.static_sections) + watch_back_cases(
+            args.watch_sections,
+            args.watch_frames,
+            args.watch_validation_mode,
+        )
+
+    if getattr(args, "include_ui_step", False) and args.case_preset != "ui-step":
+        cases += ui_step_forward_one_cases(args.ui_step_sections)
+    return cases
 
 
 def normalize_generation_mode(mode: str) -> str:
@@ -1416,12 +1440,13 @@ def main() -> int:
     parser.add_argument(
         "--case-preset",
         default="both",
-        choices=["static", "watch", "both", "damage-watch"],
+        choices=["static", "watch", "both", "damage-watch", "ui-step"],
         help=(
             "Default seek-test cases to emit when --request is omitted. "
             "'watch' seeks to timeline sections and plays forward; 'both' "
             "keeps static seek checks and adds watch-back playback checks; "
-            "'damage-watch' derives watch cases from oracle vital changes."
+            "'damage-watch' derives watch cases from oracle vital changes; "
+            "'ui-step' validates the replay timeline +1 button path."
         ),
     )
     parser.add_argument(
@@ -1447,6 +1472,20 @@ def main() -> int:
         type=int,
         default=DEFAULT_WATCH_FRAMES,
         help="Replay frames to watch after each watch-back seek case",
+    )
+    parser.add_argument(
+        "--ui-step-sections",
+        default=DEFAULT_UI_STEP_SECTIONS,
+        help=(
+            "Comma-separated timeline percents for ui-step checks. "
+            "Each case seeks to the selected source frame, invokes the "
+            "timeline +1 native-step path, and validates source+1."
+        ),
+    )
+    parser.add_argument(
+        "--include-ui-step",
+        action="store_true",
+        help="Append ui-step checks to the selected generated case preset.",
     )
     parser.add_argument(
         "--watch-validation-mode",
@@ -1805,6 +1844,13 @@ def main() -> int:
             f"pre_frames={args.damage_watch_pre_frames} "
             f"watch_frames={args.watch_frames}"
         )
+        if args.include_ui_step:
+            ui_cases = ui_step_forward_one_cases(args.ui_step_sections)
+            args.generated_cases += ui_cases
+            print(
+                "ui-step cases appended: "
+                f"count={len(ui_cases)} sections={args.ui_step_sections}"
+            )
 
     request = (
         request_override
@@ -1830,21 +1876,31 @@ def main() -> int:
     cases = request.get("cases") if isinstance(request, dict) else None
     if isinstance(cases, list):
         watch_cases = 0
+        ui_step_cases = 0
         for case in cases:
             if not isinstance(case, dict):
                 continue
+            if str(case.get("action") or case.get("test_action") or "") in {
+                "ui_step_forward_one",
+                "ui-step-forward-one",
+                "step_forward_one",
+                "step-forward-one",
+                "+1",
+            }:
+                ui_step_cases += 1
             try:
                 resume_frames = int(case.get("resume_frames") or 0)
             except (TypeError, ValueError):
                 resume_frames = 0
             if resume_frames > 0:
                 watch_cases += 1
-        static_cases = len(cases) - watch_cases
+        static_cases = len(cases) - watch_cases - ui_step_cases
         print(
             "seek case plan: "
             f"generation_mode={request.get('timeline_generation_mode')} "
             f"preset={args.case_preset if request_override is None else 'custom'} "
             f"cases={len(cases)} static={static_cases} watch={watch_cases} "
+            f"ui_step={ui_step_cases} "
             f"watch_sections={args.watch_sections if request_override is None else 'custom'} "
             f"watch_frames={args.watch_frames if request_override is None else 'custom'} "
             f"watch_validation={args.watch_validation_mode if request_override is None else 'custom'}"

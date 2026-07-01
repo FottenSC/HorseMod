@@ -1,0 +1,3 @@
+#include "HorseReplayLauncherResource.h"
+
+IDI_HORSE_REPLAY_NOTIFICATION ICON "replay_notification.ico"

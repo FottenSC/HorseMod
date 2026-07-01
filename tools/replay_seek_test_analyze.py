@@ -1109,9 +1109,23 @@ def summarize_test_events(
     watch_state_compares = 0
     watch_state_mismatches = 0
     watch_state_unchecked = 0
+    ui_step_cases = 0
+    ui_step_passed = 0
     for r in results:
         label = str(r.get("label", "?"))
         ok = bool(r.get("passed"))
+        action = str(r.get("action") or "")
+        is_ui_step = action in {
+            "ui_step_forward_one",
+            "ui-step-forward-one",
+            "step_forward_one",
+            "step-forward-one",
+            "+1",
+        }
+        if is_ui_step:
+            ui_step_cases += 1
+            if ok:
+                ui_step_passed += 1
         try:
             resume_requested = int(r.get("resume_frames_requested") or 0)
         except (TypeError, ValueError):
@@ -1157,6 +1171,18 @@ def summarize_test_events(
             f"reason={r.get('pass_fail_reason', '?')} "
             f"failure={r.get('failure', '?')}"
         )
+        if is_ui_step:
+            print(
+                "  ui step: "
+                f"source={r.get('ui_step_source_seq', '?')}"
+                f"/r{r.get('ui_step_source_round', '?')}"
+                f"/m{r.get('ui_step_source_master', '?')} -> "
+                f"target={r.get('ui_step_target_seq', '?')}"
+                f"/r{r.get('ui_step_target_round', '?')}"
+                f"/m{r.get('ui_step_target_master', '?')} "
+                f"requested={r.get('ui_step_requested', '?')} "
+                f"landed={r.get('ui_step_landed', '?')}"
+            )
         if not raw_mismatch_is_empty(raw_value):
             print(f"  raw diagnostic: {raw}")
         if state_mismatches > 0:
@@ -1254,6 +1280,12 @@ def summarize_test_events(
             f"state_compares={watch_state_compares} "
             f"state_mismatches={watch_state_mismatches} "
             f"state_unchecked={watch_state_unchecked}"
+        )
+    if ui_step_cases:
+        print(
+            "ui-step: "
+            f"cases={ui_step_cases} passed={ui_step_passed} "
+            f"failed={ui_step_cases - ui_step_passed}"
         )
         rates = [
             float_field(stat.get("tick_rate"))
@@ -1520,6 +1552,14 @@ def strict_failures(
     has_watch_cases = False
     for result in results:
         label = result.get("label", "?")
+        action = str(result.get("action") or "")
+        is_ui_step = action in {
+            "ui_step_forward_one",
+            "ui-step-forward-one",
+            "step_forward_one",
+            "step-forward-one",
+            "+1",
+        }
         if not bool_field(result.get("passed")):
             failures.append(f"case {label} failed")
         if raw_mismatch_is_strict_failure(result):
@@ -1538,6 +1578,78 @@ def strict_failures(
             )
         if resume_requested > 0 and resume_observed > 0 and state_compares <= 0:
             failures.append(f"case {label} advanced without resume state compares")
+        if is_ui_step:
+            source_seq = int_field(result.get("ui_step_source_seq"))
+            target_seq = int_field(result.get("ui_step_target_seq"))
+            source_master = int_field(result.get("ui_step_source_master"))
+            target_master = int_field(result.get("ui_step_target_master"))
+            source_round = int_field(result.get("ui_step_source_round"))
+            target_round = int_field(result.get("ui_step_target_round"))
+            if not bool_field(result.get("ui_step_requested")):
+                failures.append(f"case {label} did not request ui-step")
+            if not bool_field(result.get("ui_step_landed")):
+                failures.append(f"case {label} did not land ui-step")
+            if target_seq != source_seq + 1:
+                failures.append(
+                    f"case {label} ui-step target_seq is not source+1 "
+                    f"({source_seq}->{target_seq})"
+                )
+            if target_round != source_round:
+                failures.append(
+                    f"case {label} ui-step crossed rounds "
+                    f"({source_round}->{target_round})"
+                )
+            if target_master != source_master + 1:
+                failures.append(
+                    f"case {label} ui-step target_master is not source+1 "
+                    f"({source_master}->{target_master})"
+                )
+
+    ui_step_results = [
+        r for r in results
+        if str(r.get("action") or "") in {
+            "ui_step_forward_one",
+            "ui-step-forward-one",
+            "step_forward_one",
+            "step-forward-one",
+            "+1",
+        }
+    ]
+    if ui_step_results:
+        posted = [
+            e for e in events
+            if event_name(e) == "replay_seek_test_ui_step_posted"
+        ]
+        landed = [
+            e for e in events
+            if event_name(e) == "replay_seek_test_ui_step_landed"
+        ]
+        native_requested = [
+            e for e in events if event_name(e) == "ui_native_step_requested"
+        ]
+        native_landed = [
+            e for e in events if event_name(e) == "ui_native_step_landed"
+        ]
+        if len(posted) < len(ui_step_results):
+            failures.append(
+                "missing replay_seek_test_ui_step_posted events "
+                f"({len(posted)}/{len(ui_step_results)})"
+            )
+        if len(landed) < len(ui_step_results):
+            failures.append(
+                "missing replay_seek_test_ui_step_landed events "
+                f"({len(landed)}/{len(ui_step_results)})"
+            )
+        if len(native_requested) < len(ui_step_results):
+            failures.append(
+                "missing ui_native_step_requested events "
+                f"({len(native_requested)}/{len(ui_step_results)})"
+            )
+        if len(native_landed) < len(ui_step_results):
+            failures.append(
+                "missing ui_native_step_landed events "
+                f"({len(native_landed)}/{len(ui_step_results)})"
+            )
 
     if has_watch_cases:
         _, tick_failures = collect_resume_tick_failures(

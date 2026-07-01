@@ -232,50 +232,13 @@ using namespace RC;
 using namespace RC::Unreal;
 
 // ----------------------------------------------------------------------------
-// Build-date formatter used in the ImGui window title.
-//
-// __DATE__ is the C preprocessor's compile-time date string, format
-// "Mmm DD YYYY" - month is the abbreviated English name (Jan/Feb/...
-// /Dec), DD is the day of the month (space-padded to 2 columns for
-// single-digit days, e.g. "Apr  3 2026"), YYYY is the year.
-//
-// We reformat to "DD-Mmm-YYYY" so the date is unambiguously day-first
-// - avoids the perennial US-vs-rest-of-world confusion between e.g.
-// "04/05" meaning April 5th vs May 4th.  Using the abbreviated month
-// name (Apr, May, Jun, ...) instead of a numeric month makes the
-// ordering self-evident regardless of the reader's locale.
-//
-// One-shot init: compiled once into HorseMod.dll, never changes for
-// the life of the process.  Cached in a static char buffer so we can
-// hand back a stable const char* to ImGui::Begin (which uses the
-// pointer's value as the window-identity hash).
+#ifndef HORSEMOD_VERSION
+#define HORSEMOD_VERSION "dev"
+#endif
+
 static const char* horsemod_window_title()
 {
-    static char buf[64];
-    static bool init = false;
-    if (!init)
-    {
-        // __DATE__ guarantees:
-        //   d[0..2]  = month abbreviation (3 letters)
-        //   d[3]     = ' '
-        //   d[4..5]  = day-of-month, space-padded
-        //   d[6]     = ' '
-        //   d[7..10] = 4-digit year
-        const char* d = __DATE__;
-
-        // Day: replace leading space with '0' so the output is always
-        // zero-padded to 2 digits ("03-Apr-2026", not " 3-Apr-2026").
-        const char d1 = (d[4] == ' ') ? '0' : d[4];
-        const char d2 = d[5];
-
-        std::snprintf(buf, sizeof(buf),
-                      "HorseMod (Beta %c%c-%c%c%c-%c%c%c%c)",
-                      d1, d2,                  // day
-                      d[0], d[1], d[2],        // month abbreviation
-                      d[7], d[8], d[9], d[10]); // year
-        init = true;
-    }
-    return buf;
+    return "HorseMod (Beta " HORSEMOD_VERSION ")";
 }
 
 static std::string horsemod_wide_to_utf8(const std::wstring& in)
@@ -288,6 +251,76 @@ static std::string horsemod_wide_to_utf8(const std::wstring& in)
     WideCharToMultiByte(CP_UTF8, 0, in.c_str(), -1, out.data(), need,
                         nullptr, nullptr);
     return out;
+}
+
+static bool horsemod_command_line_option_value(
+    const wchar_t* option,
+    std::wstring& out) noexcept
+{
+    if (!option || !*option) return false;
+
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return false;
+
+    const std::wstring option_text(option);
+    const std::wstring option_prefix = option_text + L"=";
+    bool found = false;
+    for (int i = 1; i < argc; ++i)
+    {
+        const wchar_t* raw_arg = argv[i] ? argv[i] : L"";
+        if (_wcsicmp(raw_arg, option) == 0)
+        {
+            if (i + 1 < argc && argv[i + 1] && argv[i + 1][0])
+            {
+                out = argv[i + 1];
+                found = true;
+            }
+            break;
+        }
+
+        if (_wcsnicmp(raw_arg, option_prefix.c_str(),
+                      option_prefix.size()) == 0)
+        {
+            out = raw_arg + option_prefix.size();
+            found = !out.empty();
+            break;
+        }
+    }
+
+    LocalFree(argv);
+    return found;
+}
+
+static void horsemod_consume_replay_command_line_once() noexcept
+{
+    static std::atomic<bool> consumed{false};
+    if (consumed.exchange(true, std::memory_order_acq_rel)) return;
+
+    std::wstring replay_path;
+    if (!horsemod_command_line_option_value(
+            L"--horsemod-replay-file", replay_path))
+    {
+        return;
+    }
+
+    std::wstring mode_wide;
+    (void)horsemod_command_line_option_value(
+        L"--horsemod-replay-generate-mode", mode_wide);
+
+    const std::string replay_path_utf8 =
+        horsemod_wide_to_utf8(replay_path);
+    std::string mode_utf8 = horsemod_wide_to_utf8(mode_wide);
+    if (mode_utf8.empty()) mode_utf8 = "lux-no-render-force";
+
+    auto& scrub = Horse::ReplayScrub::instance();
+    const bool ok = scrub.request_start_replay_file(
+        replay_path_utf8.c_str(), mode_utf8.c_str());
+    Output::send<LogLevel::Default>(STR(
+        "[ReplayLink] command-line replay {} path='{}' mode='{}'\n"),
+        ok ? STR("accepted") : STR("rejected"),
+        RC::to_generic_string(replay_path_utf8),
+        RC::to_generic_string(mode_utf8));
 }
 
 static bool horsemod_show_file_in_explorer(
@@ -327,23 +360,190 @@ static std::wstring horsemod_parent_dir(std::wstring path) noexcept
     return path;
 }
 
+static std::wstring horsemod_leaf_dir(std::wstring path) noexcept
+{
+    while (!path.empty() && (path.back() == L'\\' || path.back() == L'/'))
+        path.pop_back();
+    const size_t slash = path.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return path;
+    return path.substr(slash + 1);
+}
+
+static std::wstring horsemod_ascii_lower(std::wstring value) noexcept
+{
+    for (wchar_t& c : value)
+    {
+        if (c == L'/') c = L'\\';
+        else if (c >= L'A' && c <= L'Z')
+            c = static_cast<wchar_t>(c + 32);
+    }
+    return value;
+}
+
+static bool horsemod_iequals_path_part(
+    const std::wstring& a,
+    const std::wstring& b) noexcept
+{
+    return horsemod_ascii_lower(a) == horsemod_ascii_lower(b);
+}
+
+static bool horsemod_file_exists(const std::wstring& path) noexcept;
+
 static std::wstring horsemod_mod_root_dir() noexcept
 {
     std::wstring dir = horsemod_parent_dir(horsemod_current_module_path());
     if (dir.empty()) return {};
-    std::wstring lowered = dir;
-    for (wchar_t& c : lowered)
-        if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c + 32);
+    std::wstring lowered = horsemod_ascii_lower(dir);
     if (lowered.ends_with(L"\\dlls\\") || lowered.ends_with(L"/dlls/"))
         dir = horsemod_parent_dir(dir);
     return dir;
+}
+
+static std::wstring horsemod_module_dir(const wchar_t* module_name) noexcept
+{
+    HMODULE h = GetModuleHandleW(module_name);
+    if (!h) return {};
+    wchar_t buf[MAX_PATH]{};
+    const DWORD n = GetModuleFileNameW(h, buf, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return {};
+    return horsemod_parent_dir(buf);
+}
+
+static bool horsemod_find_child_dir_ci(
+    const std::wstring& parent,
+    const std::wstring& wanted,
+    std::wstring& out) noexcept
+{
+    if (parent.empty() || wanted.empty()) return false;
+    std::wstring pattern = parent;
+    if (!pattern.empty() && pattern.back() != L'\\' && pattern.back() != L'/')
+        pattern += L'\\';
+    pattern += L"*";
+
+    WIN32_FIND_DATAW data{};
+    HANDLE h = FindFirstFileW(pattern.c_str(), &data);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    do
+    {
+        if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+            continue;
+        if (std::wcscmp(data.cFileName, L".") == 0 ||
+            std::wcscmp(data.cFileName, L"..") == 0)
+            continue;
+        if (!horsemod_iequals_path_part(data.cFileName, wanted))
+            continue;
+        out = parent;
+        if (!out.empty() && out.back() != L'\\' && out.back() != L'/')
+            out += L'\\';
+        out += data.cFileName;
+        out += L'\\';
+        FindClose(h);
+        return true;
+    } while (FindNextFileW(h, &data));
+    FindClose(h);
+    return false;
+}
+
+static std::wstring horsemod_replay_launcher_from_profile_root(
+    const std::wstring& profile_root,
+    const std::wstring& package_dir) noexcept
+{
+    if (profile_root.empty() || package_dir.empty()) return {};
+    std::wstring mod_parent = profile_root;
+    if (!mod_parent.empty() && mod_parent.back() != L'\\' &&
+        mod_parent.back() != L'/')
+        mod_parent += L'\\';
+    mod_parent += L"shimloader\\mod\\";
+
+    std::wstring actual_package_dir;
+    if (!horsemod_find_child_dir_ci(
+            mod_parent, package_dir, actual_package_dir))
+    {
+        return {};
+    }
+
+    const std::wstring launcher =
+        actual_package_dir + L"tools\\HorseReplayLauncher.exe";
+    return horsemod_file_exists(launcher) ? launcher : std::wstring{};
+}
+
+static std::wstring horsemod_known_profile_launcher(
+    const std::wstring& package_dir) noexcept
+{
+    struct RootSpec
+    {
+        const wchar_t* env;
+        const wchar_t* suffix;
+    };
+    const RootSpec roots[] = {
+        {L"APPDATA",
+         L"Thunderstore Mod Manager\\DataFolder\\SoulcaliburVi\\profiles\\"},
+        {L"APPDATA", L"r2modmanPlus-local\\SoulcaliburVi\\profiles\\"},
+        {L"APPDATA", L"r2modmanPlus\\SoulcaliburVi\\profiles\\"},
+        {L"APPDATA", L"Gale\\SoulcaliburVi\\profiles\\"},
+        {L"LOCALAPPDATA", L"Gale\\SoulcaliburVi\\profiles\\"},
+    };
+
+    for (const RootSpec& root : roots)
+    {
+        wchar_t base[MAX_PATH]{};
+        const DWORD n = GetEnvironmentVariableW(root.env, base, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH) continue;
+        std::wstring profiles = base;
+        if (!profiles.empty() && profiles.back() != L'\\' &&
+            profiles.back() != L'/')
+            profiles += L'\\';
+        profiles += root.suffix;
+
+        std::wstring pattern = profiles + L"*";
+        WIN32_FIND_DATAW data{};
+        HANDLE h = FindFirstFileW(pattern.c_str(), &data);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        do
+        {
+            if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+                continue;
+            if (std::wcscmp(data.cFileName, L".") == 0 ||
+                std::wcscmp(data.cFileName, L"..") == 0)
+                continue;
+
+            std::wstring profile = profiles + data.cFileName + L"\\";
+            std::wstring launcher =
+                horsemod_replay_launcher_from_profile_root(
+                    profile, package_dir);
+            if (!launcher.empty())
+            {
+                FindClose(h);
+                return launcher;
+            }
+        } while (FindNextFileW(h, &data));
+        FindClose(h);
+    }
+    return {};
 }
 
 static std::wstring horsemod_replay_launcher_path() noexcept
 {
     const std::wstring root = horsemod_mod_root_dir();
     if (root.empty()) return {};
-    return root + L"tools\\HorseReplayLauncher.exe";
+    const std::wstring package_dir = horsemod_leaf_dir(root);
+    const std::wstring direct = root + L"tools\\HorseReplayLauncher.exe";
+
+    const std::wstring dwmapi_profile =
+        horsemod_replay_launcher_from_profile_root(
+            horsemod_module_dir(L"dwmapi.dll"), package_dir);
+    if (!dwmapi_profile.empty()) return dwmapi_profile;
+
+    const std::wstring ue4ss_profile =
+        horsemod_replay_launcher_from_profile_root(
+            horsemod_module_dir(L"ue4ss.dll"), package_dir);
+    if (!ue4ss_profile.empty()) return ue4ss_profile;
+
+    const std::wstring known_profile =
+        horsemod_known_profile_launcher(package_dir);
+    if (!known_profile.empty()) return known_profile;
+
+    return direct;
 }
 
 static std::wstring horsemod_replay_link_command() noexcept
@@ -3923,6 +4123,7 @@ public:
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] engine tick replay-start service registered id={}\n"),
             m_engine_tick_callback_id);
+        horsemod_consume_replay_command_line_once();
 
         // Resolve SC6 native RVAs now that the game image is loaded.  KHit
         // rendering reads native world buffers directly; the remaining
@@ -7280,11 +7481,8 @@ private:
             return;
         }
 
-        // Window title carries the build date (DD-Mmm-YYYY) so users
-        // running the dev mod can tell which build they're on - useful
-        // when triaging bug reports on Discord ("which date is your
-        // overlay window showing?").  Computed once from __DATE__ -
-        // see horsemod_window_title() at the top of this TU.
+        // Window title carries the package version so users can tell which
+        // build is loaded when triaging bug reports.
         if (!ImGui::Begin(horsemod_window_title()))
         {
             ImGui::End();
@@ -8381,6 +8579,54 @@ private:
         return false;
     }
 
+    static void draw_labbing_attack_frame_row(const char* label, int pi)
+    {
+        void* chara = Horse::KHitWalker::charaSlotFromGlobal(
+            static_cast<uint32_t>(pi));
+        const auto s = Horse::KHitWalker::readLaneSnapshot(chara);
+
+        ImGui::TextUnformatted(label);
+        ImGui::SameLine(48.0f);
+        if (!s.has_move)
+        {
+            ImGui::TextDisabled("idle");
+            return;
+        }
+
+        const int curI = static_cast<int>(s.current_frame);
+        const int totI = static_cast<int>(s.length_frames);
+        const bool has_window =
+            s.phase != Horse::KHitAttackPhase::None ||
+            s.master_window_start != 0 ||
+            s.master_window_end != 0;
+
+        if (has_window)
+        {
+            ImGui::Text(
+                "%3d / %3d  move=0x%04X  phase=%s  active=%d-%d%s",
+                curI, totI,
+                static_cast<uint16_t>(s.packed_move),
+                Horse::KHitAttackPhaseName(s.phase),
+                static_cast<int>(s.master_window_start),
+                static_cast<int>(s.master_window_end),
+                s.in_master_window ? "  [live]" : "");
+        }
+        else
+        {
+            ImGui::Text(
+                "%3d / %3d  move=0x%04X  phase=%s  active=--",
+                curI, totI,
+                static_cast<uint16_t>(s.packed_move),
+                Horse::KHitAttackPhaseName(s.phase));
+        }
+
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Current move animation frame from the active MoveVM lane.\n"
+            "phase is the engine's startup / active / recovery tag.\n"
+            "[live] means the strict in-master-window flag is set, so\n"
+            "the active frame gate is open after sub-window inhibitors.");
+    }
+
     // ==================================================================
     // Labbing tab - training-mode utilities for practising specific
     // setups: capture a custom reset pose and have the in-game training
@@ -8388,6 +8634,15 @@ private:
     // ==================================================================
     void render_labbing_tab()
     {
+            // --- Attack animation frame ------------------------------
+            // Same engine-truth source as the Time tab, with the
+            // attack-window phase included so a raw animation frame
+            // is not mistaken for an active hit frame.
+            ImGui::TextUnformatted("Attack animation frame");
+            draw_labbing_attack_frame_row("P1:", 0);
+            draw_labbing_attack_frame_row("P2:", 1);
+            ImGui::Separator();
+
             // --- Reset position override -----------------------------
             // When enabled and the user has captured a pose, our post-
             // hook on TrainingModePositionReset replays the captured

@@ -1,0 +1,3 @@
+#pragma once
+
+#define IDI_HORSE_REPLAY_NOTIFICATION 101

@@ -44,6 +44,7 @@ rem THE LAYOUT THIS SCRIPT SHIPS:
 rem
 rem   <zip>\mod\enabled.txt
 rem   <zip>\mod\dlls\main.dll
+rem   <zip>\mod\tools\HorseReplayLauncher.exe
 rem   <zip>\manifest.json
 rem   <zip>\README.md
 rem   <zip>\icon.png
@@ -217,9 +218,9 @@ rem extra here.  Just be sure MYMODS_FAST_DEV_UNSAFE isn't lingering.
 set MYMODS_FAST_DEV_UNSAFE=
 echo [release.thunderstore] building HorseMod (Shipping / Win64, LTO on) ...
 call "%REPO_ROOT%build_horse_mod.bat"
-if !ERRORLEVEL! NEQ 0 (
-    echo [release.thunderstore] build failed (exit !ERRORLEVEL!^)
-    exit /b !ERRORLEVEL!
+if errorlevel 1 (
+    echo [release.thunderstore] build failed
+    exit /b 1
 )
 if not exist "%BUILT_DLL%" (
     echo [release.thunderstore] expected DLL not found at %BUILT_DLL%

@@ -43,6 +43,13 @@ set(HORSEMOD_IMGUIFILEDIALOG_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ImGuiFileDialog/ImGuiFileDialog.cpp
 )
 
+set(HORSEMOD_VERSION_FILE "${CMAKE_SOURCE_DIR}/VERSION")
+set(HORSEMOD_VERSION "dev")
+if(EXISTS "${HORSEMOD_VERSION_FILE}")
+    file(READ "${HORSEMOD_VERSION_FILE}" HORSEMOD_VERSION)
+    string(STRIP "${HORSEMOD_VERSION}" HORSEMOD_VERSION)
+endif()
+
 add_library(${TARGET} SHARED
     dllmain.cpp
     ${SCVI_HEADERS}
@@ -53,16 +60,24 @@ add_library(${TARGET} SHARED
 
 add_executable(HorseReplayLauncher WIN32
     tools/HorseReplayLauncher.cpp
+    ${CMAKE_SOURCE_DIR}/release_resources/HorseReplayLauncher.rc
 )
 set_target_properties(HorseReplayLauncher PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 )
-target_link_libraries(HorseReplayLauncher PRIVATE winhttp shell32 ws2_32)
+target_include_directories(HorseReplayLauncher PRIVATE
+    ${CMAKE_SOURCE_DIR}/release_resources
+)
+target_link_libraries(HorseReplayLauncher PRIVATE winhttp shell32 ws2_32 advapi32)
+target_compile_definitions(HorseReplayLauncher PRIVATE
+    HORSEMOD_VERSION="${HORSEMOD_VERSION}"
+)
 
 set(_horsemod_enable_ebtracer ${HORSEMOD_ENABLE_EBTRACER})
 
 target_compile_definitions(${TARGET} PRIVATE
     HORSE_ENABLE_EBTRACER=$<BOOL:${_horsemod_enable_ebtracer}>
+    HORSEMOD_VERSION="${HORSEMOD_VERSION}"
 )
 
 set(HORSEMOD_REPLAY_FUNCTION_MAP

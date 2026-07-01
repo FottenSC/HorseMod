@@ -21,11 +21,17 @@
 #include <string>
 #include <vector>
 
+#include "HorseReplayLauncherResource.h"
+
+#ifndef HORSEMOD_VERSION
+#define HORSEMOD_VERSION "dev"
+#endif
+
 namespace
 {
     constexpr size_t kMaxReplayBytes = 64ull * 1024ull * 1024ull;
     constexpr uint16_t kStatusPort = 54475;
-    constexpr char kStatusVersion[] = "0.10.0";
+    constexpr char kStatusVersion[] = HORSEMOD_VERSION;
     constexpr wchar_t kSteamRunGameUrl[] = L"steam://rungameid/544750";
     constexpr wchar_t kStatusServerMutex[] =
         L"Local\\HorseModReplayStatusServer";
@@ -98,6 +104,93 @@ namespace
         MessageBoxW(nullptr, message.c_str(), L"HorseMod replay link",
                     MB_OK | MB_ICONERROR);
         ExitProcess(1);
+    }
+
+    template <size_t N>
+    void copy_notification_text(wchar_t (&dst)[N], const wchar_t* src)
+    {
+        dst[0] = L'\0';
+        if (src && *src)
+            (void)wcsncpy_s(dst, N, src, _TRUNCATE);
+    }
+
+    LRESULT CALLBACK notification_window_proc(
+        HWND hwnd,
+        UINT msg,
+        WPARAM wparam,
+        LPARAM lparam)
+    {
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+
+    HWND create_notification_window()
+    {
+        constexpr wchar_t kClassName[] =
+            L"HorseModReplayLauncherNotificationWindow";
+        HINSTANCE instance = GetModuleHandleW(nullptr);
+
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = notification_window_proc;
+        wc.hInstance = instance;
+        wc.lpszClassName = kClassName;
+        if (!RegisterClassExW(&wc) &&
+            GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        {
+            return nullptr;
+        }
+
+        return CreateWindowExW(0, kClassName, L"HorseMod", WS_OVERLAPPED,
+                               0, 0, 0, 0, nullptr, nullptr, instance,
+                               nullptr);
+    }
+
+    void show_starting_replay_notification()
+    {
+        HWND hwnd = create_notification_window();
+        if (!hwnd)
+        {
+            log_line(L"notification window creation failed: %lu",
+                     GetLastError());
+            return;
+        }
+
+        NOTIFYICONDATAW nid{};
+        nid.cbSize = sizeof(nid);
+        nid.hWnd = hwnd;
+        nid.uID = 1;
+        nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+        nid.uCallbackMessage = WM_APP + 1;
+        HINSTANCE instance = GetModuleHandleW(nullptr);
+        HICON notification_icon = LoadIconW(
+            instance, MAKEINTRESOURCEW(IDI_HORSE_REPLAY_NOTIFICATION));
+        if (!notification_icon)
+            notification_icon = LoadIconW(nullptr, MAKEINTRESOURCEW(32516));
+        nid.hIcon = notification_icon;
+        copy_notification_text(nid.szTip, L"HorseMod");
+
+        if (!Shell_NotifyIconW(NIM_ADD, &nid))
+        {
+            log_line(L"notification add failed: %lu", GetLastError());
+            DestroyWindow(hwnd);
+            return;
+        }
+
+        nid.uFlags = NIF_INFO;
+        nid.dwInfoFlags = notification_icon ? (NIIF_USER | NIIF_NOSOUND)
+                                            : (NIIF_INFO | NIIF_NOSOUND);
+        nid.hBalloonIcon = notification_icon;
+        copy_notification_text(nid.szInfoTitle, L"HorseMod");
+        copy_notification_text(
+            nid.szInfo, L"Starting replay in Soulcalibur VI.");
+        if (!Shell_NotifyIconW(NIM_MODIFY, &nid))
+        {
+            log_line(L"notification modify failed: %lu", GetLastError());
+        }
+
+        Sleep(3500);
+        (void)Shell_NotifyIconW(NIM_DELETE, &nid);
+        DestroyWindow(hwnd);
     }
 
     std::wstring utf8_to_wide(const std::string& in)
@@ -176,6 +269,18 @@ namespace
         return true;
     }
 
+    bool equals_ci(const std::wstring& text, const wchar_t* expected)
+    {
+        size_t i = 0;
+        for (; expected[i]; ++i)
+        {
+            if (i >= text.size()) return false;
+            if (std::towlower(text[i]) != std::towlower(expected[i]))
+                return false;
+        }
+        return i == text.size();
+    }
+
     bool valid_ugc(const std::wstring& ugc)
     {
         if (ugc.empty() || ugc.size() > 20) return false;
@@ -183,6 +288,68 @@ namespace
             if (c < L'0' || c > L'9')
                 return false;
         return true;
+    }
+
+    bool validate_replay_download_url(const std::wstring& url,
+                                      const std::wstring& ugc,
+                                      std::wstring& reason)
+    {
+        URL_COMPONENTS parts{};
+        parts.dwStructSize = sizeof(parts);
+        parts.dwSchemeLength = static_cast<DWORD>(-1);
+        parts.dwHostNameLength = static_cast<DWORD>(-1);
+        parts.dwUrlPathLength = static_cast<DWORD>(-1);
+        parts.dwExtraInfoLength = static_cast<DWORD>(-1);
+        parts.dwUserNameLength = static_cast<DWORD>(-1);
+        parts.dwPasswordLength = static_cast<DWORD>(-1);
+        if (!WinHttpCrackUrl(url.c_str(), 0, 0, &parts) ||
+            parts.dwHostNameLength == 0)
+        {
+            reason = L"Could not parse replay download URL.";
+            return false;
+        }
+
+        if (parts.dwUserNameLength != 0 || parts.dwPasswordLength != 0)
+        {
+            reason = L"Replay download URL must not include credentials.";
+            return false;
+        }
+        if (parts.dwExtraInfoLength != 0)
+        {
+            reason = L"Replay download URL must not include query or fragment data.";
+            return false;
+        }
+
+        const std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
+        std::wstring path(parts.lpszUrlPath ? parts.lpszUrlPath : L"",
+                          parts.dwUrlPathLength);
+        if (path.empty()) path = L"/";
+        const std::wstring expected_path =
+            L"/api/replays/" + ugc + L"/file";
+        if (path != expected_path)
+        {
+            reason = L"Replay download URL path does not match the UGC id.";
+            return false;
+        }
+
+        if (parts.nScheme == INTERNET_SCHEME_HTTPS &&
+            equals_ci(host, L"api-replay.horseface.no"))
+        {
+            if (parts.nPort != INTERNET_DEFAULT_HTTPS_PORT)
+            {
+                reason = L"Production replay download URL must use HTTPS port 443.";
+                return false;
+            }
+            return true;
+        }
+
+        const bool local_host =
+            equals_ci(host, L"localhost") || host == L"127.0.0.1";
+        if (parts.nScheme == INTERNET_SCHEME_HTTP && local_host)
+            return true;
+
+        reason = L"Replay download URL is not from an allowed archive host.";
+        return false;
     }
 
     bool parse_link(const std::wstring& uri,
@@ -233,12 +400,7 @@ namespace
             reason = L"Replay link has an invalid UGC id.";
             return false;
         }
-        if (!starts_with_ci(url, L"https://"))
-        {
-            reason = L"Replay link must use an HTTPS download URL.";
-            return false;
-        }
-        return true;
+        return validate_replay_download_url(url, ugc, reason);
     }
 
     class WinHttpHandle
@@ -263,9 +425,9 @@ namespace
         HINTERNET m_h{nullptr};
     };
 
-    bool download_https(const std::wstring& url,
-                        std::vector<unsigned char>& out,
-                        std::wstring& reason)
+    bool download_replay_url(const std::wstring& url,
+                             std::vector<unsigned char>& out,
+                             std::wstring& reason)
     {
         URL_COMPONENTS parts{};
         parts.dwStructSize = sizeof(parts);
@@ -274,10 +436,11 @@ namespace
         parts.dwUrlPathLength = static_cast<DWORD>(-1);
         parts.dwExtraInfoLength = static_cast<DWORD>(-1);
         if (!WinHttpCrackUrl(url.c_str(), 0, 0, &parts) ||
-            parts.nScheme != INTERNET_SCHEME_HTTPS ||
+            (parts.nScheme != INTERNET_SCHEME_HTTPS &&
+             parts.nScheme != INTERNET_SCHEME_HTTP) ||
             parts.dwHostNameLength == 0)
         {
-            reason = L"Could not parse HTTPS replay URL.";
+            reason = L"Could not parse replay download URL.";
             return false;
         }
 
@@ -312,7 +475,7 @@ namespace
         WinHttpHandle request(WinHttpOpenRequest(
             connect.get(), L"GET", path.c_str(), nullptr,
             WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
-            WINHTTP_FLAG_SECURE));
+            parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0));
         if (!request.get())
         {
             reason = L"Could not create replay download request.";
@@ -454,6 +617,202 @@ namespace
         return write_bytes_atomic(path, bytes, reason);
     }
 
+    std::wstring lowercase_slash_normalized(std::wstring path)
+    {
+        for (wchar_t& c : path)
+        {
+            if (c == L'/') c = L'\\';
+            else c = static_cast<wchar_t>(std::towlower(c));
+        }
+        return path;
+    }
+
+    std::wstring launcher_mod_root()
+    {
+        const std::wstring exe_path = module_path();
+        const std::wstring tools_dir = dirname(exe_path);
+        return dirname(tools_dir);
+    }
+
+    bool is_shimloader_profile_install(const std::wstring& mod_root)
+    {
+        const std::wstring path = lowercase_slash_normalized(mod_root);
+        return path.find(L"\\shimloader\\mod\\") != std::wstring::npos;
+    }
+
+    bool file_exists(const std::wstring& path)
+    {
+        const DWORD attrs = GetFileAttributesW(path.c_str());
+        return attrs != INVALID_FILE_ATTRIBUTES &&
+               (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+    }
+
+    bool dir_exists(const std::wstring& path)
+    {
+        const DWORD attrs = GetFileAttributesW(path.c_str());
+        return attrs != INVALID_FILE_ATTRIBUTES &&
+               (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    }
+
+    std::wstring append_path(std::wstring base, const wchar_t* leaf)
+    {
+        if (!base.empty() && base.back() != L'\\' && base.back() != L'/')
+            base += L'\\';
+        base += leaf;
+        return base;
+    }
+
+    std::wstring normalize_backslashes(std::wstring path)
+    {
+        for (wchar_t& c : path)
+        {
+            if (c == L'/') c = L'\\';
+        }
+        return path;
+    }
+
+    std::wstring normalize_forward_slashes(std::wstring path)
+    {
+        for (wchar_t& c : path)
+        {
+            if (c == L'\\') c = L'/';
+        }
+        return path;
+    }
+
+    std::wstring quote_arg(const std::wstring& arg)
+    {
+        std::wstring out = L"\"";
+        size_t slash_count = 0;
+        for (wchar_t c : arg)
+        {
+            if (c == L'\\')
+            {
+                ++slash_count;
+                continue;
+            }
+            if (c == L'"')
+            {
+                out.append(slash_count * 2 + 1, L'\\');
+                out.push_back(c);
+            }
+            else
+            {
+                out.append(slash_count, L'\\');
+                out.push_back(c);
+            }
+            slash_count = 0;
+        }
+        out.append(slash_count * 2, L'\\');
+        out.push_back(L'"');
+        return out;
+    }
+
+    bool read_reg_string(HKEY root,
+                         const wchar_t* subkey,
+                         const wchar_t* value,
+                         std::wstring& out)
+    {
+        DWORD type = 0;
+        DWORD bytes = 0;
+        LSTATUS status = RegGetValueW(
+            root, subkey, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ,
+            &type, nullptr, &bytes);
+        if (status != ERROR_SUCCESS || bytes < sizeof(wchar_t))
+            return false;
+
+        std::wstring buffer(bytes / sizeof(wchar_t), L'\0');
+        status = RegGetValueW(
+            root, subkey, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ,
+            &type, &buffer[0], &bytes);
+        if (status != ERROR_SUCCESS)
+            return false;
+
+        while (!buffer.empty() && buffer.back() == L'\0')
+            buffer.pop_back();
+        if (buffer.empty())
+            return false;
+        out = buffer;
+        return true;
+    }
+
+    std::wstring env_path(const wchar_t* name, const wchar_t* suffix)
+    {
+        wchar_t base[MAX_PATH]{};
+        const DWORD n = GetEnvironmentVariableW(name, base, MAX_PATH);
+        if (n == 0 || n >= MAX_PATH)
+            return {};
+        return append_path(base, suffix);
+    }
+
+    std::wstring find_steam_exe()
+    {
+        std::vector<std::wstring> candidates;
+
+        std::wstring value;
+        if (read_reg_string(HKEY_CURRENT_USER, L"Software\\Valve\\Steam",
+                            L"SteamExe", value))
+            candidates.push_back(normalize_backslashes(value));
+        if (read_reg_string(HKEY_CURRENT_USER, L"Software\\Valve\\Steam",
+                            L"InstallPath", value))
+            candidates.push_back(append_path(normalize_backslashes(value),
+                                             L"steam.exe"));
+        if (read_reg_string(HKEY_LOCAL_MACHINE,
+                            L"SOFTWARE\\WOW6432Node\\Valve\\Steam",
+                            L"InstallPath", value))
+            candidates.push_back(append_path(normalize_backslashes(value),
+                                             L"steam.exe"));
+        if (read_reg_string(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Valve\\Steam",
+                            L"InstallPath", value))
+            candidates.push_back(append_path(normalize_backslashes(value),
+                                             L"steam.exe"));
+
+        const std::wstring program_files_x86 =
+            env_path(L"ProgramFiles(x86)", L"Steam\\steam.exe");
+        if (!program_files_x86.empty())
+            candidates.push_back(program_files_x86);
+        const std::wstring program_files =
+            env_path(L"ProgramFiles", L"Steam\\steam.exe");
+        if (!program_files.empty())
+            candidates.push_back(program_files);
+
+        for (const std::wstring& candidate : candidates)
+        {
+            if (file_exists(candidate))
+                return candidate;
+        }
+        return {};
+    }
+
+    std::wstring shimloader_dir_from_mod_root(const std::wstring& mod_root)
+    {
+        const std::wstring path = lowercase_slash_normalized(mod_root);
+        constexpr wchar_t marker[] = L"\\shimloader\\mod\\";
+        const size_t pos = path.find(marker);
+        if (pos == std::wstring::npos)
+            return {};
+
+        std::wstring profile_root = mod_root.substr(0, pos + 1);
+        return append_path(profile_root, L"shimloader");
+    }
+
+    void append_profile_arg(std::wstring& args,
+                            const wchar_t* name,
+                            const std::wstring& path)
+    {
+        args += L" ";
+        args += quote_arg(name);
+        args += L" ";
+        args += quote_arg(normalize_forward_slashes(path));
+    }
+
+    const char* launch_mode_name(const std::wstring& mod_root)
+    {
+        return is_shimloader_profile_install(mod_root)
+                   ? "mod-manager-profile"
+                   : "direct";
+    }
+
     bool is_game_running()
     {
         HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -509,6 +868,60 @@ namespace
                                    nullptr, nullptr, SW_SHOWNORMAL);
         }
         return reinterpret_cast<intptr_t>(result) > 32;
+    }
+
+    bool launch_profile_game(const std::wstring& mod_root,
+                             const std::wstring& replay_path,
+                             std::wstring& reason)
+    {
+        const std::wstring shimloader_dir =
+            shimloader_dir_from_mod_root(mod_root);
+        if (shimloader_dir.empty())
+        {
+            reason = L"Could not derive Thunderstore shimloader profile "
+                     L"folders from the HorseMod install path.";
+            return false;
+        }
+
+        const std::wstring mod_dir = append_path(shimloader_dir, L"mod");
+        if (!dir_exists(mod_dir))
+        {
+            reason = L"Could not find the Thunderstore shimloader mod folder.";
+            return false;
+        }
+
+        const std::wstring steam_exe = find_steam_exe();
+        if (steam_exe.empty())
+        {
+            reason = L"Could not find steam.exe to launch Soulcalibur VI "
+                     L"with this Thunderstore profile.";
+            return false;
+        }
+
+        std::wstring args = L"-applaunch 544750";
+        append_profile_arg(args, L"--mod-dir", mod_dir);
+        append_profile_arg(args, L"--pak-dir",
+                           append_path(shimloader_dir, L"pak"));
+        append_profile_arg(args, L"--cfg-dir",
+                           append_path(shimloader_dir, L"cfg"));
+        append_profile_arg(args, L"--overlay-dir",
+                           append_path(shimloader_dir, L"overlay"));
+        append_profile_arg(args, L"--horsemod-replay-file", replay_path);
+        append_profile_arg(args, L"--horsemod-replay-generate-mode",
+                           L"lux-no-render-force");
+
+        log_line(L"launching Steam profile game steam=%s args=%s",
+                 steam_exe.c_str(), args.c_str());
+        const HINSTANCE result =
+            ShellExecuteW(nullptr, L"open", steam_exe.c_str(), args.c_str(),
+                          dirname(steam_exe).c_str(), SW_SHOWNORMAL);
+        if (reinterpret_cast<intptr_t>(result) <= 32)
+        {
+            reason = L"Steam did not accept the Thunderstore profile launch "
+                     L"command.";
+            return false;
+        }
+        return true;
     }
 
     class WsaSession
@@ -599,12 +1012,24 @@ namespace
         return true;
     }
 
+    bool allowed_status_origin(const std::string& origin)
+    {
+        if (!safe_origin_value(origin)) return false;
+        return ascii_iequals(origin, "https://replay.horseface.no") ||
+               ascii_iequals(origin, "http://localhost:3004") ||
+               ascii_iequals(origin, "http://127.0.0.1:3004") ||
+               ascii_iequals(origin, "http://localhost:3005") ||
+               ascii_iequals(origin, "http://127.0.0.1:3005");
+    }
+
     void send_status_response(SOCKET client,
                               int status,
                               const char* reason,
                               const std::string& body,
                               const std::string& origin)
     {
+        const bool add_cors =
+            !origin.empty() && allowed_status_origin(origin);
         std::string headers;
         headers += "HTTP/1.1 ";
         headers += std::to_string(status);
@@ -613,13 +1038,17 @@ namespace
         headers += "\r\n";
         headers += "Content-Type: application/json; charset=utf-8\r\n";
         headers += "Cache-Control: no-store\r\n";
-        headers += "Access-Control-Allow-Origin: ";
-        headers += safe_origin_value(origin) ? origin : "*";
-        headers += "\r\n";
-        headers += "Vary: Origin\r\n";
-        headers += "Access-Control-Allow-Methods: GET, OPTIONS\r\n";
-        headers += "Access-Control-Allow-Headers: Accept, Content-Type\r\n";
-        headers += "Access-Control-Allow-Private-Network: true\r\n";
+        if (add_cors)
+        {
+            headers += "Access-Control-Allow-Origin: ";
+            headers += origin;
+            headers += "\r\n";
+            headers += "Vary: Origin\r\n";
+            headers += "Access-Control-Allow-Methods: GET, OPTIONS\r\n";
+            headers +=
+                "Access-Control-Allow-Headers: Accept, Content-Type\r\n";
+            headers += "Access-Control-Allow-Private-Network: true\r\n";
+        }
         headers += "Connection: close\r\n";
         headers += "Content-Length: ";
         headers += std::to_string(body.size());
@@ -680,13 +1109,23 @@ namespace
             return;
         }
 
-        if (method == "OPTIONS" && status_target_matches(target))
+        const bool status_target = status_target_matches(target);
+        if (status_target && !origin.empty() &&
+            !allowed_status_origin(origin))
+        {
+            send_status_response(
+                client, 403, "Forbidden",
+                "{\"error\":\"origin_not_allowed\"}\n", "");
+            return;
+        }
+
+        if (method == "OPTIONS" && status_target)
         {
             send_status_response(client, 204, "No Content", "", origin);
             return;
         }
 
-        if (method != "GET" || !status_target_matches(target))
+        if (method != "GET" || !status_target)
         {
             send_status_response(
                 client, 404, "Not Found",
@@ -700,7 +1139,18 @@ namespace
         body += "\"version\":\"";
         body += kStatusVersion;
         body += "\",";
-        body += "\"protocol\":\"sc6replay\"";
+        body += "\"protocol\":\"sc6replay\",";
+        const std::wstring mod_root = launcher_mod_root();
+        const bool game_running = is_game_running();
+        const bool profile_install = is_shimloader_profile_install(mod_root);
+        body += "\"gameRunning\":";
+        body += game_running ? "true" : "false";
+        body += ",";
+        body += "\"launchMode\":\"";
+        body += launch_mode_name(mod_root);
+        body += "\",";
+        body += "\"requiresProfileLaunch\":";
+        body += (!game_running && profile_install) ? "true" : "false";
         body += "}\n";
         send_status_response(client, 200, "OK", body, origin);
     }
@@ -806,9 +1256,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     if (!parse_link(uri, ugc, url, reason))
         fail(reason);
 
-    const std::wstring exe_path = module_path();
-    std::wstring tools_dir = dirname(exe_path);
-    std::wstring mod_root = dirname(tools_dir);
+    const std::wstring mod_root = launcher_mod_root();
     if (mod_root.empty())
         fail(L"Could not locate HorseMod folder from launcher path.");
 
@@ -819,12 +1267,29 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 
     std::vector<unsigned char> replay;
     log_line(L"download start ugc=%s url=%s", ugc.c_str(), url.c_str());
-    if (!download_https(url, replay, reason))
+    if (!download_replay_url(url, replay, reason))
         fail(reason);
 
     const std::wstring replay_path = replay_dir + L"REPLAY_" + ugc + L".bin";
     if (!write_bytes_atomic(replay_path, replay, reason))
         fail(reason);
+
+    const bool game_running = is_game_running();
+    if (!game_running && is_shimloader_profile_install(mod_root))
+    {
+        if (!launch_profile_game(mod_root, replay_path, reason))
+        {
+            std::wstring message =
+                L"Replay downloaded, but Soulcalibur VI could not be "
+                L"launched with this Thunderstore profile.\n\n";
+            message += reason;
+            fail(message);
+        }
+        log_line(L"launched profile replay ugc=%s bytes=%zu replay=%s",
+                 ugc.c_str(), replay.size(), replay_path.c_str());
+        show_starting_replay_notification();
+        return 0;
+    }
 
     const std::string replay_path_utf8 = wide_to_utf8(replay_path);
     const std::string run_id = "web-" + wide_to_utf8(ugc);
@@ -842,11 +1307,16 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     if (!write_text_atomic(request_path, json, reason))
         fail(reason);
 
-    if (!is_game_running() && !launch_game(mod_root))
-        fail(L"Replay cached, but SoulcaliburVI could not be launched.");
-
     log_line(L"queued ugc=%s bytes=%zu replay=%s request=%s",
              ugc.c_str(), replay.size(), replay_path.c_str(),
              request_path.c_str());
+
+    if (!game_running)
+    {
+        if (!launch_game(mod_root))
+            fail(L"Replay cached, but SoulcaliburVI could not be launched.");
+    }
+
+    show_starting_replay_notification();
     return 0;
 }
