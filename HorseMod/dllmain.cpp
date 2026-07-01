@@ -399,6 +399,56 @@ static bool horsemod_iequals_path_part(
 
 static bool horsemod_file_exists(const std::wstring& path) noexcept;
 
+static std::wstring horsemod_strip_extended_path_prefix(
+    std::wstring path) noexcept
+{
+    constexpr wchar_t dos_prefix[] = L"\\\\?\\";
+    constexpr wchar_t unc_prefix[] = L"\\\\?\\UNC\\";
+    if (path.size() >= 8 &&
+        _wcsnicmp(path.c_str(), unc_prefix, 8) == 0)
+    {
+        path.erase(0, 7);
+        path.insert(0, L"\\");
+        return path;
+    }
+    if (path.size() >= 4 &&
+        _wcsnicmp(path.c_str(), dos_prefix, 4) == 0)
+    {
+        path.erase(0, 4);
+    }
+    return path;
+}
+
+static std::wstring horsemod_existing_file_final_path(
+    const std::wstring& path) noexcept
+{
+    HANDLE h = CreateFileW(
+        path.c_str(),
+        0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (h == INVALID_HANDLE_VALUE) return {};
+
+    std::wstring resolved(MAX_PATH, L'\0');
+    DWORD written = GetFinalPathNameByHandleW(
+        h, resolved.data(), static_cast<DWORD>(resolved.size()),
+        FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (written >= resolved.size())
+    {
+        resolved.assign(written + 1, L'\0');
+        written = GetFinalPathNameByHandleW(
+            h, resolved.data(), static_cast<DWORD>(resolved.size()),
+            FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    }
+    CloseHandle(h);
+    if (written == 0 || written >= resolved.size()) return path;
+    resolved.resize(written);
+    return horsemod_strip_extended_path_prefix(resolved);
+}
+
 static std::wstring horsemod_mod_root_dir() noexcept
 {
     std::wstring dir = horsemod_parent_dir(horsemod_current_module_path());
@@ -415,6 +465,14 @@ static std::wstring horsemod_module_dir(const wchar_t* module_name) noexcept
     if (!h) return {};
     wchar_t buf[MAX_PATH]{};
     const DWORD n = GetModuleFileNameW(h, buf, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return {};
+    return horsemod_parent_dir(buf);
+}
+
+static std::wstring horsemod_exe_dir() noexcept
+{
+    wchar_t buf[MAX_PATH]{};
+    const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
     if (n == 0 || n >= MAX_PATH) return {};
     return horsemod_parent_dir(buf);
 }
@@ -466,7 +524,35 @@ static std::wstring horsemod_child_launcher_if_present(
     child += L'\\';
     const std::wstring launcher =
         child + L"tools\\HorseReplayLauncher.exe";
-    return horsemod_file_exists(launcher) ? launcher : std::wstring{};
+    return horsemod_existing_file_final_path(launcher);
+}
+
+static bool horsemod_path_has_prefix_ci(
+    const std::wstring& path,
+    const std::wstring& prefix) noexcept
+{
+    const std::wstring p = horsemod_ascii_lower(path);
+    const std::wstring q = horsemod_ascii_lower(prefix);
+    return p.size() >= q.size() && p.compare(0, q.size(), q) == 0;
+}
+
+static std::wstring horsemod_game_mods_dir() noexcept
+{
+    std::wstring game_mods = horsemod_exe_dir();
+    if (game_mods.empty()) return {};
+    if (!game_mods.empty() && game_mods.back() != L'\\' &&
+        game_mods.back() != L'/')
+        game_mods += L'\\';
+    game_mods += L"Mods\\";
+    return game_mods;
+}
+
+static bool horsemod_mod_root_is_game_mods_dir(
+    const std::wstring& root) noexcept
+{
+    const std::wstring game_mods = horsemod_game_mods_dir();
+    if (game_mods.empty()) return false;
+    return horsemod_path_has_prefix_ci(root, game_mods);
 }
 
 static std::wstring horsemod_replay_launcher_from_mod_parent(
@@ -602,10 +688,17 @@ static std::wstring horsemod_replay_launcher_path() noexcept
     if (root.empty()) return {};
     const std::wstring package_dir = horsemod_leaf_dir(root);
     const std::wstring direct = root + L"tools\\HorseReplayLauncher.exe";
+    const std::wstring direct_final =
+        horsemod_existing_file_final_path(direct);
+    const std::wstring game_mods_dir = horsemod_game_mods_dir();
+    const bool game_mod_root = horsemod_mod_root_is_game_mods_dir(root);
 
     std::wstring command_line_mod_dir;
-    if (horsemod_command_line_option_value(L"--mod-dir",
-                                           command_line_mod_dir))
+    const bool has_command_line_mod_dir =
+        horsemod_command_line_option_value(L"--mod-dir",
+                                           command_line_mod_dir);
+
+    if (has_command_line_mod_dir)
     {
         const std::wstring command_line_profile =
             horsemod_replay_launcher_from_mod_parent(
@@ -623,13 +716,20 @@ static std::wstring horsemod_replay_launcher_path() noexcept
             horsemod_module_dir(L"ue4ss.dll"), package_dir);
     if (!ue4ss_profile.empty()) return ue4ss_profile;
 
-    if (horsemod_file_exists(direct)) return direct;
+    if (!direct_final.empty() &&
+        (!game_mod_root ||
+         !horsemod_path_has_prefix_ci(direct_final, game_mods_dir)))
+    {
+        return direct_final;
+    }
 
     const std::wstring known_profile =
         horsemod_known_profile_launcher(package_dir);
     if (!known_profile.empty()) return known_profile;
 
-    return direct;
+    if (game_mod_root && direct_final.empty()) return {};
+
+    return direct_final.empty() ? direct : direct_final;
 }
 
 static std::wstring horsemod_replay_link_command() noexcept
@@ -842,7 +942,9 @@ static bool horsemod_start_replay_link_status_server() noexcept
         return false;
     }
 
-    std::wstring command = L"\"" + launcher + L"\" --status-server";
+    std::wstring command = L"\"" + launcher + L"\" --status-server "
+                           L"--owner-pid " +
+                           std::to_wstring(GetCurrentProcessId());
     std::vector<wchar_t> mutable_command(command.begin(), command.end());
     mutable_command.push_back(L'\0');
 

@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
@@ -1402,7 +1403,41 @@ namespace
         send_status_response(client, 200, "OK", body, origin);
     }
 
-    int run_status_server()
+    DWORD parse_owner_pid_arg(LPWSTR* argv, int argc)
+    {
+        auto parse_pid = [](const wchar_t* text) -> DWORD {
+            if (!text || !*text) return 0;
+            wchar_t* end = nullptr;
+            const unsigned long value = std::wcstoul(text, &end, 10);
+            if (end == text || (end && *end) || value == 0)
+                return 0;
+            return static_cast<DWORD>(value);
+        };
+
+        constexpr wchar_t prefix[] = L"--owner-pid=";
+        constexpr size_t prefix_len = (sizeof(prefix) / sizeof(prefix[0])) - 1;
+        for (int i = 2; i < argc; ++i)
+        {
+            const wchar_t* arg = argv[i] ? argv[i] : L"";
+            if (std::wcscmp(arg, L"--owner-pid") == 0)
+            {
+                if (i + 1 < argc)
+                    return parse_pid(argv[i + 1]);
+                return 0;
+            }
+            if (std::wcsncmp(arg, prefix, prefix_len) == 0)
+                return parse_pid(arg + prefix_len);
+        }
+        return 0;
+    }
+
+    bool status_owner_exited(HANDLE owner_process)
+    {
+        return owner_process &&
+               WaitForSingleObject(owner_process, 0) == WAIT_OBJECT_0;
+    }
+
+    int run_status_server(DWORD owner_pid)
     {
         HANDLE mutex = CreateMutexW(nullptr, TRUE, kStatusServerMutex);
         if (!mutex)
@@ -1465,8 +1500,48 @@ namespace
         log_line(L"status server listening on 127.0.0.1:%u version=%S",
                  static_cast<unsigned>(kStatusPort), kStatusVersion);
 
+        HANDLE owner_process = nullptr;
+        if (owner_pid != 0)
+        {
+            owner_process = OpenProcess(SYNCHRONIZE, FALSE, owner_pid);
+            if (owner_process)
+            {
+                log_line(L"status server owner pid=%lu", owner_pid);
+            }
+            else
+            {
+                log_line(L"status server could not open owner pid=%lu "
+                         L"error=%lu",
+                         owner_pid, GetLastError());
+            }
+        }
+
         for (;;)
         {
+            if (status_owner_exited(owner_process))
+            {
+                log_line(L"status server owner exited; stopping");
+                break;
+            }
+
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            FD_SET(listener, &readfds);
+            timeval timeout{};
+            timeout.tv_sec = 1;
+
+            const int ready =
+                select(0, &readfds, nullptr, nullptr, &timeout);
+            if (ready == 0)
+                continue;
+            if (ready == SOCKET_ERROR)
+            {
+                const int err = WSAGetLastError();
+                log_line(L"status server select failed: %d", err);
+                Sleep(250);
+                continue;
+            }
+
             SOCKET client = accept(listener, nullptr, nullptr);
             if (client == INVALID_SOCKET)
             {
@@ -1479,6 +1554,12 @@ namespace
             shutdown(client, SD_BOTH);
             closesocket(client);
         }
+
+        if (owner_process)
+            CloseHandle(owner_process);
+        closesocket(listener);
+        CloseHandle(mutex);
+        return 0;
     }
 }
 
@@ -1495,8 +1576,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     }
     if (argv && argc >= 2 && std::wcscmp(argv[1], L"--status-server") == 0)
     {
+        const DWORD owner_pid = parse_owner_pid_arg(argv, argc);
         LocalFree(argv);
-        return run_status_server();
+        return run_status_server(owner_pid);
     }
     if (!argv || argc < 2)
         fail(L"Missing sc6replay:// link argument.");

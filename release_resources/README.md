@@ -46,7 +46,7 @@ game at launch — no manual file copying required.
 
 1. Install [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) into the game's
    `Binaries/Win64` directory.
-2. Extract the zip so that the `HorseMod` folder lands inside
+2. Extract the manual/GitHub zip so that the `HorseMod` folder lands inside
    `<Steam>/steamapps/common/SoulcaliburVI/SoulcaliburVI/Binaries/Win64/ue4ss/Mods/`.
    The final layout should be:
 
@@ -59,10 +59,12 @@ game at launch — no manual file copying required.
         `-- HorseReplayLauncher.exe
   ```
 
-   (Note: the Thunderstore zip ships its payload under `mod/` so the SC6
-   community's mod managers can route it through unreal-shimloader.  If
-   you're installing manually without shimloader, grab the GitHub release
-   zip instead — its layout already matches the path above.)
+   The Thunderstore zip uses a `mod/` folder for mod-manager routing. For a
+   manual UE4SS install from that zip, copy the contents of `mod/` into
+   `ue4ss/Mods/HorseMod/` so the final layout still matches the tree above.
+   Extracting the whole Thunderstore zip directly into `ue4ss/Mods/` can also
+   load as `ue4ss/Mods/mod/`, but `HorseMod/` is preferred because it avoids
+   collisions with other manually extracted Thunderstore packages.
 
 3. Launch SoulCalibur VI.  The mod loads automatically when UE4SS starts.
 4. Press **F2** (keyboard) or **Back / Select** (gamepad) to open the
