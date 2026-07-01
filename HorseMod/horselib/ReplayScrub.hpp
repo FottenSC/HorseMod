@@ -10527,6 +10527,29 @@ namespace Horse
             return rounds > 0 && rounds <= kMaxSc6ReplayRounds;
         }
 
+        static bool replay_total_rounds_match_metadata(
+            int32_t observed,
+            int32_t expected) noexcept
+        {
+            if (expected <= 0)
+                return true;
+            if (!replay_total_rounds_sane(observed) ||
+                !replay_total_rounds_sane(expected))
+            {
+                return false;
+            }
+            if (observed == expected)
+                return true;
+
+            // Native replay metadata stores played rounds (3, 4, or 5 for
+            // first-to-3).  The live battle context can keep the full
+            // first-to-3 round-slot count even when the replay ended 3-0
+            // or 3-1, so 5 live slots still belongs to that replay.
+            static constexpr int32_t kFirstToThreeRoundSlots = 5;
+            return observed == kFirstToThreeRoundSlots &&
+                expected >= 3 && expected <= kFirstToThreeRoundSlots;
+        }
+
         void emit_timeline_no_render_retry(
             const char* reason,
             int32_t retry_index,
@@ -10708,6 +10731,17 @@ namespace Horse
         {
             return m_gen_armed_mode.load(std::memory_order_acquire)
                 != kGenReqNone;
+        }
+
+        bool has_pending_timeline_generation_start() const noexcept
+        {
+            const int req =
+                m_gen_request.load(std::memory_order_acquire);
+            return req == kGenReqStart
+                || req == kGenReqStartLuxNoRender
+                || req == kGenReqForceStartLuxNoRender
+                || req == kGenReqStartBattleStep
+                || is_generate_armed_for_next_clean_start();
         }
 
         const char* timeline_generation_mode_name(
@@ -13807,6 +13841,7 @@ namespace Horse
             uint32_t existing_replay_ready_to_stop_attempts {0};
             uint32_t existing_replay_manager_stop_complete_attempts {0};
             uint32_t stale_replay_console_reroute_attempts {0};
+            uint32_t runtime_context_retry_attempts {0};
             uint32_t navigator_attempts {0};
             uint32_t title_decide_attempts {0};
             uint32_t native_profile_request_attempts {0};
@@ -21012,6 +21047,8 @@ namespace Horse
                          state.existing_replay_manager_stop_complete_attempts)
                 .integer("stale_replay_console_reroute_attempts",
                          state.stale_replay_console_reroute_attempts)
+                .integer("runtime_context_retry_attempts",
+                         state.runtime_context_retry_attempts)
                 .integer("navigator_attempts", state.navigator_attempts)
                .integer("timeout_seconds", state.timeout_seconds)
                .integer("ms_since_request_loaded",
@@ -24892,6 +24929,158 @@ namespace Horse
             return true;
         }
 
+        static bool replay_file_start_runtime_is_different_replay(
+            const GenerateStartReadiness& ready) noexcept
+        {
+            return ready.expected_total_rounds > 0 &&
+                ready.total_rounds > 0 &&
+                !replay_total_rounds_match_metadata(
+                    ready.total_rounds, ready.expected_total_rounds);
+        }
+
+        static bool replay_file_start_clean_start_was_missed(
+            const GenerateStartReadiness& ready) noexcept
+        {
+            if (!ready.context_ok || ready.clean_start)
+                return false;
+            if (ready.round > 0)
+                return true;
+            if (ready.input_master > 1)
+                return true;
+            if (ready.input_master >= 0 && ready.battle_master >= 0)
+            {
+                const int32_t delta = ready.battle_master >= ready.input_master
+                    ? ready.battle_master - ready.input_master
+                    : ready.input_master - ready.battle_master;
+                if (delta > 1)
+                    return true;
+            }
+            return false;
+        }
+
+        void replay_file_start_retry_after_runtime_context_failure(
+            ReplayFileStartAutomationState& state,
+            const GenerateStartReadiness& ready,
+            const char* reason,
+            std::chrono::steady_clock::time_point now) noexcept
+        {
+            ++state.runtime_context_retry_attempts;
+            ++state.existing_replay_exit_attempts;
+            state.existing_replay_exit_requested = true;
+
+            std::string watch_exit_reason;
+            bool watch_exit_ok = false;
+            const bool should_request_watch_exit =
+                !state.existing_replay_watch_cancel_requested ||
+                (state.runtime_context_retry_attempts % 3) == 0;
+            if (should_request_watch_exit)
+            {
+                ++state.existing_replay_watch_exit_attempts;
+                watch_exit_ok = request_existing_replay_watch_exit(
+                    state, false, watch_exit_reason);
+            }
+
+            std::string terminate_reason;
+            ++state.existing_replay_battle_terminate_attempts;
+            const bool terminate_ok =
+                request_existing_replay_battle_terminate(state,
+                                                         terminate_reason);
+
+            release_replay_file_profile_container();
+            state.submitted = false;
+            state.waiting_ready_emitted = false;
+            state.readiness_grace_emitted = false;
+            state.battle_asset_requested = false;
+            state.battle_scene_requested = false;
+            state.stage_map_request_submitted = false;
+            state.replay_setup_reached = false;
+            state.battle_runtime_wait_emitted = false;
+            state.battle_request_pending_emitted = false;
+            state.stale_replay_scene_menus_closed = false;
+            state.stale_replay_console_reroute_requested = false;
+            state.stale_replay_scene_launch_ready = false;
+            state.existing_replay_exit_wait_emitted = false;
+            state.existing_replay_exit_ready_emitted = false;
+            state.start_request_emitted = false;
+            state.native_replay_imported = false;
+            state.native_profile_container_ready = false;
+            state.native_profile_request_ok = false;
+            state.native_profile_applied = false;
+            state.native_profile_waiting_emitted = false;
+            state.native_profile_request_attempts = 0;
+            state.native_profile_summary_apply_count = 0;
+            state.native_start_request_at = {};
+            state.launch_submitted_at = {};
+            state.native_profile_apply_after = {};
+            state.native_profile_next_summary_apply = {};
+            state.readiness_grace_deadline = now + std::chrono::seconds(10);
+            state.next_attempt = now + std::chrono::seconds(1);
+
+            if (state.auto_generate_armed)
+            {
+                const int mode = generate_request_mode_from_string(
+                    state.auto_generate_mode);
+                if (mode != kGenReqNone)
+                {
+                    m_gen_armed_mode.store(mode, std::memory_order_release);
+                    reset_armed_generate_wait_log();
+                    m_replay_file_auto_arm_suppress_until = {};
+                }
+            }
+
+            ReplayTraceFields f;
+            f.string("run_id", state.run_id.c_str())
+             .string("path", state.requested_path.c_str())
+             .string("resolved_path", narrow_path(state.resolved_path))
+             .string("reason", reason ? reason : "")
+             .integer("attempts", state.runtime_context_retry_attempts)
+             .integer("round", ready.round)
+             .integer("input_master", ready.input_master)
+             .integer("battle_master", ready.battle_master)
+             .integer("total_rounds", ready.total_rounds)
+             .integer("expected_total_rounds", ready.expected_total_rounds)
+             .boolean("context_ok", ready.context_ok)
+             .boolean("clean_start", ready.clean_start)
+             .boolean("seek_context_ok", ready.seek_context_ok)
+             .boolean("reset_source_ok", ready.reset_source_ok)
+             .string("readiness_reason",
+                     ready.reason ? ready.reason : "")
+             .string("context_source",
+                     sc6_context_source_name(ready.seek_context_source))
+             .string("context_failure",
+                     sc6_context_failure_name(ready.seek_context_failure))
+             .hex("object_bm", ready.object_registry_battle_manager)
+             .hex("object_il", ready.object_registry_input_log)
+             .hex("wmp_bm", ready.world_mode_pump_battle_manager)
+             .hex("wmp_il", ready.world_mode_pump_input_log)
+             .hex("chosen_bm", ready.battle_manager)
+             .hex("chosen_il", ready.input_log)
+             .boolean("watch_exit_ok", watch_exit_ok)
+             .string("watch_exit_reason", watch_exit_reason)
+             .boolean("terminate_ok", terminate_ok)
+             .string("terminate_reason", terminate_reason)
+             .boolean("auto_generate_armed", state.auto_generate_armed);
+            ReplayDebugTrace::instance().event(
+                "replay_file_start_runtime_context_retry", f);
+
+            RC::Output::send<RC::LogLevel::Warning>(STR(
+                "[ReplayFile] live replay context did not match requested "
+                "replay; retrying launch attempt={} reason={} "
+                "round={} input_master={} battle_master={} total_rounds={} "
+                "expected_total_rounds={} path='{}'\n"),
+                state.runtime_context_retry_attempts,
+                RC::to_generic_string(reason ? reason : ""),
+                ready.round, ready.input_master, ready.battle_master,
+                ready.total_rounds, ready.expected_total_rounds,
+                RC::to_generic_string(narrow_path(state.resolved_path)));
+
+            set_replay_file_status("Start Replay File", false, false,
+                                   state.resolved_path, 0,
+                                   state.native_replay_meta,
+                                   reason ? reason
+                                          : "retrying replay launch");
+        }
+
         void service_replay_file_start_request_impl() noexcept
         {
             if (m_replay_file_start_pending.exchange(false,
@@ -24957,10 +25146,40 @@ namespace Horse
                 state.battle_asset_requested &&
                 replay_battle_runtime_ready())
             {
+                GenerateStartReadiness runtime_ready{};
+                bool runtime_readiness_checked = false;
+                if (state.native_replay_metadata_valid ||
+                    state.auto_generate_armed)
+                {
+                    runtime_ready = read_generate_start_readiness();
+                    runtime_readiness_checked = true;
+                }
+                if (runtime_readiness_checked &&
+                    replay_file_start_runtime_is_different_replay(
+                        runtime_ready))
+                {
+                    replay_file_start_retry_after_runtime_context_failure(
+                        state, runtime_ready,
+                        "live replay context belongs to a different replay; retrying replay launch",
+                        now);
+                    return;
+                }
                 if (state.auto_generate_armed)
                 {
                     const bool generating =
                         timeline_gen_state() == TimelineGenState::Generating;
+                    if (!generating &&
+                        is_generate_armed_for_next_clean_start() &&
+                        runtime_readiness_checked &&
+                        replay_file_start_clean_start_was_missed(
+                            runtime_ready))
+                    {
+                        replay_file_start_retry_after_runtime_context_failure(
+                            state, runtime_ready,
+                            "requested replay already advanced before timeline generation could start; retrying replay launch",
+                            now);
+                        return;
+                    }
                     const char* wait_reason = generating
                         ? "waiting for generated timeline"
                         : (is_generate_armed_for_next_clean_start()
@@ -31708,7 +31927,9 @@ namespace Horse
             }
             if (out.expected_total_rounds > 0
                 && (!seek_ctx.readable
-                    || seek_ctx.total_rounds != out.expected_total_rounds)
+                    || !replay_total_rounds_match_metadata(
+                        seek_ctx.total_rounds,
+                        out.expected_total_rounds))
                 && out.world_mode_pump_battle_manager
                 && out.world_mode_pump_battle_manager
                     != out.object_registry_battle_manager)
@@ -31723,7 +31944,9 @@ namespace Horse
                 wmp_ctx.world_mode_pump_battle_manager =
                     out.world_mode_pump_battle_manager;
                 if (wmp_ctx.readable
-                    && wmp_ctx.total_rounds == out.expected_total_rounds)
+                    && replay_total_rounds_match_metadata(
+                        wmp_ctx.total_rounds,
+                        out.expected_total_rounds))
                 {
                     seek_ctx = wmp_ctx;
                 }
@@ -31796,7 +32019,9 @@ namespace Horse
                         "Replay metadata is still loading. Wait at the start before generating.";
                     return out;
                 }
-                if (out.total_rounds != out.expected_total_rounds)
+                if (!replay_total_rounds_match_metadata(
+                        out.total_rounds,
+                        out.expected_total_rounds))
                 {
                     out.reason =
                         "Replay context still belongs to a different replay. Wait at the start before generating.";

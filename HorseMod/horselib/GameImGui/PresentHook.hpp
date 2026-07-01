@@ -287,12 +287,20 @@ namespace Horse::GameImGui
             return true;
         }
 
-        // Publish an empty callback vector so imgui-wants-input reads
-        // are safe from first-frame races.
-        m_callbacks.store(std::make_shared<const std::vector<CallbackEntry>>());
-        m_passive_callbacks.store(
-            std::make_shared<const std::vector<PassiveCallbackEntry>>());
-        m_passive_draw_requested.store(false, std::memory_order_release);
+        // Keep callbacks registered before deferred install. HorseMod
+        // registers its tab and passive toast draw callback during
+        // on_unreal_init(), then installs this hook a few game-thread ticks
+        // later. Replacing these snapshots here silently drops the UI.
+        if (!m_callbacks.load(std::memory_order_acquire))
+        {
+            m_callbacks.store(
+                std::make_shared<const std::vector<CallbackEntry>>());
+        }
+        if (!m_passive_callbacks.load(std::memory_order_acquire))
+        {
+            m_passive_callbacks.store(
+                std::make_shared<const std::vector<PassiveCallbackEntry>>());
+        }
 
         if (!create_probe_swap_chain() || !m_probe_swap_chain)
         {
@@ -351,10 +359,16 @@ namespace Horse::GameImGui
         }
 
         m_installed.store(true, std::memory_order_release);
+        const auto callbacks = m_callbacks.load(std::memory_order_acquire);
+        const auto passive_callbacks =
+            m_passive_callbacks.load(std::memory_order_acquire);
         RC::Output::send<RC::LogLevel::Default>(
-            STR("[GameImGui] PresentHook installed (orig Present={} orig Resize={})\n"),
+            STR("[GameImGui] PresentHook installed (orig Present={} "
+                "orig Resize={} callbacks={} passive_callbacks={})\n"),
             reinterpret_cast<uintptr_t>(m_original_present),
-            reinterpret_cast<uintptr_t>(m_original_resize_buffers));
+            reinterpret_cast<uintptr_t>(m_original_resize_buffers),
+            callbacks ? callbacks->size() : 0,
+            passive_callbacks ? passive_callbacks->size() : 0);
         return true;
     }
 

@@ -623,6 +623,8 @@ static std::wstring horsemod_replay_launcher_path() noexcept
             horsemod_module_dir(L"ue4ss.dll"), package_dir);
     if (!ue4ss_profile.empty()) return ue4ss_profile;
 
+    if (horsemod_file_exists(direct)) return direct;
+
     const std::wstring known_profile =
         horsemod_known_profile_launcher(package_dir);
     if (!known_profile.empty()) return known_profile;
@@ -3748,6 +3750,7 @@ private:
     bool m_gameimgui_init_attempted = false;
     int m_gameimgui_init_delay_ticks_remaining = 0;
     static constexpr int kGameImGuiDeferredInstallTicks = 180;
+    std::atomic<bool> m_gameimgui_toggle_key_down{false};
 
     RC::Unreal::Hook::GlobalCallbackId m_engine_tick_callback_id{
         RC::Unreal::Hook::ERROR_ID};
@@ -4064,6 +4067,12 @@ public:
         // half is wired inside horselib/GameImGui/GamepadInput.hpp's
         // BACK-button edge detector.
         register_keydown_event(Input::Key::F2, no_mods, [this]() {
+            if (m_gameimgui_toggle_key_down.exchange(
+                    true, std::memory_order_acq_rel))
+            {
+                return;
+            }
+
             bool v = !Horse::GameImGui::visible();
             if (m_replay_timeline_only_overlay.exchange(
                     false, std::memory_order_relaxed))
@@ -4089,8 +4098,9 @@ public:
             Output::send<LogLevel::Warning>(STR(
                 "[HorseMod] AddVectoredExceptionHandler failed\n"));
         }
-        Output::send<LogLevel::Verbose>(
-            STR("[HorseMod] ctor v0.10.0 (KHit walker)\n"));
+        Output::send<LogLevel::Default>(
+            STR("[HorseMod] ctor v{} (deploy marker: replay-context-retry)\n"),
+            RC::to_generic_string(HORSEMOD_VERSION));
     }
 
     ~HorseMod() override
@@ -4251,10 +4261,14 @@ public:
                    RC::Unreal::UEngine*, float, bool) {
                     HorseMod* self = s_instance.load(std::memory_order_acquire);
                     if (!self) return;
+                    self->service_gameimgui_toggle_key_release();
+                    self->service_gameimgui_deferred_install();
                     auto& scrub = Horse::ReplayScrub::instance();
                     scrub.service_state_snapshot_request();
                     scrub.service_replay_file_start_request();
                     self->tick_replay_file_start_toast(scrub);
+                    self->sync_timeline_generation_toast_state(
+                        scrub, scrub.timeline_gen_state());
                     self->draw_line_overlays_after_battle_tick();
                 }, replay_start_tick_opts);
         Output::send<LogLevel::Default>(STR(
@@ -4366,6 +4380,7 @@ public:
         }
 
         service_presence_transition_safety("update");
+        service_gameimgui_toggle_key_release();
         // IsInGameThread() throws until UE4SS records the game-thread id;
         // on_update can run before that during startup. Use only the old
         // API here so Thunderstore's UE4SS shimloader does not need the
@@ -4376,7 +4391,10 @@ public:
         }();
         if (in_game_thread)
         {
-            service_gameimgui_deferred_install();
+            if (m_engine_tick_callback_id == RC::Unreal::Hook::ERROR_ID)
+            {
+                service_gameimgui_deferred_install();
+            }
             auto& scrub = Horse::ReplayScrub::instance();
             scrub.service_state_snapshot_request();
             scrub.service_replay_file_start_request();
@@ -4409,6 +4427,21 @@ public:
     }
 
 private:
+    void service_gameimgui_toggle_key_release() noexcept
+    {
+        if (!m_gameimgui_toggle_key_down.load(std::memory_order_acquire))
+            return;
+
+        const bool async_down = (::GetAsyncKeyState(VK_F2) & 0x8000) != 0;
+        const bool ll_down = Horse::LowLevelKeyInput::instance().is_down(VK_F2);
+        const bool raw_down = Horse::RawInputSource::instance().is_down(VK_F2);
+        if (!async_down && !ll_down && !raw_down)
+        {
+            m_gameimgui_toggle_key_down.store(false,
+                                              std::memory_order_release);
+        }
+    }
+
     void service_gameimgui_deferred_install()
     {
         if (!m_gameimgui_init_pending || m_gameimgui_init_attempted) return;
@@ -7754,6 +7787,106 @@ private:
         (void)render_replay_timeline_window();
     }
 
+    void reset_khit_audit_cadence() noexcept
+    {
+        m_have_sphere_audit_frame = false;
+        m_khit_audit_attack_logs_this_frame = 0;
+        m_khit_audit_hurt_logs_this_frame = 0;
+        m_khit_audit_pair_logs_this_frame = 0;
+        m_khit_audit_calib_logs_this_frame = 0;
+        m_khit_audit_cluster_logs_this_frame = 0;
+    }
+
+    void render_khit_audit_log_options()
+    {
+        bool audit = m_khit_sphere_audit.load();
+        if (ImGui::Checkbox("KHit audit log", &audit))
+        {
+            m_khit_sphere_audit.store(audit);
+            reset_khit_audit_cadence();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Logs native KHit attack shapes, defender hit-result masks, "
+            "and paired attacker/hurtbox geometry to UE4SS.log once per "
+            "game frame. Use OverlapPair lines to compare native vs UE "
+            "centers for the exact incoming bit the engine accepted. "
+            "This does not make extra boxes visible.");
+
+        if (!audit)
+            return;
+
+        ImGui::Indent();
+
+        bool filter_move = m_khit_sphere_audit_filter_move.load();
+        if (ImGui::Checkbox("Move filter##sphere_audit_move_on",
+                            &filter_move))
+        {
+            m_khit_sphere_audit_filter_move.store(filter_move);
+            reset_khit_audit_cadence();
+        }
+        ImGui::SameLine();
+        int move = m_khit_sphere_audit_move.load();
+        ImGui::PushItemWidth(100.0f);
+        if (ImGui::InputInt("Move id##sphere_audit_move", &move, 0, 0))
+        {
+            if (move < -1) move = -1;
+            if (move > 0xFFFF) move = 0xFFFF;
+            m_khit_sphere_audit_move.store(move);
+            reset_khit_audit_cadence();
+        }
+        ImGui::PopItemWidth();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Matches either the low 11-bit move id or the packed "
+            "move value. Use 328 for hdr030_TEST.khd move 328.");
+
+        bool filter_slots = m_khit_sphere_audit_filter_slots.load();
+        if (ImGui::Checkbox("Slot filter##sphere_audit_slot_on",
+                            &filter_slots))
+        {
+            m_khit_sphere_audit_filter_slots.store(filter_slots);
+            reset_khit_audit_cadence();
+        }
+        ImGui::SameLine();
+        int slot_a = m_khit_sphere_audit_slot_a.load();
+        int slot_b = m_khit_sphere_audit_slot_b.load();
+        ImGui::PushItemWidth(70.0f);
+        if (ImGui::InputInt("A##sphere_audit_slot_a", &slot_a, 0, 0))
+        {
+            slot_a = std::clamp(slot_a, -1, 63);
+            m_khit_sphere_audit_slot_a.store(slot_a);
+            reset_khit_audit_cadence();
+        }
+        ImGui::SameLine();
+        if (ImGui::InputInt("B##sphere_audit_slot_b", &slot_b, 0, 0))
+        {
+            slot_b = std::clamp(slot_b, -1, 63);
+            m_khit_sphere_audit_slot_b.store(slot_b);
+            reset_khit_audit_cadence();
+        }
+        ImGui::PopItemWidth();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "For attack nodes, matches node slot or node+0x08 slot "
+            "bit. For hurt-result lines, the full incoming mask is "
+            "logged whenever native wrote a nonzero mask, even if "
+            "the move filter misses.");
+
+        if (ImGui::Button("Use 328 / all active slots"))
+        {
+            m_khit_sphere_audit_filter_move.store(true);
+            m_khit_sphere_audit_move.store(328);
+            m_khit_sphere_audit_filter_slots.store(false);
+            m_khit_sphere_audit_slot_a.store(56);
+            m_khit_sphere_audit_slot_b.store(57);
+            reset_khit_audit_cadence();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Preset for hdr030_TEST.khd move 328. Slot filtering is "
+            "disabled so Area/FixArea or slot 21 contributors are "
+            "not hidden while debugging the huge edited hitbox.");
+
+        ImGui::Unindent();
+    }
+
     // ==================================================================
     // Hitboxes tab - the core feature.  Master F5 toggle with live
     // status line, per-player move-frame display, KHit list checkboxes
@@ -7995,106 +8128,6 @@ private:
                     "protect FPS.");
             }
 
-            auto reset_sphere_audit_cadence = [&]() {
-                m_have_sphere_audit_frame = false;
-                m_khit_audit_attack_logs_this_frame = 0;
-                m_khit_audit_hurt_logs_this_frame = 0;
-                m_khit_audit_pair_logs_this_frame = 0;
-                m_khit_audit_calib_logs_this_frame = 0;
-                m_khit_audit_cluster_logs_this_frame = 0;
-            };
-
-            bool audit = m_khit_sphere_audit.load();
-            if (ImGui::Checkbox("KHit audit log", &audit))
-            {
-                m_khit_sphere_audit.store(audit);
-                reset_sphere_audit_cadence();
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Logs native KHit attack shapes, defender hit-result masks, "
-                "and paired attacker/hurtbox geometry to UE4SS.log once per "
-                "game frame. Use OverlapPair lines to compare native vs UE "
-                "centers for the exact incoming bit the engine accepted. "
-                "This does not make extra boxes visible.");
-
-            if (audit)
-            {
-                ImGui::Indent();
-
-                bool filter_move =
-                    m_khit_sphere_audit_filter_move.load();
-                if (ImGui::Checkbox("Move filter##sphere_audit_move_on",
-                                    &filter_move))
-                {
-                    m_khit_sphere_audit_filter_move.store(filter_move);
-                    reset_sphere_audit_cadence();
-                }
-                ImGui::SameLine();
-                int move = m_khit_sphere_audit_move.load();
-                ImGui::PushItemWidth(100.0f);
-                if (ImGui::InputInt("Move id##sphere_audit_move",
-                                    &move, 0, 0))
-                {
-                    if (move < -1) move = -1;
-                    if (move > 0xFFFF) move = 0xFFFF;
-                    m_khit_sphere_audit_move.store(move);
-                    reset_sphere_audit_cadence();
-                }
-                ImGui::PopItemWidth();
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Matches either the low 11-bit move id or the packed "
-                    "move value. Use 328 for hdr030_TEST.khd move 328.");
-
-                bool filter_slots =
-                    m_khit_sphere_audit_filter_slots.load();
-                if (ImGui::Checkbox("Slot filter##sphere_audit_slot_on",
-                                    &filter_slots))
-                {
-                    m_khit_sphere_audit_filter_slots.store(filter_slots);
-                    reset_sphere_audit_cadence();
-                }
-                ImGui::SameLine();
-                int slot_a = m_khit_sphere_audit_slot_a.load();
-                int slot_b = m_khit_sphere_audit_slot_b.load();
-                ImGui::PushItemWidth(70.0f);
-                if (ImGui::InputInt("A##sphere_audit_slot_a",
-                                    &slot_a, 0, 0))
-                {
-                    slot_a = std::clamp(slot_a, -1, 63);
-                    m_khit_sphere_audit_slot_a.store(slot_a);
-                    reset_sphere_audit_cadence();
-                }
-                ImGui::SameLine();
-                if (ImGui::InputInt("B##sphere_audit_slot_b",
-                                    &slot_b, 0, 0))
-                {
-                    slot_b = std::clamp(slot_b, -1, 63);
-                    m_khit_sphere_audit_slot_b.store(slot_b);
-                    reset_sphere_audit_cadence();
-                }
-                ImGui::PopItemWidth();
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "For attack nodes, matches node slot or node+0x08 slot "
-                    "bit. For hurt-result lines, the full incoming mask is "
-                    "logged whenever native wrote a nonzero mask, even if "
-                    "the move filter misses.");
-
-                if (ImGui::Button("Use 328 / all active slots"))
-                {
-                    m_khit_sphere_audit_filter_move.store(true);
-                    m_khit_sphere_audit_move.store(328);
-                    m_khit_sphere_audit_filter_slots.store(false);
-                    m_khit_sphere_audit_slot_a.store(56);
-                    m_khit_sphere_audit_slot_b.store(57);
-                    reset_sphere_audit_cadence();
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Preset for hdr030_TEST.khd move 328. Slot filtering is "
-                    "disabled so Area/FixArea or slot 21 contributors are "
-                    "not hidden while debugging the huge edited hitbox.");
-
-                ImGui::Unindent();
-            }
         }
     }
 
@@ -9804,6 +9837,9 @@ private:
                     ImGui::SameLine(0.0f, 20.0f);
                     ImGui::TextDisabled("Trace files off");
                 }
+
+                ImGui::Spacing();
+                render_khit_audit_log_options();
 
                 ImGui::Spacing();
                 const bool link_handler =
