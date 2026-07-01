@@ -9261,13 +9261,17 @@ private:
             playhead = target;
             scrub.ui_step_to_seq(target);
         };
+        auto step_relative = [&](int delta) {
+            const int target = scrub.ui_step_by_frames(delta);
+            if (target >= 0) playhead = target;
+        };
         if (ImGui::Button("|<<##rs_first")) step_seek(earl);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Jump to oldest timeline frame (pauses)");
         ImGui::SameLine();
-        if (ImGui::Button("<<-10##rs_b10")) step_seek(playhead - 10);
+        if (ImGui::Button("<<-10##rs_b10")) step_relative(-10);
         ImGui::SameLine();
-        if (ImGui::Button("<-1##rs_b1")) step_seek(playhead - 1);
+        if (ImGui::Button("<-1##rs_b1")) step_relative(-1);
         ImGui::SameLine();
 
         timeline_view = scrub.timeline_view();
@@ -9296,9 +9300,9 @@ private:
                     ? "Resume forward replay playback from the current playhead."
                     : "Pause replay playback at the current live edge."));
         ImGui::SameLine();
-        if (ImGui::Button("+1>##rs_f1")) step_seek(playhead + 1);
+        if (ImGui::Button("+1>##rs_f1")) step_relative(1);
         ImGui::SameLine();
-        if (ImGui::Button("+10>>##rs_f10")) step_seek(playhead + 10);
+        if (ImGui::Button("+10>>##rs_f10")) step_relative(10);
         ImGui::SameLine();
         if (ImGui::Button(">>|##rs_last")) step_seek(latst);
         if (ImGui::IsItemHovered())

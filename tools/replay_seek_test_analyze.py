@@ -35,6 +35,62 @@ PER_TICK_ASSIST_EVENTS = {
     "resume_vital_state_restore",
     "resume_oracle_playback_overlay",
 }
+UI_STEP_ACTIONS = {
+    "ui_step_forward_one",
+    "ui-step-forward-one",
+    "step_forward_one",
+    "step-forward-one",
+    "+1",
+    "ui_step_relative",
+    "ui-step-relative",
+    "step_relative",
+    "step-relative",
+    "ui_step_many",
+    "ui-step-many",
+    "ui_step_backward_many",
+    "ui-step-backward-many",
+    "step_backward_many",
+    "step-backward-many",
+    "ui_step_back_many",
+    "ui-step-back-many",
+    "ui_step_then_play",
+    "ui-step-then-play",
+    "ui_step_play",
+    "ui-step-play",
+    "ui_step_backward_many_play",
+    "ui-step-backward-many-play",
+    "ui_step_back_many_play",
+    "ui-step-back-many-play",
+}
+
+
+def ui_step_expected_delta_count(result: dict[str, Any]) -> tuple[int, int]:
+    action = str(result.get("action") or "")
+    if action in {
+        "ui_step_forward_one",
+        "ui-step-forward-one",
+        "step_forward_one",
+        "step-forward-one",
+        "+1",
+    }:
+        return 1, 1
+    delta = int_field(result.get("ui_step_delta"))
+    if delta == 0:
+        delta = int_field(result.get("step_delta"))
+    if delta == 0:
+        delta = -1 if "back" in action or "backward" in action else 1
+    count = int_field(result.get("ui_step_count"))
+    if count <= 0:
+        count = int_field(result.get("step_count"))
+    if count <= 0:
+        count = 1
+    return delta, count
+
+
+def active_case_seek_label(current_case: str | None, label: str) -> str:
+    if current_case and label in {"USER", "PLAY_BUTTON", "DRAG_SCRUB", "", "?"}:
+        return current_case
+    return label
 
 
 def qpc_frequency() -> int | None:
@@ -903,15 +959,10 @@ def collect_seek_lifecycle_stats(
             continue
 
         if name == "captured_seek_queued" and qpc:
-            seek_label = (
-                current_case
-                if current_case and label in {"USER", "", "?"}
-                else label
-            )
+            seek_label = active_case_seek_label(current_case, label)
             if not seek_label:
                 continue
             stat = stats.setdefault(seek_label, {"label": seek_label})
-            stat["queued_qpc"] = qpc
             stat["target_seq"] = event.get(
                 "target_seq", stat.get("target_seq")
             )
@@ -926,17 +977,16 @@ def collect_seek_lifecycle_stats(
             stat["cross_round_reset"] = bool_field(
                 event.get("cross_round_reset")
             )
-            stat["case_start_to_queued_seconds"] = elapsed(
-                stat.get("case_start_qpc"), qpc
-            )
+            if stat.get("first_queued_qpc") is None:
+                stat["first_queued_qpc"] = qpc
+                stat["case_start_to_queued_seconds"] = elapsed(
+                    stat.get("case_start_qpc"), qpc
+                )
+            stat["queued_qpc"] = qpc
             continue
 
         if name == "captured_seek_landed" and qpc:
-            seek_label = (
-                current_case
-                if current_case and label in {"USER", "", "?"}
-                else label
-            )
+            seek_label = active_case_seek_label(current_case, label)
             if not seek_label:
                 continue
             stat = stats.setdefault(seek_label, {"label": seek_label})
@@ -1115,13 +1165,7 @@ def summarize_test_events(
         label = str(r.get("label", "?"))
         ok = bool(r.get("passed"))
         action = str(r.get("action") or "")
-        is_ui_step = action in {
-            "ui_step_forward_one",
-            "ui-step-forward-one",
-            "step_forward_one",
-            "step-forward-one",
-            "+1",
-        }
+        is_ui_step = action in UI_STEP_ACTIONS
         if is_ui_step:
             ui_step_cases += 1
             if ok:
@@ -1172,6 +1216,7 @@ def summarize_test_events(
             f"failure={r.get('failure', '?')}"
         )
         if is_ui_step:
+            step_delta, step_count = ui_step_expected_delta_count(r)
             print(
                 "  ui step: "
                 f"source={r.get('ui_step_source_seq', '?')}"
@@ -1180,6 +1225,7 @@ def summarize_test_events(
                 f"target={r.get('ui_step_target_seq', '?')}"
                 f"/r{r.get('ui_step_target_round', '?')}"
                 f"/m{r.get('ui_step_target_master', '?')} "
+                f"delta={step_delta} count={step_count} "
                 f"requested={r.get('ui_step_requested', '?')} "
                 f"landed={r.get('ui_step_landed', '?')}"
             )
@@ -1553,13 +1599,7 @@ def strict_failures(
     for result in results:
         label = result.get("label", "?")
         action = str(result.get("action") or "")
-        is_ui_step = action in {
-            "ui_step_forward_one",
-            "ui-step-forward-one",
-            "step_forward_one",
-            "step-forward-one",
-            "+1",
-        }
+        is_ui_step = action in UI_STEP_ACTIONS
         if not bool_field(result.get("passed")):
             failures.append(f"case {label} failed")
         if raw_mismatch_is_strict_failure(result):
@@ -1585,35 +1625,32 @@ def strict_failures(
             target_master = int_field(result.get("ui_step_target_master"))
             source_round = int_field(result.get("ui_step_source_round"))
             target_round = int_field(result.get("ui_step_target_round"))
+            step_delta, step_count = ui_step_expected_delta_count(result)
+            expected_delta = step_delta * step_count
             if not bool_field(result.get("ui_step_requested")):
                 failures.append(f"case {label} did not request ui-step")
             if not bool_field(result.get("ui_step_landed")):
                 failures.append(f"case {label} did not land ui-step")
-            if target_seq != source_seq + 1:
+            if target_seq != source_seq + expected_delta:
                 failures.append(
-                    f"case {label} ui-step target_seq is not source+1 "
-                    f"({source_seq}->{target_seq})"
+                    f"case {label} ui-step target_seq is not source"
+                    f"{expected_delta:+d} ({source_seq}->{target_seq})"
                 )
             if target_round != source_round:
                 failures.append(
                     f"case {label} ui-step crossed rounds "
                     f"({source_round}->{target_round})"
                 )
-            if target_master != source_master + 1:
+            if target_master != source_master + expected_delta:
                 failures.append(
-                    f"case {label} ui-step target_master is not source+1 "
+                    f"case {label} ui-step target_master is not source"
+                    f"{expected_delta:+d} "
                     f"({source_master}->{target_master})"
                 )
 
     ui_step_results = [
         r for r in results
-        if str(r.get("action") or "") in {
-            "ui_step_forward_one",
-            "ui-step-forward-one",
-            "step_forward_one",
-            "step-forward-one",
-            "+1",
-        }
+        if str(r.get("action") or "") in UI_STEP_ACTIONS
     ]
     if ui_step_results:
         posted = [
@@ -1624,12 +1661,6 @@ def strict_failures(
             e for e in events
             if event_name(e) == "replay_seek_test_ui_step_landed"
         ]
-        native_requested = [
-            e for e in events if event_name(e) == "ui_native_step_requested"
-        ]
-        native_landed = [
-            e for e in events if event_name(e) == "ui_native_step_landed"
-        ]
         if len(posted) < len(ui_step_results):
             failures.append(
                 "missing replay_seek_test_ui_step_posted events "
@@ -1639,16 +1670,6 @@ def strict_failures(
             failures.append(
                 "missing replay_seek_test_ui_step_landed events "
                 f"({len(landed)}/{len(ui_step_results)})"
-            )
-        if len(native_requested) < len(ui_step_results):
-            failures.append(
-                "missing ui_native_step_requested events "
-                f"({len(native_requested)}/{len(ui_step_results)})"
-            )
-        if len(native_landed) < len(ui_step_results):
-            failures.append(
-                "missing ui_native_step_landed events "
-                f"({len(native_landed)}/{len(ui_step_results)})"
             )
 
     if has_watch_cases:

@@ -6555,6 +6555,8 @@ namespace Horse
             std::string validation_mode;
             std::string action;
             int32_t resume_frames {0};
+            int32_t ui_step_delta {0};
+            int32_t ui_step_count {0};
 
             int32_t target_seq {-1};
             int32_t target_tick {-1};
@@ -12444,6 +12446,7 @@ namespace Horse
                 std::memory_order_release);
             m_last_drag_preview_seq.store(-1, std::memory_order_release);
             m_ui_wants_play.store(false, std::memory_order_release);
+            clear_pending_non_cancel_seek_command();
             publish_mode(ScrubMode::Dragging);
         }
 
@@ -12476,10 +12479,10 @@ namespace Horse
             }
         }
 
-        void ui_step_to_seq(int32_t seq) noexcept
+        int32_t ui_step_to_seq(int32_t seq) noexcept
         {
             seq = clamp_seq_to_timeline(seq);
-            if (seq < 0) return;
+            if (seq < 0) return -1;
             m_paused.store(true, std::memory_order_release);
             m_hold_kind.store(
                 static_cast<int32_t>(ReplayScrubHoldKind::ValidationStep),
@@ -12495,6 +12498,25 @@ namespace Horse
                                       NativeSeekFailure::TimelineIncomplete);
                 publish_mode(ScrubMode::NativeSeekFailed);
             }
+            return seq;
+        }
+
+        int32_t ui_step_by_frames(int32_t delta) noexcept
+        {
+            if (delta == 0) return clamp_seq_to_timeline(
+                m_ui_requested_seq.load(std::memory_order_acquire));
+
+            int32_t base = clamp_seq_to_timeline(
+                m_ui_requested_seq.load(std::memory_order_acquire));
+            if (base < 0)
+            {
+                base = clamp_seq_to_timeline(
+                    m_ui_displayed_seq.load(std::memory_order_acquire));
+            }
+            if (base < 0) base = current_play_position();
+            base = clamp_seq_to_timeline(base);
+            if (base < 0) return -1;
+            return ui_step_to_seq(base + delta);
         }
 
         bool ui_step_forward_one_native() noexcept
@@ -16411,6 +16433,31 @@ namespace Horse
                                       std::memory_order_release);
         }
 
+        void clear_pending_non_cancel_seek_command() noexcept
+        {
+            int32_t raw = m_seek_command_kind.load(std::memory_order_acquire);
+            for (;;)
+            {
+                const SeekCommandKind kind =
+                    static_cast<SeekCommandKind>(raw);
+                if (kind == SeekCommandKind::None
+                    || kind == SeekCommandKind::Cancel)
+                    return;
+
+                int32_t expected = raw;
+                if (m_seek_command_kind.compare_exchange_weak(
+                        expected,
+                        static_cast<int32_t>(SeekCommandKind::None),
+                        std::memory_order_acq_rel,
+                        std::memory_order_acquire))
+                {
+                    m_seek_command_seq.store(-1, std::memory_order_release);
+                    return;
+                }
+                raw = expected;
+            }
+        }
+
         bool has_pending_native_seek() const noexcept
         {
             const NativeSeekStatus status =
@@ -16478,24 +16525,47 @@ namespace Horse
                 return;
             }
 
-            // Dragging must be visual/UI-only.  Restoring captured frames
-            // every mouse move was mutating live replay state while the
-            // user scrubbed, and crash logs show this is unsafe near round
-            // boundaries.  The real restore/validation happens once on
-            // click/release through queue_sc6_exact_seek().
+            // Dragging is video-style but coalesced: the UI playhead moves
+            // immediately, and the game thread seeks to the newest cursor
+            // position as soon as any prior exact seek reaches a terminal
+            // state.  Use StaticTarget validation here so dragging parks on
+            // the selected captured frame without doing a playback handoff;
+            // release/play is a separate PreviousToTarget seek.
             publish_ui_target(preview_seq);
             m_preview.seq = preview_seq;
             m_preview.round = preview_round;
             m_last_drag_preview_seq.store(seq,
                                           std::memory_order_release);
-            publish_preview_status(PreviewStatus::SkippedUnsafe);
             publish_mode(ScrubMode::Dragging);
+            const bool already_landed =
+                m_last_seek_target.load(std::memory_order_acquire)
+                    == preview_seq
+                && static_cast<NativeSeekStatus>(
+                       m_native_status.load(std::memory_order_acquire))
+                    == NativeSeekStatus::Landed;
+            if (already_landed)
+            {
+                publish_preview_status(PreviewStatus::Applied);
+            }
+            else if (has_context_valid_completed_timeline()
+                     && m_timeline_seek_data_valid.load(
+                         std::memory_order_acquire))
+            {
+                begin_sc6_exact_seek_command(
+                    preview_seq, "DRAG_SCRUB",
+                    CapturedSeekValidationMode::StaticTarget);
+            }
+            else
+            {
+                publish_preview_status(PreviewStatus::SkippedUnsafe);
+            }
             if (m_verbose_diag.load(std::memory_order_acquire))
             {
                 RC::Output::send<RC::LogLevel::Default>(STR(
-                    "[ReplayScrub] drag preview UI-only seq={} tick={} "
-                    "round={} master={}\n"),
-                    preview_seq, tick, preview_round, preview_master);
+                    "[ReplayScrub] drag preview seq={} tick={} "
+                    "round={} master={} already_landed={}\n"),
+                    preview_seq, tick, preview_round, preview_master,
+                    already_landed ? 1 : 0);
             }
             {
                 ReplayTraceFields f;
@@ -16504,9 +16574,9 @@ namespace Horse
                  .integer("target_round", preview_round)
                  .integer("target_master", preview_master)
                  .integer("target_tick", tick)
-                 .boolean("restore_skipped", true);
+                 .boolean("already_landed", already_landed);
                 ReplayDebugTrace::instance().event(
-                    "drag_preview_ui_only", f);
+                    "drag_preview_seek_requested", f);
             }
         }
 
@@ -16764,6 +16834,21 @@ namespace Horse
 
         void service_ui_command() noexcept
         {
+            const SeekCommandKind pending_kind =
+                static_cast<SeekCommandKind>(
+                    m_seek_command_kind.load(std::memory_order_acquire));
+            if (pending_kind == SeekCommandKind::None) return;
+
+            // Exact seeks can temporarily restore origin frames and open a
+            // validation-step gate.  Treat new UI targets as coalesced
+            // intent while that job is in flight; the latest target will be
+            // consumed once the current job reaches a stable terminal state.
+            if (pending_kind != SeekCommandKind::Cancel
+                && sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
+            {
+                return;
+            }
+
             const SeekCommandKind kind = static_cast<SeekCommandKind>(
                 m_seek_command_kind.exchange(
                     static_cast<int32_t>(SeekCommandKind::None),
@@ -16780,10 +16865,12 @@ namespace Horse
                 if (seq < 0) return;
                 begin_sc6_exact_seek_command(
                     seq, "USER",
-                    (kind == SeekCommandKind::RequestPreviewAndNativeSeek
-                     && m_ui_wants_play.load(std::memory_order_acquire))
-                        ? CapturedSeekValidationMode::PreviousToTarget
-                        : CapturedSeekValidationMode::None);
+                    kind == SeekCommandKind::StepToSeq
+                        ? CapturedSeekValidationMode::StaticTarget
+                        : (m_ui_wants_play.load(std::memory_order_acquire)
+                               ? CapturedSeekValidationMode::
+                                     PreviousToTarget
+                               : CapturedSeekValidationMode::StaticTarget));
                 break;
 
             case SeekCommandKind::PauseAtLive:
@@ -18791,6 +18878,16 @@ namespace Horse
                 if (c.action.empty())
                     (void)json_get_string(obj, "test_action", c.action);
                 (void)json_get_int(obj, "resume_frames", c.resume_frames);
+                (void)json_get_int(obj, "ui_step_delta",
+                                   c.ui_step_delta);
+                if (c.ui_step_delta == 0)
+                    (void)json_get_int(obj, "step_delta",
+                                       c.ui_step_delta);
+                (void)json_get_int(obj, "ui_step_count",
+                                   c.ui_step_count);
+                if (c.ui_step_count <= 0)
+                    (void)json_get_int(obj, "step_count",
+                                       c.ui_step_count);
                 if (c.resume_frames < 0) c.resume_frames = 0;
                 if (c.requested_seq >= 0 || c.percent >= 0.0)
                     out.push_back(std::move(c));
@@ -18927,6 +19024,109 @@ namespace Horse
                 || a == "step_forward_one"
                 || a == "step-forward-one"
                 || a == "+1";
+        }
+
+        static bool replay_seek_test_is_drag_scrub_static(
+            const ReplaySeekTestCase& c) noexcept
+        {
+            const std::string& a = c.action;
+            return a == "drag_scrub"
+                || a == "drag-scrub"
+                || a == "drag_scrub_static"
+                || a == "drag-scrub-static";
+        }
+
+        static bool replay_seek_test_is_drag_scrub_release(
+            const ReplaySeekTestCase& c) noexcept
+        {
+            const std::string& a = c.action;
+            return a == "drag_scrub_release"
+                || a == "drag-scrub-release"
+                || a == "drag_scrub_release_play"
+                || a == "drag-scrub-release-play";
+        }
+
+        static bool replay_seek_test_is_drag_scrub(
+            const ReplaySeekTestCase& c) noexcept
+        {
+            return replay_seek_test_is_drag_scrub_static(c)
+                || replay_seek_test_is_drag_scrub_release(c);
+        }
+
+        static bool replay_seek_test_requires_play_handoff(
+            const ReplaySeekTestCase& c) noexcept
+        {
+            const std::string& a = c.action;
+            return replay_seek_test_is_drag_scrub_release(c)
+                || a == "ui_step_then_play"
+                || a == "ui-step-then-play"
+                || a == "ui_step_play"
+                || a == "ui-step-play"
+                || a == "ui_step_backward_many_play"
+                || a == "ui-step-backward-many-play"
+                || a == "ui_step_back_many_play"
+                || a == "ui-step-back-many-play";
+        }
+
+        bool replay_seek_test_play_handoff_landed() const noexcept
+        {
+            return m_sc6_seek_job.phase == Sc6ExactSeekPhase::Landed
+                && m_sc6_seek_job.validation_mode
+                    == CapturedSeekValidationMode::PreviousToTarget;
+        }
+
+        static bool replay_seek_test_ui_step_params(
+            const ReplaySeekTestCase& c,
+            int32_t& out_delta,
+            int32_t& out_count) noexcept
+        {
+            if (replay_seek_test_is_ui_step_forward_one(c))
+            {
+                out_delta = 1;
+                out_count = 1;
+                return true;
+            }
+
+            const std::string& a = c.action;
+            const bool relative =
+                a == "ui_step_relative"
+                || a == "ui-step-relative"
+                || a == "step_relative"
+                || a == "step-relative"
+                || a == "ui_step_many"
+                || a == "ui-step-many"
+                || a == "ui_step_backward_many"
+                || a == "ui-step-backward-many"
+                || a == "step_backward_many"
+                || a == "step-backward-many"
+                || a == "ui_step_back_many"
+                || a == "ui-step-back-many"
+                || a == "ui_step_then_play"
+                || a == "ui-step-then-play"
+                || a == "ui_step_play"
+                || a == "ui-step-play"
+                || a == "ui_step_backward_many_play"
+                || a == "ui-step-backward-many-play"
+                || a == "ui_step_back_many_play"
+                || a == "ui-step-back-many-play";
+            if (!relative) return false;
+
+            out_delta = c.ui_step_delta;
+            if (out_delta == 0)
+            {
+                if (a.find("back") != std::string::npos
+                    || a.find("backward") != std::string::npos)
+                {
+                    out_delta = -1;
+                }
+                else
+                {
+                    out_delta = 1;
+                }
+            }
+            out_count = c.ui_step_count > 0 ? c.ui_step_count : 1;
+            if (out_count > 120) out_count = 120;
+            return out_delta != 0 && out_count > 0;
         }
 
         bool replay_seek_test_resolve_case(ReplaySeekTestCase& c)
@@ -19075,11 +19275,20 @@ namespace Horse
             c.ui_step_source_tick = tick;
             c.ui_step_source_round = round;
             c.ui_step_source_master = master;
-            if (replay_seek_test_is_ui_step_forward_one(c))
+            int32_t ui_delta = 0;
+            int32_t ui_count = 0;
+            if (replay_seek_test_ui_step_params(c, ui_delta, ui_count))
             {
-                c.action = "ui_step_forward_one";
-                c.resume_frames = 0;
-                const int32_t next_seq = seq + 1;
+                c.ui_step_delta = ui_delta;
+                c.ui_step_count = ui_count;
+                if (c.action.empty()
+                    || replay_seek_test_is_ui_step_forward_one(c))
+                {
+                    c.action = "ui_step_forward_one";
+                }
+                if (!replay_seek_test_requires_play_handoff(c))
+                    c.resume_frames = 0;
+                const int32_t next_seq = seq + ui_delta * ui_count;
                 const int32_t next_tick = find_slot_for_seq(next_seq);
                 if (next_tick < 0)
                 {
@@ -19099,10 +19308,11 @@ namespace Horse
                 }
                 if (next_tag_seq != next_seq
                     || next_round != round
-                    || next_master != master + 1)
+                    || next_master != master + ui_delta * ui_count)
                 {
                     c.failure = "InvalidTarget";
-                    c.pass_fail_reason = "ui_step_target_not_adjacent";
+                    c.pass_fail_reason =
+                        "ui_step_target_not_expected_offset";
                     return false;
                 }
                 c.ui_step_target_seq = next_tag_seq;
@@ -19141,6 +19351,8 @@ namespace Horse
               .integer("ui_step_target_seq", c.ui_step_target_seq)
               .integer("ui_step_target_round", c.ui_step_target_round)
               .integer("ui_step_target_master", c.ui_step_target_master)
+              .integer("ui_step_delta", c.ui_step_delta)
+              .integer("ui_step_count", c.ui_step_count)
               .integer("resume_frames_requested", c.resume_frames)
               .boolean("force_reset_context",
                        m_replay_seek_test.force_round_reset_context_next);
@@ -19197,6 +19409,8 @@ namespace Horse
              .integer("ui_step_target_tick", c.ui_step_target_tick)
              .integer("ui_step_target_round", c.ui_step_target_round)
              .integer("ui_step_target_master", c.ui_step_target_master)
+             .integer("ui_step_delta", c.ui_step_delta)
+             .integer("ui_step_count", c.ui_step_count)
              .string("native_status", native_seek_status_name(
                          static_cast<NativeSeekStatus>(
                              m_native_status.load(
@@ -19651,6 +19865,53 @@ namespace Horse
                         c.validation_mode.c_str(),
                         CapturedSeekValidationMode::StaticTarget);
                 m_replay_seek_test.force_round_reset_context_next = false;
+                if (replay_seek_test_is_drag_scrub(c))
+                {
+                    const bool release_after_preview =
+                        replay_seek_test_is_drag_scrub_release(c);
+                    ui_begin_drag();
+                    ui_drag_to_seq(c.target_seq);
+                    m_replay_seek_test_last_raw_mismatch.clear();
+                    m_replay_seek_test.phase = ReplaySeekTestPhase::WaitSeek;
+                    replay_seek_test_set_deadline();
+                    ReplayTraceFields f;
+                    f.string("build", replay_seek_test_build_marker())
+                     .string("run_id", m_replay_seek_test.run_id.c_str())
+                     .string("label", c.label.c_str())
+                     .integer("case_index",
+                              static_cast<int64_t>(
+                                  m_replay_seek_test.case_index))
+                     .integer("target_seq", c.target_seq)
+                     .integer("target_round", c.target_round)
+                     .integer("target_master", c.target_master)
+                     .boolean("release_after_preview",
+                              release_after_preview);
+                    ReplayDebugTrace::instance().event(
+                        "replay_seek_test_drag_scrub_posted", f);
+                    service_drag_preview();
+                    if (release_after_preview)
+                    {
+                        ui_end_drag();
+                        ReplayTraceFields release_fields;
+                        release_fields
+                            .string("build", replay_seek_test_build_marker())
+                            .string("run_id",
+                                    m_replay_seek_test.run_id.c_str())
+                            .string("label", c.label.c_str())
+                            .integer("case_index",
+                                     static_cast<int64_t>(
+                                         m_replay_seek_test.case_index))
+                            .integer("target_seq", c.target_seq)
+                            .integer("target_round", c.target_round)
+                            .integer("target_master", c.target_master);
+                        ReplayDebugTrace::instance().event(
+                            "replay_seek_test_drag_scrub_released",
+                            release_fields);
+                        service_ui_command();
+                    }
+                    service_sc6_exact_seek_job();
+                    return;
+                }
                 begin_sc6_exact_seek_command(
                     c.target_seq,
                     "USER",
@@ -19663,13 +19924,17 @@ namespace Horse
                     c.target_tick = m_sc6_seek_job.target_tick;
                     c.target_round = m_sc6_seek_job.target_round;
                     c.target_master = m_sc6_seek_job.target_master;
-                    if (replay_seek_test_is_ui_step_forward_one(c))
+                    int32_t ui_delta = 0;
+                    int32_t ui_count = 0;
+                    if (replay_seek_test_ui_step_params(
+                            c, ui_delta, ui_count))
                     {
                         c.ui_step_source_seq = c.target_seq;
                         c.ui_step_source_tick = c.target_tick;
                         c.ui_step_source_round = c.target_round;
                         c.ui_step_source_master = c.target_master;
-                        const int32_t next_seq = c.target_seq + 1;
+                        const int32_t next_seq =
+                            c.target_seq + ui_delta * ui_count;
                         const int32_t next_tick =
                             find_slot_for_seq(next_seq);
                         int32_t next_tag_seq = -1, next_round = -1;
@@ -19681,12 +19946,13 @@ namespace Horse
                                 next_wall, next_master)
                             || next_tag_seq != next_seq
                             || next_round != c.target_round
-                            || next_master != c.target_master + 1)
+                            || next_master
+                                != c.target_master + ui_delta * ui_count)
                         {
                             c.failure = "InvalidTarget";
                             replay_seek_test_finish_case(
                                 c, false,
-                                "ui_step_adjusted_target_not_adjacent");
+                                "ui_step_adjusted_target_not_expected_offset");
                             return;
                         }
                         c.ui_step_target_seq = next_tag_seq;
@@ -19716,7 +19982,10 @@ namespace Horse
                     && m_last_seek_target.load(std::memory_order_acquire)
                         == c.target_seq)
                 {
-                    if (replay_seek_test_is_ui_step_forward_one(c))
+                    int32_t ui_delta = 0;
+                    int32_t ui_count = 0;
+                    if (replay_seek_test_ui_step_params(
+                            c, ui_delta, ui_count))
                     {
                         if (c.ui_step_target_seq < 0)
                         {
@@ -19728,12 +19997,22 @@ namespace Horse
                         c.ui_step_source_tick = c.target_tick;
                         c.ui_step_source_round = c.target_round;
                         c.ui_step_source_master = c.target_master;
-                        if (!ui_step_forward_one_native())
+                        int32_t posted_target = -1;
+                        for (int32_t i = 0; i < ui_count; ++i)
+                        {
+                            posted_target = ui_step_by_frames(ui_delta);
+                            if (posted_target < 0)
+                                break;
+                        }
+                        if (posted_target != c.ui_step_target_seq)
                         {
                             c.blocked = true;
-                            c.failure = "ui_step_request_rejected";
+                            c.failure =
+                                posted_target < 0
+                                    ? "ui_step_request_rejected"
+                                    : "ui_step_wrong_posted_target";
                             replay_seek_test_finish_case(
-                                c, false, "ui_step_request_rejected");
+                                c, false, c.failure.c_str());
                             return;
                         }
                         c.ui_step_requested = true;
@@ -19753,12 +20032,51 @@ namespace Horse
                          .integer("source_master", c.ui_step_source_master)
                          .integer("target_seq", c.target_seq)
                          .integer("target_round", c.target_round)
-                         .integer("target_master", c.target_master);
+                         .integer("target_master", c.target_master)
+                         .integer("ui_step_delta", ui_delta)
+                         .integer("ui_step_count", ui_count)
+                         .integer("posted_target", posted_target);
                         ReplayDebugTrace::instance().event(
                             "replay_seek_test_ui_step_posted", f);
+                        if (replay_seek_test_requires_play_handoff(c))
+                        {
+                            service_ui_command();
+                            service_sc6_exact_seek_job();
+                            ui_request_play();
+                            ReplayTraceFields play_fields;
+                            play_fields
+                                .string("build",
+                                        replay_seek_test_build_marker())
+                                .string("run_id",
+                                        m_replay_seek_test.run_id.c_str())
+                                .string("label", c.label.c_str())
+                                .integer("case_index",
+                                         static_cast<int64_t>(
+                                             m_replay_seek_test.case_index))
+                                .integer("source_seq",
+                                         c.ui_step_source_seq)
+                                .integer("target_seq", c.target_seq)
+                                .integer("target_round", c.target_round)
+                                .integer("target_master",
+                                         c.target_master)
+                                .integer("ui_step_delta", ui_delta)
+                                .integer("ui_step_count", ui_count);
+                            ReplayDebugTrace::instance().event(
+                                "replay_seek_test_ui_step_play_posted",
+                                play_fields);
+                            service_ui_command();
+                            service_sc6_exact_seek_job();
+                        }
                         m_replay_seek_test.phase =
                             ReplaySeekTestPhase::WaitUiStep;
                         replay_seek_test_set_deadline();
+                        return;
+                    }
+                    if (replay_seek_test_requires_play_handoff(c)
+                        && !replay_seek_test_play_handoff_landed())
+                    {
+                        service_ui_command();
+                        service_sc6_exact_seek_job();
                         return;
                     }
                     c.landed = true;
@@ -19769,6 +20087,18 @@ namespace Horse
                         replay_seek_test_finish_case(
                             c, false, "expected_round_mismatch");
                         return;
+                    }
+                    if (replay_seek_test_is_drag_scrub_static(c))
+                    {
+                        m_ui_dragging.store(false,
+                                            std::memory_order_release);
+                        m_drag_preview_seq.store(-1,
+                                                 std::memory_order_release);
+                        m_last_drag_preview_seq.store(
+                            -1, std::memory_order_release);
+                        m_ui_wants_play.store(false,
+                                              std::memory_order_release);
+                        publish_mode(ScrubMode::PausedPreview);
                     }
                     if (c.resume_frames > 0)
                     {
@@ -19821,6 +20151,14 @@ namespace Horse
                     && m_last_seek_target.load(std::memory_order_acquire)
                         == c.target_seq)
                 {
+                    if (replay_seek_test_requires_play_handoff(c)
+                        && !replay_seek_test_play_handoff_landed())
+                    {
+                        c.ui_step_landed = true;
+                        service_ui_command();
+                        service_sc6_exact_seek_job();
+                        return;
+                    }
                     c.landed = true;
                     c.ui_step_landed = true;
                     c.failure = "None";
@@ -19872,6 +20210,15 @@ namespace Horse
                      .boolean("oracle_ok", true);
                     ReplayDebugTrace::instance().event(
                         "replay_seek_test_ui_step_landed", f);
+                    if (replay_seek_test_requires_play_handoff(c)
+                        && c.resume_frames > 0)
+                    {
+                        m_replay_seek_test.park_ticks_remaining = 0;
+                        m_replay_seek_test.phase =
+                            ReplaySeekTestPhase::StartResume;
+                        replay_seek_test_set_deadline();
+                        return;
+                    }
                     replay_seek_test_finish_case(c, true, "ui_step_ok");
                     return;
                 }
@@ -19954,7 +20301,9 @@ namespace Horse
                 begin_resume_rng_u32_trace(
                     c, c.resume_start_seq, c.resume_start_master);
                 reset_resume_frame_phase_latch();
-                if (!restore_oracle_semantic_overlay_for_tick(
+                const bool already_playing = !is_paused();
+                if (!already_playing
+                    && !restore_oracle_semantic_overlay_for_tick(
                         c.target_tick, c.label.c_str(), c.target_seq))
                 {
                     c.blocked = true;
@@ -19964,7 +20313,8 @@ namespace Horse
                         c, false, "resume_semantic_overlay_failed");
                     return;
                 }
-                ui_request_play();
+                if (!already_playing)
+                    ui_request_play();
                 {
                     ReplayTraceFields f;
                     f.string("build", replay_seek_test_build_marker())
@@ -19978,14 +20328,16 @@ namespace Horse
                               m_seek_command_seq.load(
                                   std::memory_order_acquire))
                      .integer("command_kind",
-                              m_seek_command_kind.load(
-                                  std::memory_order_acquire));
+                               m_seek_command_kind.load(
+                                   std::memory_order_acquire))
+                     .boolean("already_playing", already_playing);
                     ReplayDebugTrace::instance().event(
                         "replay_seek_test_resume_command_posted", f);
                 }
                 m_replay_seek_test.phase = ReplaySeekTestPhase::WaitResume;
                 replay_seek_test_set_deadline();
-                service_ui_command();
+                if (!already_playing)
+                    service_ui_command();
                 {
                     ReplayTraceFields f;
                     f.string("build", replay_seek_test_build_marker())
@@ -20001,8 +20353,9 @@ namespace Horse
                      .integer("mode", m_scrub_mode.load(
                                   std::memory_order_acquire))
                      .integer("native_status",
-                              m_native_status.load(
-                                  std::memory_order_acquire));
+                               m_native_status.load(
+                                   std::memory_order_acquire))
+                     .boolean("already_playing", already_playing);
                     ReplayDebugTrace::instance().event(
                         "replay_seek_test_resume_command_serviced", f);
                 }
@@ -37060,11 +37413,11 @@ namespace Horse
             const bool cross_round_seek =
                 live_round_before_seek >= 0
                 && live_round_before_seek != round_tag;
-            const bool same_round_backward_seek =
+            bool same_round_backward_seek =
                 live_round_before_seek >= 0
                 && live_round_before_seek == round_tag
                 && live_master_before_seek > master_tag;
-            const bool needs_reset_context =
+            bool needs_reset_context =
                 cross_round_seek || force_reset_context
                 || same_round_backward_seek || live_gate_reset;
             const ReplayScrubHoldKind hold_before_seek =
@@ -37113,6 +37466,23 @@ namespace Horse
                     NativeSeekFailure::CapturedGameplayStepFailed,
                                           requested_seq, label);
                 return false;
+            }
+            const bool origin_backward_seek =
+                m_sc6_seek_job.validation_mode
+                    == CapturedSeekValidationMode::PreviousToTarget
+                && live_round_before_seek >= 0
+                && live_round_before_seek
+                    == m_sc6_seek_job.validation_origin_round
+                && m_sc6_seek_job.validation_origin_master >= 0
+                && live_master_before_seek
+                    > m_sc6_seek_job.validation_origin_master;
+            if (origin_backward_seek)
+            {
+                same_round_backward_seek = true;
+                needs_reset_context = true;
+                m_sc6_seek_job.needs_cross_round_reset = true;
+                if (!cross_round_seek)
+                    m_sc6_seek_job.forced_reset_context = true;
             }
             const bool use_native_replay_fast_forward =
                 prefer_native_replay_fast_forward
@@ -37260,6 +37630,8 @@ namespace Horse
                    .boolean("cross_round_reset", cross_round_seek)
                    .boolean("same_round_backward_reset",
                             same_round_backward_seek)
+                   .boolean("origin_backward_reset",
+                            origin_backward_seek)
                    .boolean("live_gate_reset", live_gate_reset)
                    .boolean("live_battle_gate_active",
                             live_battle_gate_active)
@@ -37315,6 +37687,8 @@ namespace Horse
                    .boolean("cross_round_reset", cross_round_seek)
                    .boolean("same_round_backward_reset",
                             same_round_backward_seek)
+                   .boolean("origin_backward_reset",
+                            origin_backward_seek)
                    .boolean("live_gate_reset", live_gate_reset)
                    .boolean("live_battle_gate_active",
                             live_battle_gate_active)
@@ -38811,13 +39185,6 @@ namespace Horse
             if (m_sc6_seek_job.phase
                 == Sc6ExactSeekPhase::ValidateStepToTarget)
             {
-                const SeekCommandKind pending_kind =
-                    static_cast<SeekCommandKind>(
-                        m_seek_command_kind.load(
-                            std::memory_order_acquire));
-                if (pending_kind != SeekCommandKind::None)
-                    return;
-
                 if (kEnableDirectTargetToNextValidation
                     && m_sc6_seek_job.validation_mode
                         == CapturedSeekValidationMode::TargetToNext
@@ -40360,12 +40727,6 @@ namespace Horse
                     || m_sc6_seek_job.native_step_warmup_to_target;
                 int32_t live_master = read_engine_master_clock();
                 int32_t live_round = read_current_round();
-                const SeekCommandKind pending_kind =
-                    static_cast<SeekCommandKind>(
-                        m_seek_command_kind.load(
-                            std::memory_order_acquire));
-                if (pending_kind != SeekCommandKind::None)
-                    return;
                 if (m_sc6_seek_job.generation != m_seek_generation)
                 {
                     fail_sc6_exact_seek(NativeSeekFailure::InvalidTarget);
@@ -41077,7 +41438,9 @@ namespace Horse
                 }
                 exit_seek_presentation_suppression(
                     "captured-seek-landed", false);
-                if (m_ui_wants_play.load(std::memory_order_acquire))
+                if (m_ui_wants_play.load(std::memory_order_acquire)
+                    && m_sc6_seek_job.validation_mode
+                        == CapturedSeekValidationMode::PreviousToTarget)
                 {
                     (void)resume_play_if_battle_status_active(
                         m_sc6_seek_job.label ? m_sc6_seek_job.label

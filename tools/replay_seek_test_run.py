@@ -44,6 +44,7 @@ DEFAULT_WATCH_SECTIONS = ",".join(
 )
 DEFAULT_WATCH_SEEK_COUNT = len(DEFAULT_WATCH_SECTION_VALUES)
 DEFAULT_UI_STEP_SECTIONS = DEFAULT_WATCH_SECTIONS
+DEFAULT_UI_STEP_BACK_COUNT = 7
 DEFAULT_WATCH_FRAMES = 600
 DEFAULT_MIN_RESUME_TICK_RATE = 58.0
 DEFAULT_RESUME_TICK_WINDOW = 120
@@ -189,6 +190,116 @@ def ui_step_forward_one_cases(section_text: str) -> list[dict[str, Any]]:
     return cases
 
 
+def ui_step_backward_many_cases(
+    section_text: str,
+    count: int = DEFAULT_UI_STEP_BACK_COUNT,
+) -> list[dict[str, Any]]:
+    step_count = max(1, count)
+    cases: list[dict[str, Any]] = []
+    for percent in parse_percent_list(section_text):
+        cases.append(
+            {
+                "label": f"ui_step_back_{step_count}_{percent_label(percent)}",
+                "percent": percent,
+                "resume_frames": 0,
+                "validation_mode": "static_target",
+                "action": "ui_step_backward_many",
+                "ui_step_delta": -1,
+                "ui_step_count": step_count,
+            }
+        )
+    return cases
+
+
+def drag_scrub_cases(section_text: str) -> list[dict[str, Any]]:
+    cases: list[dict[str, Any]] = []
+    for percent in parse_percent_list(section_text):
+        cases.append(
+            {
+                "label": f"drag_scrub_{percent_label(percent)}",
+                "percent": percent,
+                "resume_frames": 0,
+                "validation_mode": "static_target",
+                "action": "drag_scrub_static",
+            }
+        )
+    return cases
+
+
+def drag_scrub_release_cases(
+    section_text: str,
+    resume_frames: int,
+) -> list[dict[str, Any]]:
+    frames = max(1, resume_frames)
+    cases: list[dict[str, Any]] = []
+    for percent in parse_percent_list(section_text):
+        cases.append(
+            {
+                "label": f"drag_release_{percent_label(percent)}_{frames}f",
+                "percent": percent,
+                "resume_frames": frames,
+                "validation_mode": "static_target",
+                "action": "drag_scrub_release",
+            }
+        )
+    return cases
+
+
+def ui_step_backward_many_play_cases(
+    section_text: str,
+    count: int,
+    resume_frames: int,
+) -> list[dict[str, Any]]:
+    step_count = max(1, count)
+    frames = max(1, resume_frames)
+    cases: list[dict[str, Any]] = []
+    for percent in parse_percent_list(section_text):
+        cases.append(
+            {
+                "label": (
+                    f"ui_step_back_{step_count}_play_"
+                    f"{percent_label(percent)}_{frames}f"
+                ),
+                "percent": percent,
+                "resume_frames": frames,
+                "validation_mode": "static_target",
+                "action": "ui_step_backward_many_play",
+                "ui_step_delta": -1,
+                "ui_step_count": step_count,
+            }
+        )
+    return cases
+
+
+UI_STEP_ACTIONS = {
+    "ui_step_forward_one",
+    "ui-step-forward-one",
+    "step_forward_one",
+    "step-forward-one",
+    "+1",
+    "ui_step_relative",
+    "ui-step-relative",
+    "step_relative",
+    "step-relative",
+    "ui_step_many",
+    "ui-step-many",
+    "ui_step_backward_many",
+    "ui-step-backward-many",
+    "step_backward_many",
+    "step-backward-many",
+    "ui_step_back_many",
+    "ui-step-back-many",
+    "ui_step_then_play",
+    "ui-step-then-play",
+    "ui_step_play",
+    "ui-step-play",
+    "ui_step_backward_many_play",
+    "ui-step-backward-many-play",
+    "ui_step_back_many_play",
+    "ui-step-back-many-play",
+}
+
+
 def default_cases(args: argparse.Namespace) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]]
     if args.case_preset == "static":
@@ -201,6 +312,24 @@ def default_cases(args: argparse.Namespace) -> list[dict[str, Any]]:
         )
     elif args.case_preset == "ui-step":
         cases = ui_step_forward_one_cases(args.ui_step_sections)
+    elif args.case_preset == "ui-step-back":
+        cases = ui_step_backward_many_cases(
+            args.ui_step_sections,
+            args.ui_step_back_count,
+        )
+    elif args.case_preset == "drag-scrub":
+        cases = drag_scrub_cases(args.ui_step_sections)
+    elif args.case_preset == "drag-scrub-release":
+        cases = drag_scrub_release_cases(
+            args.ui_step_sections,
+            args.watch_frames,
+        )
+    elif args.case_preset == "ui-step-back-play":
+        cases = ui_step_backward_many_play_cases(
+            args.ui_step_sections,
+            args.ui_step_back_count,
+            args.watch_frames,
+        )
     else:
         cases = static_seek_cases(args.static_sections) + watch_back_cases(
             args.watch_sections,
@@ -1440,13 +1569,27 @@ def main() -> int:
     parser.add_argument(
         "--case-preset",
         default="both",
-        choices=["static", "watch", "both", "damage-watch", "ui-step"],
+        choices=[
+            "static",
+            "watch",
+            "both",
+            "damage-watch",
+            "ui-step",
+            "ui-step-back",
+            "ui-step-back-play",
+            "drag-scrub",
+            "drag-scrub-release",
+        ],
         help=(
             "Default seek-test cases to emit when --request is omitted. "
             "'watch' seeks to timeline sections and plays forward; 'both' "
             "keeps static seek checks and adds watch-back playback checks; "
             "'damage-watch' derives watch cases from oracle vital changes; "
-            "'ui-step' validates the replay timeline +1 button path."
+            "'ui-step' validates the replay timeline +1 button path; "
+            "'ui-step-back' validates repeated -1 frame button presses; "
+            "'ui-step-back-play' validates repeated -1 then Play; "
+            "'drag-scrub' validates video-style held playhead scrubbing; "
+            "'drag-scrub-release' validates release/play handoff."
         ),
     )
     parser.add_argument(
@@ -1479,7 +1622,16 @@ def main() -> int:
         help=(
             "Comma-separated timeline percents for ui-step checks. "
             "Each case seeks to the selected source frame, invokes the "
-            "timeline +1 native-step path, and validates source+1."
+            "timeline step path, and validates the expected target."
+        ),
+    )
+    parser.add_argument(
+        "--ui-step-back-count",
+        type=int,
+        default=DEFAULT_UI_STEP_BACK_COUNT,
+        help=(
+            "Number of repeated -1 frame steps emitted by the "
+            "ui-step-back preset."
         ),
     )
     parser.add_argument(
@@ -1877,24 +2029,24 @@ def main() -> int:
     if isinstance(cases, list):
         watch_cases = 0
         ui_step_cases = 0
+        non_static_cases = 0
         for case in cases:
             if not isinstance(case, dict):
                 continue
-            if str(case.get("action") or case.get("test_action") or "") in {
-                "ui_step_forward_one",
-                "ui-step-forward-one",
-                "step_forward_one",
-                "step-forward-one",
-                "+1",
-            }:
+            action = str(case.get("action") or case.get("test_action") or "")
+            is_ui_step = action in UI_STEP_ACTIONS
+            if action in UI_STEP_ACTIONS:
                 ui_step_cases += 1
             try:
                 resume_frames = int(case.get("resume_frames") or 0)
             except (TypeError, ValueError):
                 resume_frames = 0
+            is_watch = resume_frames > 0
             if resume_frames > 0:
                 watch_cases += 1
-        static_cases = len(cases) - watch_cases - ui_step_cases
+            if is_ui_step or is_watch:
+                non_static_cases += 1
+        static_cases = len(cases) - non_static_cases
         print(
             "seek case plan: "
             f"generation_mode={request.get('timeline_generation_mode')} "
