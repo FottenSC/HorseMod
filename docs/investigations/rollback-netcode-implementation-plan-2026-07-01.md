@@ -76,6 +76,19 @@ Implemented and validated on branch `rollback`:
   metadata, prediction age, rollback depth, duplicate/conflict/reorder metrics,
   over-window late-input refusal, and explicit game-thread cache ordering
   decisions.
+- Same-machine fault-injected transport validation now lives in
+  `RollbackFaultInject.hpp` and `RollbackFaultInjectSelfTest`. It runs two
+  deterministic local peers through seeded HRB1 transport profiles
+  (`clean_0ms`, `wifi_50ms_jitter`, `bad_wifi_120ms_5pct_loss`,
+  `overseas_180ms_2pct_loss`, `spike_every_10s`, `burst_loss_500ms`, and
+  `corrupt_probe`), exercises latency/loss/reorder/duplicate/corruption plus
+  ack/resend recovery, hashes each peer's actually accepted per-frame payload
+  history, and requires both peers to match the expected deterministic checksum.
+  Loss/corruption/burst profiles must also show a first-send fault later
+  accepted from a resend.
+  The validation runner accepts `--profile <name>` for targeted profile runs.
+  This is intentionally a Horse-owned local model, not Steam/SC6 launch bypass
+  work and not live packet injection.
 - Harness gates now assert the strong rollback proof fields directly instead
   of trusting only `ok=true`: cache ownership requires cache/drain equality,
   corrected resim equality, HgCpu policy match, motion-bank control match,
@@ -333,43 +346,53 @@ Latest validation:
   because it requires an actual SC6 online peer/match to generate stock observe
   traffic; use `--live-online-only --require-live-activation-candidate` for
   that operator-driven attach run.
-  Full bundle run `E:\myMods\reports\rollback_validation\rollback_validation_20260703-023756.json`
+  Full bundle run `E:\myMods\reports\rollback_validation\rollback_validation_20260703-082341-584926.json`
   passed on 2026-07-03: preflight SC6 close, build/deploy, self-test target
-  build, sixteen standalone self-tests including `RollbackGekkoUdpSelfTest` and
-  the rebuilt `RollbackSnapshotSelfTest`, eleven request-file in-game lab gates
+  build, seventeen standalone self-tests including `RollbackGekkoUdpSelfTest`,
+  `RollbackFaultInjectSelfTest`, and the rebuilt `RollbackSnapshotSelfTest`,
+  eleven request-file in-game lab gates
   including `lab-gekko-udp`,
   `lab-end-to-end`, `lab-live-activation`,
   `lab-live-activation-executor`, `stock-observe`, and
   `live-online-capture`, the post-capture
   `analyze-live-online-capture-trace` gate, and strict replay
-  `E:\myMods\reports\replay_tests\replay_seek_e2e_20260703-024010-seek.json`
+  `E:\myMods\reports\replay_tests\replay_seek_e2e_20260703-082621-seek.json`
   all passed. The validation report records no warm-process strict replay
   retry; the final strict replay report has `final_passed=true`,
   `summary_passed=true`, empty `failed_case_labels`, empty `failure_groups`,
   `strict: PASS`, 4/4 watch cases, `2400/2400` observed frames, 0 state
-  mismatches, max seek-validation elapsed `0.44s <= 0.50s`, and trace
-  `replay_trace_20260703_024010_pid24464.jsonl`.
+  mismatches, and trace `replay_trace_20260703_082622_pid10756.jsonl`.
+  The new fault-injection target reported `profiles=7/7`, `clean=1`,
+  `wifi=1`, `bad_wifi=1`, `overseas=1`, `spike=1`, `burst=1`,
+  `corrupt=1`, and `converged=1`. The targeted post-review
+  `--profile corrupt_probe` runner report
+  `E:\myMods\reports\rollback_validation\rollback_validation_20260703-082337-047586.json`
+  additionally proves accepted payload history and causal resend recovery with
+  `accepted_a=120`, `accepted_b=120`, `payload_match=1`,
+  `first_faults_ab=6`, `first_faults_ba=9`,
+  `resend_recovered_ab=6`, `resend_recovered_ba=9`, and matching
+  `expected/checksum_a/checksum_b=0xE5977A35`.
 - Live-online-capture readiness validation on 2026-07-03 passed:
   `RollbackLiveOnlineCaptureSelfTest` reported `ready=1`, `live=1`, `recv=1`,
   `violation_case=1`, `acquire=1`, `input=1`, `battle=1`, `receive=1`,
   `drain=1/1`, `consumer=1`, and `total=7`. In-game request-file lab trace
-  `replay_trace_20260703_023839_pid84392.jsonl` emitted
+  `replay_trace_20260703_082451_pid58636.jsonl` emitted
   `rollback_live_online_capture ok=true`, `capture_ready=true`,
   `live_capture_complete=false`, `observe_only=true`,
   `stock_hooks_installed=true`, `stock_trace_active=true`,
   `boundary_hooks_installed=true`, `boundary_trace_active=true`,
-  `boundary_violation=false`, `request_id=20260703-023756`, and
+  `boundary_violation=false`, `request_id=20260703-082341-584926`, and
   `failure=waiting-for-live-online-traffic`.
   The validation bundle also wrote
-  `E:\myMods\reports\rollback_validation\live_online_capture_readiness_20260703-023756.json`
+  `E:\myMods\reports\rollback_validation\live_online_capture_readiness_20260703-082341-584926.json`
   and the post-capture ReplayTrace analyzer output
-  `E:\myMods\reports\rollback_validation\live_online_capture_trace_readiness_20260703-023756.json`.
+  `E:\myMods\reports\rollback_validation\live_online_capture_trace_readiness_20260703-082341-584926.json`.
   The analyzer saw 8 `rollback_live_online_capture` JSONL events with
   `readiness_ok=true`, `stable_readiness_ok=true`, `live_traffic_ok=false`,
   `stable_live_traffic_ok=false`, `boundary_violation_seen=false`,
   `readiness_regression_seen=false`, `bad_event_count=0`, and
   `selected_source=readiness`, `require_case=live-online-capture`,
-  `require_request_id=20260703-023756`, `filtered_request_count=0`, and
+  `require_request_id=20260703-082341-584926`, `filtered_request_count=0`, and
   `filtered_event_count=0`. The same analyzer summary now includes
   `activation_candidate.observed=true`, `activation_candidate.ready=false`,
   and `activation_candidate.failure=operator-not-armed` for the default

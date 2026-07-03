@@ -169,6 +169,8 @@ namespace Horse
         bool reorder_detected {false};
         bool conflict_detected {false};
         bool over_window_rejected {false};
+        bool over_window_duplicate_detected {false};
+        bool over_window_conflict_detected {false};
         bool network_thread_cache_write_rejected {false};
         bool stock_drain_ordering_ok {false};
         bool ack_monotonic {false};
@@ -492,17 +494,6 @@ namespace Horse
                 return report;
             }
 
-            if (packet.local_frame < local_sim_frame
-                && local_sim_frame - packet.local_frame
-                    > max_rollback_window)
-            {
-                report.status =
-                    RollbackTransportAcceptStatus::OverWindowLate;
-                report.failure = "over-window-late-input";
-                ++m_metrics.over_window_late;
-                return report;
-            }
-
             RollbackInputFrame* existing =
                 m_history.find_mutable(
                     static_cast<int32_t>(packet.local_frame));
@@ -519,6 +510,17 @@ namespace Horse
                 report.status = RollbackTransportAcceptStatus::Conflict;
                 report.failure = "conflicting-confirmed-input";
                 ++m_metrics.conflicts;
+                return report;
+            }
+
+            if (packet.local_frame < local_sim_frame
+                && local_sim_frame - packet.local_frame
+                    > max_rollback_window)
+            {
+                report.status =
+                    RollbackTransportAcceptStatus::OverWindowLate;
+                report.failure = "over-window-late-input";
+                ++m_metrics.over_window_late;
                 return report;
             }
 
@@ -710,6 +712,10 @@ namespace Horse
         RollbackTransportPacket conflict = p1;
         conflict.local_input = 0x99;
         auto bad = peer.accept_remote_input(conflict, 4, 60);
+        auto late_dup = peer.accept_remote_input(p1, 100, 60);
+        RollbackTransportPacket late_conflict = p1;
+        late_conflict.local_input = 0x98;
+        auto late_bad = peer.accept_remote_input(late_conflict, 100, 60);
 
         RollbackTransportPacket too_late = p0;
         too_late.local_frame = 30;
@@ -750,6 +756,10 @@ namespace Horse
         report.reorder_detected = r1.reordered;
         report.conflict_detected =
             bad.status == RollbackTransportAcceptStatus::Conflict;
+        report.over_window_duplicate_detected =
+            late_dup.status == RollbackTransportAcceptStatus::Duplicate;
+        report.over_window_conflict_detected =
+            late_bad.status == RollbackTransportAcceptStatus::Conflict;
         report.over_window_rejected =
             late.status == RollbackTransportAcceptStatus::OverWindowLate;
         report.metrics = peer.metrics();
@@ -941,6 +951,8 @@ namespace Horse
             && report.duplicate_detected
             && report.reorder_detected
             && report.conflict_detected
+            && report.over_window_duplicate_detected
+            && report.over_window_conflict_detected
             && report.over_window_rejected
             && report.ack_monotonic
             && report.invalid_packets_rejected

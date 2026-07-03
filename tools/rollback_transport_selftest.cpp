@@ -11,6 +11,7 @@ int main()
         std::printf(
             "rollback transport self-test failed failure=%s "
             "abs=%d dup=%d reorder=%d conflict=%d late=%d "
+            "late_dup=%d late_conflict=%d "
             "ack=%d invalid=%d handshake=%d handshake_reject=%d "
             "handshake_invalid=%d hash=%d loopback=%d "
             "net_write_reject=%d stock_order=%d\n",
@@ -20,6 +21,8 @@ int main()
             report.reorder_detected ? 1 : 0,
             report.conflict_detected ? 1 : 0,
             report.over_window_rejected ? 1 : 0,
+            report.over_window_duplicate_detected ? 1 : 0,
+            report.over_window_conflict_detected ? 1 : 0,
             report.ack_monotonic ? 1 : 0,
             report.invalid_packets_rejected ? 1 : 0,
             report.handshake_accepts_match ? 1 : 0,
@@ -36,6 +39,7 @@ int main()
         "rollback transport self-test passed contiguous=%u accepted=%u "
         "duplicates=%u reordered=%u conflicts=%u over_window=%u "
         "max_prediction_age=%u max_rollback_depth=%u "
+        "late_dup=%d late_conflict=%d "
         "ack_monotonic=%d invalid_packets=%d handshake=%d "
         "handshake_reject=%d handshake_invalid=%d "
         "hash_policy=%d loopback=%d\n",
@@ -47,6 +51,8 @@ int main()
         report.metrics.over_window_late,
         report.metrics.max_prediction_age,
         report.metrics.max_rollback_depth,
+        report.over_window_duplicate_detected ? 1 : 0,
+        report.over_window_conflict_detected ? 1 : 0,
         report.ack_monotonic ? 1 : 0,
         report.invalid_packets_rejected ? 1 : 0,
         report.handshake_accepts_match ? 1 : 0,

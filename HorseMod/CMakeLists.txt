@@ -216,6 +216,17 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
+add_executable(RollbackFaultInjectSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_fault_inject_selftest.cpp
+)
+target_include_directories(RollbackFaultInjectSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackFaultInjectSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 add_executable(RollbackOnlineSessionSelfTest
     ${CMAKE_SOURCE_DIR}/tools/rollback_online_session_selftest.cpp
 )

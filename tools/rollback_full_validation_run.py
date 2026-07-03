@@ -28,6 +28,17 @@ DEFAULT_ACTIVATION_SOURCE_PEER = 0xA0
 DEFAULT_ACTIVATION_DESTINATION_PEER = 0xB0
 DEFAULT_ACTIVATION_SESSION_ID = 0x4C495645414354
 
+FAULT_PROFILES = [
+    "all",
+    "clean_0ms",
+    "wifi_50ms_jitter",
+    "bad_wifi_120ms_5pct_loss",
+    "overseas_180ms_2pct_loss",
+    "spike_every_10s",
+    "burst_loss_500ms",
+    "corrupt_probe",
+]
+
 
 SELFTESTS = [
     HORSE_BUILD_DIR / "RollbackGekkoGameplayInputSelfTest.exe",
@@ -35,6 +46,7 @@ SELFTESTS = [
     HORSE_BUILD_DIR / "RollbackGekkoUdpSelfTest.exe",
     HORSE_BUILD_DIR / "RollbackInputCacheAdapterSelfTest.exe",
     HORSE_BUILD_DIR / "RollbackTransportSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackFaultInjectSelfTest.exe",
     HORSE_BUILD_DIR / "RollbackOnlineSessionSelfTest.exe",
     HORSE_BUILD_DIR / "RollbackLiveTransportSelfTest.exe",
     HORSE_BUILD_DIR / "RollbackLivePeerPipelineSelfTest.exe",
@@ -54,6 +66,7 @@ SELFTEST_TARGETS = [
     "RollbackGekkoUdpSelfTest",
     "RollbackInputCacheAdapterSelfTest",
     "RollbackTransportSelfTest",
+    "RollbackFaultInjectSelfTest",
     "RollbackOnlineSessionSelfTest",
     "RollbackLiveTransportSelfTest",
     "RollbackLivePeerPipelineSelfTest",
@@ -84,7 +97,7 @@ LAB_CASES = [
 
 
 def now_id() -> str:
-    return datetime.now().strftime("%Y%m%d-%H%M%S")
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
 def run_command(name: str, cmd: list[str], timeout: int) -> dict[str, object]:
@@ -106,6 +119,13 @@ def run_command(name: str, cmd: list[str], timeout: int) -> dict[str, object]:
         "ok": proc.returncode == 0,
         "output": proc.stdout,
     }
+
+
+def selftest_command(exe: Path, fault_profile: str) -> list[str]:
+    cmd = [str(exe)]
+    if exe.name == "RollbackFaultInjectSelfTest.exe" and fault_profile != "all":
+        cmd.extend(["--profile", fault_profile])
+    return cmd
 
 
 def failed_result(name: str, output: str) -> dict[str, object]:
@@ -447,6 +467,8 @@ def main() -> int:
     p.add_argument("--live-online-only", action="store_true")
     p.add_argument("--require-live-activation-candidate", action="store_true")
     p.add_argument("--live-online-watch-seconds", type=float)
+    p.add_argument("--profile", choices=FAULT_PROFILES, default="all",
+                   help="Fault-injected same-machine network profile to run")
     p.add_argument("--strict-replay-retries", type=int, default=2)
     p.add_argument("--watch-seconds", type=float, default=25.0)
     p.add_argument("--output-dir", type=Path, default=REPORT_DIR)
@@ -482,7 +504,13 @@ def main() -> int:
                     "output": f"missing executable: {exe}",
                 })
                 continue
-            results.append(run_command(exe.name, [str(exe)], 120))
+            results.append(
+                run_command(
+                    exe.name,
+                    selftest_command(exe, args.profile),
+                    180 if exe.name == "RollbackFaultInjectSelfTest.exe"
+                    else 120,
+                ))
 
     if not args.live_online_only and not args.skip_game_labs:
         for case, require_flag in LAB_CASES:
@@ -573,6 +601,7 @@ def main() -> int:
         "run_id": run_id,
         "request_id": run_id,
         "mode": "live-online-only" if args.live_online_only else "full",
+        "fault_profile": args.profile,
         "results": results,
     }
     report_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
