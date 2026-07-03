@@ -11,8 +11,8 @@ different timeline percentages and let playback run forward for real frames.
 from __future__ import annotations
 
 import argparse
-import csv
 import ctypes
+from ctypes import wintypes
 import json
 import os
 import subprocess
@@ -58,9 +58,28 @@ DEFAULT_MAX_SEEK_TOTAL_RESUME_SECONDS = 1.000
 LAUNCH_HANDOFF_GRACE_SECONDS = 30.0
 DEFAULT_KILL_TIMEOUT_SECONDS = 30
 WM_CLOSE = 0x0010
+TH32CS_SNAPPROCESS = 0x00000002
+PROCESS_TERMINATE = 0x0001
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+MAX_PATH = 260
 
 
 CrashCheck = Callable[[], str | None]
+
+
+class PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("cntUsage", wintypes.DWORD),
+        ("th32ProcessID", wintypes.DWORD),
+        ("th32DefaultHeapID", ctypes.c_size_t),
+        ("th32ModuleID", wintypes.DWORD),
+        ("cntThreads", wintypes.DWORD),
+        ("th32ParentProcessID", wintypes.DWORD),
+        ("pcPriClassBase", wintypes.LONG),
+        ("dwFlags", wintypes.DWORD),
+        ("szExeFile", wintypes.WCHAR * MAX_PATH),
+    ]
 
 
 VK = {
@@ -109,6 +128,47 @@ def state_request_path(saved_dir: Path) -> Path:
 
 def state_status_path(saved_dir: Path) -> Path:
     return saved_dir / "sc6_state_status.json"
+
+
+def rollback_lab_request_path(saved_dir: Path) -> Path:
+    return saved_dir / "rollback_lab_request.txt"
+
+
+def write_rollback_lab_request(args: argparse.Namespace, saved_dir: Path) -> None:
+    case = str(args.rollback_lab_case or "").strip()
+    if not case and args.require_rollback_cache_ownership:
+        case = "cache-ownership"
+    if not case and args.require_rollback_online_boundary:
+        case = "online-boundary"
+    if not case and args.require_rollback_cache_injection:
+        case = "cache-injection"
+    if not case and args.require_rollback_cache_prediction:
+        case = "cache-prediction"
+    if not case:
+        return
+
+    trace_enabled = (
+        args.rollback_lab_trace
+        or args.require_rollback_cache_ownership
+        or args.require_rollback_online_boundary
+        or args.require_rollback_cache_injection
+        or args.require_rollback_cache_prediction
+    )
+    lines = [
+        "enabled=1",
+        f"trace={1 if trace_enabled else 0}",
+        f"case={case}",
+        f"window={args.rollback_lab_window}",
+        f"seed={args.rollback_lab_seed}",
+    ]
+    saved_dir.mkdir(parents=True, exist_ok=True)
+    path = rollback_lab_request_path(saved_dir)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(
+        "wrote rollback lab request: "
+        f"{path} case={case} window={args.rollback_lab_window} "
+        f"seed={args.rollback_lab_seed} trace={1 if trace_enabled else 0}"
+    )
 
 
 def parse_percent_list(text: str) -> list[float]:
@@ -448,6 +508,268 @@ def event_name(event: dict[str, Any]) -> str:
     return str(event.get("event") or event.get("name") or "")
 
 
+def event_bool(event: dict[str, Any], name: str) -> bool:
+    return bool(event.get(name))
+
+
+def check_rollback_trace_requirements(
+    args: argparse.Namespace,
+    trace: Path | None,
+) -> int:
+    if (
+        not args.require_rollback_cache_ownership
+        and not args.require_rollback_online_boundary
+        and not args.require_rollback_cache_injection
+        and not args.require_rollback_cache_prediction
+    ):
+        return 0
+    if trace is None:
+        print("rollback trace requirement failed: no trace", file=sys.stderr)
+        return 1
+
+    if args.require_rollback_online_boundary:
+        saw_boundary = False
+        boundary_ok = False
+        for event in load_jsonl(trace):
+            if event_name(event) != "rollback_live_boundary":
+                continue
+            saw_boundary = True
+            drain_enter = int_value(event.get("drain_enter_count"), -1)
+            drain_exit = int_value(event.get("drain_exit_count"), -1)
+            consumer_count = int_value(event.get("consumer_count"), -1)
+            if (
+                bool(event.get("ok"))
+                and bool(event.get("hooks_installed"))
+                and consumer_count > 0
+                and not bool(event.get("consumer_during_drain"))
+                and not bool(event.get("unbalanced_drain"))
+                and (
+                    bool(event.get("live_order_proven"))
+                    or bool(event.get("offline_boundary_observed"))
+                )
+            ):
+                print(
+                    "rollback live boundary ok: "
+                    f"trace={trace} "
+                    f"drain_enter={drain_enter} "
+                    f"drain_exit={drain_exit} "
+                    f"consumer={consumer_count} "
+                    f"live_order={event.get('live_order_proven')} "
+                    f"offline_boundary={event.get('offline_boundary_observed')} "
+                    f"cache_frame={event.get('last_cache_frame')} "
+                    f"master={event.get('last_master_clock')}"
+                )
+                boundary_ok = True
+                break
+        if not boundary_ok and saw_boundary:
+            print(
+                "rollback live-boundary trace requirement failed: "
+                "event observed but ordering criteria were not satisfied",
+                file=sys.stderr,
+            )
+        elif not boundary_ok:
+            print(
+                "rollback live-boundary trace requirement failed: "
+                "rollback_live_boundary event not observed",
+                file=sys.stderr,
+            )
+        if not boundary_ok:
+            return 1
+
+    if args.require_rollback_cache_injection:
+        saw_injection = False
+        injection_ok = False
+        for event in load_jsonl(trace):
+            if event_name(event) != "rollback_cache_injection":
+                continue
+            saw_injection = True
+            injected_input = int_value(event.get("injected_input"), -1)
+            observed_input = int_value(event.get("observed_current_input"), -2)
+            if (
+                bool(event.get("ok"))
+                and bool(event.get("hooks_installed"))
+                and bool(event.get("attempted"))
+                and bool(event.get("context_ready"))
+                and bool(event.get("source_cell_valid"))
+                and bool(event.get("wrote_cache"))
+                and bool(event.get("consumer_observed_cache"))
+                and bool(event.get("restored_cache"))
+                and bool(event.get("idempotent_write"))
+                and injected_input == observed_input
+            ):
+                print(
+                    "rollback cache injection ok: "
+                    f"trace={trace} "
+                    f"player={event.get('player_index')} "
+                    f"frame={event.get('frame_index')} "
+                    f"frame_id={event.get('frame_id')} "
+                    f"master={event.get('master_clock')} "
+                    f"injected=0x{injected_input:X} "
+                    f"observed=0x{observed_input:X} "
+                    f"entry={event.get('cache_entry')}"
+                )
+                injection_ok = True
+                break
+        if not injection_ok and saw_injection:
+            print(
+                "rollback cache-injection trace requirement failed: "
+                "event observed but write/read/restore criteria were not satisfied",
+                file=sys.stderr,
+            )
+        elif not injection_ok:
+            print(
+                "rollback cache-injection trace requirement failed: "
+                "rollback_cache_injection event not observed",
+                file=sys.stderr,
+            )
+        if not injection_ok:
+            return 1
+
+    if args.require_rollback_cache_prediction:
+        saw_prediction = False
+        prediction_ok = False
+        for event in load_jsonl(trace):
+            if event_name(event) != "rollback_cache_prediction":
+                continue
+            saw_prediction = True
+            original_input = int_value(event.get("original_input"), -1)
+            injected_input = int_value(event.get("injected_input"), -1)
+            observed_input = int_value(event.get("observed_current_input"), -2)
+            restored_input = int_value(
+                event.get("restored_current_input_value"), -3)
+            observed_output_input = int_value(
+                event.get("observed_output_input"), -4)
+            observed_output_flags = int_value(
+                event.get("observed_output_flags"), -10)
+            expected_output_input = int_value(
+                event.get("expected_injected_output_input"), -5)
+            expected_output_flags = int_value(
+                event.get("expected_injected_output_flags"), -11)
+            restored_output_input = int_value(
+                event.get("restored_output_input"), -6)
+            expected_restored_output_input = int_value(
+                event.get("expected_restored_output_input"), -7)
+            restored_output_flags = int_value(
+                event.get("restored_output_flags"), -8)
+            expected_restored_output_flags = int_value(
+                event.get("expected_restored_output_flags"), -9)
+            if (
+                bool(event.get("ok"))
+                and bool(event.get("hooks_installed"))
+                and bool(event.get("attempted"))
+                and bool(event.get("context_ready"))
+                and bool(event.get("source_cell_valid"))
+                and bool(event.get("wrote_cache"))
+                and bool(event.get("consumer_observed_cache"))
+                and bool(event.get("output_pair_observed_prediction"))
+                and bool(event.get("restored_cache"))
+                and bool(event.get("restored_current_input"))
+                and bool(event.get("restored_output_pair"))
+                and bool(event.get("non_idempotent_write"))
+                and bool(event.get("injected_differs_from_original"))
+                and injected_input != original_input
+                and observed_input == injected_input
+                and restored_input == original_input
+                and observed_output_input == expected_output_input
+                and observed_output_flags == expected_output_flags
+                and restored_output_input == expected_restored_output_input
+                and restored_output_flags == expected_restored_output_flags
+            ):
+                print(
+                    "rollback cache prediction ok: "
+                    f"trace={trace} "
+                    f"player={event.get('player_index')} "
+                    f"frame={event.get('frame_index')} "
+                    f"frame_id={event.get('frame_id')} "
+                    f"master={event.get('master_clock')} "
+                    f"original=0x{original_input:X} "
+                    f"injected=0x{injected_input:X} "
+                    f"observed=0x{observed_input:X} "
+                    f"restored=0x{restored_input:X} "
+                    f"entry={event.get('cache_entry')} "
+                    f"pair={event.get('input_pair_slot')}"
+                )
+                prediction_ok = True
+                break
+        if not prediction_ok and saw_prediction:
+            print(
+                "rollback cache-prediction trace requirement failed: "
+                "event observed but non-idempotent write/read/restore "
+                "criteria were not satisfied",
+                file=sys.stderr,
+            )
+        elif not prediction_ok:
+            print(
+                "rollback cache-prediction trace requirement failed: "
+                "rollback_cache_prediction event not observed",
+                file=sys.stderr,
+            )
+        if not prediction_ok:
+            return 1
+
+    if not args.require_rollback_cache_ownership:
+        return 0
+
+    saw_event = False
+    for event in load_jsonl(trace):
+        if event_name(event) != "rollback_cache_ownership":
+            continue
+        saw_event = True
+        warmup_ready = event.get("warmup_ready")
+        min_master_clock = int_value(event.get("min_master_clock"), 0)
+        warmup_master_clock = int_value(event.get("warmup_master_clock"), 0)
+        motion_bank_mismatches = int_value(
+            event.get("resim_hgcpu_motion_bank_mismatch_count"), -1)
+        unignored_mismatches = int_value(
+            event.get("resim_hgcpu_unignored_mismatch_count"), -1)
+        state_policy_ok = (
+            event_bool(event, "full_hash_match")
+            and event_bool(event, "cache_hash_match")
+            and event_bool(event, "drain_cursor_match")
+            and event_bool(event, "resim_corrected_matches_baseline")
+            and event_bool(event, "resim_hgcpu_policy_match")
+            and event_bool(event, "resim_hgcpu_motion_bank_control_match")
+            and event_bool(event, "resim_hgcpu_motion_tail_match")
+            and motion_bank_mismatches == 0
+            and unignored_mismatches == 0
+        )
+        if (
+            bool(event.get("ok"))
+            and warmup_ready is not False
+            and warmup_master_clock >= min_master_clock
+            and state_policy_ok
+        ):
+            print(
+                "rollback cache ownership ok: "
+                f"trace={trace} "
+                f"full_hash_match={event.get('full_hash_match')} "
+                f"cache_hash_match={event.get('cache_hash_match')} "
+                "motion_bank_control="
+                f"{event.get('resim_hgcpu_motion_bank_control_match')} "
+                f"motion_tail={event.get('resim_hgcpu_motion_tail_match')} "
+                f"motion_bank_mismatches={motion_bank_mismatches} "
+                f"unignored_mismatches={unignored_mismatches} "
+                f"resim_corrected={event.get('resim_corrected_matches_baseline')} "
+                f"warmup_master={warmup_master_clock} "
+                f"min_master={min_master_clock}"
+            )
+            return 0
+
+    if saw_event:
+        print(
+            "rollback cache ownership trace requirement failed: "
+            "event observed but ok/warmup/state-policy criteria were not satisfied",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "rollback cache ownership trace requirement failed: "
+            "rollback_cache_ownership event not observed",
+            file=sys.stderr,
+        )
+    return 1
+
+
 VITAL_ORACLE_FIELDS = (
     "vital_scale",
     "vital_candidate",
@@ -689,31 +1011,46 @@ def read_state_status(
 
 
 def process_exists_by_image(image_name: str) -> bool:
-    completed = subprocess.run(
-        ["tasklist", "/FI", f"IMAGENAME eq {image_name}", "/FO", "CSV", "/NH"],
-        capture_output=True,
-        text=True,
-    )
-    output = (completed.stdout or "") + (completed.stderr or "")
-    return image_name.lower() in output.lower()
+    return bool(process_ids_by_image(image_name))
 
 
 def process_ids_by_image(image_name: str) -> list[int]:
-    completed = subprocess.run(
-        ["tasklist", "/FI", f"IMAGENAME eq {image_name}", "/FO", "CSV", "/NH"],
-        capture_output=True,
-        text=True,
-    )
+    kernel32 = ctypes.windll.kernel32
+    kernel32.CreateToolhelp32Snapshot.argtypes = [
+        wintypes.DWORD,
+        wintypes.DWORD,
+    ]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32FirstW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(PROCESSENTRY32W),
+    ]
+    kernel32.Process32FirstW.restype = wintypes.BOOL
+    kernel32.Process32NextW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(PROCESSENTRY32W),
+    ]
+    kernel32.Process32NextW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snapshot == INVALID_HANDLE_VALUE:
+        return []
+
     pids: list[int] = []
-    for row in csv.reader((completed.stdout or "").splitlines()):
-        if len(row) < 2:
-            continue
-        if row[0].strip().lower() != image_name.lower():
-            continue
-        try:
-            pids.append(int(row[1]))
-        except ValueError:
-            continue
+    entry = PROCESSENTRY32W()
+    entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+    try:
+        if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
+            return []
+        target = image_name.casefold()
+        while True:
+            if str(entry.szExeFile).casefold() == target:
+                pids.append(int(entry.th32ProcessID))
+            if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
+                break
+    finally:
+        kernel32.CloseHandle(snapshot)
     return pids
 
 
@@ -733,6 +1070,31 @@ def window_handles_for_pids(pids: set[int]) -> list[int]:
 
     user32.EnumWindows(enum_proc, 0)
     return handles
+
+
+def terminate_process_ids(pids: set[int]) -> int:
+    kernel32 = ctypes.windll.kernel32
+    kernel32.OpenProcess.argtypes = [
+        wintypes.DWORD,
+        wintypes.BOOL,
+        wintypes.DWORD,
+    ]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    terminated = 0
+    for pid in sorted(pids):
+        handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, int(pid))
+        if not handle:
+            continue
+        try:
+            if kernel32.TerminateProcess(handle, 1):
+                terminated += 1
+        finally:
+            kernel32.CloseHandle(handle)
+    return terminated
 
 
 def wait_for_image_exit(image_name: str, pids: set[int], timeout: float) -> bool:
@@ -1022,17 +1384,8 @@ def kill_game(timeout: int, force: bool = False) -> bool:
     else:
         print(
             "closing game gracefully: no visible window found; "
-            "trying taskkill without /F"
+            "waiting for explicit force path if needed"
         )
-        completed = subprocess.run(
-            ["taskkill", "/IM", image_name],
-            capture_output=True,
-            text=True,
-        )
-        if completed.stdout:
-            print(completed.stdout.strip())
-        if completed.returncode != 0 and completed.stderr:
-            print(f"taskkill warning: {completed.stderr.strip()}")
 
     if wait_for_image_exit(image_name, pids, timeout):
         print("game closed cleanly")
@@ -1047,22 +1400,22 @@ def kill_game(timeout: int, force: bool = False) -> bool:
         return False
 
     print("force-killing game after graceful close timed out")
-    completed = subprocess.run(
-        ["taskkill", "/IM", image_name, "/F"],
-        capture_output=True,
-        text=True,
-    )
-    if completed.stdout:
-        print(completed.stdout.strip())
-    if completed.returncode != 0 and completed.stderr:
-        print(f"taskkill warning: {completed.stderr.strip()}")
+    terminated = terminate_process_ids(pids)
+    print(f"force-kill requested for {terminated} process(es)")
     return wait_for_image_exit(image_name, pids, 5.0)
 
 
 def launch_game(game_exe: Path, steam_appid: str) -> subprocess.Popen[Any] | None:
     if game_exe.exists():
         print(f"launching game: {game_exe}")
-        return subprocess.Popen([str(game_exe)], cwd=str(game_exe.parent))
+        creationflags = getattr(subprocess, "HIGH_PRIORITY_CLASS", 0)
+        if creationflags:
+            print("launch priority: high")
+        return subprocess.Popen(
+            [str(game_exe)],
+            cwd=str(game_exe.parent),
+            creationflags=creationflags,
+        )
     uri = f"steam://rungameid/{steam_appid}"
     print(f"launching game through Steam: {uri}")
     os.startfile(uri)  # type: ignore[attr-defined]
@@ -1363,7 +1716,8 @@ def main() -> int:
         "--force-kill-game",
         action="store_true",
         help=(
-            "Force taskkill /F only after graceful --kill-game timeout. "
+            "Force native process termination only after graceful "
+            "--kill-game timeout. "
             "This may trigger the UE crash dialog."
         ),
     )
@@ -1425,6 +1779,69 @@ def main() -> int:
             "After --start-replay succeeds, wait this many seconds without "
             "writing a seek-test request. Used to audit untouched native "
             "playback outcome events."
+        ),
+    )
+    parser.add_argument(
+        "--rollback-lab-case",
+        default="",
+        help=(
+            "Write HorseMod Saved/rollback_lab_request.txt before launch "
+            "with this rollback lab case, e.g. cache-ownership or resim-matrix."
+        ),
+    )
+    parser.add_argument(
+        "--rollback-lab-window",
+        type=int,
+        default=60,
+        help="Rollback lab request window. Default: 60.",
+    )
+    parser.add_argument(
+        "--rollback-lab-seed",
+        default="0x5C6B0001",
+        help="Rollback lab request seed. Default: 0x5C6B0001.",
+    )
+    parser.add_argument(
+        "--rollback-lab-trace",
+        action="store_true",
+        help="Enable ReplayDebugTrace for the rollback lab request.",
+    )
+    parser.add_argument(
+        "--require-rollback-cache-ownership",
+        action="store_true",
+        help=(
+            "Fail unless the final trace contains rollback_cache_ownership "
+            "with ok=true. Implies a cache-ownership lab request if no "
+            "--rollback-lab-case is supplied."
+        ),
+    )
+    parser.add_argument(
+        "--require-rollback-online-boundary",
+        action="store_true",
+        help=(
+            "Fail unless the final trace contains rollback_live_boundary "
+            "with the cache consumer observed and no drain/consumer ordering "
+            "violation. Implies an online-boundary lab request if no "
+            "--rollback-lab-case is supplied."
+        ),
+    )
+    parser.add_argument(
+        "--require-rollback-cache-injection",
+        action="store_true",
+        help=(
+            "Fail unless the final trace contains rollback_cache_injection "
+            "with a lab-only cache write observed by the stock consumer and "
+            "then restored. Implies a cache-injection lab request if no "
+            "--rollback-lab-case is supplied."
+        ),
+    )
+    parser.add_argument(
+        "--require-rollback-cache-prediction",
+        action="store_true",
+        help=(
+            "Fail unless the final trace contains rollback_cache_prediction "
+            "with a non-idempotent cache value observed by the stock consumer "
+            "and cache/current-input/output-pair state restored. Implies a "
+            "cache-prediction lab request if no --rollback-lab-case is supplied."
         ),
     )
     parser.add_argument(
@@ -1737,6 +2154,8 @@ def main() -> int:
     if (args.kill_game or args.build) and not should_drive_game:
         return 0
 
+    write_rollback_lab_request(args, saved_dir)
+
     if args.launch_game:
         game_process = launch_game(game_exe, args.steam_appid)
         if args.legacy_focus_launch or args.focus_game:
@@ -1950,10 +2369,11 @@ def main() -> int:
                 "native playback audit complete: "
                 f"seconds={args.native_audit_seconds} trace={trace}"
             )
+            requirement_code = check_rollback_trace_requirements(args, trace)
             return finish_run(report_dir, run_id, replay_start_result,
-                              last_replay_start_event, trace, "", 0, None, 0,
-                              preflight_state_snapshot, preflight_state_trace,
-                              preflight_state_status)
+                              last_replay_start_event, trace, "", 0, None,
+                              requirement_code, preflight_state_snapshot,
+                              preflight_state_trace, preflight_state_status)
     else:
         print("game prerequisite: SC6 must already be running with HorseMod loaded and in a replay")
 
@@ -2130,7 +2550,8 @@ def main() -> int:
             args.max_seek_total_resume_seconds,
         )
 
-    exit_code = analyzer_code or (0 if summary.get("passed") else 1)
+    requirement_code = check_rollback_trace_requirements(args, trace)
+    exit_code = analyzer_code or requirement_code or (0 if summary.get("passed") else 1)
     return finish_run(report_dir, run_id, replay_start_result,
                       last_replay_start_event, trace, analyzer_stdout,
                       analyzer_code, summary, exit_code,

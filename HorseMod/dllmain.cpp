@@ -105,6 +105,8 @@
 #include "horselib/ActorTickGate.hpp"
 #include "horselib/TimeDilationGate.hpp"
 #include "horselib/WindRngGate.hpp"
+#include "horselib/RollbackLab.hpp"
+#include "horselib/RollbackLiveBoundaryHook.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
 // swap detour on IDXGISwapChain::Present.  This keeps Steam overlay
@@ -4193,6 +4195,7 @@ public:
         s_instance.store(this);
         Horse::ReplayScrub::instance().set_gate_release_callback(
             &HorseMod::release_replay_scrub_gates_callback);
+        Horse::RollbackLab::instance().configure_from_command_line_once();
         m_exception_handler = ::AddVectoredExceptionHandler(
             1, &HorseMod::vectored_exception_handler);
         if (!m_exception_handler)
@@ -4226,6 +4229,7 @@ public:
         }
 
         Horse::ReplayScrub::instance().set_gate_release_callback(nullptr);
+        Horse::RollbackLab::instance().shutdown();
 
         // Zero instance pointer early so any in-flight hook sees null.
         s_instance.store(nullptr);
@@ -4288,6 +4292,12 @@ public:
 
         // Tear down stock replay-launch trace probes.  Observability only.
         Horse::NativeReplayTraceHook::instance().uninstall();
+
+        // Tear down rollback live-boundary observability detours.
+        Horse::RollbackLiveBoundaryHook::instance().uninstall();
+
+        // Tear down rollback stock transport observe-only detours.
+        Horse::RollbackStockTransportObserveHook::instance().uninstall();
 
         // Tear down all online-rules UFunction hooks (SlipOut + any
         // future implemented rules).  Idempotent.
@@ -4368,6 +4378,7 @@ public:
                     auto& scrub = Horse::ReplayScrub::instance();
                     scrub.service_state_snapshot_request();
                     scrub.service_replay_file_start_request();
+                    Horse::RollbackLab::instance().service_game_thread();
                     self->tick_replay_file_start_toast(scrub);
                     self->sync_timeline_generation_toast_state(
                         scrub, scrub.timeline_gen_state());
@@ -4388,6 +4399,10 @@ public:
         // in-process equivalent of x64dbg breakpoints on the replay save,
         // battle-setting, asset-request, readiness, and manual-launch path.
         Horse::NativeReplayTraceHook::instance().install();
+
+        // Rollback live-boundary observability. The detours are inert unless
+        // the developer rollback lab enables the online-boundary case.
+        Horse::RollbackLiveBoundaryHook::instance().install();
 
         // VitalTraceHook is replay-oracle observability only.  Keep it lazy
         // (ReplayScrub installs it when needed) so normal startup does not
@@ -4500,6 +4515,7 @@ public:
             auto& scrub = Horse::ReplayScrub::instance();
             scrub.service_state_snapshot_request();
             scrub.service_replay_file_start_request();
+            Horse::RollbackLab::instance().service_game_thread();
             service_replay_scrub_update_fallback();
         }
 
@@ -9993,6 +10009,9 @@ private:
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
                     "Emit a one-shot replay diagnostic dump on the next\n"
                     "cockpit tick, even when verbose logging is off.");
+
+                ImGui::Spacing();
+                Horse::RollbackLab::instance().render_imgui_developer_panel();
             }
 
     }

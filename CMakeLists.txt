@@ -48,12 +48,57 @@ else()
 endif()
 set(FETCHCONTENT_BASE_DIR "${_horsemod_fc_base}"
     CACHE PATH "Persistent clone location for FetchContent dependencies" FORCE)
-set(FETCHCONTENT_UPDATES_DISCONNECTED ON
-    CACHE BOOL "Skip FetchContent update step when source already populated" FORCE)
+set(HORSEMOD_GEKKONET_GIT_TAG
+    "02c447c9d6a8a478070b2c162d15370dfad34482"
+    CACHE STRING "Pinned GekkoNet commit used by HorseMod rollback")
 
-# Sentinel: glaze-src is the first FetchContent dep in deps/third/CMakeLists.
-# If its CMakeLists.txt exists, the cache is populated → skip all populate.
-if(EXISTS "${_horsemod_fc_base}/glaze-src/CMakeLists.txt")
+# If all required source trees exist, the cache is populated; skip all populate.
+set(_horsemod_fc_ready ON)
+set(_horsemod_fc_allow_updates OFF)
+foreach(_horsemod_fc_sentinel
+    "${_horsemod_fc_base}/glaze-src/CMakeLists.txt"
+    "${_horsemod_fc_base}/gekkonet-src/CMakeLists.txt"
+)
+    if(NOT EXISTS "${_horsemod_fc_sentinel}")
+        set(_horsemod_fc_ready OFF)
+        set(_horsemod_fc_allow_updates ON)
+    endif()
+endforeach()
+if(EXISTS "${_horsemod_fc_base}/gekkonet-src/CMakeLists.txt")
+    find_package(Git QUIET)
+    if(GIT_FOUND AND EXISTS "${_horsemod_fc_base}/gekkonet-src/.git")
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -C
+                    "${_horsemod_fc_base}/gekkonet-src"
+                    rev-parse HEAD
+            OUTPUT_VARIABLE _horsemod_gekkonet_head
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        if(NOT _horsemod_gekkonet_head STREQUAL HORSEMOD_GEKKONET_GIT_TAG)
+            set(_horsemod_fc_ready OFF)
+            set(_horsemod_fc_allow_updates ON)
+            message(STATUS
+                "FetchContent: GekkoNet cache is ${_horsemod_gekkonet_head}, "
+                "expected ${HORSEMOD_GEKKONET_GIT_TAG}; allowing update")
+        endif()
+    else()
+        set(_horsemod_fc_ready OFF)
+        set(_horsemod_fc_allow_updates ON)
+        message(STATUS
+            "FetchContent: cannot verify GekkoNet cache commit; allowing update")
+    endif()
+endif()
+
+if(_horsemod_fc_allow_updates)
+    set(FETCHCONTENT_UPDATES_DISCONNECTED OFF
+        CACHE BOOL "Allow FetchContent update for stale pinned deps" FORCE)
+else()
+    set(FETCHCONTENT_UPDATES_DISCONNECTED ON
+        CACHE BOOL "Skip FetchContent update step when source already populated" FORCE)
+endif()
+
+if(_horsemod_fc_ready)
     set(FETCHCONTENT_FULLY_DISCONNECTED ON
         CACHE BOOL "Bypass populate step (deps already cloned)" FORCE)
     message(STATUS "FetchContent: deps already populated, skipping populate step")
