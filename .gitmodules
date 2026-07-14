@@ -1,0 +1,4 @@
+[submodule "tools/BlueprintToCpp"]
+	path = tools/BlueprintToCpp
+	url = https://github.com/FottenSC/BlueprintToCpp.git
+	branch = horsemod-sc6-support

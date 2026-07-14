@@ -1,0 +1,41 @@
+{
+  "schema": "ghidra-calibur-ue-origin/v1",
+  "executable_sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+  "entries": [
+    {
+      "address": "140e44f30",
+      "address_space": "ram",
+      "disposition": "ue4-confirmed",
+      "module": "coreuobject",
+      "feature": "serialization",
+      "baseline": {
+        "commit": "8c46d0805b8efa845cc693b76030b7cab2796c0a",
+        "source_path": "Engine/Source/Runtime/CoreUObject/Private/Serialization/AsyncLoading.cpp:335-340",
+        "symbol": "CancelAsyncLoadingInternal"
+      },
+      "evidence": [
+        {"kind": "source", "detail": "UE 4.17.2 AsyncLoading.cpp contains the exact EDL diagnostic path."},
+        {"kind": "binary", "detail": "SC6 string xref reaches this function; assembly accesses the independently checked async-loader offsets."},
+        {"kind": "control-flow", "detail": "Verified callers match the async-loader context."}
+      ],
+      "review": {"reviewer": "Hermes", "status": "approved"}
+    },
+    {
+      "address": "1401c08c0",
+      "address_space": "ram",
+      "disposition": "ue4-confirmed",
+      "module": "core",
+      "feature": "console",
+      "baseline": {
+        "commit": "8c46d0805b8efa845cc693b76030b7cab2796c0a",
+        "source_path": "Engine/Source/Runtime/Core/Private/Misc/CoreGlobals.cpp:280-292",
+        "symbol": "RegisterToggleGpuCrashedFlagCommand"
+      },
+      "evidence": [
+        {"kind": "source", "detail": "UE 4.17.2 CoreGlobals.cpp defines the exact GPU-crash console command."},
+        {"kind": "binary", "detail": "SC6 string xref reaches this initializer and decompilation registers the matching command."}
+      ],
+      "review": {"reviewer": "Hermes", "status": "approved"}
+    }
+  ]
+}

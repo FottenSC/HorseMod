@@ -171,6 +171,7 @@ namespace Horse
 
         RollbackInputCacheAccessReport predict_remote_input(
             const RollbackDecodedGameplayInput& input,
+            int32_t nLastFrameId,
             bool stock_drain_complete,
             RollbackCacheOrderingMode cache_mode =
                 RollbackCacheOrderingMode::StockDrainBeforePrediction) noexcept
@@ -182,6 +183,7 @@ namespace Horse
                     RollbackInputCacheSource::Prediction,
                     input.player_slot,
                     input.frame,
+                    nLastFrameId,
                     input.input_value);
             req.bStockDrainComplete = stock_drain_complete;
             req.bDrainBypass =
@@ -200,6 +202,7 @@ namespace Horse
 
         RollbackInputCacheAccessReport apply_confirmed_gameplay_input(
             const RollbackDecodedGameplayInput& input,
+            int32_t nLastFrameId,
             bool on_game_thread,
             bool stock_drain_complete,
             bool network_thread_wants_live_cache_write,
@@ -213,6 +216,7 @@ namespace Horse
                     RollbackInputCacheSource::ConfirmedRemote,
                     input.player_slot,
                     input.frame,
+                    nLastFrameId,
                     input.input_value);
             req.bOnGameThread = on_game_thread;
             req.bNetworkThread = network_thread_wants_live_cache_write;
@@ -226,14 +230,15 @@ namespace Horse
         }
 
         RollbackInputCacheAccessReport consume_remote_input(
-            const RollbackDecodedGameplayInput& input) const noexcept
+            const RollbackDecodedGameplayInput& input,
+            int32_t nLastFrameId) const noexcept
         {
             if (!decoded_route_ok(input))
                 return decoded_route_rejected(input);
             return m_cache.consume(
                 input.player_slot,
                 input.frame,
-                input.frame & 0x0Fu);
+                nLastFrameId);
         }
 
         uint32_t queue_count() const noexcept
@@ -287,7 +292,7 @@ namespace Horse
             out.failure = "decoded-gameplay-route-mismatch";
             out.dwPlayerSlot = input.player_slot;
             out.dwFrameIndex = input.frame;
-            out.dwFrameLow = input.frame & 0x0Fu;
+            out.nLastFrameId = 0;
             out.dwInputValue = input.input_value;
             return out;
         }
@@ -342,7 +347,7 @@ namespace Horse
             pipeline.drain_metadata_to_session(0, false);
         const RollbackDecodedGameplayInput gameplay0 {0, 1, 0x44};
         const RollbackInputCacheAccessReport before_cache =
-            pipeline.consume_remote_input(gameplay0);
+            pipeline.consume_remote_input(gameplay0, 0);
         report.stock_drain_required =
             blocked.drain.left_queued
             && blocked.drain.status
@@ -354,7 +359,7 @@ namespace Horse
         const RollbackLivePeerPipelineDrainReport drained =
             pipeline.drain_metadata_to_session(0, true);
         const RollbackInputCacheAccessReport post_metadata_cache =
-            pipeline.consume_remote_input(gameplay0);
+            pipeline.consume_remote_input(gameplay0, 0);
         report.metadata_drains_to_session =
             drained.ok
             && drained.metadata_accepted
@@ -369,18 +374,19 @@ namespace Horse
 
         const RollbackDecodedGameplayInput predicted0 {0, 1, 0x00};
         const RollbackInputCacheAccessReport pred0 =
-            pipeline.predict_remote_input(predicted0, true);
+            pipeline.predict_remote_input(predicted0, 0, true);
         report.prediction_cache_write_ok =
             pred0.ok && pred0.wrote && pred0.source_prediction;
 
         const RollbackInputCacheAccessReport confirm0 =
             pipeline.apply_confirmed_gameplay_input(
                 gameplay0,
+                0,
                 true,
                 true,
                 false);
         const RollbackInputCacheAccessReport consume0 =
-            pipeline.consume_remote_input(gameplay0);
+            pipeline.consume_remote_input(gameplay0, 0);
         report.confirmed_input_replaces_prediction =
             confirm0.ok
             && confirm0.wrote
@@ -395,6 +401,7 @@ namespace Horse
         const RollbackInputCacheAccessReport duplicate =
             pipeline.apply_confirmed_gameplay_input(
                 gameplay0,
+                0,
                 true,
                 true,
                 false);
@@ -404,7 +411,7 @@ namespace Horse
             && duplicate.source_confirmed;
 
         const RollbackInputCacheAccessReport pred_over_confirmed =
-            pipeline.predict_remote_input({0, 1, 0x45}, true);
+            pipeline.predict_remote_input({0, 1, 0x45}, 0, true);
         report.prediction_over_confirmed_rejected =
             !pred_over_confirmed.ok
             && pred_over_confirmed.status
@@ -442,7 +449,7 @@ namespace Horse
         const RollbackLivePeerPipelineDrainReport late =
             late_pipeline.drain_metadata_to_session(10, true);
         const RollbackInputCacheAccessReport late_cache =
-            late_pipeline.consume_remote_input(gameplay0);
+            late_pipeline.consume_remote_input(gameplay0, 0);
         report.over_window_no_cache_write =
             late_enqueued
             && late.drain.drained
@@ -454,6 +461,7 @@ namespace Horse
         const RollbackInputCacheAccessReport network_bad =
             pipeline.apply_confirmed_gameplay_input(
                 {1, 1, 0x55},
+                1,
                 false,
                 false,
                 true);
@@ -468,12 +476,13 @@ namespace Horse
         const RollbackInputCacheAccessReport bypass =
             bypass_pipeline.apply_confirmed_gameplay_input(
                 bypass_input,
+                2,
                 true,
                 false,
                 false,
                 RollbackCacheOrderingMode::DrainBypass);
         const RollbackInputCacheAccessReport bypass_consume =
-            bypass_pipeline.consume_remote_input(bypass_input);
+            bypass_pipeline.consume_remote_input(bypass_input, 2);
         report.drain_bypass_confirmed_input =
             bypass.ok
             && bypass.wrote

@@ -1,0 +1,75 @@
+{
+  "schema": "sc6-ue4172-core-candidate-queue/v1",
+  "baseline": {
+    "commit": "8c46d0805b8efa845cc693b76030b7cab2796c0a",
+    "label": "final-4.17.2-release"
+  },
+  "program": "SoulcaliburVI.exe",
+  "policy": "Queue entries are evidence leads only. Persistent names, prototypes, variables, and types require an independent Hermes-reviewed batch.",
+  "candidates": [
+    {
+      "id": "fname-init-find-or-add-ansi",
+      "scope": "Core/FName",
+      "status": "applied-reviewed",
+      "proposed_target": {
+        "address": "0x140df47a0",
+        "current_name": "FUN_140df47a0",
+        "source_identity": "FName::InitInternal_FindOrAddNameEntry<TCHAR>"
+      },
+      "source": {
+        "path": "Engine/Source/Runtime/Core/Private/UObject/UnrealNames.cpp:784-874",
+        "commit": "8c46d0805b8efa845cc693b76030b7cab2796c0a",
+        "marker": "Hardcoded name '%s' at index %i was duplicated (or unexpected concurrency). Existing entry is '%s'."
+      },
+      "sc6_evidence": {
+        "string_addresses": ["0x1434e7880", "0x1434e79b0", "0x1434e7fe0", "0x1434e8130"],
+        "xref_instruction_addresses": ["0x140df4aeb", "0x140df4b8d", "0x140df4f7b", "0x140df501d"],
+        "function_body": "0x140df47a0-0x140df4c22",
+        "control_flow": "Decompilation searches GNamesPool hash chains, locks GNamesCriticalSection, allocates and atomically inserts a name entry, then emits the exact UnrealNames.cpp diagnostic on a collision.",
+        "parameter_role": "char* name, find mode, comparison mode, uint16 hash, and int* out index match the source template shape."
+      },
+      "confidence": "high",
+      "applied_change": {
+        "name": "FindOrAddAnsiNameEntry",
+        "prototype": "bool FindOrAddAnsiNameEntry(char *lpszName, int nFindType, byte bComparisonMode, ushort wHash, int *pnOutIndex)",
+        "plate_provenance": "UE 4.17.2 verified; source path, exact collision diagnostic, and template control flow recorded in Ghidra."
+      },
+      "tool_limitation": "The source parameter is const ANSICHAR* InName. MCP/Ghidra rejects const char *, so the plate documents the displayed char *lpszName approximation.",
+      "review": "Hermes approved the one-target function-only batch, including byte for ENameCase and the char* fallback.",
+      "review_questions": [
+        "Native character specialization and no-adjusted-pointer caller evidence were reviewed before persistence.",
+        "No FName/FNameEntry layout or field application is authorized by this evidence."
+      ]
+    },
+    {
+      "id": "fstring-archive-operator",
+      "scope": "Core/FString/serialization",
+      "status": "deferred-no-function-xref",
+      "source": {
+        "path": "Engine/Source/Runtime/Core/Private/Containers/String.cpp:1203-1238",
+        "identity": "operator<<(FArchive&, FString&)",
+        "markers": ["Archive is corrupted", "String is too large"]
+      },
+      "sc6_evidence": {
+        "string_addresses": ["0x1434a9d88", "0x1434aa108", "0x1434aab08", "0x1434aaba0"],
+        "result": "The strings and matching source paths are retained, but the current Ghidra reference graph has no function xrefs for them."
+      },
+      "confidence": "low",
+      "proposed_change": "None until a control-flow or serializer-call-site match independently identifies a function."
+    },
+    {
+      "id": "fname-layout",
+      "scope": "Core/FName layout",
+      "status": "deferred-layout-proof-needed",
+      "source": {
+        "path": "Engine/Source/Runtime/Core/Public/UObject/NameTypes.h",
+        "identity": "FName"
+      },
+      "sc6_evidence": {
+        "result": "The high-confidence name-pool function proves name-table behavior, not a complete FName object base, stride, or every field use."
+      },
+      "confidence": "unresolved",
+      "proposed_change": "Do not create or apply an FName type until independent object-use, width, and stride evidence is collected."
+    }
+  ]
+}

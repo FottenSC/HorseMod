@@ -11,6 +11,8 @@ int main()
         std::printf(
             "rollback gekko-gameplay-input self-test failed failure=%s "
             "enabled=%d raw=%d raw_p0=%d raw_p1=%d null=%d bad_frame=%d "
+            "last_safe=%d ceiling=%d update_guard=%d "
+            "baseline_key=%d "
             "bad_size=%d bad_players=%d bad_slot=%d pipeline=%d "
             "payload_separate=%d "
             "create=%d start=%d actors=%d advance_decode=%d "
@@ -24,6 +26,10 @@ int main()
             report.raw_decode_player1 ? 1 : 0,
             report.null_inputs_rejected ? 1 : 0,
             report.bad_frame_rejected ? 1 : 0,
+            report.last_safe_frame_accepted ? 1 : 0,
+            report.signed_ceiling_rejected ? 1 : 0,
+            report.signed_update_guard_ok ? 1 : 0,
+            report.baseline_frame_key_ok ? 1 : 0,
             report.bad_size_rejected ? 1 : 0,
             report.bad_player_count_rejected ? 1 : 0,
             report.bad_slot_rejected ? 1 : 0,
@@ -49,6 +55,8 @@ int main()
     std::printf(
         "rollback gekko-gameplay-input self-test passed "
         "enabled=%d raw=%d raw_p0=%d raw_p1=%d null=%d bad_frame=%d "
+        "last_safe=%d ceiling=%d update_guard=%d "
+        "baseline_key=%d "
         "bad_size=%d bad_players=%d bad_slot=%d pipeline=%d "
         "payload_separate=%d "
         "create=%d start=%d actors=%d advance_decode=%d "
@@ -61,6 +69,10 @@ int main()
         report.raw_decode_player1 ? 1 : 0,
         report.null_inputs_rejected ? 1 : 0,
         report.bad_frame_rejected ? 1 : 0,
+        report.last_safe_frame_accepted ? 1 : 0,
+        report.signed_ceiling_rejected ? 1 : 0,
+        report.signed_update_guard_ok ? 1 : 0,
+        report.baseline_frame_key_ok ? 1 : 0,
         report.bad_size_rejected ? 1 : 0,
         report.bad_player_count_rejected ? 1 : 0,
         report.bad_slot_rejected ? 1 : 0,

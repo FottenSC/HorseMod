@@ -100,12 +100,11 @@ if not exist "%ICON_SRC%" (
     exit /b 1
 )
 
-if not exist "%PUBLISH_SCRIPT%" (
-    echo [dotvanisher.thunderstore] missing publish helper: %PUBLISH_SCRIPT%
-    exit /b 1
-)
-
 if "%PUBLISH_TO_THUNDERSTORE%"=="1" (
+    if not exist "%PUBLISH_SCRIPT%" (
+        echo [dotvanisher.thunderstore] missing publish helper: %PUBLISH_SCRIPT%
+        exit /b 1
+    )
     echo [dotvanisher.thunderstore] publish mode enabled
     echo [dotvanisher.thunderstore] checking published Thunderstore version ...
     powershell -NoProfile -ExecutionPolicy Bypass -File "%PUBLISH_SCRIPT%" ^

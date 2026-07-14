@@ -79,8 +79,7 @@ namespace Horse
             uint64_t state_hash,
             bool include_state_hash) noexcept
         {
-            RollbackInputFrame& frame =
-                m_history.write(static_cast<int32_t>(local_frame));
+            RollbackInputFrame& frame = m_history.write(local_frame);
             frame.input.p1 = local_input;
             frame.p1_confirmed = true;
             frame.p1_predicted = false;
@@ -104,8 +103,7 @@ namespace Horse
             RollbackRemotePredictionReport report {};
             report.frame = remote_frame;
 
-            const RollbackInputFrame* existing =
-                m_history.find(static_cast<int32_t>(remote_frame));
+            const RollbackInputFrame* existing = m_history.find(remote_frame);
             if (existing && existing->p2_confirmed)
             {
                 report.input = existing->input.p2;
@@ -113,8 +111,7 @@ namespace Horse
                 return report;
             }
 
-            RollbackInputFrame& frame =
-                m_history.write(static_cast<int32_t>(remote_frame));
+            RollbackInputFrame& frame = m_history.write(remote_frame);
             frame.input.p2 = remote_prediction_seed(remote_frame);
             frame.p2_predicted = true;
             frame.p2_confirmed = false;
@@ -126,8 +123,8 @@ namespace Horse
             report.prediction_age_frames =
                 contiguous == kRollbackTransportNoFrame
                 ? remote_frame + 1
-                : (remote_frame > contiguous
-                    ? remote_frame - contiguous
+                : (RollbackFrameIsAfter(remote_frame, contiguous)
+                    ? RollbackFrameDistance(remote_frame, contiguous)
                     : 0);
             return report;
         }
@@ -173,7 +170,7 @@ namespace Horse
             }
 
             const RollbackInputFrame* predicted =
-                m_history.find(static_cast<int32_t>(packet.local_frame));
+                m_history.find(packet.local_frame);
             const bool had_prediction =
                 predicted && predicted->p2_predicted && !predicted->p2_confirmed;
             const uint64_t predicted_input =
@@ -207,7 +204,7 @@ namespace Horse
             }
 
             RollbackInputFrame& frame =
-                m_history.write(static_cast<int32_t>(packet.local_frame));
+                m_history.write(packet.local_frame);
             frame.input.p2 = packet.local_input;
             frame.p2_confirmed = true;
             frame.p2_predicted = false;
@@ -222,8 +219,11 @@ namespace Horse
                     RollbackOnlineAdapterStatus::AcceptedCorrectionRequired;
                 out.correction_start_frame = packet.local_frame;
                 out.rollback_depth_frames =
-                    local_sim_frame >= packet.local_frame
-                    ? local_sim_frame - packet.local_frame
+                    local_sim_frame == packet.local_frame
+                        || RollbackFrameIsAfter(
+                            local_sim_frame, packet.local_frame)
+                    ? RollbackFrameDistance(
+                        local_sim_frame, packet.local_frame)
                     : 0;
             }
             else
@@ -248,13 +248,15 @@ namespace Horse
             uint64_t best_input = 0;
             m_history.for_each(
                 [&](const RollbackInputFrame& frame) noexcept {
-                    if (!frame.p2_confirmed || frame.frame < 0)
+                    if (!frame.p2_confirmed || !frame.frame.valid)
                         return;
-                    const uint32_t confirmed_frame =
-                        static_cast<uint32_t>(frame.frame);
-                    if (confirmed_frame >= remote_frame)
+                    const uint32_t confirmed_frame = frame.frame.value;
+                    if (!RollbackFrameIsBefore(
+                            confirmed_frame, remote_frame))
                         return;
-                    if (!found || confirmed_frame > best_frame)
+                    if (!found
+                        || RollbackFrameIsAfter(
+                            confirmed_frame, best_frame))
                     {
                         found = true;
                         best_frame = confirmed_frame;

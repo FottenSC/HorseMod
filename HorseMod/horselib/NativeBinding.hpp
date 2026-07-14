@@ -41,6 +41,11 @@
 
 namespace Horse
 {
+    // g_LuxBattle_VMFreezeRecord @ 0x1448462D0 in the supported SC6
+    // executable. Keep the full RVA here; the previous duplicated literal
+    // 0x4862D0 silently dropped the high 0x4000000 and targeted code memory.
+    inline constexpr uintptr_t kRVA_LuxBattleVMFreezeRecord = 0x48462D0;
+
     struct KHitScratchVec4
     {
         float X, Y, Z, W;
@@ -127,6 +132,51 @@ namespace Horse
     using LuxBattleChara_SetStartPositionFn =
         void(__fastcall*)(void* chara, float x, float y, float z);
 
+    // Exact 0x30-byte UE4 FTransform used by ALuxBattleChara's virtual
+    // presentation-transform getter (vtable +0x6A0) and SetActorTransform.
+    // Ghidra: FTransform48, SetActorTransform @ 0x141C2A1D0.
+    struct alignas(16) NativeFTransform48
+    {
+        float rotation[4] {};
+        float translation[4] {};
+        float scale3d[4] {};
+    };
+    static_assert(sizeof(NativeFTransform48) == 0x30);
+
+    using ALuxBattleChara_GetPresentationTransformFn =
+        NativeFTransform48*(__fastcall*)(
+            void* chara, NativeFTransform48* out_transform);
+
+    // bool AActor::SetActorTransform(
+    //     const FTransform&, bool bSweep, FHitResult*, ETeleportType)
+    //
+    // The replay-fork lab always uses no sweep, no hit-result output, and
+    // no teleport. This is the exact call made at ALuxBattleChara_TickActor
+    // +0x293 (0x1403D0823) after virtual slot +0x6A0 builds the transform.
+    using AActor_SetActorTransformFn =
+        bool(__fastcall*)(void* actor,
+                          const NativeFTransform48* transform,
+                          bool sweep,
+                          void* sweep_hit_result,
+                          uint8_t teleport_type);
+
+    // Process-local diagnostics for the deliberately narrow presentation
+    // publish path. None of these addresses participate in rollback hashes or
+    // cross-peer consensus; they exist to prove that the fixture reached a
+    // live ALuxBattleChara actor and its root scene component.
+    struct NativePresentationPublishReport
+    {
+        uintptr_t actor {0};
+        uintptr_t vtable {0};
+        uintptr_t transform_getter {0};
+        uintptr_t root_component {0};
+        bool getter_called {false};
+        bool getter_returned_transform {false};
+        bool setter_called {false};
+        bool setter_returned_true {false};
+        bool exception {false};
+    };
+
     // Generic "void(launcher, bool)" signature shared by all 5 BattleRule
     // setters on ULuxUIBattleLauncher.  Each writes the bool to
     // BattleRule.<RuleName> in the launcher's data-table cache.
@@ -206,6 +256,9 @@ namespace Horse
         // 0x140000000).  Re-verify after any SC6 patch.
         static constexpr uintptr_t kLuxBattleBuildHitboxLocalMatrixRVA = 0x30BBA0;
         static constexpr uintptr_t kLuxBattleCharaSetStartPositionRVA = 0x301E60;
+        static constexpr uintptr_t kAActorSetActorTransformRVA = 0x1C2A1D0;
+        static constexpr size_t kALuxBattleCharaPresentationTransformVtableOffset =
+            0x6A0;
 
         // ULuxUIBattleLauncher::Start (the "kick off the configured match"
         // chokepoint) and the 5 BattleRule setters it reads from.  All
@@ -265,6 +318,10 @@ namespace Horse
             s_set_start_position =
                 reinterpret_cast<LuxBattleChara_SetStartPositionFn>(
                     s_image_base + kLuxBattleCharaSetStartPositionRVA);
+
+            s_set_actor_transform =
+                reinterpret_cast<AActor_SetActorTransformFn>(
+                    s_image_base + kAActorSetActorTransformRVA);
 
             // Online-rules infrastructure — Start chokepoint + 5 setters.
             s_launcher_start =
@@ -361,6 +418,69 @@ namespace Horse
             {
                 ok = false;
             }
+            return ok;
+        }
+
+        // Publish only the transform portion of ALuxBattleChara_TickActor.
+        // This deliberately excludes hair, materials, weapon animation,
+        // visibility and ALuxCharaActor_TickActor. The virtual getter and
+        // engine setter are invoked in the same order and with the same
+        // arguments as the stock callsite at 0x1403D07E8..0x1403D0828.
+        static bool publishCharaPresentationTransform(
+            void* chara,
+            NativeFTransform48& published_transform,
+            NativePresentationPublishReport* out_report = nullptr) noexcept
+        {
+            NativePresentationPublishReport report {};
+            report.actor = reinterpret_cast<uintptr_t>(chara);
+            if (!s_set_actor_transform || !chara)
+            {
+                if (out_report) *out_report = report;
+                return false;
+            }
+
+            bool ok = false;
+            __try
+            {
+                void** vtable = *reinterpret_cast<void***>(chara);
+                report.vtable = reinterpret_cast<uintptr_t>(vtable);
+                report.root_component = *reinterpret_cast<uintptr_t*>(
+                    reinterpret_cast<uint8_t*>(chara) + 0x168);
+                if (vtable && report.root_component)
+                {
+                    auto getter = reinterpret_cast<
+                        ALuxBattleChara_GetPresentationTransformFn>(
+                            vtable[
+                                kALuxBattleCharaPresentationTransformVtableOffset
+                                / sizeof(void*)]);
+                    report.transform_getter =
+                        reinterpret_cast<uintptr_t>(getter);
+                    if (getter)
+                    {
+                        report.getter_called = true;
+                        NativeFTransform48* transform =
+                            getter(chara, &published_transform);
+                        report.getter_returned_transform = transform != nullptr;
+                        if (transform)
+                        {
+                            if (transform != &published_transform)
+                                published_transform = *transform;
+                            report.setter_called = true;
+                            report.setter_returned_true =
+                                s_set_actor_transform(
+                                    chara, &published_transform,
+                                    false, nullptr, 0);
+                            ok = report.setter_returned_true;
+                        }
+                    }
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                report.exception = true;
+                ok = false;
+            }
+            if (out_report) *out_report = report;
             return ok;
         }
 
@@ -473,6 +593,7 @@ namespace Horse
         static inline uintptr_t                     s_image_base         = 0;
         static inline LuxBattle_BuildHitboxLocalMatrixFn s_build_khit_obb_scratch = nullptr;
         static inline LuxBattleChara_SetStartPositionFn s_set_start_position = nullptr;
+        static inline AActor_SetActorTransformFn s_set_actor_transform = nullptr;
 
         // Online-rules infrastructure.
         static inline LuxUIBattleLauncher_StartFn        s_launcher_start       = nullptr;

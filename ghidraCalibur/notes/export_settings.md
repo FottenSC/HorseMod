@@ -1,44 +1,19 @@
-# CppExporter Settings
+# Structured Export Settings
 
-Record the settings used for each manual export here.
+- Schema: `ghidra-calibur-export/v1`
+- Supported Ghidra: 12.0.4
+- Default program: `SoulcaliburVI.exe`
+- Default project: `E:\DevShitPosts\SC6Mods\SCVI_Modding\SCVI_Modding.gpr`
+- Default MCP: `http://127.0.0.1:8089`
+- Default per-function timeout: 5 seconds
+- Failure retry timeout: max(20 seconds, four times the normal timeout), batched once before final records are written
+- Body shards: at most 250 functions or 8 MiB
+- Visible workspace: deterministic SC6-area and feature `src/` shards (for example `codec_0001.cpp`) plus browse-only `include/` headers; addresses remain in shard headers and hidden `.ghidra` indexes
+- PE metadata: external functions are emitted as deterministic `imports.jsonl` records grouped into `include/imports/`; actual external entry points are emitted as `exports.jsonl` and `include/exports/sc6_exports.h`
+- Normal coverage ceiling: at most 250 failures and at most 0.25% of body-eligible functions
+- Publication: immutable `generations/<content-id>` plus atomic `current.json`
+- Retention: current plus two previous complete generations
+- Source consistency: MCP `save_program` followed by read-only `/run_script`; publication is rejected if the Ghidra program modification number changes during export
+- Stable reruns: reuse the existing generation only after full validation when executable identity, pipeline source hash, options, authoritative function metadata, and core artifact hashes match
 
-## Current Export
-
-- Date: 2026-06-25
-- Ghidra install found locally: `E:\DevShitPosts\SC6Mods\Ghidra`
-- Ghidra project/program: `E:\DevShitPosts\SC6Mods\SCVI_Modding` / `SoulcaliburVI.exe`
-- Exporter: Ghidra C/C++ exporter / CppExporter
-- Output folder: `E:\myMods\ghidraCalibur\exported`
-- Suggested output file: `sc6_decompiled.cpp`
-- Headless per-function timeout: 5 seconds
-- Build expectation: none; Visual Studio browsing only
-- Export status: completed on 2026-06-25 at 01:14 local time
-- Output sizes:
-  - `sc6_decompiled.cpp`: 252,585,894 bytes
-  - `sc6_decompiled.h`: 125,287,700 bytes
-  - Raw files were removed after the final successful browse/index rebuild.
-
-## Notes
-
-- The Visual Studio project is a utility project and excludes exported source files from build.
-- Re-exporting should only require overwriting files under `exported/`.
-- If the export produces multiple files or headers, leave them under `exported/`; the project uses recursive wildcards.
-- Headless export helper: `E:\myMods\ghidraCalibur\tools\RunCppExporter.java`
-- Repeatable export wrapper: `E:\myMods\ghidraCalibur\tools\export_ghidra_calibur.ps1`
-- Browse-tree builder: `E:\myMods\ghidraCalibur\tools\build_browse_tree.py`
-- Full refresh wrapper: `E:\myMods\ghidraCalibur\tools\refresh_ghidra_calibur.ps1`
-- The original Ghidra project was locked by the open GUI, so this run exported from a temporary copied project under `ghidraCalibur\work`, then removed that temporary copy after export.
-
-## Browse Tree
-
-- Last generated: 2026-06-25
-- Parsed CppExporter function bodies: 139,161
-- Ghidra functions without parsed CppExporter bodies: 3,102
-- Class-centric files: 3,289
-- Functions placed in class-centric files: 5,835
-- Primary browse folder: `E:\myMods\ghidraCalibur\browse`
-- Primary index folder: `E:\myMods\ghidraCalibur\index`
-- Full refresh: `E:\myMods\ghidraCalibur\tools\refresh_ghidra_calibur.ps1`
-- Rebuild browse/index only: `E:\myMods\ghidraCalibur\tools\refresh_ghidra_calibur.ps1 -SkipExport`
-- Keep raw CppExporter files for fast local rebuilds: `E:\myMods\ghidraCalibur\tools\refresh_ghidra_calibur.ps1 -KeepRawExport`
-- Default successful refresh cleanup removes `exported/sc6_decompiled.cpp`, `exported/sc6_decompiled.h`, and `exported/*.log`, but keeps `exported/functions.csv`.
+The content manifest intentionally excludes timestamps, host paths, durations, retry diagnostics, and logs. Those fields are stored in `.ghidra/run/run_report.json`, `.ghidra/run/diagnostics.jsonl`, and `.ghidra/run/logs/` so identical program content and exporter settings retain the same deterministic generation identity. MSBuild validation writes only to disposable staging output.

@@ -10,6 +10,7 @@ an actual SC6 online peer/match.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -17,6 +18,8 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+from rollback_report_contract import artifact, contract_fields, coverage, utc_now
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -58,6 +61,19 @@ SELFTESTS = [
     HORSE_BUILD_DIR / "RollbackStockTransportObserveSelfTest.exe",
     HORSE_BUILD_DIR / "RollbackLiveOnlineCaptureSelfTest.exe",
     HORSE_BUILD_DIR / "RollbackSnapshotSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackSnapshotStoreSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackSideEffectLedgerSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackProtocolV2SelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackUdpRuntimeSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackSummaryConsensusSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackUiNavigationSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackOnlineStageStateSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackStockInviteFallbackSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackLaunchContractSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackBattleSceneStateSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackProductionActiveGuardSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackHistoricalCameraArgsSelfTest.exe",
+    HORSE_BUILD_DIR / "RollbackStageWindSnapshotSelfTest.exe",
 ]
 
 SELFTEST_TARGETS = [
@@ -78,6 +94,25 @@ SELFTEST_TARGETS = [
     "RollbackStockTransportObserveSelfTest",
     "RollbackLiveOnlineCaptureSelfTest",
     "RollbackSnapshotSelfTest",
+    "RollbackSnapshotStoreSelfTest",
+    "RollbackSideEffectLedgerSelfTest",
+    "RollbackProtocolV2SelfTest",
+    "RollbackUdpRuntimeSelfTest",
+    "RollbackSummaryConsensusSelfTest",
+    "RollbackUiNavigationSelfTest",
+    "RollbackOnlineStageStateSelfTest",
+    "RollbackStockInviteFallbackSelfTest",
+    "RollbackLaunchContractSelfTest",
+    "RollbackBattleSceneStateSelfTest",
+    "RollbackProductionActiveGuardSelfTest",
+    "RollbackHistoricalCameraArgsSelfTest",
+    "RollbackStageWindSnapshotSelfTest",
+]
+
+PYTHON_SELFTESTS = [
+    REPO / "tools" / "sc6_launch_catalog_selftest.py",
+    REPO / "tools" / "replay_input_script_selftest.py",
+    REPO / "tools" / "rollback_two_client_report_selftest.py",
 ]
 
 
@@ -380,6 +415,7 @@ def trace_analyze_command(
 def strict_replay_retryable_from_text(output: str) -> bool:
     strict_timing_only = (
         "tick gap spike" in output
+        or "native replay tick rate too slow" in output
         or "seek landing too slow" in output
     )
     return (
@@ -408,6 +444,7 @@ def strict_replay_retryable_from_report(report_path: Path) -> bool:
         r"\bstate_mismatches=0\b", analyzer_stdout) is not None
     strict_timing_only = (
         "tick gap spike" in analyzer_stdout
+        or "native replay tick rate too slow" in analyzer_stdout
         or "seek landing too slow" in analyzer_stdout
     )
     return (
@@ -434,20 +471,32 @@ def strict_replay_retryable(result: dict[str, object]) -> bool:
 
 def run_strict_replay_with_retries(retries: int) -> dict[str, object]:
     attempts: list[dict[str, object]] = []
+    retry_authorized = False
     for attempt_index in range(retries + 1):
-        warm_process = attempt_index > 0
+        # A failed timing run can leave replay startup state in-flight.  Every
+        # retry must reproduce the pinned cold-launch gate; warm retries both
+        # changed the test and could time out while reusing stale state.
+        warm_process = False
         result = run_command(
             "strict-replay",
             replay_command(warm_process=warm_process),
             900)
         result["warm_process_retry"] = warm_process
         attempts.append(result)
-        if result["ok"] or not strict_replay_retryable(result):
+        if result["ok"]:
+            break
+        if attempt_index == 0:
+            retry_authorized = strict_replay_retryable(result)
+        if not retry_authorized:
             break
     final = dict(attempts[-1])
     final["name"] = "strict-replay"
     final["attempt_count"] = len(attempts)
     final["retry_count"] = len(attempts) - 1
+    final["retry_authorized_by_timing_only_first_attempt"] = retry_authorized
+    final["failed_attempt_count"] = sum(
+        1 for attempt in attempts if not attempt["ok"]
+    )
     final["attempts"] = attempts
     if len(attempts) > 1:
         final["output"] = "\n\n".join(
@@ -467,8 +516,8 @@ def main() -> int:
     p.add_argument("--live-online-only", action="store_true")
     p.add_argument("--require-live-activation-candidate", action="store_true")
     p.add_argument("--live-online-watch-seconds", type=float)
-    p.add_argument("--profile", choices=FAULT_PROFILES, default="all",
-                   help="Fault-injected same-machine network profile to run")
+    p.add_argument("--simulation-profile", choices=FAULT_PROFILES, default="all",
+                   help="In-process simulation fault profile to run")
     p.add_argument("--strict-replay-retries", type=int, default=2)
     p.add_argument("--watch-seconds", type=float, default=25.0)
     p.add_argument("--output-dir", type=Path, default=REPORT_DIR)
@@ -507,13 +556,22 @@ def main() -> int:
             results.append(
                 run_command(
                     exe.name,
-                    selftest_command(exe, args.profile),
+                    selftest_command(exe, args.simulation_profile),
                     180 if exe.name == "RollbackFaultInjectSelfTest.exe"
                     else 120,
                 ))
+        for script in PYTHON_SELFTESTS:
+            if not script.exists():
+                results.append(failed_result(
+                    script.name, f"missing script: {script}"))
+                continue
+            results.append(run_command(
+                script.name, [sys.executable, str(script)], 120))
 
     if not args.live_online_only and not args.skip_game_labs:
         for case, require_flag in LAB_CASES:
+            if case == "live-online-capture" and not args.include_live_online:
+                continue
             case_watch_seconds = args.watch_seconds
             if case == "live-online-capture":
                 case_watch_seconds = max(case_watch_seconds, 90.0)
@@ -593,24 +651,84 @@ def main() -> int:
                 args.require_live_activation_candidate),
         )
 
-    ok = all(bool(r["ok"]) for r in results)
+    workflow_ok = bool(results) and all(bool(r["ok"]) for r in results)
+    if args.live_online_only:
+        required = [
+            "live-online-capture",
+            "analyze-live-online-capture-trace-live",
+        ]
+        workflow_kind = "live-online-capture"
+    else:
+        required = [
+            "preflight-close-game", "build-and-deploy", "build-selftests"
+        ]
+        required.extend(exe.name for exe in SELFTESTS)
+        required.extend(script.name for script in PYTHON_SELFTESTS)
+        required.extend(
+            f"lab-{case}" for case, _ in LAB_CASES
+            if case != "live-online-capture"
+        )
+        required.append("strict-replay")
+        workflow_kind = "local-regression"
+        if args.include_live_online:
+            required.extend([
+                "lab-live-online-capture",
+                "live-online-capture",
+                "analyze-live-online-capture-trace-live",
+            ])
+    observed = [str(result.get("name", "")) for result in results]
+    strict_result = next(
+        (item for item in results if item.get("name") == "strict-replay"),
+        {},
+    )
+    strict_attempts = strict_result.get("attempts", [])
+    strict_output = str(
+        strict_attempts[-1].get("output", "")
+        if strict_attempts else strict_result.get("output", "")
+    )
+    strict_report_path = Path(
+        output_label(strict_output, "report json") or ""
+    )
+    coverage_result = coverage(required, observed)
+    contract = contract_fields(
+        workflow_kind=workflow_kind,
+        workflow_ok=workflow_ok,
+        coverage_result=coverage_result,
+    )
     summary = {
-        "ok": ok,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        **contract,
+        "generated_at": utc_now(),
         "repo": str(REPO),
         "run_id": run_id,
         "request_id": run_id,
         "mode": "live-online-only" if args.live_online_only else "full",
-        "fault_profile": args.profile,
+        "simulation_profile": args.simulation_profile,
+        "requested_skips": {
+            "build": args.skip_build,
+            "selftests": args.skip_selftests,
+            "game_labs": args.skip_game_labs,
+            "replay": args.skip_replay,
+        },
+        "artifacts": {
+            "built_dll": artifact(HORSE_BUILD_DIR / "HorseMod.dll"),
+            "deployed_dll": artifact(Path(
+                r"E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\ue4ss\Mods\HorseMod\dlls\main.dll")),
+            "replay_input": artifact(REPLAY_FILE),
+            "strict_replay_report": artifact(strict_report_path),
+        },
         "results": results,
     }
     report_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"rollback validation {'PASS' if ok else 'FAIL'}")
+    label = (
+        "rollback live online capture"
+        if args.live_online_only else "rollback local regression"
+    )
+    print(f"{label} {contract['verdict'].upper()}")
     print(f"report={report_path}")
     for r in results:
         status = "PASS" if r["ok"] else "FAIL"
         print(f"{status} {r['name']} ({r['elapsed_seconds']}s)")
-    return 0 if ok else 1
+    return 0 if contract["verdict"] == "pass" else 1
 
 
 if __name__ == "__main__":

@@ -1,0 +1,32 @@
+{
+  "schema": "sc6-ue-source-forensics-corroboration/v1",
+  "markers": [
+    {
+      "marker": "CancelAsyncLoadingInternal is not thread safe! This must be fixed before being enabled for EDL",
+      "verified": true,
+      "disposition": "accepted",
+      "kind": "ghidra-decompile-and-xref",
+      "location": "string 0x143508320 -> 0x140e44f30 (CancelAsyncLoadingInternal)",
+      "evidence": "The function logs the source path/line, checks GIsGarbageCollecting and game-thread identity, then enters the async-loader critical section and clears pending loader state.",
+      "provenance": "UE 4.17.2 verified; type reference is isolated because the function reaches offsets beyond the proven 0x70 prefix."
+    },
+    {
+      "marker": "Forcibly toggles the 'GPU Crashed' flag for testing crash analytics.",
+      "verified": true,
+      "disposition": "accepted",
+      "kind": "ghidra-decompile-and-xref",
+      "location": "string 0x1434d4500 -> 0x1401c08c0 (RegisterToggleGpuCrashedFlagCommand)",
+      "evidence": "The function registers c.ToggleGPUCrashedFlagDbg with the console manager using the exact diagnostic text.",
+      "provenance": "UE 4.17.2 verified; descriptive name for a compiler-generated initializer, not an Epic source symbol."
+    }
+  ],
+  "rejected_applications": [
+    {
+      "candidate": "UE4172_FAsyncLoadingThreadPartial applied as 0x140e44f30 parameter",
+      "disposition": "rejected",
+      "kind": "post-apply-ghidra-decompile",
+      "location": "0x140e44f30",
+      "evidence": "The exact 0x70 partial prefix is valid, but applying it to this parameter generated pAsyncLoadingThread[n] member casts for accesses beyond +0x70. The function retains a named void* parameter and the partial layout remains isolated."
+    }
+  ]
+}

@@ -37,6 +37,7 @@ namespace Horse
     struct RollbackLiveOnlineCaptureReport;
     struct RollbackLiveBoundaryReport;
     struct RollbackCacheInjectionReport;
+    struct RollbackSidecarReport;
 
     class RollbackDiag
     {
@@ -45,6 +46,9 @@ namespace Horse
             const RollbackLabConfig& cfg,
             const RollbackSnapshotManifest* manifest = nullptr) noexcept;
         static void emit_service_tick(uint64_t tick, const RollbackLabConfig& cfg) noexcept;
+        static void emit_two_client_role_manifest(
+            const RollbackLabConfig& cfg,
+            const RollbackSnapshotManifest* manifest = nullptr) noexcept;
         static void emit_snapshot_roundtrip(
             const RollbackSnapshotRoundTripReport& report,
             const RollbackLabConfig& cfg) noexcept;
@@ -105,5 +109,42 @@ namespace Horse
         static void emit_cache_injection(
             const RollbackCacheInjectionReport& report,
             const RollbackLabConfig& cfg) noexcept;
+        static void emit_sidecar_bind(
+            const RollbackSidecarReport& report,
+            const RollbackLabConfig& cfg) noexcept;
+        static void emit_sidecar_handshake(
+            const RollbackSidecarReport& report,
+            const RollbackLabConfig& cfg) noexcept;
+        static void emit_direct_connect(
+            const RollbackSidecarReport& report,
+            const RollbackLabConfig& cfg) noexcept;
+        static void emit_direct_correction(
+            const RollbackSidecarReport& sidecar,
+            const RollbackResimWindowReport& resim,
+            const RollbackLabConfig& cfg) noexcept;
+        static void emit_live_cache_write(
+            const RollbackSidecarReport& sidecar,
+            const RollbackLiveOnlineCaptureReport& capture,
+            const RollbackLiveActivationReport& activation,
+            const RollbackResimWindowReport& resim,
+            const RollbackLabConfig& cfg) noexcept;
+        static void emit_live_correction(
+            const RollbackSidecarReport& sidecar,
+            const RollbackLiveOnlineCaptureReport& capture,
+            const RollbackLiveActivationReport& activation,
+            const RollbackResimWindowReport& resim,
+            const RollbackLabConfig& cfg) noexcept;
+        static void emit_live_convergence(
+            const RollbackSidecarReport& sidecar,
+            const RollbackLiveOnlineCaptureReport& capture,
+            const RollbackLiveActivationReport& activation,
+            const RollbackResimWindowReport& resim,
+            const RollbackLabConfig& cfg) noexcept;
+        static void emit_live_disarm(
+            const RollbackSidecarReport& sidecar,
+            const RollbackLiveOnlineCaptureReport& capture,
+            const RollbackLiveActivationReport& activation,
+            const RollbackLabConfig& cfg,
+            const char* reason) noexcept;
     };
 }

@@ -1,15 +1,18 @@
 // ============================================================================
 // Horse::RollbackStockTransportObserveHook
 //
-// Observe-only detours for the native SC6 online transport acquisition, stock
-// send entry points, and receive enqueue boundary. These hooks never modify
-// payloads or route packets; they only record counters/pointers for rollback
-// live-peer integration work.
+// Observe-only in normal operation. The explicitly enabled stock diagnostic
+// script may write native send-cache cells, but never routes packets or claims
+// those write/readbacks were consumed by gameplay.
 // ============================================================================
 
 #pragma once
 
 #include "NativeBinding.hpp"
+#include "RollbackFrameStamp.hpp"
+#include "RollbackInputCacheAdapter.hpp"
+#include "RollbackInputLogProbe.hpp"
+#include "RollbackReplayInputScript.hpp"
 #include "RollbackStockTransportObserveModel.hpp"
 #include "SafeMemoryRead.hpp"
 
@@ -24,6 +27,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace Horse
 {
@@ -198,6 +202,56 @@ namespace Horse
             return m_tracker.report();
         }
 
+        void begin_replay_input_script(
+            uint32_t local_player_slot,
+            const std::vector<uint32_t>& inputs,
+            uint64_t input_hash) noexcept
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_script_inputs = inputs;
+            m_script_report = {};
+            m_script_report.enabled = true;
+            m_script_report.hooks_installed = installed();
+            m_script_report.script_available = !m_script_inputs.empty();
+            m_script_report.local_player_slot = local_player_slot;
+            m_script_report.script_frames = m_script_inputs.size();
+            m_script_report.input_hash = input_hash;
+            m_script_report.failure =
+                m_script_inputs.empty() ? "script-empty" : "waiting";
+            m_script_base_frame = 0;
+            m_script_base_set = false;
+            ResetRollbackReplayInputScriptEpoch();
+            m_cache_write_readback_hash = 1469598103934665603ull;
+            m_cache_write_readback_count = 0;
+            m_script_enabled.store(
+                local_player_slot < 2 && !m_script_inputs.empty(),
+                std::memory_order_release);
+        }
+
+        void end_replay_input_script() noexcept
+        {
+            m_script_enabled.store(false, std::memory_order_release);
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_script_report.enabled = false;
+            m_script_inputs.clear();
+            m_script_base_set = false;
+        }
+
+        RollbackReplayInputInjectionReport
+        replay_input_script_report() noexcept
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_script_report.hooks_installed = installed();
+            m_script_report.enabled =
+                m_script_enabled.load(std::memory_order_acquire);
+            m_script_report.script_available = !m_script_inputs.empty();
+            m_script_report.injected =
+                m_script_report.send_cache_written;
+            if (m_script_report.injected)
+                m_script_report.failure = "ok";
+            return m_script_report;
+        }
+
     private:
         RollbackStockTransportObserveHook() = default;
         ~RollbackStockTransportObserveHook() { uninstall(); }
@@ -243,6 +297,21 @@ namespace Horse
             uint64_t qwUnused2)
         {
             auto& self = instance();
+            uint32_t scripted_input = bInputByte;
+            uint32_t absolute_frame = 0;
+            const bool absolute_frame_valid =
+                resolve_opcode0_absolute_frame(
+                    pInputLog, nFrameID, absolute_frame);
+            if (self.m_script_enabled.load(std::memory_order_acquire))
+            {
+                std::lock_guard<std::mutex> lock(self.m_mutex);
+                if (absolute_frame_valid
+                    && self.script_input_for_frame_locked(
+                        absolute_frame, scripted_input))
+                {
+                    bInputByte = static_cast<uint8_t>(scripted_input);
+                }
+            }
             if (self.m_trace_enabled.load(std::memory_order_acquire))
             {
                 std::lock_guard<std::mutex> lock(self.m_mutex);
@@ -256,6 +325,9 @@ namespace Horse
             Fn orig = reinterpret_cast<Fn>(self.m_opcode0_trampoline);
             if (orig)
                 orig(pInputLog, bInputByte, nFrameID, qwUnused2);
+            self.apply_replay_script_opcode0(
+                pInputLog, absolute_frame, absolute_frame_valid,
+                scripted_input);
         }
 
         static void __fastcall detour_opcode1(
@@ -267,6 +339,9 @@ namespace Horse
             uint32_t dwResendCounter)
         {
             auto& self = instance();
+            self.apply_replay_script_opcode1(
+                pInputLog, dwSlotBitmask, nFrameID, nCurrentFrame,
+                nWindowFrames);
             if (self.m_trace_enabled.load(std::memory_order_acquire))
             {
                 std::lock_guard<std::mutex> lock(self.m_mutex);
@@ -287,6 +362,254 @@ namespace Horse
                 orig(pInputLog, dwSlotBitmask, nFrameID, nCurrentFrame,
                      nWindowFrames, dwResendCounter);
             }
+        }
+
+        static uintptr_t cache_entry_address(
+            uintptr_t pInputLog,
+            uint32_t dwPlayerIdx,
+            uint32_t dwFrameIndex) noexcept
+        {
+            const uintptr_t entry_index =
+                static_cast<uintptr_t>(dwPlayerIdx) * 0x200u
+                + static_cast<uintptr_t>(dwFrameIndex & 0x1FFu);
+            return pInputLog + kRollbackIL_InputCacheStart_Off
+                + entry_index * sizeof(FLuxReplayInputCacheEntry_Model);
+        }
+
+        static bool write_cache_entry(
+            uintptr_t pInputLog,
+            uint32_t dwPlayerIdx,
+            int32_t nFrameID,
+            uint32_t dwFrameIndex,
+            uint32_t dwInputValue) noexcept
+        {
+            if (!pInputLog || dwPlayerIdx >= 2)
+                return false;
+            FLuxReplayInputCacheEntry_Model entry {};
+            entry.nFrameID = nFrameID;
+            entry.dwFrameIndex = dwFrameIndex;
+            entry.dwInputValue = dwInputValue;
+            entry.bFilled = 1;
+            const uintptr_t entry_addr =
+                cache_entry_address(pInputLog, dwPlayerIdx, dwFrameIndex);
+            return SafeWriteBytes(
+                reinterpret_cast<void*>(entry_addr),
+                &entry,
+                sizeof(entry));
+        }
+
+        static bool read_cache_entry(
+            uintptr_t pInputLog,
+            uint32_t dwPlayerIdx,
+            uint32_t dwFrameIndex,
+            FLuxReplayInputCacheEntry_Model& out) noexcept
+        {
+            out = {};
+            if (!pInputLog || dwPlayerIdx >= 2) return false;
+            return SafeReadBytes(
+                reinterpret_cast<const void*>(cache_entry_address(
+                    pInputLog, dwPlayerIdx, dwFrameIndex)),
+                &out,
+                sizeof(out));
+        }
+
+        static bool read_input_log_last_frame_id(
+            void* pInputLog,
+            int32_t& nLastFrameId) noexcept
+        {
+            nLastFrameId = 0;
+            if (!pInputLog) return false;
+            return SafeReadBytes(
+                static_cast<const uint8_t*>(pInputLog)
+                    + kRollbackIL_nLastFrameID_Off,
+                &nLastFrameId,
+                sizeof(nLastFrameId));
+        }
+
+        static bool resolve_opcode0_absolute_frame(
+            void* pInputLog,
+            int32_t nFrameID,
+            uint32_t& absoluteFrame) noexcept
+        {
+            absoluteFrame = 0;
+            if (nFrameID >= 0)
+            {
+                absoluteFrame = static_cast<uint32_t>(nFrameID);
+                return true;
+            }
+            int32_t nLastFrameId = 0;
+            if (!read_input_log_last_frame_id(pInputLog, nLastFrameId)
+                || nLastFrameId < 0)
+                return false;
+            absoluteFrame = static_cast<uint32_t>(nLastFrameId);
+            return true;
+        }
+
+        bool script_input_for_frame_locked(
+            uint32_t frame,
+            uint32_t& input) noexcept
+        {
+            // Opcode 1 owns the shared absolute epoch because only its native
+            // window supplies currentFrame-window. Opcode 0 performs exact
+            // frame lookup only after that epoch exists.
+            if (!m_script_base_set) return false;
+            if (RollbackFrameIsBefore(frame, m_script_base_frame))
+                return false;
+            const uint32_t index = RollbackFrameDistance(
+                frame, m_script_base_frame);
+            if (index >= m_script_inputs.size()) return false;
+            input = m_script_inputs[index];
+            return true;
+        }
+
+        void record_cache_write_readback_locked(uint32_t input) noexcept
+        {
+            const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&input);
+            for (size_t i = 0; i < sizeof(input); ++i)
+            {
+                m_cache_write_readback_hash ^= bytes[i];
+                m_cache_write_readback_hash *= 1099511628211ull;
+            }
+            ++m_cache_write_readback_count;
+            m_script_report.cache_write_readback_hash =
+                m_cache_write_readback_hash;
+            m_script_report.cache_write_readbacks =
+                m_cache_write_readback_count;
+            m_script_report.cache_write_readback_ok = true;
+        }
+
+        void apply_replay_script_opcode0(
+            void* pInputLog,
+            uint32_t absoluteFrame,
+            bool absoluteFrameValid,
+            uint32_t scripted_input) noexcept
+        {
+            if (!m_script_enabled.load(std::memory_order_acquire)
+                || !pInputLog || !absoluteFrameValid)
+                return;
+            std::lock_guard<std::mutex> lock(m_mutex);
+            uint32_t exact = 0;
+            if (!script_input_for_frame_locked(absoluteFrame, exact)) return;
+            int32_t nLastFrameId = 0;
+            if (!read_input_log_last_frame_id(pInputLog, nLastFrameId))
+                return;
+            const uint32_t slot = m_script_report.local_player_slot;
+            if (!write_cache_entry(
+                    reinterpret_cast<uintptr_t>(pInputLog),
+                    slot, nLastFrameId, absoluteFrame, exact))
+                return;
+            FLuxReplayInputCacheEntry_Model applied {};
+            if (read_cache_entry(
+                    reinterpret_cast<uintptr_t>(pInputLog),
+                    slot, absoluteFrame, applied)
+                && applied.bFilled
+                && applied.nFrameID == nLastFrameId
+                && applied.dwFrameIndex == absoluteFrame)
+            {
+                record_cache_write_readback_locked(applied.dwInputValue);
+                if (m_cache_write_readback_count == 1)
+                    m_script_report.first_injected_frame = absoluteFrame;
+                m_script_report.last_injected_frame = absoluteFrame;
+            }
+            (void)scripted_input;
+        }
+
+        void apply_replay_script_opcode1(
+            void* pInputLog,
+            uint32_t dwSlotBitmask,
+            int32_t nFrameID,
+            int32_t nCurrentFrame,
+            int32_t nWindowFrames) noexcept
+        {
+            if (!m_script_enabled.load(std::memory_order_acquire))
+                return;
+            if (!pInputLog || nCurrentFrame < 0 || nWindowFrames <= 0)
+                return;
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (m_script_inputs.empty() ||
+                m_script_report.local_player_slot >= 2)
+            {
+                m_script_report.failure = "script-empty";
+                return;
+            }
+            int32_t nLastFrameId = 0;
+            if (!read_input_log_last_frame_id(pInputLog, nLastFrameId))
+            {
+                m_script_report.failure = "input-log-last-frame-unreadable";
+                return;
+            }
+            const uint32_t slot = m_script_report.local_player_slot;
+            if ((dwSlotBitmask & (1u << slot)) == 0)
+            {
+                m_script_report.failure = "waiting-for-local-slot-window";
+                return;
+            }
+
+            const int64_t start64 =
+                static_cast<int64_t>(nCurrentFrame)
+                - static_cast<int64_t>(nWindowFrames);
+            const uint32_t start_frame =
+                static_cast<uint32_t>(start64 < 0 ? 0 : start64);
+            if (!m_script_base_set)
+            {
+                if (!EstablishRollbackReplayInputScriptEpoch(start_frame)
+                    || !GetRollbackReplayInputScriptEpoch(
+                        m_script_base_frame))
+                {
+                    m_script_report.failure =
+                        "script-epoch-establish-failed";
+                    return;
+                }
+                m_script_base_set = true;
+                m_script_report.script_epoch = m_script_base_frame;
+                m_script_report.script_epoch_set = true;
+            }
+
+            uint64_t writes = 0;
+            const uint32_t count =
+                static_cast<uint32_t>(
+                    std::min<int32_t>(nWindowFrames, 120));
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                const uint32_t frame = start_frame + i;
+                uint32_t input = 0;
+                if (!script_input_for_frame_locked(frame, input))
+                    break;
+                if (write_cache_entry(
+                        reinterpret_cast<uintptr_t>(pInputLog),
+                        slot,
+                        nLastFrameId,
+                        frame,
+                        input))
+                {
+                    ++writes;
+                    if (m_script_report.first_injected_frame == 0)
+                        m_script_report.first_injected_frame = frame;
+                    m_script_report.last_injected_frame = frame;
+                    FLuxReplayInputCacheEntry_Model applied {};
+                    if (read_cache_entry(
+                            reinterpret_cast<uintptr_t>(pInputLog),
+                            slot, frame, applied)
+                        && applied.bFilled
+                        && applied.nFrameID == nLastFrameId
+                        && applied.dwFrameIndex == frame)
+                    {
+                        record_cache_write_readback_locked(
+                            applied.dwInputValue);
+                    }
+                }
+            }
+
+            ++m_script_report.send_windows;
+            m_script_report.send_cache_writes += writes;
+            m_script_report.send_cache_written =
+                m_script_report.send_cache_writes > 0;
+            m_script_report.injected =
+                m_script_report.send_cache_written;
+            m_script_report.failure =
+                writes > 0 ? "ok" : "script-window-out-of-range";
+            (void)nFrameID;
         }
 
         static void __fastcall detour_battle_sync_request_stage()
@@ -367,7 +690,14 @@ namespace Horse
         uint64_t m_receive_enqueue_trampoline {0};
         std::atomic<bool> m_installed {false};
         std::atomic<bool> m_trace_enabled {false};
+        std::atomic<bool> m_script_enabled {false};
         std::mutex m_mutex;
         RollbackStockTransportObserveTracker m_tracker {};
+        std::vector<uint32_t> m_script_inputs {};
+        uint32_t m_script_base_frame {0};
+        bool m_script_base_set {false};
+        uint64_t m_cache_write_readback_hash {1469598103934665603ull};
+        uint64_t m_cache_write_readback_count {0};
+        RollbackReplayInputInjectionReport m_script_report {};
     };
 }

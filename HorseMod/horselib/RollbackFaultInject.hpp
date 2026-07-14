@@ -12,6 +12,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace Horse
 {
@@ -72,6 +73,48 @@ namespace Horse
         BurstLoss500ms,
         CorruptProbe,
     };
+
+    static inline const char* RollbackNetworkProfileName(
+        RollbackNetworkProfileKind kind) noexcept
+    {
+        switch (kind)
+        {
+        case RollbackNetworkProfileKind::Clean0ms:
+            return "clean_0ms";
+        case RollbackNetworkProfileKind::Wifi50msJitter:
+            return "wifi_50ms_jitter";
+        case RollbackNetworkProfileKind::BadWifi120ms5PctLoss:
+            return "bad_wifi_120ms_5pct_loss";
+        case RollbackNetworkProfileKind::Overseas180ms2PctLoss:
+            return "overseas_180ms_2pct_loss";
+        case RollbackNetworkProfileKind::SpikeEvery10s:
+            return "spike_every_10s";
+        case RollbackNetworkProfileKind::BurstLoss500ms:
+            return "burst_loss_500ms";
+        case RollbackNetworkProfileKind::CorruptProbe:
+            return "corrupt_probe";
+        }
+        return "invalid";
+    }
+
+    static inline bool TryParseRollbackNetworkProfile(
+        const std::string& text,
+        RollbackNetworkProfileKind& out) noexcept
+    {
+        for (uint8_t raw = 0;
+             raw <= static_cast<uint8_t>(
+                 RollbackNetworkProfileKind::CorruptProbe);
+             ++raw)
+        {
+            const auto kind = static_cast<RollbackNetworkProfileKind>(raw);
+            if (text == RollbackNetworkProfileName(kind))
+            {
+                out = kind;
+                return true;
+            }
+        }
+        return false;
+    }
 
     struct RollbackNetworkProfile
     {
@@ -251,15 +294,14 @@ namespace Horse
     {
         RollbackNetworkProfile p {};
         p.kind = kind;
+        p.name = RollbackNetworkProfileName(kind);
         switch (kind)
         {
         case RollbackNetworkProfileKind::Clean0ms:
-            p.name = "clean_0ms";
             p.frame_count = 120;
             p.max_ticks = 240;
             break;
         case RollbackNetworkProfileKind::Wifi50msJitter:
-            p.name = "wifi_50ms_jitter";
             p.seed = 0x57494649u;
             p.base_latency_frames = 3;
             p.jitter_frames = 4;
@@ -269,7 +311,6 @@ namespace Horse
             p.max_ticks = 520;
             break;
         case RollbackNetworkProfileKind::BadWifi120ms5PctLoss:
-            p.name = "bad_wifi_120ms_5pct_loss";
             p.seed = 0xBAD5120u;
             p.base_latency_frames = 7;
             p.jitter_frames = 8;
@@ -280,7 +321,6 @@ namespace Horse
             p.max_ticks = 840;
             break;
         case RollbackNetworkProfileKind::Overseas180ms2PctLoss:
-            p.name = "overseas_180ms_2pct_loss";
             p.seed = 0x0180C0DEu;
             p.base_latency_frames = 11;
             p.jitter_frames = 6;
@@ -291,7 +331,6 @@ namespace Horse
             p.max_ticks = 840;
             break;
         case RollbackNetworkProfileKind::SpikeEvery10s:
-            p.name = "spike_every_10s";
             p.seed = 0x5010E10u;
             p.base_latency_frames = 3;
             p.jitter_frames = 2;
@@ -302,7 +341,6 @@ namespace Horse
             p.resend_window_frames = 36;
             break;
         case RollbackNetworkProfileKind::BurstLoss500ms:
-            p.name = "burst_loss_500ms";
             p.seed = 0xB0570500u;
             p.base_latency_frames = 4;
             p.jitter_frames = 4;
@@ -316,7 +354,6 @@ namespace Horse
             p.resend_window_frames = 48;
             break;
         case RollbackNetworkProfileKind::CorruptProbe:
-            p.name = "corrupt_probe";
             p.seed = 0xC044C7u;
             p.base_latency_frames = 2;
             p.jitter_frames = 2;

@@ -12,6 +12,7 @@ Repo layout:
 - `HorseMod/` — C++ ASI mod (PolyHook2 + custom hooks) for Soulcalibur VI
 - `RE-UE4SS/` — UE4SS integration
 - `dump/` — UE header/asset dumps used as RE inputs. a full dump can be found at `C:\Users\prest\Documents\SoulcaliburModding\SCVI Sound Tools\dump` move the files you end up using to the repo dump folder
+- `tools/BlueprintToCpp/` — cooked Blueprint pseudocode decompiler; output is analysis evidence, never buildable HorseMod code
 - `E:\DevShitPosts\SC6Mods\SC6ModdingDocs` — MkDocs knowledge base for reusable SC6 reverse-engineering facts; follow that repo's `AGENTS.md` when editing it.
 - `E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\ue4ss\UE4SS.log` — Can be used to check ue4ss logs
 
@@ -22,6 +23,13 @@ Run a strict replay seek test after changes touching ReplayScrub, replay hooks, 
 The reverse-engineering work runs through `bethington/ghidra-mcp` MCP tools. 
 The MCP is the authoritative interface for Ghidra — never edit `.gpr` files or invoke Ghidra scripts directly. 
 The bridge auto-discovers tools from `/mcp/schema`; if a tool name isn't in the schema it doesn't exist.
+
+The sole script exception is `ghidraCalibur/tools/refresh_ghidra_calibur.ps1`: after MCP `save_program`, it may invoke the checked-in `StructuredExporter.java` read-only through the MCP `/run_script` endpoint. The exporter must reject concurrent program modifications and must not modify any Ghidra database.
+
+## Blueprint analysis
+
+- Use `tools/BlueprintToCpp` for readable pseudocode from extracted `.uasset`/`.uexp` pairs; configure `config.json`, build once, then run `dotnet .\BlueprintToCpp\bin\Release\net8.0\Main.dll`.
+- Treat generated `.cpp` as pseudocode. Verify behavior with Kismet bytecode/CFG or UE4SS runtime traces before editing.
 
 ## Ghidra MCP conventions
 

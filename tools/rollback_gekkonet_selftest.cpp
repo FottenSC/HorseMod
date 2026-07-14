@@ -24,6 +24,7 @@ int main()
              "adapter_bidirectional=%d bridge=%d bridge_meta=%d "
              "bridge_reject=%d adapter_gameplay_decode=%d "
              "adapter_gameplay_slots=%d adapter_gameplay_state=%d "
+             "adapter_baseline_a=%d adapter_baseline_b=%d "
              "adapter_checksums=%d "
              "frames=%u saves=%u loads=%u advances=%u rollback_advances=%u "
              "adapter_packets_sent=%u adapter_packets_recv=%u "
@@ -64,6 +65,8 @@ int main()
             adapter_report.gameplay_inputs_decoded ? 1 : 0,
             adapter_report.gameplay_slots_present ? 1 : 0,
             adapter_report.gameplay_inputs_drive_state ? 1 : 0,
+            adapter_report.initial_baseline_event_order_a ? 1 : 0,
+            adapter_report.initial_baseline_event_order_b ? 1 : 0,
             adapter_report.final_checksums_match ? 1 : 0,
             report.frames_submitted,
             report.save_events,
@@ -93,7 +96,8 @@ int main()
          "bridge=%d bridge_meta=%d bridge_reject=%d "
          "bridge_encoded=%u bridge_decoded=%u bridge_bad=%u "
          "adapter_gameplay_decode=%d adapter_gameplay_slots=%d "
-         "adapter_gameplay_state=%d adapter_gameplay_events=%u "
+         "adapter_gameplay_state=%d baseline_a=%d baseline_b=%d "
+         "adapter_gameplay_events=%u "
          "adapter_gameplay_inputs=%u "
          "adapter_checksum_a=0x%08X adapter_checksum_b=0x%08X\n",
         report.dependency_enabled ? 1 : 0,
@@ -128,6 +132,8 @@ int main()
         adapter_report.gameplay_inputs_decoded ? 1 : 0,
         adapter_report.gameplay_slots_present ? 1 : 0,
         adapter_report.gameplay_inputs_drive_state ? 1 : 0,
+        adapter_report.initial_baseline_event_order_a ? 1 : 0,
+        adapter_report.initial_baseline_event_order_b ? 1 : 0,
         adapter_report.gameplay_decoded_events,
         adapter_report.gameplay_decoded_inputs,
         adapter_report.final_checksum_a,

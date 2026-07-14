@@ -27,6 +27,7 @@
 #include <polyhook2/Detour/x64Detour.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -385,6 +386,11 @@ namespace DotVanisher
                 return false;
             }
 
+            if (!pin_own_module())
+            {
+                return false;
+            }
+
             m_trampoline = 0;
             m_detour = std::make_unique<PLH::x64Detour>(
                 static_cast<uint64_t>(target),
@@ -414,7 +420,40 @@ namespace DotVanisher
             return true;
         }
 
-        void uninstall()
+    private:
+        WatchTimeoutHook() = default;
+        ~WatchTimeoutHook() { uninstall_for_process_exit(); }
+        WatchTimeoutHook(const WatchTimeoutHook&) = delete;
+        WatchTimeoutHook& operator=(const WatchTimeoutHook&) = delete;
+
+        bool pin_own_module()
+        {
+            if (m_module_pinned.load(std::memory_order_acquire))
+            {
+                return true;
+            }
+
+            HMODULE self_module = nullptr;
+            const auto self_address = reinterpret_cast<LPCWSTR>(
+                reinterpret_cast<uintptr_t>(&WatchTimeoutHook::detour));
+            if (!::GetModuleHandleExW(
+                    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                        GET_MODULE_HANDLE_EX_FLAG_PIN,
+                    self_address,
+                    &self_module))
+            {
+                RC::Output::send<RC::LogLevel::Error>(
+                    STR("[DotVanisher] failed to pin DotVanisher module; "
+                        "hook disabled (GetLastError={})\n"),
+                    static_cast<uint32_t>(::GetLastError()));
+                return false;
+            }
+
+            m_module_pinned.store(true, std::memory_order_release);
+            return true;
+        }
+
+        void uninstall_for_process_exit()
         {
             if (!m_installed.exchange(false, std::memory_order_acq_rel))
             {
@@ -431,14 +470,9 @@ namespace DotVanisher
             clear_epoch_state(false);
 
             RC::Output::send<RC::LogLevel::Default>(
-                STR("[DotVanisher] spectator timeout hook uninstalled\n"));
+                STR("[DotVanisher] spectator timeout hook uninstalled "
+                    "during process teardown\n"));
         }
-
-    private:
-        WatchTimeoutHook() = default;
-        ~WatchTimeoutHook() { uninstall(); }
-        WatchTimeoutHook(const WatchTimeoutHook&) = delete;
-        WatchTimeoutHook& operator=(const WatchTimeoutHook&) = delete;
 
         static bool __fastcall detour(uint8_t* pHostSysState, float flDeltaSeconds)
         {
@@ -643,6 +677,7 @@ namespace DotVanisher
         std::unique_ptr<PLH::x64Detour> m_detour{};
         uint64_t m_trampoline = 0;
         std::atomic<bool> m_installed{false};
+        std::atomic<bool> m_module_pinned{false};
         std::atomic<bool> m_read_failure_logged{false};
         std::atomic<bool> m_write_failure_logged{false};
         std::atomic<bool> m_range_failure_logged{false};
@@ -667,10 +702,9 @@ namespace DotVanisher
             ModAuthors = STR("HorseMod contributors");
         }
 
-        ~Mod() override
-        {
-            WatchTimeoutHook::instance().uninstall();
-        }
+        // DotVanisher pins its DLL and keeps the native detour process-lifetime;
+        // UE4SS mod-object deletion must not unhook code that may be in flight.
+        ~Mod() override = default;
 
         auto on_unreal_init() -> void override
         {

@@ -113,3 +113,7 @@ dist/
 # multi-hit-step bug investigation.  Do NOT commit — licensed game assets.
 # Regenerable from a local UnrealPak dump.
 /dump/
+
+# --- BlueprintToCpp generated pseudocode -----------------------------------
+# Decompiled SC6 Blueprint output is analysis evidence only; never commit it.
+/tools/BlueprintToCpp/BlueprintToCpp/bin/

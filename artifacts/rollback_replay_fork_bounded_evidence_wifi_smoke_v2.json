@@ -1,0 +1,1148 @@
+{
+  "acceptance_executed": true,
+  "acceptance_ok": true,
+  "anchor": {
+    "master": 414,
+    "round": 1,
+    "sequence": 2751
+  },
+  "coverage": {
+    "complete": true,
+    "missing": [],
+    "observed": [
+      "replay-identity",
+      "inventory",
+      "frozen-fixture",
+      "direct-step-matrix",
+      "authenticated-gekko",
+      "anchor-restore",
+      "replay-resume",
+      "rollback-correction"
+    ],
+    "required": [
+      "inventory",
+      "replay-identity",
+      "frozen-fixture",
+      "direct-step-matrix",
+      "authenticated-gekko",
+      "rollback-correction",
+      "anchor-restore",
+      "replay-resume"
+    ]
+  },
+  "coverage_complete": true,
+  "created_utc": "2026-07-13T20:45:01+00:00",
+  "deprecated_alias_used": false,
+  "evidence_scope": "rollback-core-integration",
+  "fresh_launches": 1,
+  "gekko_library": "GekkoNet",
+  "mode": "replay-fork-lab",
+  "oracle_match": null,
+  "production_certified": false,
+  "profiles": [
+    "wifi_50ms_jitter"
+  ],
+  "proof_non_skip": false,
+  "release_lanes": {
+    "local_vs_attach": "MirroredVersus production evidence",
+    "player_match_attach": "StockOnlinePvp production evidence",
+    "replay_fork": "rollback-core-integration",
+    "ui_automation": "smoke/diagnostic only"
+  },
+  "replay": "E:\\myMods\\ReplayExample\\REPLAY_12744704008398858106.bin",
+  "replay_sha256_actual": "95E12E394D35C13D5E0DD3DCE692F9E0A4022E2A84205A9EC75F2FA6726D7879",
+  "replay_sha256_expected": "95E12E394D35C13D5E0DD3DCE692F9E0A4022E2A84205A9EC75F2FA6726D7879",
+  "run_id": "20260713-224314",
+  "runs": [
+    {
+      "baseline_hashes": {
+        "host": 18069020152204658252,
+        "sandbox": 18069020152204658252
+      },
+      "direct_matrix": {
+        "host": {
+          "1": 6350614792246955375,
+          "2": 14413129230672337425,
+          "8": 6646487934620518414,
+          "15": 15996322191169329109,
+          "60": 762215795059539590
+        },
+        "sandbox": {
+          "1": 6350614792246955375,
+          "2": 14413129230672337425,
+          "8": 6646487934620518414,
+          "15": 15996322191169329109,
+          "60": 762215795059539590
+        }
+      },
+      "failures": [],
+      "finals": {
+        "host": {
+          "advances": 210,
+          "baseline_hash": "0xFAC20E183B88864C",
+          "baseline_restored": true,
+          "build": "replay-accuracy-v13fl",
+          "client_role": "host",
+          "event": "rollback_replay_fork_complete",
+          "evidence_frames": 180,
+          "evidence_scope": "rollback-core-integration",
+          "executable_id": "0x1135D62F163558E1",
+          "expected_build_id": "0x1135D62F163558E1",
+          "expected_schema_id": "0xA14ADAB6A963FF10",
+          "final_hash": "0xD82F937BE5E81D5F",
+          "frames": 180,
+          "image_base": "0x7FF6D6470000",
+          "loads": 10,
+          "local_input_hash": "0x5ABD7D2C0E5F9182",
+          "local_player_slot": 0,
+          "no_desync": true,
+          "pair_accepts": 180,
+          "passed": true,
+          "peer_final_hash": "0xD82F937BE5E81D5F",
+          "pid": 48416,
+          "prediction_diverged": true,
+          "process_start_marker": 134284489942646201,
+          "production_certified": false,
+          "proof_non_skip": false,
+          "remote_input_hash": "0xA8D61FBD0CF442AC",
+          "remote_player_slot": 1,
+          "replay_resumed": true,
+          "replay_run_nonce_hash": "0x2667285A9DEDC6DB",
+          "request_id": "20260713-224314-launch1-wifi_50ms_jitter",
+          "rollback_advances": 30,
+          "saves": 211,
+          "schema_id": "0xA14ADAB6A963FF10",
+          "session_domain": "replay-fork-lab",
+          "snapshot_peak": 128,
+          "summary_overwrites": 0,
+          "terminal_evidence_hash": "0xB3B09DC9696BB8D5",
+          "thread_id": 59356,
+          "ts_qpc": 2784306227244
+        },
+        "sandbox": {
+          "advances": 251,
+          "baseline_hash": "0xFAC20E183B88864C",
+          "baseline_restored": true,
+          "build": "replay-accuracy-v13fl",
+          "client_role": "sandbox",
+          "event": "rollback_replay_fork_complete",
+          "evidence_frames": 180,
+          "evidence_scope": "rollback-core-integration",
+          "executable_id": "0x1135D62F163558E1",
+          "expected_build_id": "0x1135D62F163558E1",
+          "expected_schema_id": "0xA14ADAB6A963FF10",
+          "final_hash": "0xD82F937BE5E81D5F",
+          "frames": 180,
+          "image_base": "0x7FF6D6470000",
+          "loads": 13,
+          "local_input_hash": "0xA8D61FBD0CF442AC",
+          "local_player_slot": 1,
+          "no_desync": true,
+          "pair_accepts": 180,
+          "passed": true,
+          "peer_final_hash": "0xD82F937BE5E81D5F",
+          "pid": 59996,
+          "prediction_diverged": true,
+          "process_start_marker": 134284490144567817,
+          "production_certified": false,
+          "proof_non_skip": false,
+          "remote_input_hash": "0x5ABD7D2C0E5F9182",
+          "remote_player_slot": 0,
+          "replay_resumed": true,
+          "replay_run_nonce_hash": "0x2667285A9DEDC6DB",
+          "request_id": "20260713-224314-launch1-wifi_50ms_jitter",
+          "rollback_advances": 71,
+          "saves": 252,
+          "schema_id": "0xA14ADAB6A963FF10",
+          "session_domain": "replay-fork-lab",
+          "snapshot_peak": 128,
+          "summary_overwrites": 0,
+          "terminal_evidence_hash": "0xB3B09DC9696BB8D5",
+          "thread_id": 57652,
+          "ts_qpc": 2784306139718
+        }
+      },
+      "ok": true,
+      "profile": "wifi_50ms_jitter",
+      "request_id": "20260713-224314-launch1-wifi_50ms_jitter",
+      "traces": {
+        "host": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\Saved\\ReplayTrace\\replay_trace_20260713_224314_pid48416.jsonl",
+        "sandbox": "C:\\Sandbox\\prest\\sc67\\drive\\E\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\Saved\\ReplayTrace\\replay_trace_20260713_224334_pid59996.jsonl"
+      }
+    }
+  ],
+  "schema_version": 2,
+  "steps": [
+    {
+      "ok": true,
+      "output": "",
+      "phase": "kill"
+    },
+    {
+      "command": [
+        "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe"
+      ],
+      "launcher_pid": 48416,
+      "ok": true,
+      "phase": "launch-host"
+    },
+    {
+      "command": [
+        "C:\\Program Files\\Sandboxie-Plus\\Start.exe",
+        "/box:sc67",
+        "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+        "-QueryPort=27012"
+      ],
+      "launcher_pid": 52580,
+      "ok": true,
+      "phase": "launch-sandbox"
+    },
+    {
+      "ok": true,
+      "phase": "inventory",
+      "pids": [
+        48416,
+        59996
+      ],
+      "roots": [
+        {
+          "latest_trace": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\Saved\\ReplayTrace\\replay_trace_20260713_224314_pid48416.jsonl",
+          "latest_trace_mtime": 1783975399.98634,
+          "live_trace_pids": [
+            48416
+          ],
+          "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\Saved",
+          "request_file_exists": false,
+          "role": "host",
+          "sandbox_box": "",
+          "trace_file_count": 1848
+        },
+        {
+          "latest_trace": "C:\\Sandbox\\prest\\sc67\\drive\\E\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\Saved\\ReplayTrace\\replay_trace_20260713_224334_pid59996.jsonl",
+          "latest_trace_mtime": 1783975414.655244,
+          "live_trace_pids": [
+            59996
+          ],
+          "path": "C:\\Sandbox\\prest\\sc67\\drive\\E\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\Saved",
+          "request_file_exists": false,
+          "role": "sandbox",
+          "sandbox_box": "prest\\sc67",
+          "trace_file_count": 720
+        }
+      ],
+      "snapshot": {
+        "captured_at": "2026-07-13T22:43:38",
+        "label": "replay-fork-inventory",
+        "processes": [
+          {
+            "command_line": "\"C:\\Program Files (x86)\\Steam\\steam.exe\" -silent",
+            "creation_date": "/Date(1783697180731)/",
+            "name": "steam.exe",
+            "parent_pid": 7920,
+            "path": "C:\\Program Files (x86)\\Steam\\steam.exe",
+            "pid": 21012
+          },
+          {
+            "command_line": "\"C:\\Program Files (x86)\\Steam\\steam.exe\"",
+            "creation_date": "/Date(1783703829288)/",
+            "name": "steam.exe",
+            "parent_pid": 28776,
+            "path": "C:\\Program Files (x86)\\Steam\\steam.exe",
+            "pid": 29328
+          },
+          {
+            "command_line": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+            "creation_date": "/Date(1783975394264)/",
+            "name": "SoulcaliburVI.exe",
+            "parent_pid": 55008,
+            "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+            "pid": 48416
+          },
+          {
+            "command_line": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe -QueryPort=27012",
+            "creation_date": "/Date(1783975414456)/",
+            "name": "SoulcaliburVI.exe",
+            "parent_pid": 56964,
+            "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+            "pid": 59996
+          }
+        ],
+        "sc6_launch_args": [
+          {
+            "command_line": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+            "pid": 48416,
+            "port": 0,
+            "query_port": 0
+          },
+          {
+            "command_line": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe -QueryPort=27012",
+            "pid": 59996,
+            "port": 0,
+            "query_port": 27012
+          }
+        ],
+        "sc6_pids": [
+          48416,
+          59996
+        ],
+        "sc6_udp_by_pid": {
+          "48416": [
+            {
+              "local_address": "0.0.0.0",
+              "local_port": 27015,
+              "owning_process": 48416
+            }
+          ],
+          "59996": [
+            {
+              "local_address": "0.0.0.0",
+              "local_port": 27012,
+              "owning_process": 59996
+            }
+          ]
+        },
+        "steam_pids": [
+          21012,
+          29328
+        ],
+        "steam_udp_27036_by_pid": {
+          "21012": [
+            {
+              "local_address": "0.0.0.0",
+              "local_port": 27036,
+              "owning_process": 21012
+            },
+            {
+              "local_address": "172.21.0.1",
+              "local_port": 27036,
+              "owning_process": 21012
+            },
+            {
+              "local_address": "172.27.112.1",
+              "local_port": 27036,
+              "owning_process": 21012
+            },
+            {
+              "local_address": "192.168.10.238",
+              "local_port": 27036,
+              "owning_process": 21012
+            }
+          ],
+          "29328": []
+        },
+        "steam_udp_by_pid": {
+          "21012": [
+            {
+              "local_address": "0.0.0.0",
+              "local_port": 27036,
+              "owning_process": 21012
+            },
+            {
+              "local_address": "172.21.0.1",
+              "local_port": 27036,
+              "owning_process": 21012
+            },
+            {
+              "local_address": "172.27.112.1",
+              "local_port": 27036,
+              "owning_process": 21012
+            },
+            {
+              "local_address": "192.168.10.238",
+              "local_port": 27036,
+              "owning_process": 21012
+            }
+          ],
+          "29328": []
+        },
+        "steam_udp_other_by_pid": {
+          "21012": [],
+          "29328": []
+        },
+        "udp_endpoints": [
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 53,
+            "owning_process": 2572
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 53,
+            "owning_process": 2572
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 1900,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 1900,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 1900,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 1900,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5050,
+            "owning_process": 1956
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 28000
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 7356
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 37812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 30260
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 30260
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 49360
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 31812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 31812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 31812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 11252
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 11252
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 11252
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 37812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 7356
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 7356
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 31812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 28000
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 28000
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 28000
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 7356
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 31812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 31812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 11252
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 11252
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 11252
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 49360
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 49360
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 49360
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 2352
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 30260
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 34160
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 37812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 37812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 30260
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 49360
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 49360
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 28000
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 7356
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 7356
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5353,
+            "owning_process": 28000
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 5355,
+            "owning_process": 2352
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 27012,
+            "owning_process": 59996
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 27015,
+            "owning_process": 48416
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 27036,
+            "owning_process": 21012
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 50697,
+            "owning_process": 2572
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 50730,
+            "owning_process": 12688
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 51312,
+            "owning_process": 19472
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 51705,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 54372,
+            "owning_process": 2352
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 56273,
+            "owning_process": 37812
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 57621,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 58644,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 59721,
+            "owning_process": 2352
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 60729,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 60762,
+            "owning_process": 11336
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 60964,
+            "owning_process": 2572
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 60965,
+            "owning_process": 2572
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 63712,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "0.0.0.0",
+            "local_port": 65146,
+            "owning_process": 2352
+          },
+          {
+            "local_address": "127.0.0.1",
+            "local_port": 1900,
+            "owning_process": 23212
+          },
+          {
+            "local_address": "127.0.0.1",
+            "local_port": 10010,
+            "owning_process": 7328
+          },
+          {
+            "local_address": "127.0.0.1",
+            "local_port": 10011,
+            "owning_process": 10172
+          },
+          {
+            "local_address": "127.0.0.1",
+            "local_port": 10012,
+            "owning_process": 7316
+          },
+          {
+            "local_address": "127.0.0.1",
+            "local_port": 50596,
+            "owning_process": 2572
+          },
+          {
+            "local_address": "127.0.0.1",
+            "local_port": 52647,
+            "owning_process": 26116
+          },
+          {
+            "local_address": "127.0.0.1",
+            "local_port": 62830,
+            "owning_process": 7328
+          },
+          {
+            "local_address": "127.0.0.1",
+            "local_port": 64957,
+            "owning_process": 23212
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 67,
+            "owning_process": 2572
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 68,
+            "owning_process": 2572
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 137,
+            "owning_process": 4
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 138,
+            "owning_process": 4
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 1900,
+            "owning_process": 23212
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 2177,
+            "owning_process": 23212
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 27036,
+            "owning_process": 21012
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 53974,
+            "owning_process": 34160
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 54030,
+            "owning_process": 10172
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 54033,
+            "owning_process": 28000
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 54036,
+            "owning_process": 7356
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 54039,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "172.21.0.1",
+            "local_port": 64955,
+            "owning_process": 23212
+          },
+          {
+            "local_address": "172.27.112.1",
+            "local_port": 137,
+            "owning_process": 4
+          },
+          {
+            "local_address": "172.27.112.1",
+            "local_port": 138,
+            "owning_process": 4
+          },
+          {
+            "local_address": "172.27.112.1",
+            "local_port": 1900,
+            "owning_process": 23212
+          },
+          {
+            "local_address": "172.27.112.1",
+            "local_port": 2177,
+            "owning_process": 23212
+          },
+          {
+            "local_address": "172.27.112.1",
+            "local_port": 27036,
+            "owning_process": 21012
+          },
+          {
+            "local_address": "172.27.112.1",
+            "local_port": 54032,
+            "owning_process": 10172
+          },
+          {
+            "local_address": "172.27.112.1",
+            "local_port": 54035,
+            "owning_process": 28000
+          },
+          {
+            "local_address": "172.27.112.1",
+            "local_port": 54038,
+            "owning_process": 7356
+          },
+          {
+            "local_address": "172.27.112.1",
+            "local_port": 54041,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "172.27.112.1",
+            "local_port": 64958,
+            "owning_process": 23212
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 137,
+            "owning_process": 4
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 138,
+            "owning_process": 4
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 1900,
+            "owning_process": 23212
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 2177,
+            "owning_process": 23212
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 27036,
+            "owning_process": 21012
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 53975,
+            "owning_process": 34160
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 54031,
+            "owning_process": 10172
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 54034,
+            "owning_process": 28000
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 54037,
+            "owning_process": 7356
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 54040,
+            "owning_process": 20064
+          },
+          {
+            "local_address": "192.168.10.238",
+            "local_port": 64956,
+            "owning_process": 23212
+          }
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "phase": "replay-start",
+      "profile": "wifi_50ms_jitter",
+      "roles": {
+        "host": {
+          "auto_generate_armed": true,
+          "auto_generate_mode": "lux-no-render",
+          "battle_asset_requested": true,
+          "battle_format": 0,
+          "battle_scene_requested": true,
+          "battle_type": 0,
+          "build": "replay-accuracy-v13fl",
+          "event": "replay_file_start_result",
+          "existing_replay_back_lobby_requested": false,
+          "existing_replay_battle_end_requested": false,
+          "existing_replay_battle_end_to_lobby_requested": false,
+          "existing_replay_battle_terminate_attempts": 0,
+          "existing_replay_battle_terminate_requested": false,
+          "existing_replay_exit_attempts": 0,
+          "existing_replay_exit_ready_emitted": false,
+          "existing_replay_exit_requested": false,
+          "existing_replay_exit_wait_emitted": false,
+          "existing_replay_manager_stop_complete_attempts": 0,
+          "existing_replay_manager_stop_complete_requested": false,
+          "existing_replay_ready_to_stop_attempts": 0,
+          "existing_replay_ready_to_stop_requested": false,
+          "existing_replay_request_to_stop_attempts": 0,
+          "existing_replay_request_to_stop_requested": false,
+          "existing_replay_session_exit_attempts": 0,
+          "existing_replay_watch_cancel_requested": false,
+          "existing_replay_watch_end_requested": false,
+          "existing_replay_watch_exit_attempts": 0,
+          "force_native_launch": true,
+          "generation_full_frame_trace": false,
+          "image_base": "0x7FF6D6470000",
+          "left_chara": 14,
+          "left_chara_label": "Raphael",
+          "left_language": 2,
+          "left_player_points": 59483,
+          "left_rank": 34,
+          "left_rank_label": "A2",
+          "left_region_id": 2,
+          "left_region_label": "Europe",
+          "left_round_wins": 3,
+          "left_shougou_id": -1,
+          "left_steam_id": "76561198180514907",
+          "ms_since_launch_submitted": 29736,
+          "ms_since_native_start_request": 35008,
+          "ms_since_request_loaded": 52189,
+          "native_profile_applied": true,
+          "native_profile_container_ready": true,
+          "native_profile_request_attempts": 0,
+          "native_profile_request_ok": false,
+          "native_replay_imported": true,
+          "native_replay_metadata_valid": true,
+          "navigator_attempts": 17,
+          "ok": true,
+          "path": "E:\\myMods\\ReplayExample\\REPLAY_12744704008398858106.bin",
+          "pid": 48416,
+          "presence": "Replay",
+          "presence_value": 10,
+          "process_start_marker": 134284489942646201,
+          "reason": "generated timeline ready",
+          "replay_item_version": 42,
+          "replay_setup_reached": true,
+          "resolved_path": "E:\\myMods\\ReplayExample\\REPLAY_12744704008398858106.bin",
+          "right_chara": 3,
+          "right_chara_label": "Maxi",
+          "right_language": 15,
+          "right_player_points": 149436,
+          "right_rank": 37,
+          "right_rank_label": "S1",
+          "right_region_id": 2,
+          "right_region_label": "Europe",
+          "right_round_wins": 2,
+          "right_shougou_id": 78,
+          "right_steam_id": "76561198865960948",
+          "run_id": "20260713-224314-launch1-wifi_50ms_jitter-replay",
+          "runtime_context_retry_attempts": 0,
+          "stage": 9,
+          "stage_map": 9,
+          "stage_map_request_submitted": false,
+          "stale_replay_console_reroute_attempts": 0,
+          "stale_replay_console_reroute_requested": false,
+          "stale_replay_scene_launch_ready": false,
+          "stale_replay_scene_menus_closed": false,
+          "submit_attempts": 22,
+          "thread_id": 59356,
+          "timeout_seconds": 240,
+          "ts_qpc": 2784008950768,
+          "winner_side": 0
+        },
+        "sandbox": {
+          "auto_generate_armed": true,
+          "auto_generate_mode": "lux-no-render",
+          "battle_asset_requested": true,
+          "battle_format": 0,
+          "battle_scene_requested": true,
+          "battle_type": 0,
+          "build": "replay-accuracy-v13fl",
+          "event": "replay_file_start_result",
+          "existing_replay_back_lobby_requested": false,
+          "existing_replay_battle_end_requested": false,
+          "existing_replay_battle_end_to_lobby_requested": false,
+          "existing_replay_battle_terminate_attempts": 0,
+          "existing_replay_battle_terminate_requested": false,
+          "existing_replay_exit_attempts": 0,
+          "existing_replay_exit_ready_emitted": false,
+          "existing_replay_exit_requested": false,
+          "existing_replay_exit_wait_emitted": false,
+          "existing_replay_manager_stop_complete_attempts": 0,
+          "existing_replay_manager_stop_complete_requested": false,
+          "existing_replay_ready_to_stop_attempts": 0,
+          "existing_replay_ready_to_stop_requested": false,
+          "existing_replay_request_to_stop_attempts": 0,
+          "existing_replay_request_to_stop_requested": false,
+          "existing_replay_session_exit_attempts": 0,
+          "existing_replay_watch_cancel_requested": false,
+          "existing_replay_watch_end_requested": false,
+          "existing_replay_watch_exit_attempts": 0,
+          "force_native_launch": true,
+          "generation_full_frame_trace": false,
+          "image_base": "0x7FF6D6470000",
+          "left_chara": 14,
+          "left_chara_label": "Raphael",
+          "left_language": 2,
+          "left_player_points": 59483,
+          "left_rank": 34,
+          "left_rank_label": "A2",
+          "left_region_id": 2,
+          "left_region_label": "Europe",
+          "left_round_wins": 3,
+          "left_shougou_id": -1,
+          "left_steam_id": "76561198180514907",
+          "ms_since_launch_submitted": 28894,
+          "ms_since_native_start_request": 34114,
+          "ms_since_request_loaded": 66071,
+          "native_profile_applied": true,
+          "native_profile_container_ready": true,
+          "native_profile_request_attempts": 0,
+          "native_profile_request_ok": false,
+          "native_replay_imported": true,
+          "native_replay_metadata_valid": true,
+          "navigator_attempts": 29,
+          "ok": true,
+          "path": "E:\\myMods\\ReplayExample\\REPLAY_12744704008398858106.bin",
+          "pid": 59996,
+          "presence": "Replay",
+          "presence_value": 10,
+          "process_start_marker": 134284490144567817,
+          "reason": "generated timeline ready",
+          "replay_item_version": 42,
+          "replay_setup_reached": true,
+          "resolved_path": "E:\\myMods\\ReplayExample\\REPLAY_12744704008398858106.bin",
+          "right_chara": 3,
+          "right_chara_label": "Maxi",
+          "right_language": 15,
+          "right_player_points": 149436,
+          "right_rank": 37,
+          "right_rank_label": "S1",
+          "right_region_id": 2,
+          "right_region_label": "Europe",
+          "right_round_wins": 2,
+          "right_shougou_id": 78,
+          "right_steam_id": "76561198865960948",
+          "run_id": "20260713-224314-launch1-wifi_50ms_jitter-replay",
+          "runtime_context_retry_attempts": 0,
+          "stage": 9,
+          "stage_map": 9,
+          "stage_map_request_submitted": false,
+          "stale_replay_console_reroute_attempts": 0,
+          "stale_replay_console_reroute_requested": false,
+          "stale_replay_scene_launch_ready": false,
+          "stale_replay_scene_menus_closed": false,
+          "submit_attempts": 35,
+          "thread_id": 57652,
+          "timeout_seconds": 240,
+          "ts_qpc": 2784227682022,
+          "winner_side": 0
+        }
+      }
+    },
+    {
+      "ok": true,
+      "output": "",
+      "phase": "kill"
+    }
+  ],
+  "verdict": "pass",
+  "workflow_kind": "replay-fork-lab",
+  "workflow_ok": true
+}

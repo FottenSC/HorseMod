@@ -43,7 +43,7 @@ int main()
         "ack_monotonic=%d invalid_packets=%d handshake=%d "
         "handshake_reject=%d handshake_invalid=%d "
         "hash_policy=%d loopback=%d\n",
-        report.metrics.contiguous_remote_frame,
+        report.metrics.contiguous_remote_frame.wire_value(),
         report.metrics.packets_accepted,
         report.metrics.duplicates,
         report.metrics.reordered,

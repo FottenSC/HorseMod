@@ -317,26 +317,34 @@ def line_has_live_peer_pipeline_policy(line: str) -> bool:
 
 
 def line_has_end_to_end_policy(line: str) -> bool:
+    final_a = line_field_int(line, "final_a")
+    final_b = line_field_int(line, "final_b")
     return (
         line_has_field(line, "ok", "1")
         and line_has_field(line, "decode", "1")
         and line_has_field(line, "bridge", "1")
         and line_has_field(line, "predict", "1")
         and line_has_field(line, "predicted_diff", "1")
-        and line_has_field(line, "queued_only", "1")
-        and line_has_field(line, "stock_drain", "1")
+        and line_has_field(line, "adapter_receive", "1")
+        and line_has_field(line, "adapter_free", "1")
         and line_has_field(line, "metadata", "1")
         and line_has_field(line, "correction", "1")
         and line_has_field(line, "metadata_not_gameplay", "1")
         and line_has_field(line, "confirm_apply", "1")
         and line_has_field(line, "confirm_consume", "1")
+        and line_has_field(line, "baseline", "1")
         and line_has_field(line, "state", "1")
         and line_has_field(line, "wrong_identity", "1")
-        and line_has_field(line, "net_cache_reject", "1")
-        and line_field_int(line, "enqueued") == 2
-        and line_field_int(line, "drained") == 2
-        and line_field_int(line, "rejected") >= 3
-        and line_field_int(line, "cache_writes") == 4
+        and line_field_int(line, "enqueued") > 0
+        and line_field_int(line, "drained") > 0
+        and line_field_int(line, "decoded_inputs") > 0
+        and final_a != 0
+        and final_a == final_b
+        and line_field_int(line, "save_events") > 0
+        and line_field_int(line, "load_events") > 0
+        and line_field_int(line, "advance_events") > 0
+        and line_field_int(line, "rollback_advances") > 0
+        and line_has_field(line, "failure", "ok")
     )
 
 
@@ -551,6 +559,180 @@ def line_has_live_online_traffic_policy(line: str) -> bool:
         and line_field_int(line, "consumer") > 0
         and line_has_field(line, "live_order", "1")
     )
+
+
+def bool_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, (int, float)):
+        return 1 if value else 0
+    if isinstance(value, str):
+        return 1 if value.lower() in {"1", "true", "yes", "on"} else 0
+    return 0
+
+
+def int_event_field(event: dict[str, object], key: str) -> int:
+    value = event.get(key)
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value, 0)
+        except ValueError:
+            return 0
+    return 0
+
+
+def live_online_capture_event_line(event: dict[str, object]) -> str:
+    fields = {
+        "ok": bool_int(event.get("ok")),
+        "ready": bool_int(event.get("capture_ready")),
+        "live": bool_int(event.get("live_capture_complete")),
+        "request_id": str(event.get("request_id", "")),
+        "observe_only": bool_int(event.get("observe_only")),
+        "stock_ok": bool_int(event.get("stock_observe_ok")),
+        "stock_hooks": bool_int(event.get("stock_hooks_installed")),
+        "stock_active": bool_int(event.get("stock_trace_active")),
+        "boundary_hooks": bool_int(event.get("boundary_hooks_installed")),
+        "boundary_active": bool_int(event.get("boundary_trace_active")),
+        "acquire": int_event_field(event, "acquire_count"),
+        "nonnull": int_event_field(event, "acquire_nonnull_session_count"),
+        "input": int_event_field(event, "input_send_count"),
+        "battle": int_event_field(event, "battle_sync_request_stage_count"),
+        "recv": int_event_field(event, "receive_enqueue_count"),
+        "drain_enter": int_event_field(event, "drain_enter_count"),
+        "drain_exit": int_event_field(event, "drain_exit_count"),
+        "consumer": int_event_field(event, "consumer_count"),
+        "live_order": bool_int(event.get("live_order_proven")),
+        "boundary_violation": bool_int(event.get("boundary_violation")),
+        "total": int_event_field(event, "total_observed_calls"),
+        "last_session": str(event.get("last_session_ptr", "0x0")),
+        "last_input_log": str(event.get("last_input_log", "0x0")),
+        "last_recv_packet": str(event.get("last_receive_packet_wrapper", "0x0")),
+        "last_bm": str(event.get("last_battle_manager", "0x0")),
+        "failure": str(event.get("failure", "missing")),
+    }
+    return "[RollbackLab] live_online_capture " + " ".join(
+        f"{key}={value}" for key, value in fields.items())
+
+
+def live_activation_candidate_event_line(event: dict[str, object]) -> str:
+    fields = {
+        "ok": bool_int(event.get("ok")),
+        "ready": bool_int(event.get("activation_ready")),
+        "operator": bool_int(event.get("explicit_operator_enable")),
+        "capture": bool_int(event.get("capture_ready")),
+        "observe_only": bool_int(event.get("observe_only")),
+        "stock": bool_int(event.get("stock_observe_ready")),
+        "boundary": bool_int(event.get("boundary_ready")),
+        "live": bool_int(event.get("live_capture_complete")),
+        "no_violation": bool_int(event.get("no_boundary_violation")),
+        "stock_send": bool_int(event.get("stock_send_observed")),
+        "receive": bool_int(event.get("receive_observed")),
+        "drain_consumer": bool_int(event.get("drain_consumer_observed")),
+        "live_order": bool_int(event.get("live_order_proven")),
+        "session_ptr": bool_int(event.get("session_pointer_bound")),
+        "input_log": bool_int(event.get("input_log_bound")),
+        "hrg1": bool_int(event.get("hrg1_payload")),
+        "provenance": bool_int(event.get("route_provenance_valid")),
+        "strict_identity": bool_int(event.get("strict_identity")),
+        "horse_route": bool_int(event.get("horse_route_allowed")),
+        "stock_reject": bool_int(event.get("stock_surface_rejected")),
+        "peer_identity": bool_int(event.get("peer_identity_bound")),
+        "session_id": bool_int(event.get("session_id_bound")),
+        "route_identity": bool_int(event.get("route_identity_matches")),
+        "source": int_event_field(event, "activation_source_peer"),
+        "dest": int_event_field(event, "activation_destination_peer"),
+        "session": int_event_field(event, "activation_session_id"),
+        "request_id": str(event.get("request_id", "")),
+        "failure": str(event.get("failure", "missing")),
+    }
+    return "[RollbackLab] live_activation_candidate " + " ".join(
+        f"{key}={value}" for key, value in fields.items())
+
+
+def merge_live_online_trace_observations(
+    trace_file: Path,
+    *,
+    request_id: str,
+    expected_activation_source_peer: int,
+    expected_activation_destination_peer: int,
+    expected_activation_session_id: int,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "capture": False,
+        "capture_ok": False,
+        "traffic_ok": False,
+        "boundary_violation": False,
+        "readiness_regression": False,
+        "activation_candidate": False,
+        "activation_candidate_ok": False,
+        "bad_lines": [],
+        "last_line": "",
+        "readiness_line": "",
+        "traffic_line": "",
+        "last_activation_line": "",
+    }
+    readiness_seen = False
+    bad_lines: list[str] = []
+    try:
+        lines = trace_file.read_text(
+            encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return result
+    for raw in lines:
+        if "rollback_live_online_capture" in raw:
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if event.get("event") != "rollback_live_online_capture":
+                continue
+            if request_id and event.get("request_id") != request_id:
+                continue
+            line = live_online_capture_event_line(event)
+            result["capture"] = True
+            result["last_line"] = line
+            if int_event_field(event, "boundary_violation") != 0:
+                result["boundary_violation"] = True
+                bad_lines.append(line)
+            line_ready = line_has_live_online_capture_policy(line)
+            line_live = line_has_live_online_traffic_policy(line)
+            if readiness_seen and not line_ready:
+                result["readiness_regression"] = True
+                bad_lines.append(line)
+            if line_ready:
+                readiness_seen = True
+                result["capture_ok"] = True
+                result["readiness_line"] = line
+            if line_live:
+                result["traffic_ok"] = True
+                result["traffic_line"] = line
+        elif "rollback_live_activation_candidate" in raw:
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if event.get("event") != "rollback_live_activation_candidate":
+                continue
+            if request_id and event.get("request_id") != request_id:
+                continue
+            line = live_activation_candidate_event_line(event)
+            result["activation_candidate"] = True
+            result["last_activation_line"] = line
+            if line_has_live_activation_candidate_policy(
+                line,
+                expected_activation_source_peer,
+                expected_activation_destination_peer,
+                expected_activation_session_id,
+            ):
+                result["activation_candidate_ok"] = True
+    result["bad_lines"] = bad_lines
+    return result
 
 
 def write_live_online_summary(
@@ -890,6 +1072,34 @@ def rollback_game_args(args: argparse.Namespace) -> list[str]:
         f"{args.activation_destination_peer}")
     cmd.append(
         f"--horsemod-rollback-live-session-id={args.activation_session_id}")
+    if args.client_role:
+        cmd.append(f"--horsemod-rollback-client-role={args.client_role}")
+    if args.sandbox_root:
+        cmd.append(f"--horsemod-rollback-sandbox-root={args.sandbox_root}")
+    if args.sandbox_box:
+        cmd.append(f"--horsemod-rollback-sandbox-box={args.sandbox_box}")
+    if args.local_peer_id:
+        cmd.append(f"--horsemod-rollback-local-peer={args.local_peer_id}")
+    if args.remote_peer_id:
+        cmd.append(f"--horsemod-rollback-remote-peer={args.remote_peer_id}")
+    if args.sidecar_local_port:
+        cmd.append(
+            "--horsemod-rollback-sidecar-local-port="
+            f"{args.sidecar_local_port}")
+    if args.sidecar_remote_port:
+        cmd.append(
+            "--horsemod-rollback-sidecar-remote-port="
+            f"{args.sidecar_remote_port}")
+    if args.sidecar_remote_addr:
+        cmd.append(
+            "--horsemod-rollback-sidecar-remote-addr="
+            f"{args.sidecar_remote_addr}")
+    if args.activation_token:
+        cmd.append(
+            f"--horsemod-rollback-activation-token={args.activation_token}")
+    if args.force_live_prediction_divergence:
+        cmd.append(
+            "--horsemod-rollback-force-live-prediction-divergence")
     if args.output:
         cmd.append(f"--horsemod-rollback-output={args.output}")
     return cmd
@@ -938,6 +1148,27 @@ def request_file_text(args: argparse.Namespace) -> str:
     lines.append(
         f"activation_destination_peer={args.activation_destination_peer}")
     lines.append(f"activation_session_id={args.activation_session_id}")
+    if args.client_role:
+        lines.append(f"client_role={args.client_role}")
+    if args.sandbox_root:
+        lines.append(f"sandbox_root={args.sandbox_root}")
+    if args.sandbox_box:
+        lines.append(f"sandbox_box={args.sandbox_box}")
+    if args.local_peer_id:
+        lines.append(f"local_peer_id={args.local_peer_id}")
+    if args.remote_peer_id:
+        lines.append(f"remote_peer_id={args.remote_peer_id}")
+    if args.sidecar_local_port:
+        lines.append(f"sidecar_local_port={args.sidecar_local_port}")
+    if args.sidecar_remote_port:
+        lines.append(f"sidecar_remote_port={args.sidecar_remote_port}")
+    if args.sidecar_remote_addr:
+        lines.append(f"sidecar_remote_addr={args.sidecar_remote_addr}")
+    if args.activation_token:
+        lines.append(f"activation_token={args.activation_token}")
+    lines.append(
+        "force_live_prediction_divergence="
+        f"{1 if args.force_live_prediction_divergence else 0}")
     if args.output:
         lines.append(f"output={args.output}")
     return "\n".join(lines) + "\n"
@@ -1035,6 +1266,18 @@ def main() -> int:
     p.add_argument("--activation-source-peer", default="0xA0")
     p.add_argument("--activation-destination-peer", default="0xB0")
     p.add_argument("--activation-session-id", default="0x4C495645414354")
+    p.add_argument("--client-role", default="")
+    p.add_argument("--sandbox-root", default="")
+    p.add_argument("--sandbox-box", default="")
+    p.add_argument("--local-peer-id", default="")
+    p.add_argument("--remote-peer-id", default="")
+    p.add_argument("--sidecar-local-port", type=int, default=0)
+    p.add_argument("--sidecar-remote-port", type=int, default=0)
+    p.add_argument("--sidecar-remote-addr", default="127.0.0.1")
+    p.add_argument("--activation-token", default="")
+    p.add_argument(
+        "--force-live-prediction-divergence",
+        action="store_true")
     p.add_argument("--watch-seconds", type=float, default=30.0)
     p.add_argument("--strict", action="store_true")
     p.add_argument("--require-service-tick", action="store_true")
@@ -1511,10 +1754,50 @@ def main() -> int:
         if args.launch_via_steam:
             cleanup_request_file()
 
+    trace_file: Path | None = None
     if args.trace:
         trace_file = latest_trace_file(trace_since)
         if trace_file is not None:
             print(f"trace_file={trace_file}")
+
+    if trace_file is not None and (
+        args.require_live_online_capture
+        or args.require_live_online_traffic
+        or args.require_live_activation_candidate
+        or args.live_online_summary_output
+    ):
+        trace_live = merge_live_online_trace_observations(
+            trace_file,
+            request_id=args.request_id,
+            expected_activation_source_peer=expected_activation_source_peer,
+            expected_activation_destination_peer=(
+                expected_activation_destination_peer),
+            expected_activation_session_id=expected_activation_session_id,
+        )
+        if bool(trace_live.get("capture")):
+            saw_live_online_capture = True
+            last_live_online_capture_line = str(trace_live.get("last_line") or "")
+        if bool(trace_live.get("capture_ok")):
+            saw_live_online_capture_ok = True
+            last_live_online_readiness_line = str(
+                trace_live.get("readiness_line") or "")
+        if bool(trace_live.get("traffic_ok")):
+            saw_live_online_traffic_ok = True
+            last_live_online_traffic_line = str(
+                trace_live.get("traffic_line") or "")
+        if bool(trace_live.get("boundary_violation")):
+            saw_live_online_boundary_violation = True
+        if bool(trace_live.get("readiness_regression")):
+            saw_live_online_readiness_regression = True
+        if bool(trace_live.get("activation_candidate")):
+            saw_live_activation_candidate = True
+            last_live_activation_candidate_line = str(
+                trace_live.get("last_activation_line") or "")
+        if bool(trace_live.get("activation_candidate_ok")):
+            saw_live_activation_candidate_ok = True
+        for bad_line in trace_live.get("bad_lines") or []:
+            if bad_line not in live_online_bad_lines:
+                live_online_bad_lines.append(str(bad_line))
 
     if args.live_online_summary_output:
         write_live_online_summary(

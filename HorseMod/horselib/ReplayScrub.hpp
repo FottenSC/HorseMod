@@ -6428,6 +6428,7 @@ namespace Horse
             RestoredFrameHold,
             ValidationStep,
             ManualDiagnosticFreeze,
+            ReplayForkLabHold,
         };
 
         struct ReplayScrubGatePolicy
@@ -10584,6 +10585,12 @@ namespace Horse
                 false, std::memory_order_release);
             m_timeline_context_valid.store(
                 false, std::memory_order_release);
+            m_replay_fork_completed_battle_manager.store(
+                0, std::memory_order_release);
+            m_replay_fork_completed_input_log.store(
+                0, std::memory_order_release);
+            m_replay_fork_completed_stage_actor_manager.store(
+                0, std::memory_order_release);
 
             const int request_mode =
                 current_lux_no_render_retry_request_mode();
@@ -11144,6 +11151,29 @@ namespace Horse
             // is intentionally after every guard and after frame-cap
             // engagement, so a failed start never destroys the timeline.
             drop_ring();
+            {
+                void* stage_actor_manager = nullptr;
+                (void)SafeReadPtr(reinterpret_cast<const void*>(
+                    static_cast<uintptr_t>(ready.battle_manager) + 0x418),
+                    &stage_actor_manager);
+                if (!stage_actor_manager)
+                {
+                    Obj bm {reinterpret_cast<RC::Unreal::UObject*>(
+                        static_cast<uintptr_t>(ready.battle_manager))};
+                    Obj manager = bm
+                        ? bm.getObj(L"BattleStageActorManager") : Obj{};
+                    stage_actor_manager = manager.raw();
+                }
+                m_replay_fork_completed_battle_manager.store(
+                    static_cast<uintptr_t>(ready.battle_manager),
+                    std::memory_order_release);
+                m_replay_fork_completed_input_log.store(
+                    static_cast<uintptr_t>(ready.input_log),
+                    std::memory_order_release);
+                m_replay_fork_completed_stage_actor_manager.store(
+                    reinterpret_cast<uintptr_t>(stage_actor_manager),
+                    std::memory_order_release);
+            }
             reserve_generation_storage_for_replay();
             m_timeline_seek_data_valid.store(false,
                                              std::memory_order_release);
@@ -11702,7 +11732,8 @@ namespace Horse
         // and set the end state.  reached_end=true -> Done (the timeline
         // covers a full pass); false -> Idle (cancelled before the end).
         void stop_generate_timeline(const char* reason,
-                                    bool reached_end) noexcept
+                                    bool reached_end,
+                                    bool replay_fork_anchor = false) noexcept
         {
             const bool memory_ceiling_stop =
                 reason && std::strcmp(reason, "memory-ceiling") == 0;
@@ -11743,6 +11774,45 @@ namespace Horse
                 static_cast<int>(reached_end ? TimelineGenState::Done
                                              : TimelineGenState::Idle),
                 std::memory_order_release);
+            if (was_generating && reached_end && replay_fork_anchor)
+            {
+                const int32_t anchor_seq = raw_latest_seq();
+                m_paused.store(true, std::memory_order_release);
+                m_hold_kind.store(static_cast<int32_t>(
+                    ReplayScrubHoldKind::ReplayForkLabHold),
+                    std::memory_order_release);
+                m_timeline_context_valid.store(true,
+                    std::memory_order_release);
+                m_timeline_seek_data_valid.store(true,
+                    std::memory_order_release);
+                m_usable_latest_seq.store(anchor_seq,
+                    std::memory_order_release);
+                m_last_seek_target.store(anchor_seq,
+                    std::memory_order_release);
+                publish_ui_target(anchor_seq);
+                const GateStepCallback gate =
+                    m_gate_step_callback.load(std::memory_order_acquire);
+                const bool gates_frozen = gate && gate(false);
+                const uintptr_t image_base = NativeBinding::imageBase();
+                const uint8_t freeze_vm = 1u;
+                const bool vm_frozen = image_base
+                    && SafeWriteBytes(reinterpret_cast<void*>(
+                        image_base + kRVA_LuxBattleVMFreezeRecord), &freeze_vm,
+                        sizeof(freeze_vm));
+                m_replay_fork_anchor_generation_done.store(
+                    true, std::memory_order_release);
+                ReplayTraceFields fields;
+                fields.integer("anchor_sequence", anchor_seq)
+                    .integer("round", read_current_round())
+                    .integer("master", read_engine_master_clock())
+                    .boolean("gates_frozen", gates_frozen)
+                    .boolean("vm_frozen", vm_frozen)
+                    .string("hold", "ReplayForkLabHold")
+                    .string("evidence_scope", "rollback-core-integration")
+                    .boolean("production_certified", false);
+                ReplayDebugTrace::instance().event(
+                    "rollback_replay_fork_anchor_parked", fields);
+            }
             if (!reached_end)
             {
                 m_timeline_seek_data_valid.store(
@@ -11766,7 +11836,7 @@ namespace Horse
             // must not change live replay state.
             bool completed_generation_validated = false;
             bool completed_seek_data_valid = false;
-            if (was_generating && reached_end)
+            if (was_generating && reached_end && !replay_fork_anchor)
             {
                 m_paused.store(true, std::memory_order_release);
                 m_hold_kind.store(
@@ -11999,6 +12069,30 @@ namespace Horse
                 if (replay_seek_test_try_leave_generation_park(
                         "stop_generate_timeline"))
                     service_replay_seek_test();
+            }
+            if (was_generating && reached_end && !no_render_failed)
+            {
+                const uintptr_t battle_manager =
+                    m_gen_cached_battle_manager.load(
+                        std::memory_order_acquire);
+                const uintptr_t input_log = m_gen_cached_input_log.load(
+                    std::memory_order_acquire);
+                void* stage_actor_manager = nullptr;
+                if (battle_manager)
+                {
+                    (void)SafeReadPtr(reinterpret_cast<const void*>(
+                        battle_manager + 0x418), &stage_actor_manager);
+                }
+                if (battle_manager)
+                    m_replay_fork_completed_battle_manager.store(
+                        battle_manager, std::memory_order_release);
+                if (input_log)
+                    m_replay_fork_completed_input_log.store(
+                        input_log, std::memory_order_release);
+                if (stage_actor_manager)
+                    m_replay_fork_completed_stage_actor_manager.store(
+                        reinterpret_cast<uintptr_t>(stage_actor_manager),
+                        std::memory_order_release);
             }
             m_gen_cached_replay_player.store(0, std::memory_order_release);
             m_gen_cached_input_log.store(0, std::memory_order_release);
@@ -13009,6 +13103,391 @@ namespace Horse
                 std::memory_order_release);
         }
 
+        bool enter_replay_fork_lab_hold() noexcept
+        {
+            if (GameMode::instance().current_presence()
+                    != GamePresence::Replay
+                || !is_initialized())
+            {
+                return false;
+            }
+            m_replay_fork_direct_step_active.store(
+                false, std::memory_order_release);
+            m_paused.store(true, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(
+                    ReplayScrubHoldKind::ReplayForkLabHold),
+                std::memory_order_release);
+            ReplayTraceFields f;
+            f.string("hold", "ReplayForkLabHold")
+             .boolean("production_certified", false)
+             .string("evidence_scope", "rollback-core-integration");
+            ReplayDebugTrace::instance().event(
+                "rollback_replay_fork_hold_entered", f);
+            return true;
+        }
+
+        void exit_replay_fork_lab_hold(bool resume_playback) noexcept
+        {
+            const bool was_active = replay_fork_lab_hold_active();
+            m_replay_fork_direct_step_active.store(
+                false, std::memory_order_release);
+            m_hold_kind.store(
+                static_cast<int32_t>(ReplayScrubHoldKind::None),
+                std::memory_order_release);
+            m_paused.store(!resume_playback, std::memory_order_release);
+            if (GateReleaseCallback release =
+                    m_gate_release_callback.load(std::memory_order_acquire))
+            {
+                release("replay-fork-lab-exit");
+            }
+            if (was_active)
+            {
+                ReplayTraceFields f;
+                f.string("hold", "ReplayForkLabHold")
+                 .boolean("resume_playback", resume_playback)
+                 .boolean("production_certified", false)
+                 .string("evidence_scope", "rollback-core-integration");
+                ReplayDebugTrace::instance().event(
+                    "rollback_replay_fork_hold_exited", f);
+            }
+        }
+
+        bool replay_fork_lab_hold_active() const noexcept
+        {
+            return is_paused()
+                && static_cast<ReplayScrubHoldKind>(
+                    m_hold_kind.load(std::memory_order_acquire))
+                    == ReplayScrubHoldKind::ReplayForkLabHold;
+        }
+
+        struct ReplayForkLabObservation
+        {
+            bool valid {false};
+            int32_t sequence {-1};
+            int32_t round {-1};
+            int32_t master {-1};
+            uint32_t frame_counter {0};
+        };
+
+        struct ReplayForkLabContext
+        {
+            bool valid {false};
+            const char* failure {"uninitialized"};
+            uintptr_t battle_manager {0};
+            uintptr_t input_log {0};
+            uintptr_t chara[2] {};
+            uintptr_t stage_actor_manager {0};
+            uint8_t battle_main_state {0};
+            uint8_t battle_status {0};
+            uint32_t input_log_frame {0};
+        };
+
+        ReplayForkLabObservation replay_fork_lab_observation() noexcept
+        {
+            ReplayForkLabObservation out {};
+            out.sequence = replay_fork_lab_hold_active()
+                ? raw_latest_seq() : current_play_position();
+            out.round = read_current_round();
+            out.master = read_engine_master_clock();
+            const uintptr_t base = NativeBinding::imageBase();
+            out.valid = out.sequence >= 0 && out.round >= 0
+                && out.master >= 0 && base
+                && SafeReadUInt32(reinterpret_cast<const void*>(
+                    base + kRVA_FrameCounter), &out.frame_counter);
+            return out;
+        }
+
+        // A completed replay timeline is parked after the match and SC6
+        // clears the active-battle resolver plus the two character-slot
+        // globals. Exact seek can still restore a valid captured mid-battle
+        // state because the native character regions and replay actors remain
+        // alive. Replay-fork is the only caller allowed to rebind those
+        // process-local slots, and only after an exact anchor has landed.
+        bool prepare_replay_fork_lab_context(
+            ReplayForkLabContext& out) noexcept
+        {
+            out = {};
+            if (GameMode::instance().current_presence()
+                    != GamePresence::Replay
+                || !has_context_valid_completed_timeline())
+            {
+                out.failure = "replay-fork-timeline-context-invalid";
+                return false;
+            }
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base)
+            {
+                out.failure = "replay-fork-image-base-missing";
+                return false;
+            }
+
+            constexpr uintptr_t kCharaStaticP1Rva = 0x47156F0;
+            constexpr uintptr_t kCharaStaticStride = 0x973F0;
+            constexpr uintptr_t kCharaVtableRva = 0x3E87698;
+            const uintptr_t chara[2] = {
+                base + kCharaStaticP1Rva,
+                base + kCharaStaticP1Rva + kCharaStaticStride,
+            };
+            const uintptr_t expected_vtable = base + kCharaVtableRva;
+            for (uintptr_t value : chara)
+            {
+                void* vtable = nullptr;
+                if (!SafeReadPtr(reinterpret_cast<const void*>(value),
+                                 &vtable)
+                    || reinterpret_cast<uintptr_t>(vtable)
+                        != expected_vtable)
+                {
+                    out.failure = "replay-fork-static-chara-not-live";
+                    return false;
+                }
+            }
+
+            uintptr_t battle_manager =
+                m_replay_fork_completed_battle_manager.load(
+                    std::memory_order_acquire);
+            if (!battle_manager)
+            {
+                battle_manager = reinterpret_cast<uintptr_t>(
+                    ReplayScrubDiag::bm_diag_ptr().get(
+                        L"LuxBattleManager"));
+            }
+            if (!battle_manager)
+            {
+                out.failure = "replay-fork-battle-manager-missing";
+                return false;
+            }
+
+            const uintptr_t input_log =
+                m_replay_fork_completed_input_log.load(
+                    std::memory_order_acquire);
+            uintptr_t stage_actor_manager =
+                m_replay_fork_completed_stage_actor_manager.load(
+                    std::memory_order_acquire);
+            if (!stage_actor_manager)
+            {
+                Obj bm {reinterpret_cast<RC::Unreal::UObject*>(
+                    battle_manager)};
+                Obj manager = bm
+                    ? bm.getObj(L"BattleStageActorManager") : Obj{};
+                stage_actor_manager =
+                    reinterpret_cast<uintptr_t>(manager.raw());
+            }
+            if (!input_log || !stage_actor_manager
+                || !SafeReadUInt8(reinterpret_cast<const void*>(
+                    battle_manager + 0x1461), &out.battle_main_state)
+                || !SafeReadUInt8(reinterpret_cast<const void*>(
+                    battle_manager + 0x1480), &out.battle_status)
+                || !SafeReadUInt32(reinterpret_cast<const void*>(
+                    input_log + 0x3A0),
+                    &out.input_log_frame))
+            {
+                out.failure = !input_log
+                    ? "replay-fork-input-log-missing"
+                    : (!stage_actor_manager
+                        ? "replay-fork-stage-manager-missing"
+                        : "replay-fork-context-read-failed");
+                return false;
+            }
+
+            // The bounded generator parks before SC6 tears down the active
+            // graph, so these native slots must already name the live
+            // characters. Lab setup is observe-only: healing a missing slot
+            // here would conceal a fixture/lifecycle defect and leave cleanup
+            // non-transactional.
+            void* live_chara[2] {};
+            if (!SafeReadPtr(reinterpret_cast<const void*>(
+                    base + kRVA_CharaSlotP1), &live_chara[0])
+                || !SafeReadPtr(reinterpret_cast<const void*>(
+                    base + kRVA_CharaSlotP2), &live_chara[1])
+                || reinterpret_cast<uintptr_t>(live_chara[0]) != chara[0]
+                || reinterpret_cast<uintptr_t>(live_chara[1]) != chara[1])
+            {
+                out.failure = "replay-fork-live-chara-slot-mismatch";
+                return false;
+            }
+
+            out.battle_manager = battle_manager;
+            out.input_log = input_log;
+            out.chara[0] = chara[0];
+            out.chara[1] = chara[1];
+            out.stage_actor_manager = stage_actor_manager;
+            out.valid = true;
+            out.failure = "ok";
+            return true;
+        }
+
+        bool replay_fork_seek_pending() const noexcept
+        {
+            return has_pending_native_seek();
+        }
+
+        bool replay_fork_timeline_ready() const noexcept
+        {
+            return has_context_valid_completed_timeline();
+        }
+
+        // Generate only as far as the fixture anchor and park while SC6's
+        // native battle graph is still authoritative. This avoids restoring
+        // a completed replay after its active manager and ownership links
+        // have been torn down.
+        bool replay_fork_generate_to_anchor(int32_t target_sequence) noexcept
+        {
+            if (target_sequence < 1
+                || GameMode::instance().current_presence()
+                    != GamePresence::Replay)
+            {
+                return false;
+            }
+            if (m_replay_fork_anchor_generation_done.load(
+                    std::memory_order_acquire))
+            {
+                if (!replay_fork_lab_hold_active()) return false;
+                if (raw_latest_seq() == target_sequence) return true;
+                if (raw_latest_seq() != target_sequence - 1)
+                    return false;
+                uint32_t wall = 0;
+                if (!read_frame_counter(wall)
+                    || !capture_snapshot(static_cast<int32_t>(wall), true)
+                    || raw_latest_seq() != target_sequence)
+                {
+                    return false;
+                }
+                m_usable_latest_seq.store(
+                    target_sequence, std::memory_order_release);
+                m_last_seek_target.store(
+                    target_sequence, std::memory_order_release);
+                publish_ui_target(target_sequence);
+                ReplayTraceFields fields;
+                fields.integer("anchor_sequence", target_sequence)
+                    .integer("round", read_current_round())
+                    .integer("master", read_engine_master_clock())
+                    .uinteger("frame_counter", wall)
+                    .string("hold", "ReplayForkLabHold")
+                    .string("evidence_scope",
+                        "rollback-core-integration")
+                    .boolean("production_certified", false);
+                ReplayDebugTrace::instance().event(
+                    "rollback_replay_fork_anchor_finalized", fields);
+                return true;
+            }
+
+            const int32_t generation_stop_sequence = target_sequence - 1;
+
+            const TimelineGenState state = static_cast<TimelineGenState>(
+                m_timeline_gen_state.load(std::memory_order_acquire));
+            if (state == TimelineGenState::Idle)
+            {
+                start_generate_timeline(
+                    TimelineGenerationMode::LuxNoRender);
+                if (static_cast<TimelineGenState>(
+                        m_timeline_gen_state.load(std::memory_order_acquire))
+                    == TimelineGenState::Generating)
+                {
+                    m_replay_fork_anchor_generation_target.store(
+                        generation_stop_sequence,
+                        std::memory_order_release);
+                }
+                return false;
+            }
+            if (state != TimelineGenState::Generating
+                )
+            {
+                return false;
+            }
+
+            int32_t generation_target =
+                m_replay_fork_anchor_generation_target.load(
+                    std::memory_order_acquire);
+            if (generation_target < 0)
+            {
+                m_replay_fork_anchor_generation_target.store(
+                    generation_stop_sequence, std::memory_order_release);
+                generation_target = generation_stop_sequence;
+            }
+            if (generation_target != generation_stop_sequence) return false;
+
+            const int32_t latest = raw_latest_seq();
+            if (latest < generation_stop_sequence) return false;
+            if (latest != generation_stop_sequence)
+            {
+                request_stop_generate_timeline();
+                return false;
+            }
+            stop_generate_timeline(
+                "replay-fork-anchor-reached", true, true);
+            return m_replay_fork_anchor_generation_done.load(
+                std::memory_order_acquire);
+        }
+
+        bool replay_fork_direct_advance(
+            uint32_t player0_input,
+            uint32_t player1_input) noexcept
+        {
+            if (!replay_fork_lab_hold_active()
+                || !resolve_per_frame_tick_bypass())
+            {
+                return false;
+            }
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            uint32_t frame_before = 0;
+            if (!SafeReadUInt32(reinterpret_cast<const void*>(
+                    base + kRVA_FrameCounter), &frame_before))
+            {
+                return false;
+            }
+
+            uint64_t inputs[2] {player0_input, player1_input};
+            uint8_t camera_args[24] {};
+            if (!SafeReadBytes(reinterpret_cast<const void*>(
+                    base + kRVA_PerFrameCameraArgs),
+                    camera_args, sizeof(camera_args)))
+            {
+                return false;
+            }
+            GateStepCallback gate =
+                m_gate_step_callback.load(std::memory_order_acquire);
+            m_replay_fork_direct_step_active.store(
+                true, std::memory_order_release);
+            if (!gate || !gate(true))
+            {
+                m_replay_fork_direct_step_active.store(
+                    false, std::memory_order_release);
+                ReplayTraceFields failure;
+                failure.string("stage", "open-gates")
+                    .uinteger("frame_before", frame_before);
+                ReplayDebugTrace::instance().event(
+                    "rollback_replay_fork_direct_advance_result", failure);
+                return false;
+            }
+            uintptr_t args[3] = {
+                reinterpret_cast<uintptr_t>(&inputs[0]),
+                reinterpret_cast<uintptr_t>(&inputs[1]),
+                reinterpret_cast<uintptr_t>(camera_args),
+            };
+            const bool advanced =
+                SafeInvokePerFrameTick(m_per_frame_tick_bypass, args);
+            m_replay_fork_direct_step_active.store(
+                false, std::memory_order_release);
+            const bool refrozen = gate(false);
+            uint32_t frame_after = frame_before;
+            const bool frame_read = SafeReadUInt32(
+                reinterpret_cast<const void*>(base + kRVA_FrameCounter),
+                    &frame_after);
+            ReplayTraceFields result;
+            result.string("stage", "completed")
+                .boolean("advanced", advanced)
+                .boolean("refrozen", refrozen)
+                .boolean("frame_read", frame_read)
+                .uinteger("frame_before", frame_before)
+                .uinteger("frame_after", frame_after);
+            ReplayDebugTrace::instance().event(
+                "rollback_replay_fork_direct_advance_result", result);
+            return advanced && refrozen && frame_read
+                && frame_after == frame_before + 1;
+        }
+
         // Engage pause AND anchor the playhead at the current live
         // edge.  Used by the Pause button: without anchoring, a
         // play->pause transition would leave m_last_seek_target
@@ -13089,6 +13568,24 @@ namespace Horse
                 p.time_dilation_gate = true;
                 p.vm_freeze_byte = true;
                 p.reason = "ManualDiagnosticFreeze";
+                return p;
+            }
+
+            if (hold == ReplayScrubHoldKind::ReplayForkLabHold)
+            {
+                p.world_tick_gate = true;
+                p.replay_clock_gate = true;
+                p.actor_tick_gate = true;
+                p.time_dilation_gate = true;
+                p.vm_freeze_byte = true;
+                // Replay-fork advances the native battle trampoline directly,
+                // outside ReplayScrub's full replay-seek snapshot (which owns
+                // the stage-wind root, graph and emitter images). Keep the
+                // four visual wind RNG consumers patched during both frozen
+                // and credited fixture work so a predicted presentation path
+                // cannot perturb the shared gameplay LFSR after correction.
+                p.wind_rng_gate = true;
+                p.reason = "ReplayForkLabHold";
                 return p;
             }
 
@@ -14034,12 +14531,20 @@ namespace Horse
         }
 
         using GateReleaseCallback = void (*)(const char*) noexcept;
+        using GateStepCallback = bool (*)(bool) noexcept;
 
         void set_gate_release_callback(
             GateReleaseCallback callback) noexcept
         {
             m_gate_release_callback.store(callback,
                                           std::memory_order_release);
+        }
+
+
+        void set_gate_step_callback(GateStepCallback callback) noexcept
+        {
+            m_gate_step_callback.store(callback,
+                                       std::memory_order_release);
         }
 
     private:
@@ -14691,6 +15196,8 @@ namespace Horse
             m_cached_native_replay_entry_payload {};
         std::vector<uint8_t> m_loaded_replay_payload;
         std::atomic<GateReleaseCallback> m_gate_release_callback {nullptr};
+        std::atomic<GateStepCallback> m_gate_step_callback {nullptr};
+        std::atomic<bool> m_replay_fork_direct_step_active {false};
         std::atomic<bool> m_replay_file_load_pending {false};
         std::atomic<bool> m_replay_file_start_pending {false};
         std::atomic<bool> m_last_replay_file_start_was_seek_test {false};
@@ -16294,6 +16801,14 @@ namespace Horse
         std::atomic<uintptr_t> m_gen_cached_battle_manager {0};
         std::atomic<uintptr_t> m_gen_cached_input_log {0};
         std::atomic<uintptr_t> m_gen_cached_replay_player {0};
+        // Process-local actor identities retained with a completed timeline.
+        // Replay-fork uses these after SC6 clears the active-battle globals.
+        std::atomic<uintptr_t> m_replay_fork_completed_battle_manager {0};
+        std::atomic<uintptr_t> m_replay_fork_completed_input_log {0};
+        std::atomic<uintptr_t>
+            m_replay_fork_completed_stage_actor_manager {0};
+        std::atomic<int32_t> m_replay_fork_anchor_generation_target {-1};
+        std::atomic<bool> m_replay_fork_anchor_generation_done {false};
         std::atomic<int> m_timeline_generation_mode {
             static_cast<int>(TimelineGenerationMode::Normal)};
         std::atomic<bool> m_timeline_no_render_active {false};
@@ -26743,6 +27258,16 @@ namespace Horse
             // false rather than reading out of bounds.
             m_pool.clear();
             m_tags.clear();
+            m_replay_fork_anchor_generation_target.store(
+                -1, std::memory_order_release);
+            m_replay_fork_anchor_generation_done.store(
+                false, std::memory_order_release);
+            m_replay_fork_completed_battle_manager.store(
+                0, std::memory_order_release);
+            m_replay_fork_completed_input_log.store(
+                0, std::memory_order_release);
+            m_replay_fork_completed_stage_actor_manager.store(
+                0, std::memory_order_release);
             try { m_oracle_frames.clear(); }
             catch (...) {}
             m_sc6_round_reset_snapshot_valid.fill(false);
@@ -27963,6 +28488,25 @@ namespace Horse
             }
         }
 
+        bool park_replay_fork_generation_at_target() noexcept
+        {
+            const int32_t target =
+                m_replay_fork_anchor_generation_target.load(
+                    std::memory_order_acquire);
+            if (target < 0) return false;
+            const int32_t latest = raw_latest_seq();
+            if (latest < target) return false;
+            if (latest != target)
+            {
+                stop_generate_timeline(
+                    "replay-fork-anchor-overshot", false);
+                return true;
+            }
+            stop_generate_timeline(
+                "replay-fork-anchor-reached", true, true);
+            return true;
+        }
+
         void run_direct_replay_generate_burst_slice() noexcept
         {
             static constexpr int32_t kDirectFramesPerOuterTick = 8;
@@ -28094,6 +28638,8 @@ namespace Horse
                     }
                     return;
                 }
+
+                if (park_replay_fork_generation_at_target()) return;
 
                 ++frames_this_slice;
                 evaluate_battle_step_generation_end(
@@ -28256,6 +28802,8 @@ namespace Horse
             }
             if (!should_commit)
                 return false;
+
+            if (park_replay_fork_generation_at_target()) return false;
 
             on_recovered();
             evaluate_battle_step_generation_end(t1);

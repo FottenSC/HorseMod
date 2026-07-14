@@ -57,7 +57,7 @@ namespace Horse
         RollbackInputCacheSource source {RollbackInputCacheSource::Empty};
         uint32_t dwPlayerSlot {0};
         uint32_t dwFrameIndex {0};
-        uint32_t dwFrameLow {0};
+        int32_t nLastFrameId {0};
         uint32_t dwInputValue {0};
         bool bOnGameThread {false};
         bool bNetworkThread {false};
@@ -81,7 +81,7 @@ namespace Horse
             RollbackInputCacheAccessStatus::InvalidSource};
         uint32_t dwPlayerSlot {0};
         uint32_t dwFrameIndex {0};
-        uint32_t dwFrameLow {0};
+        int32_t nLastFrameId {0};
         uint32_t dwInputValue {0};
         uint64_t qwSequence {0};
         const char* failure {"not-run"};
@@ -149,7 +149,7 @@ namespace Horse
             out.failure = "ok";
             out.dwPlayerSlot = req.dwPlayerSlot;
             out.dwFrameIndex = req.dwFrameIndex;
-            out.dwFrameLow = req.dwFrameLow;
+            out.nLastFrameId = req.nLastFrameId;
             out.dwInputValue = req.dwInputValue;
 
             if (req.dwPlayerSlot >= PlayerSlots)
@@ -190,8 +190,7 @@ namespace Horse
             const bool identity_matches =
                 cell.entry.bFilled != 0
                 && cell.entry.dwFrameIndex == req.dwFrameIndex
-                && cell.entry.nFrameID
-                    == static_cast<int32_t>(req.dwFrameLow);
+                && cell.entry.nFrameID == req.nLastFrameId;
 
             if (identity_matches)
             {
@@ -247,7 +246,7 @@ namespace Horse
                 }
             }
 
-            cell.entry.nFrameID = static_cast<int32_t>(req.dwFrameLow);
+            cell.entry.nFrameID = req.nLastFrameId;
             cell.entry.dwFrameIndex = req.dwFrameIndex;
             cell.entry.dwInputValue = req.dwInputValue;
             cell.entry.bFilled = 1;
@@ -265,12 +264,12 @@ namespace Horse
         RollbackInputCacheAccessReport consume(
             uint32_t dwPlayerSlot,
             uint32_t dwFrameIndex,
-            uint32_t dwFrameLow) const noexcept
+            int32_t nLastFrameId) const noexcept
         {
             RollbackInputCacheAccessReport out {};
             out.dwPlayerSlot = dwPlayerSlot;
             out.dwFrameIndex = dwFrameIndex;
-            out.dwFrameLow = dwFrameLow;
+            out.nLastFrameId = nLastFrameId;
             out.failure = "ok";
 
             if (dwPlayerSlot >= PlayerSlots)
@@ -288,7 +287,7 @@ namespace Horse
                 return out;
             }
             if (cell.entry.dwFrameIndex != dwFrameIndex
-                || cell.entry.nFrameID != static_cast<int32_t>(dwFrameLow))
+                || cell.entry.nFrameID != nLastFrameId)
             {
                 out.status =
                     RollbackInputCacheAccessStatus::CacheIdentityMismatch;
@@ -343,13 +342,14 @@ namespace Horse
         RollbackInputCacheSource source,
         uint32_t dwPlayerSlot,
         uint32_t dwFrameIndex,
+        int32_t nLastFrameId,
         uint32_t dwInputValue) noexcept
     {
         RollbackInputCacheWriteRequest req {};
         req.source = source;
         req.dwPlayerSlot = dwPlayerSlot;
         req.dwFrameIndex = dwFrameIndex;
-        req.dwFrameLow = dwFrameIndex & 0x0Fu;
+        req.nLastFrameId = nLastFrameId;
         req.dwInputValue = dwInputValue;
         req.bOnGameThread = true;
         return req;
@@ -368,7 +368,7 @@ namespace Horse
 
         RollbackInputCacheWriteRequest pred =
             RollbackInputCacheRequest(
-                RollbackInputCacheSource::Prediction, 1, 10, 0x1010);
+                RollbackInputCacheSource::Prediction, 1, 10, 10, 0x1010);
         pred.bStockDrainComplete = true;
         const RollbackInputCacheAccessReport pred_write =
             cache.write(pred);
@@ -382,7 +382,7 @@ namespace Horse
 
         RollbackInputCacheWriteRequest network =
             RollbackInputCacheRequest(
-                RollbackInputCacheSource::Prediction, 1, 11, 0x1111);
+                RollbackInputCacheSource::Prediction, 1, 11, 11, 0x1111);
         network.bNetworkThread = true;
         network.bOnGameThread = false;
         network.bStockDrainComplete = true;
@@ -395,7 +395,7 @@ namespace Horse
 
         RollbackInputCacheWriteRequest off_thread =
             RollbackInputCacheRequest(
-                RollbackInputCacheSource::Prediction, 1, 13, 0x1313);
+                RollbackInputCacheSource::Prediction, 1, 13, 13, 0x1313);
         off_thread.bOnGameThread = false;
         off_thread.bNetworkThread = false;
         off_thread.bStockDrainComplete = true;
@@ -408,7 +408,7 @@ namespace Horse
 
         RollbackInputCacheWriteRequest early =
             RollbackInputCacheRequest(
-                RollbackInputCacheSource::Prediction, 1, 12, 0x1212);
+                RollbackInputCacheSource::Prediction, 1, 12, 12, 0x1212);
         const RollbackInputCacheAccessReport early_write =
             cache.write(early);
         report.drain_order_required =
@@ -418,7 +418,7 @@ namespace Horse
 
         RollbackInputCacheWriteRequest stock_after_pred =
             RollbackInputCacheRequest(
-                RollbackInputCacheSource::StockDrain, 1, 10, 0x1010);
+                RollbackInputCacheSource::StockDrain, 1, 10, 10, 0x1010);
         stock_after_pred.bStockDrainComplete = true;
         const RollbackInputCacheAccessReport stock_after_pred_write =
             cache.write(stock_after_pred);
@@ -429,7 +429,8 @@ namespace Horse
 
         RollbackInputCacheWriteRequest confirm =
             RollbackInputCacheRequest(
-                RollbackInputCacheSource::ConfirmedRemote, 1, 10, 0x2020);
+                RollbackInputCacheSource::ConfirmedRemote,
+                1, 10, 10, 0x2020);
         confirm.bStockDrainComplete = true;
         const RollbackInputCacheAccessReport confirm_write =
             cache.write(confirm);
@@ -449,7 +450,7 @@ namespace Horse
 
         RollbackInputCacheWriteRequest pred_over_confirmed =
             RollbackInputCacheRequest(
-                RollbackInputCacheSource::Prediction, 1, 10, 0x4040);
+                RollbackInputCacheSource::Prediction, 1, 10, 10, 0x4040);
         pred_over_confirmed.bStockDrainComplete = true;
         const RollbackInputCacheAccessReport pred_over_confirmed_write =
             cache.write(pred_over_confirmed);
@@ -465,7 +466,8 @@ namespace Horse
 
         RollbackInputCacheWriteRequest conflict =
             RollbackInputCacheRequest(
-                RollbackInputCacheSource::ConfirmedRemote, 1, 10, 0x3030);
+                RollbackInputCacheSource::ConfirmedRemote,
+                1, 10, 10, 0x3030);
         conflict.bStockDrainComplete = true;
         const RollbackInputCacheAccessReport conflict_write =
             cache.write(conflict);

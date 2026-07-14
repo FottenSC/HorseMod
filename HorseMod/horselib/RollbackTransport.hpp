@@ -147,9 +147,9 @@ namespace Horse
         uint32_t confirmation_regressions {0};
         uint32_t max_prediction_age {0};
         uint32_t max_rollback_depth {0};
-        uint32_t contiguous_remote_frame {0xFFFFFFFFu};
-        uint32_t highest_remote_frame {0xFFFFFFFFu};
-        uint32_t last_peer_confirmed_frame {0xFFFFFFFFu};
+        RollbackFrameStamp contiguous_remote_frame {};
+        RollbackFrameStamp highest_remote_frame {};
+        RollbackFrameStamp last_peer_confirmed_frame {};
         bool peer_confirmation_known {false};
     };
 
@@ -180,6 +180,7 @@ namespace Horse
         bool handshake_rejects_invalid_policy {false};
         bool state_hash_policy_ok {false};
         bool loopback_delay_reorder_ok {false};
+        bool uint32_wrap_ok {false};
         RollbackTransportMetrics metrics {};
         const char* failure {"not-run"};
     };
@@ -467,10 +468,11 @@ namespace Horse
     public:
         static_assert((N & (N - 1)) == 0, "history size must be power of two");
 
-        void clear() noexcept
+        void clear(uint32_t first_expected_frame = 0) noexcept
         {
             m_history.clear();
             m_metrics = {};
+            m_first_expected_frame = first_expected_frame;
         }
 
         const RollbackTransportMetrics& metrics() const noexcept
@@ -495,8 +497,7 @@ namespace Horse
             }
 
             RollbackInputFrame* existing =
-                m_history.find_mutable(
-                    static_cast<int32_t>(packet.local_frame));
+                m_history.find_mutable(packet.local_frame);
             if (existing && existing->p2_confirmed)
             {
                 if (existing->input.p2 == packet.local_input)
@@ -513,8 +514,10 @@ namespace Horse
                 return report;
             }
 
-            if (packet.local_frame < local_sim_frame
-                && local_sim_frame - packet.local_frame
+            if (RollbackFrameIsBefore(
+                    packet.local_frame, local_sim_frame)
+                && RollbackFrameDistance(
+                    local_sim_frame, packet.local_frame)
                     > max_rollback_window)
             {
                 report.status =
@@ -524,35 +527,38 @@ namespace Horse
                 return report;
             }
 
-            if (m_metrics.highest_remote_frame != 0xFFFFFFFFu
-                && packet.local_frame < m_metrics.highest_remote_frame)
+            if (m_metrics.highest_remote_frame.valid
+                && RollbackFrameIsBefore(
+                    packet.local_frame,
+                    m_metrics.highest_remote_frame.value))
             {
                 report.reordered = true;
                 ++m_metrics.reordered;
             }
 
             RollbackInputFrame& frame =
-                m_history.write(static_cast<int32_t>(packet.local_frame));
+                m_history.write(packet.local_frame);
             frame.input.p2 = packet.local_input;
             frame.p2_confirmed = true;
             frame.p2_predicted = false;
 
-            if (m_metrics.highest_remote_frame == 0xFFFFFFFFu
-                || packet.local_frame > m_metrics.highest_remote_frame)
+            if (!m_metrics.highest_remote_frame.valid
+                || RollbackFrameIsAfter(
+                    packet.local_frame,
+                    m_metrics.highest_remote_frame.value))
             {
                 m_metrics.highest_remote_frame = packet.local_frame;
             }
 
-            const uint32_t previous_contiguous =
+            const RollbackFrameStamp previous_contiguous =
                 m_metrics.contiguous_remote_frame;
             for (;;)
             {
                 const uint32_t next =
-                    m_metrics.contiguous_remote_frame == 0xFFFFFFFFu
-                    ? 0
-                    : m_metrics.contiguous_remote_frame + 1;
-                const RollbackInputFrame* next_frame =
-                    m_history.find(static_cast<int32_t>(next));
+                    !m_metrics.contiguous_remote_frame.valid
+                    ? m_first_expected_frame
+                    : m_metrics.contiguous_remote_frame.value + 1;
+                const RollbackInputFrame* next_frame = m_history.find(next);
                 if (!next_frame || !next_frame->p2_confirmed)
                     break;
                 m_metrics.contiguous_remote_frame = next;
@@ -563,16 +569,18 @@ namespace Horse
                     != kRollbackTransportNoFrame;
             if (has_peer_confirmation
                 && m_metrics.peer_confirmation_known
-                && packet.last_confirmed_remote_frame
-                    < m_metrics.last_peer_confirmed_frame)
+                && RollbackFrameIsBefore(
+                    packet.last_confirmed_remote_frame,
+                    m_metrics.last_peer_confirmed_frame.value))
             {
                 ++m_metrics.confirmation_regressions;
                 report.peer_confirmation_regressed = true;
             }
             if (has_peer_confirmation
                 && (!m_metrics.peer_confirmation_known
-                    || packet.last_confirmed_remote_frame
-                        > m_metrics.last_peer_confirmed_frame))
+                    || RollbackFrameIsAfter(
+                        packet.last_confirmed_remote_frame,
+                        m_metrics.last_peer_confirmed_frame.value)))
             {
                 m_metrics.last_peer_confirmed_frame =
                     packet.last_confirmed_remote_frame;
@@ -591,9 +599,13 @@ namespace Horse
             report.status = RollbackTransportAcceptStatus::Accepted;
             report.accepted = true;
             report.confirmation_advanced =
-                m_metrics.contiguous_remote_frame != previous_contiguous;
+                m_metrics.contiguous_remote_frame.valid
+                != previous_contiguous.valid
+                || (m_metrics.contiguous_remote_frame.valid
+                    && m_metrics.contiguous_remote_frame.value
+                        != previous_contiguous.value);
             report.contiguous_remote_frame =
-                m_metrics.contiguous_remote_frame;
+                m_metrics.contiguous_remote_frame.wire_value();
             report.prediction_age_frames = packet.prediction_age_frames;
             report.rollback_depth_frames = packet.rollback_depth_frames;
             return report;
@@ -602,6 +614,7 @@ namespace Horse
     private:
         RollbackInputHistory<N> m_history {};
         RollbackTransportMetrics m_metrics {};
+        uint32_t m_first_expected_frame {0};
     };
 
     static inline RollbackTransportSelfTestReport
@@ -925,6 +938,29 @@ namespace Horse
             && loop_metrics.max_prediction_age == 2
             && loop_metrics.max_rollback_depth == 2;
 
+        RollbackTransportPeerModel<128> wrap_peer {};
+        wrap_peer.clear(0xFFFFFFFEu);
+        RollbackTransportPacket wrap_packet {};
+        wrap_packet.last_confirmed_remote_frame =
+            kRollbackTransportNoFrame;
+        bool wrap_accepts = true;
+        const uint32_t wrap_frames[] = {
+            0xFFFFFFFEu, 0xFFFFFFFFu, 0u, 1u};
+        for (uint32_t frame : wrap_frames)
+        {
+            wrap_packet.local_frame = frame;
+            wrap_packet.local_input = 0xA000u + frame;
+            const RollbackTransportAcceptReport accepted =
+                wrap_peer.accept_remote_input(wrap_packet, 1u, 60u);
+            wrap_accepts = wrap_accepts && accepted.accepted;
+        }
+        report.uint32_wrap_ok =
+            wrap_accepts
+            && wrap_peer.metrics().contiguous_remote_frame.valid
+            && wrap_peer.metrics().contiguous_remote_frame.value == 1u
+            && wrap_peer.metrics().highest_remote_frame.valid
+            && wrap_peer.metrics().highest_remote_frame.value == 1u;
+
         const RollbackCacheOrderingDecision net_thread =
             ValidateRollbackCacheOrdering(
                 RollbackCacheOrderingMode::StockDrainBeforePrediction,
@@ -961,6 +997,7 @@ namespace Horse
             && report.handshake_rejects_invalid_policy
             && report.state_hash_policy_ok
             && report.loopback_delay_reorder_ok
+            && report.uint32_wrap_ok
             && report.network_thread_cache_write_rejected
             && report.stock_drain_ordering_ok;
         if (!report.ok && report.failure && report.failure[0] == 'o')

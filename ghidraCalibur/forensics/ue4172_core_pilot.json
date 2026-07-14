@@ -1,0 +1,89 @@
+{
+  "schema": "sc6-ue4172-core-pilot/v1",
+  "baseline": {
+    "commit": "8c46d0805b8efa845cc693b76030b7cab2796c0a",
+    "label": "final-4.17.2-release"
+  },
+  "program": "SoulcaliburVI.exe",
+  "batch": [
+    {
+      "kind": "datatype",
+      "name": "UE4172_FAsyncLoadingThreadPartial",
+      "category": "/UE4172_Reference",
+      "confidence": "high",
+      "size": "0x70 exact prefix; remaining object layout intentionally unmodeled",
+      "fields": [
+        {"offset": "0x00", "type": "byte[32]", "name": "unknown00", "evidence": "Object base is proven, but no individual field in this span has two-source support."},
+        {"offset": "0x20", "type": "void *", "name": "cancelLoadingEvent", "evidence": "UE header field; SC6 function dereferences +0x20 as event"},
+        {"offset": "0x28", "type": "byte[16]", "name": "unknown28", "evidence": "No individual fields in this span have two-source support."},
+        {"offset": "0x38", "type": "void *", "name": "queuedPackagesData", "evidence": "SC6 reads pointer at +0x38"},
+        {"offset": "0x40", "type": "int", "name": "queuedPackagesCount", "evidence": "SC6 reads/resets count at +0x40"},
+        {"offset": "0x44", "type": "int", "name": "queuedPackagesCapacity", "evidence": "SC6 reads capacity at +0x44"},
+        {"offset": "0x48", "type": "byte[40]", "name": "queueCritical", "evidence": "UE FCriticalSection; SC6 enters/leaves a Win64 critical section at +0x48"}
+      ]
+    },
+    {
+      "kind": "function",
+      "address": "0x140e44f30",
+      "source_path": "Engine/Source/Runtime/CoreUObject/Private/Serialization/AsyncLoading.cpp:335-340",
+      "confidence": "high",
+      "before": {"name": "FUN_140e44f30", "prototype": "undefined FUN_140e44f30(void)", "plate_comment": ""},
+      "after": {
+        "name": "CancelAsyncLoadingInternal",
+        "prototype": "void CancelAsyncLoadingInternal(void *pAsyncLoadingThread)",
+        "plate_comment": "UE 4.17.2 verified; the partial FAsyncLoadingThread reference layout is intentionally not applied because this function accesses later, unverified offsets."
+      },
+      "evidence": [
+        "UE 4.17.2 AsyncLoading.cpp:335-340 has the exact EDL diagnostic string.",
+        "SC6 string 0x143508320 xrefs to 0x140e44f30; its assembly stores RCX as the object base and accesses +0x38/+0x40/+0x44/+0x48.",
+        "SC6 callers 0x140e62de0 and 0x140e67370 match the async-loader control-flow context."
+      ]
+    },
+    {
+      "kind": "function",
+      "address": "0x1401c08c0",
+      "source_path": "Engine/Source/Runtime/Core/Private/Misc/CoreGlobals.cpp:280-292",
+      "confidence": "high",
+      "before": {"name": "FUN_1401c08c0", "prototype": "undefined FUN_1401c08c0(void)", "plate_comment": ""},
+      "after": {
+        "name": "RegisterToggleGpuCrashedFlagCommand",
+        "prototype": "void RegisterToggleGpuCrashedFlagCommand(void)",
+        "plate_comment": "UE 4.17.2 verified: compiler-generated initializer registering CoreGlobals.cpp static FAutoConsoleCommand ToggleDebugGPUCrashedCmd; descriptive name, not a source symbol."
+      },
+      "evidence": [
+        "UE 4.17.2 CoreGlobals.cpp:280-292 defines GIsGPUCrashed and the c.ToggleGPUCrashedFlagDbg command.",
+        "SC6 string 0x1434d4500 xrefs to 0x1401c08c0; its decompilation registers the exact command and diagnostic with the console manager."
+      ]
+    }
+  ],
+  "review": {
+    "reviewer": "Hermes",
+    "status": "approved",
+    "reviewed_batch_size": 2,
+    "post_apply_correction": "approved: retain the 0x70 partial type as an isolated reference and use void * for CancelAsyncLoadingInternal because later offsets are not verified"
+  },
+  "application": {
+    "status": "saved",
+    "accepted": [
+      "UE4172_FAsyncLoadingThreadPartial at /UE4172_Reference/UE4172_FAsyncLoadingThreadPartial",
+      "0x140e44f30 -> CancelAsyncLoadingInternal(void *pAsyncLoadingThread)",
+      "0x1401c08c0 -> RegisterToggleGpuCrashedFlagCommand(void)"
+    ],
+    "rejected": [
+      "Applying UE4172_FAsyncLoadingThreadPartial to 0x140e44f30: decompiler produced pAsyncLoadingThread[n] casts beyond the verified 0x70 prefix"
+    ],
+    "verification": [
+      "The reference type reads back as 112 bytes at /UE4172_Reference/UE4172_FAsyncLoadingThreadPartial.",
+      "The async parameter reads back as void * pAsyncLoadingThread in RCX.",
+      "Redecompilation retains explicit +0x38/+0x40/+0x44/+0x48 accesses and contains no partial-type array casts.",
+      "The GPU console-command initializer retains its exact command string and provenance plate.",
+      "Both provenance plates contain Source, numbered Algorithm, Parameters, Returns, and Special Cases sections."
+    ]
+  },
+  "export_validation": {
+    "published_generation_after_pilot": "4de4faf919d10f371846e3de",
+    "reproducibility_regression": "An unchanged rerun exposed a per-process Java object identity suffix in the exported name-transformer option. The option now serializes its stable implementation class instead.",
+    "post_fix_generation": "ef0e94d1f1b86814e3ce6a16",
+    "unchanged_rerun": "Authoritative program state is unchanged; reusing immutable generation ef0e94d1f1b86814e3ce6a16."
+  }
+}

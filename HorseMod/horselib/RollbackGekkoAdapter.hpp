@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "RollbackGekkoSessionStart.hpp"
+
 #ifndef HORSE_ENABLE_GEKKONET
 #define HORSE_ENABLE_GEKKONET 0
 #endif
@@ -52,6 +54,8 @@ namespace Horse
         bool gameplay_inputs_decoded {false};
         bool gameplay_slots_present {false};
         bool gameplay_inputs_drive_state {false};
+        bool initial_baseline_event_order_a {false};
+        bool initial_baseline_event_order_b {false};
         bool final_checksums_match {false};
         bool destroy_ok {false};
         uint32_t frames_submitted {0};
@@ -387,12 +391,36 @@ namespace Horse
             GekkoSession* session,
             AdapterContext& ctx,
             RollbackGekkoDetail::State& state,
-            RollbackGekkoAdapterSelfTestReport& report) noexcept
+            RollbackGekkoAdapterSelfTestReport& report,
+            bool& initial_baseline_event_order) noexcept
         {
             ScopedContext scope(ctx);
             int event_count = 0;
             GekkoGameEvent** events =
                 gekko_update_session(session, &event_count);
+            // A GameSession may need adapter traffic before its first gameplay
+            // batch. Validate the baseline contract on the first non-empty
+            // update for each peer, not on an arbitrary outer-loop step.
+            if (!initial_baseline_event_order && event_count > 0)
+            {
+                initial_baseline_event_order = event_count == 3
+                    && events
+                    && events[0]
+                    && events[0]->type == GekkoSaveEvent
+                    && events[0]->data.save.frame
+                        == kRollbackGekkoBaselineFrame
+                    && events[1]
+                    && events[1]->type == GekkoAdvanceEvent
+                    && events[1]->data.adv.frame == 0
+                    && events[2]
+                    && events[2]->type == GekkoSaveEvent
+                    && events[2]->data.save.frame == 0;
+                if (!initial_baseline_event_order)
+                {
+                    report.failure = "unexpected-initial-baseline-events";
+                    return false;
+                }
+            }
             for (int i = 0; i < event_count; ++i)
             {
                 GekkoGameEvent* ev = events[i];
@@ -530,6 +558,8 @@ namespace Horse
                 && report.gameplay_inputs_decoded
                 && report.gameplay_slots_present
                 && report.gameplay_inputs_drive_state
+                && report.initial_baseline_event_order_a
+                && report.initial_baseline_event_order_b
                 && report.final_checksums_match
                 && report.destroy_ok;
             if (report.ok)
@@ -565,22 +595,21 @@ namespace Horse
 
         {
             ScopedContext scope_a(ctx_a);
-            gekko_start(session_a, &config);
+            if (!StartRollbackGekkoSessionWithAdapter(
+                    session_a, config, adapter()))
+            {
+                return finish("session-a-start-or-adapter-failed");
+            }
         }
         {
             ScopedContext scope_b(ctx_b);
-            gekko_start(session_b, &config);
+            if (!StartRollbackGekkoSessionWithAdapter(
+                    session_b, config, adapter()))
+            {
+                return finish("session-b-start-or-adapter-failed");
+            }
         }
         report.start_ok = true;
-
-        {
-            ScopedContext scope_a(ctx_a);
-            gekko_net_adapter_set(session_a, adapter());
-        }
-        {
-            ScopedContext scope_b(ctx_b);
-            gekko_net_adapter_set(session_b, adapter());
-        }
         report.adapter_set = true;
 
         uint8_t addr_a = ctx_a.address;
@@ -622,10 +651,14 @@ namespace Horse
             }
             ++report.frames_submitted;
 
-            if (!pump_update(session_a, ctx_a, state_a, report))
+            if (!pump_update(
+                    session_a, ctx_a, state_a, report,
+                    report.initial_baseline_event_order_a))
                 return finish(report.failure);
             collect_session_events(session_a, ctx_a, report);
-            if (!pump_update(session_b, ctx_b, state_b, report))
+            if (!pump_update(
+                    session_b, ctx_b, state_b, report,
+                    report.initial_baseline_event_order_b))
                 return finish(report.failure);
             collect_session_events(session_b, ctx_b, report);
 

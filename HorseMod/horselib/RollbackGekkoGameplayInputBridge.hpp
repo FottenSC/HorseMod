@@ -13,6 +13,7 @@
 #endif
 
 #include "RollbackGekkoSession.hpp"
+#include "RollbackFrameStamp.hpp"
 #include "RollbackLivePeerPipeline.hpp"
 
 #include <array>
@@ -62,6 +63,9 @@ namespace Horse
         bool raw_decode_player1 {false};
         bool null_inputs_rejected {false};
         bool bad_frame_rejected {false};
+        bool last_safe_frame_accepted {false};
+        bool signed_ceiling_rejected {false};
+        bool signed_update_guard_ok {false};
         bool bad_size_rejected {false};
         bool bad_player_count_rejected {false};
         bool bad_slot_rejected {false};
@@ -70,6 +74,7 @@ namespace Horse
         bool create_ok {false};
         bool start_ok {false};
         bool actors_ok {false};
+        bool baseline_frame_key_ok {false};
         bool actual_gekko_advance_decode {false};
         bool actual_gekko_rollback_decode {false};
         bool no_desync {false};
@@ -124,7 +129,7 @@ namespace Horse
             return out;
         };
 
-        if (frame < 0)
+        if (!RollbackGekkoFrameIsProductionSafe(frame))
             return fail(RollbackGekkoGameplayInputDecodeStatus::InvalidFrame);
         if (!inputs)
             return fail(RollbackGekkoGameplayInputDecodeStatus::NullInputs);
@@ -223,6 +228,59 @@ namespace Horse
             && bad_frame.status
                 == RollbackGekkoGameplayInputDecodeStatus::InvalidFrame;
 
+        const int32_t last_safe_frame = static_cast<int32_t>(
+            kRollbackGekkoSignedFrameExclusiveCeiling - 1u);
+        const RollbackGekkoGameplayInputDecodeReport last_safe =
+            DecodeRollbackGekkoGameplayInputs(
+                last_safe_frame,
+                raw,
+                static_cast<uint32_t>(sizeof(raw)),
+                2);
+        report.last_safe_frame_accepted = last_safe.ok
+            && last_safe.frame == static_cast<uint32_t>(last_safe_frame);
+
+        const RollbackGekkoGameplayInputDecodeReport at_ceiling =
+            DecodeRollbackGekkoGameplayInputs(
+                static_cast<int32_t>(
+                    kRollbackGekkoSignedFrameExclusiveCeiling),
+                raw,
+                static_cast<uint32_t>(sizeof(raw)),
+                2);
+        report.signed_ceiling_rejected = !at_ceiling.ok
+            && at_ceiling.status
+                == RollbackGekkoGameplayInputDecodeStatus::InvalidFrame;
+
+        RollbackFrameStamp high_water {};
+        const bool initial_update = RollbackGekkoMayUpdateSession(
+            high_water, 0);
+        RollbackObserveGekkoFrame(
+            high_water,
+            kRollbackGekkoSignedFrameExclusiveCeiling - 2u);
+        const bool penultimate_update = RollbackGekkoMayUpdateSession(
+            high_water,
+            kRollbackGekkoSignedFrameExclusiveCeiling - 1u);
+        RollbackObserveGekkoFrame(
+            high_water,
+            kRollbackGekkoSignedFrameExclusiveCeiling - 1u);
+        const bool high_water_stops = !RollbackGekkoMayUpdateSession(
+            high_water, 1);
+        RollbackFrameStamp low_high_water = RollbackFrameStamp::From(10);
+        const bool update_count_stops = !RollbackGekkoMayUpdateSession(
+            low_high_water,
+            kRollbackGekkoSignedFrameExclusiveCeiling);
+        RollbackObserveGekkoFrame(low_high_water, 4);
+        const bool high_water_does_not_regress = low_high_water.valid
+            && low_high_water.value == 10;
+        report.signed_update_guard_ok = initial_update
+            && penultimate_update
+            && high_water_stops
+            && update_count_stops
+            && high_water_does_not_regress;
+        uint32_t baseline_key = 0;
+        report.baseline_frame_key_ok = RollbackGekkoStateFrameToKey(
+            kRollbackGekkoBaselineFrame, baseline_key)
+            && baseline_key == kRollbackGekkoBaselineFrameKey;
+
         const RollbackGekkoGameplayInputDecodeReport bad_size =
             DecodeRollbackGekkoGameplayInputs(
                 3,
@@ -273,15 +331,18 @@ namespace Horse
         const RollbackLivePeerPipelineDrainReport drained =
             pipeline.drain_metadata_to_session(player1.frame, true);
         const RollbackInputCacheAccessReport before_cache =
-            pipeline.consume_remote_input(player1);
+            pipeline.consume_remote_input(
+                player1, static_cast<int32_t>(player1.frame));
         const RollbackInputCacheAccessReport applied =
             pipeline.apply_confirmed_gameplay_input(
                 player1,
+                static_cast<int32_t>(player1.frame),
                 true,
                 true,
                 false);
         const RollbackInputCacheAccessReport consumed =
-            pipeline.consume_remote_input(player1);
+            pipeline.consume_remote_input(
+                player1, static_cast<int32_t>(player1.frame));
         report.payload_hash_separate =
             enqueued
             && drained.metadata_accepted
@@ -328,6 +389,9 @@ namespace Horse
                 && report.raw_decode_ok
                 && report.null_inputs_rejected
                 && report.bad_frame_rejected
+                && report.last_safe_frame_accepted
+                && report.signed_ceiling_rejected
+                && report.signed_update_guard_ok
                 && report.bad_size_rejected
                 && report.bad_player_count_rejected
                 && report.bad_slot_rejected
@@ -336,6 +400,7 @@ namespace Horse
                 && report.create_ok
                 && report.start_ok
                 && report.actors_ok
+                && report.baseline_frame_key_ok
                 && report.actual_gekko_advance_decode
                 && report.actual_gekko_rollback_decode
                 && report.no_desync
@@ -448,7 +513,6 @@ namespace Horse
                     break;
                 }
             }
-
             int session_event_count = 0;
             GekkoSessionEvent** session_events =
                 gekko_session_events(session, &session_event_count);

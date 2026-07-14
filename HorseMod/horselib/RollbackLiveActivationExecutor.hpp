@@ -200,6 +200,7 @@ namespace Horse
 
         RollbackLiveActivationExecutorCacheReport predict_gameplay_input(
             const RollbackDecodedGameplayInput& input,
+            int32_t nLastFrameId,
             bool stock_drain_complete,
             RollbackCacheOrderingMode cache_mode =
                 RollbackCacheOrderingMode::StockDrainBeforePrediction) noexcept
@@ -214,6 +215,7 @@ namespace Horse
             }
             out.access = m_pipeline.predict_remote_input(
                 input,
+                nLastFrameId,
                 stock_drain_complete,
                 cache_mode);
             fill_cache_report(out);
@@ -222,6 +224,7 @@ namespace Horse
 
         RollbackLiveActivationExecutorCacheReport apply_confirmed_gameplay_input(
             const RollbackDecodedGameplayInput& input,
+            int32_t nLastFrameId,
             bool on_game_thread,
             bool stock_drain_complete,
             bool network_thread_wants_live_cache_write,
@@ -238,6 +241,7 @@ namespace Horse
             }
             out.access = m_pipeline.apply_confirmed_gameplay_input(
                 input,
+                nLastFrameId,
                 on_game_thread,
                 stock_drain_complete,
                 network_thread_wants_live_cache_write,
@@ -247,7 +251,8 @@ namespace Horse
         }
 
         RollbackLiveActivationExecutorCacheReport consume_gameplay_input(
-            const RollbackDecodedGameplayInput& input) const noexcept
+            const RollbackDecodedGameplayInput& input,
+            int32_t nLastFrameId) const noexcept
         {
             RollbackLiveActivationExecutorCacheReport out {};
             out.armed = m_armed;
@@ -257,7 +262,8 @@ namespace Horse
                 out.failure = "activation-not-ready";
                 return out;
             }
-            out.access = m_pipeline.consume_remote_input(input);
+            out.access =
+                m_pipeline.consume_remote_input(input, nLastFrameId);
             fill_cache_report(out);
             out.consumed = out.access.ok;
             return out;
@@ -439,7 +445,7 @@ namespace Horse
                 kLocalPeer,
                 kSessionId);
         const RollbackLiveActivationExecutorCacheReport before_cache =
-            executor.consume_gameplay_input(gameplay0);
+            executor.consume_gameplay_input(gameplay0, 0);
         report.metadata_drained =
             drained.ok
             && drained.metadata_accepted
@@ -460,6 +466,7 @@ namespace Horse
                     kRemotePeer,
                     kLocalPeer,
                     kSessionId),
+                0,
                 true);
         report.prediction_written =
             predicted.ok
@@ -469,6 +476,7 @@ namespace Horse
         const RollbackLiveActivationExecutorCacheReport applied =
             executor.apply_confirmed_gameplay_input(
                 gameplay0,
+                0,
                 true,
                 true,
                 false);
@@ -479,7 +487,7 @@ namespace Horse
             && applied.replaced_prediction
             && applied.requires_correction;
         const RollbackLiveActivationExecutorCacheReport consumed =
-            executor.consume_gameplay_input(gameplay0);
+            executor.consume_gameplay_input(gameplay0, 0);
         report.confirmed_consumed =
             consumed.ok
             && consumed.consumed
@@ -493,6 +501,7 @@ namespace Horse
                     kRemotePeer,
                     kLocalPeer,
                     kSessionId),
+                1,
                 false,
                 false,
                 true);
@@ -562,6 +571,7 @@ namespace Horse
                     static_cast<uint8_t>(kRemotePeer + 1),
                     kLocalPeer,
                     kSessionId),
+                2,
                 true,
                 true,
                 false);

@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "RollbackFrameStamp.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -21,7 +23,7 @@ namespace Horse
 
     struct RollbackInputFrame
     {
-        int32_t frame {-1};
+        RollbackFrameStamp frame {};
         RollbackInputPair input {};
         bool p1_confirmed {false};
         bool p2_confirmed {false};
@@ -40,27 +42,29 @@ namespace Horse
             for (auto& f : m_frames) f = {};
         }
 
-        RollbackInputFrame& write(int32_t frame) noexcept
+        RollbackInputFrame& write(uint32_t frame) noexcept
         {
             RollbackInputFrame& slot = m_frames[slot_for(frame)];
-            if (slot.frame != frame)
+            if (!slot.frame.valid || slot.frame.value != frame)
             {
                 slot = {};
-                slot.frame = frame;
+                slot.frame = RollbackFrameStamp::From(frame);
             }
             return slot;
         }
 
-        const RollbackInputFrame* find(int32_t frame) const noexcept
+        const RollbackInputFrame* find(uint32_t frame) const noexcept
         {
             const RollbackInputFrame& slot = m_frames[slot_for(frame)];
-            return slot.frame == frame ? &slot : nullptr;
+            return slot.frame.valid && slot.frame.value == frame
+                ? &slot : nullptr;
         }
 
-        RollbackInputFrame* find_mutable(int32_t frame) noexcept
+        RollbackInputFrame* find_mutable(uint32_t frame) noexcept
         {
             RollbackInputFrame& slot = m_frames[slot_for(frame)];
-            return slot.frame == frame ? &slot : nullptr;
+            return slot.frame.valid && slot.frame.value == frame
+                ? &slot : nullptr;
         }
 
         template<typename Fn>
@@ -68,13 +72,13 @@ namespace Horse
         {
             for (const RollbackInputFrame& frame : m_frames)
             {
-                if (frame.frame >= 0)
+                if (frame.frame.valid)
                     fn(frame);
             }
         }
 
     private:
-        static constexpr size_t slot_for(int32_t frame) noexcept
+        static constexpr size_t slot_for(uint32_t frame) noexcept
         {
             return static_cast<size_t>(frame) & (N - 1);
         }

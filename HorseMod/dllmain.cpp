@@ -87,6 +87,14 @@
 //   KHitBase / KHitArea / KHitSphere / KHitFixArea native field layouts
 // ============================================================================
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <WinSock2.h>
+
 #include "horselib/HorseLib.hpp"
 #include "horselib/KHitWalker.hpp"
 #include "horselib/LineBatcherBackend.hpp"
@@ -1338,7 +1346,8 @@ private:
 
     // ---- SC6 NATIVE VM-FREEZE BYTE driver state ----------------------------
     // Tracks whether HorseMod has currently SET the native freeze byte at
-    // imageBase + 0x4862D0 (g_LuxBattle_VMFreezeRecord.bVMFreezeByte).
+    // imageBase + kRVA_LuxBattleVMFreezeRecord
+    // (g_LuxBattle_VMFreezeRecord.bVMFreezeByte).
     //
     // Used by frame_step_apply() to:
     //   * Skip touching the byte entirely on the steady-state "freeze
@@ -3982,6 +3991,101 @@ private:
             self->release_replay_scrub_gates_now(reason);
     }
 
+    static bool step_replay_fork_gates_callback(bool open) noexcept
+    {
+        if (HorseMod* self = s_instance.load(std::memory_order_acquire))
+            return self->step_replay_fork_gates_now(open);
+        return false;
+    }
+
+    bool step_replay_fork_gates_now(bool open) noexcept
+    {
+        const bool hold_active = Horse::ReplayScrub::instance()
+            .replay_fork_lab_hold_active();
+        if (!hold_active)
+        {
+            Horse::ReplayTraceFields fields;
+            fields.boolean("open", open)
+                .boolean("hold_active", false)
+                .string("failure", "hold-inactive");
+            Horse::ReplayDebugTrace::instance().event(
+                "rollback_replay_fork_gate_step", fields);
+            return false;
+        }
+        if (open)
+        {
+            const uintptr_t base = Horse::NativeBinding::imageBase();
+            const bool vm_write = base && try_write_vm_freeze_byte(
+                reinterpret_cast<volatile uint8_t*>(
+                    base + Horse::kRVA_LuxBattleVMFreezeRecord), 0u);
+            Horse::ReplayTraceFields fields;
+            fields.boolean("open", true)
+                .boolean("hold_active", true)
+                .boolean("image_base_valid", base != 0)
+                .boolean("vm_write", vm_write)
+                .boolean("world_gate_enabled", m_world_tick_gate.is_enabled())
+                .boolean("time_gate_enabled", m_time_dilation_gate.is_enabled());
+            if (!base || !vm_write)
+            {
+                fields.string("failure", !base
+                    ? "image-base-missing" : "vm-unfreeze-write-failed");
+                Horse::ReplayDebugTrace::instance().event(
+                    "rollback_replay_fork_gate_step", fields);
+                return false;
+            }
+            m_vm_freeze_byte_we_set.store(false,
+                std::memory_order_release);
+            if (m_time_dilation_gate.is_enabled())
+                m_time_dilation_gate.disable();
+            if (m_world_tick_gate.is_enabled())
+                m_world_tick_gate.add_step(1);
+            fields.boolean("time_gate_enabled_after",
+                m_time_dilation_gate.is_enabled());
+            Horse::ReplayDebugTrace::instance().event(
+                "rollback_replay_fork_gate_step", fields);
+            return true;
+        }
+        if (m_world_tick_gate.is_enabled())
+            m_world_tick_gate.set_frozen();
+        if (!m_time_dilation_gate.is_enabled()
+            && !m_time_dilation_gate.enable())
+        {
+            Horse::ReplayTraceFields fields;
+            fields.boolean("open", false)
+                .boolean("hold_active", true)
+                .string("failure", "time-gate-refreeze-failed");
+            Horse::ReplayDebugTrace::instance().event(
+                "rollback_replay_fork_gate_step", fields);
+            return false;
+        }
+        const uintptr_t base = Horse::NativeBinding::imageBase();
+        const bool vm_write = base && try_write_vm_freeze_byte(
+            reinterpret_cast<volatile uint8_t*>(
+                base + Horse::kRVA_LuxBattleVMFreezeRecord), 1u);
+        Horse::ReplayTraceFields fields;
+        fields.boolean("open", false)
+            .boolean("hold_active", true)
+            .boolean("image_base_valid", base != 0)
+            .boolean("vm_write", vm_write)
+            .boolean("world_gate_enabled", m_world_tick_gate.is_enabled())
+            .boolean("time_gate_enabled", m_time_dilation_gate.is_enabled());
+        if (!base || !vm_write)
+        {
+            fields.string("failure", !base
+                ? "image-base-missing" : "vm-refreeze-write-failed");
+            Horse::ReplayDebugTrace::instance().event(
+                "rollback_replay_fork_gate_step", fields);
+            return false;
+        }
+        m_vm_freeze_byte_we_set.store(true, std::memory_order_release);
+        const bool frozen = !m_world_tick_gate.is_enabled()
+            || m_world_tick_gate.policy() == 0;
+        fields.boolean("frozen", frozen);
+        Horse::ReplayDebugTrace::instance().event(
+            "rollback_replay_fork_gate_step", fields);
+        return frozen;
+    }
+
     void release_replay_scrub_gates_now(const char* reason) noexcept
     {
         if (m_freeze_frame.load(std::memory_order_acquire) ||
@@ -4035,6 +4139,12 @@ public:
         ModVersion     = STR("0.10.0");
         ModDescription = STR("SC6 KHit hitbox / hurtbox / body visualiser.");
         ModAuthors     = STR("horse");
+
+        // The overlay Present hook still waits for Steam's first frames, but
+        // SC6 may decide whether to poll XInput during title/menu bootstrap.
+        // Install only the overlay's XInput gate here; rollback automation
+        // uses native request-file orchestration, not OS/controller scripts.
+        (void)Horse::GameImGui::XInputHook::instance().install();
 
         // Load persisted settings BEFORE any render path can observe
         // an atomic.  If settings.cfg is missing (first-run) each
@@ -4195,6 +4305,8 @@ public:
         s_instance.store(this);
         Horse::ReplayScrub::instance().set_gate_release_callback(
             &HorseMod::release_replay_scrub_gates_callback);
+        Horse::ReplayScrub::instance().set_gate_step_callback(
+            &HorseMod::step_replay_fork_gates_callback);
         Horse::RollbackLab::instance().configure_from_command_line_once();
         m_exception_handler = ::AddVectoredExceptionHandler(
             1, &HorseMod::vectored_exception_handler);
@@ -4229,7 +4341,7 @@ public:
         }
 
         Horse::ReplayScrub::instance().set_gate_release_callback(nullptr);
-        Horse::RollbackLab::instance().shutdown();
+        Horse::ReplayScrub::instance().set_gate_step_callback(nullptr);
 
         // Zero instance pointer early so any in-flight hook sees null.
         s_instance.store(nullptr);
@@ -4263,6 +4375,11 @@ public:
             m_gameimgui_toast_token = 0;
         }
         Horse::GameImGui::shutdown();
+
+        // Rollback shutdown now runs after engine/UI callback removal. It
+        // unhooks native rollback entry points, joins the UDP worker, destroys
+        // Gekko, closes sockets, and finally releases snapshot storage.
+        Horse::RollbackLab::instance().shutdown();
 
         if (m_hook_registered && !m_hook_path.empty())
         {
@@ -4506,12 +4623,10 @@ public:
             try { return RC::Unreal::IsInGameThread(); }
             catch (...) { return false; }
         }();
-        if (in_game_thread)
+        if (in_game_thread
+            && m_engine_tick_callback_id == RC::Unreal::Hook::ERROR_ID)
         {
-            if (m_engine_tick_callback_id == RC::Unreal::Hook::ERROR_ID)
-            {
-                service_gameimgui_deferred_install();
-            }
+            service_gameimgui_deferred_install();
             auto& scrub = Horse::ReplayScrub::instance();
             scrub.service_state_snapshot_request();
             scrub.service_replay_file_start_request();
@@ -4904,7 +5019,7 @@ private:
             if (base
                 && try_write_vm_freeze_byte(
                     reinterpret_cast<volatile uint8_t*>(
-                        base + 0x4862D0),
+                        base + Horse::kRVA_LuxBattleVMFreezeRecord),
                     0))
             {
                 m_vm_freeze_byte_we_set.store(false);
@@ -5643,7 +5758,7 @@ private:
         // and round-end cinematics use).  See Ghidra plate on
         // LuxBattle_TickHitStopSchedulerAndInputMirror for the full
         // architecture: setting g_LuxBattle_VMFreezeRecord.bVMFreezeByte
-        // (at imageBase + 0x4862D0) to non-zero makes
+        // (at imageBase + kRVA_LuxBattleVMFreezeRecord) to non-zero makes
         // LuxMoveVM_GetTimeDilationScalar return 0 for ALL callers,
         // halting every per-frame integrator (VM, opcodes, physics,
         // ANIMS, FX dispatchers).  CRUCIALLY this includes UE4-side
@@ -5713,7 +5828,8 @@ private:
                 if (base)
                 {
                     if (try_write_vm_freeze_byte(
-                            reinterpret_cast<volatile uint8_t*>(base + 0x4862D0),
+                            reinterpret_cast<volatile uint8_t*>(
+                                base + Horse::kRVA_LuxBattleVMFreezeRecord),
                             want_freeze ? 1u : 0u))
                     {
                         m_vm_freeze_byte_we_set.store(want_freeze);

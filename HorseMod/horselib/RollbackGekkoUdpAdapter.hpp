@@ -90,6 +90,13 @@ namespace Horse
         uint16_t port_b {0};
         uint32_t final_checksum_a {0};
         uint32_t final_checksum_b {0};
+        int32_t wsa_startup_error {0};
+        int32_t socket_error {0};
+        int32_t bind_error {0};
+        int32_t getsockname_error {0};
+        int32_t ioctlsocket_error {0};
+        int32_t sendto_error {0};
+        int32_t recvfrom_error {0};
         const char* failure {"not-run"};
     };
 
@@ -112,11 +119,13 @@ namespace Horse
         struct WsaSession
         {
             bool ok {false};
+            int error {0};
 
             WsaSession() noexcept
             {
                 WSADATA data {};
-                ok = WSAStartup(MAKEWORD(2, 2), &data) == 0;
+                error = WSAStartup(MAKEWORD(2, 2), &data);
+                ok = error == 0;
             }
 
             ~WsaSession() noexcept
@@ -164,6 +173,12 @@ namespace Horse
             uint32_t endpoint_packets_rejected {0};
             uint32_t next_sequence {0};
             uint32_t last_received_sequence {kRollbackTransportNoFrame};
+            int32_t socket_error {0};
+            int32_t bind_error {0};
+            int32_t getsockname_error {0};
+            int32_t ioctlsocket_error {0};
+            int32_t sendto_error {0};
+            int32_t recvfrom_error {0};
             RollbackTransportPeerModel<512> bridge_peer {};
             std::array<GekkoNetResult*, kMaxReceiveResults> receive_results {};
         };
@@ -250,6 +265,12 @@ namespace Horse
             ctx.endpoint_packets_rejected = 0;
             ctx.next_sequence = 0;
             ctx.last_received_sequence = kRollbackTransportNoFrame;
+            ctx.socket_error = 0;
+            ctx.bind_error = 0;
+            ctx.getsockname_error = 0;
+            ctx.ioctlsocket_error = 0;
+            ctx.sendto_error = 0;
+            ctx.recvfrom_error = 0;
             ctx.bridge_peer.clear();
             ctx.receive_results.fill(nullptr);
         }
@@ -263,7 +284,10 @@ namespace Horse
             ctx.socket_handle =
                 socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
             if (ctx.socket_handle == INVALID_SOCKET)
+            {
+                ctx.socket_error = WSAGetLastError();
                 return false;
+            }
 
             sockaddr_in bind_addr {};
             bind_addr.sin_family = AF_INET;
@@ -275,6 +299,7 @@ namespace Horse
                     sizeof(bind_addr))
                 == SOCKET_ERROR)
             {
+                ctx.bind_error = WSAGetLastError();
                 closesocket(ctx.socket_handle);
                 ctx.socket_handle = INVALID_SOCKET;
                 return false;
@@ -287,6 +312,7 @@ namespace Horse
                     &len)
                 == SOCKET_ERROR)
             {
+                ctx.getsockname_error = WSAGetLastError();
                 closesocket(ctx.socket_handle);
                 ctx.socket_handle = INVALID_SOCKET;
                 return false;
@@ -299,6 +325,7 @@ namespace Horse
                     &nonblocking)
                 == SOCKET_ERROR)
             {
+                ctx.ioctlsocket_error = WSAGetLastError();
                 closesocket(ctx.socket_handle);
                 ctx.socket_handle = INVALID_SOCKET;
                 return false;
@@ -320,6 +347,44 @@ namespace Horse
                 ctx.socket_handle = INVALID_SOCKET;
             }
             ctx.open = false;
+        }
+
+        static inline int32_t first_nonzero_error(
+            int32_t a,
+            int32_t b,
+            int32_t c) noexcept
+        {
+            if (a != 0) return a;
+            if (b != 0) return b;
+            return c;
+        }
+
+        static inline void collect_udp_context_errors(
+            RollbackGekkoUdpAdapterSelfTestReport& report,
+            const UdpAdapterContext& a,
+            const UdpAdapterContext& b,
+            const UdpAdapterContext& c) noexcept
+        {
+            report.socket_error = first_nonzero_error(
+                report.socket_error, a.socket_error,
+                first_nonzero_error(b.socket_error, c.socket_error, 0));
+            report.bind_error = first_nonzero_error(
+                report.bind_error, a.bind_error,
+                first_nonzero_error(b.bind_error, c.bind_error, 0));
+            report.getsockname_error = first_nonzero_error(
+                report.getsockname_error, a.getsockname_error,
+                first_nonzero_error(
+                    b.getsockname_error, c.getsockname_error, 0));
+            report.ioctlsocket_error = first_nonzero_error(
+                report.ioctlsocket_error, a.ioctlsocket_error,
+                first_nonzero_error(
+                    b.ioctlsocket_error, c.ioctlsocket_error, 0));
+            report.sendto_error = first_nonzero_error(
+                report.sendto_error, a.sendto_error,
+                first_nonzero_error(b.sendto_error, c.sendto_error, 0));
+            report.recvfrom_error = first_nonzero_error(
+                report.recvfrom_error, a.recvfrom_error,
+                first_nonzero_error(b.recvfrom_error, c.recvfrom_error, 0));
         }
 
         static inline void connect_contexts(
@@ -394,6 +459,8 @@ namespace Horse
                 sizeof(dst));
             if (sent != static_cast<int>(wire.size))
             {
+                if (sent == SOCKET_ERROR)
+                    ctx.sendto_error = WSAGetLastError();
                 ++ctx.send_failures;
                 return false;
             }
@@ -509,7 +576,10 @@ namespace Horse
                 {
                     const int err = WSAGetLastError();
                     if (err != WSAEWOULDBLOCK)
+                    {
+                        ctx->recvfrom_error = err;
                         ++ctx->endpoint_packets_rejected;
+                    }
                     break;
                 }
                 if (received <= 0)
@@ -823,6 +893,7 @@ namespace Horse
 
         WsaSession wsa {};
         report.wsa_started = wsa.ok;
+        report.wsa_startup_error = wsa.error;
         if (!wsa.ok)
         {
             report.failure = "wsa-startup-failed";
@@ -835,10 +906,12 @@ namespace Horse
         UdpAdapterContext& ctx_a = ctx_a_storage;
         UdpAdapterContext& ctx_b = ctx_b_storage;
         UdpAdapterContext& ctx_c = ctx_c_storage;
+        const bool ctx_a_open = open_udp_context(ctx_a, 0xA1);
+        const bool ctx_b_open = open_udp_context(ctx_b, 0xB1);
+        const bool ctx_c_open = open_udp_context(ctx_c, 0xC1);
         report.sockets_open =
-            open_udp_context(ctx_a, 0xA1)
-            && open_udp_context(ctx_b, 0xB1)
-            && open_udp_context(ctx_c, 0xC1);
+            ctx_a_open && ctx_b_open && ctx_c_open;
+        collect_udp_context_errors(report, ctx_a, ctx_b, ctx_c);
         if (report.sockets_open)
             connect_contexts(ctx_a, ctx_b);
         report.bound_loopback =
@@ -866,6 +939,7 @@ namespace Horse
             if (session_a) destroyed_a = gekko_destroy(&session_a);
             if (session_b) destroyed_b = gekko_destroy(&session_b);
             report.destroy_ok = destroyed_a && destroyed_b;
+            collect_udp_context_errors(report, ctx_a, ctx_b, ctx_c);
             close_udp_context(ctx_a);
             close_udp_context(ctx_b);
             close_udp_context(ctx_c);

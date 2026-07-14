@@ -383,9 +383,10 @@ namespace Horse
             m_enabled.store(true, std::memory_order_release);
             load_function_map_locked();
 
-            std::wstring dir = mod_root_dir();
-            if (dir.empty())
+            const std::wstring root = mod_root_dir();
+            if (root.empty())
                 return disable_open_failed_locked(L"mod root unavailable");
+            std::wstring dir = root;
             dir += L"Saved\\";
             CreateDirectoryW(dir.c_str(), nullptr);
             dir += L"ReplayTrace\\";
@@ -400,6 +401,8 @@ namespace Horse
 
             ReplayTraceFields f;
             f.string("reason", narrow(reason ? reason : L"manual").c_str())
+             .string("mod_root", narrow(root))
+             .string("trace_path", narrow(m_current_path))
              .boolean("function_map_loaded", m_function_map.loaded())
              .string("function_map_path",
                      narrow(m_function_map.loaded_path()));
@@ -425,6 +428,11 @@ namespace Horse
         std::string current_path_utf8() const
         {
             return narrow(m_current_path);
+        }
+
+        std::string current_mod_root_utf8() const
+        {
+            return narrow(mod_root_dir());
         }
 
         void event(const char* event_name,
@@ -621,9 +629,10 @@ namespace Horse
             close_session_locked();
             load_function_map_locked();
 
-            std::wstring dir = mod_root_dir();
-            if (dir.empty())
+            const std::wstring root = mod_root_dir();
+            if (root.empty())
                 return disable_open_failed_locked(L"mod root unavailable");
+            std::wstring dir = root;
             dir += L"Saved\\";
             CreateDirectoryW(dir.c_str(), nullptr);
             dir += L"ReplayTrace\\";
@@ -638,6 +647,8 @@ namespace Horse
 
             ReplayTraceFields f;
             f.string("reason", narrow(reason ? reason : L"auto"))
+             .string("mod_root", narrow(root))
+             .string("trace_path", narrow(m_current_path))
              .boolean("function_map_loaded", m_function_map.loaded())
              .string("function_map_path",
                      narrow(m_function_map.loaded_path()));
@@ -690,6 +701,10 @@ namespace Horse
             line += std::to_string(qpc.QuadPart);
             line += ",\"thread_id\":";
             line += std::to_string(GetCurrentThreadId());
+            line += ",\"pid\":";
+            line += std::to_string(GetCurrentProcessId());
+            line += ",\"process_start_marker\":";
+            line += std::to_string(process_start_marker());
             line += ",\"event\":\"";
             line += event_name ? event_name : "?";
             line += "\",\"build\":\"replay-accuracy-v13fl\"";
@@ -721,6 +736,28 @@ namespace Horse
                     "[ReplayTrace] {}\n"),
                     RC::to_generic_string(line));
             }
+        }
+
+        static uint64_t process_start_marker() noexcept
+        {
+            FILETIME create_time {};
+            FILETIME exit_time {};
+            FILETIME kernel_time {};
+            FILETIME user_time {};
+            if (!GetProcessTimes(
+                    GetCurrentProcess(),
+                    &create_time,
+                    &exit_time,
+                    &kernel_time,
+                    &user_time))
+            {
+                return 0;
+            }
+
+            ULARGE_INTEGER value {};
+            value.LowPart = create_time.dwLowDateTime;
+            value.HighPart = create_time.dwHighDateTime;
+            return value.QuadPart;
         }
 
         std::atomic<bool> m_enabled {false};

@@ -14,6 +14,7 @@
 #include "RollbackInputCacheAdapter.hpp"
 #include "RollbackInputLogProbe.hpp"
 #include "RollbackLiveBoundary.hpp"
+#include "RollbackReplayInputScript.hpp"
 #include "SafeMemoryRead.hpp"
 
 #include <polyhook2/Detour/x64Detour.hpp>
@@ -26,6 +27,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 namespace Horse
 {
@@ -199,6 +201,65 @@ namespace Horse
             return m_cache_report;
         }
 
+        void begin_replay_input_script(
+            uint32_t local_player_slot,
+            const std::vector<uint32_t>& inputs,
+            uint64_t input_hash) noexcept
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_script_inputs = inputs;
+            m_script_report = {};
+            m_script_report.enabled = true;
+            m_script_report.hooks_installed = installed();
+            m_script_report.script_available = !m_script_inputs.empty();
+            m_script_report.local_player_slot = local_player_slot;
+            m_script_report.script_frames = m_script_inputs.size();
+            m_script_report.input_hash = input_hash;
+            m_script_report.failure =
+                m_script_inputs.empty() ? "script-empty" : "waiting";
+            m_script_base_frame = 0;
+            m_script_base_set = false;
+            ResetRollbackReplayInputScriptEpoch();
+            m_script_report.applied_input_hash = 1469598103934665603ull;
+            m_script_enabled.store(
+                local_player_slot < 2 && !m_script_inputs.empty(),
+                std::memory_order_release);
+        }
+
+        void end_replay_input_script() noexcept
+        {
+            m_script_enabled.store(false, std::memory_order_release);
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_script_report.enabled = false;
+            m_script_inputs.clear();
+            m_script_base_set = false;
+        }
+
+        RollbackReplayInputInjectionReport
+        replay_input_script_report() noexcept
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_script_report.hooks_installed = installed();
+            m_script_report.enabled =
+                m_script_enabled.load(std::memory_order_acquire);
+            m_script_report.script_available = !m_script_inputs.empty();
+            uint32_t shared_epoch = 0;
+            const bool epoch_matches =
+                GetRollbackReplayInputScriptEpoch(shared_epoch)
+                && m_script_report.script_epoch_set
+                && m_script_report.script_epoch == shared_epoch;
+            m_script_report.injected =
+                m_script_report.consumer_cache_written
+                && epoch_matches
+                && m_script_report.applied_inputs > 0
+                && m_script_report.applied_input_hash != 0;
+            if (m_script_report.injected)
+                m_script_report.failure = "ok";
+            else if (!epoch_matches && m_script_report.script_epoch_set)
+                m_script_report.failure = "consumer-script-epoch-mismatch";
+            return m_script_report;
+        }
+
     private:
         RollbackLiveBoundaryHook() = default;
         ~RollbackLiveBoundaryHook() { uninstall(); }
@@ -232,6 +293,14 @@ namespace Horse
             }
         }
 
+        struct ScriptConsumerFrame
+        {
+            bool active {false};
+            uint32_t frame {0};
+            uint32_t expected_input {0};
+            uintptr_t current_input_slot {0};
+        };
+
         static void __fastcall detour_consumer(
             void* pBattleManager,
             uint32_t dwPlayerIdx,
@@ -240,6 +309,11 @@ namespace Horse
             uint8_t bSuppressKeyPress)
         {
             auto& self = instance();
+            const ScriptConsumerFrame script_consumer =
+                self.apply_replay_script_consumer(
+                pBattleManager,
+                dwPlayerIdx,
+                nFramesBack);
             CacheProbeFrame cache_probe =
                 self.try_begin_cache_probe(
                     pBattleManager,
@@ -291,6 +365,8 @@ namespace Horse
             {
                 orig(pBattleManager, dwPlayerIdx, nFramesBack,
                      bSuppressKeyDown, bSuppressKeyPress);
+                if (script_consumer.active)
+                    self.finish_replay_script_consumer(script_consumer);
             }
             if (cache_probe.active)
                 self.finish_cache_probe(cache_probe);
@@ -327,6 +403,180 @@ namespace Horse
                 + static_cast<uintptr_t>(dwFrameIndex & 0x1FFu);
             return pInputLog + kRollbackIL_InputCacheStart_Off
                 + entry_index * sizeof(FLuxReplayInputCacheEntry_Model);
+        }
+
+        static bool write_cache_entry(
+            uintptr_t pInputLog,
+            uint32_t dwPlayerIdx,
+            int32_t nFrameID,
+            uint32_t dwFrameIndex,
+            uint32_t dwInputValue) noexcept
+        {
+            if (!pInputLog || dwPlayerIdx >= 2)
+                return false;
+            FLuxReplayInputCacheEntry_Model entry {};
+            entry.nFrameID = nFrameID;
+            entry.dwFrameIndex = dwFrameIndex;
+            entry.dwInputValue = dwInputValue;
+            entry.bFilled = 1;
+            const uintptr_t entry_addr =
+                cache_entry_address(pInputLog, dwPlayerIdx, dwFrameIndex);
+            return SafeWriteBytes(
+                reinterpret_cast<void*>(entry_addr),
+                &entry,
+                sizeof(entry));
+        }
+
+        ScriptConsumerFrame apply_replay_script_consumer(
+            void* pBattleManager,
+            uint32_t dwPlayerIdx,
+            int nFramesBack) noexcept
+        {
+            ScriptConsumerFrame observation {};
+            if (!m_script_enabled.load(std::memory_order_acquire))
+                return observation;
+            if (!pBattleManager || dwPlayerIdx >= 2)
+                return observation;
+
+            auto* bm = static_cast<uint8_t*>(pBattleManager);
+            void* pInputLogRaw = nullptr;
+            if (!SafeReadPtr(
+                    bm + kRollbackBM_BattleFrameInputLog_Off,
+                &pInputLogRaw)
+                || !pInputLogRaw)
+                return observation;
+            auto* il = static_cast<uint8_t*>(pInputLogRaw);
+            uint32_t dwMasterClock = 0;
+            uint32_t dwFrameID = 0;
+            if (!SafeReadUInt32(
+                    il + kRollbackIL_nMasterClock_Off, &dwMasterClock)
+                || !SafeReadUInt32(
+                    il + kRollbackIL_nLastFrameID_Off, &dwFrameID))
+                return observation;
+            const int64_t frame64 =
+                static_cast<int64_t>(dwMasterClock)
+                - static_cast<int64_t>(nFramesBack) - 1;
+            if (frame64 < 0 || frame64 > INT32_MAX)
+                return observation;
+            const uint32_t frame = static_cast<uint32_t>(frame64);
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (m_script_inputs.empty() ||
+                m_script_report.local_player_slot >= 2)
+            {
+                m_script_report.failure = "script-empty";
+                return observation;
+            }
+            if (dwPlayerIdx != m_script_report.local_player_slot)
+            {
+                m_script_report.failure = "waiting-for-local-consumer";
+                return observation;
+            }
+            if (!m_script_base_set)
+            {
+                if (!GetRollbackReplayInputScriptEpoch(
+                        m_script_base_frame))
+                {
+                    m_script_report.failure =
+                        "waiting-for-opcode1-script-epoch";
+                    return observation;
+                }
+                m_script_base_set = true;
+                m_script_report.script_epoch = m_script_base_frame;
+                m_script_report.script_epoch_set = true;
+            }
+            if (RollbackFrameIsBefore(frame, m_script_base_frame))
+            {
+                m_script_report.failure = "consumer-before-script-base";
+                return observation;
+            }
+            const uint64_t script_index = RollbackFrameDistance(
+                frame, m_script_base_frame);
+            if (script_index >= m_script_inputs.size())
+            {
+                m_script_report.failure = "consumer-script-out-of-range";
+                return observation;
+            }
+            const bool wrote = write_cache_entry(
+                reinterpret_cast<uintptr_t>(pInputLogRaw),
+                dwPlayerIdx,
+                static_cast<int32_t>(dwFrameID),
+                frame,
+                m_script_inputs[static_cast<size_t>(script_index)]);
+            if (!wrote)
+            {
+                m_script_report.failure = "consumer-cache-write-failed";
+                return observation;
+            }
+
+            FLuxReplayInputCacheEntry_Model consumed {};
+            if (!SafeReadBytes(
+                    reinterpret_cast<const void*>(cache_entry_address(
+                        reinterpret_cast<uintptr_t>(pInputLogRaw),
+                        dwPlayerIdx,
+                        frame)),
+                    &consumed,
+                    sizeof(consumed))
+                || !consumed.bFilled
+                || consumed.nFrameID != static_cast<int32_t>(dwFrameID)
+                || consumed.dwFrameIndex != frame)
+            {
+                m_script_report.failure =
+                    "consumer-cache-observation-failed";
+                return observation;
+            }
+            void* current_input_array = nullptr;
+            if (!SafeReadPtr(bm + 0x1498, &current_input_array)
+                || !current_input_array)
+            {
+                m_script_report.failure =
+                    "consumer-current-input-array-unavailable";
+                return observation;
+            }
+            observation.active = true;
+            observation.frame = frame;
+            observation.expected_input = consumed.dwInputValue;
+            observation.current_input_slot =
+                reinterpret_cast<uintptr_t>(current_input_array)
+                + static_cast<uintptr_t>(dwPlayerIdx) * sizeof(uint32_t);
+            m_script_report.failure = "waiting-for-native-consumer-return";
+            return observation;
+        }
+
+        void finish_replay_script_consumer(
+            const ScriptConsumerFrame& observation) noexcept
+        {
+            uint32_t consumed_input = 0;
+            const bool observed = SafeReadUInt32(
+                reinterpret_cast<const void*>(
+                    observation.current_input_slot),
+                &consumed_input);
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (!observed
+                || consumed_input != observation.expected_input)
+            {
+                m_script_report.failure = observed
+                    ? "native-consumer-input-mismatch"
+                    : "native-consumer-output-read-failed";
+                return;
+            }
+            const uint8_t* bytes = reinterpret_cast<const uint8_t*>(
+                &consumed_input);
+            uint64_t hash = m_script_report.applied_input_hash;
+            for (size_t i = 0; i < sizeof(consumed_input); ++i)
+            {
+                hash ^= bytes[i];
+                hash *= 1099511628211ull;
+            }
+            m_script_report.applied_input_hash = hash;
+            ++m_script_report.applied_inputs;
+            ++m_script_report.consumer_writes;
+            m_script_report.consumer_cache_written = true;
+            m_script_report.injected = true;
+            if (m_script_report.first_injected_frame == 0)
+                m_script_report.first_injected_frame = observation.frame;
+            m_script_report.last_injected_frame = observation.frame;
+            m_script_report.failure = "ok";
         }
 
         CacheProbeFrame try_begin_cache_probe(
@@ -673,8 +923,13 @@ namespace Horse
         std::atomic<bool> m_cache_probe_enabled {false};
         std::atomic<bool> m_cache_probe_claimed {false};
         std::atomic<bool> m_cache_probe_non_idempotent {false};
+        std::atomic<bool> m_script_enabled {false};
         std::mutex m_mutex;
         RollbackLiveBoundaryTracker m_tracker {};
         RollbackCacheInjectionReport m_cache_report {};
+        std::vector<uint32_t> m_script_inputs {};
+        uint32_t m_script_base_frame {0};
+        bool m_script_base_set {false};
+        RollbackReplayInputInjectionReport m_script_report {};
     };
 }

@@ -1,0 +1,114 @@
+{
+  "candidates": [
+    {
+      "build_version": {
+        "BranchName": "",
+        "Changelist": 0,
+        "CompatibleChangelist": 3573198,
+        "IsLicenseeVersion": 0,
+        "IsPromotedBuild": 1,
+        "MajorVersion": 4,
+        "MinorVersion": 17,
+        "PatchVersion": 2
+      },
+      "commit": "8c46d0805b8efa845cc693b76030b7cab2796c0a",
+      "commit_date": "2017-09-25T10:13:28-04:00",
+      "label": "final-4.17.2-release",
+      "parents": [
+        "unavailable"
+      ],
+      "root": "E:\\DevShitPosts\\UnrealEngine-forensics\\worktrees\\release-4.17.2",
+      "subject": "Merging final 4.17.2 release"
+    },
+    {
+      "build_version": {
+        "BranchName": "",
+        "Changelist": 0,
+        "CompatibleChangelist": 0,
+        "IsLicenseeVersion": 0,
+        "IsPromotedBuild": 1,
+        "MajorVersion": 4,
+        "MinorVersion": 17,
+        "PatchVersion": 0
+      },
+      "commit": "cf8cae2458ae798a9427416d9f38f0a1b2021f51",
+      "commit_date": "2017-06-29T10:13:59-04:00",
+      "label": "staging-4.17-pre-4.18",
+      "parents": [
+        "unavailable"
+      ],
+      "root": "E:\\DevShitPosts\\UnrealEngine-forensics\\worktrees\\staging-pre-4.18",
+      "subject": "Copying win32 versions of OpenVR dlls to Engine/Binaries/ThirdParty, which were missed in the last integration"
+    },
+    {
+      "build_version": {
+        "BranchName": "",
+        "Changelist": 0,
+        "CompatibleChangelist": 0,
+        "IsLicenseeVersion": 0,
+        "IsPromotedBuild": 1,
+        "MajorVersion": 4,
+        "MinorVersion": 17,
+        "PatchVersion": 0
+      },
+      "commit": "96bd71478cba6500da916aef40d392a04b24302f",
+      "commit_date": "2017-04-12T10:17:06-04:00",
+      "label": "staging-4.17-start",
+      "parents": [
+        "unavailable"
+      ],
+      "root": "E:\\DevShitPosts\\UnrealEngine-forensics\\worktrees\\staging-4.17-start",
+      "subject": "Update version in //UE4/Main to 4.17."
+    }
+  ],
+  "comparisons": {
+    "release_vs_staging_pre_4_18": {
+      "left": "final-4.17.2-release",
+      "right": "staging-4.17-pre-4.18"
+    },
+    "release_vs_staging_pre_4_18_changed_runtime_files": 279,
+    "staging_4_17_historical_window": {
+      "boundary": "The current staging-4.17 ref advanced to 4.18 and is intentionally excluded.",
+      "branch": "staging-4.17",
+      "end_candidate": "staging-4.17-pre-4.18",
+      "start_candidate": "staging-4.17-start"
+    },
+    "staging_start_vs_pre_4_18_changed_runtime_files": 2062
+  },
+  "sc6_binary": {
+    "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+    "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+    "version_markers": {
+      "++UE4+Release-4.17": {
+        "ascii": [
+          55380032,
+          55380328,
+          62886393,
+          62888009,
+          62888521,
+          62889193,
+          62889465,
+          62890921
+        ],
+        "utf16le": [
+          55322880,
+          55322920
+        ]
+      },
+      "4.17.2.0": {
+        "ascii": [],
+        "utf16le": [
+          71025304
+        ]
+      }
+    }
+  },
+  "schema": "sc6-ue-source-forensics/v1",
+  "scoring": {
+    "conclusion": "inconclusive; evidence supports UE 4.17.2 but not a source lineage",
+    "matched_release_only": 2,
+    "matched_staging_only": 0,
+    "minimum_independent_matches": 3,
+    "unconfirmed_binary_string_matches": 2
+  }
+}

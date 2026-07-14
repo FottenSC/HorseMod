@@ -17,7 +17,10 @@ int main()
             "rollback=%d no_desync=%d sent=%d received=%d freed=%d "
             "bidirectional=%d bridge=%d bridge_meta=%d gameplay_decode=%d "
             "slots=%d state=%d checksums=%d destroy=%d "
-            "packets_sent=%u packets_recv=%u bridge_bad=%u endpoint_bad=%u\n",
+            "packets_sent=%u packets_recv=%u bridge_bad=%u endpoint_bad=%u "
+            "wsa_error=%d socket_error=%d bind_error=%d "
+            "getsockname_error=%d ioctlsocket_error=%d sendto_error=%d "
+            "recvfrom_error=%d\n",
             report.failure ? report.failure : "?",
             report.dependency_enabled ? 1 : 0,
             report.wsa_started ? 1 : 0,
@@ -54,7 +57,14 @@ int main()
             report.packets_sent,
             report.packets_received,
             report.bridge_packets_rejected,
-            report.endpoint_packets_rejected);
+            report.endpoint_packets_rejected,
+            report.wsa_startup_error,
+            report.socket_error,
+            report.bind_error,
+            report.getsockname_error,
+            report.ioctlsocket_error,
+            report.sendto_error,
+            report.recvfrom_error);
         return 1;
     }
 
@@ -68,7 +78,9 @@ int main()
         "frames=%u packets_sent=%u packets_recv=%u bridge_encoded=%u "
         "bridge_decoded=%u bridge_bad=%u endpoint_bad=%u gameplay_events=%u "
         "gameplay_inputs=%u port_a=%u port_b=%u checksum_a=0x%08X "
-        "checksum_b=0x%08X\n",
+        "checksum_b=0x%08X wsa_error=%d socket_error=%d bind_error=%d "
+        "getsockname_error=%d ioctlsocket_error=%d sendto_error=%d "
+        "recvfrom_error=%d\n",
         report.dependency_enabled ? 1 : 0,
         report.wsa_started ? 1 : 0,
         report.sockets_open ? 1 : 0,
@@ -106,6 +118,13 @@ int main()
         report.port_a,
         report.port_b,
         report.final_checksum_a,
-        report.final_checksum_b);
+        report.final_checksum_b,
+        report.wsa_startup_error,
+        report.socket_error,
+        report.bind_error,
+        report.getsockname_error,
+        report.ioctlsocket_error,
+        report.sendto_error,
+        report.recvfrom_error);
     return 0;
 }

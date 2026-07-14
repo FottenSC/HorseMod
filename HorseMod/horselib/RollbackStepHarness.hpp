@@ -15,7 +15,10 @@
 #include "RngTraceHook.hpp"
 #include "RollbackHgCpuSnapshot.hpp"
 #include "RollbackInputHistory.hpp"
+#include "RollbackLifecycle.hpp"
 #include "RollbackSnapshot.hpp"
+#include "RollbackStageSnapshot.hpp"
+#include "RollbackStageWindSnapshot.hpp"
 #include "RollbackStateHash.hpp"
 #include "SafeMemoryRead.hpp"
 #include "WindRngGate.hpp"
@@ -50,6 +53,7 @@ namespace Horse
         bool topology_match {false};
         bool motion_bank_match {false};
         bool motion_tail_match {false};
+        bool secondary_event_stack_match {false};
         size_t bytes_compared {0};
         size_t mismatch_count {0};
         size_t ignored_mismatch_count {0};
@@ -69,6 +73,8 @@ namespace Horse
         uint64_t motion_bank_hash_b {0};
         uint64_t motion_tail_hash_a {0};
         uint64_t motion_tail_hash_b {0};
+        uint64_t secondary_event_stack_hash_a {0};
+        uint64_t secondary_event_stack_hash_b {0};
         uint64_t timer_node_hash_a {0};
         uint64_t timer_node_hash_b {0};
         bool timer_node_match {false};
@@ -118,9 +124,12 @@ namespace Horse
     {
         RollbackHgCpuSnapshotFrame hgcpu {};
         RollbackSnapshotFrame explicit_snapshot {};
+        RollbackBreakableStageSnapshot breakable_stage {};
+        RollbackStageWindSnapshot stage_wind {};
         uint32_t frame_counter {0};
         uint64_t latest_input[2] {};
         uint8_t camera_args[kRollbackCameraArgsBytes] {};
+        uint64_t canonical_hash {0};
         uint64_t combined_hash {0};
     };
 
@@ -132,10 +141,24 @@ namespace Horse
         bool camera_args_ok {false};
         bool explicit_ok {false};
         bool hgcpu_ok {false};
+        bool breakable_stage_ok {false};
+        bool stage_wind_ok {false};
+        bool emergency_captured {false};
+        bool emergency_restored {false};
+        bool verification_ok {false};
         uint32_t frame_counter {0};
         uint64_t combined_hash {0};
         RollbackSnapshotCopyReport explicit_report {};
         RollbackHgCpuSnapshotReport hgcpu_report {};
+        RollbackBreakableStageReport breakable_stage_report {};
+        RollbackStageWindSnapshotReport stage_wind_report {};
+        RollbackHgCpuFrameCompare verification_hgcpu_compare {};
+        uint64_t verification_canonical_hash {0};
+        uint64_t expected_canonical_hash {0};
+        uint64_t verification_explicit_hash {0};
+        uint64_t expected_explicit_hash {0};
+        uint64_t verification_stage_hash {0};
+        uint64_t expected_stage_hash {0};
         const char* failure {"not-run"};
     };
 
@@ -221,6 +244,9 @@ namespace Horse
         RollbackStepStateReport baseline_capture {};
         RollbackStepStateReport predicted_capture {};
         RollbackStepStateReport corrected_capture {};
+        RollbackStepStateReport post_baseline_restore {};
+        RollbackStepStateReport post_predicted_restore {};
+        RollbackStepStateReport final_restore {};
         RollbackHgCpuFrameCompare corrected_compare {};
         RollbackHgCpuFrameCompare predicted_compare {};
         const char* failure {"not-run"};
@@ -232,10 +258,161 @@ namespace Horse
         RollbackHash h {};
         h.add_scalar(state.hgcpu.hash);
         h.add_scalar(state.explicit_snapshot.hash);
+        h.add_scalar(state.breakable_stage.integrity_hash);
+        h.add_scalar(state.stage_wind.integrity_hash);
         h.add_scalar(state.frame_counter);
         h.add_bytes(state.latest_input, sizeof(state.latest_input));
         h.add_bytes(state.camera_args, sizeof(state.camera_args));
         return h.value;
+    }
+
+    static inline uint64_t HashRollbackStepStateCanonical(
+        const RollbackStepState& state) noexcept
+    {
+        RollbackHash h {};
+        h.add_scalar(state.hgcpu.canonical_hash);
+        h.add_scalar(state.explicit_snapshot.canonical_hash);
+        h.add_scalar(state.breakable_stage.canonical_hash);
+        h.add_scalar(state.stage_wind.canonical_hash);
+        h.add_scalar(state.frame_counter);
+        // Inputs are gameplay state. Camera arguments are presentation input
+        // and intentionally excluded from the cross-peer gameplay digest.
+        h.add_bytes(state.latest_input, sizeof(state.latest_input));
+        return h.value;
+    }
+
+    static inline bool ValidateRollbackHgCpuFrameIntegrity(
+        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        const size_t effective = RollbackHgCpuEffectiveBytes(frame);
+        if (effective == 0 || effective > frame.bytes.size()
+            || frame.byte_hash == 0 || frame.hash == 0
+            || frame.canonical_hash == 0)
+            return false;
+        const uint64_t byte_hash = RollbackHashBytes(
+            frame.bytes.data(), effective);
+        const uint64_t khit_hash = RollbackHashKHitTopology(frame);
+        const uint64_t motion_bank_hash =
+            RollbackHashMotionBankHistory(frame.motion_banks);
+        const uint64_t motion_tail_hash =
+            RollbackHashMotionTailHistory(frame.motion_tail);
+        const uint64_t secondary_event_stack_hash =
+            RollbackHashSecondaryEventStackHistory(
+                frame.secondary_event_stack);
+        const uint64_t skeleton_runtime_hash =
+            frame.skeleton_runtime.ok
+                ? RollbackHashSkeletonRuntimeHistory(frame.skeleton_runtime)
+                : 0;
+        const uint64_t timer_node_hash =
+            RollbackHashTimerNodeHistory(frame.timer_node);
+        const uint64_t combined = RollbackHashCombine(
+            RollbackHashCombine(
+                RollbackHashCombine(
+                    RollbackHashCombine(byte_hash, khit_hash),
+                    motion_bank_hash),
+                RollbackHashCombine(
+                    motion_tail_hash,
+                    secondary_event_stack_hash)),
+            RollbackHashCombine(
+                skeleton_runtime_hash, timer_node_hash));
+        return byte_hash == frame.byte_hash
+            && khit_hash == frame.khit_topology_hash
+            && motion_bank_hash == frame.motion_bank_hash
+            && motion_tail_hash == frame.motion_tail_hash
+            && secondary_event_stack_hash
+                == frame.secondary_event_stack_hash
+            && skeleton_runtime_hash == frame.skeleton_runtime_hash
+            && timer_node_hash == frame.timer_node_hash
+            && combined == frame.hash
+            && RollbackHashHgCpuCanonical(frame) == frame.canonical_hash;
+    }
+
+    static inline bool ValidateRollbackStepStateIntegrity(
+        const RollbackStepState& state) noexcept
+    {
+        if (state.explicit_snapshot.integrity_hash == 0
+            || state.explicit_snapshot.hash
+                != state.explicit_snapshot.integrity_hash
+            || HashRollbackSnapshotFrame(state.explicit_snapshot)
+                != state.explicit_snapshot.integrity_hash
+            || HashRollbackSnapshotCanonical(state.explicit_snapshot)
+                != state.explicit_snapshot.canonical_hash
+            || !ValidateRollbackHgCpuFrameIntegrity(state.hgcpu))
+            return false;
+        const RollbackBreakableStageHashes stage =
+            ComputeRollbackBreakableStageHashes(state.breakable_stage);
+        if (stage.integrity_hash != state.breakable_stage.integrity_hash
+            || stage.canonical_hash != state.breakable_stage.canonical_hash
+            || stage.stage_layout_digest
+                != state.breakable_stage.stage_layout_digest
+            || stage.actor_set_digest != state.breakable_stage.actor_set_digest)
+            return false;
+        if (HashRollbackStageWindIntegrity(state.stage_wind)
+                != state.stage_wind.integrity_hash
+            || HashRollbackStageWindCanonical(state.stage_wind)
+                != state.stage_wind.canonical_hash)
+            return false;
+        return HashRollbackStepState(state) == state.combined_hash
+            && HashRollbackStepStateCanonical(state) == state.canonical_hash;
+    }
+
+    static inline bool ValidateRollbackStepLifecycle(
+        uintptr_t image_base,
+        const RollbackLifecycleEpoch& expected,
+        RollbackLifecycleMode mode =
+            RollbackLifecycleMode::StockOnlinePvp,
+        bool replay_fork_lab = false) noexcept
+    {
+        if (replay_fork_lab)
+        {
+            if (!image_base || !expected.active_battle_common()
+                || expected.presence
+                    != static_cast<uint8_t>(GamePresence::Replay)
+                || expected.pvp_active)
+            {
+                return false;
+            }
+            void* p1 = nullptr;
+            void* p2 = nullptr;
+            uint8_t main_state = 0xFF;
+            uint8_t battle_status = 0xFF;
+            std::array<uint8_t, 0xC0> round_start {};
+            if (!SafeReadPtr(reinterpret_cast<const void*>(
+                    rollback_absolute_from_image_base(
+                        image_base, 0x14470DE90ull)), &p1)
+                || !SafeReadPtr(reinterpret_cast<const void*>(
+                    rollback_absolute_from_image_base(
+                        image_base, 0x14470DE98ull)), &p2)
+                || reinterpret_cast<uintptr_t>(p1) != expected.chara[0]
+                || reinterpret_cast<uintptr_t>(p2) != expected.chara[1]
+                || !SafeReadUInt8(reinterpret_cast<const void*>(
+                    expected.battle_manager + 0x1461), &main_state)
+                || !SafeReadUInt8(reinterpret_cast<const void*>(
+                    expected.battle_manager + 0x1480), &battle_status)
+                || main_state != expected.battle_main_state
+                || battle_status != expected.battle_status
+                || !SafeReadBytes(reinterpret_cast<const void*>(
+                    expected.battle_manager + 0x1360), round_start.data(),
+                    round_start.size())
+                || RollbackHashRoundStartCanonical(
+                    round_start.data(), round_start.size())
+                    != expected.round_start_digest)
+            {
+                return false;
+            }
+            RollbackBreakableStageSnapshot stage {};
+            const RollbackBreakableStageReport stage_report =
+                CaptureRollbackBreakableStageSnapshot(
+                    expected.stage_actor_manager, stage);
+            return stage_report.ok
+                && stage.stage_layout_digest
+                    == expected.stage_layout_digest
+                && stage.actor_set_digest == expected.actor_set_digest;
+        }
+        RollbackLifecycleEpoch live {};
+        if (!CaptureRollbackLifecycleEpoch(image_base, live)) return false;
+        live.generation = expected.generation;
+        return ValidateRollbackLifecycleEpoch(expected, live, mode).ok;
     }
 
     static inline bool RollbackReadSnapshotU32ByName(
@@ -457,17 +634,11 @@ namespace Horse
         uintptr_t image_base,
         const RollbackLifecycleEpoch& epoch) noexcept
     {
-        if (epoch.chara[0] == 0 || epoch.chara[1] == 0)
+        RollbackLifecycleEpoch live {};
+        if (!CaptureRollbackLifecycleEpoch(image_base, live))
             return false;
-
-        uintptr_t p1 = 0;
-        uintptr_t p2 = 0;
-        if (!RollbackReadCharaPointers(image_base, p1, p2))
-            return false;
-
-        return epoch.chara[0] == p1
-            && epoch.chara[1] == p2
-            && epoch.presence == 0x03;
+        live.generation = epoch.generation;
+        return ValidateRollbackLifecycleEpoch(epoch, live).ok;
     }
 
     static inline bool RollbackDescribeMotionBankByteOffset(
@@ -692,6 +863,14 @@ namespace Horse
         report.motion_bank_hash_b = b.motion_bank_hash;
         report.motion_tail_hash_a = a.motion_tail_hash;
         report.motion_tail_hash_b = b.motion_tail_hash;
+        report.secondary_event_stack_hash_a =
+            a.secondary_event_stack_hash;
+        report.secondary_event_stack_hash_b =
+            b.secondary_event_stack_hash;
+        report.secondary_event_stack_match =
+            a.secondary_event_stack_hash != 0
+            && a.secondary_event_stack_hash
+                == b.secondary_event_stack_hash;
         report.timer_node_hash_a = a.timer_node_hash;
         report.timer_node_hash_b = b.timer_node_hash;
         report.timer_node_match =
@@ -786,6 +965,7 @@ namespace Horse
             && report.motion_bank_match
             && report.motion_bank_mismatch_count == 0
             && report.motion_tail_match
+            && report.secondary_event_stack_match
             && report.timer_node_match
             && report.unignored_mismatch_count == 0;
         return report;
@@ -794,11 +974,21 @@ namespace Horse
     static inline RollbackStepStateReport CaptureRollbackStepState(
         uintptr_t image_base,
         const RollbackSnapshotManifest& manifest,
-        RollbackStepState& out) noexcept
+        RollbackStepState& out,
+        RollbackLifecycleMode mode =
+            RollbackLifecycleMode::StockOnlinePvp,
+        bool replay_fork_lab = false) noexcept
     {
         RollbackStepStateReport report {};
         report.failure = "ok";
         out = {};
+
+        if (!ValidateRollbackStepLifecycle(
+                image_base, manifest.epoch, mode, replay_fork_lab))
+        {
+            report.failure = "capture-lifecycle-preflight-failed";
+            return report;
+        }
 
         report.explicit_report = CaptureRollbackSnapshotBytes(
             manifest, out.explicit_snapshot);
@@ -813,6 +1003,12 @@ namespace Horse
             image_base, out.hgcpu);
         report.hgcpu_ok = report.hgcpu_report.ok;
 
+        const bool lifecycle_still_valid =
+            ValidateRollbackStepLifecycle(
+                image_base, manifest.epoch, mode, replay_fork_lab);
+        // The native writer mutates several globals also owned by the explicit
+        // snapshot. Always attempt cleanup before returning, even when the
+        // native call failed or the lifecycle changed during capture.
         const RollbackSnapshotCopyReport post_hgcpu_explicit_restore =
             RestoreRollbackSnapshotBytes(out.explicit_snapshot);
         if (!post_hgcpu_explicit_restore.ok)
@@ -822,9 +1018,40 @@ namespace Horse
             report.explicit_ok = false;
             return report;
         }
+        if (!lifecycle_still_valid)
+        {
+            report.failure = "capture-lifecycle-before-explicit-restore-failed";
+            return report;
+        }
         if (!report.hgcpu_ok)
         {
             report.failure = report.hgcpu_report.failure;
+            return report;
+        }
+
+        report.breakable_stage_report =
+            CaptureRollbackBreakableStageSnapshot(
+                manifest.epoch.stage_actor_manager,
+                out.breakable_stage);
+        report.breakable_stage_ok = report.breakable_stage_report.ok;
+        if (!report.breakable_stage_ok
+            || out.breakable_stage.stage_layout_digest
+                != manifest.epoch.stage_layout_digest
+            || out.breakable_stage.actor_set_digest
+                != manifest.epoch.actor_set_digest)
+        {
+            report.failure = report.breakable_stage_ok
+                ? "breakable-stage-epoch-digest-mismatch"
+                : report.breakable_stage_report.failure;
+            return report;
+        }
+
+        report.stage_wind_report = CaptureRollbackStageWindSnapshot(
+            image_base, out.stage_wind);
+        report.stage_wind_ok = report.stage_wind_report.ok;
+        if (!report.stage_wind_ok)
+        {
+            report.failure = report.stage_wind_report.failure;
             return report;
         }
 
@@ -850,7 +1077,19 @@ namespace Horse
             return report;
         }
 
+        out.canonical_hash = HashRollbackStepStateCanonical(out);
         out.combined_hash = HashRollbackStepState(out);
+        if (out.canonical_hash == 0)
+        {
+            report.failure = "canonical-step-hash-failed";
+            return report;
+        }
+        if (!ValidateRollbackStepLifecycle(
+                image_base, manifest.epoch, mode, replay_fork_lab))
+        {
+            report.failure = "capture-lifecycle-postflight-failed";
+            return report;
+        }
         report.frame_counter = out.frame_counter;
         report.combined_hash = out.combined_hash;
         report.ok = true;
@@ -859,35 +1098,142 @@ namespace Horse
 
     static inline RollbackStepStateReport RestoreRollbackStepState(
         uintptr_t image_base,
-        const RollbackStepState& state) noexcept
+        const RollbackStepState& state,
+        bool allow_emergency_restore = true,
+        RollbackLifecycleMode mode =
+            RollbackLifecycleMode::StockOnlinePvp,
+        bool replay_fork_lab = false) noexcept
     {
         RollbackStepStateReport report {};
         report.failure = "ok";
 
-        if (!RollbackEpochMatchesLiveCharaPointers(
-                image_base, state.explicit_snapshot.epoch))
+        // Validate the complete source and live target epoch before emergency
+        // capture or any HgCpu/KHit/native write occurs.
+        if (!ValidateRollbackStepStateIntegrity(state))
         {
-            report.failure = "lifecycle-epoch-mismatch";
+            report.failure = "step-state-integrity-preflight-failed";
             return report;
         }
+        if (!ValidateRollbackStepLifecycle(
+                image_base, state.explicit_snapshot.epoch, mode,
+                replay_fork_lab))
+        {
+            report.failure = "lifecycle-epoch-preflight-failed";
+            return report;
+        }
+
+        auto capture_current = [&](RollbackStepState& current) noexcept {
+            current = {};
+            if (!CaptureRollbackEmergencyFrame(
+                    state.explicit_snapshot,
+                    current.explicit_snapshot))
+            {
+                return false;
+            }
+            const RollbackHgCpuSnapshotReport hgcpu =
+                CaptureRollbackHgCpuSnapshot(image_base, current.hgcpu);
+            RollbackSnapshotCopyReport explicit_restore =
+                RestoreRollbackSnapshotBytes(current.explicit_snapshot);
+            if (!explicit_restore.ok)
+                return false;
+            if (!hgcpu.ok)
+                return false;
+            const RollbackBreakableStageReport stage =
+                CaptureRollbackBreakableStageSnapshot(
+                    state.explicit_snapshot.epoch.stage_actor_manager,
+                    current.breakable_stage);
+            if (!stage.ok
+                || !RollbackReadFrameCounter(
+                    image_base, current.frame_counter)
+                || !RollbackReadLatestInputs(
+                    image_base, current.latest_input)
+                || !RollbackReadCameraArgs(
+                    image_base, current.camera_args))
+            {
+                return false;
+            }
+            const RollbackStageWindSnapshotReport wind =
+                CaptureRollbackStageWindSnapshot(
+                    image_base, current.stage_wind);
+            if (!wind.ok)
+                return false;
+            current.canonical_hash = HashRollbackStepStateCanonical(current);
+            current.combined_hash = HashRollbackStepState(current);
+            return true;
+        };
+
+        RollbackStepState emergency {};
+        if (allow_emergency_restore)
+        {
+            if (!capture_current(emergency))
+            {
+                report.failure = "step-emergency-capture-failed";
+                return report;
+            }
+            report.emergency_captured = true;
+        }
+
+        auto recover = [&](const char* failure) noexcept {
+            report.failure = failure;
+            if (allow_emergency_restore && report.emergency_captured)
+            {
+                const RollbackStepStateReport recovery =
+                    RestoreRollbackStepState(
+                        image_base, emergency, false, mode,
+                        replay_fork_lab);
+                report.emergency_restored = recovery.ok;
+            }
+            return report;
+        };
 
         report.hgcpu_report = RestoreRollbackHgCpuSnapshot(
             image_base, state.hgcpu);
         report.hgcpu_ok = report.hgcpu_report.ok;
         if (!report.hgcpu_ok)
         {
-            report.failure = report.hgcpu_report.failure;
-            return report;
+            return recover(report.hgcpu_report.failure);
         }
 
+        RollbackLifecycleEpoch live_epoch {};
+        if (replay_fork_lab)
+        {
+            if (!ValidateRollbackStepLifecycle(
+                    image_base, state.explicit_snapshot.epoch,
+                    mode, true))
+            {
+                return recover("replay-fork-lifecycle-epoch-drift");
+            }
+            live_epoch = state.explicit_snapshot.epoch;
+        }
+        else
+        {
+            if (!CaptureRollbackLifecycleEpoch(image_base, live_epoch))
+                return recover("lifecycle-epoch-capture-failed");
+            live_epoch.generation =
+                state.explicit_snapshot.epoch.generation;
+        }
         report.explicit_report =
-            RestoreRollbackSnapshotBytes(state.explicit_snapshot);
+            RestoreRollbackSnapshotBytesIfEpochMatches(
+                state.explicit_snapshot, live_epoch, replay_fork_lab);
         report.explicit_ok = report.explicit_report.ok;
         if (!report.explicit_ok)
         {
-            report.failure = report.explicit_report.failure;
-            return report;
+            return recover(report.explicit_report.failure);
         }
+
+        report.breakable_stage_report =
+            RestoreRollbackBreakableStageSnapshot(
+                state.explicit_snapshot.epoch.stage_actor_manager,
+                state.breakable_stage);
+        report.breakable_stage_ok = report.breakable_stage_report.ok;
+        if (!report.breakable_stage_ok)
+            return recover(report.breakable_stage_report.failure);
+
+        report.stage_wind_report = RestoreRollbackStageWindSnapshot(
+            image_base, state.stage_wind);
+        report.stage_wind_ok = report.stage_wind_report.ok;
+        if (!report.stage_wind_ok)
+            return recover(report.stage_wind_report.failure);
 
         report.frame_counter_ok =
             RollbackWriteFrameCounter(image_base, state.frame_counter);
@@ -897,18 +1243,73 @@ namespace Horse
             RollbackWriteCameraArgs(image_base, state.camera_args);
         if (!report.frame_counter_ok)
         {
-            report.failure = "frame-counter-write-failed";
-            return report;
+            return recover("frame-counter-write-failed");
         }
         if (!report.latest_input_ok)
         {
-            report.failure = "latest-input-write-failed";
-            return report;
+            return recover("latest-input-write-failed");
         }
         if (!report.camera_args_ok)
         {
-            report.failure = "camera-args-write-failed";
-            return report;
+            return recover("camera-args-write-failed");
+        }
+
+        // Verification is mandatory even for the non-recursive emergency
+        // recovery pass. Otherwise a partial recovery write can be reported
+        // as successful merely because a second recovery is disabled.
+        {
+            RollbackStepState verification {};
+            if (!capture_current(verification))
+            {
+                return recover("step-post-restore-verification-failed");
+            }
+            const RollbackHgCpuFrameCompare hgcpu_verify =
+                CompareRollbackHgCpuFrames(
+                    state.hgcpu, verification.hgcpu);
+            report.verification_hgcpu_compare = hgcpu_verify;
+            report.verification_canonical_hash = verification.canonical_hash;
+            report.expected_canonical_hash = state.canonical_hash;
+            report.verification_explicit_hash =
+                verification.explicit_snapshot.canonical_hash;
+            report.expected_explicit_hash =
+                state.explicit_snapshot.canonical_hash;
+            report.verification_stage_hash =
+                verification.breakable_stage.canonical_hash;
+            report.expected_stage_hash =
+                state.breakable_stage.canonical_hash;
+            // The raw topology integrity hash contains KHit node/chara
+            // addresses and list-control allocator links. A long replay-fork
+            // advance can legitimately replace those process-local nodes
+            // while restoring the same ordered canonical node stream. The
+            // lab therefore verifies the complete canonical HgCpu digest.
+            // CompareRollbackHgCpuFrames' raw offset diagnostics are not a
+            // validity condition here because a changed variable-length KHit
+            // record shifts the following P2/global bytes even when their
+            // canonical per-record content is identical. Production retains
+            // the stronger same-object topology/raw-policy check.
+            const bool hgcpu_restore_match = replay_fork_lab
+                ? (verification.hgcpu.canonical_hash
+                        == state.hgcpu.canonical_hash)
+                : hgcpu_verify.policy_match;
+            if (!hgcpu_restore_match
+                || verification.explicit_snapshot.canonical_hash
+                    != state.explicit_snapshot.canonical_hash
+                || verification.breakable_stage.canonical_hash
+                    != state.breakable_stage.canonical_hash
+                || verification.canonical_hash != state.canonical_hash
+                || verification.frame_counter != state.frame_counter
+                || std::memcmp(
+                    verification.latest_input,
+                    state.latest_input,
+                    sizeof(state.latest_input)) != 0
+                || std::memcmp(
+                    verification.camera_args,
+                    state.camera_args,
+                    sizeof(state.camera_args)) != 0)
+            {
+                return recover("step-post-restore-verification-failed");
+            }
+            report.verification_ok = true;
         }
 
         report.frame_counter = state.frame_counter;
@@ -1150,7 +1551,7 @@ namespace Horse
         }
         if (manifest.epoch.chara[0] != p1
             || manifest.epoch.chara[1] != p2
-            || manifest.epoch.presence != 0x03)
+            || !manifest.epoch.active_pvp())
         {
             report.failure = "lifecycle-epoch-not-current";
             return report;
@@ -1279,6 +1680,7 @@ namespace Horse
 
         RollbackStepStateReport restore_report =
             RestoreRollbackStepState(image_base, start);
+        report.post_baseline_restore = restore_report;
         if (!restore_report.ok)
         {
             report.failure = restore_report.failure;
@@ -1337,6 +1739,7 @@ namespace Horse
                 || baseline.frame_counter != predicted_end.frame_counter;
 
             restore_report = RestoreRollbackStepState(image_base, start);
+            report.post_predicted_restore = restore_report;
             if (!restore_report.ok)
             {
                 report.failure = restore_report.failure;
@@ -1364,6 +1767,7 @@ namespace Horse
         else
         {
             report.predicted_ok = true;
+            report.post_predicted_restore = report.post_baseline_restore;
             report.post_predicted_restore_explicit_ok =
                 report.post_baseline_restore_explicit_ok;
             report.post_predicted_restore_explicit_match =
@@ -1426,6 +1830,7 @@ namespace Horse
         report.all_steps_ok = report.steps_attempted == report.steps_ok;
 
         restore_report = RestoreRollbackStepState(image_base, start);
+        report.final_restore = restore_report;
         report.restore_start_after_ok = restore_report.ok;
         if (!report.restore_start_after_ok)
             report.failure = restore_report.failure;
@@ -1435,6 +1840,10 @@ namespace Horse
             && report.predicted_ok
             && report.corrected_ok
             && report.restore_start_after_ok
+            && report.post_baseline_restore_explicit_ok
+            && report.post_baseline_restore_explicit_match
+            && report.post_predicted_restore_explicit_ok
+            && report.post_predicted_restore_explicit_match
             && report.corrected_matches_baseline
             && report.frame_counter_delta_ok
             && report.all_steps_ok

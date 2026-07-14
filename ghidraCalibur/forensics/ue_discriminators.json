@@ -1,0 +1,290 @@
+{
+  "markers": [
+    {
+      "baseline": "staging-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Failed replicator RepNotifies check. Num=%d. Object=%s.",
+      "source_path": "Engine/Source/Runtime/Engine/Private/DataReplication.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "staging-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Failed RepState RepNotifies check. Num=%d. Object=%s",
+      "source_path": "Engine/Source/Runtime/Engine/Private/DataReplication.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "staging-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "LoadLibraryWithSearchPaths failed for file %s. GetLastError=%d",
+      "source_path": "Engine/Source/Runtime/Core/Private/Windows/WindowsPlatformProcess.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "staging-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "UGameplayStatics::SpawnObject wrong class: %s",
+      "source_path": "Engine/Source/Runtime/Engine/Private/GameplayStatics.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "staging-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "FileExists returned %d for Module %s",
+      "source_path": "Engine/Source/Runtime/Core/Private/Windows/WindowsPlatformProcess.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "staging-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "SpawnObject wrong class: {0}'",
+      "source_path": "Engine/Source/Runtime/Engine/Private/GameplayStatics.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": [
+          59007328,
+          59007632
+        ]
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Failed to initialize streaming wave data due to lack of serialized stream chunks. Error during stream cooking.",
+      "source_path": "Engine/Source/Runtime/Engine/Private/AudioStreaming.cpp",
+      "status": "present"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": [
+          55605024,
+          55605648
+        ]
+      },
+      "corroboration": {
+        "disposition": "accepted",
+        "evidence": "The function logs the source path/line, checks GIsGarbageCollecting and game-thread identity, then enters the async-loader critical section and clears pending loader state.",
+        "kind": "ghidra-decompile-and-xref",
+        "location": "string 0x143508320 -> 0x140e44f30 (CancelAsyncLoadingInternal)",
+        "marker": "CancelAsyncLoadingInternal is not thread safe! This must be fixed before being enabled for EDL",
+        "provenance": "UE 4.17.2 verified; type reference is isolated because the function reaches offsets beyond the proven 0x70 prefix.",
+        "verified": true
+      },
+      "corroboration_status": "confirmed",
+      "marker": "CancelAsyncLoadingInternal is not thread safe! This must be fixed before being enabled for EDL",
+      "source_path": "Engine/Source/Runtime/CoreUObject/Private/Serialization/AsyncLoading.cpp",
+      "status": "present"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Go to end of the sequence and stop. Adheres to 'When Finished' section rules.",
+      "source_path": "Engine/Source/Runtime/MovieScene/Public/MovieSceneSequencePlayer.h",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": [
+          55392512
+        ]
+      },
+      "corroboration": {
+        "disposition": "accepted",
+        "evidence": "The function registers c.ToggleGPUCrashedFlagDbg with the console manager using the exact diagnostic text.",
+        "kind": "ghidra-decompile-and-xref",
+        "location": "string 0x1434d4500 -> 0x1401c08c0 (RegisterToggleGpuCrashedFlagCommand)",
+        "marker": "Forcibly toggles the 'GPU Crashed' flag for testing crash analytics.",
+        "provenance": "UE 4.17.2 verified; descriptive name for a compiler-generated initializer, not an Epic source symbol.",
+        "verified": true
+      },
+      "corroboration_status": "confirmed",
+      "marker": "Forcibly toggles the 'GPU Crashed' flag for testing crash analytics.",
+      "source_path": "Engine/Source/Runtime/Core/Private/Misc/CoreGlobals.cpp",
+      "status": "present"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "ResolveChannelsToData must be implemented to blend SourceData with multi-channel data.",
+      "source_path": "Engine/Source/Runtime/MovieScene/Public/Evaluation/Blending/MovieSceneMultiChannelBlending.h",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "MultiChannelFromData must be implemented to blend SourceData with multi-channel data.",
+      "source_path": "Engine/Source/Runtime/MovieScene/Public/Evaluation/Blending/MovieSceneMultiChannelBlending.h",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Attempting to apply a compound data type with some channels uninitialized.",
+      "source_path": "Engine/Source/Runtime/MovieScene/Public/Evaluation/Blending/MovieSceneMultiChannelBlending.h",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Component Registered state changed from %s to %s within FRenderStateRecreator scope.",
+      "source_path": "Engine/Source/Runtime/Engine/Classes/Components/SkinnedMeshComponent.h",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Invalid minimum package file summary size (s.MaxPackageSummarySize=%d), %d is min.",
+      "source_path": "Engine/Source/Runtime/CoreUObject/Private/Serialization/AsyncLoading.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Debug command to dump the memory allocated by existing FArhiveAsync2.",
+      "source_path": "Engine/Source/Runtime/CoreUObject/Private/Serialization/AsyncLoading.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "ConvertRenderTargetToTexture2DEditorOnly: render target has been released.",
+      "source_path": "Engine/Source/Runtime/Engine/Private/KismetRenderingLibrary.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Attempting to evaluate an Animation track with a null object.",
+      "source_path": "Engine/Source/Runtime/MovieSceneTracks/Private/Evaluation/MovieSceneSkeletalAnimationTemplate.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Attempting to evaluate a Transform track with a null object.",
+      "source_path": "Engine/Source/Runtime/MovieSceneTracks/Private/Evaluation/MovieScene3DTransformTemplate.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": []
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Attempting to evaluate a Color track with a null object.",
+      "source_path": "Engine/Source/Runtime/MovieSceneTracks/Private/Evaluation/MovieSceneColorTemplate.cpp",
+      "status": "absent"
+    },
+    {
+      "baseline": "release-only",
+      "binary_offsets": {
+        "ascii": [],
+        "utf16le": [
+          58814304
+        ]
+      },
+      "corroboration": null,
+      "corroboration_status": "unverified",
+      "marker": "Names must be less than {CharCount} characters long.",
+      "source_path": "Engine/Source/Runtime/Engine/Private/ActorEditorUtils.cpp",
+      "status": "present"
+    }
+  ],
+  "schema": "sc6-ue-source-forensics/v1",
+  "scoring": {
+    "conclusion": "inconclusive; evidence supports UE 4.17.2 but not a source lineage",
+    "matched_release_only": 2,
+    "matched_staging_only": 0,
+    "minimum_independent_matches": 3,
+    "unconfirmed_binary_string_matches": 2
+  }
+}
