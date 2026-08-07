@@ -1,10 +1,36 @@
 #include "RollbackOnlineStageState.hpp"
+#include "RollbackStockOnlineLabDriver.hpp"
 
 #include <cstdio>
 
 int main()
 {
+    uint32_t accepted_stage = 0;
+    const bool accepted_stage_reused =
+        Horse::ReuseAcceptedRollbackStageIdentity(
+            0x10003u, false, accepted_stage)
+        && accepted_stage == 0x10003u;
+    uint32_t consistency_stage = 0;
+    const bool consistency_scan_not_bypassed =
+        !Horse::ReuseAcceptedRollbackStageIdentity(
+            0x10003u, true, consistency_stage)
+        && consistency_stage == 0;
+    uint32_t missing_stage = 0;
+    const bool missing_stage_not_reused =
+        !Horse::ReuseAcceptedRollbackStageIdentity(
+            0, false, missing_stage)
+        && missing_stage == 0;
     using namespace Horse;
+
+    const auto stock_selection =
+        RollbackStockOnlineLabDriver::desired(-1, -1, -1);
+    const bool stock_selection_exact =
+        RollbackStockOnlineLabDriver::accepts(
+            stock_selection, "007", "006", "STG003") &&
+        !RollbackStockOnlineLabDriver::accepts(
+            stock_selection, "00c", "062", "STG003") &&
+        std::string(RollbackStockOnlineLabDriver::title_reset_function()) ==
+            "ULuxInputUtil.EmulateTitleDecide";
 
     const auto provisional = EvaluateRollbackOnlineCreate(
         0, 1, true, false, 20, 360);
@@ -12,6 +38,41 @@ int main()
         1, 1, true, true, 30, 360);
     const auto timed_out = EvaluateRollbackOnlineCreate(
         0, 1, true, false, 360, 360);
+    const bool decide_retry_waits =
+        !ShouldRetryRollbackHostCreateDecide(0, 0, false, 100, 159, 60, 2);
+    const bool decide_retry_due =
+        ShouldRetryRollbackHostCreateDecide(0, 0, false, 100, 160, 60, 2);
+    const bool decide_retry_continues_active_pulse =
+        ShouldRetryRollbackHostCreateDecide(0, 0, true, 100, 101, 60, 2);
+    const bool decide_retry_stops_after_native_create =
+        !ShouldRetryRollbackHostCreateDecide(1, 0, true, 100, 101, 60, 2);
+    const bool decide_retry_is_bounded =
+        !ShouldRetryRollbackHostCreateDecide(0, 2, false, 100, 200, 60, 2);
+
+    RollbackPrivateLobbyEvidence private_lobby {};
+    private_lobby.player_match_session_observed = true;
+    private_lobby.native_public_flag = 0;
+    private_lobby.steam_lobby_type_attempted = true;
+    private_lobby.steam_lobby_type_private = true;
+    private_lobby.lobby_id = 0x3000;
+    private_lobby.lobby_owner_id = 0x7656119800000001ull;
+    private_lobby.local_steam_id = private_lobby.lobby_owner_id;
+    private_lobby.pre_invite_member_count = 1;
+    const bool private_lobby_ready =
+        RollbackPrivateLobbyReady(private_lobby);
+    auto public_lobby = private_lobby;
+    public_lobby.native_public_flag = 1;
+    auto steam_type_missing = private_lobby;
+    steam_type_missing.steam_lobby_type_private = false;
+    auto outsider_already_joined = private_lobby;
+    outsider_already_joined.pre_invite_member_count = 2;
+    const bool privacy_negative_controls =
+        !RollbackPrivateLobbyReady(public_lobby)
+        && !RollbackPrivateLobbyReady(steam_type_missing)
+        && !RollbackPrivateLobbyReady(outsider_already_joined)
+        && RollbackPrivateLobbyMemberCountReady(1, false)
+        && RollbackPrivateLobbyMemberCountReady(2, true)
+        && !RollbackPrivateLobbyMemberCountReady(3, true);
 
     const bool ping_5200_ok = EvaluateRollbackOnlinePing(
         true, true, 5200, 22000)
@@ -69,6 +130,13 @@ int main()
         && provisional.provisional_false_seen
         && completed.status == RollbackOnlineCreateStatus::Succeeded
         && timed_out.status == RollbackOnlineCreateStatus::TimedOut
+        && decide_retry_waits
+        && decide_retry_due
+        && decide_retry_continues_active_pulse
+        && decide_retry_stops_after_native_create
+        && decide_retry_is_bounded
+        && private_lobby_ready
+        && privacy_negative_controls
         && ping_5200_ok
         && ping_21999_waits
         && ping_22000_times_out
@@ -82,12 +150,17 @@ int main()
         && callback_connected.transport_ready
         && native_connected.native_transport_ready
         && native_connected.transport_ready
-        && decide_once;
+        && decide_once
+        && accepted_stage_reused
+        && consistency_scan_not_bypassed
+        && missing_stage_not_reused
+        && stock_selection_exact;
 
     std::printf(
         "rollback online-stage state self-test %s "
         "create=%d ping=%d host_adopt=%d guest_adopt=%d "
-        "membership_split=%d transport=%d once=%d\n",
+        "membership_split=%d transport=%d once=%d stage_cache=%d "
+        "stock=%d privacy=%d\n",
         ok ? "passed" : "failed",
         completed.status == RollbackOnlineCreateStatus::Succeeded,
         ping_5200_ok && ping_21999_waits && ping_22000_times_out,
@@ -95,6 +168,10 @@ int main()
         guest_adopted && stale_guest_rejected,
         member_only.membership_ready && !member_only.transport_ready,
         callback_connected.transport_ready && native_connected.transport_ready,
-        decide_once);
+        decide_once,
+        accepted_stage_reused && consistency_scan_not_bypassed
+            && missing_stage_not_reused,
+        stock_selection_exact,
+        private_lobby_ready && privacy_negative_controls);
     return ok ? 0 : 1;
 }

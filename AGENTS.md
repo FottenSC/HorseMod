@@ -5,8 +5,11 @@ Always think longer term short term fixes are not a good solution.
 ## Agent roles
 
 - Codex owns first-pass exploration and implementation work: search the repo, read code/docs/logs, run local tools, and ground conclusions in evidence before asking for validation.
+- Before implementing new features into horsemod we should understand every system in and around what we are effecting in the game. If we dont have sufficient knowledge we should use the ghidra mcp to do reverse engineering. while reverse-engineering add functions names, variable types, variable names, create structs etc etc.
 - Hermes validates, corrects, and steers after Codex has gathered evidence or drafted a plan/change. Use Hermes to challenge assumptions, spot missing checks, and redirect scope; do not use Hermes as a substitute for Codex's own exploration.
 - When Codex and Hermes disagree, re-check primary sources: code, logs, replay tests, Ghidra MCP, dumps, and the SC6ModdingDocs repo. State the concrete evidence before editing.
+- When I ask you a question refrain from using ingame descriptions of how its supposed to work, you can use them as reference while working but everything you relay to me should be backed by decompiled code or similar.
+- Tests are good but write them with some restraint. We dont need to test everything, also dont create a bunch of copies of our project we have limited disc space.
 
 Repo layout:
 - `HorseMod/` — C++ ASI mod (PolyHook2 + custom hooks) for Soulcalibur VI
@@ -18,7 +21,11 @@ Repo layout:
 
 ## Replay testing
 
-Run a strict replay seek test after changes touching ReplayScrub, replay hooks, timeline generation, seek/restore behavior, GameMode presence handling, clocks, MoveVM/hit state, RNG, input history, or no-render gates. Build and deploy first, then start with `E:\myMods\ReplayExample\REPLAY_12744704008398858106.bin` using `E:\myMods\tools\replay_seek_test_run.py --kill-game --launch-game --allow-unknown-presence --start-replay <replay> --timeline-generation-mode lux-no-render --case-preset watch --watch-frames 600 --wait --analyze --strict --min-resume-tick-rate 58 --resume-tick-window 120 --max-seek-validation-seconds 0.5`. For timeline-generation changes, compare `normal` vs `lux-no-render` oracle data first; fast generation is valid only with zero mismatches.
+Run a strict replay seek test after changes touching ReplayScrub, replay hooks, timeline generation, seek/restore behavior, GameMode presence handling, clocks, MoveVM/hit state, RNG, input history, or no-render gates. 
+Build and deploy first, then start with `E:\myMods\ReplayExample\REPLAY_12744704008398858106.bin` 
+using `E:\myMods\tools\replay_seek_test_run.py --kill-game --launch-game --allow-unknown-presence --start-replay <replay> --timeline-generation-mode normal --case-preset watch --watch-frames 600 --wait --analyze --strict --min-resume-tick-rate 58 --resume-tick-window 120 --max-seek-validation-seconds 0.5`
+
+`lux-no-render` is a non-certifying seek/performance diagnostic only. Replay correctness, trusted-golden generation, golden validation, and rollback qualification must use the normal renderer.
 
 The reverse-engineering work runs through `bethington/ghidra-mcp` MCP tools. 
 The MCP is the authoritative interface for Ghidra — never edit `.gpr` files or invoke Ghidra scripts directly. 
@@ -37,7 +44,6 @@ The MCP enforces conventions in the tool layer (auto-fix / warn / reject tiers).
 
 **Tool inventory and dynamic groups**: 
 
-`/mcp/schema` is authoritative. Don't guess tool names from training data. 
 For Ghidra comment work, load the `comment` group and use native comment tools: 
 `batch_set_comments`, `set_plate_comment`, `set_decompiler_comment`, `set_disassembly_comment`, and `get_plate_comment`. 
 `set_bookmark` is only for bookmarks and audit breadcrumbs; do not treat it as a substitute for plate, PRE, EOL, or disassembly comments.
@@ -96,6 +102,9 @@ Phantoms (`extraout_*`, `in_*` with undefined types) are decompiler artifacts. N
 - **Register-only variables**: when `set_local_variable_type` fails for a register var, document via `set_decompiler_comment` PRE_COMMENT (`"nIterator: int - loop counter (register-only)"`). The completeness scorer excludes these.
 - **Struct access without a struct**: for raw `*(ptr+0x10)` access where no matching struct exists, add EOL comments at each access (`/* +0x10: flags */`) — satisfies the scorer without forcing struct creation.
 - `/run_script_inline`, `/run_ghidra_script`, and `run_script` may appear callable in the MCP `program` group. Project policy still forbids using them for Ghidra database edits unless the user explicitly overrides this rule. Use native MCP tools instead.
+- Ghidra snapshots dont seem to work at the moment so stay away from those mcp endpoints.
+- Soulcalibur VI’s Lux battle space uses X/Z as the ground plane and Y as vertical; convert to Unreal coordinates as UE(X,Y,Z) = Lux(X,Z,Y) × 100
+- NEVER IMPORT A SECOND COPY OF SOULCALIBUR into ghidra
 
 ## Skills available
 

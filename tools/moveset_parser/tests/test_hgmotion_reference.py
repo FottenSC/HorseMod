@@ -51,6 +51,81 @@ def test_huffman_table_builder_accepts_real_clip_stream():
     assert table.entries
 
 
+def test_half_speed_common_grounded_clip_uses_effective_group_count():
+    mot = parse_mot(Path("E:/myMods/dump/Battle/mot/chr0ff.mot").read_bytes())
+    raw = mot.section(0x0011)
+    clip = parse_motion_clip(raw, 0x0011, mot.offsets[0x0011])
+
+    assert clip.flags & 0x04
+    assert clip.frame_count == 0x118
+    assert clip.group_count == 0x12
+    assert clip.static_data_offset == 0x40
+    decoded = decode_huffman_keyframe_data(
+        MotionPlaybackState(mot, 0x0011, 0.0, 0, 0),
+        0,
+        want_secondary=True,
+    )
+    assert len(decoded.words) == clip.decoded_word_count
+
+
+def test_half_speed_root_curve_samples_and_interpolates_full_playback_timeline():
+    mot = parse_mot(Path("E:/myMods/dump/Battle/mot/chr0ff.mot").read_bytes())
+    clip, frames, _ = decode_root_movement_frames(
+        mot.section(0x0011), 0x0011, mot.offsets[0x0011]
+    )
+
+    assert len(frames) == clip.playback_frame_count == 0x118
+    # Playback frame 5 samples stored keyframe 2.5.
+    for axis in ("local_x", "local_y", "local_z"):
+        assert getattr(frames[5], axis) == pytest.approx(
+            (getattr(frames[4], axis) + getattr(frames[6], axis)) * 0.5
+        )
+
+
+def test_extra_terminal_frame_is_present_in_compressed_group_table():
+    mot = parse_mot(Path("E:/myMods/dump/Battle/mot/chr005.mot").read_bytes())
+    raw = mot.section(502)
+    clip = parse_motion_clip(raw, 502, mot.offsets[502])
+
+    assert clip.flags & 0x10
+    assert clip.frame_count == 80
+    assert clip.playback_frame_count == clip.encoded_frame_count == 81
+    assert clip.group_count == 11
+    decoded = decode_huffman_keyframe_data(
+        MotionPlaybackState(mot, 502, 80.0, 0, 0), 80
+    )
+    assert len(decoded.words) == 68
+    assert "group=10" in decoded.trace
+
+
+def test_selector16_full_precision_still_applies_native_units_scale():
+    mot = parse_mot(Path("E:/myMods/dump/Battle/mot/chr00c.mot").read_bytes())
+    clip, frames, _ = decode_root_movement_frames(
+        mot.section(456), 456, mot.offsets[456]
+    )
+
+    assert clip.flags & (1 << 28)
+    assert clip.flags & (1 << 14)
+    assert max(
+        abs(value)
+        for frame in frames
+        for value in (frame.local_x, frame.local_y, frame.local_z)
+    ) < 3.0
+
+
+def test_selector16_applies_clip_authored_quarter_turn():
+    mot = parse_mot(Path("E:/myMods/dump/Battle/mot/chr001.mot").read_bytes())
+    _, frames, _ = decode_root_movement_frames(
+        mot.section(614), 614, mot.offsets[614]
+    )
+
+    # Raw selector-0x16 frame zero is (-0.903, 0.956, 0.024). The clip's
+    # high-nibble 0x4000 base turn rotates it around native Y.
+    assert frames[0].local_x == pytest.approx(0.024, abs=1e-6)
+    assert frames[0].local_y == pytest.approx(0.956, abs=1e-6)
+    assert frames[0].local_z == pytest.approx(0.903, abs=1e-6)
+
+
 def test_decode_frame_words_for_representative_backsteps():
     for cid, idx in [
         ("001", 0x028F),

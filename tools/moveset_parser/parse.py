@@ -116,7 +116,8 @@ def dump_hit(h: HitFile) -> None:
         kind = {0: "Sphere ", 1: "Area   ", 2: "FixArea"}.get(r.tag, "??")
         if r.tag == 0:
             extra = (f"  x={r.pos_x:7.3f} y={r.pos_y:7.3f} z={r.pos_z:7.3f} "
-                     f"r={r.radius:6.3f} id=0x{r.id_link:08X}")
+                     f"r={r.radius:6.3f} impulse={r.contact_impulse_scale:5.3f} "
+                     f"bone={r.bone_index_ue4}")
         else:
             extra = f"  raw[8:24]={r.raw[8:24].hex(' ')}..."
         print(f"  [{i:3d}] @0x{r.offset_in_stream:04X} {kind}  slot={r.slot:>3} flags=0x{r.flags:08X}{extra}")

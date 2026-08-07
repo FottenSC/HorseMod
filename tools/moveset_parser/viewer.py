@@ -416,7 +416,7 @@ def khd_section(cid: str, sec: int):
                     f'<td><a href="/c/{cid}/khd/{sec}/{i}">{i}</a></td>'
                     f'<td><span class="tag {role_class}">{role}</span></td>'
                     f'<td colspan="9"><i>damage=0 cell &mdash; flags 0x{e.wU16AttackFlags:04X}, '
-                    f'reactID={e.wI16ReactionIdStanding}, '
+                    f'reactID={e.wI16ReactionIdBaseContact}, '
                     f'window {e.active_frames}</i></td>'
                     f'<td class="hex">0x{e.wU16AttackFlags:04X}</td>'
                     f'</tr>'
@@ -442,9 +442,9 @@ def khd_section(cid: str, sec: int):
                 f'<td class="num">{e.wI16BaseDamage}</td>'
                 f'<td>{e.active_frames} <span class="small">({e.active_frame_count}f)</span></td>'
                 f'<td class="num">{e.wI16BlockstunFrames}</td>'
-                f'<td class="num">{e.wI16HitstunStandingNormal}</td>'
-                f'<td class="num">{e.wI16HitstunCrouchNormal}</td>'
-                f'<td class="num">{e.wI16ReactionIdStanding}</td>'
+                f'<td class="num">{e.wI16HitstunBaseContact}</td>'
+                f'<td class="num">{e.wI16HitstunAlternatePostureBaseContact}</td>'
+                f'<td class="num">{e.wI16ReactionIdBaseContact}</td>'
                 f'<td>{e.range_stand}</td>'
                 f'<td class="hex" title="{attack_flags_to_str(e.wU16AttackFlags)}">0x{e.wU16AttackFlags:04X}</td>'
                 f'</tr>'
@@ -461,9 +461,9 @@ def khd_section(cid: str, sec: int):
             f'<th title="wI16BaseDamage @ cell+0x3A">dmg</th>'
             f'<th title="wI16MasterWindowStart..End (60ths)">active</th>'
             f'<th title="wI16BlockstunFrames @ cell+0x44 (defender disadvantage)">on-block</th>'
-            f'<th title="wI16HitstunStandingNormal @ cell+0x46 (advantage)">on-hit</th>'
-            f'<th title="wI16HitstunCrouchNormal @ cell+0x4C">on-hit (crouch)</th>'
-            f'<th title="wI16ReactionIdStanding @ cell+0x50, index into chara+0x43DD8">reactID</th>'
+            f'<th title="wI16HitstunBaseContact @ cell+0x46">on-hit (base)</th>'
+            f'<th title="wI16HitstunAlternatePostureBaseContact @ cell+0x4C">on-hit (alternate posture)</th>'
+            f'<th title="wI16ReactionIdBaseContact @ cell+0x50, index into chara+0x43DD8">reactID</th>'
             f'<th title="cI8RangeStandMin..Max @ cell+0x62..63 (-127=∞)">range</th>'
             f'<th title="wU16AttackFlags @ cell+0x32 (raw hex)">flags</th>'
             f'</tr>'
@@ -635,7 +635,7 @@ def khd_entry(cid: str, sec: int, idx: int):
 <tr><td>active frames</td><td><b>{e.active_frames}</b> ({e.active_frame_count}f)</td>
     <td>wI16MasterWindowStart..End (60ths-of-a-second)</td></tr>
 <tr><td>on block / on hit</td><td><b>{e.on_block:+d}f</b> / <b>{e.on_hit_standing:+d}f</b></td>
-    <td>wI16BlockstunFrames / wI16HitstunStandingNormal</td></tr>
+    <td>wI16BlockstunFrames / wI16HitstunBaseContact</td></tr>
 <tr><td>range (stand)</td><td>{e.range_stand}</td>
     <td>cI8RangeStandMin..Max (-127 / 0x81 = no constraint)</td></tr>
 <tr><td>range (crouch)</td><td>{e.range_crouch}</td>
@@ -672,20 +672,20 @@ def khd_entry(cid: str, sec: int, idx: int):
     <td>Extra state flags (BA / soul-charge / etc. — bit map TBD)</td></tr>
 <tr><td>wI16BlockstunFrames</td><td>+0x44</td><td>{e.wI16BlockstunFrames}</td>
     <td>Frames of blockstun (defender disadvantage on block)</td></tr>
-<tr><td>wI16HitstunStandingNormal</td><td>+0x46</td><td>{e.wI16HitstunStandingNormal}</td>
-    <td>Frames of hitstun on a standing hit</td></tr>
-<tr><td>wI16HitstunStandingAir</td><td>+0x48</td><td>{e.wI16HitstunStandingAir}</td>
-    <td>Frames of hitstun on an airborne hit</td></tr>
-<tr><td>wI16HitstunCrouchNormal</td><td>+0x4C</td><td>{e.wI16HitstunCrouchNormal}</td>
-    <td>Frames of hitstun on a crouching hit</td></tr>
-<tr><td>wI16HitstunCrouchAir</td><td>+0x4E</td><td>{e.wI16HitstunCrouchAir}</td>
-    <td>Frames of hitstun on a crouching+airborne hit</td></tr>
-<tr><td>wI16ReactionIdStanding</td><td>+0x50</td><td>{e.wI16ReactionIdStanding}</td>
-    <td>Reaction id for standing defender (index into chara+0x43DD8)</td></tr>
-<tr><td>wI16ReactionIdAir</td><td>+0x52</td><td>{e.wI16ReactionIdAir}</td>
-    <td>Reaction id for airborne defender</td></tr>
-<tr><td>wI16ThrowEscapeId</td><td>+0x54</td><td>{e.wI16ThrowEscapeId}</td>
-    <td>Throw escape / counter-hit reaction id</td></tr>
+<tr><td>wI16HitstunBaseContact</td><td>+0x46</td><td>{e.wI16HitstunBaseContact}</td>
+    <td>Base-posture stun for normal contact mode 1</td></tr>
+<tr><td>wI16HitstunSpecialContact</td><td>+0x48</td><td>{e.wI16HitstunSpecialContact}</td>
+    <td>Base-posture stun for saved contact modes &gt;=2, including mode-11 Counter Hit</td></tr>
+<tr><td>wI16HitstunAlternatePostureBaseContact</td><td>+0x4C</td><td>{e.wI16HitstunAlternatePostureBaseContact}</td>
+    <td>Alternate-posture stun for normal contact mode 1</td></tr>
+<tr><td>wI16HitstunAlternatePostureSpecialContact</td><td>+0x4E</td><td>{e.wI16HitstunAlternatePostureSpecialContact}</td>
+    <td>Alternate-posture stun for saved contact modes &gt;=2</td></tr>
+<tr><td>wI16ReactionIdBaseContact</td><td>+0x50</td><td>{e.wI16ReactionIdBaseContact}</td>
+    <td>Reaction id for normal contact mode 1</td></tr>
+<tr><td>wI16ReactionIdSpecialContact</td><td>+0x52</td><td>{e.wI16ReactionIdSpecialContact}</td>
+    <td>Reaction id for saved contact modes &gt;=2</td></tr>
+<tr><td>wI16ThrowReactionRowId</td><td>+0x54</td><td>{e.wI16ThrowReactionRowId}</td>
+    <td>Classifier-7 throw-reaction row id</td></tr>
 <tr><td>wU16PassthroughTagA</td><td>+0x5A</td><td>0x{e.wU16PassthroughTagA:04X}</td>
     <td>Pass-through tag (usually 0xFFFD = default reaction)</td></tr>
 <tr><td>wU16HitboxGroupBitfield</td><td>+0x5E</td><td>0x{e.wU16HitboxGroupBitfield:04X}</td>
@@ -854,7 +854,8 @@ def hit_view(cid: str, kind: str):
         if r.tag == 0:
             payload = (
                 f"x={r.pos_x:.3f} y={r.pos_y:.3f} z={r.pos_z:.3f} "
-                f"r={r.radius:.3f} id=0x{r.id_link:08X}"
+                f"r={r.radius:.3f} impulse={r.contact_impulse_scale:.3f} "
+                f"bone={r.bone_index_ue4}"
             )
         else:
             payload = (
@@ -992,15 +993,22 @@ def slot_detail(cid: str, slot_idx: int):
     # Field table
     field_rows = [
         ('wAnimationIndex_00',  f'{s.wAnimationIndex_00}'),
-        ('wMotionPlaybackParam_02', f'{s.wMotionPlaybackParam_02}'),
-        ('nField_04',           f'{s.nField_04}'),
-        ('wMotionFlags_06',     f'0x{s.wMotionFlags_06:04X}'),
-        ('dwSubTableOffset_10', f'0x{s.dwSubTableOffset_10:08X}'),
-        ('dwSubTableOffset_14', f'0x{s.dwSubTableOffset_14:08X}'),
-        ('dwAltBytecodeOffset_1C', f'0x{s.dwAltBytecodeOffset_1C:08X}'),
+        ('nMotionAStartFrame_02', f'{s.nMotionAStartFrame_02}'),
+        ('nMotionAEndFrame_04', f'{s.nMotionAEndFrame_04}'),
+        ('bMotionATrack_06', f'{s.bMotionATrack_06}'),
+        ('bMotionAFlags_07', f'0x{s.bMotionAFlags_07:02X}'),
+        ('flMotionAWeightHundredths_08', f'{s.flMotionAWeightHundredths_08:.3f}'),
+        ('flMotionABlendHundredths_0C', f'{s.flMotionABlendHundredths_0C:.3f}'),
+        ('wMotionBId_10', f'{s.wMotionBId_10}'),
+        ('nMotionBStartFrame_12', f'{s.nMotionBStartFrame_12}'),
+        ('nMotionBEndFrame_14', f'{s.nMotionBEndFrame_14}'),
+        ('bMotionBTrack_16', f'{s.bMotionBTrack_16}'),
+        ('bMotionBFlags_17', f'0x{s.bMotionBFlags_17:02X}'),
+        ('flMotionBWeightHundredths_18', f'{s.flMotionBWeightHundredths_18:.3f}'),
+        ('flMotionBBlendHundredths_1C', f'{s.flMotionBBlendHundredths_1C:.3f}'),
         ('qwInputMask_20',      f'0x{s.qwInputMask_20:016X}'),
         ('qwInputMask_28',      f'0x{s.qwInputMask_28:016X}'),
-        ('flPlaybackSpeed60ths_30', f'{s.flPlaybackSpeed60ths_30:.3f}'),
+        ('flPlaybackSpeedHundredths_30', f'{s.flPlaybackSpeedHundredths_30:.3f}'),
         ('playbackSpeedScalar', f'{s.playback_speed_scalar:.6f}x'),
         ('wTotalFrames',        f'{s.wTotalFrames}'),
         ('nHitWindowStart_36',  f'{s.nHitWindowStart_36}'),

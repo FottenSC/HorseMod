@@ -12,6 +12,8 @@ namespace Horse
         Down,
         Left,
         Right,
+        FocusNetwork,
+        FocusPlayerMatch,
         Decide,
         Cancel,
     };
@@ -478,7 +480,19 @@ namespace Horse
                     RollbackUiNavigationEvidence::SemanticActionStarted)
             {
                 if (!final_decide)
+                {
+                    // Intermediate semantic commits (for example opening the
+                    // Network submenu) can run asynchronous stock privilege
+                    // checks.  Suppress duplicate dispatch while retaining
+                    // the independent hierarchy-change requirement.
+                    if (!m_pending_action_observed)
+                    {
+                        m_pending_action_observed = true;
+                        m_pending_since_tick = tick;
+                        m_last_progress_tick = tick;
+                    }
                     return RollbackUiNavigationResult::WaitingForAction;
+                }
                 if (!m_pending_action_observed)
                 {
                     m_pending_action_observed = true;
@@ -549,6 +563,12 @@ namespace Horse
         }
         uint8_t route_length() const noexcept { return m_route_length; }
         uint8_t step_index() const noexcept { return m_step_index; }
+        RollbackUiNavigationKey current_key() const noexcept
+        {
+            return m_step_index < m_route_length
+                ? m_route[m_step_index]
+                : RollbackUiNavigationKey::Down;
+        }
         uint8_t attempts_for_step() const noexcept
         {
             return m_attempts_for_step;

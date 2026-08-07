@@ -17,7 +17,6 @@
 
 #include <array>
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 
 #if HORSE_ENABLE_GEKKONET
@@ -26,6 +25,11 @@
 
 namespace Horse
 {
+    // One adapter receive call owns this many fixed result slots. Keep
+    // downstream batch-deferred presentation storage large enough to retain
+    // a full ingress batch without committing mid-Gekko-update.
+    static constexpr size_t kRollbackGekkoReceiveBatchCapacity = 256;
+
     enum class RollbackGekkoReceiveStatus : uint8_t
     {
         Empty,
@@ -70,10 +74,42 @@ namespace Horse
         {
             return local_player_slot < 2 && remote_peer != 0
                 && rollback_window != 0 && rollback_window <= 60
-                && input_delay != 0 && input_delay <= rollback_window
+                && input_delay <= rollback_window
                 && state_size != 0;
         }
     };
+
+    static inline uint32_t RollbackGekkoNextInputFrameAfterEvent(
+        uint32_t current, const GekkoGameEvent& event) noexcept
+    {
+        // SyncSystem's real frame advances only for the ordinary Advance.
+        // Historical rollback and provisional runahead callbacks must not
+        // move the deterministic input-submission clock.
+        if (event.type == GekkoAdvanceEvent
+            && !event.data.adv.rolling_back
+            && !event.data.adv.running_ahead
+            && event.data.adv.frame >= 0)
+        {
+            return static_cast<uint32_t>(event.data.adv.frame) + 1u;
+        }
+        return current;
+    }
+
+    constexpr bool RollbackGekkoPreGameplayPollRequired(
+        bool session_started,
+        bool replay_input_enabled,
+        bool bilateral_prefix_ready) noexcept
+    {
+        return !session_started
+            || (replay_input_enabled && !bilateral_prefix_ready);
+    }
+
+    constexpr bool RollbackGekkoPreGameplayFrameZeroBlocked(
+        bool replay_input_enabled,
+        bool bilateral_prefix_ready) noexcept
+    {
+        return replay_input_enabled && !bilateral_prefix_ready;
+    }
 
     class RollbackGekkoRuntimeCore
     {
@@ -97,7 +133,16 @@ namespace Horse
             gekko.input_size = sizeof(uint32_t);
             gekko.state_size = config.state_size;
             gekko.limited_saving = false;
-            gekko.desync_detection = true;
+            // Horse compares authenticated 64-bit canonical summaries at the
+            // contiguous confirmed-frame frontier. Gekko's earlier 32-bit
+            // checksum abort races that stronger proof and hides component
+            // diagnostics, so keep one desync authority.
+            gekko.desync_detection = false;
+            // Gekko's network clock advances only when this game-thread core
+            // is polled. Horse's authenticated transport worker continues to
+            // observe traffic during a game-thread stall, so it is the only
+            // sound disconnect authority for production rollback sessions.
+            gekko.external_disconnect_detection = true;
             gekko.check_distance = 1;
             {
                 AdapterScope scope(*this);
@@ -129,6 +174,7 @@ namespace Horse
             gekko_set_local_delay(
                 m_session, config.local_player_slot,
                 static_cast<unsigned char>(config.input_delay));
+            m_pre_activity = true;
             return true;
         }
 
@@ -140,6 +186,11 @@ namespace Horse
             m_fatal = false;
             m_failure_reason = nullptr;
             m_update_calls = 0;
+            m_correction_flush_calls = 0;
+            m_delay_prefix_inputs = 0;
+            m_delay_prefix_primed = false;
+            m_pre_activity = false;
+            m_next_input_frame = 0;
             m_desync_events = 0;
             m_last_desync_frame = -1;
             m_last_desync_local_checksum = 0;
@@ -153,9 +204,38 @@ namespace Horse
         bool poll() noexcept
         {
             if (!m_session || m_fatal) return false;
+            m_pre_activity = false;
             AdapterScope scope(*this);
             gekko_network_poll(m_session);
             return !m_fatal && process_session_events() && !m_fatal;
+        }
+
+        // Replay inputs are authored for consumed logical frames. Seed the
+        // local delay slots before the first Gekko update so input delay only
+        // changes submission timing; this call performs no poll or simulation.
+        bool prime_local_delay_prefix(
+            const uint32_t* inputs, uint16_t count) noexcept
+        {
+            if (!m_session || m_fatal || (!inputs && count != 0)
+                || !m_pre_activity || m_delay_prefix_primed
+                || count != m_config.input_delay || count > UINT8_MAX)
+                return false;
+            if (count != 0 && !gekko_prime_local_delay_prefix(
+                    m_session, m_config.local_player_slot,
+                    const_cast<uint32_t*>(inputs),
+                    static_cast<unsigned char>(count)))
+                return false;
+            m_delay_prefix_inputs = count;
+            m_delay_prefix_primed = true;
+            return true;
+        }
+
+        bool delay_prefix_ready() const noexcept
+        {
+            return m_session && !m_fatal && m_delay_prefix_primed
+                && gekko_delay_prefix_ready(
+                    m_session, static_cast<unsigned char>(
+                        m_delay_prefix_inputs));
         }
 
         bool update(uint32_t local_input, const void* auxiliary) noexcept
@@ -165,6 +245,7 @@ namespace Horse
             // peers because that session event is itself produced by this
             // bootstrap traffic.
             if (!m_session || m_fatal) return false;
+            m_pre_activity = false;
             AdapterScope scope(*this);
             gekko_add_local_input(
                 m_session, m_config.local_player_slot, &local_input);
@@ -180,38 +261,63 @@ namespace Horse
                         m_callbacks.context, *event, auxiliary))
                     return false;
                 if (m_fatal) return false;
+                observe_next_input_frame(*event);
             }
             const bool ok = event_count != 0 || !m_callbacks.idle_update
                 || m_callbacks.idle_update(m_callbacks.context);
             return ok && !m_fatal;
         }
 
-        // Process corrections made ready by NetworkPoll without submitting a
-        // new local frame. Replay-fork uses this only after its fixed terminal
-        // frame, so delayed terminal input can still emit Load/Advance events
-        // before the final consensus proof is accepted.
-        bool drain(const void* auxiliary) noexcept
+        // The pinned Gekko extension runs polling, rollback, confirmed-save,
+        // health, and integrity work without emitting the ordinary Advance
+        // that gekko_update_session always attempts. This is the only safe
+        // terminal correction path: no unauthored gameplay frame may run.
+        bool flush_terminal_corrections(const void* auxiliary) noexcept
         {
             if (!m_session || m_fatal) return false;
+            m_pre_activity = false;
             AdapterScope scope(*this);
             int event_count = 0;
             GekkoGameEvent** events =
-                gekko_update_session(m_session, &event_count);
+                gekko_flush_corrections(m_session, &event_count);
+            ++m_correction_flush_calls;
             if (m_fatal || !process_session_events()) return false;
             for (int index = 0; index < event_count; ++index)
             {
                 GekkoGameEvent* event = events[index];
+                if (event && event->type == GekkoAdvanceEvent
+                    && !event->data.adv.rolling_back
+                    && !event->data.adv.running_ahead)
+                {
+                    fail("gekko-terminal-flush-emitted-ordinary-advance");
+                    return false;
+                }
                 if (!event || !m_callbacks.game_event(
                         m_callbacks.context, *event, auxiliary))
                     return false;
                 if (m_fatal) return false;
+                observe_next_input_frame(*event);
             }
-            return !m_fatal;
+            const bool ok = event_count != 0 || !m_callbacks.idle_update
+                || m_callbacks.idle_update(m_callbacks.context);
+            return ok && !m_fatal;
         }
 
         bool created() const noexcept { return m_session != nullptr; }
         bool session_started() const noexcept { return m_session_started; }
         uint64_t update_calls() const noexcept { return m_update_calls; }
+        uint64_t correction_flush_calls() const noexcept
+        {
+            return m_correction_flush_calls;
+        }
+        uint16_t delay_prefix_inputs() const noexcept
+        {
+            return m_delay_prefix_inputs;
+        }
+        uint32_t next_input_frame() const noexcept
+        {
+            return m_next_input_frame;
+        }
         uint64_t desync_events() const noexcept { return m_desync_events; }
         int last_desync_frame() const noexcept { return m_last_desync_frame; }
         uint32_t last_desync_local_checksum() const noexcept
@@ -233,6 +339,12 @@ namespace Horse
         }
 
     private:
+        void observe_next_input_frame(const GekkoGameEvent& event) noexcept
+        {
+            m_next_input_frame = RollbackGekkoNextInputFrameAfterEvent(
+                m_next_input_frame, event);
+        }
+
         class AdapterScope
         {
         public:
@@ -296,7 +408,7 @@ namespace Horse
             if (!core || !address || !address->data || address->size != 1
                 || !data || length <= 0
                 || static_cast<size_t>(length)
-                    > kRollbackProtocolV2MaxPayloadBytes
+                    > kRollbackGekkoRoundMaxPayloadBytes
                 || *static_cast<uint8_t*>(address->data)
                     != core->m_config.remote_peer
                 || !core->m_callbacks.send(
@@ -317,44 +429,33 @@ namespace Horse
             if (!core) return nullptr;
             while (*length < static_cast<int>(core->m_receive_results.size()))
             {
-                RollbackGekkoDatagram packet {};
+                ReceiveSlot& slot = core->m_receive_slots[
+                    static_cast<size_t>(*length)];
+                slot.packet = {};
                 const RollbackGekkoReceiveStatus status =
                     core->m_callbacks.receive(
-                        core->m_callbacks.context, packet);
+                        core->m_callbacks.context, slot.packet);
                 if (status == RollbackGekkoReceiveStatus::Empty) break;
                 if (status == RollbackGekkoReceiveStatus::Fatal)
                 {
                     core->fail("gekko-receive-failed");
                     break;
                 }
-                if (packet.remote_peer != core->m_config.remote_peer
-                    || packet.bytes == 0
-                    || packet.bytes > packet.payload.size())
+                if (slot.packet.remote_peer != core->m_config.remote_peer
+                    || slot.packet.bytes == 0
+                    || slot.packet.bytes > slot.packet.payload.size())
                 {
                     core->fail("gekko-receive-packet-invalid");
                     break;
                 }
 
-                auto* result = static_cast<GekkoNetResult*>(
-                    std::malloc(sizeof(GekkoNetResult)));
-                auto* address = static_cast<uint8_t*>(std::malloc(1));
-                void* payload = std::malloc(packet.bytes);
-                if (!result || !address || !payload)
-                {
-                    std::free(result);
-                    std::free(address);
-                    std::free(payload);
-                    core->fail("gekko-receive-allocation-failed");
-                    break;
-                }
-                *address = packet.remote_peer;
-                std::memcpy(payload, packet.payload.data(), packet.bytes);
-                result->addr.data = address;
-                result->addr.size = 1;
-                result->data_len = packet.bytes;
-                result->data = payload;
+                slot.address = slot.packet.remote_peer;
+                slot.result.addr.data = &slot.address;
+                slot.result.addr.size = 1;
+                slot.result.data_len = slot.packet.bytes;
+                slot.result.data = slot.packet.payload.data();
                 core->m_receive_results[static_cast<size_t>(*length)] =
-                    result;
+                    &slot.result;
                 ++*length;
             }
             return core->m_receive_results.data();
@@ -362,7 +463,9 @@ namespace Horse
 
         static void adapter_free(void* memory) noexcept
         {
-            std::free(memory);
+            // Every pointer returned by adapter_receive belongs to the fixed
+            // receive pool and remains valid for the enclosing Gekko call.
+            (void)memory;
         }
 
         static GekkoNetAdapter* adapter() noexcept
@@ -383,23 +486,109 @@ namespace Horse
         bool m_fatal {false};
         const char* m_failure_reason {nullptr};
         uint64_t m_update_calls {0};
+        uint64_t m_correction_flush_calls {0};
+        uint16_t m_delay_prefix_inputs {0};
+        bool m_delay_prefix_primed {false};
+        bool m_pre_activity {false};
+        uint32_t m_next_input_frame {0};
         uint64_t m_desync_events {0};
         int m_last_desync_frame {-1};
         uint32_t m_last_desync_local_checksum {0};
         uint32_t m_last_desync_remote_checksum {0};
         uint64_t m_disconnect_events {0};
-        std::array<GekkoNetResult*, 256> m_receive_results {};
+        struct ReceiveSlot
+        {
+            GekkoNetResult result {};
+            uint8_t address {0};
+            RollbackGekkoDatagram packet {};
+        };
+        std::array<ReceiveSlot, kRollbackGekkoReceiveBatchCapacity>
+            m_receive_slots {};
+        std::array<GekkoNetResult*, kRollbackGekkoReceiveBatchCapacity>
+            m_receive_results {};
         inline static thread_local RollbackGekkoRuntimeCore*
             s_adapter_core {nullptr};
     };
 #else
+    struct GekkoGameEvent
+    {
+    };
+
+    struct RollbackGekkoRuntimeCallbacks
+    {
+        void* context {nullptr};
+        bool (*send)(void*, uint8_t, const void*, uint16_t) noexcept {nullptr};
+        RollbackGekkoReceiveStatus (*receive)(
+            void*, RollbackGekkoDatagram&) noexcept {nullptr};
+        bool (*game_event)(void*, GekkoGameEvent&, const void*) noexcept {
+            nullptr};
+        bool (*idle_update)(void*) noexcept {nullptr};
+        void (*failure)(void*, const char*) noexcept {nullptr};
+
+        bool valid() const noexcept { return false; }
+    };
+
+    struct RollbackGekkoRuntimeConfig
+    {
+        uint8_t local_player_slot {0};
+        uint8_t remote_peer {0};
+        uint16_t rollback_window {60};
+        uint16_t input_delay {1};
+        uint32_t state_size {0};
+
+        bool valid() const noexcept { return false; }
+    };
+
+    constexpr bool RollbackGekkoPreGameplayPollRequired(
+        bool session_started,
+        bool replay_input_enabled,
+        bool bilateral_prefix_ready) noexcept
+    {
+        return !session_started
+            || (replay_input_enabled && !bilateral_prefix_ready);
+    }
+
+    constexpr bool RollbackGekkoPreGameplayFrameZeroBlocked(
+        bool replay_input_enabled,
+        bool bilateral_prefix_ready) noexcept
+    {
+        return replay_input_enabled && !bilateral_prefix_ready;
+    }
+
     class RollbackGekkoRuntimeCore
     {
     public:
+        bool start(
+            const RollbackGekkoRuntimeConfig&,
+            const RollbackGekkoRuntimeCallbacks&) noexcept
+        {
+            return false;
+        }
         void shutdown() noexcept {}
+        bool poll() noexcept { return false; }
+        bool update(uint32_t, const void*) noexcept { return false; }
+        bool flush_terminal_corrections(const void*) noexcept { return false; }
+        bool prime_local_delay_prefix(const uint32_t*, uint16_t) noexcept
+        {
+            return false;
+        }
+        bool delay_prefix_ready() const noexcept { return false; }
         bool created() const noexcept { return false; }
         bool session_started() const noexcept { return false; }
         uint64_t update_calls() const noexcept { return 0; }
+        uint64_t correction_flush_calls() const noexcept { return 0; }
+        uint16_t delay_prefix_inputs() const noexcept { return 0; }
+        uint32_t next_input_frame() const noexcept { return 0; }
+        uint64_t desync_events() const noexcept { return 0; }
+        int last_desync_frame() const noexcept { return -1; }
+        uint32_t last_desync_local_checksum() const noexcept { return 0; }
+        uint32_t last_desync_remote_checksum() const noexcept { return 0; }
+        uint64_t disconnect_events() const noexcept { return 0; }
+        bool fatal() const noexcept { return true; }
+        const char* failure_reason() const noexcept
+        {
+            return "gekkonet-disabled";
+        }
     };
 #endif
 }

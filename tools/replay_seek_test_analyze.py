@@ -1568,6 +1568,29 @@ def strict_failures(
         if not bool_field(start.get("native_profile_applied")):
             failures.append("native replay profile was not applied")
 
+        if bool_field(start.get("generation_full_frame_trace")):
+            generation_starts = [
+                e for e in events if event_name(e) == "generate_start"
+            ]
+            if not generation_starts:
+                failures.append(
+                    "full-frame trace requested without generate_start"
+                )
+            elif not bool_field(
+                    generation_starts[-1].get("lifecycle_probe_hooks")):
+                failures.append(
+                    "full-frame trace lifecycle probes were not armed"
+                )
+            lifecycle_installs = [
+                e for e in events
+                if event_name(e)
+                == "native_replay_lifecycle_trace_hooks_installed"
+            ]
+            if not lifecycle_installs:
+                failures.append(
+                    "full-frame trace missing lifecycle hook install evidence"
+                )
+
         match_data = [
             e for e in events
             if event_name(e) == "native_replay_match_data_summary_applied"

@@ -230,7 +230,9 @@ namespace Horse
                 const RollbackStepStateReport restored =
                     RestoreRollbackStepState(
                         NativeBinding::imageBase(), m_anchor, true,
-                        RollbackLifecycleMode::StockOnlinePvp, true);
+                        RollbackLifecycleMode::StockOnlinePvp, true, true,
+                        nullptr, nullptr, nullptr,
+                        &m_palette_variant_writer_registry);
                 restore_ok = restored.ok;
                 m_status.baseline_restored = restore_ok;
             }
@@ -679,7 +681,9 @@ namespace Horse
             if (++m_hold_settle_ticks < 3) return;
             const RollbackStepStateReport captured = CaptureRollbackStepState(
                 NativeBinding::imageBase(), m_manifest, m_anchor,
-                RollbackLifecycleMode::StockOnlinePvp, true);
+                RollbackLifecycleMode::StockOnlinePvp, true,
+                nullptr, nullptr, nullptr, 0, nullptr,
+                &m_palette_variant_writer_registry);
             if (!captured.ok)
             {
                 fail(captured.failure);
@@ -748,7 +752,9 @@ namespace Horse
             RollbackStepState verification {};
             const RollbackStepStateReport captured = CaptureRollbackStepState(
                 NativeBinding::imageBase(), m_manifest, verification,
-                RollbackLifecycleMode::StockOnlinePvp, true);
+                RollbackLifecycleMode::StockOnlinePvp, true,
+                nullptr, nullptr, nullptr, 0, nullptr,
+                &m_palette_variant_writer_registry);
             if (!captured.ok
                 || verification.canonical_hash != m_status.baseline_hash)
             {
@@ -886,7 +892,9 @@ namespace Horse
             RollbackStepState state {};
             const RollbackStepStateReport captured = CaptureRollbackStepState(
                 NativeBinding::imageBase(), m_manifest, state,
-                RollbackLifecycleMode::StockOnlinePvp, true);
+                RollbackLifecycleMode::StockOnlinePvp, true,
+                nullptr, nullptr, nullptr, 0, nullptr,
+                &m_palette_variant_writer_registry);
             if (!captured.ok)
             {
                 fail(captured.failure);
@@ -1107,11 +1115,11 @@ namespace Horse
             if (!m_final_summary_accepted
                 && m_terminal_summary_conflict)
             {
-                if (!m_gekko.drain(nullptr))
+                if (!m_gekko.flush_terminal_corrections(nullptr))
                 {
                     fail(m_core_failure_reason
                         ? m_core_failure_reason
-                        : "replay-fork-final-consensus-drain-failed");
+                        : "replay-fork-final-consensus-correction-flush-failed");
                     return;
                 }
             }
@@ -1313,7 +1321,9 @@ namespace Horse
             if (!m_anchor_captured) return false;
             const RollbackStepStateReport restored = RestoreRollbackStepState(
                 NativeBinding::imageBase(), m_anchor, true,
-                RollbackLifecycleMode::StockOnlinePvp, true);
+                RollbackLifecycleMode::StockOnlinePvp, true, true,
+                nullptr, nullptr, nullptr,
+                &m_palette_variant_writer_registry);
             if (!restored.ok)
             {
                 ReplayTraceFields fields;
@@ -1376,7 +1386,9 @@ namespace Horse
             RollbackStepState verified {};
             const RollbackStepStateReport captured = CaptureRollbackStepState(
                 NativeBinding::imageBase(), m_manifest, verified,
-                RollbackLifecycleMode::StockOnlinePvp, true);
+                RollbackLifecycleMode::StockOnlinePvp, true,
+                nullptr, nullptr, nullptr, 0, nullptr,
+                &m_palette_variant_writer_registry);
             if (!captured.ok
                 || verified.canonical_hash != m_anchor.canonical_hash)
             {
@@ -1562,7 +1574,9 @@ namespace Horse
             RollbackStepState verification {};
             const RollbackStepStateReport captured = CaptureRollbackStepState(
                 NativeBinding::imageBase(), m_manifest, verification,
-                RollbackLifecycleMode::StockOnlinePvp, true);
+                RollbackLifecycleMode::StockOnlinePvp, true,
+                nullptr, nullptr, nullptr, 0, nullptr,
+                &m_palette_variant_writer_registry);
             const ReplayScrub::ReplayForkLabObservation observation_after =
                 ReplayScrub::instance().replay_fork_lab_observation();
             const bool position_fields_unchanged =
@@ -1943,7 +1957,9 @@ namespace Horse
                 const RollbackStepStateReport captured =
                     CaptureRollbackStepState(
                         NativeBinding::imageBase(), m_manifest, state,
-                        RollbackLifecycleMode::StockOnlinePvp, true);
+                        RollbackLifecycleMode::StockOnlinePvp, true,
+                        nullptr, nullptr, nullptr, 0, nullptr,
+                        &m_palette_variant_writer_registry);
                 if (!captured.ok) return false;
             }
             m_post_advance_state = {};
@@ -1995,12 +2011,16 @@ namespace Horse
             if (!loaded.ok || !state) return false;
             const RollbackStepStateReport restored = RestoreRollbackStepState(
                 NativeBinding::imageBase(), *state, true,
-                RollbackLifecycleMode::StockOnlinePvp, true);
+                RollbackLifecycleMode::StockOnlinePvp, true, true,
+                nullptr, nullptr, nullptr,
+                &m_palette_variant_writer_registry);
             if (!restored.ok) return false;
             RollbackStepState verified {};
             const RollbackStepStateReport captured = CaptureRollbackStepState(
                 NativeBinding::imageBase(), m_manifest, verified,
-                RollbackLifecycleMode::StockOnlinePvp, true);
+                RollbackLifecycleMode::StockOnlinePvp, true,
+                nullptr, nullptr, nullptr, 0, nullptr,
+                &m_palette_variant_writer_registry);
             const RollbackHgCpuFrameCompare hgcpu_compare =
                 CompareRollbackHgCpuFrames(state->hgcpu, verified.hgcpu);
             ReplayTraceFields load_fields;
@@ -2056,7 +2076,9 @@ namespace Horse
             RollbackStepState state {};
             const RollbackStepStateReport captured = CaptureRollbackStepState(
                 NativeBinding::imageBase(), m_manifest, state,
-                RollbackLifecycleMode::StockOnlinePvp, true);
+                RollbackLifecycleMode::StockOnlinePvp, true,
+                nullptr, nullptr, nullptr, 0, nullptr,
+                &m_palette_variant_writer_registry);
             if (!captured.ok) return false;
             m_last_advance_canonical_hash = state.canonical_hash;
             ReplayTraceFields advance_fields;
@@ -2115,15 +2137,8 @@ namespace Horse
             }
             if (event.data.adv.rolling_back)
                 ++m_status.rollback_advances;
-            const bool terminal_drain_advance =
-                m_status.state
-                    == RollbackReplayForkState::WaitingForFinalConsensus
-                && m_status.completed_frames >= m_config.run_frames
-                && !event.data.adv.rolling_back
-                && !event.data.adv.running_ahead;
             if (!event.data.adv.rolling_back
-                && !event.data.adv.running_ahead
-                && !terminal_drain_advance)
+                && !event.data.adv.running_ahead)
             {
                 ++m_status.completed_frames;
                 m_status.final_hash = state.canonical_hash;
@@ -2137,6 +2152,35 @@ namespace Horse
                                 p0.input_value, p1.input_value);
             }
             return true;
+        }
+#else
+        static bool core_send(
+            void*, uint8_t, const void*, uint16_t) noexcept
+        {
+            return false;
+        }
+
+        static RollbackGekkoReceiveStatus core_receive(
+            void*, RollbackGekkoDatagram&) noexcept
+        {
+            return RollbackGekkoReceiveStatus::Fatal;
+        }
+
+        static bool core_game_event(
+            void*, GekkoGameEvent&, const void*) noexcept
+        {
+            return false;
+        }
+
+        static bool core_idle_update(void*) noexcept { return false; }
+
+        static void core_failure(void* context, const char*) noexcept
+        {
+            if (auto* runtime =
+                    static_cast<RollbackReplayForkRuntime*>(context))
+            {
+                runtime->m_core_failure_reason = "gekkonet-disabled";
+            }
         }
 #endif
 
@@ -2511,6 +2555,8 @@ namespace Horse
         RollbackUdpNetworkWorker m_network {};
         RollbackFrameStamp m_current_frame {};
         RollbackStepState m_post_advance_state {};
+        RollbackPaletteVariantWriterRegistry
+            m_palette_variant_writer_registry {};
         RollbackFrameStamp m_post_advance_frame {};
         ReplayScrub::ReplayForkLabObservation m_anchor_observation {};
         ReplayScrub::ReplayForkLabObservation m_resume_observation {};

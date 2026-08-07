@@ -15,11 +15,35 @@
 #include <cstdint>
 #include <memory>
 #include <new>
+#include <type_traits>
 #include <utility>
 
 namespace Horse
 {
-    static constexpr size_t kRollbackProductionSnapshotCapacity = 128;
+    template <typename State, typename = void>
+    struct RollbackHasCapacityPreserver : std::false_type {};
+
+    template <typename State>
+    struct RollbackHasCapacityPreserver<State, std::void_t<decltype(
+        std::declval<State&>().preserve_capacities_from(
+        std::declval<const State&>()))>> : std::true_type {};
+
+    template <typename State, typename = void>
+    struct RollbackHasCaptureRecycler : std::false_type {};
+
+    template <typename State>
+    struct RollbackHasCaptureRecycler<State, std::void_t<decltype(
+        std::declval<State&>().recycle_for_capture())>> : std::true_type {};
+
+    template <typename State, typename = void>
+    struct RollbackHasPreallocatedCopier : std::false_type {};
+
+    template <typename State>
+    struct RollbackHasPreallocatedCopier<State, std::void_t<decltype(
+        std::declval<State&>().copy_preallocated_from(
+            std::declval<const State&>()))>> : std::true_type {};
+
+    static constexpr size_t kRollbackProductionSnapshotCapacity = 64;
 
     struct RollbackSnapshotHandle
     {
@@ -52,6 +76,12 @@ namespace Horse
     struct RollbackSnapshotStoreReport
     {
         bool ok {false};
+        // True only when State supplied copy_preallocated_from() and that
+        // state-specific copier proved the destination reused its existing
+        // storage. Ordinary copy assignment can be correct for setup-time
+        // stores, but it is not evidence for an allocation-free live
+        // terminal checkpoint.
+        bool preallocated_copy_verified {false};
         RollbackSnapshotStoreStatus status {
             RollbackSnapshotStoreStatus::InvalidArgument};
         uint32_t slot {0};
@@ -71,12 +101,186 @@ namespace Horse
         {
             RollbackSnapshotHandle handle {};
             std::unique_ptr<State> state;
+            uint32_t generation {0};
         };
 
     public:
         RollbackSnapshotStore() = default;
         RollbackSnapshotStore(const RollbackSnapshotStore&) = delete;
         RollbackSnapshotStore& operator=(const RollbackSnapshotStore&) = delete;
+
+        bool prepare(
+            const State& exemplar,
+            uint32_t maximum_load_window = 12) noexcept
+        {
+            size_t active_capacity = 2;
+            const size_t required =
+                static_cast<size_t>(maximum_load_window) + 2u;
+            while (active_capacity < required && active_capacity < Capacity)
+                active_capacity <<= 1u;
+            if (active_capacity < required || active_capacity > Capacity)
+                return false;
+            try
+            {
+                for (size_t i = 0; i < m_slots.size(); ++i)
+                {
+                    Slot& slot = m_slots[i];
+                    if (i >= active_capacity)
+                    {
+                        slot.state.reset();
+                        slot.handle = {};
+                        continue;
+                    }
+                    if (!slot.state)
+                        slot.state = std::make_unique<State>(exemplar);
+                    else
+                        *slot.state = exemplar;
+                    if constexpr (RollbackHasCapacityPreserver<State>::value)
+                    {
+                        slot.state->preserve_capacities_from(exemplar);
+                    }
+                    if constexpr (RollbackHasCaptureRecycler<State>::value)
+                        slot.state->recycle_for_capture();
+                    else
+                        slot.state->clear();
+                    slot.handle = {};
+                }
+            }
+            catch (...)
+            {
+                clear();
+                return false;
+            }
+            m_active_capacity = active_capacity;
+            m_saves = 0;
+            return true;
+        }
+
+        RollbackSnapshotStoreReport save_recycling(
+            uint64_t epoch,
+            uint32_t frame,
+            uint64_t integrity_hash,
+            uint64_t canonical_hash,
+            State& state,
+            RollbackFrameStamp current_frame,
+            uint32_t maximum_load_window,
+            RollbackSnapshotHandle& out) noexcept
+        {
+            out = {};
+            RollbackSnapshotStoreReport report {};
+            report.slot = slot_for(frame);
+            if (epoch == 0 || integrity_hash == 0 || canonical_hash == 0
+                || !current_frame.valid
+                || maximum_load_window >= m_active_capacity)
+            {
+                return report;
+            }
+            Slot& slot = m_slots[report.slot];
+            if (!slot.state)
+            {
+                report.status =
+                    RollbackSnapshotStoreStatus::AllocationFailed;
+                report.failure = "snapshot-store-not-prepared";
+                return report;
+            }
+            if (slot.handle.valid())
+            {
+                const bool same_epoch = slot.handle.epoch == epoch;
+                const bool same_frame = same_epoch
+                    && slot.handle.frame == frame;
+                const uint32_t age = RollbackFrameDistance(
+                    current_frame.value, slot.handle.frame);
+                if (!same_frame && same_epoch && age < 0x80000000u
+                    && age <= maximum_load_window)
+                {
+                    report.status =
+                        RollbackSnapshotStoreStatus::ProtectedSlot;
+                    report.failure = "snapshot-slot-still-loadable";
+                    return report;
+                }
+            }
+
+            using std::swap;
+            swap(*slot.state, state);
+            uint32_t generation = slot.generation + 1u;
+            if (generation == 0) generation = 1;
+            slot.generation = generation;
+            slot.handle = RollbackSnapshotHandle {
+                epoch, frame, generation, integrity_hash, canonical_hash,
+            };
+            out = slot.handle;
+            report.ok = true;
+            report.status = RollbackSnapshotStoreStatus::Ok;
+            report.generation = generation;
+            report.failure = "ok";
+            ++m_saves;
+            return report;
+        }
+
+        // Copy into a slot allocated by prepare(). This is for the one
+        // long-lived terminal checkpoint that must outlive the rolling Gekko
+        // history without increasing that history window.
+        RollbackSnapshotStoreReport save_preallocated_copy(
+            uint64_t epoch,
+            uint32_t frame,
+            uint64_t integrity_hash,
+            uint64_t canonical_hash,
+            const State& state,
+            RollbackSnapshotHandle& out) noexcept
+        {
+            out = {};
+            RollbackSnapshotStoreReport report {};
+            report.slot = slot_for(frame);
+            if (epoch == 0 || integrity_hash == 0 || canonical_hash == 0)
+                return report;
+            Slot& slot = m_slots[report.slot];
+            if (!slot.state)
+            {
+                report.status = RollbackSnapshotStoreStatus::AllocationFailed;
+                report.failure = "snapshot-store-not-prepared";
+                return report;
+            }
+            try
+            {
+                if constexpr (RollbackHasPreallocatedCopier<State>::value)
+                {
+                    if (!slot.state->copy_preallocated_from(state))
+                    {
+                        slot.handle = {};
+                        report.status =
+                            RollbackSnapshotStoreStatus::AllocationFailed;
+                        report.failure =
+                            "snapshot-preallocated-capacity-mismatch";
+                        return report;
+                    }
+                    report.preallocated_copy_verified = true;
+                }
+                else
+                {
+                    *slot.state = state;
+                }
+            }
+            catch (...)
+            {
+                slot.handle = {};
+                report.status = RollbackSnapshotStoreStatus::AllocationFailed;
+                report.failure = "snapshot-preallocated-copy-failed";
+                return report;
+            }
+            uint32_t generation = slot.generation + 1u;
+            if (generation == 0) generation = 1;
+            slot.generation = generation;
+            slot.handle = RollbackSnapshotHandle {
+                epoch, frame, generation, integrity_hash, canonical_hash,
+            };
+            out = slot.handle;
+            report.ok = true;
+            report.status = RollbackSnapshotStoreStatus::Ok;
+            report.generation = generation;
+            report.failure = "ok";
+            ++m_saves;
+            return report;
+        }
 
         RollbackSnapshotStoreReport save(
             uint64_t epoch,
@@ -239,14 +443,98 @@ namespace Horse
             return report;
         }
 
+        RollbackSnapshotStoreReport find(
+            uint64_t epoch,
+            uint32_t frame,
+            RollbackSnapshotHandle& out) const noexcept
+        {
+            out = {};
+            RollbackSnapshotStoreReport report {};
+            report.slot = slot_for(frame);
+            if (epoch == 0) return report;
+            const Slot& slot = m_slots[report.slot];
+            if (!slot.state || !slot.handle.valid())
+            {
+                report.status = RollbackSnapshotStoreStatus::Missing;
+                report.failure = "snapshot-missing";
+                return report;
+            }
+            if (slot.handle.epoch != epoch || slot.handle.frame != frame)
+            {
+                report.status = RollbackSnapshotStoreStatus::StaleHandle;
+                report.failure = "snapshot-handle-stale";
+                return report;
+            }
+            out = slot.handle;
+            report.ok = true;
+            report.status = RollbackSnapshotStoreStatus::Ok;
+            report.generation = slot.handle.generation;
+            report.failure = "ok";
+            return report;
+        }
+
         void clear() noexcept
         {
             for (Slot& slot : m_slots)
             {
                 slot.state.reset();
                 slot.handle = {};
+                slot.generation = 0;
             }
             m_saves = 0;
+            m_active_capacity = Capacity;
+        }
+
+        // Invalidate every handle at a round boundary without releasing any
+        // arena storage. Old handles remain stale because both the round epoch
+        // and monotonically increasing slot generation change.
+        void invalidate_recycling() noexcept
+        {
+            for (size_t i = 0; i < m_active_capacity; ++i)
+            {
+                Slot& slot = m_slots[i];
+                if (slot.state)
+                {
+                    if constexpr (RollbackHasCaptureRecycler<State>::value)
+                        slot.state->recycle_for_capture();
+                    else
+                        slot.state->clear();
+                }
+                slot.handle = {};
+            }
+            m_saves = 0;
+        }
+
+        template <typename ExpectedCapacity, typename CaptureCapacityFn>
+        bool preallocated_matches(
+            uint32_t maximum_load_window,
+            const ExpectedCapacity& expected_capacity,
+            CaptureCapacityFn&& capture_capacity) const noexcept
+        {
+            size_t required_capacity = 2;
+            const size_t required =
+                static_cast<size_t>(maximum_load_window) + 2u;
+            while (required_capacity < required
+                && required_capacity < Capacity)
+            {
+                required_capacity <<= 1u;
+            }
+            if (required_capacity != m_active_capacity
+                || !expected_capacity.valid)
+            {
+                return false;
+            }
+            for (size_t i = 0; i < m_active_capacity; ++i)
+            {
+                const Slot& slot = m_slots[i];
+                if (!slot.state
+                    || !(capture_capacity(*slot.state)
+                        == expected_capacity))
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         size_t occupied() const noexcept
@@ -260,12 +548,14 @@ namespace Horse
         uint64_t saves() const noexcept { return m_saves; }
 
     private:
-        static constexpr uint32_t slot_for(uint32_t frame) noexcept
+        uint32_t slot_for(uint32_t frame) const noexcept
         {
-            return frame & static_cast<uint32_t>(Capacity - 1);
+            return frame & static_cast<uint32_t>(m_active_capacity - 1u);
         }
 
         std::array<Slot, Capacity> m_slots {};
+        size_t m_active_capacity {Capacity};
         uint64_t m_saves {0};
     };
+
 }

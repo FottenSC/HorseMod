@@ -89,9 +89,11 @@ function MoveDetail() {
             </div>
           </div>
           <div className="stat-block">
-            <div className="stat-label">Startup (i-frame)</div>
+            <div className="stat-label">Cell window</div>
             <div className="stat-value">
-              {cell.role === "Attack" ? <>i{cell.activeStart}</> : "—"}
+              {cell.role === "Attack"
+                ? <span className="mono">coord {cell.activeStartCoordinate}..{cell.activeEndCoordinate}</span>
+                : "—"}
             </div>
           </div>
           <div className="stat-block">
@@ -99,12 +101,12 @@ function MoveDetail() {
             <div className="stat-value">{cell.activeFrames}f</div>
           </div>
           <div className="stat-block">
-            <div className="stat-label">On hit (stun)</div>
-            <div className="stat-value"><StatValue value={cell.onHitStanding} suffix="f" /></div>
+            <div className="stat-label">Hit stun</div>
+            <div className="stat-value"><StatValue value={cell.baseHitStunFrames} suffix="f" /></div>
           </div>
           <div className="stat-block">
-            <div className="stat-label">On block (stun)</div>
-            <div className="stat-value"><StatValue value={cell.onBlock} suffix="f" /></div>
+            <div className="stat-label">Block stun</div>
+            <div className="stat-value"><StatValue value={cell.blockStunFrames} suffix="f" /></div>
           </div>
           <div className="stat-block">
             <div className="stat-label">Range (stand)</div>
@@ -119,16 +121,16 @@ function MoveDetail() {
             <h3>Hit reactions</h3>
             <table className="engine-fields-tight">
               <tbody>
-                <tr><td>Standing hit</td>
-                    <td><strong>{cell.onHitStanding}f stun</strong>, reaction <span className="mono">{cell.reactionIdStanding}</span></td></tr>
-                <tr><td>Airborne hit</td>
-                    <td>{cell.onHitStandingAir}f stun, reaction <span className="mono">{cell.reactionIdAir}</span></td></tr>
-                <tr><td>Crouching hit</td>
-                    <td>{cell.onHitCrouchNormal}f stun</td></tr>
-                <tr><td>Crouching air hit</td>
-                    <td>{cell.onHitCrouchAir}f stun</td></tr>
+                <tr><td>Normal contact</td>
+                    <td><strong>{cell.baseHitStunFrames}f stun</strong>, reaction <span className="mono">{cell.reactionIdBaseContact}</span></td></tr>
+                <tr><td>Special contact</td>
+                    <td>{cell.specialHitStunFrames}f stun, reaction <span className="mono">{cell.reactionIdSpecialContact}</span></td></tr>
+                <tr><td>Alternate posture, normal</td>
+                    <td>{cell.alternatePostureBaseHitStunFrames}f stun</td></tr>
+                <tr><td>Alternate posture, special</td>
+                    <td>{cell.alternatePostureSpecialHitStunFrames}f stun</td></tr>
                 <tr><td>Throw escape</td>
-                    <td>id <span className="mono">{cell.throwEscapeId}</span></td></tr>
+                    <td>row <span className="mono">{cell.throwEscapeId}</span></td></tr>
               </tbody>
             </table>
           </div>
@@ -189,15 +191,15 @@ function MoveDetail() {
                   <td>0x{cell.extraStateFlags.toString(16).toUpperCase().padStart(4, "0")}</td>
                   <td className="muted">always 0x0000 in shipped data</td></tr>
               <tr><td>wI16BaseDamage</td><td>{cell.damage}</td><td className="muted">+0x3A</td></tr>
-              <tr><td>wI16MasterWindowStart..End</td><td>{cell.activeStart}..{cell.activeEnd}</td><td className="muted">+0x36, +0x38</td></tr>
-              <tr><td>wI16BlockstunFrames</td><td>{cell.onBlock}</td><td className="muted">+0x44</td></tr>
-              <tr><td>wI16HitstunStandingNormal</td><td>{cell.onHitStanding}</td><td className="muted">+0x46</td></tr>
-              <tr><td>wI16HitstunStandingAir</td><td>{cell.onHitStandingAir}</td><td className="muted">+0x48</td></tr>
-              <tr><td>wI16HitstunCrouchNormal</td><td>{cell.onHitCrouchNormal}</td><td className="muted">+0x4C</td></tr>
-              <tr><td>wI16HitstunCrouchAir</td><td>{cell.onHitCrouchAir}</td><td className="muted">+0x4E</td></tr>
-              <tr><td>wI16ReactionIdStanding</td><td>{cell.reactionIdStanding}</td><td className="muted">+0x50 → chara+0x43DD8</td></tr>
-              <tr><td>wI16ReactionIdAir</td><td>{cell.reactionIdAir}</td><td className="muted">+0x52</td></tr>
-              <tr><td>wI16ThrowEscapeId</td><td>{cell.throwEscapeId}</td><td className="muted">+0x54</td></tr>
+              <tr><td>wI16MasterWindowStart..End</td><td>{cell.activeStartCoordinate}..{cell.activeEndCoordinate}</td><td className="muted">native coordinates, +0x36/+0x38</td></tr>
+              <tr><td>wI16BlockstunFrames</td><td>{cell.blockStunFrames}</td><td className="muted">+0x44</td></tr>
+              <tr><td>wI16HitstunBaseContact</td><td>{cell.baseHitStunFrames}</td><td className="muted">+0x46</td></tr>
+              <tr><td>wI16HitstunSpecialContact</td><td>{cell.specialHitStunFrames}</td><td className="muted">+0x48 (includes mode-11 CH)</td></tr>
+              <tr><td>wI16HitstunAlternatePostureBaseContact</td><td>{cell.alternatePostureBaseHitStunFrames}</td><td className="muted">+0x4C</td></tr>
+              <tr><td>wI16HitstunAlternatePostureSpecialContact</td><td>{cell.alternatePostureSpecialHitStunFrames}</td><td className="muted">+0x4E</td></tr>
+              <tr><td>wI16ReactionIdBaseContact</td><td>{cell.reactionIdBaseContact}</td><td className="muted">+0x50 → chara+0x43DD8</td></tr>
+              <tr><td>wI16ReactionIdSpecialContact</td><td>{cell.reactionIdSpecialContact}</td><td className="muted">+0x52</td></tr>
+              <tr><td>wI16ThrowReactionRowId</td><td>{cell.throwEscapeId}</td><td className="muted">+0x54 (classifier-7 throw reaction)</td></tr>
               <tr><td>wU16HitboxGroupBitfield</td><td>0x{cell.hitboxGroup.toString(16).toUpperCase().padStart(4, "0")}</td><td className="muted">+0x5E (0xFFFF = sentinel)</td></tr>
               <tr><td>wU16PassthroughTagA</td><td>0x{cell.passthroughA.toString(16).toUpperCase().padStart(4, "0")}</td><td className="muted">+0x5A</td></tr>
               <tr><td>wU16PassthroughTagC</td><td>0x{cell.passthroughC.toString(16).toUpperCase().padStart(4, "0")}</td><td className="muted">+0x60</td></tr>

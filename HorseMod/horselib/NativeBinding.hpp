@@ -17,9 +17,9 @@
 // ------------
 // resolve() is called once from on_unreal_init (game thread).  It reads
 // the live image base of SoulcaliburVI.exe and computes raw function
-// pointers from it.  No signature check — if SC6 ever ships a new build
-// with different RVAs, we'll find out via a crash, not a silent miss.
-// Rebuilding against a new RVA is a one-line edit in this file.
+// pointers from it. Rollback startup hook/call targets additionally validate
+// exact current-build entry bytes before use; older presentation helpers
+// retain their existing guarded-call behavior.
 //
 // Thread-safety
 // -------------
@@ -170,6 +170,7 @@ namespace Horse
         uintptr_t vtable {0};
         uintptr_t transform_getter {0};
         uintptr_t root_component {0};
+        bool identity_valid {false};
         bool getter_called {false};
         bool getter_returned_transform {false};
         bool setter_called {false};
@@ -182,6 +183,10 @@ namespace Horse
     // BattleRule.<RuleName> in the launcher's data-table cache.
     using LuxUIBattleLauncher_SetBoolModeFn =
         void(__fastcall*)(void* launcher, bool bEnable);
+    using LuxUIBattleLauncher_SetRandomSeedFn =
+        void(__fastcall*)(void* launcher, int32_t randomSeed);
+    using LuxUIBattleLauncher_ChangeBattleRoundsFn =
+        void(__fastcall*)(void* launcher, int32_t roundsToWin);
 
     // ULuxUIBattleLauncher::Start signature.  param2 is a struct holding
     // the start parameters (FUIBattleLauncherStartParam — opaque to us;
@@ -257,6 +262,13 @@ namespace Horse
         static constexpr uintptr_t kLuxBattleBuildHitboxLocalMatrixRVA = 0x30BBA0;
         static constexpr uintptr_t kLuxBattleCharaSetStartPositionRVA = 0x301E60;
         static constexpr uintptr_t kAActorSetActorTransformRVA = 0x1C2A1D0;
+        // Ghidra constructor stores and the two exact +0x6A0 data xrefs.
+        static constexpr uintptr_t kALuxBattleCharaPresentationVtableRVA =
+            0x3268078;
+        static constexpr uintptr_t kALuxDemoHumanActorPresentationVtableRVA =
+            0x32A7D98;
+        static constexpr uintptr_t kBuildCharaActorWorldTransformRVA =
+            0x3C0200;
         static constexpr size_t kALuxBattleCharaPresentationTransformVtableOffset =
             0x6A0;
 
@@ -279,6 +291,12 @@ namespace Horse
         static constexpr uintptr_t kLuxUIBattleLauncher_SetDamageUpModeRVA    = 0x5EC190;
         static constexpr uintptr_t kLuxUIBattleLauncher_SetNoRingOutModeRVA   = 0x5ECC70;
         static constexpr uintptr_t kLuxUIBattleLauncher_SetBlowUpModeRVA      = 0x5EB7F0;
+        // Ghidra 0x1405ECFB0: writes BattleRule.RandomSeed in the same
+        // launcher data-table cache consumed by Start.
+        static constexpr uintptr_t kLuxUIBattleLauncher_SetRandomSeedRVA      = 0x5ECFB0;
+        // Ghidra 0x14059CCF0: writes BattleRule.Rounds in the launcher's
+        // mutable data-table cache before Start consumes it.
+        static constexpr uintptr_t kLuxUIBattleLauncher_ChangeBattleRoundsRVA = 0x59CCF0;
 
         // ULuxUIGamePresenceUtil::SetPresence — hook target for the
         // scene-presence tracker (Horse::GameMode).
@@ -342,6 +360,13 @@ namespace Horse
             s_set_blowup_mode =
                 reinterpret_cast<LuxUIBattleLauncher_SetBoolModeFn>(
                     s_image_base + kLuxUIBattleLauncher_SetBlowUpModeRVA);
+            s_set_random_seed =
+                reinterpret_cast<LuxUIBattleLauncher_SetRandomSeedFn>(
+                    s_image_base + kLuxUIBattleLauncher_SetRandomSeedRVA);
+            s_change_battle_rounds =
+                reinterpret_cast<LuxUIBattleLauncher_ChangeBattleRoundsFn>(
+                    s_image_base
+                    + kLuxUIBattleLauncher_ChangeBattleRoundsRVA);
 
             // GameMode infrastructure — scene-presence hook target.
             s_set_presence =
@@ -421,6 +446,49 @@ namespace Horse
             return ok;
         }
 
+        static bool isSupportedCharaPresentationActor(
+            void* chara,
+            NativePresentationPublishReport* out_report = nullptr) noexcept
+        {
+            NativePresentationPublishReport report {};
+            report.actor = reinterpret_cast<uintptr_t>(chara);
+            if (!s_image_base || !chara)
+            {
+                if (out_report) *out_report = report;
+                return false;
+            }
+            __try
+            {
+                void** vtable = *reinterpret_cast<void***>(chara);
+                report.vtable = reinterpret_cast<uintptr_t>(vtable);
+                report.root_component = *reinterpret_cast<uintptr_t*>(
+                    reinterpret_cast<uint8_t*>(chara) + 0x168);
+                if (vtable)
+                {
+                    report.transform_getter = reinterpret_cast<uintptr_t>(
+                        vtable[
+                            kALuxBattleCharaPresentationTransformVtableOffset
+                            / sizeof(void*)]);
+                }
+                const uintptr_t base_vtable = s_image_base
+                    + kALuxBattleCharaPresentationVtableRVA;
+                const uintptr_t demo_vtable = s_image_base
+                    + kALuxDemoHumanActorPresentationVtableRVA;
+                report.identity_valid = report.root_component != 0
+                    && (report.vtable == base_vtable
+                        || report.vtable == demo_vtable)
+                    && report.transform_getter == s_image_base
+                        + kBuildCharaActorWorldTransformRVA;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                report.exception = true;
+                report.identity_valid = false;
+            }
+            if (out_report) *out_report = report;
+            return report.identity_valid;
+        }
+
         // Publish only the transform portion of ALuxBattleChara_TickActor.
         // This deliberately excludes hair, materials, weapon animation,
         // visibility and ALuxCharaActor_TickActor. The virtual getter and
@@ -446,7 +514,13 @@ namespace Horse
                 report.vtable = reinterpret_cast<uintptr_t>(vtable);
                 report.root_component = *reinterpret_cast<uintptr_t*>(
                     reinterpret_cast<uint8_t*>(chara) + 0x168);
-                if (vtable && report.root_component)
+                const uintptr_t base_vtable = s_image_base
+                    + kALuxBattleCharaPresentationVtableRVA;
+                const uintptr_t demo_vtable = s_image_base
+                    + kALuxDemoHumanActorPresentationVtableRVA;
+                if (vtable && report.root_component
+                    && (report.vtable == base_vtable
+                        || report.vtable == demo_vtable))
                 {
                     auto getter = reinterpret_cast<
                         ALuxBattleChara_GetPresentationTransformFn>(
@@ -455,7 +529,9 @@ namespace Horse
                                 / sizeof(void*)]);
                     report.transform_getter =
                         reinterpret_cast<uintptr_t>(getter);
-                    if (getter)
+                    report.identity_valid = report.transform_getter
+                        == s_image_base + kBuildCharaActorWorldTransformRVA;
+                    if (report.identity_valid)
                     {
                         report.getter_called = true;
                         NativeFTransform48* transform =
@@ -531,6 +607,63 @@ namespace Horse
                 __except (EXCEPTION_EXECUTE_HANDLER) {}
             }
         }
+        static bool changeBattleRounds(
+            void* launcher, int32_t roundsToWin) noexcept
+        {
+            if (!s_change_battle_rounds || !launcher
+                || roundsToWin <= 0 || roundsToWin > 9)
+                return false;
+            __try
+            {
+                s_change_battle_rounds(launcher, roundsToWin);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+        static bool setRandomSeed(
+            void* launcher, uint32_t randomSeed) noexcept
+        {
+            if (!s_set_random_seed || !launcher || randomSeed == 0
+                || !validateLauncherRandomSeedSignature())
+                return false;
+            __try
+            {
+                s_set_random_seed(
+                    launcher, static_cast<int32_t>(randomSeed));
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+        static bool validateLauncherStartSignature() noexcept
+        {
+            static constexpr uint8_t expected[] = {
+                0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74,
+                0x24, 0x10, 0x48, 0x89, 0x7c, 0x24, 0x18, 0x4c,
+                0x89, 0x74, 0x24, 0x20, 0x55, 0x48, 0x8d, 0x6c,
+                0x24, 0xa9, 0x48, 0x81, 0xec, 0xd0, 0x00, 0x00,
+            };
+            return matchesCurrentExecutableBytes(
+                reinterpret_cast<const uint8_t*>(s_launcher_start),
+                expected, sizeof(expected));
+        }
+        static bool validateLauncherRandomSeedSignature() noexcept
+        {
+            static constexpr uint8_t expected[] = {
+                0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74,
+                0x24, 0x10, 0x48, 0x89, 0x7c, 0x24, 0x18, 0x4c,
+                0x89, 0x74, 0x24, 0x20, 0x55, 0x48, 0x8d, 0x6c,
+                0x24, 0xa9, 0x48, 0x81, 0xec, 0x00, 0x01, 0x00,
+            };
+            return matchesCurrentExecutableBytes(
+                reinterpret_cast<const uint8_t*>(s_set_random_seed),
+                expected, sizeof(expected));
+        }
         static uintptr_t launcherStartAddress()
         {
             return reinterpret_cast<uintptr_t>(s_launcher_start);
@@ -589,6 +722,26 @@ namespace Horse
         static uintptr_t imageBase() { return s_image_base; }
 
     private:
+        static bool matchesCurrentExecutableBytes(
+            const uint8_t* address,
+            const uint8_t* expected,
+            size_t size) noexcept
+        {
+            if (!address || !expected || size == 0) return false;
+            __try
+            {
+                for (size_t i = 0; i < size; ++i)
+                {
+                    if (address[i] != expected[i]) return false;
+                }
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
         static inline bool                          s_resolved           = false;
         static inline uintptr_t                     s_image_base         = 0;
         static inline LuxBattle_BuildHitboxLocalMatrixFn s_build_khit_obb_scratch = nullptr;
@@ -602,6 +755,10 @@ namespace Horse
         static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_damage_up_mode   = nullptr;
         static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_no_ringout_mode  = nullptr;
         static inline LuxUIBattleLauncher_SetBoolModeFn  s_set_blowup_mode      = nullptr;
+        static inline LuxUIBattleLauncher_SetRandomSeedFn
+            s_set_random_seed = nullptr;
+        static inline LuxUIBattleLauncher_ChangeBattleRoundsFn
+            s_change_battle_rounds = nullptr;
 
         // GameMode infrastructure — only the address is used (PolyHook's
         // hook target).  Storing as a typed pointer mostly for symmetry

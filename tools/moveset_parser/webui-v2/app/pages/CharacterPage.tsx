@@ -30,7 +30,7 @@ function CharacterHeader({ char, activeTab, onTabChange }: CharacterPageProps) {
         <div className="character-meta">
           <Tag variant="outline">{char.kind}</Tag>
           <Tag variant="outline">{summary?.playerFamilies ?? families.length} families</Tag>
-          <Tag variant="outline">{summary?.rawMoveRows ?? 0} raw rows</Tag>
+          <Tag variant="outline">{summary?.officialRows ?? 0} unique moves</Tag>
         </div>
       </div>
       <CharacterTabs active={activeTab} onChange={onTabChange} />
@@ -75,8 +75,8 @@ export function CharacterDashboardPage(props: CharacterPageProps) {
       ) : null}
       <section className="metric-grid">
         <MetricPanel label="Families" value={summary?.playerFamilies ?? families.length} hint={`${rows.length} exact rows`} />
-        <MetricPanel label="Community rows" value={summary?.communityRows ?? 0} hint="calibrated input groups" />
-        <MetricPanel label="Fallback families" value={summary?.parserFallbackFamilies ?? 0} hint="parser-only coverage" />
+        <MetricPanel label="MoveVM linked" value={summary?.nativeLinkedRows ?? 0} hint={`${summary?.nativeUnlinkedRows ?? 0} ambiguous or unresolved`} />
+        <MetricPanel label="Startup coverage" value={summary?.metricCoverage.startup ?? 0} hint="static native evidence" />
         <MetricPanel label="Native attacks" value={char.nativeSummary?.attackCount ?? "-"} hint={`${char.nativeSummary?.slotCount ?? "-"} slots`} />
       </section>
 
@@ -84,7 +84,7 @@ export function CharacterDashboardPage(props: CharacterPageProps) {
         <DashboardFamilyList title="Fastest tools" familyViews={fastest} cid={char.cid} search={search} metric="startup" />
         <DashboardFamilyList title="Unsafe on block" familyViews={unsafe} cid={char.cid} search={search} metric="block" />
         <DashboardFamilyList title="Plus on block" familyViews={plus} cid={char.cid} search={search} metric="block" />
-        <DashboardFamilyList title="Likely launch / knockdown" familyViews={launchers} cid={char.cid} search={search} metric="hit" />
+        <DashboardFamilyList title="Confirmed launch / knockdown" familyViews={launchers} cid={char.cid} search={search} metric="hit" />
       </section>
     </div>
   );
@@ -131,7 +131,7 @@ function DashboardFamilyList({
           </Link>
         );
       })}
-      {!familyViews.length ? <p className="muted">No data yet.</p> : null}
+      {!familyViews.length ? <p className="muted">No proven native values.</p> : null}
     </section>
   );
 }
@@ -140,7 +140,7 @@ export function CharacterFamiliesPage(props: CharacterPageProps) {
   const { char } = props;
   const { families, summary } = ensurePlayerFamilies(char);
   const [query, setQuery] = useState("");
-  const [source, setSource] = useState("all");
+  const [linkStatus, setLinkStatus] = useState("all");
   const [confidence, setConfidence] = useState("all");
   const viewModels = useMemo(
     () => buildFamilyViewModels(families, char.dashboard),
@@ -150,13 +150,13 @@ export function CharacterFamiliesPage(props: CharacterPageProps) {
   const filtered = useMemo(() => {
     return filterFamilyViews(viewModels, query).filter(({ family }) => {
       if (confidence !== "all" && family.confidence !== confidence) return false;
-      if (source !== "all" && !family.rows.some((row) => row.source === source)) return false;
+      if (linkStatus !== "all" && !family.rows.some((row) => row.nativeLink.status === linkStatus)) return false;
       return true;
     });
-  }, [viewModels, query, source, confidence]);
+  }, [viewModels, query, linkStatus, confidence]);
 
-  const sourceChoices = Object.keys(summary?.sourceCounts ?? {});
-  const confidenceChoices = Object.keys(summary?.confidenceCounts ?? {});
+  const linkChoices = Object.keys(summary?.linkStatusCounts ?? {});
+  const confidenceChoices = Object.keys(summary?.groupingConfidenceCounts ?? {});
 
   return (
     <div className="page-stack">
@@ -171,14 +171,14 @@ export function CharacterFamiliesPage(props: CharacterPageProps) {
           type="search"
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
-          placeholder="Search command, name, stance, level, source..."
+          placeholder="Search command, name, stance, level, evidence..."
           aria-label="Search this character"
         />
         <label>
-          <span>Source</span>
-          <Select width="auto" value={source} onChange={(event) => setSource(event.currentTarget.value)}>
+          <span>Native link</span>
+          <Select width="auto" value={linkStatus} onChange={(event) => setLinkStatus(event.currentTarget.value)}>
             <SelectOption value="all">All</SelectOption>
-            {sourceChoices.map((value) => <SelectOption key={value} value={value}>{value}</SelectOption>)}
+            {linkChoices.map((value) => <SelectOption key={value} value={value}>{value}</SelectOption>)}
           </Select>
         </label>
         <label>
@@ -226,7 +226,10 @@ export function CharacterFamilyDetailPage(props: CharacterPageProps) {
     );
   }
 
-  const stats = char.dashboard?.statsByFamily?.[family.id] ?? familyStats(family);
+  // The detail header is descriptive, not a ranking.  Show the row-derived
+  // value (including tagged native inference) instead of the dashboard's
+  // confirmed-only aggregate.
+  const stats = familyStats(family);
 
   return (
     <div className="page-stack">
@@ -275,7 +278,7 @@ export function CharacterFamilyDetailPage(props: CharacterPageProps) {
           )}
         </div>
         <div>
-          <h2>Source evidence</h2>
+          <h2>Native evidence</h2>
           <div className="evidence-stack">
             {family.rows.map((row) => (
               <div key={row.id} className="evidence-row">
@@ -286,15 +289,31 @@ export function CharacterFamilyDetailPage(props: CharacterPageProps) {
                 <div className="tag-stack">
                   <SourceTag value={row.source} />
                   <ConfidenceTag value={row.confidence} />
-                  <TimelineTag value={row.timelineStatus} />
+                  <TimelineTag value={row.nativeLink.status} />
                 </div>
                 <dl className="evidence-dl">
                   <dt>Parser orders</dt>
                   <dd>{row.parserMoveOrders.length ? row.parserMoveOrders.join(", ") : "-"}</dd>
-                  <dt>Native slots</dt>
-                  <dd>{row.nativeSlots.length ? row.nativeSlots.join(", ") : "-"}</dd>
-                  <dt>Native cells</dt>
-                  <dd>{row.nativeCells.length ? row.nativeCells.join(", ") : "-"}</dd>
+                  <dt>MoveVM definitions</dt>
+                  <dd>{row.nativeLink.definitions.length
+                    ? row.nativeLink.definitions.map((definition) => (
+                      `${definition.lane}: main ${definition.mainDefinitionId || "-"}, fallback ${definition.fallbackDefinitionId || "-"}`
+                    )).join("; ")
+                    : "-"}</dd>
+                  <dt>Route KHD slots</dt>
+                  <dd>{row.nativeLink.slots.length ? row.nativeLink.slots.join(" → ") : "-"}</dd>
+                  <dt>Route KHD cells</dt>
+                  <dd>{row.nativeLink.cells.length ? row.nativeLink.cells.join(" → ") : "-"}</dd>
+                  <dt>Effective attack slots</dt>
+                  <dd>{(row.nativeLink.attackSlots ?? row.nativeLink.slots).length
+                    ? (row.nativeLink.attackSlots ?? row.nativeLink.slots).join(" → ")
+                    : "-"}</dd>
+                  <dt>Effective attack cells</dt>
+                  <dd>{(row.nativeLink.attackCells ?? row.nativeLink.cells).length
+                    ? (row.nativeLink.attackCells ?? row.nativeLink.cells).join(" → ")
+                    : "-"}</dd>
+                  <dt>Resolution</dt>
+                  <dd>{row.nativeLink.resolutions.length ? row.nativeLink.resolutions.join(", ") : "-"}</dd>
                   <dt>Hit levels</dt>
                   <dd><HitLevelTags levels={row.metrics.hitLevels} /></dd>
                 </dl>
@@ -349,9 +368,13 @@ export function CharacterRawPage(props: CharacterPageProps & { raw: RawMovelistP
                     <Table.Cell><FrameTag value={displayFrame(metrics.block)} /></Table.Cell>
                     <Table.Cell><FrameTag value={displayFrame(metrics.hit)} /></Table.Cell>
                     <Table.Cell className="raw-refs">
-                      {move.nativeSlots.length ? `s:${move.nativeSlots.slice(0, 4).join(",")}` : "s:-"}
+                      {move.nativeLink.definitions.length
+                        ? `vm:${move.nativeLink.definitions.map((definition) => definition.mainDefinitionId || definition.fallbackDefinitionId).filter(Boolean).slice(0, 4).join(",") || "-"}`
+                        : "vm:-"}
                       <br />
-                      {move.nativeCells.length ? `c:${move.nativeCells.slice(0, 4).join(",")}` : "c:-"}
+                      {(move.nativeLink.attackCells ?? move.nativeLink.cells).length
+                        ? `attack:${(move.nativeLink.attackCells ?? move.nativeLink.cells).slice(0, 4).join(",")}`
+                        : "attack:-"}
                     </Table.Cell>
                   </Table.Row>
                 );

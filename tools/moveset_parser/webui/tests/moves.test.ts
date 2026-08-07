@@ -98,9 +98,9 @@ describe("filterMoves", () => {
 
 describe("sortMoves", () => {
   const cells = [
-    makeCell({ idx: 0, damage: 10, activeStart: 14, onBlock: -10, onHitStanding: 20 }),
-    makeCell({ idx: 1, damage: 30, activeStart: 18, onBlock: -2, onHitStanding: 12 }),
-    makeCell({ idx: 2, damage: 20, activeStart: 11, onBlock: -16, onHitStanding: 18 }),
+    makeCell({ idx: 0, damage: 10, activeStartCoordinate: 14, blockStunFrames: 10, baseHitStunFrames: 20 }),
+    makeCell({ idx: 1, damage: 30, activeStartCoordinate: 18, blockStunFrames: 2, baseHitStunFrames: 12 }),
+    makeCell({ idx: 2, damage: 20, activeStartCoordinate: 11, blockStunFrames: 16, baseHitStunFrames: 18 }),
   ];
 
   it("sorts by damage desc", () => {

@@ -11,11 +11,14 @@ import math
 import struct
 from dataclasses import dataclass
 
-from hgmotion_reference import MotionDecodeError, decode_root_movement_frames
+from hgmotion_reference import MotionDecodeError, decode_root_movement_frames, parse_motion_clip
 
 
 LUX_UNITS_PER_INT = 0.0010000000474974513
-ROOT_CHANNEL_TYPES = {0x14, 0x17, 0x18}
+# Native LuxMotion_BlendKeyframeTransforms writes logical root transform 1
+# from selector 0x16.  Keep this exported marker aligned with the reference
+# decoder; selector 0x14 is scratch-only.
+ROOT_CHANNEL_TYPES = {0x16}
 
 
 @dataclass
@@ -110,19 +113,17 @@ def decode_motion_clip_header(raw: bytes) -> MotionClipHeader:
             reason=f"implausible decoded word count {decoded_word_count}",
         )
 
-    # LuxMotion_DecodeHuffmanKeyframeData starts reading the compressed group
-    # size table at clip+0x1C. It advances by one i16 pair per 8-frame group.
-    group_count = (frame_count + 7) // 8
-    table_end = 0x1C + group_count * 2
-    if table_end > len(raw):
+    try:
+        table_end = parse_motion_clip(raw).static_data_offset
+    except MotionDecodeError as exc:
         return MotionClipHeader(
             frame_count=frame_count,
             channel_count_words=channel_count_words,
             flags=flags,
-            header_size=table_end,
+            header_size=0x1C,
             raw_header_hex=raw[:0x20].hex(),
             confidence="failed",
-            reason="compressed frame-group table exceeds section size",
+            reason=f"{exc.stage}: {exc.reason}",
         )
 
     return MotionClipHeader(
@@ -172,7 +173,7 @@ def decode_root_motion_curve(raw: bytes) -> RootMotionCurve:
     return RootMotionCurve(
         status="decoded_root_motion",
         confidence="high",
-        frame_count=clip.frame_count,
+        frame_count=clip.playback_frame_count,
         frames=frames,
         total_x=frames[-1].cumulative_x if frames else 0.0,
         total_y=frames[-1].cumulative_y if frames else 0.0,

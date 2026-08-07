@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare community frame-data rows against parsed KHD move payloads.
+"""Compare a completed schema-v2 native export with an external sheet.
 
 The parser can resolve a single move/command pair in a few ways. This
 script reports where community rows cannot be paired, are ambiguously
@@ -12,6 +12,7 @@ assertion that one data source is authoritative).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -20,8 +21,14 @@ from typing import Any
 from community_framedata import load as load_community, norm_input_key, norm_name
 
 
-ROOT = Path(__file__).resolve().parent
-DEFAULT_DATA_DIR = ROOT / "webui" / "public" / "data"
+def _hash_export_tree(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*.json") if p.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 # Short-hand tokens used by the community sheet are often abbreviations of the
 # in-game `condition` phrases exported from the movelist payload.
@@ -184,6 +191,22 @@ def _is_throw_command(raw: Any) -> bool:
 def _parsed_metrics(
     rec: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    exported = rec.get("metrics") if rec else None
+    if exported is not None:
+        damages = _damage_segments(exported.get("damage"))
+        return {
+            "found": any(value not in (None, [], "") for value in exported.values()),
+            "damage": sum(damages) if damages else None,
+            "startup": _to_int(exported.get("startup")),
+            "onBlock": _to_adv(exported.get("block")),
+            "onHit": _to_adv(exported.get("hit")),
+            "activeFrames": None,
+            "isThrow": _is_throw_command(rec.get("input")),
+            "resolution": rec.get("resolution", "none"),
+            "candidateCount": rec.get("candidateCount", 0),
+            "candidateBestRank": rec.get("candidateBestRank", 0),
+            "candidateScore": rec.get("candidateScore", 0),
+        }
     cell = rec.get("cell") if rec else None
     if not cell:
         return {
@@ -199,17 +222,26 @@ def _parsed_metrics(
             "candidateBestRank": 0,
             "candidateScore": 0,
         }
-    startup = cell.get("activeStart")
-    active_end = cell.get("activeEnd")
-    if not _is_valid_active_window(startup, active_end):
-        startup = None
+    # A raw cell window is a zero-based native coordinate and may be a setup
+    # variant rather than the move's first ordinary contact. Legacy payloads
+    # without exported metrics therefore cannot supply player-facing startup.
+    # Keep the cell for damage/diagnostic comparisons but fail startup closed.
+    active_start_coordinate = cell.get(
+        "activeStartCoordinate", cell.get("activeStart")
+    )
+    active_end_coordinate = cell.get(
+        "activeEndCoordinate", cell.get("activeEnd")
+    )
+    has_valid_window = _is_valid_active_window(
+        active_start_coordinate, active_end_coordinate
+    )
     return {
         "found": True,
         "damage": cell.get("damage"),
-        "startup": startup,
-        "onBlock": cell.get("onBlock"),
-        "onHit": cell.get("onHitStanding"),
-        "activeFrames": cell.get("activeFrames"),
+        "startup": None,
+        "onBlock": cell.get("blockStunFrames", cell.get("onBlock")),
+        "onHit": cell.get("baseHitStunFrames", cell.get("onHitBaseContact")),
+        "activeFrames": cell.get("activeFrames") if has_valid_window else None,
         "isThrow": _is_throw_command(rec.get("input")),
         "resolution": rec.get("resolution", "none"),
         "candidateCount": rec.get("candidateCount", 0),
@@ -404,7 +436,7 @@ def _build_movelist_index(
     dict[tuple[str, str, str], list[dict[str, Any]]],
     dict[tuple[str, str], list[dict[str, Any]]],
 ]:
-    moves = ((char_payload.get("movelist") or {}).get("moves") or [])
+    moves = char_payload.get("rows") or ((char_payload.get("movelist") or {}).get("moves") or [])
     cells = (char_payload.get("khd") or {}).get("cells") or []
 
     records: list[dict[str, Any]] = []
@@ -420,6 +452,26 @@ def _build_movelist_index(
         command_tokens = _tokenize_command(move.get("input"))
 
         cs_list = move.get("commandSets") or []
+        native_link = move.get("nativeLink") or {}
+        if not cs_list and native_link:
+            # Schema v2 separates navigation from cells that actually make
+            # contact.  An explicitly empty attack array is meaningful and
+            # must not fall back to the navigation route.
+            effective_cells = (
+                native_link.get("attackCells", [])
+                if "attackCells" in native_link
+                else native_link.get("cells", [])
+            ) or []
+            effective_slots = (
+                native_link.get("attackSlots", [])
+                if "attackSlots" in native_link
+                else native_link.get("slots", [])
+            ) or []
+            cs_list = [{
+                "cellIdx": (effective_cells or [-1])[0],
+                "slotIdx": (effective_slots or [-1])[0],
+                "resolution": ",".join(native_link.get("resolutions") or ["none"]),
+            }]
         if not cs_list:
             cs_list = [None]
 
@@ -463,6 +515,7 @@ def _build_movelist_index(
                 "candidateBestRank": cs_map.get("candidateBestRank", 0),
                 "candidateScore": cs_map.get("candidateScore", 0),
                 "cell": cell,
+                "metrics": move.get("metrics"),
                 "role": role,
                 "hitClasses": move.get("hitClasses") or [],
                 "commandHitCount": _count_command_hits(move.get("input")),
@@ -948,9 +1001,11 @@ def compare_character(
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR), help="Directory containing webui/public/data")
-    p.add_argument("--community-json", help="Optional parsed community frame-data JSON")
-    p.add_argument("--community-xlsx", help="Optional downloaded community frame-data spreadsheet")
+    p.add_argument("--data-dir", required=True, help="Existing schema-v2 export directory")
+    source = p.add_mutually_exclusive_group(required=True)
+    source.add_argument("--community-json", help="Explicit local comparison JSON")
+    source.add_argument("--community-xlsx", help="Explicit local comparison spreadsheet")
+    p.add_argument("--report", required=True, help="Separate JSON report path outside the export directory")
     p.add_argument("--cid", action="append", help="CID(s) to compare (default: all with both sides)")
     p.add_argument(
         "--limit", type=int, default=60, help="Number of mismatch examples to keep per CID"
@@ -963,26 +1018,36 @@ def main() -> int:
         action="store_true",
         help="Treat characters without parsed move lists as regular unmatched rows",
     )
-    p.add_argument("--json", action="store_true", help="Emit JSON summary")
     args = p.parse_args()
 
     data_dir = Path(args.data_dir).resolve()
+    report_path = Path(args.report).resolve()
+    if report_path == data_dir or data_dir in report_path.parents:
+        raise SystemExit("--report must be outside --data-dir")
     roster_path = data_dir / "roster.json"
-    chars_dir = data_dir / "chars"
+    chars_dir = data_dir / "v2" / "chars"
 
     if not roster_path.exists():
         raise SystemExit(f"Missing roster file: {roster_path}")
     if not chars_dir.exists():
-        raise SystemExit(f"Missing chars directory: {chars_dir}")
+        raise SystemExit(f"Missing schema-v2 chars directory: {chars_dir}")
+
+    export_hash_before = _hash_export_tree(data_dir)
 
     roster = _read_json(roster_path)
-    cids = [str(c["cid"]) for c in roster.get("chars", [])]
+    roster_chars = roster.get("chars", [])
+    cids = [
+        str(c["cid"])
+        for c in roster_chars
+        if c.get("kind") in {"base", "dlc"}
+    ]
     if args.cid:
-        cids = [c for c in args.cid if c in cids]
+        known_cids = {str(c["cid"]) for c in roster_chars}
+        cids = [c for c in args.cid if c in known_cids]
 
     comm = load_community(
-        json_path=args.community_json or str(ROOT / "community_framedata.json"),
-        xlsx_path=args.community_xlsx or str(ROOT / "community_framedata.xlsx"),
+        json_path=args.community_json or "",
+        xlsx_path=args.community_xlsx or "",
     )
     compare_raw_stun = args.compare_on_block_raw or args.compare_on_hit_raw
 
@@ -999,11 +1064,7 @@ def main() -> int:
             "missingReference": 0,
             "diff": {"startup": 0, "damage": 0, "onBlock": 0, "onHit": 0},
         }
-        if args.json:
-            print(json.dumps({"totals": empty_totals, "characters": []}, indent=2))
-        else:
-            print("No community frame data supplied; pass --community-xlsx or --community-json.")
-        return 0
+        raise SystemExit("The explicit comparison input contains no character rows")
 
     all_reports = []
     global_totals = {
@@ -1020,10 +1081,12 @@ def main() -> int:
     }
 
     for cid in cids:
-        payload_path = chars_dir / f"{cid}.json"
+        payload_path = chars_dir / cid / "raw-movelist.json"
         if not payload_path.exists():
             continue
         payload = _read_json(payload_path)
+        if payload.get("schemaVersion") != 2:
+            raise SystemExit(f"Expected schemaVersion 2: {payload_path}")
         rep = compare_character(
             cid,
             payload,
@@ -1046,18 +1109,21 @@ def main() -> int:
         for key in global_totals["diff"]:
             global_totals["diff"][key] += rep["differences"][key]
 
-    if args.json:
-        print(
-            json.dumps(
-                {
-                    "totals": global_totals,
-                    "characters": all_reports,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
-        return 0
+    export_hash_after = _hash_export_tree(data_dir)
+    if export_hash_after != export_hash_before:
+        raise SystemExit("Export data changed during comparison")
+    report = {
+        "schemaVersion": 2,
+        "exportDirectory": str(data_dir),
+        "exportHashBefore": export_hash_before,
+        "exportHashAfter": export_hash_after,
+        "exportUnchanged": True,
+        "totals": global_totals,
+        "characters": all_reports,
+    }
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote one-way comparison report: {report_path}")
 
     print("Community vs parsed comparison")
     print(

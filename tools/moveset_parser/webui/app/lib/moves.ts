@@ -74,16 +74,16 @@ export function sortMoves(
         cmp = (ca?.damage ?? 0) - (cb?.damage ?? 0);
         break;
       case "startup":
-        cmp = (ca?.activeStart ?? 0) - (cb?.activeStart ?? 0);
+        cmp = (ca?.activeStartCoordinate ?? 0) - (cb?.activeStartCoordinate ?? 0);
         break;
       case "class":
         cmp = (ca?.class ?? "").localeCompare(cb?.class ?? "");
         break;
       case "onBlock":
-        cmp = (ca?.onBlock ?? 0) - (cb?.onBlock ?? 0);
+        cmp = (ca?.blockStunFrames ?? 0) - (cb?.blockStunFrames ?? 0);
         break;
       case "onHit":
-        cmp = (ca?.onHitStanding ?? 0) - (cb?.onHitStanding ?? 0);
+        cmp = (ca?.baseHitStunFrames ?? 0) - (cb?.baseHitStunFrames ?? 0);
         break;
     }
     return dir === "asc" ? cmp : -cmp;

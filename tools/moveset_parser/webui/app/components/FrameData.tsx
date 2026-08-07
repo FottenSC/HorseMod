@@ -1,8 +1,8 @@
 ﻿import type { Cell } from "../data/types";
 
 /**
- * Compact frame-data notation for a cell. Examples:
- *   i11 - Mid - 12 dmg - +31 on hit - +21 on block - close
+ * Compact native-data notation for a cell. Cell windows are raw animation
+ * coordinates, not player-facing move startup.
  *
  * The "+N" frame values are RAW STUN frames from the cell (defender side).
  * True frame advantage = stun - attacker_recovery; we can't compute that
@@ -10,18 +10,17 @@
  * power user understand the difference.
  */
 export function FrameDataLine({ cell }: { cell: Cell }) {
-  const startup = cell.activeStart;
   return (
     <span className="framedata">
-      i{startup}
+      window coord {cell.activeStartCoordinate}
       <span className="muted"> - </span>
       <span>{cell.damage} dmg</span>
       <span className="muted"> - </span>
       <span>active <strong>{cell.activeFrames}f</strong></span>
       <span className="muted"> - </span>
-      <span>hit <strong>{cell.onHitStanding}f</strong></span>
+      <span>hit stun <strong>{cell.baseHitStunFrames}f</strong></span>
       <span className="muted"> - </span>
-      <span>blk <strong>{cell.onBlock}f</strong></span>
+      <span>block stun <strong>{cell.blockStunFrames}f</strong></span>
     </span>
   );
 }

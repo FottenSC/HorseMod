@@ -2,7 +2,7 @@ import { Table } from "@digdir/designsystemet-react";
 import type { PlayerMoveFamilyRow } from "../data/types";
 import { displayDamage, displayFrame } from "../lib/frames";
 import { CommandText } from "./CommandText";
-import { ConfidenceTag, FrameTag, HitLevelTags, SourceTag, TimelineTag } from "./StatusTags";
+import { ConfidenceTag, FrameTag, HitLevelTags, MetricEvidenceTag, SourceTag, TimelineTag } from "./StatusTags";
 
 export interface FamilyRowsTableProps {
   rows: PlayerMoveFamilyRow[];
@@ -49,7 +49,12 @@ export function FamilyRowsTable({ rows, compact = false }: FamilyRowsTableProps)
               <Table.Cell><SourceTag value={row.source} /></Table.Cell>
               <Table.Cell className="tag-stack">
                 <ConfidenceTag value={row.confidence} />
-                <TimelineTag value={row.timelineStatus} />
+                <TimelineTag value={row.nativeLink.status} />
+                <MetricEvidenceTag metric="startup" value={row.evidence.startup} />
+                <MetricEvidenceTag metric="damage" value={row.evidence.damage} />
+                <MetricEvidenceTag metric="block" value={row.evidence.block} />
+                <MetricEvidenceTag metric="hit" value={row.evidence.hit} />
+                <MetricEvidenceTag metric="counter hit" value={row.evidence.counterHit} />
               </Table.Cell>
             </Table.Row>
           ))}

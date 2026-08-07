@@ -29,7 +29,7 @@ from luxformats import KhdFile
 # Input-kind classifier: which DecodedInput.kind values count as
 # "this is something the player did", versus auto/state-driven.
 USER_INPUT_KINDS = {"buttons", "direction", "command"}
-AUTO_KINDS = {"auto", "frame", "stance", "from-move", "range"}
+AUTO_KINDS = {"auto", "frame", "stance", "from-move", "range", "orientation"}
 
 
 @dataclass
@@ -40,7 +40,7 @@ class SlotEdge:
     dst_bank: int                 # FLuxMoveBank bucket index from packed move-id
     raw_move_id: int              # the full packed (bank<<12)|slot
     predicate_text: str
-    predicate_kind: str           # "buttons" / "direction" / "command" / "auto" / "stance" / "frame" / "from-move" / "other" / "indirect" / "always"
+    predicate_kind: str           # "buttons" / "direction" / "command" / "auto" / "stance" / "frame" / "orientation" / "from-move" / "other" / "indirect" / "always"
     predicate_sub_op: Optional[int]  # the EvaluateIfOpcode sub-opcode kind
     predicate_args: list[Optional[int]]  # concrete values (None where indirect)
     is_indirect: bool             # True iff next_move_id is from LOAD_VAR
@@ -297,7 +297,7 @@ def build_flat_moves(
     # Edge kinds that count as "state-driven internal transitions" we'll
     # follow during phase 2 (without consuming an input step). Everything
     # except user-input and indirect.
-    INTERNAL_KINDS = {"frame", "auto", "stance", "from-move", "always", "range", "other"}
+    INTERNAL_KINDS = {"frame", "auto", "stance", "orientation", "from-move", "always", "range", "other"}
 
     # Phase 1: BFS over user-input edges.
     # State: (slot, input_depth, [inputs], [kinds], [slots], root, root_anim)

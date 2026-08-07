@@ -56,6 +56,8 @@ namespace Horse
         bool gameplay_inputs_drive_state {false};
         bool initial_baseline_event_order_a {false};
         bool initial_baseline_event_order_b {false};
+        bool preframe_transition_rollback_a {false};
+        bool preframe_transition_rollback_b {false};
         bool final_checksums_match {false};
         bool destroy_ok {false};
         uint32_t frames_submitted {0};
@@ -117,6 +119,15 @@ namespace Horse
             uint32_t bridge_packets_rejected {0};
             RollbackTransportPeerModel<512> bridge_peer {};
             std::array<GekkoNetResult*, kMaxQueuedPackets> receive_results {};
+        };
+
+        struct AdapterState
+        {
+            RollbackGekkoDetail::State gameplay {};
+            uint32_t current_new_round {1};
+            uint32_t queued_active_battle {1};
+            uint32_t native_finalize_calls {1};
+            uint32_t new_round_ticks {0};
         };
 
         static inline AdapterContext*& current_context() noexcept
@@ -390,7 +401,7 @@ namespace Horse
         static inline bool pump_update(
             GekkoSession* session,
             AdapterContext& ctx,
-            RollbackGekkoDetail::State& state,
+            AdapterState& state,
             RollbackGekkoAdapterSelfTestReport& report,
             bool& initial_baseline_event_order) noexcept
         {
@@ -486,10 +497,19 @@ namespace Horse
                         player1.input_value,
                     };
                     RollbackGekkoDetail::advance_state(
-                        state,
+                        state.gameplay,
                         ev->data.adv.frame,
                         inputs,
                         ev->data.adv.rolling_back);
+                    if (state.queued_active_battle != 0)
+                    {
+                        state.queued_active_battle = 0;
+                        state.current_new_round = 0;
+                    }
+                    else if (state.current_new_round != 0)
+                    {
+                        ++state.new_round_ticks;
+                    }
                     break;
                 }
                 default:
@@ -560,6 +580,8 @@ namespace Horse
                 && report.gameplay_inputs_drive_state
                 && report.initial_baseline_event_order_a
                 && report.initial_baseline_event_order_b
+                && report.preframe_transition_rollback_a
+                && report.preframe_transition_rollback_b
                 && report.final_checksums_match
                 && report.destroy_ok;
             if (report.ok)
@@ -588,7 +610,7 @@ namespace Horse
         config.input_prediction_window = 4;
         config.input_size = sizeof(uint32_t);
         config.state_size =
-            static_cast<unsigned int>(sizeof(RollbackGekkoDetail::State));
+            static_cast<unsigned int>(sizeof(AdapterState));
         config.limited_saving = false;
         config.desync_detection = true;
         config.check_distance = 4;
@@ -633,8 +655,8 @@ namespace Horse
         gekko_set_local_delay(session_a, a_local, 1);
         gekko_set_local_delay(session_b, b_local, 1);
 
-        RollbackGekkoDetail::State state_a {};
-        RollbackGekkoDetail::State state_b {};
+        AdapterState state_a {};
+        AdapterState state_b {};
         report.no_desync = true;
 
         for (uint32_t step = 0; step < 48; ++step)
@@ -736,6 +758,16 @@ namespace Horse
             report.gameplay_inputs_decoded
             && report.gameplay_slots_present
             && report.final_checksums_match;
+        report.preframe_transition_rollback_a =
+            state_a.native_finalize_calls == 1
+            && state_a.new_round_ticks == 0
+            && state_a.current_new_round == 0
+            && state_a.queued_active_battle == 0;
+        report.preframe_transition_rollback_b =
+            state_b.native_finalize_calls == 1
+            && state_b.new_round_ticks == 0
+            && state_b.current_new_round == 0
+            && state_b.queued_active_battle == 0;
 
         return finish("ok");
 #endif

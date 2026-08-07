@@ -92,15 +92,36 @@ class OffsetTableFile:
 
 
 def parse_offset_table(data: bytes, *, expected_max_count: int = 1 << 20) -> OffsetTableFile:
+    if len(data) < 4:
+        raise ValueError("offset table too small")
     count = struct.unpack_from("<I", data, 0)[0]
     if count == 0 or count > expected_max_count:
         raise ValueError(f"implausible offset-table count: {count}")
+    table_end = 4 + (count + 1) * 4
+    if table_end > len(data):
+        raise ValueError(
+            f"offset table exceeds file: 0x{table_end:X} > 0x{len(data):X}"
+        )
     offs = list(struct.unpack_from(f"<{count+1}I", data, 4))
-    sizes = []
-    for i in range(count):
-        a = offs[i]
-        b = offs[i + 1] if i + 1 < len(offs) else len(data)
-        sizes.append(b - a)
+    if offs[0] < table_end:
+        raise ValueError(
+            f"first data offset 0x{offs[0]:X} precedes header 0x{table_end:X}"
+        )
+    for idx, off in enumerate(offs):
+        if off > len(data):
+            raise ValueError(
+                f"offset out of range at index {idx}: 0x{off:X} > 0x{len(data):X}"
+            )
+        if idx and off < offs[idx - 1]:
+            raise ValueError(
+                f"offsets are not monotonic at index {idx}: "
+                f"0x{off:X} < 0x{offs[idx - 1]:X}"
+            )
+    if offs[-1] != len(data):
+        raise ValueError(
+            f"offset-table sentinel 0x{offs[-1]:X} != file size 0x{len(data):X}"
+        )
+    sizes = [offs[i + 1] - offs[i] for i in range(count)]
     return OffsetTableFile(count=count, offsets=offs[:count], sizes=sizes, raw=data)
 
 
@@ -187,6 +208,8 @@ class VtbFile:
 
 def parse_vtb(data: bytes) -> VtbFile:
     """Parse a .vtb file. See LuxMoveVM_LoadVTBFile @ 0x14038EFA0."""
+    if len(data) < 0x18:
+        raise ValueError("VTB too small")
     if data[:3] != b"vtb":
         raise ValueError(f"bad VTB magic: {data[:4]!r}")
     _, _, version, n_entries, data_off, _ = struct.unpack_from("<6I", data, 0)
@@ -194,6 +217,11 @@ def parse_vtb(data: bytes) -> VtbFile:
         raise ValueError(f"unsupported VTB version: 0x{version:X}")
     if data_off < 0x18 or data_off > len(data):
         raise ValueError(f"bad VTB data_offset: 0x{data_off:X}")
+    entries_end = data_off + n_entries * 0x84
+    if entries_end > len(data):
+        raise ValueError(
+            f"VTB entries exceed file: 0x{entries_end:X} > 0x{len(data):X}"
+        )
     header_data = data[0x18:data_off]
     entries = [
         data[data_off + i * 0x84 : data_off + (i + 1) * 0x84]
@@ -225,9 +253,19 @@ class LpdFile:
 
 def parse_lpd(data: bytes) -> LpdFile:
     """Parse a .lpd container. See LuxBattle_BindLPDMotionData @ 0x1402F7670."""
+    if len(data) < 0x10:
+        raise ValueError("LPD too small")
     n, off_magic, off_data, off_end = struct.unpack_from("<4I", data, 0)
     if n != 3:
         raise ValueError(f"bad LPD section count: {n}")
+    if not (0x10 <= off_magic <= off_data <= off_end <= len(data)):
+        raise ValueError(
+            "invalid LPD offsets: "
+            f"magic=0x{off_magic:X}, data=0x{off_data:X}, "
+            f"end=0x{off_end:X}, size=0x{len(data):X}"
+        )
+    if off_magic + 3 > len(data):
+        raise ValueError(f"LPD inner magic exceeds file at 0x{off_magic:X}")
     if data[off_magic : off_magic + 3] != b"lpb":
         raise ValueError(f"LPD inner magic not 'lpb' at 0x{off_magic:X}")
     inner_raw = data[off_data:off_end]
@@ -237,6 +275,8 @@ def parse_lpd(data: bytes) -> LpdFile:
 
 def parse_lpb(data: bytes) -> LpbBlock:
     """Parse an inner LPB block. See HgMotion_BindLPBData @ 0x14038B740."""
+    if len(data) < 0x3C:
+        raise ValueError("LPB too small")
     if data[:3] != b"lpb":
         raise ValueError(f"bad LPB magic: {data[:4]!r}")
     version = struct.unpack_from("<I", data, 0x10)[0]
@@ -244,6 +284,14 @@ def parse_lpb(data: bytes) -> LpbBlock:
         raise ValueError(f"unsupported LPB version: 0x{version:X}")
     total_len = struct.unpack_from("<I", data, 0x18)[0]
     sub_lens = list(struct.unpack_from("<7I", data, 0x20))
+    if total_len < 0x3C or total_len > len(data):
+        raise ValueError(
+            f"invalid LPB total length: 0x{total_len:X} for 0x{len(data):X}-byte block"
+        )
+    if sum(sub_lens) > total_len:
+        raise ValueError(
+            f"LPB sub-block lengths exceed total: 0x{sum(sub_lens):X} > 0x{total_len:X}"
+        )
     return LpbBlock(version, total_len, sub_lens, data)
 
 
@@ -553,13 +601,17 @@ class LuxBattleAttackCell:
     wI16StunRecoil: int = 0       # +0x3C — block recoil
     wU16ExtraStateFlags: int = 0  # +0x3E — extra state bits (BA / soul-charge / etc.)
     wI16BlockstunFrames: int = 0  # +0x44 — frames of blockstun on block
-    wI16HitstunStandingNormal: int = 0  # +0x46 — frames on standing hit
-    wI16HitstunStandingAir: int = 0     # +0x48 — frames on airborne hit
-    wI16HitstunCrouchNormal: int = 0    # +0x4C — frames on crouching hit
-    wI16HitstunCrouchAir: int = 0       # +0x4E — frames on crouching+air hit
-    wI16ReactionIdStanding: int = 0     # +0x50 — reaction id (-> chara+0x43DD8, 0x14 stride)
-    wI16ReactionIdAir: int = 0          # +0x52 — reaction id for airborne defender
-    wI16ThrowEscapeId: int = 0          # +0x54 — throw escape / counter-hit id
+    # The second member of each pair is selected when the saved native
+    # hit-contact mode is >= 2.  Native enum/stat mapping proves mode 11 is
+    # CounterHit, 12 LethalHit, and 13 PunishHit.  This is a shared
+    # base/special-contact pair, not a standing/air pair.
+    wI16HitstunBaseContact: int = 0                    # +0x46
+    wI16HitstunSpecialContact: int = 0                 # +0x48 (includes mode-11 CH)
+    wI16HitstunAlternatePostureBaseContact: int = 0    # +0x4C
+    wI16HitstunAlternatePostureSpecialContact: int = 0 # +0x4E
+    wI16ReactionIdBaseContact: int = 0                 # +0x50
+    wI16ReactionIdSpecialContact: int = 0              # +0x52
+    wI16ThrowReactionRowId: int = 0     # +0x54 — classifier-7 throw reaction row
     wU16PassthroughTagA: int = 0        # +0x5A — usually 0xFFFD (default tag)
     wU16HitboxGroupBitfield: int = 0    # +0x5E — hitbox group bitmask (high byte = "type tag" 0/FF observed)
     wU16PassthroughTagC: int = 0        # +0x60
@@ -732,7 +784,7 @@ class LuxBattleAttackCell:
             self.wU16PassthroughTagA, f"0x{self.wU16PassthroughTagA:04X}"
         )
 
-    # NOTE: wI16ReactionIdStanding / Air values index into the chara's
+    # NOTE: wI16ReactionIdBaseContact / SpecialContact values index into the chara's
     # per-character reaction-property table at chara+0x43DD8 (0x14-byte
     # stride) — they're NOT EYarareReactionId values directly. Use
     # yarare_name() only on vmCtx+0x2B30 ActiveYarareId / similar runtime ids.
@@ -748,7 +800,7 @@ class LuxBattleAttackCell:
 
     @property
     def on_hit_standing(self) -> int:
-        return self.wI16HitstunStandingNormal
+        return self.wI16HitstunBaseContact
 
     @property
     def summary(self) -> str:
@@ -778,13 +830,13 @@ def parse_attack_cell(buf: bytes, off: int) -> LuxBattleAttackCell:
         wI16StunRecoil=struct.unpack_from("<h", raw, 0x3C)[0],
         wU16ExtraStateFlags=struct.unpack_from("<H", raw, 0x3E)[0],
         wI16BlockstunFrames=struct.unpack_from("<h", raw, 0x44)[0],
-        wI16HitstunStandingNormal=struct.unpack_from("<h", raw, 0x46)[0],
-        wI16HitstunStandingAir=struct.unpack_from("<h", raw, 0x48)[0],
-        wI16HitstunCrouchNormal=struct.unpack_from("<h", raw, 0x4C)[0],
-        wI16HitstunCrouchAir=struct.unpack_from("<h", raw, 0x4E)[0],
-        wI16ReactionIdStanding=struct.unpack_from("<h", raw, 0x50)[0],
-        wI16ReactionIdAir=struct.unpack_from("<h", raw, 0x52)[0],
-        wI16ThrowEscapeId=struct.unpack_from("<h", raw, 0x54)[0],
+        wI16HitstunBaseContact=struct.unpack_from("<h", raw, 0x46)[0],
+        wI16HitstunSpecialContact=struct.unpack_from("<h", raw, 0x48)[0],
+        wI16HitstunAlternatePostureBaseContact=struct.unpack_from("<h", raw, 0x4C)[0],
+        wI16HitstunAlternatePostureSpecialContact=struct.unpack_from("<h", raw, 0x4E)[0],
+        wI16ReactionIdBaseContact=struct.unpack_from("<h", raw, 0x50)[0],
+        wI16ReactionIdSpecialContact=struct.unpack_from("<h", raw, 0x52)[0],
+        wI16ThrowReactionRowId=struct.unpack_from("<h", raw, 0x54)[0],
         wU16PassthroughTagA=struct.unpack_from("<H", raw, 0x5A)[0],
         wU16HitboxGroupBitfield=struct.unpack_from("<H", raw, 0x5E)[0],
         wU16PassthroughTagC=struct.unpack_from("<H", raw, 0x60)[0],
@@ -1044,8 +1096,12 @@ def parse_khd_section_c_prefix(buf: bytes, sec_off: int, sec_end: int) -> tuple[
 def parse_khd_event_records(buf: bytes, sec_off: int, sec_end: int, count: int) -> tuple[list[KhdEventRecord], int]:
     """Walk Ghidra-validated Section-C FLuxMoveBankEventRecord entries."""
     records: list[KhdEventRecord] = []
-    max_count = max(0, min(count, (sec_end - sec_off) // 0x30))
-    for i in range(max_count):
+    available = max(0, (sec_end - sec_off) // 0x30)
+    if count > available:
+        raise ValueError(
+            f"KHD event record table is truncated: count {count} > capacity {available}"
+        )
+    for i in range(count):
         o = sec_off + i * 0x30
         raw = buf[o : o + 0x30]
         dw_packed_move_id, dw_event_kind, dw_field_08, dw_shape_flags = struct.unpack_from("<4I", raw, 0)
@@ -1083,16 +1139,26 @@ class FLuxMoveBankSlotView:
     """
     slot_index: int                     # 0-based linear index in the slot table
     bank_offset: int                    # byte offset of slot record within the bank
-    wAnimationIndex_00: int = 0         # +0x00 motion-id used by HgMotion
-    wMotionPlaybackParam_02: int = 0    # +0x02
-    nField_04: int = 0                  # +0x04
-    wMotionFlags_06: int = 0            # +0x06
-    dwSubTableOffset_10: int = 0        # +0x10
-    dwSubTableOffset_14: int = 0        # +0x14
-    dwAltBytecodeOffset_1C: int = 0     # +0x1C alt bytecode (typically unused)
+    # Two exact 0x10-byte motion descriptors.  These fields are consumed by
+    # LuxMoveVM_InitMotionPlayback @ 0x140300400; +0x10..+0x1F are a second
+    # descriptor, not sub-table/bytecode offsets.
+    wAnimationIndex_00: int = 0         # +0x00 motion A packed id
+    nMotionAStartFrame_02: int = 0      # +0x02 signed segment start
+    nMotionAEndFrame_04: int = 0        # +0x04 signed segment end; <=0 uses clip end
+    bMotionATrack_06: int = 0           # +0x06 motion-weight track
+    bMotionAFlags_07: int = 0           # +0x07 axis/special flags
+    flMotionAWeightHundredths_08: float = 0.0  # +0x08 divided by 100
+    flMotionABlendHundredths_0C: float = 0.0   # +0x0C divided by 100
+    wMotionBId_10: int = 0              # +0x10 motion B packed id
+    nMotionBStartFrame_12: int = 0      # +0x12 signed segment start
+    nMotionBEndFrame_14: int = 0        # +0x14 signed segment end
+    bMotionBTrack_16: int = 0           # +0x16 motion-weight track
+    bMotionBFlags_17: int = 0           # +0x17 axis/special flags
+    flMotionBWeightHundredths_18: float = 0.0  # +0x18 divided by 100
+    flMotionBBlendHundredths_1C: float = 0.0   # +0x1C divided by 100
     qwInputMask_20: int = 0             # +0x20 input mask (copied to lane+0x448)
     qwInputMask_28: int = 0             # +0x28
-    flPlaybackSpeed60ths_30: float = 0.0  # +0x30 playback speed seed, divided by 60 at transition
+    flPlaybackSpeedHundredths_30: float = 0.0  # +0x30 divided by 100 at transition
     wTotalFrames: int = 0               # +0x34 authored total animation frames
     nHitWindowStart_36: int = 0         # +0x36
     dwBytecodeOffset_38: int = 0        # +0x38 STACK VM bytecode (BYTE offset, NOT u32-aligned)
@@ -1108,13 +1174,45 @@ class FLuxMoveBankSlotView:
 
     @property
     def playback_speed_scalar(self) -> float:
-        """Runtime playback-speed scalar after the native /60 conversion."""
-        return self.flPlaybackSpeed60ths_30 / 60.0
+        """Runtime lane playback-speed scalar after the native /100 conversion."""
+        return self.flPlaybackSpeedHundredths_30 / 100.0
+
+    # Compatibility aliases for older parser/viewer consumers.  Their old
+    # names were based on an incorrect provisional layout; new code should use
+    # the exact descriptor fields above.
+    @property
+    def wMotionPlaybackParam_02(self) -> int:
+        return self.nMotionAStartFrame_02 & 0xFFFF
+
+    @property
+    def nField_04(self) -> int:
+        return self.nMotionAEndFrame_04
+
+    @property
+    def wMotionFlags_06(self) -> int:
+        return self.bMotionATrack_06 | (self.bMotionAFlags_07 << 8)
+
+    @property
+    def dwSubTableOffset_10(self) -> int:
+        return self.wMotionBId_10 | ((self.nMotionBStartFrame_12 & 0xFFFF) << 16)
+
+    @property
+    def dwSubTableOffset_14(self) -> int:
+        return (self.nMotionBEndFrame_14 & 0xFFFF) | (self.bMotionBTrack_16 << 16) | (self.bMotionBFlags_17 << 24)
+
+    @property
+    def dwAltBytecodeOffset_1C(self) -> int:
+        return struct.unpack("<I", struct.pack("<f", self.flMotionBBlendHundredths_1C))[0]
+
+    @property
+    def flPlaybackSpeed60ths_30(self) -> float:
+        """Legacy name; the stored value is hundredths, not sixtieths."""
+        return self.flPlaybackSpeedHundredths_30
 
     @property
     def flAnimLength_30(self) -> float:
         """Backward-compatible alias for the old, misleading field name."""
-        return self.flPlaybackSpeed60ths_30
+        return self.flPlaybackSpeedHundredths_30
 
     @property
     def nAnimLengthFlag_34(self) -> int:
@@ -1249,14 +1347,23 @@ def _scan_for_entry_array(buf: bytes, sec_off: int, sec_end: int) -> tuple[int, 
 
 def parse_khd(data: bytes) -> KhdFile:
     """Parse a .khd file."""
+    if len(data) < 0x30:
+        raise ValueError("KHD too small")
     if data[:4] != b"KH11":
         raise ValueError(f"bad KH11 magic: {data[:4]!r}")
     field_0c = struct.unpack_from("<I", data, 0x0C)[0]
     move_count, movelist_id = struct.unpack_from("<HH", data, 0x0C)
     s_offs = list(struct.unpack_from("<3I", data, 0x10))
     for o in s_offs:
-        if o >= len(data):
-            raise ValueError(f"KH11 section offset 0x{o:X} >= file size 0x{len(data):X}")
+        if o < 0x30 or o >= len(data):
+            raise ValueError(
+                f"KH11 section offset 0x{o:X} outside [0x30, 0x{len(data):X})"
+            )
+    if not all(a < b for a, b in zip(s_offs, s_offs[1:])):
+        raise ValueError(
+            "KH11 section offsets are not strictly increasing: "
+            + ", ".join(f"0x{o:X}" for o in s_offs)
+        )
     first_off = min(s_offs)
     trailer = data[0x1C:first_off]
     sorted_offs = sorted(s_offs + [len(data)])
@@ -1326,12 +1433,17 @@ def parse_khd(data: bytes) -> KhdFile:
     expected = 0
     for i, (start, count) in enumerate(buckets):
         if count > 0 and start != expected:
-            # Non-contiguous bucket layout. Engine works (it indexes by
-            # bucket) but our linear walker would emit phantom slots in
-            # the gap. Skip gaps gracefully.
-            pass
+            raise ValueError(
+                f"KHD slot bucket {i} starts at {start}, expected {expected}"
+            )
         expected = max(expected, start + count)
     total_slots = expected
+    slot_table_end = slot_table_off + total_slots * 0x48
+    if slot_table_end > first_off:
+        raise ValueError(
+            f"KHD slot table overlaps first section: "
+            f"0x{slot_table_end:X} > 0x{first_off:X}"
+        )
     slot_records: list[FLuxMoveBankSlotView] = []
     try:
         from stackvm import walk_stackvm
@@ -1339,16 +1451,27 @@ def parse_khd(data: bytes) -> KhdFile:
         walk_stackvm = None  # type: ignore
     for slot_idx in range(total_slots):
         slot_off = slot_table_off + slot_idx * 0x48
-        if slot_off + 0x48 > len(data):
-            break
         raw_slot = data[slot_off : slot_off + 0x48]
-        anim_idx, motion_param, field_04, motion_flags = struct.unpack_from(
-            "<HHhH", raw_slot, 0x00
-        )
-        sub_a, sub_b = struct.unpack_from("<II", raw_slot, 0x10)
-        alt_bc = struct.unpack_from("<I", raw_slot, 0x1C)[0]
+        (
+            anim_idx,
+            motion_a_start,
+            motion_a_end,
+            motion_a_track,
+            motion_a_flags,
+            motion_a_weight,
+            motion_a_blend,
+        ) = struct.unpack_from("<HhhBBff", raw_slot, 0x00)
+        (
+            motion_b_id,
+            motion_b_start,
+            motion_b_end,
+            motion_b_track,
+            motion_b_flags,
+            motion_b_weight,
+            motion_b_blend,
+        ) = struct.unpack_from("<HhhBBff", raw_slot, 0x10)
         mask_a, mask_b = struct.unpack_from("<QQ", raw_slot, 0x20)
-        playback_speed_60ths = struct.unpack_from("<f", raw_slot, 0x30)[0]
+        playback_speed_hundredths = struct.unpack_from("<f", raw_slot, 0x30)[0]
         total_frames, hit_win = struct.unpack_from("<Hh", raw_slot, 0x34)
         bc_off = struct.unpack_from("<I", raw_slot, 0x38)[0]
         cells = list(struct.unpack_from("<6h", raw_slot, 0x3C))
@@ -1356,15 +1479,22 @@ def parse_khd(data: bytes) -> KhdFile:
             slot_index=slot_idx,
             bank_offset=slot_off,
             wAnimationIndex_00=anim_idx,
-            wMotionPlaybackParam_02=motion_param,
-            nField_04=field_04,
-            wMotionFlags_06=motion_flags,
-            dwSubTableOffset_10=sub_a,
-            dwSubTableOffset_14=sub_b,
-            dwAltBytecodeOffset_1C=alt_bc,
+            nMotionAStartFrame_02=motion_a_start,
+            nMotionAEndFrame_04=motion_a_end,
+            bMotionATrack_06=motion_a_track,
+            bMotionAFlags_07=motion_a_flags,
+            flMotionAWeightHundredths_08=motion_a_weight,
+            flMotionABlendHundredths_0C=motion_a_blend,
+            wMotionBId_10=motion_b_id,
+            nMotionBStartFrame_12=motion_b_start,
+            nMotionBEndFrame_14=motion_b_end,
+            bMotionBTrack_16=motion_b_track,
+            bMotionBFlags_17=motion_b_flags,
+            flMotionBWeightHundredths_18=motion_b_weight,
+            flMotionBBlendHundredths_1C=motion_b_blend,
             qwInputMask_20=mask_a,
             qwInputMask_28=mask_b,
-            flPlaybackSpeed60ths_30=playback_speed_60ths,
+            flPlaybackSpeedHundredths_30=playback_speed_hundredths,
             wTotalFrames=total_frames,
             nHitWindowStart_36=hit_win,
             dwBytecodeOffset_38=bc_off,
@@ -1431,7 +1561,8 @@ def parse_khd(data: bytes) -> KhdFile:
 #
 # Sphere tail:
 #   +0x08  float[4]  (x, y, z, radius)
-#   +0x18  u32 id, u32 reserved
+#   +0x18  float contact impulse scale
+#   +0x1C  u32 UE4 bone-matrix index
 
 @dataclass
 class HitRecord:
@@ -1445,7 +1576,8 @@ class HitRecord:
     pos_y: float = 0.0
     pos_z: float = 0.0
     radius: float = 0.0
-    id_link: int = 0
+    contact_impulse_scale: float = 0.0
+    bone_index_ue4: int = 0
     raw: bytes = field(default=b"", repr=False)
 
 
@@ -1460,9 +1592,11 @@ def parse_hit_dat(data: bytes) -> HitFile:
     """Parse an atkhit / bodyhit / yararehit .dat file as an i16-tagged stream."""
     records: list[HitRecord] = []
     o = 0
+    saw_sentinel = False
     while o + 2 <= len(data):
         tag = struct.unpack_from("<h", data, o)[0]
         if tag < 0:
+            saw_sentinel = True
             break
         if tag == 0:
             stride = 0x20
@@ -1471,9 +1605,12 @@ def parse_hit_dat(data: bytes) -> HitFile:
         elif tag == 2:
             stride = 0x30
         else:
-            break
+            raise ValueError(f"unknown hit-data tag {tag} at 0x{o:X}")
         if o + stride > len(data):
-            break
+            raise ValueError(
+                f"truncated hit-data record tag {tag} at 0x{o:X}: "
+                f"need 0x{stride:X} bytes"
+            )
         slot = struct.unpack_from("<H", data, o + 2)[0]
         flags = struct.unpack_from("<I", data, o + 4)[0]
         rec = HitRecord(
@@ -1485,11 +1622,16 @@ def parse_hit_dat(data: bytes) -> HitFile:
             raw=data[o : o + stride],
         )
         if tag == 0:
-            x, y, z, r, idlink, _ = struct.unpack_from("<4f2I", data, o + 0x08)
+            x, y, z, r, contact_impulse_scale, bone_index_ue4 = struct.unpack_from(
+                "<5fI", data, o + 0x08
+            )
             rec.pos_x, rec.pos_y, rec.pos_z, rec.radius = x, y, z, r
-            rec.id_link = idlink
+            rec.contact_impulse_scale = contact_impulse_scale
+            rec.bone_index_ue4 = bone_index_ue4
         records.append(rec)
         o += stride
+    if not saw_sentinel:
+        raise ValueError("hit-data stream has no negative sentinel")
     return HitFile(records=records, stream_end=o, trailer=data[o:])
 
 

@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 project(MyMods)
+enable_testing()
 
 # ---------------------------------------------------------------------------
 # Dev-iteration knobs.  These shave dozens of seconds off `build_horse_mod.bat`

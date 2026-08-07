@@ -10,6 +10,7 @@
 
 #include "NativeBinding.hpp"
 #include "ReplayDebugTrace.hpp"
+#include "RollbackConsumedInputSidecar.hpp"
 #include "SafeMemoryRead.hpp"
 
 #include <Windows.h>
@@ -55,22 +56,14 @@ namespace Horse
         return true;
     }
 
-    struct RollbackReplayInputRoundPair
-    {
-        uint32_t player0_offset {0};
-        uint32_t player1_offset {0};
-        uint32_t byte_count {0};
-        uint32_t frame_count {0};
-        uint64_t player0_hash {0};
-        uint64_t player1_hash {0};
-    };
-
     struct RollbackReplayInputScript
     {
         bool ok {false};
         bool wrapper_header {false};
+        bool consumed_input_sidecar {false};
         bool payload_ulx1 {false};
         bool native_decompress_ok {false};
+        bool native_setup_metadata_ok {false};
         uint64_t file_bytes {0};
         uint64_t file_hash {0};
         uint64_t payload_bytes {0};
@@ -86,10 +79,27 @@ namespace Horse
         int32_t setup_stage_index {-1};
         int32_t setup_left_chara_id {-1};
         int32_t setup_right_chara_id {-1};
+        uint32_t setup_random_seed {0};
+        uint64_t source_build_id {0};
+        uint64_t source_schema_id {0};
+        std::array<uint8_t, 32> source_replay_sha256 {};
+        std::array<uint8_t, 32> source_oracle_sha256 {};
+        std::array<uint8_t, 32> bound_artifact_sha256 {};
         const char* failure {"not-run"};
         std::array<std::vector<uint32_t>, 2> player_inputs {};
         std::vector<RollbackReplayInputRoundPair> round_pairs {};
     };
+
+    static inline bool RollbackConsumedInputIdentityMatches(
+        const RollbackReplayInputScript& script,
+        uint64_t expected_build_id,
+        uint64_t expected_schema_id) noexcept
+    {
+        return script.consumed_input_sidecar
+            && expected_build_id != 0 && expected_schema_id != 0
+            && script.source_build_id == expected_build_id
+            && script.source_schema_id == expected_schema_id;
+    }
 
     struct RollbackReplayInputInjectionReport
     {
@@ -130,12 +140,18 @@ namespace Horse
                 : ReplayTraceFields::fnv1a64(
                     file_bytes.data(), file_bytes.size());
 
+            if (is_consumed_input_sidecar(file_bytes))
+                return extract_consumed_input_sidecar(file_bytes, out);
+
             std::vector<uint8_t> payload;
             if (!unwrap_payload(file_bytes, payload, out))
                 return false;
 
             std::vector<uint8_t> decompressed;
             if (!native_decompress_ulx1(payload, decompressed, out))
+                return false;
+
+            if (!extract_native_setup_metadata(decompressed, out))
                 return false;
 
             if (!extract_length_prefixed_streams(decompressed, out))
@@ -157,6 +173,9 @@ namespace Horse
 
     private:
         static constexpr uintptr_t kRVA_LuxReplayDecompressUlx1 = 0x2DCE6F0;
+        static constexpr uintptr_t kRVA_ReplayListItemInitialize = 0x5799D0;
+        static constexpr uintptr_t kRVA_ReplayListItemDestroy = 0x4EEBA0;
+        static constexpr uintptr_t kRVA_LuxReplayDeserializeItem = 0x5B17F0;
         static constexpr uintptr_t kRVA_FMemoryFree = 0xD46A00;
         static constexpr uint32_t kReplayWrapperHeaderBytes = 72;
         static constexpr uint32_t kReplayWrapperVersion = 1;
@@ -165,6 +184,9 @@ namespace Horse
         static constexpr uint32_t kMaxInputStreamBytes = 60000;
         static constexpr uint64_t kMaxReplayPayloadBytes =
             64ull * 1024ull * 1024ull;
+        static constexpr size_t kNativeReplayListItemBytes = 0x1A00;
+        static constexpr size_t kNativeReplayListItemBattleDataOff = 0xA0;
+        static constexpr size_t kNativeBattleRuleRandomSeedOff = 0x80;
 
         struct TArrayByteNative
         {
@@ -177,6 +199,10 @@ namespace Horse
 
         using LuxReplayDecompressUlx1Fn =
             bool(__fastcall*)(TArrayByteNative*, TArrayByteNative*);
+        using ReplayListItemInitializeFn = void*(__fastcall*)(void*);
+        using ReplayListItemDestroyFn = void(__fastcall*)(void*);
+        using LuxReplayDeserializeItemFn =
+            bool(__fastcall*)(TArrayByteNative*, void*);
         using FMemoryFreeFn = void(__fastcall*)(void*);
 
         struct CandidateBlock
@@ -219,6 +245,51 @@ namespace Horse
                 values.data(), values.size() * sizeof(uint32_t));
         }
 
+        static bool is_consumed_input_sidecar(
+            const std::vector<uint8_t>& bytes) noexcept
+        {
+            return RollbackConsumedInputSidecarHasMagic(bytes);
+        }
+
+        static bool extract_consumed_input_sidecar(
+            const std::vector<uint8_t>& bytes,
+            RollbackReplayInputScript& out) noexcept
+        {
+            RollbackConsumedInputSidecar sidecar {};
+            if (!RollbackConsumedInputSidecarCodec::extract(bytes, sidecar))
+            {
+                out.failure = sidecar.failure;
+                return false;
+            }
+            out.consumed_input_sidecar = true;
+            out.wrapper_header = true;
+            out.native_setup_metadata_ok = true;
+            out.file_bytes = sidecar.file_bytes;
+            out.file_hash = sidecar.file_hash;
+            out.payload_bytes = sidecar.payload_bytes;
+            out.payload_hash = sidecar.payload_hash;
+            out.input_blocks_detected = sidecar.round_pairs.size() * 2u;
+            out.input_block_pairs = sidecar.round_pairs.size();
+            out.input_frames_p0 = sidecar.input_frames_p0;
+            out.input_frames_p1 = sidecar.input_frames_p1;
+            out.input_hash_p0 = sidecar.input_hash_p0;
+            out.input_hash_p1 = sidecar.input_hash_p1;
+            out.setup_stage_index = sidecar.stage_index;
+            out.setup_left_chara_id = sidecar.left_chara_id;
+            out.setup_right_chara_id = sidecar.right_chara_id;
+            out.setup_random_seed = sidecar.random_seed;
+            out.source_build_id = sidecar.source_build_id;
+            out.source_schema_id = sidecar.source_schema_id;
+            out.source_replay_sha256 = sidecar.source_replay_sha256;
+            out.source_oracle_sha256 = sidecar.source_oracle_sha256;
+            out.bound_artifact_sha256 = sidecar.bound_artifact_sha256;
+            out.player_inputs = std::move(sidecar.player_inputs);
+            out.round_pairs = std::move(sidecar.round_pairs);
+            out.ok = true;
+            out.failure = "ok";
+            return true;
+        }
+
         static void safe_native_free(FMemoryFreeFn fn, void* ptr) noexcept
         {
             if (!fn || !ptr) return;
@@ -240,6 +311,52 @@ namespace Horse
             __try
             {
                 return fn(out, input);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        static bool safe_native_initialize_replay_item(
+            ReplayListItemInitializeFn fn, void* item) noexcept
+        {
+            if (!fn || !item) return false;
+            __try
+            {
+                fn(item);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        static bool safe_native_deserialize_replay_item(
+            LuxReplayDeserializeItemFn fn,
+            TArrayByteNative* payload,
+            void* item) noexcept
+        {
+            if (!fn || !payload || !item) return false;
+            __try
+            {
+                return fn(payload, item);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                return false;
+            }
+        }
+
+        static bool safe_native_destroy_replay_item(
+            ReplayListItemDestroyFn fn, void* item) noexcept
+        {
+            if (!fn || !item) return false;
+            __try
+            {
+                fn(item);
+                return true;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -385,6 +502,69 @@ namespace Horse
             out.decompressed_hash = ReplayTraceFields::fnv1a64(
                 decompressed.data(), decompressed.size());
             return true;
+        }
+
+        static bool extract_native_setup_metadata(
+            const std::vector<uint8_t>& decompressed,
+            RollbackReplayInputScript& out) noexcept
+        {
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base || decompressed.empty()
+                || decompressed.size() > static_cast<size_t>(INT32_MAX))
+            {
+                out.failure = "native-replay-setup-metadata-unavailable";
+                return false;
+            }
+
+            auto* initialize = reinterpret_cast<ReplayListItemInitializeFn>(
+                base + kRVA_ReplayListItemInitialize);
+            auto* deserialize = reinterpret_cast<LuxReplayDeserializeItemFn>(
+                base + kRVA_LuxReplayDeserializeItem);
+            auto* destroy = reinterpret_cast<ReplayListItemDestroyFn>(
+                base + kRVA_ReplayListItemDestroy);
+            alignas(16) std::array<uint8_t, kNativeReplayListItemBytes>
+                item {};
+            bool initialized = false;
+            bool deserialized = false;
+            bool destroyed = false;
+            uint32_t seed = 0;
+
+            initialized = safe_native_initialize_replay_item(
+                initialize, item.data());
+            if (initialized)
+            {
+                TArrayByteNative payload {};
+                payload.data = const_cast<uint8_t*>(decompressed.data());
+                payload.num = static_cast<int32_t>(decompressed.size());
+                payload.max = payload.num;
+                deserialized = safe_native_deserialize_replay_item(
+                    deserialize, &payload, item.data());
+                if (deserialized)
+                {
+                    std::memcpy(
+                        &seed,
+                        item.data() + kNativeReplayListItemBattleDataOff
+                            + kNativeBattleRuleRandomSeedOff,
+                        sizeof(seed));
+                }
+                destroyed = safe_native_destroy_replay_item(
+                    destroy, item.data());
+            }
+
+            out.native_setup_metadata_ok = initialized && deserialized
+                && destroyed && seed != 0;
+            out.setup_random_seed = out.native_setup_metadata_ok ? seed : 0;
+            if (!out.native_setup_metadata_ok)
+            {
+                out.failure = !initialized
+                    ? "native-replay-item-initialize-failed"
+                    : (!deserialized
+                        ? "native-replay-item-deserialize-failed"
+                        : (!destroyed
+                            ? "native-replay-item-destroy-failed"
+                            : "native-replay-random-seed-invalid"));
+            }
+            return out.native_setup_metadata_ok;
         }
 
         static bool input_block_candidate(

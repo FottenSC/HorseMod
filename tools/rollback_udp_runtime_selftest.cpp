@@ -6,6 +6,39 @@
 
 namespace
 {
+    class RollbackUdpSelfTestPortLock
+    {
+    public:
+        bool acquire() noexcept
+        {
+            m_mutex = CreateMutexW(
+                nullptr, FALSE,
+                L"Local\\HorseModRollbackUdpRuntimeSelfTestPortsV1");
+            if (m_mutex == nullptr) return false;
+            const DWORD result = WaitForSingleObject(m_mutex, 60000);
+            m_acquired =
+                result == WAIT_OBJECT_0 || result == WAIT_ABANDONED;
+            return m_acquired;
+        }
+
+        ~RollbackUdpSelfTestPortLock()
+        {
+            if (m_acquired) ReleaseMutex(m_mutex);
+            if (m_mutex != nullptr) CloseHandle(m_mutex);
+        }
+
+        RollbackUdpSelfTestPortLock(
+            const RollbackUdpSelfTestPortLock&) = delete;
+        RollbackUdpSelfTestPortLock& operator=(
+            const RollbackUdpSelfTestPortLock&) = delete;
+
+        RollbackUdpSelfTestPortLock() = default;
+
+    private:
+        HANDLE m_mutex {nullptr};
+        bool m_acquired {false};
+    };
+
     bool wait_ready(
         Horse::RollbackUdpNetworkWorker& a,
         Horse::RollbackUdpNetworkWorker& b,
@@ -72,6 +105,20 @@ namespace
 
 int main()
 {
+    // This executable intentionally uses a fixed suite of loopback ports so
+    // every contract-mismatch case can name both endpoints deterministically.
+    // Fresh ON/OFF qualification matrices may invoke this self-test from
+    // separate CTest processes at the same time, so protect the complete port
+    // suite with a machine-local cross-process lock.
+    RollbackUdpSelfTestPortLock port_lock {};
+    if (!port_lock.acquire())
+    {
+        std::fprintf(
+            stderr,
+            "rollback udp-runtime self-test failed to acquire port-suite lock\n");
+        return 1;
+    }
+
     constexpr uint16_t kPortA = 65420;
     constexpr uint16_t kPortB = 65421;
     Horse::RollbackProductionConfig a {};
@@ -85,6 +132,7 @@ int main()
     a.secret = "rollback-udp-runtime-self-test";
     a.expected_build_id = 0x5343364255494C44ull;
     a.expected_schema_id = 0xABCDEF1122334455ull;
+    a.expected_native_stage_identity = 0x10003u;
     Horse::RollbackProductionConfig b = a;
     b.bind_port = kPortB;
     b.peer_port = kPortA;
@@ -96,21 +144,71 @@ int main()
     const Horse::RollbackProductionConfig equivalent_a = a;
     Horse::RollbackProductionConfig changed_secret = a;
     changed_secret.secret += "-changed";
-    Horse::RollbackProductionConfig changed_launch = a;
-    ++changed_launch.launch_descriptor.stage;
+    Horse::RollbackProductionConfig changed_fixture = a;
+    changed_fixture.deterministic_input.enabled = true;
     Horse::RollbackProductionConfig changed_profile = a;
     changed_profile.network_profile =
         Horse::RollbackNetworkProfileKind::Wifi50msJitter;
+    Horse::RollbackProductionConfig changed_worker_stall = a;
+    changed_worker_stall.test_worker_stall_after_ms = 100;
+    changed_worker_stall.test_worker_stall_duration_ms = 125;
     Horse::RollbackProductionConfig changed_domain = a;
     changed_domain.session_domain =
         Horse::RollbackSessionDomain::ReplayForkLab;
-    const bool config_equivalence =
+    Horse::RollbackProductionConfig changed_stage = a;
+    changed_stage.expected_native_stage_identity = 0x10004u;
+    Horse::RollbackProductionConfig changed_selection_binding = a;
+    changed_selection_binding.bind_observed_stock_selection = true;
+    Horse::RollbackProductionConfig changed_test_selection_override = a;
+    changed_test_selection_override.replay_test_selection_override = true;
+    const bool invalid_test_selection_override =
+        !changed_test_selection_override.valid();
+    Horse::RollbackProductionConfig valid_test_selection_override =
+        changed_test_selection_override;
+    valid_test_selection_override.replay_input.enabled = true;
+    valid_test_selection_override.deterministic_input.enabled = true;
+    valid_test_selection_override.replay_input_file = "fixture.bin";
+    valid_test_selection_override.replay_input.file_sha256[0] = 1;
+    valid_test_selection_override.replay_input.replay_random_seed = 1;
+    valid_test_selection_override.replay_input.round_start_count = 1;
+    valid_test_selection_override.expected_selection_hash = 0x1234;
+    const bool test_selection_override_scope =
+        invalid_test_selection_override
+        && valid_test_selection_override.valid();
+    Horse::RollbackProductionConfig changed_replay_input = a;
+    changed_replay_input.replay_input.enabled = true;
+    changed_replay_input.replay_input_file = "fixture.bin";
+    changed_replay_input.replay_input.file_sha256[0] = 1;
+    Horse::RollbackProductionConfig changed_trace_detail = a;
+    changed_trace_detail.replay_trace_input_only = true;
+    const bool config_equivalence = test_selection_override_scope
+        &&
         Horse::RollbackProductionConfigEquivalent(a, equivalent_a)
         && !Horse::RollbackProductionConfigEquivalent(a, b)
         && !Horse::RollbackProductionConfigEquivalent(a, changed_secret)
-        && !Horse::RollbackProductionConfigEquivalent(a, changed_launch)
+        && !Horse::RollbackProductionConfigEquivalent(a, changed_fixture)
         && !Horse::RollbackProductionConfigEquivalent(a, changed_profile)
-        && !Horse::RollbackProductionConfigEquivalent(a, changed_domain);
+        && !Horse::RollbackProductionConfigEquivalent(
+            a, changed_worker_stall)
+        && !Horse::RollbackProductionConfigEquivalent(a, changed_domain)
+        && !Horse::RollbackProductionConfigEquivalent(a, changed_stage)
+        && !Horse::RollbackProductionConfigEquivalent(
+            a, changed_selection_binding)
+        && !Horse::RollbackProductionConfigEquivalent(
+            a, changed_test_selection_override)
+        && !Horse::RollbackProductionConfigEquivalent(
+            a, changed_replay_input)
+        && !Horse::RollbackProductionConfigEquivalent(
+            a, changed_trace_detail);
+    const uint64_t contract_hash =
+        Horse::ComputeRollbackSessionContractHash(a, 0x12345678ull);
+    const bool session_contract_hash = contract_hash != 0
+        && contract_hash != Horse::ComputeRollbackSessionContractHash(
+            changed_selection_binding, 0x12345678ull)
+        && contract_hash != Horse::ComputeRollbackSessionContractHash(
+            changed_test_selection_override, 0x12345678ull)
+        && contract_hash != Horse::ComputeRollbackSessionContractHash(
+            a, 0x12345679ull);
 
     Horse::RollbackUdpNetworkWorker worker_a {};
     Horse::RollbackUdpNetworkWorker worker_b {};
@@ -204,65 +302,45 @@ int main()
         && !mismatch_stopped_a.endpoint_open
         && !mismatch_stopped_b.endpoint_open;
 
-    Horse::RollbackProductionConfig mirrored_a = a;
-    mirrored_a.bind_port = 65426;
-    mirrored_a.peer_port = 65427;
-    mirrored_a.lifecycle_mode =
-        Horse::RollbackLifecycleMode::MirroredVersus;
-    mirrored_a.native_input_source_slot = 0;
-    Horse::RollbackProductionConfig mirrored_b = b;
-    mirrored_b.bind_port = mirrored_a.peer_port;
-    mirrored_b.peer_port = mirrored_a.bind_port;
-    mirrored_b.lifecycle_mode =
-        Horse::RollbackLifecycleMode::MirroredVersus;
-    mirrored_b.native_input_source_slot = 0;
+    Horse::RollbackProductionConfig profile_a = a;
+    profile_a.bind_port = 65426;
+    profile_a.peer_port = 65427;
+    Horse::RollbackProductionConfig profile_b = b;
+    profile_b.bind_port = profile_a.peer_port;
+    profile_b.peer_port = profile_a.bind_port;
 
-    Horse::RollbackProductionConfig mode_mismatch_b = mirrored_b;
-    mode_mismatch_b.lifecycle_mode =
-        Horse::RollbackLifecycleMode::StockOnlinePvp;
-    mode_mismatch_b.native_input_source_slot =
-        mode_mismatch_b.local_player_slot;
-    const bool mode_mismatch_rejected = profile_pair_rejected(
-        mirrored_a, mode_mismatch_b);
+    Horse::RollbackProductionConfig fixture_mismatch_b = profile_b;
+    fixture_mismatch_b.deterministic_input.enabled = true;
+    const bool fixture_mismatch_rejected = profile_pair_rejected(
+        profile_a, fixture_mismatch_b);
 
-    mirrored_a.bind_port = 65428;
-    mirrored_a.peer_port = 65429;
-    mirrored_b.bind_port = mirrored_a.peer_port;
-    mirrored_b.peer_port = mirrored_a.bind_port;
-    Horse::RollbackProductionConfig seed_mismatch_b = mirrored_b;
-    ++seed_mismatch_b.launch_descriptor.seed;
-    const bool seed_mismatch_rejected = profile_pair_rejected(
-        mirrored_a, seed_mismatch_b);
+    Horse::RollbackProductionConfig replay_input_a = profile_a;
+    Horse::RollbackProductionConfig replay_input_b = profile_b;
+    replay_input_a.deterministic_input.enabled = true;
+    replay_input_b.deterministic_input.enabled = true;
+    replay_input_a.replay_input.enabled = true;
+    replay_input_b.replay_input.enabled = true;
+    replay_input_a.replay_input_file = "fixture.bin";
+    replay_input_b.replay_input_file = "fixture.bin";
+    replay_input_a.replay_input.replay_random_seed = 1;
+    replay_input_b.replay_input.replay_random_seed = 1;
+    replay_input_a.replay_input.round_start_count = 1;
+    replay_input_b.replay_input.round_start_count = 1;
+    replay_input_a.replay_input.file_sha256[0] = 1;
+    replay_input_b.replay_input.file_sha256[0] = 2;
+    const bool replay_input_mismatch_rejected = profile_pair_rejected(
+        replay_input_a, replay_input_b);
 
-    mirrored_a.bind_port = 65430;
-    mirrored_a.peer_port = 65431;
-    mirrored_b.bind_port = mirrored_a.peer_port;
-    mirrored_b.peer_port = mirrored_a.bind_port;
-    Horse::RollbackProductionConfig descriptor_mismatch_b = mirrored_b;
-    ++descriptor_mismatch_b.launch_descriptor.stage;
-    const bool descriptor_mismatch_rejected = profile_pair_rejected(
-        mirrored_a, descriptor_mismatch_b);
-
-    mirrored_a.bind_port = 65432;
-    mirrored_a.peer_port = 65433;
-    mirrored_b.bind_port = mirrored_a.peer_port;
-    mirrored_b.peer_port = mirrored_a.bind_port;
-    Horse::RollbackProductionConfig character_mismatch_b = mirrored_b;
-    ++character_mismatch_b.launch_descriptor.right_character;
-    const bool character_mismatch_rejected = profile_pair_rejected(
-        mirrored_a, character_mismatch_b);
-
-    mirrored_a.bind_port = 65434;
-    mirrored_a.peer_port = 65435;
-    mirrored_b.bind_port = mirrored_a.peer_port;
-    mirrored_b.peer_port = mirrored_a.bind_port;
-    mirrored_a.network_profile =
+    profile_a.bind_port = 65434;
+    profile_a.peer_port = 65435;
+    profile_b.bind_port = profile_a.peer_port;
+    profile_b.peer_port = profile_a.bind_port;
+    profile_a.network_profile =
         Horse::RollbackNetworkProfileKind::Wifi50msJitter;
-    mirrored_b.network_profile =
+    profile_b.network_profile =
         Horse::RollbackNetworkProfileKind::Clean0ms;
     const bool network_profile_mismatch_rejected = profile_pair_rejected(
-        mirrored_a, mirrored_b);
-
+        profile_a, profile_b);
     // Exercise the production wire scheduler, not only the in-process model.
     // Handshake and gameplay datagrams must traverse the same deterministic
     // delay/jitter/reorder path and still authenticate end to end.
@@ -316,6 +394,53 @@ int main()
         && wifi_status_b.packets_authenticated > 0;
     wifi_worker_a.stop();
     wifi_worker_b.stop();
+
+    // The test-only schedule stalls exactly one common transport worker,
+    // publishes bounded start/completion telemetry, and then recovers the
+    // authenticated session without changing the peer handshake profile.
+    Horse::RollbackProductionConfig stall_a = a;
+    stall_a.bind_port = 65452;
+    stall_a.peer_port = 65453;
+    stall_a.test_worker_stall_after_ms = 100;
+    stall_a.test_worker_stall_duration_ms = 125;
+    Horse::RollbackProductionConfig stall_b = b;
+    stall_b.bind_port = stall_a.peer_port;
+    stall_b.peer_port = stall_a.bind_port;
+    Horse::RollbackUdpNetworkWorker stall_worker_a {};
+    Horse::RollbackUdpNetworkWorker stall_worker_b {};
+    const bool stall_started = stall_worker_a.start(stall_a)
+        && stall_worker_b.start(stall_b);
+    const bool stall_ready = stall_started
+        && wait_ready(stall_worker_a, stall_worker_b, 3000);
+    const auto stall_deadline = std::chrono::steady_clock::now()
+        + std::chrono::seconds(2);
+    while (stall_worker_a.status().test_worker_stalls_completed == 0
+        && std::chrono::steady_clock::now() < stall_deadline)
+    {
+        std::this_thread::yield();
+    }
+    const auto stall_status_a = stall_worker_a.status();
+    const auto stall_status_b = stall_worker_b.status();
+    const bool stall_telemetry = stall_ready
+        && stall_status_a.test_worker_stalls_started == 1
+        && stall_status_a.test_worker_stalls_completed == 1
+        && stall_status_a.test_worker_stall_actual_ms >= 105
+        && stall_status_a.test_worker_stall_actual_ms <= 375
+        && stall_status_b.test_worker_stalls_started == 0
+        && stall_status_b.test_worker_stalls_completed == 0
+        && stall_status_b.test_worker_stall_actual_ms == 0
+        && stall_worker_a.peer_ready()
+        && stall_worker_b.peer_ready();
+    stall_worker_a.stop();
+    stall_worker_b.stop();
+
+    Horse::RollbackProductionConfig half_stall = a;
+    half_stall.test_worker_stall_after_ms = 100;
+    Horse::RollbackProductionConfig oversized_stall = a;
+    oversized_stall.test_worker_stall_after_ms = 100;
+    oversized_stall.test_worker_stall_duration_ms = 1001;
+    const bool invalid_stall_configs =
+        !half_stall.valid() && !oversized_stall.valid();
 
     Horse::RollbackProductionConfig replay_a = a;
     replay_a.bind_port = 65438;
@@ -404,8 +529,8 @@ int main()
     const bool replay_schema_mismatch_rejected = profile_pair_rejected(
         replay_a, replay_b);
 
-    Horse::RollbackProductionConfig wrong_native_source = mirrored_b;
-    wrong_native_source.native_input_source_slot = 1;
+    Horse::RollbackProductionConfig wrong_native_source = b;
+    wrong_native_source.native_input_source_slot = 0;
     Horse::RollbackUdpNetworkWorker wrong_native_source_worker {};
     const bool wrong_native_source_rejected =
         !wrong_native_source.valid()
@@ -413,6 +538,24 @@ int main()
         && wrong_native_source_worker.status().failure
             == Horse::RollbackUdpWorkerFailure::InvalidConfig;
     wrong_native_source_worker.stop();
+
+    Horse::RollbackProductionConfig invalid_peer_address = a;
+    invalid_peer_address.peer_address = "not-an-ipv4-endpoint";
+    Horse::RollbackUdpNetworkWorker invalid_peer_address_worker {};
+    Horse::IRollbackTransport* invalid_peer_transport =
+        &invalid_peer_address_worker;
+    const bool invalid_peer_address_rejected =
+        !invalid_peer_transport->start(invalid_peer_address)
+        && invalid_peer_transport->status().failure
+            == Horse::RollbackUdpWorkerFailure::InvalidConfig;
+    invalid_peer_transport->stop();
+    sockaddr_in resolved_localhost {};
+    const bool dns_peer_resolved =
+        Horse::RollbackUdpEndpoint::parse_address(
+            "localhost", 47170, resolved_localhost)
+        && resolved_localhost.sin_family == AF_INET
+        && ntohs(resolved_localhost.sin_port) == 47170
+        && resolved_localhost.sin_addr.s_addr != 0;
 
     // Fill a live authenticated inbound queue while deliberately withholding
     // the game-thread drain. The receiver must latch QueueOverflow and stop;
@@ -455,6 +598,68 @@ int main()
     flood_worker_a.stop();
     flood_worker_b.stop();
 
+    // Terminal reliability traffic can outlive Gekko polling. A service-side
+    // drain must keep more than one full inbound-queue capacity of valid
+    // control packets flowing without weakening the undrained overflow test
+    // above.
+    Horse::RollbackProductionConfig terminal_drain_a = a;
+    terminal_drain_a.bind_port = 65454;
+    terminal_drain_a.peer_port = 65455;
+    Horse::RollbackProductionConfig terminal_drain_b = b;
+    terminal_drain_b.bind_port = terminal_drain_a.peer_port;
+    terminal_drain_b.peer_port = terminal_drain_a.bind_port;
+    Horse::RollbackUdpNetworkWorker terminal_drain_worker_a {};
+    Horse::RollbackUdpNetworkWorker terminal_drain_worker_b {};
+    const bool terminal_drain_started =
+        terminal_drain_worker_a.start(terminal_drain_a)
+        && terminal_drain_worker_b.start(terminal_drain_b);
+    const bool terminal_drain_ready = terminal_drain_started
+        && wait_ready(
+            terminal_drain_worker_a, terminal_drain_worker_b, 2000);
+    uint32_t terminal_drain_sent = 0;
+    uint32_t terminal_drain_received = 0;
+    Horse::RollbackUdpMessage terminal_message {};
+    for (uint32_t value = 0; terminal_drain_ready && value < 400; ++value)
+    {
+        const auto deadline = std::chrono::steady_clock::now()
+            + std::chrono::seconds(2);
+        bool queued = false;
+        while (!queued && std::chrono::steady_clock::now() < deadline)
+        {
+            queued = terminal_drain_worker_a.enqueue_redundant(
+                Horse::RollbackProtocolV2PacketType::RoundTransition,
+                &value,
+                sizeof(value));
+            while (terminal_drain_worker_b.dequeue(terminal_message))
+                ++terminal_drain_received;
+            if (!queued) std::this_thread::yield();
+        }
+        if (!queued) break;
+        ++terminal_drain_sent;
+    }
+    const auto terminal_drain_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (terminal_drain_received < terminal_drain_sent
+        && std::chrono::steady_clock::now() < terminal_drain_deadline)
+    {
+        while (terminal_drain_worker_b.dequeue(terminal_message))
+            ++terminal_drain_received;
+        std::this_thread::yield();
+    }
+    const auto terminal_drain_status_a = terminal_drain_worker_a.status();
+    const auto terminal_drain_status_b = terminal_drain_worker_b.status();
+    const bool terminal_drain_prevents_overflow = terminal_drain_ready
+        && terminal_drain_sent == 400
+        && terminal_drain_received == terminal_drain_sent
+        && terminal_drain_status_a.failure
+            == Horse::RollbackUdpWorkerFailure::None
+        && terminal_drain_status_b.failure
+            == Horse::RollbackUdpWorkerFailure::None
+        && terminal_drain_status_a.queue_overflows == 0
+        && terminal_drain_status_b.queue_overflows == 0;
+    terminal_drain_worker_a.stop();
+    terminal_drain_worker_b.stop();
+
     Horse::RollbackProductionConfig zero_delay = a;
     zero_delay.input_delay = 0;
     Horse::RollbackUdpNetworkWorker zero_delay_worker {};
@@ -489,18 +694,49 @@ int main()
         && overflow_status.queue_overflows == 1;
     overflow_worker.stop();
 
-    const bool ok = config_equivalence
+    // Periodic idempotent control retransmits use an independent small lane.
+    // Saturating it must defer that retransmit without poisoning the primary
+    // gameplay queue or stopping the session.
+    Horse::RollbackUdpNetworkWorker redundant_worker {};
+    bool redundant_prefix_accepted = true;
+    for (uint32_t i = 0; i < 7; ++i)
+    {
+        redundant_prefix_accepted = redundant_prefix_accepted
+            && redundant_worker.enqueue_redundant(
+                Horse::RollbackProtocolV2PacketType::RoundTransition,
+                &i,
+                sizeof(i));
+    }
+    const bool redundant_deferred =
+        !redundant_worker.enqueue_redundant(
+            Horse::RollbackProtocolV2PacketType::RoundTransition,
+            &overflow_payload,
+            sizeof(overflow_payload));
+    const bool primary_after_redundant_pressure =
+        redundant_worker.enqueue(
+            Horse::RollbackProtocolV2PacketType::Gekko,
+            &overflow_payload,
+            sizeof(overflow_payload));
+    const auto redundant_status = redundant_worker.status();
+    const bool redundant_pressure_nonfatal = redundant_prefix_accepted
+        && redundant_deferred && primary_after_redundant_pressure
+        && redundant_status.failure
+            == Horse::RollbackUdpWorkerFailure::None
+        && redundant_status.queue_overflows == 0
+        && redundant_status.redundant_enqueue_deferrals == 1;
+    redundant_worker.stop();
+
+    const bool ok = config_equivalence && session_contract_hash
         && started && ready && queued && delivered
         && heartbeat_expired && cleanup
         && mismatch_started && mismatch_rejected
         && mismatch_stayed_unready && mismatch_cleanup
-        && mode_mismatch_rejected
-        && seed_mismatch_rejected
-        && descriptor_mismatch_rejected
-        && character_mismatch_rejected
+        && fixture_mismatch_rejected
+        && replay_input_mismatch_rejected
         && network_profile_mismatch_rejected
         && wifi_started && wifi_ready && wifi_queued
         && wifi_fault_path_observed
+        && stall_started && stall_telemetry && invalid_stall_configs
         && replay_started && replay_ready
         && replay_hash_mismatch_rejected
         && replay_anchor_mismatch_rejected
@@ -509,9 +745,13 @@ int main()
         && replay_build_mismatch_rejected
         && replay_schema_mismatch_rejected
         && wrong_native_source_rejected
+        && invalid_peer_address_rejected
+        && dns_peer_resolved
         && flood_started && flood_ready && inbound_overflow_failed_closed
+        && terminal_drain_prevents_overflow
         && zero_delay_rejected
         && overflow_failed_closed
+        && redundant_pressure_nonfatal
         && status_ready_a.endpoint_pinned && status_b.endpoint_pinned
         && status_ready_a.handshake_generation == 1
         && status_b.handshake_generation == 1
@@ -522,22 +762,27 @@ int main()
 
     std::printf(
         "rollback udp-runtime self-test %s config_equivalence=%d "
+        "contract_hash=%d "
         "started=%d ready=%d queued=%d "
         "delivered=%d heartbeat_expired=%d cleanup=%d auth_a=%llu "
         "auth_b=%llu reject_a=%llu "
         "reject_b=%llu profile_started=%d profile_rejected=%d "
         "profile_stayed_unready=%d profile_cleanup=%d "
         "profile_reject_a=%llu profile_reject_b=%llu "
-        "mode_reject=%d seed_reject=%d descriptor_reject=%d "
-        "character_reject=%d network_profile_reject=%d "
+        "fixture_reject=%d replay_input_reject=%d "
+        "network_profile_reject=%d "
         "wifi_ready=%d wifi_received=%u wifi_queued_packets=%llu "
+        "stall_ready=%d stall_started_count=%llu "
+        "stall_completed_count=%llu stall_actual_ms=%llu "
         "replay_ready=%d replay_hash_reject=%d replay_anchor_reject=%d "
         "replay_nonce_reject=%d replay_domain_reject=%d "
         "replay_build_reject=%d replay_schema_reject=%d "
-        "native_source_reject=%d zero_delay=%d "
-        "outbound_overflow=%d inbound_overflow=%d\n",
+        "native_source_reject=%d dns_peer=%d zero_delay=%d "
+        "outbound_overflow=%d inbound_overflow=%d "
+        "terminal_drain=%d redundant_deferral=%d\n",
         ok ? "passed" : "failed",
         config_equivalence ? 1 : 0,
+        session_contract_hash ? 1 : 0,
         started ? 1 : 0,
         ready ? 1 : 0,
         queued ? 1 : 0,
@@ -556,14 +801,19 @@ int main()
             mismatch_status_a.packets_rejected),
         static_cast<unsigned long long>(
             mismatch_status_b.packets_rejected),
-        mode_mismatch_rejected ? 1 : 0,
-        seed_mismatch_rejected ? 1 : 0,
-        descriptor_mismatch_rejected ? 1 : 0,
-        character_mismatch_rejected ? 1 : 0,
+        fixture_mismatch_rejected ? 1 : 0,
+        replay_input_mismatch_rejected ? 1 : 0,
         network_profile_mismatch_rejected ? 1 : 0,
         wifi_ready ? 1 : 0,
         wifi_received,
         static_cast<unsigned long long>(wifi_status_a.fault_packets_queued),
+        stall_ready ? 1 : 0,
+        static_cast<unsigned long long>(
+            stall_status_a.test_worker_stalls_started),
+        static_cast<unsigned long long>(
+            stall_status_a.test_worker_stalls_completed),
+        static_cast<unsigned long long>(
+            stall_status_a.test_worker_stall_actual_ms),
         replay_ready ? 1 : 0,
         replay_hash_mismatch_rejected ? 1 : 0,
         replay_anchor_mismatch_rejected ? 1 : 0,
@@ -572,8 +822,11 @@ int main()
         replay_build_mismatch_rejected ? 1 : 0,
         replay_schema_mismatch_rejected ? 1 : 0,
         wrong_native_source_rejected ? 1 : 0,
+        dns_peer_resolved ? 1 : 0,
         zero_delay_rejected ? 1 : 0,
         overflow_failed_closed ? 1 : 0,
-        inbound_overflow_failed_closed ? 1 : 0);
+        inbound_overflow_failed_closed ? 1 : 0,
+        terminal_drain_prevents_overflow ? 1 : 0,
+        redundant_pressure_nonfatal ? 1 : 0);
     return ok ? 0 : 1;
 }

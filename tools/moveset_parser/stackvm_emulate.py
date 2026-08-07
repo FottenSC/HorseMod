@@ -11,7 +11,8 @@ from CALLCOND opcodes. Specifically it captures:
   * EvaluateIfOpcode calls (CALLCOND 0x00, 0x01, 0x25): the args[0] is
     the predicate sub-opcode kind; args[1..] are predicate parameters.
 
-The emulator is single-pass and linear over the instructions in PC order.
+The emulator follows the bytecode control-flow graph and merges abstract state
+at branch joins.
 Stack values are tagged abstract:
     "concrete"  - a known u16 from SET_ACC_U16 / folded math
     "varref"    - a LOAD_VAR result whose runtime value we don't know
@@ -39,23 +40,29 @@ VERIFIED bit layouts (from Ghidra labelling pass on 2026-05-14):
       0x1000 = up (8)    0x2000 = down (2)
       combos form numpad 1, 3, 7, 9.
 
-  Motion-pattern bit layout for the +0x2190 history-ring matcher
-  (from LuxBattle_CheckMotionConditionFlags @ 0x140312E30):
-      Pattern 0x8000 = "neutral stick" sentinel
-      Pattern 0x8001 = "any stick" sentinel
+  Compact-input pattern layout for the +0x2190 history-ring matcher.
+  LuxBattle_TickCharaMainSimulation @ 0x14034DD7F copies the low ushort
+  of chara+0x2150 into history entry +0x00. LuxBattle_TickCharaInput
+  establishes that this word uses A/B/K/G in bits 0..3 and direction in
+  bits 10..13:
+      Pattern 0x8000 = "no buttons" sentinel
+      Pattern 0x8001 = "any button" sentinel
       Pattern 0x8002 = "always true" sentinel
       Otherwise:
         (pattern >> 8) & 0xF = REQUIRED-ALL bits in history low nibble
         pattern & 0x2F       = REQUIRED-ANY bits
 
   EvaluateIfOpcode sub-opcode kinds we recognise for input rendering:
-       1   pure button mask (args[1] & dwCurrentInputMask)
-       3   button held mask (args[1] & chara+0x2178)
-      0x27 button mask vs chara+0x216c
-      0x29 button mask vs chara+0x2180
-      0x24 multi-arg nibble matcher (args[i] & 0xF000 selects source:
-            0x1000=stance ring 2170, 0x2000=stance ring 215C,
-            0x3000=bitfield 2178,   0x4000=dwCurrentInputMask)
+       1   primary raw direction nibble mask (args[1] & chara+0x2164)
+       2   primary side-decoded direction sequence
+       3   side-direction mask (args[1] & chara+0x2178)
+      0x27 raw secondary direction nibble vs chara+0x216c
+      0x26 secondary decoded direction ID vs chara+0x2168
+      0x28 secondary side-decoded direction ID vs chara+0x217c
+      0x29 secondary side-direction mask vs chara+0x2180
+      0x24 multi-arg direction matcher (args[i] & 0xF000 selects source:
+            0x1000=side-decoded ID 2170, 0x2000=decoded ID 215C,
+            0x3000=side mask 2178, 0x4000=raw nibble 2164)
       0x25 secondary-ring variant of 0x24
        5   "motion held for N consecutive history frames"
        6   "motion matched in last N OR-folded frames"
@@ -70,8 +77,9 @@ VERIFIED bit layouts (from Ghidra labelling pass on 2026-05-14):
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import Callable, Mapping, Optional, Union
 import struct
 
 from luxformats import decode_packed_slot_id
@@ -100,17 +108,48 @@ INPUT_DIRECTION_COMBO_TO_NUMPAD = {
 INPUT_DIR_MASK = 0x3C00          # bits 10..13
 INPUT_BUTTON_MASK = 0x000F       # bits 0..3
 
-# Motion-pattern history-ring bit layout (the low-nibble compact form).
-# These ride in chara+0x2192 + i*0xC (16-bit motion masks).
-# Inferred from CheckMotionConditionFlags's REQUIRED-ANY mask 0x2F. We
-# map them by direction convention; bit 0x20 may be a "buffer flush"
-# or "diagonal qualifier" — flagged unverified for now.
-MOTION_BITS = {
-    0x01: "back",
-    0x02: "forward",
-    0x04: "up",
-    0x08: "down",
+# Compact-input bits consumed by CheckMotionConditionFlags. History entry
+# +0x00 is a low-ushort copy of chara+0x2150, not the side-direction mask at
+# +0x06. Bit 0x20 participates in the native REQUIRED-ANY mask, but its
+# producer-side meaning is still unresolved.
+HISTORY_INPUT_BITS = {
+    0x01: "A",
+    0x02: "B",
+    0x04: "K",
+    0x08: "G",
     0x20: "?bit5",
+}
+
+# Side-relative direction-condition masks published through
+# g_awLuxInputDirectionMaskByDecodedId and copied to history entry +0x06.
+# These are not A/B/K/G bits and are not held-frame counters.
+DIRECTION_CONDITION_BITS = {
+    0x01: "8",
+    0x02: "2",
+    0x04: "6",
+    0x08: "4",
+}
+
+# Raw direction nibbles are obtained from (dwCompactInput >> 10) & 0xF.
+RAW_DIRECTION_NIBBLE_BITS = {
+    0x01: "4",
+    0x02: "6",
+    0x04: "8",
+    0x08: "2",
+}
+
+# g_abLuxInputNibbleToDecodedId maps compact direction nibbles to these IDs.
+DECODED_DIRECTION_ID_TO_NUMPAD = {
+    0: "5",
+    1: "9",
+    2: "8",
+    3: "7",
+    4: "6",
+    5: "5",
+    6: "4",
+    7: "3",
+    8: "2",
+    9: "1",
 }
 
 # CALLCOND function-index subsets we react to.
@@ -278,7 +317,7 @@ class EffectEvent:
         v = self.args[1]
         if not isinstance(v, Concrete):
             return None
-        return _decode_lux_fp16_literal(v.value) / 60.0
+        return decode_lux_fp16_literal(v.value) / 60.0
 
     @property
     def ramp_selector(self) -> Optional[int]:
@@ -290,12 +329,40 @@ class EffectEvent:
 
 
 @dataclass
+class BankScriptEvent:
+    """A captured nested bank-slot execution (CALLCOND 0x0D or 0x15).
+
+    The first argument is the packed MoveVM bank/slot id. Remaining arguments
+    seed the nested script's local variables; preserving them is required to
+    distinguish the common neutral-locomotion helpers from unrelated calls to
+    the same script.
+    """
+
+    callcond_idx: int
+    args: list[StackVal]
+    source_pc: int
+
+    @property
+    def packed_move_id(self) -> Optional[int]:
+        if not self.args:
+            return None
+        value = self.args[0]
+        return value.value if isinstance(value, Concrete) else None
+
+    @property
+    def concrete_args(self) -> list[Optional[int]]:
+        return [arg.value if isinstance(arg, Concrete) else None for arg in self.args]
+
+
+@dataclass
 class SlotTransitions:
     """All transition events extracted from one slot's bytecode."""
     slot_idx: int
     bytecode_offset: int
     transitions: list[TransitionEvent] = field(default_factory=list)
     effects: list[EffectEvent] = field(default_factory=list)
+    bank_scripts: list[BankScriptEvent] = field(default_factory=list)
+    predicates: list[PredicateEvent] = field(default_factory=list)
     # Counts of CALLCOND sub-opcode kinds used (a coarse fingerprint).
     callcond_summary: dict[int, int] = field(default_factory=dict)
 
@@ -331,7 +398,7 @@ class _StackState:
         return list(self.stack[-n:])
 
 
-def emulate(script: StackVMScript, slot_idx: int) -> SlotTransitions:
+def _emulate_linear(script: StackVMScript, slot_idx: int) -> SlotTransitions:
     """Run the virtual stack emulator over one slot's instructions and
     return all captured TransitionEvents.
 
@@ -363,7 +430,7 @@ def emulate(script: StackVMScript, slot_idx: int) -> SlotTransitions:
             if n != 0:
                 for _ in range(n + 1):
                     state.push(Unknown(source_pc=inst.pc))
-        elif op in (0x03, 0x04, 0x09, 0x0B):        # SET_ACC_U16 <u16>
+        elif op in (0x03, 0x04, 0x09, 0x0B, 0x2A):  # SET_ACC_U16 / JMP target
             state.acc = Concrete(inst.imm_u16 or 0, source_pc=inst.pc)
         elif op == 0x0A:                            # LOAD_VAR <varid>
             varid = inst.imm_u16 or 0
@@ -398,14 +465,11 @@ def emulate(script: StackVMScript, slot_idx: int) -> SlotTransitions:
             a = state.pop()
             if isinstance(a, Concrete) and isinstance(b, Concrete):
                 av, bv = _signed_short(a.value), _signed_short(b.value)
-                try:
-                    if op == 0x0C: r = av + bv
-                    elif op == 0x0D: r = av - bv
-                    elif op == 0x0E: r = av * bv
-                    elif op == 0x0F: r = av // bv if bv else 0
-                    else:            r = av %  bv if bv else 0
-                except ZeroDivisionError:
-                    r = 0
+                if op == 0x0C: r = av + bv
+                elif op == 0x0D: r = av - bv
+                elif op == 0x0E: r = av * bv
+                elif op == 0x0F: r = _c_div(av, bv)
+                else:            r = _c_mod(av, bv)
                 state.acc = Concrete(r & 0xFFFF, source_pc=inst.pc)
             else:
                 state.acc = Unknown(source_pc=inst.pc)
@@ -450,6 +514,7 @@ def emulate(script: StackVMScript, slot_idx: int) -> SlotTransitions:
             if fn_idx in CALLCOND_EVAL_IF:
                 last_predicate = PredicateEvent(
                     callcond_idx=fn_idx, args=args, source_pc=inst.pc)
+                out.predicates.append(last_predicate)
                 state.acc = Unknown(source_pc=inst.pc)
             elif fn_idx in CALLCOND_TRANSITION_AUTHOR:
                 out.transitions.append(
@@ -472,6 +537,15 @@ def emulate(script: StackVMScript, slot_idx: int) -> SlotTransitions:
                     )
                 )
                 state.acc = Unknown(source_pc=inst.pc)
+            elif fn_idx in CALLCOND_EXEC_BANK_SLOT | CALLCOND_SCHEDULE_TRANSITION:
+                out.bank_scripts.append(
+                    BankScriptEvent(
+                        callcond_idx=fn_idx,
+                        args=args,
+                        source_pc=inst.pc,
+                    )
+                )
+                state.acc = Unknown(source_pc=inst.pc)
             else:
                 state.acc = Unknown(source_pc=inst.pc)
             # last_predicate is invalidated by TransitionAuthor fire only
@@ -480,7 +554,7 @@ def emulate(script: StackVMScript, slot_idx: int) -> SlotTransitions:
             # the pattern PUSH preds; CALLCOND EvalIf; JZ skip; ...;
             # CALLCOND TransitionAuthor still gates correctly even when
             # other CALLCONDs (e.g. DispatchEffectOp for VFX) intervene.
-        elif op in (0x28, 0x29, 0x2A):              # JNZ / JZ / JMP
+        elif op in (0x28, 0x29, 0x2A):              # JZ / JNZ / JMP
             if op != 0x2A:
                 state.pop()
         elif op in (0x02, 0x05, 0x06, 0x07, 0x08):  # RETs / BRKs
@@ -494,7 +568,323 @@ def emulate(script: StackVMScript, slot_idx: int) -> SlotTransitions:
     return out
 
 
-def _decode_lux_fp16_literal(value: int) -> float:
+PredicateState = tuple[int, tuple[StackVal, ...], int]
+
+
+@dataclass(frozen=True)
+class _EmulationState:
+    pc: int
+    acc: StackVal
+    stack: tuple[StackVal, ...]
+    variables: tuple[tuple[int, StackVal], ...] = ()
+    last_predicate: PredicateState | None = None
+
+
+def _pop_value(stack: list[StackVal], pc: int) -> StackVal:
+    return stack.pop() if stack else Unknown(source_pc=pc)
+
+
+def _c_div(left: int, right: int) -> int:
+    if right == 0:
+        raise ZeroDivisionError("native MoveVM signed division by zero")
+    quotient = abs(left) // abs(right)
+    return -quotient if (left < 0) != (right < 0) else quotient
+
+
+def _c_mod(left: int, right: int) -> int:
+    return left - _c_div(left, right) * right
+
+
+def _fold_binary(op: int, left: StackVal, right: StackVal, pc: int) -> StackVal:
+    if not isinstance(left, Concrete) or not isinstance(right, Concrete):
+        return Unknown(source_pc=pc)
+    a, b = _signed_short(left.value), _signed_short(right.value)
+    if op == 0x0C:
+        result = a + b
+    elif op == 0x0D:
+        result = a - b
+    elif op == 0x0E:
+        result = a * b
+    elif op == 0x0F:
+        result = _c_div(a, b)
+    elif op == 0x10:
+        result = _c_mod(a, b)
+    elif op == 0x14:
+        result = (a & 0xFFFF) & (b & 0xFFFF)
+    elif op == 0x15:
+        result = (a & 0xFFFF) | (b & 0xFFFF)
+    elif op == 0x17:
+        result = a << (b & 0x1F)
+    elif op == 0x18:
+        result = a >> (b & 0x1F)
+    elif op == 0x1F:
+        result = int(a == b)
+    elif op == 0x20:
+        result = int(a != b)
+    elif op == 0x21:
+        result = int(a < b)
+    elif op == 0x22:
+        result = int(a <= b)
+    elif op == 0x23:
+        result = int(a > b)
+    elif op == 0x24:
+        result = int(a >= b)
+    else:
+        return Unknown(source_pc=pc)
+    return Concrete(result & 0xFFFF, source_pc=pc)
+
+
+def _merge_value(left: StackVal, right: StackVal, pc: int) -> StackVal:
+    if isinstance(left, Concrete) and isinstance(right, Concrete) and left.value == right.value:
+        return left
+    if isinstance(left, VarRef) and isinstance(right, VarRef) and left.varid == right.varid:
+        return left
+    return Unknown(source_pc=pc)
+
+
+def _merge_states(left: _EmulationState, right: _EmulationState) -> _EmulationState:
+    if len(left.stack) == len(right.stack):
+        stack = tuple(_merge_value(a, b, left.pc) for a, b in zip(left.stack, right.stack))
+    else:
+        # A path-dependent stack depth cannot be aligned safely.
+        stack = tuple(Unknown(source_pc=left.pc) for _ in range(min(len(left.stack), len(right.stack))))
+    left_vars = dict(left.variables)
+    right_vars = dict(right.variables)
+    variables = tuple(
+        (varid, _merge_value(left_vars[varid], right_vars[varid], left.pc))
+        for varid in sorted(left_vars.keys() & right_vars.keys())
+    )
+    return _EmulationState(
+        pc=left.pc,
+        acc=_merge_value(left.acc, right.acc, left.pc),
+        stack=stack,
+        variables=variables,
+        last_predicate=(
+            left.last_predicate if left.last_predicate == right.last_predicate else None
+        ),
+    )
+
+
+def _event_value_key(value: StackVal) -> tuple[str, int | None]:
+    if isinstance(value, Concrete):
+        return "concrete", value.value & 0xFFFF
+    if isinstance(value, VarRef):
+        return "var", value.varid
+    return "unknown", None
+
+
+def emulate(
+    script: StackVMScript,
+    slot_idx: int,
+    local_args: tuple[StackVal, ...] | None = None,
+    *,
+    initial_variables: Mapping[int, int | StackVal] | None = None,
+    callcond_evaluator: Callable[[int, tuple[StackVal, ...]], int | None] | None = None,
+) -> SlotTransitions:
+    """Extract reachable events with branch-aware abstract interpretation.
+
+    ``CALLCOND 0x0D`` creates a fresh sixteen-word local frame for the called
+    bank-slot script.  Passing ``local_args`` seeds that frame at variables
+    ``0xF0..0xFF`` and zero-fills omitted words, matching
+    ``LuxMoveVM_ExecuteBankSlotScript``.  A root script leaves the frame
+    unknown by passing ``None`` (the compatibility/default behavior).
+    """
+    out = SlotTransitions(slot_idx=slot_idx, bytecode_offset=script.bytecode_offset)
+    by_pc = {inst.pc: inst for inst in script.instructions}
+    seeded_variables: dict[int, StackVal] = {}
+    for varid, value in (initial_variables or {}).items():
+        seeded_variables[int(varid)] = (
+            value if isinstance(value, (Concrete, VarRef, Unknown))
+            else Concrete(int(value) & 0xFFFF, source_pc=script.bytecode_offset)
+        )
+    if local_args is not None:
+        values = list(local_args[:16])
+        values.extend(
+            Concrete(0, source_pc=script.bytecode_offset)
+            for _ in range(16 - len(values))
+        )
+        seeded_variables.update((0xF0 + i, value) for i, value in enumerate(values))
+    initial = _EmulationState(
+        script.bytecode_offset,
+        Unknown(),
+        (),
+        variables=tuple(sorted(seeded_variables.items())),
+    )
+    states: dict[int, _EmulationState] = {initial.pc: initial}
+    queue = deque([initial.pc])
+    predicate_keys: set[tuple] = set()
+    transition_keys: set[tuple] = set()
+    effect_keys: set[tuple] = set()
+    bank_script_keys: set[tuple] = set()
+    call_sites: set[tuple[int, int]] = set()
+
+    def enqueue(incoming: _EmulationState) -> None:
+        current = states.get(incoming.pc)
+        merged = incoming if current is None else _merge_states(current, incoming)
+        if current != merged:
+            states[incoming.pc] = merged
+            queue.append(incoming.pc)
+
+    while queue:
+        state = states[queue.popleft()]
+        inst = by_pc.get(state.pc)
+        if inst is None:
+            continue
+        op = inst.opcode
+        acc = state.acc
+        stack = list(state.stack)
+        variables = dict(state.variables)
+        last_predicate = state.last_predicate
+        branch_value: StackVal = Unknown(source_pc=inst.pc)
+
+        if op == 0x01:
+            count = inst.imm_u16 or 0
+            if count:
+                stack.extend(Unknown(source_pc=inst.pc) for _ in range(count + 1))
+        elif op in (0x03, 0x04, 0x09, 0x0B, 0x2A):
+            acc = Concrete(inst.imm_u16 or 0, source_pc=inst.pc)
+        elif op == 0x0A:
+            varid = inst.imm_u16 or 0
+            acc = variables.get(varid, VarRef(varid, source_pc=inst.pc))
+        elif op in (0x12, 0x13):
+            varid = inst.imm_u16 or 0
+            old = variables.get(varid, VarRef(varid, source_pc=inst.pc))
+            acc = old
+            if isinstance(old, Concrete):
+                delta = 1 if op == 0x12 else -1
+                variables[varid] = Concrete((old.value + delta) & 0xFFFF, inst.pc)
+            else:
+                variables.pop(varid, None)
+        elif op == 0x19:
+            acc = _pop_value(stack, inst.pc)
+            variables[inst.imm_u16 or 0] = acc
+        elif op in (0x1A, 0x1B, 0x1C, 0x1D, 0x1E):
+            varid = inst.imm_u16 or 0
+            rhs = _pop_value(stack, inst.pc)
+            lhs = variables.get(varid, VarRef(varid, source_pc=inst.pc))
+            variables[varid] = _fold_binary(op - 0x0E, lhs, rhs, inst.pc)
+            acc = Unknown(source_pc=inst.pc)
+        elif op == 0x26:
+            stack.append(acc)
+        elif op == 0x27:
+            acc = _pop_value(stack, inst.pc)
+        elif op in (0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x14, 0x15, 0x17, 0x18,
+                    0x1F, 0x20, 0x21, 0x22, 0x23, 0x24):
+            right, left = _pop_value(stack, inst.pc), _pop_value(stack, inst.pc)
+            acc = _fold_binary(op, left, right, inst.pc)
+        elif op == 0x11:
+            value = _pop_value(stack, inst.pc)
+            acc = Concrete((-_signed_short(value.value)) & 0xFFFF, inst.pc) if isinstance(value, Concrete) else Unknown(inst.pc)
+        elif op == 0x16:
+            value = _pop_value(stack, inst.pc)
+            acc = Concrete(int(value.value == 0), inst.pc) if isinstance(value, Concrete) else Unknown(inst.pc)
+        elif op == 0x25:
+            fn_idx = inst.imm_b0 or 0
+            argc = inst.imm_b1 or 0
+            args = list(reversed([_pop_value(stack, inst.pc) for _ in range(argc)]))
+            args_key = tuple(_event_value_key(value) for value in args)
+            call_sites.add((inst.pc, fn_idx))
+            # State at a PC only becomes less specific as branches join. Replace
+            # an earlier event from this call site so a transient path value
+            # cannot survive after the fixed-point state becomes unknown.
+            out.predicates[:] = [event for event in out.predicates if event.source_pc != inst.pc]
+            out.transitions[:] = [event for event in out.transitions if event.source_pc != inst.pc]
+            out.effects[:] = [event for event in out.effects if event.source_pc != inst.pc]
+            out.bank_scripts[:] = [event for event in out.bank_scripts if event.source_pc != inst.pc]
+            predicate_keys = {key for key in predicate_keys if key[0] != inst.pc}
+            transition_keys = {key for key in transition_keys if key[0] != inst.pc}
+            effect_keys = {key for key in effect_keys if key[0] != inst.pc}
+            bank_script_keys = {key for key in bank_script_keys if key[0] != inst.pc}
+            if fn_idx in CALLCOND_EVAL_IF:
+                last_predicate = (fn_idx, tuple(args), inst.pc)
+                key = (inst.pc, fn_idx, args_key)
+                if key not in predicate_keys:
+                    predicate_keys.add(key)
+                    out.predicates.append(PredicateEvent(fn_idx, args, inst.pc))
+            elif fn_idx in CALLCOND_TRANSITION_AUTHOR:
+                predicate = None
+                predicate_key = None
+                if last_predicate is not None:
+                    pred_fn, pred_args, pred_pc = last_predicate
+                    predicate = PredicateEvent(pred_fn, list(pred_args), pred_pc)
+                    predicate_key = (pred_pc, pred_fn, tuple(_event_value_key(v) for v in pred_args))
+                key = (inst.pc, fn_idx, args_key, predicate_key)
+                if key not in transition_keys:
+                    transition_keys.add(key)
+                    out.transitions.append(TransitionEvent(fn_idx, args, inst.pc, predicate))
+                last_predicate = None
+            elif fn_idx in CALLCOND_EFFECT_DISPATCH:
+                key = (inst.pc, fn_idx, args_key)
+                if key not in effect_keys:
+                    effect_keys.add(key)
+                    out.effects.append(EffectEvent(fn_idx, args, inst.pc))
+            elif fn_idx in CALLCOND_EXEC_BANK_SLOT | CALLCOND_SCHEDULE_TRANSITION:
+                key = (inst.pc, args_key)
+                if key not in bank_script_keys:
+                    bank_script_keys.add(key)
+                    out.bank_scripts.append(BankScriptEvent(fn_idx, args, inst.pc))
+            resolved_result = (
+                callcond_evaluator(fn_idx, tuple(args))
+                if callcond_evaluator is not None else None
+            )
+            acc = (
+                Concrete(resolved_result & 0xFFFF, source_pc=inst.pc)
+                if resolved_result is not None else Unknown(source_pc=inst.pc)
+            )
+        elif op in (0x28, 0x29):
+            branch_value = _pop_value(stack, inst.pc)
+
+        if inst.push_flag and op not in (0x02, 0x05, 0x06, 0x07, 0x08):
+            stack.append(acc)
+
+        variables_tuple = tuple(sorted(variables.items()))
+        fallthrough = inst.pc + inst.length
+        if op in (0x03, 0x04, 0x2A):
+            successors = (script.bytecode_offset + (inst.imm_u16 or 0),)
+        elif op in (0x28, 0x29):
+            target = script.bytecode_offset + (inst.imm_u16 or 0)
+            if isinstance(branch_value, Concrete):
+                nonzero = (branch_value.value & 0xFFFF) != 0
+                taken = (not nonzero) if op == 0x28 else nonzero
+                successors = (target,) if taken else (fallthrough,)
+            else:
+                successors = (fallthrough, target)
+        elif op in (0x02, 0x05, 0x06, 0x07, 0x08):
+            successors = ()
+        else:
+            successors = (fallthrough,)
+        for successor in successors:
+            successor_predicate = last_predicate
+            if last_predicate is not None and op in (0x28, 0x29):
+                target = script.bytecode_offset + (inst.imm_u16 or 0)
+                predicate_true = successor != target if op == 0x28 else successor == target
+                if not predicate_true:
+                    successor_predicate = None
+            enqueue(_EmulationState(
+                successor,
+                acc,
+                tuple(stack),
+                variables_tuple,
+                successor_predicate,
+            ))
+
+    for _, fn_idx in call_sites:
+        out.callcond_summary[fn_idx] = out.callcond_summary.get(fn_idx, 0) + 1
+    # Predicate attribution remains the established source-order heuristic.
+    # It is deliberately separate from CFG stack evaluation so a conservative
+    # state join cannot erase labels used by graph/UI consumers.
+    legacy_predicates = {
+        event.source_pc: event.predicate
+        for event in _emulate_linear(script, slot_idx).transitions
+        if event.predicate is not None
+    }
+    for event in out.transitions:
+        if event.predicate is None:
+            event.predicate = legacy_predicates.get(event.source_pc)
+    return out
+
+
+def decode_lux_fp16_literal(value: int) -> float:
     """Decode LuxMoveVM's packed half-float literal into Python float."""
     value &= 0xFFFF
     signed_value = value - 0x10000 if value & 0x8000 else value
@@ -504,6 +894,11 @@ def _decode_lux_fp16_literal(value: int) -> float:
     mag = abs(signed_value)
     bits = ((mag & 0x7C00) * 0x2000 + 0x38000000) | ((mag & 0x03FF) << 13) | sign_bit
     return struct.unpack("<f", struct.pack("<I", bits))[0]
+
+
+# Kept for existing downstream imports while new analysis code uses the public
+# name above.  This is an API compatibility alias, not a second decoder.
+_decode_lux_fp16_literal = decode_lux_fp16_literal
 
 
 # ---------------------------------------------------------------------------
@@ -557,29 +952,58 @@ def _decode_input_mask(mask: int) -> str:
 def _decode_motion_pattern(pattern: int) -> str:
     """Render a CheckMotionConditionFlags pattern."""
     if pattern == 0x8000:
-        return "stick:neutral"
+        return "buttons:none"
     if pattern == 0x8001:
-        return "stick:any"
+        return "buttons:any"
     if pattern == 0x8002:
-        return "stick:*"
+        return "input:*"
     parts = []
     req_all = (pattern >> 8) & 0xF
     # Mask is 0x2F per CheckMotionConditionFlags @ 0x140312E30 (bits
     # 0,1,2,3,5). Bit 4 is intentionally not part of REQUIRED-ANY.
     req_any = pattern & 0x2F
     if req_all:
-        names = [n for b, n in MOTION_BITS.items() if (req_all & b) and b < 0x10]
+        names = [n for b, n in HISTORY_INPUT_BITS.items() if (req_all & b) and b < 0x10]
         if names:
             parts.append("+".join(names))
         else:
             parts.append(f"all:0x{req_all:02X}")
     if req_any:
-        names = [n for b, n in MOTION_BITS.items() if (req_any & b) and b < 0x10]
+        names = [n for b, n in HISTORY_INPUT_BITS.items() if req_any & b]
         if names:
             parts.append("any:" + "|".join(names))
         else:
             parts.append(f"any:0x{req_any:02X}")
     return "(" + ";".join(parts) + ")" if parts else f"motion:0x{pattern:04X}"
+
+
+def _decode_direction_condition_mask(mask: int) -> str:
+    """Render the side-relative direction mask used at +0x2178/+0x2180."""
+    known = mask & 0x0F
+    names = [name for bit, name in DIRECTION_CONDITION_BITS.items() if known & bit]
+    unknown = mask & ~0x0F
+    if unknown:
+        names.append(f"mask:0x{unknown:X}")
+    return "|".join(names) if names else "neutral"
+
+
+def _decode_raw_direction_nibble_mask(mask: int) -> str:
+    """Render a bit-test against the compact word's direction nibble."""
+    known = mask & 0x0F
+    names = [name for bit, name in RAW_DIRECTION_NIBBLE_BITS.items() if known & bit]
+    unknown = mask & ~0x0F
+    if unknown:
+        names.append(f"mask:0x{unknown:X}")
+    return "|".join(names) if names else "neutral"
+
+
+def _decode_direction_id(value: int) -> str:
+    """Render the decoded-direction ID comparisons used by selectors 1/2."""
+    if value == 5:
+        return "*"
+    if value == 10:
+        return "any"
+    return DECODED_DIRECTION_ID_TO_NUMPAD.get(value, f"id:0x{value:X}")
 
 
 def decode_predicate(pred: Optional[PredicateEvent]) -> DecodedInput:
@@ -597,32 +1021,35 @@ def decode_predicate(pred: Optional[PredicateEvent]) -> DecodedInput:
     # All args after the sub-op kind:
     rest = [a.value if isinstance(a, Concrete) else None for a in args[1:]]
 
-    if sub == 0x01:                                # raw button mask test
+    if sub == 0x01:                                # primary raw direction nibble
         if rest and rest[0] is not None:
-            d = _decode_input_mask(rest[0])
-            return DecodedInput(d if d else "(neutral)", "buttons", tuple(rest))
-        return DecodedInput("(indirect button mask)", "indirect")
+            d = _decode_raw_direction_nibble_mask(rest[0])
+            return DecodedInput(f"raw-dir:any({d})", "direction", tuple(rest))
+        return DecodedInput("(indirect raw direction nibble)", "indirect")
 
-    if sub == 0x03:                                # held mask vs +0x2178
+    if sub == 0x02:                                # primary side-decoded direction sequence
         if rest and rest[0] is not None:
-            d = _decode_input_mask(rest[0])
-            return DecodedInput(f"hold:{d}" if d else "hold:(neutral)",
-                                "buttons", tuple(rest))
-        return DecodedInput("(indirect hold mask)", "indirect")
+            return DecodedInput(f"side-dir:{_decode_direction_id(rest[0] & 0xFFF)}",
+                                "direction", tuple(rest))
+        return DecodedInput("(indirect side-direction sequence)", "indirect")
 
-    if sub == 0x27:                                # mask vs +0x216c
+    if sub == 0x03:                                # side-direction mask vs +0x2178
         if rest and rest[0] is not None:
-            d = _decode_input_mask(rest[0])
-            return DecodedInput(f"alt:{d}" if d else "alt:(neutral)",
-                                "buttons", tuple(rest))
-        return DecodedInput("(indirect alt mask)", "indirect")
+            d = _decode_direction_condition_mask(rest[0])
+            return DecodedInput(f"dir:any({d})", "direction", tuple(rest))
+        return DecodedInput("(indirect direction mask)", "indirect")
 
-    if sub == 0x29:                                # mask vs +0x2180
+    if sub == 0x27:                                # raw secondary direction nibble vs +0x216c
         if rest and rest[0] is not None:
-            d = _decode_input_mask(rest[0])
-            return DecodedInput(f"alt2:{d}" if d else "alt2:(neutral)",
-                                "buttons", tuple(rest))
-        return DecodedInput("(indirect alt2 mask)", "indirect")
+            d = _decode_raw_direction_nibble_mask(rest[0])
+            return DecodedInput(f"alt-dir:any({d})", "direction", tuple(rest))
+        return DecodedInput("(indirect alternate direction nibble)", "indirect")
+
+    if sub == 0x29:                                # secondary side-direction mask vs +0x2180
+        if rest and rest[0] is not None:
+            d = _decode_direction_condition_mask(rest[0])
+            return DecodedInput(f"alt-dir:any({d})", "direction", tuple(rest))
+        return DecodedInput("(indirect alternate direction mask)", "indirect")
 
     if sub in (0x24, 0x25, 0x13AE, 0x13AF):        # multi-arg nibble matcher
         # 0x24 / 0x25 are in the small-id table (0x00..0x9D); 0x13AE /
@@ -630,62 +1057,68 @@ def decode_predicate(pred: Optional[PredicateEvent]) -> DecodedInput:
         # (0x138A..0x13E0). Both share the nibble-encoded multi-arg
         # shape — first reviewer pass incorrectly flagged 0x13AE/0x13AF
         # as dead code; they're real and common.
-        # Each arg has top nibble = source (1=stance ring 1, 2=stance ring 2,
-        # 3=bitfield 0x2178, 4=dwCurrentInputMask) and bottom 12 bits =
-        # test value. Multi-arg = AND of all sub-tests. We split into:
-        #   inputs   — actual user-pressable conditions
-        #   contexts — stance/state qualifiers that must also be true
-        # The UI uses "input + context" to render "press A from stance 2".
-        inputs, contexts = [], []
+        # Each arg has top nibble = source and bottom 12 bits = test value:
+        # 1 = side-decoded direction ID (+0x2170)
+        # 2 = decoded direction ID (+0x215C)
+        # 3 = side-direction bitmask (+0x2178)
+        # 4 = raw direction nibble (+0x2164)
+        # Multi-arg = AND of all sub-tests.
+        inputs = []
+        secondary = sub in (0x25, 0x13AF)
+        prefix = "alt-" if secondary else ""
         for v in rest:
             if v is None:
-                inputs.append("?")
-                continue
+                return DecodedInput("(indirect direction condition)", "indirect")
             nibble = (v >> 12) & 0xF
             val = v & 0xFFF
             if nibble == 4:
-                # _decode_input_mask returns "5" for the neutral sentinel
-                # (which is truthy), so don't `or "5"` — explicitly handle
-                # the empty-string return (no buttons + no direction).
-                rendered = _decode_input_mask(val)
-                inputs.append(rendered if rendered else "5")
+                inputs.append(f"{prefix}raw-dir:any({_decode_raw_direction_nibble_mask(val)})")
             elif nibble == 3:
-                # +0x2178 is the "held buttons" bitfield (same A/B/K/G
-                # layout as dwCurrentInputMask; possibly the post-debounce
-                # held set). Render as "hold A" / "hold B+K" etc.
-                btns = _decode_button_mask(val)
-                if btns:
-                    inputs.append(f"hold:{btns}")
-                else:
-                    contexts.append(f"flags2178:0x{val:03X}")
+                # +0x2178 is the side-relative direction-condition mask
+                # produced by g_awLuxInputDirectionMaskByDecodedId.
+                inputs.append(f"{prefix}dir:any({_decode_direction_condition_mask(val)})")
             elif nibble == 1:
-                if val == 0:    contexts.append("stance1:any-clear")
-                elif val == 10: contexts.append("stance1:any")
-                else:           contexts.append(f"stance1=={val}")
+                inputs.append(f"{prefix}side-dir:{_decode_direction_id(val)}")
             elif nibble == 2:
-                if val == 0:    contexts.append("stance2:any-clear")
-                elif val == 10: contexts.append("stance2:any")
-                else:           contexts.append(f"stance2=={val}")
+                inputs.append(f"{prefix}raw-dir:{_decode_direction_id(val)}")
             else:
                 inputs.append(f"?0x{v:04X}")
-        # Decide overall kind: if any inputs present, treat as input gate.
-        if inputs:
-            text = "+".join(inputs)
-            if contexts:
-                text = f"{text}  ({','.join(contexts)})"
-            return DecodedInput(text, "buttons", tuple(rest))
-        # No inputs — purely stance qualifier. This is a context-gated
-        # auto-transition (e.g., "auto-fire if in stance 2").
-        return DecodedInput(",".join(contexts) if contexts else "(empty)",
-                            "stance", tuple(rest))
+        return DecodedInput("+".join(inputs) if inputs else "(empty)",
+                            "direction", tuple(rest))
 
-    if sub in (0x05, 0x06, 0x20, 0x92, 0x93):      # motion (stick) check
+    if sub == 0x26:                                # secondary decoded direction ID
+        if rest and rest[0] is not None:
+            return DecodedInput(f"alt-raw-dir:{_decode_direction_id(rest[0] & 0xFFF)}",
+                                "direction", tuple(rest))
+        return DecodedInput("(indirect alternate decoded direction)", "indirect")
+
+    if sub == 0x28:                                # secondary side-decoded direction ID
+        if rest and rest[0] is not None:
+            return DecodedInput(f"alt-side-dir:{_decode_direction_id(rest[0] & 0xFFF)}",
+                                "direction", tuple(rest))
+        return DecodedInput("(indirect alternate side direction)", "indirect")
+
+    if sub in (0x05, 0x06, 0x20, 0x92, 0x93):      # compact-input history check
         if rest and rest[0] is not None:
             return DecodedInput(_decode_motion_pattern(rest[0]),
-                                "direction", tuple(rest))
-        return DecodedInput("(motion ?)", "direction")
+                                "buttons", tuple(rest))
+        return DecodedInput("(history input ?)", "indirect")
 
-    if sub in (0x08, 0x13, 0x42, 0x5D, 0x94, 0x13BB, 0x13BC, 0x13BF):
+    if sub == 0x13:
+        # Native EvaluateIfOpcode case 0x13 converts both authored operands
+        # from signed degrees to turns, wraps them to [-0.5, +0.5], and
+        # compares them with the horizontal opponent-relative bearing at
+        # +0x15A4. It does not inspect the separate pose pitch/roll fields.
+        # Voldo's Ukemi dispatcher uses [-90, +90] to distinguish opponent-at-
+        # head-end from opponent-at-feet-end grounded orientations.
+        if len(rest) >= 2 and rest[0] is not None and rest[1] is not None:
+            return DecodedInput(
+                f"orientation [{_signed_short(rest[0])}\N{DEGREE SIGN}.."
+                f"{_signed_short(rest[1])}\N{DEGREE SIGN}]",
+                "orientation", tuple(rest))
+        return DecodedInput("(orientation window)", "orientation")
+
+    if sub in (0x08, 0x42, 0x5D, 0x94, 0x13BB, 0x13BC, 0x13BF):
         # frame-window predicates
         if len(rest) >= 2 and rest[0] is not None and rest[1] is not None:
             return DecodedInput(

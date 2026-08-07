@@ -442,11 +442,11 @@ namespace
             && driver.sequence_complete();
     }
 
-    bool semantic_target_evidence_rejected_before_final_decide()
+    bool intermediate_semantic_action_waits_without_replay()
     {
         Driver driver(Config {5, 40, 3});
         Command down {};
-        Command retry {};
+        Command replay {};
         return driver.begin(72, kDownDecide, 2, 0, Scene::MainMenu)
             && driver.next_command(
                 72, 0, Scene::MainMenu, true, down)
@@ -456,14 +456,11 @@ namespace
             && driver.acknowledge_semantic_action_started(
                    72, down.dispatch_id, 1, Scene::MainMenu)
                 == Result::WaitingForAction
-            && driver.acknowledge_target_scene_queued(
-                   72, down.dispatch_id, 1, Scene::MainMenu)
-                == Result::WaitingForAction
-            && !driver.pending_action_observed()
-            && driver.next_command(
-                72, 5, Scene::MainMenu, true, retry)
-            && retry.step_index == 0
-            && retry.dispatch_id != down.dispatch_id;
+            && driver.pending_action_observed()
+            && !driver.next_command(
+                72, 5, Scene::MainMenu, true, replay)
+            && driver.state() == State::AwaitingAcknowledgement
+            && driver.step_index() == 0;
     }
 
     bool confirmed_focus_change_has_semantic_settle()
@@ -539,7 +536,7 @@ int main()
     const bool semantic_final =
         semantic_final_action_waits_without_replay();
     const bool semantic_final_only =
-        semantic_target_evidence_rejected_before_final_decide();
+        intermediate_semantic_action_waits_without_replay();
     const bool title_stable =
         title_scene_requires_stability_before_dispatch();
     const bool semantic_settle =

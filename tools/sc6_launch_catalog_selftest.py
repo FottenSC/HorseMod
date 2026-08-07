@@ -6,7 +6,6 @@ from sc6_launch_catalog import (
     resolve_character,
     resolve_stage,
 )
-from rollback_two_client_test_run import request_text
 
 
 def reject(fn, token: str) -> None:
@@ -33,15 +32,6 @@ def main() -> int:
     assert overlay_direct_selection(
         replay, left=resolve_character("Taki"), stage=resolve_stage("STG009")
     ) == (2, 5, 9)
-    request = request_text(
-        enabled=True, trace=True, case="live-online-capture",
-        request_id="selection-selftest", rollback_window=12,
-        seed="0x5C6B0001", launch_left_character=2,
-        launch_right_character=6, launch_stage=9,
-    )
-    assert "launch_left_character=2\n" in request
-    assert "launch_right_character=6\n" in request
-    assert "launch_stage=9\n" in request
     reject(resolve_character, "edge master")
     reject(resolve_character, "0xff")
     reject(resolve_stage, "0")

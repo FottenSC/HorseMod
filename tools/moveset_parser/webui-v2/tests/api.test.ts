@@ -27,7 +27,7 @@ describe("data api cache", () => {
   it("deduplicates repeated roster, legacy, and v2 shard loads", async () => {
     const fetchMock = vi.fn((path: string) => {
       if (path === "/data/roster.json") return jsonResponse({ chars: [] });
-      if (path === "/data/v2/lookup-index.json") return jsonResponse({ schemaVersion: 1, chars: [], families: [] });
+      if (path === "/data/v2/lookup-index.json") return jsonResponse({ schemaVersion: 2, chars: [], families: [] });
       if (path === "/data/v2/chars/003/player.json") return jsonResponse({ cid: "003", name: "Taki", kind: "base", files: {}, nativeSummary: {}, playerMoveFamilies: [], playerMoveSummary: {}, dashboard: { statsByFamily: {}, fastestFamilyIds: [], unsafeFamilyIds: [], plusFamilyIds: [], launcherFamilyIds: [] } });
       if (path === "/data/v2/chars/003/raw-movelist.json") return jsonResponse({ cid: "003", name: "Taki", kind: "base", categories: [], moveGroups: [], rows: [] });
       return jsonResponse({ cid: "003", name: "Taki", kind: "base", files: {} });
@@ -53,7 +53,7 @@ describe("data api cache", () => {
       if (path.includes("/data/chars/")) {
         throw new Error(`unexpected full character fetch: ${path}`);
       }
-      return jsonResponse({ schemaVersion: 1, chars: [], families: [] });
+      return jsonResponse({ schemaVersion: 2, chars: [], families: [] });
     });
     vi.stubGlobal("fetch", fetchMock);
 

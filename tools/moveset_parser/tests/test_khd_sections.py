@@ -52,7 +52,8 @@ def test_parse_khd_throw_and_event_records():
     slot = k.slots[0]
     assert slot.total_frames == 42
     assert slot.flPlaybackSpeed60ths_30 == 120.0
-    assert slot.playback_speed_scalar == 2.0
+    # Native InitMotionPlayback divides the authored hundredths value by 100.
+    assert slot.playback_speed_scalar == 1.2
     assert slot.attack_cell_indices == [1]
     assert slot.throw_cell_indices == [0, 1]
     assert k.cell_to_slots == {1: [(0, 0)]}
@@ -86,7 +87,7 @@ def test_export_helpers_include_throw_slot_and_event_fields():
     assert slot_payload["animLength"] == 42
     assert slot_payload["totalFrames"] == 42
     assert slot_payload["playbackSpeed60ths"] == 120.0
-    assert slot_payload["playbackSpeed"] == 2.0
+    assert slot_payload["playbackSpeed"] == 1.2
     assert slot_payload["attackCellRefs"] == [1]
     assert slot_payload["throwCellRefs"] == [0, 1]
 

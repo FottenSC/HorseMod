@@ -117,10 +117,10 @@ downloads and generated comparison reports out of source control:
 
 ```sh
 # Compare exported parser/webui JSON against a downloaded community sheet.
-python compare_community_vs_parsed.py --community-xlsx path\to\community_framedata.xlsx
+python compare_community_vs_parsed.py --data-dir webui\public\data --community-xlsx path\to\community_framedata.xlsx --report path\to\comparison.json
 
 # Or compare against a pre-parsed local JSON snapshot.
-python compare_community_vs_parsed.py --community-json path\to\community_framedata.json
+python compare_community_vs_parsed.py --data-dir webui\public\data --community-json path\to\community_framedata.json --report path\to\comparison.json
 
 # Build the experimental player-facing family calibration report.
 python player_move_families.py --community-xlsx path\to\community_framedata.xlsx --parsed-data-dir webui\public\data --summary-json path\to\player_family_report.json
@@ -151,27 +151,48 @@ The parser exports three move granularities:
 | Layer | JSON field | Use |
 |-------|------------|-----|
 | Slot/debug moves | `khd.flatMoves` | Every attack-cell-bearing slot reachable from bytecode; useful for RE/debugging, too granular for player-facing move lists |
-| In-game movelist rows | `movelist.moves` | Bandai's UI-facing move entries from `DA_MovePlayData` + localization; best default for players |
+| Unique official moves | `movelist.moves` | One row per `MoveListID`; category-only repetitions are collapsed |
 | Grouping hints | `movelist.moveGroups` / `moves[].groupIds` | Non-destructive links between rows that should often be displayed together |
 
-`moveGroups` currently includes two confidence levels:
+`moveGroups` includes these player-facing relationships:
 
-- `duplicate-move-id`: strong; the same `MoveListID` appears in multiple
-  movelist rows/categories.
+- `native-route-alternative`: same official name and context resolving to the
+  same native slot/cell route, e.g. `B.A` and `B.6A` Bear Tamer.
+- `native-timing-variant`: exact CPUAI input-mask sequence with different
+  authored durations, e.g. a normal and fast input variant.
 - `input-family`: heuristic; same condition and exact/extended input at a
   `.` or `~` continuation boundary, e.g. `214A` grouped with `214A.A`.
 
-Consumers should group for display without deleting the raw rows. Multi-hit
-strings, stance follow-ups, and direction variants often need all underlying
-slots/cells preserved for editor work.
+The 5,898 authored category listings collapse to 4,994 unique moves across the
+28 playable characters. Each move retains `listingOrders`,
+`categoryMemberships`, and category-specific MovePlay `authoredVariants` for
+diagnostics; none of those memberships creates an additional player row.
 
-For player-facing grouping beyond the current lightweight hints, use
-`player_move_families.py` as the calibration reference. It builds explicit
-command-tree edges (`prefix`, `hold-variant`, `direction-alternative`,
-`stance-transition`) from the community sheet and reports which inferred family
-rows are already anchored by generated parser JSON. This is not promoted to the
-web export yet; it is the reproducible study artifact for the future
-`playerMoveFamilies` layer.
+The production `playerMoveFamilies` layer is native-only. Native timing and
+command-prefix relationships are tagged `native-inferred`.
+`player_move_families.py` remains comparison-only calibration tooling; its
+external rows and inferred edges are never imported by the exporter or bundled
+UIs.
+
+### Native move evidence
+
+Schema-v2 export decodes each unique official move's `MainIndex` through section
+1 of the matching `cpuaiNNN.dtp`; it is a MoveVM command-definition ID, never a
+KHD cell or slot index. The offline dispatcher observes the first and last
+publication of each attack-button span, evaluates the native standing selector
+(`packed 0x304E`) with the verified character-state predicates, and then follows
+only game-authored unconditional KHD transitions. A single route is tagged
+`heuristic`, multiple viable slots are `ambiguous`, and malformed or unsupported
+paths fail closed. Category memberships never create rows or families.
+
+`native_frame_analysis.py` is reusable once a KHD slot/cell route reaches the
+audited common attack-setup helper. It derives the attacker endpoint from the
+native `0x7600 - recoveryLead` transition convention, then combines that with
+the defender's block, normal-contact, or Counter Hit stun column. The metric
+inherits the route's provenance (`native-confirmed` or `native-inferred`).
+Native contact mode 11 is CounterHit and selects attack-cell offset `+0x48`.
+That field is a shared special-contact column (also used by other non-normal
+contact modes), not a CH-exclusive or airborne column.
 
 ## File format references
 
@@ -238,9 +259,9 @@ Packed move ids are resolved like `LuxMoveVM_ResolveBankSlot`: bits
 | +0x36 / +0x38 | i16 | active-frame window | start/end (60ths) |
 | +0x3A | i16 | `wI16BaseDamage` | **base damage on hit**; runtime multipliers are applied later |
 | +0x44 | i16 | `wI16BlockstunFrames` | block disadvantage |
-| +0x46 / +0x48 | i16 | hitstun (standing / standing-air) | hit advantage |
-| +0x4C / +0x4E | i16 | hitstun (crouch / crouch-air) | |
-| +0x50 / +0x52 / +0x54 | i16 | reaction IDs (standing / air / throw-escape) | indexes into chara+0x43DD8 (0x14 stride) |
+| +0x46 / +0x48 | i16 | hitstun (base posture, normal / special contact) | hit / CH advantage |
+| +0x4C / +0x4E | i16 | hitstun (alternate posture, normal / special contact) | |
+| +0x50 / +0x52 / +0x54 | i16 | reaction IDs (normal / special contact / reaction-row selector) | indexes into chara+0x43DD8 (0x14 stride) |
 | +0x5E | ushort | `wU16HitboxGroupBitfield` | **0xFFFF = cleared sentinel** |
 | +0x62..+0x65 | i8 | ranges (stand-min/max, crouch-min/max) | |
 

@@ -264,7 +264,7 @@ function buildSlotNode(
   let title: string;
   let subtitle: string;
   if (cell?.role === "Attack") {
-    title = `${cell.class} · ${cell.damage}dmg · i${cell.activeStart}`;
+    title = `${cell.class} · ${cell.damage}dmg · window coord ${cell.activeStartCoordinate}`;
     subtitle = `slot ${slotIdx} · anim ${slot?.animationIndex ?? "?"}`;
   } else if (cell) {
     title = cell.role;

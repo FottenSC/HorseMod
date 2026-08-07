@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "classification": "rollback-physical-case-policy",
+  "trace_contract_version": 1,
+  "cases": {
+    "clean": {
+      "runtime_profile": "clean_0ms",
+      "segments": ["active"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["clean_fault_counters"]
+    },
+    "latency": {
+      "runtime_profile": "wired_intercontinental_200ms_rtt",
+      "minimum_rtt_us": 150000,
+      "segments": ["active"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["measured_rtt", "queued_traffic"]
+    },
+    "jitter": {
+      "runtime_profile": "wifi_50ms_jitter",
+      "minimum_jitter_us": 25000,
+      "segments": ["active"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["measured_jitter", "queued_traffic", "reordered_traffic"]
+    },
+    "loss": {
+      "runtime_profile": "bad_wifi_120ms_5pct_loss",
+      "minimum_rtt_us": 80000,
+      "segments": ["active"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["dropped_traffic", "confirmed_progress"]
+    },
+    "burst-loss": {
+      "runtime_profile": "burst_loss_500ms",
+      "segments": ["active"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["burst_drops", "confirmed_progress"]
+    },
+    "reorder": {
+      "runtime_profile": "wifi_50ms_jitter",
+      "minimum_jitter_us": 25000,
+      "segments": ["active"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["reordered_traffic"]
+    },
+    "duplication": {
+      "runtime_profile": "duplicate_only",
+      "segments": ["active"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["duplicated_traffic", "duplicate_only"]
+    },
+    "corruption": {
+      "runtime_profile": "corrupt_probe",
+      "segments": ["active"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["corrupted_traffic", "authenticated_rejection"]
+    },
+    "scheduler-stall": {
+      "runtime_profile": "clean_0ms",
+      "segments": ["active"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["completed_worker_stall", "confirmed_progress"]
+    },
+    "disconnect-reconnect": {
+      "runtime_profile": "clean_0ms",
+      "segments": ["fail-closed", "clean-lobby-recovery"],
+      "minimum_duration_seconds": 5,
+      "minimum_confirmed_frames": 0,
+      "requirements": ["fail_closed_then_distinct_recovery"]
+    },
+    "round-and-match-transitions": {
+      "runtime_profile": "clean_0ms",
+      "segments": ["active"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["two_rounds", "completed_match"]
+    },
+    "representative-content-matrix": {
+      "runtime_profile": "clean_0ms",
+      "segments": ["astaroth-raphael-round-0", "pinned-replay-round-0", "siegfried-cervantes-round-0", "lowest-sha-remaining-corpus"],
+      "minimum_duration_seconds": 30,
+      "minimum_confirmed_frames": 120,
+      "requirements": ["content_identity"]
+    },
+    "long-soak": {
+      "runtime_profile": "clean_0ms",
+      "segments": ["active"],
+      "minimum_duration_seconds": 3600,
+      "minimum_confirmed_frames": 216000,
+      "requirements": ["confirmed_progress"]
+    }
+  }
+}

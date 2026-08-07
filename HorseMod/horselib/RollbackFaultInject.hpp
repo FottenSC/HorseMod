@@ -69,9 +69,11 @@ namespace Horse
         Wifi50msJitter,
         BadWifi120ms5PctLoss,
         Overseas180ms2PctLoss,
+        WiredIntercontinental200msRtt,
         SpikeEvery10s,
         BurstLoss500ms,
         CorruptProbe,
+        DuplicateOnly,
     };
 
     static inline const char* RollbackNetworkProfileName(
@@ -87,12 +89,16 @@ namespace Horse
             return "bad_wifi_120ms_5pct_loss";
         case RollbackNetworkProfileKind::Overseas180ms2PctLoss:
             return "overseas_180ms_2pct_loss";
+        case RollbackNetworkProfileKind::WiredIntercontinental200msRtt:
+            return "wired_intercontinental_200ms_rtt";
         case RollbackNetworkProfileKind::SpikeEvery10s:
             return "spike_every_10s";
         case RollbackNetworkProfileKind::BurstLoss500ms:
             return "burst_loss_500ms";
         case RollbackNetworkProfileKind::CorruptProbe:
             return "corrupt_probe";
+        case RollbackNetworkProfileKind::DuplicateOnly:
+            return "duplicate_only";
         }
         return "invalid";
     }
@@ -103,7 +109,7 @@ namespace Horse
     {
         for (uint8_t raw = 0;
              raw <= static_cast<uint8_t>(
-                 RollbackNetworkProfileKind::CorruptProbe);
+                 RollbackNetworkProfileKind::DuplicateOnly);
              ++raw)
         {
             const auto kind = static_cast<RollbackNetworkProfileKind>(raw);
@@ -279,9 +285,11 @@ namespace Horse
         bool wifi_jitter_profile_ok {false};
         bool bad_wifi_profile_ok {false};
         bool overseas_profile_ok {false};
+        bool wired_intercontinental_profile_ok {false};
         bool spike_profile_ok {false};
         bool burst_profile_ok {false};
         bool corrupt_probe_ok {false};
+        bool duplicate_only_ok {false};
         bool same_machine_profiles_converged {false};
         uint32_t profiles_run {0};
         uint32_t profiles_passed {0};
@@ -330,6 +338,22 @@ namespace Horse
             p.frame_count = 240;
             p.max_ticks = 840;
             break;
+        case RollbackNetworkProfileKind::WiredIntercontinental200msRtt:
+            // The fault scheduler is directional and advances at 60 Hz.
+            // Five to seven frames each way models approximately 167-233 ms
+            // RTT: the useful wired corridor from London to California or
+            // Japan. Loss/reorder/duplication are deliberately rare rather
+            // than Wi-Fi-like bursts.
+            p.seed = 0x1C0200u;
+            p.base_latency_frames = 5;
+            p.jitter_frames = 2;
+            p.loss_per_mille = 5;
+            p.duplicate_per_mille = 1;
+            p.reorder_per_mille = 5;
+            p.frame_count = 240;
+            p.max_ticks = 720;
+            p.resend_window_frames = 36;
+            break;
         case RollbackNetworkProfileKind::SpikeEvery10s:
             p.seed = 0x5010E10u;
             p.base_latency_frames = 3;
@@ -360,6 +384,12 @@ namespace Horse
             p.corrupt_per_mille = 80;
             p.frame_count = 120;
             p.max_ticks = 480;
+            break;
+        case RollbackNetworkProfileKind::DuplicateOnly:
+            p.seed = 0xD0B1CA7Eu;
+            p.duplicate_per_mille = 250;
+            p.frame_count = 180;
+            p.max_ticks = 420;
             break;
         }
         return p;
@@ -998,9 +1028,11 @@ namespace Horse
             RollbackNetworkProfileKind::Wifi50msJitter,
             RollbackNetworkProfileKind::BadWifi120ms5PctLoss,
             RollbackNetworkProfileKind::Overseas180ms2PctLoss,
+            RollbackNetworkProfileKind::WiredIntercontinental200msRtt,
             RollbackNetworkProfileKind::SpikeEvery10s,
             RollbackNetworkProfileKind::BurstLoss500ms,
             RollbackNetworkProfileKind::CorruptProbe,
+            RollbackNetworkProfileKind::DuplicateOnly,
         };
 
         for (RollbackNetworkProfileKind kind : profiles)
@@ -1031,6 +1063,9 @@ namespace Horse
             case RollbackNetworkProfileKind::Overseas180ms2PctLoss:
                 report.overseas_profile_ok = run.ok;
                 break;
+            case RollbackNetworkProfileKind::WiredIntercontinental200msRtt:
+                report.wired_intercontinental_profile_ok = run.ok;
+                break;
             case RollbackNetworkProfileKind::SpikeEvery10s:
                 report.spike_profile_ok =
                     run.ok
@@ -1051,6 +1086,18 @@ namespace Horse
                     && (run.a_to_b.packets_rejected
                         + run.b_to_a.packets_rejected) > 0;
                 break;
+            case RollbackNetworkProfileKind::DuplicateOnly:
+                report.duplicate_only_ok =
+                    run.ok
+                    && (run.a_to_b.packets_duplicated
+                        + run.b_to_a.packets_duplicated) > 0
+                    && run.a_to_b.packets_dropped == 0
+                    && run.b_to_a.packets_dropped == 0
+                    && run.a_to_b.packets_reordered == 0
+                    && run.b_to_a.packets_reordered == 0
+                    && run.a_to_b.packets_corrupted == 0
+                    && run.b_to_a.packets_corrupted == 0;
+                break;
             }
         }
 
@@ -1061,9 +1108,11 @@ namespace Horse
             && report.wifi_jitter_profile_ok
             && report.bad_wifi_profile_ok
             && report.overseas_profile_ok
+            && report.wired_intercontinental_profile_ok
             && report.spike_profile_ok
             && report.burst_profile_ok
             && report.corrupt_probe_ok
+            && report.duplicate_only_ok
             && report.same_machine_profiles_converged;
         if (!report.ok)
             report.failure = "fault-injection-selftest-failed";

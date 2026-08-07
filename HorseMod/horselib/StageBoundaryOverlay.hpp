@@ -1,10 +1,11 @@
 // ============================================================================
 // Horse::StageBoundaryOverlay
 //
-// Draws stage gameplay geometry: ring-out terrain, wall-collision terrain, and
-// breakable wall/barrier actor bounds. The always-present ring/wall data lives
-// in LuxBattle's active frame-bounds grid, not in the optional scbattle
-// barrier block at g_scbattle_StageInfo_BarrierArray.
+// Draws the live stage data used by LuxBattle's deterministic terrain, edge,
+// and wall queries, plus state-selected presentation bounds for breakable
+// wall/barrier actors. The deterministic triangles come from the active
+// J_StgHitChkData-backed frame-bounds grid. The unrelated 0x144844070 block is
+// a round-restore payload, not stage geometry.
 //
 // Ghidra anchors:
 //   LuxBattle_GetActiveFrameBoundsGrid        @ image+0x3133E0
@@ -17,20 +18,12 @@
 //   g_LuxBattle_FrameBoundsGridA              @ image+0x4844DD0
 //   g_LuxBattle_FrameBoundsGridB              @ image+0x4845E80
 //
-// Frame-bounds grid summary:
-//   grid+0x00                  row-0 FLuxFrameBoundsAxisSpan pointer
-//   grid+0x08 + cellIndex*0x08 row-0 cell bucket pointer table
-//   axisSpan+0x28              int16 cell count
-//   grid+0x408                 terrain-entry array pointer used by state mutators
-//   grid+0x410                 valid byte
-//
-// Cell bucket summary:
-//   +0x00 bucket-list A pointer, +0x08 uint16 bucket-list A count
-//   +0x10 bucket-list B pointer, +0x18 uint16 bucket-list B count
-//
-// Bucket summary:
-//   +0x00 minZ, +0x04 maxZ, +0x08 uint16 triangle count
-//   +0x10 triangle pointers[]
+// Frame-bounds grid summary (LuxBattle_AttachStgHitChkData @ image+0x392080):
+//   grid+0x000  J_StgHitChkData header/axis-span pointer
+//   grid+0x408  contiguous FLuxTerrainHitInfo_Partial array pointer
+//   grid+0x410  live byte
+//   header+0x2C signed terrain-entry count
+//   terrain entries are exactly 0x40 bytes each
 // ============================================================================
 
 #pragma once
@@ -43,7 +36,6 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <Unreal/UObjectGlobals.hpp>
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -57,13 +49,10 @@ namespace Horse
         int draw(LineBatcherBackend& backend, Obj stageActorManager = {})
         {
             DrawStats stats{};
-            stats.terrain = drawFrameBoundsGrid(backend, stats);
-            stats.legacyBarrierValid = readLegacyBarrierValid();
-            refreshActorBoundsCache(stageActorManager);
-            stats.breakableWalls = drawCachedComponentBounds(
-                m_breakableWallComponents, backend, kBreakableWallColour);
-            stats.breakableBarriers = drawCachedComponentBounds(
-                m_barrierComponents, backend, kBreakableBarrierColour);
+            stats.terrain = drawFrameTerrainEntries(backend, stats);
+            refreshActorCache(stageActorManager);
+            stats.breakableWalls = drawBreakableWalls(backend);
+            stats.breakableBarriers = drawBreakableBarriers(backend);
 
             logStatsRateLimited(stats);
             return stats.totalLines();
@@ -72,8 +61,8 @@ namespace Horse
         void invalidate()
         {
             m_cachedManager = nullptr;
-            m_breakableWallComponents.clear();
-            m_barrierComponents.clear();
+            m_breakableWallActors.clear();
+            m_barrierActors.clear();
             m_actorCacheValid = false;
             m_lastActorCacheRebuild = Clock::time_point{};
             m_boundsFns.invalidate();
@@ -88,86 +77,59 @@ namespace Horse
         static constexpr uintptr_t kFrameBoundsGridARVA = 0x4844DD0;
         static constexpr uintptr_t kFrameBoundsGridBRVA = 0x4845E80;
 
-        static constexpr uintptr_t kLegacyBarrierValidRVA = 0x484406C;
-
         static constexpr uintptr_t kGridAxisSpanPtr    = 0x000;
-        static constexpr uintptr_t kGridFirstCellPtr   = 0x008;
-        static constexpr uintptr_t kGridCellTableEnd   = 0x400;
+        static constexpr uintptr_t kGridTerrainEntries = 0x408;
         static constexpr uintptr_t kGridValid          = 0x410;
-        static constexpr uintptr_t kAxisSpanCellCount  = 0x028;
-
-        static constexpr uintptr_t kCellListA          = 0x000;
-        static constexpr uintptr_t kCellListACount     = 0x008;
-        static constexpr uintptr_t kCellListB          = 0x010;
-        static constexpr uintptr_t kCellListBCount     = 0x018;
-
-        static constexpr uintptr_t kBucketTriCount     = 0x008;
-        static constexpr uintptr_t kBucketFirstTriPtr  = 0x010;
+        static constexpr uintptr_t kAxisSpanTerrainCount = 0x02C;
 
         static constexpr uintptr_t kTriFlagsPrimary    = 0x00C;
         static constexpr uintptr_t kTriFlagsSecondary  = 0x01C;
+        static constexpr uintptr_t kTerrainEntryStride = 0x040;
         static constexpr uintptr_t kFrameTransformTerrainBase = 0x820;
         static constexpr uintptr_t kFrameTransformStride = 0x10;
 
-        static constexpr int kMaxCells =
-            static_cast<int>((kGridCellTableEnd - kGridFirstCellPtr) /
-                             sizeof(void*));
-        static constexpr int kMaxBucketsPerCell    = 256;
-        static constexpr int kMaxTrianglesPerBucket = 512;
-        static constexpr int kMaxTerrainTriangles  = 2048;
-        static constexpr int kMaxActorListCount    = 64;
+        // ALuxStageBreakableWallActor / BarrierActor fields proven by the
+        // native visibility functions and rollback-stage capture path.
+        static constexpr uintptr_t kWallBreakState = 0x468;
+        static constexpr uintptr_t kWallFadeTimer = 0x46C;
+        static constexpr uintptr_t kWallFadeRate = 0x470;
+        static constexpr uintptr_t kBarrierEndurance = 0x424;
+        static constexpr uintptr_t kBarrierHitCount = 0x468;
+
         static constexpr std::chrono::milliseconds kActorBoundsCacheRefresh{1000};
 
         static constexpr float kBattleToUE = 100.0f;
-        static constexpr float kFloorLiftZ = 5.0f;
         static constexpr float kTerrainThickness = 1.5f;
         static constexpr float kActorThickness = 2.0f;
         static constexpr float kMaxAbsBattleCoordinate = 100000.0f;
         static constexpr float kMaxAbsUeCoordinate = 10000000.0f;
 
-        static constexpr FLinColor kFloorColour{0.10f, 0.85f, 1.00f, 0.55f};
-        static constexpr FLinColor kWallColour{1.00f, 0.72f, 0.12f, 0.90f};
-        static constexpr FLinColor kRingOutColour{0.10f, 1.00f, 1.00f, 0.95f};
-        static constexpr FLinColor kOtherBoundaryColour{0.70f, 0.95f, 0.25f, 0.80f};
+        static constexpr FLinColor kTerrainColour{0.10f, 0.85f, 1.00f, 0.55f};
+        static constexpr FLinColor kRingWallColour{1.00f, 0.72f, 0.12f, 0.90f};
+        static constexpr FLinColor kFloorCeilingColour{0.35f, 0.65f, 1.00f, 0.80f};
+        static constexpr FLinColor kEdgeRingOutColour{0.10f, 1.00f, 1.00f, 0.95f};
+        static constexpr FLinColor kSpecialTerrainColour{0.75f, 0.25f, 1.00f, 0.90f};
+        static constexpr FLinColor kExcludedTerrainColour{0.55f, 0.55f, 0.55f, 0.65f};
         static constexpr FLinColor kBreakableWallColour{1.00f, 0.10f, 0.55f, 0.90f};
         static constexpr FLinColor kBreakableBarrierColour{0.20f, 1.00f, 0.35f, 0.90f};
 
         struct DrawStats
         {
             int terrain = 0;
-            int floorTriangles = 0;
-            int ringTriangles = 0;
-            int wallTriangles = 0;
-            int otherBoundaryTriangles = 0;
+            int ordinaryTerrainTriangles = 0;
+            int ringWallTriangles = 0;
+            int floorCeilingTriangles = 0;
+            int edgeRingOutTriangles = 0;
+            int specialTerrainTriangles = 0;
+            int excludedTerrainTriangles = 0;
+            int invalidFrameTriangles = 0;
             int breakableWalls = 0;
             int breakableBarriers = 0;
             bool gridValid = false;
-            bool legacyBarrierValid = false;
-            bool terrainClipped = false;
 
             int totalLines() const
             {
                 return terrain + breakableWalls + breakableBarriers;
-            }
-        };
-
-        struct SeenTriangles
-        {
-            const void* items[kMaxTerrainTriangles]{};
-            int count = 0;
-
-            bool add(const void* p)
-            {
-                if (!p) return false;
-                for (int i = 0; i < count; ++i)
-                {
-                    if (items[i] == p)
-                        return false;
-                }
-                if (count >= kMaxTerrainTriangles)
-                    return false;
-                items[count++] = p;
-                return true;
             }
         };
 
@@ -213,8 +175,8 @@ namespace Horse
         };
 
         RC::Unreal::UObject* m_cachedManager = nullptr;
-        std::vector<RC::Unreal::UObject*> m_breakableWallComponents;
-        std::vector<RC::Unreal::UObject*> m_barrierComponents;
+        std::vector<RC::Unreal::UObject*> m_breakableWallActors;
+        std::vector<RC::Unreal::UObject*> m_barrierActors;
         bool m_actorCacheValid = false;
         Clock::time_point m_lastActorCacheRebuild{};
         KismetBoundsFns m_boundsFns{};
@@ -242,11 +204,11 @@ namespace Horse
         {
             // Stage terrain entries are already in battle world X/Y/Z with
             // Y vertical. Native terrain queries sample the horizontal XZ
-            // plane, so only lift Y into UE's vertical Z axis here.
+            // plane, so map Lux Y to UE's vertical Z axis here.
             return FVec3{
                 p.X * kBattleToUE,
                 p.Z * kBattleToUE,
-                p.Y * kBattleToUE + kFloorLiftZ
+                p.Y * kBattleToUE
             };
         }
 
@@ -276,8 +238,8 @@ namespace Horse
             return ctx;
         }
 
-        static int drawFrameBoundsGrid(LineBatcherBackend& backend,
-                                       DrawStats& stats)
+        static int drawFrameTerrainEntries(LineBatcherBackend& backend,
+                                           DrawStats& stats)
         {
             const FrameContext frame = activeFrameContext();
             const uint8_t* grid = frame.grid;
@@ -289,126 +251,27 @@ namespace Horse
                 return 0;
             if (!SafeReadPtr(grid + kGridAxisSpanPtr, &axisSpan) || !axisSpan)
                 return 0;
-
-            int16_t cellCount16 = 0;
-            if (!SafeReadInt16(static_cast<const uint8_t*>(axisSpan) +
-                                   kAxisSpanCellCount,
-                               &cellCount16))
-                return 0;
-            if (cellCount16 <= 0 || cellCount16 > kMaxCells)
-                return 0;
-
             stats.gridValid = true;
-            int drawn = 0;
-            SeenTriangles seen{};
 
-            for (int cell = 0; cell < cellCount16; ++cell)
-            {
-                void* cellPtr = nullptr;
-                if (!SafeReadPtr(grid + kGridFirstCellPtr +
-                                     static_cast<uintptr_t>(cell) *
-                                         sizeof(void*),
-                                 &cellPtr) ||
-                    !cellPtr)
-                    continue;
-
-                drawn += drawBucketList(static_cast<const uint8_t*>(cellPtr) +
-                                            kCellListA,
-                                        static_cast<const uint8_t*>(cellPtr) +
-                                            kCellListACount,
-                                        frame, backend, stats, seen);
-                drawn += drawBucketList(static_cast<const uint8_t*>(cellPtr) +
-                                            kCellListB,
-                                        static_cast<const uint8_t*>(cellPtr) +
-                                            kCellListBCount,
-                                        frame, backend, stats, seen);
-
-                if (seen.count >= kMaxTerrainTriangles)
-                {
-                    stats.terrainClipped = true;
-                    break;
-                }
-            }
-
-            return drawn;
-        }
-
-        static int drawBucketList(const uint8_t* listPtrAddr,
-                                  const uint8_t* countAddr,
-                                  const FrameContext& frame,
-                                  LineBatcherBackend& backend,
-                                  DrawStats& stats,
-                                  SeenTriangles& seen)
-        {
-            void* bucketList = nullptr;
-            uint16_t bucketCount = 0;
-            if (!SafeReadPtr(listPtrAddr, &bucketList) || !bucketList)
+            int16_t terrainCount = 0;
+            void* terrainEntries = nullptr;
+            if (!SafeReadInt16(static_cast<const uint8_t*>(axisSpan) +
+                                   kAxisSpanTerrainCount,
+                               &terrainCount))
                 return 0;
-            if (!SafeReadUInt16(countAddr, &bucketCount))
+            if (terrainCount <= 0)
                 return 0;
-            if (bucketCount > kMaxBucketsPerCell)
-                bucketCount = kMaxBucketsPerCell;
+            if (!SafeReadPtr(grid + kGridTerrainEntries, &terrainEntries) ||
+                !terrainEntries)
+                return 0;
 
             int drawn = 0;
-            auto* buckets = static_cast<const uint8_t*>(bucketList);
-            for (uint16_t i = 0; i < bucketCount; ++i)
+            const auto* entries = static_cast<const uint8_t*>(terrainEntries);
+            for (int i = 0; i < terrainCount; ++i)
             {
-                void* bucket = nullptr;
-                if (!SafeReadPtr(buckets + static_cast<uintptr_t>(i) *
-                                             sizeof(void*),
-                                 &bucket) ||
-                    !bucket)
-                    continue;
-
-                drawn += drawBucket(static_cast<const uint8_t*>(bucket),
-                                    frame,
-                                    backend, stats, seen);
-                if (seen.count >= kMaxTerrainTriangles)
-                {
-                    stats.terrainClipped = true;
-                    break;
-                }
-            }
-            return drawn;
-        }
-
-        static int drawBucket(const uint8_t* bucket,
-                              const FrameContext& frame,
-                              LineBatcherBackend& backend,
-                              DrawStats& stats,
-                              SeenTriangles& seen)
-        {
-            uint16_t triCount = 0;
-            if (!SafeReadUInt16(bucket + kBucketTriCount, &triCount))
-                return 0;
-            if (triCount > kMaxTrianglesPerBucket)
-                triCount = kMaxTrianglesPerBucket;
-
-            int drawn = 0;
-            for (uint16_t i = 0; i < triCount; ++i)
-            {
-                if (seen.count >= kMaxTerrainTriangles)
-                {
-                    stats.terrainClipped = true;
-                    break;
-                }
-
-                void* tri = nullptr;
-                if (!SafeReadPtr(bucket + kBucketFirstTriPtr +
-                                     static_cast<uintptr_t>(i) *
-                                         sizeof(void*),
-                                 &tri) ||
-                    !tri)
-                    continue;
-                if (!seen.add(tri))
-                    continue;
-
-                const int lines =
-                    drawTerrainTriangle(static_cast<const uint8_t*>(tri),
-                                        frame,
-                                        backend, stats);
-                if (lines > 0)
-                    drawn += lines;
+                drawn += drawTerrainTriangle(
+                    entries + static_cast<uintptr_t>(i) * kTerrainEntryStride,
+                    frame, backend, stats);
             }
             return drawn;
         }
@@ -450,41 +313,38 @@ namespace Horse
         }
 
         static const FLinColor& colourForTerrain(uint32_t semantic,
-                                                 const FVec3& a,
-                                                 const FVec3& b,
-                                                 const FVec3& c,
+                                                 uint32_t secondaryFlags,
                                                  DrawStats& stats)
         {
+            // Tag-word subkind 4 is rejected by segment/wall tracing but is
+            // intentionally consumed by the point-sampling query matrix.
+            if (((secondaryFlags >> 8) & 0xF) == 4)
+            {
+                ++stats.specialTerrainTriangles;
+                return kSpecialTerrainColour;
+            }
             if (semantic == 0x3A)
             {
-                ++stats.ringTriangles;
-                return kRingOutColour;
+                ++stats.ringWallTriangles;
+                return kRingWallColour;
             }
             if (semantic == 0x3B)
             {
-                ++stats.wallTriangles;
-                return kWallColour;
+                ++stats.floorCeilingTriangles;
+                return kFloorCeilingColour;
             }
             if (semantic == 0x3C)
             {
-                ++stats.otherBoundaryTriangles;
-                return kOtherBoundaryColour;
+                ++stats.edgeRingOutTriangles;
+                return kEdgeRingOutColour;
             }
-
-            float minY = a.Y;
-            if (b.Y < minY) minY = b.Y;
-            if (c.Y < minY) minY = c.Y;
-            float maxY = a.Y;
-            if (b.Y > maxY) maxY = b.Y;
-            if (c.Y > maxY) maxY = c.Y;
-            if ((maxY - minY) > 0.25f)
+            if (semantic == 0x3F)
             {
-                ++stats.wallTriangles;
-                return kWallColour;
+                ++stats.excludedTerrainTriangles;
+                return kExcludedTerrainColour;
             }
-
-            ++stats.floorTriangles;
-            return kFloorColour;
+            ++stats.ordinaryTerrainTriangles;
+            return kTerrainColour;
         }
 
         static int drawTerrainTriangle(const uint8_t* tri,
@@ -498,9 +358,6 @@ namespace Horse
                 return 0;
             if (!SafeReadUInt32(tri + kTriFlagsSecondary, &secondaryFlags))
                 return 0;
-            if ((secondaryFlags & 0xF00u) == 0x400u)
-                return 0;
-
             FVec3 a{}, b{}, c{};
             if (!readVec3(tri + 0x00, a)) return 0;
             if (!readVec3(tri + 0x10, b)) return 0;
@@ -513,7 +370,10 @@ namespace Horse
             if (!readFrameTerrainOffset(frame,
                                         terrainFrameTag(secondaryFlags),
                                         frameOffset))
+            {
+                ++stats.invalidFrameTriangles;
                 return 0;
+            }
 
             const FVec3 wa = addFrameOffset(a, frameOffset);
             const FVec3 wb = addFrameOffset(b, frameOffset);
@@ -524,8 +384,8 @@ namespace Horse
 
             const FLinColor& colour =
                 colourForTerrain(terrainSemantic(primaryFlags,
-                                                 secondaryFlags),
-                                 wa, wb, wc, stats);
+                                                  secondaryFlags),
+                                 secondaryFlags, stats);
             const FVec3 ua = battleWorldToUE(wa);
             const FVec3 ub = battleWorldToUE(wb);
             const FVec3 uc = battleWorldToUE(wc);
@@ -558,8 +418,11 @@ namespace Horse
 
             if (!saneUePoint(p.Origin) || !saneUePoint(p.BoxExtent))
                 return false;
-            if (p.BoxExtent.X <= 0.0f && p.BoxExtent.Y <= 0.0f &&
-                p.BoxExtent.Z <= 0.0f)
+            if (p.BoxExtent.X < 0.0f || p.BoxExtent.Y < 0.0f ||
+                p.BoxExtent.Z < 0.0f)
+                return false;
+            if (p.BoxExtent.X == 0.0f && p.BoxExtent.Y == 0.0f &&
+                p.BoxExtent.Z == 0.0f)
                 return false;
 
             out.origin = p.Origin;
@@ -585,14 +448,14 @@ namespace Horse
             v.push_back(obj);
         }
 
-        void refreshActorBoundsCache(Obj mgr)
+        void refreshActorCache(Obj mgr)
         {
             auto* rawManager = mgr.raw();
             if (!rawManager)
             {
                 m_cachedManager = nullptr;
-                m_breakableWallComponents.clear();
-                m_barrierComponents.clear();
+                m_breakableWallActors.clear();
+                m_barrierActors.clear();
                 m_actorCacheValid = false;
                 m_lastActorCacheRebuild = Clock::time_point{};
                 return;
@@ -609,81 +472,151 @@ namespace Horse
             if (!isReal(rawManager))
             {
                 m_cachedManager = nullptr;
-                m_breakableWallComponents.clear();
-                m_barrierComponents.clear();
+                m_breakableWallActors.clear();
+                m_barrierActors.clear();
                 m_actorCacheValid = false;
                 m_lastActorCacheRebuild = Clock::time_point{};
                 return;
             }
 
             m_cachedManager = rawManager;
-            m_breakableWallComponents.clear();
-            m_barrierComponents.clear();
-            addActorListComponents(mgr, L"BreakableWallActorList",
-                                   m_breakableWallComponents);
-            addActorListComponents(mgr, L"BarrierActorList",
-                                   m_barrierComponents);
+            m_breakableWallActors.clear();
+            m_barrierActors.clear();
+            addActorList(mgr, L"BreakableWallActorList",
+                         m_breakableWallActors);
+            addActorList(mgr, L"BarrierActorList", m_barrierActors);
             m_actorCacheValid = true;
             m_lastActorCacheRebuild = now;
         }
 
-        void addActorListComponents(Obj mgr,
-                                    const wchar_t* propertyName,
-                                    std::vector<RC::Unreal::UObject*>& out)
+        void addActorList(Obj mgr,
+                          const wchar_t* propertyName,
+                          std::vector<RC::Unreal::UObject*>& out)
         {
             const TArrHdr* arr = mgr.getPtr<TArrHdr>(propertyName);
-            if (!arr || !arr->Data || arr->Num <= 0)
+            if (!arr || !arr->Data || arr->Num <= 0 || arr->Max < arr->Num)
                 return;
 
-            const int count = (arr->Num < kMaxActorListCount)
-                ? arr->Num
-                : kMaxActorListCount;
             auto** actors = static_cast<RC::Unreal::UObject**>(arr->Data);
-            for (int i = 0; i < count; ++i)
+            for (int i = 0; i < arr->Num; ++i)
             {
-                Obj actor{actors[i]};
-                if (!actor || !isReal(actor.raw()))
-                    continue;
-                addKnownComponentPointers(actor, out);
+                addUnique(out, actors[i]);
             }
         }
 
-        void addKnownComponentPointers(
-            Obj actor,
-            std::vector<RC::Unreal::UObject*>& out)
+        int drawWallComponentPair(Obj actor,
+                                  const wchar_t* opaqueName,
+                                  const wchar_t* translucentName,
+                                  bool opaqueVisible,
+                                  LineBatcherBackend& backend)
         {
-            static constexpr const wchar_t* kComponentNames[] = {
-                L"BaseMeshComponent",
-                L"BaseTranslucentMeshComponent",
-                L"BrokenMeshComponent",
-                L"BrokenTranslucentMeshComponent",
-                L"BreakingMeshComponent",
-                L"BreakingTranslucentMeshComponent",
-                L"BarrierFace",
-                L"BarrierBack",
-                L"BarrierFloor",
-                L"BarrierBreaking",
-            };
-
-            for (const wchar_t* name : kComponentNames)
-            {
-                Obj component = actor.getObj(name);
-                addUnique(out, component.raw());
-            }
+            const wchar_t* selected = opaqueVisible ? opaqueName : translucentName;
+            const wchar_t* fallback = opaqueVisible ? translucentName : opaqueName;
+            Obj component = actor.getObj(selected);
+            if (!component)
+                component = actor.getObj(fallback);
+            Bounds bounds{};
+            if (!component || !getComponentBounds(component, bounds))
+                return 0;
+            return drawAabb(backend, bounds.origin, bounds.extent,
+                            kBreakableWallColour, kActorThickness);
         }
 
-        int drawCachedComponentBounds(
-            const std::vector<RC::Unreal::UObject*>& components,
-            LineBatcherBackend& backend,
-            const FLinColor& colour)
+        int drawBreakableWalls(LineBatcherBackend& backend)
         {
             int drawn = 0;
-            for (auto* component : components)
+            for (auto* rawActor : m_breakableWallActors)
             {
-                Bounds b{};
-                if (getComponentBounds(Obj{component}, b))
-                    drawn += drawAabb(backend, b.origin, b.extent, colour,
-                                      kActorThickness);
+                if (!isReal(rawActor)) continue;
+                const auto* actorBytes =
+                    reinterpret_cast<const uint8_t*>(rawActor);
+                uint8_t breakState = 0;
+                float fadeTimer = 0.0f;
+                float fadeRate = 0.0f;
+                if (!SafeReadUInt8(actorBytes + kWallBreakState, &breakState) ||
+                    !SafeReadFloat(actorBytes + kWallFadeTimer, &fadeTimer) ||
+                    !SafeReadFloat(actorBytes + kWallFadeRate, &fadeRate) ||
+                    !sane(fadeTimer, kMaxAbsBattleCoordinate) ||
+                    !sane(fadeRate, kMaxAbsBattleCoordinate))
+                    continue;
+
+                const wchar_t* opaqueName = nullptr;
+                const wchar_t* translucentName = nullptr;
+                switch (breakState)
+                {
+                    case 0:
+                        opaqueName = L"BaseMeshComponent";
+                        translucentName = L"BaseTranslucentMeshComponent";
+                        break;
+                    case 1:
+                        opaqueName = L"BreakingMeshComponent";
+                        translucentName = L"BreakingTranslucentMeshComponent";
+                        break;
+                    case 2:
+                        opaqueName = L"BrokenMeshComponent";
+                        translucentName = L"BrokenTranslucentMeshComponent";
+                        break;
+                    default:
+                        continue;
+                }
+
+                const bool opaqueVisible = fadeRate == 0.0f && fadeTimer >= 1.0f;
+                drawn += drawWallComponentPair(
+                    Obj{rawActor}, opaqueName, translucentName,
+                    opaqueVisible, backend);
+            }
+            return drawn;
+        }
+
+        int drawNamedComponentBounds(Obj actor,
+                                     const wchar_t* componentName,
+                                     LineBatcherBackend& backend,
+                                     const FLinColor& colour)
+        {
+            Obj component = actor.getObj(componentName);
+            Bounds bounds{};
+            if (!component || !getComponentBounds(component, bounds))
+                return 0;
+            return drawAabb(backend, bounds.origin, bounds.extent,
+                            colour, kActorThickness);
+        }
+
+        int drawBreakableBarriers(LineBatcherBackend& backend)
+        {
+            int drawn = 0;
+            for (auto* rawActor : m_barrierActors)
+            {
+                if (!isReal(rawActor)) continue;
+                const auto* actorBytes =
+                    reinterpret_cast<const uint8_t*>(rawActor);
+                int32_t endurance = 0;
+                int32_t hitCount = 0;
+                if (!SafeReadInt32(actorBytes + kBarrierEndurance, &endurance) ||
+                    !SafeReadInt32(actorBytes + kBarrierHitCount, &hitCount) ||
+                    endurance <= 0 || hitCount < 0)
+                    continue;
+
+                Obj actor{rawActor};
+                // BarrierFloor is not toggled by the native hit-state
+                // visibility reconciler; it remains part of both states.
+                drawn += drawNamedComponentBounds(
+                    actor, L"BarrierFloor", backend,
+                    kBreakableBarrierColour);
+                if (hitCount < endurance)
+                {
+                    drawn += drawNamedComponentBounds(
+                        actor, L"BarrierFace", backend,
+                        kBreakableBarrierColour);
+                    drawn += drawNamedComponentBounds(
+                        actor, L"BarrierBack", backend,
+                        kBreakableBarrierColour);
+                }
+                else
+                {
+                    drawn += drawNamedComponentBounds(
+                        actor, L"BarrierBreaking", backend,
+                        kBreakableBarrierColour);
+                }
             }
             return drawn;
         }
@@ -719,17 +652,6 @@ namespace Horse
             return 12;
         }
 
-        static bool readLegacyBarrierValid()
-        {
-            const uintptr_t base = NativeBinding::imageBase();
-            if (!base) return false;
-            uint32_t valid = 0;
-            return SafeReadUInt32(reinterpret_cast<const void*>(
-                                      base + kLegacyBarrierValidRVA),
-                                  &valid) &&
-                   valid != 0;
-        }
-
         static void logStatsRateLimited(const DrawStats& stats)
         {
             using Clock = std::chrono::steady_clock;
@@ -742,19 +664,21 @@ namespace Horse
             last = now;
 
             RC::Output::send<RC::LogLevel::Verbose>(
-                STR("[HorseMod.StageBoundary] grid={} floorTris={} ringTris={} wallTris={} "
-                    "otherTris={} terrainLines={} breakableWallLines={} "
-                    "barrierLines={} legacyScbattleBarrier={} clipped={}\n"),
+                STR("[HorseMod.StageBoundary] grid={} ordinaryTris={} ringWallTris={} "
+                    "floorCeilingTris={} edgeRingOutTris={} specialTris={} excludedTris={} "
+                    "invalidFrameTris={} terrainLines={} breakableWallLines={} "
+                    "barrierLines={}\n"),
                 stats.gridValid ? 1 : 0,
-                stats.floorTriangles,
-                stats.ringTriangles,
-                stats.wallTriangles,
-                stats.otherBoundaryTriangles,
+                stats.ordinaryTerrainTriangles,
+                stats.ringWallTriangles,
+                stats.floorCeilingTriangles,
+                stats.edgeRingOutTriangles,
+                stats.specialTerrainTriangles,
+                stats.excludedTerrainTriangles,
+                stats.invalidFrameTriangles,
                 stats.terrain,
                 stats.breakableWalls,
-                stats.breakableBarriers,
-                stats.legacyBarrierValid ? 1 : 0,
-                stats.terrainClipped ? 1 : 0);
+                stats.breakableBarriers);
         }
     };
 }

@@ -90,18 +90,18 @@ def test_no_synthetic_fallback_inputs(mitsurugi_bank, mitsurugi_graph):
 
 
 def test_slot_401_reaches_via_orphan_seed(mitsurugi_bank, mitsurugi_graph):
-    """Regression: slot 401 (Mitsurugi mid 60dmg jump-launcher) is reached
-    only through sentinel-anim 'trampoline' slot 2892. Without orphan
-    seeding, BFS misses it entirely and the move shows as 'unknown'."""
+    """Regression: slot 401 is reached only through sentinel-animation
+    trampoline slot 2892. Without orphan seeding, BFS misses it entirely."""
     roots = identify_stance_roots(mitsurugi_bank, mitsurugi_graph)
     moves = build_flat_moves(mitsurugi_bank, mitsurugi_graph, roots)
     by_slot = {m.slot_idx: m for m in moves}
     assert 401 in by_slot, "slot 401 should be in flat moves"
     m = by_slot[401]
     assert m.input_path, f"slot 401 should have a known input chain, got {m}"
-    # The expected chain is up-then-forward (numpad 9)
-    assert any("up" in s for s in m.input_path), f"missing 'up' step: {m.input_path}"
-    assert any("forward" in s for s in m.input_path), f"missing 'forward' step: {m.input_path}"
+    # CheckMotionConditionFlags consumes history +0x00, whose low nibble is
+    # A/B/K/G. The old test incorrectly interpreted bits 4 and 2 as up and
+    # forward; native publication proves this authored chain is K then B.
+    assert m.input_path == ["(any:K)", "(any:B)"]
 
 
 def test_fallback_moves_are_attack_role_only(mitsurugi_bank, mitsurugi_graph):

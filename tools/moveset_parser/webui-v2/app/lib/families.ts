@@ -1,15 +1,13 @@
 import type {
-  Cell,
   CharData,
   MovelistMove,
   PlayerCharPayload,
   PlayerDashboard,
   PlayerMoveFamily,
-  PlayerMoveFamilyMetrics,
   PlayerMoveFamilyRow,
   PlayerMoveSummary,
   SourceConfidence,
-  TimelineStatus,
+  NativeLinkStatus,
 } from "../data/types";
 import { bestHit, bestStartup, damageTotal, parseFrameValue, rowLooksLikeLauncher, worstBlock } from "./frames";
 
@@ -40,81 +38,50 @@ export function normalizeCommand(input: string): string {
     .replace(/-/g, "");
 }
 
-function primaryCell(move: MovelistMove, cells: Cell[]): Cell | null {
-  for (const commandSet of move.commandSets ?? []) {
-    const cell = cells[commandSet.cellIdx];
-    if (cell?.role === "Attack") return cell;
-  }
-  return null;
-}
-
-function nativeSlots(move: MovelistMove): number[] {
-  return [...new Set((move.commandSets ?? []).map((set) => set.slotIdx).filter((idx) => idx >= 0))];
-}
-
-function nativeCells(move: MovelistMove): number[] {
-  return [...new Set((move.commandSets ?? []).map((set) => set.cellIdx).filter((idx) => idx >= 0))];
-}
-
-function metricsFromMove(move: MovelistMove, cells: Cell[]): PlayerMoveFamilyMetrics {
-  const cell = primaryCell(move, cells);
-  return {
-    startup: move.communityFrame?.startup ?? cell?.activeStart ?? null,
-    damage: move.communityFrame?.damage?.length
-      ? move.communityFrame.damage
-      : cell?.role === "Attack"
-        ? [cell.damage]
-        : [],
-    block: move.communityFrame?.onBlock || (cell?.onBlock ?? null),
-    hit: move.communityFrame?.onHit || (cell?.onHitStanding ?? null),
-    counterHit: move.communityFrame?.onCounterHit || null,
-    hitLevels: move.hitClasses?.length ? move.hitClasses : cell?.class ? [cell.class] : [],
-  };
-}
-
 function rowFromMove(char: CharData, move: MovelistMove): PlayerMoveFamilyRow {
-  const metrics = metricsFromMove(move, char.khd?.cells ?? []);
-  const hasCommunity = Boolean(move.communityFrame);
   return {
     id: `${char.cid}-fallback-row-${move.order}`,
     displayCommand: move.fullCommand || move.input || move.condition || `row ${move.order}`,
     displayName: move.name || `Move ${move.moveId}`,
     context: move.condition || "Neutral",
-    source: hasCommunity ? "mixed" : "movelist",
-    confidence: hasCommunity ? "mixed-supported" : "native-inferred",
+    isThrowInput: move.isThrowInput,
+    source: "game-movelist-table",
+    confidence: "game-authored",
     parserMoveOrders: [move.order],
-    nativeSlots: nativeSlots(move),
-    nativeCells: nativeCells(move),
-    metrics,
+    nativeLink: move.nativeLink,
+    metrics: move.metrics,
+    evidence: move.evidence,
     notes: [move.note, move.mainTip, move.lethalHitCondition].filter(Boolean).join(" "),
-    guardBurst: move.communityFrame?.guardBurst ?? null,
-    timelineStatus: hasCommunity ? "partial" : "native-cell-only",
   };
 }
 
 function fallbackSummary(char: CharData, families: PlayerMoveFamily[]): PlayerMoveSummary {
-  const sourceCounts: Record<string, number> = {};
-  const confidenceCounts: Record<string, number> = {};
-  const timelineStatusCounts: Record<string, number> = {};
+  const linkStatusCounts: Record<string, number> = {};
+  const groupingConfidenceCounts: Record<string, number> = {};
+  const metricCoverage: Record<string, number> = {};
   let playerRows = 0;
   for (const family of families) {
-    confidenceCounts[family.confidence] = (confidenceCounts[family.confidence] ?? 0) + 1;
+    groupingConfidenceCounts[family.confidence] = (groupingConfidenceCounts[family.confidence] ?? 0) + 1;
     playerRows += family.rows.length;
     for (const row of family.rows) {
-      sourceCounts[row.source] = (sourceCounts[row.source] ?? 0) + 1;
-      timelineStatusCounts[row.timelineStatus] = (timelineStatusCounts[row.timelineStatus] ?? 0) + 1;
+      linkStatusCounts[row.nativeLink.status] = (linkStatusCounts[row.nativeLink.status] ?? 0) + 1;
+      for (const [metric, value] of Object.entries(row.metrics)) {
+        if (value !== null && value !== "" && (!Array.isArray(value) || value.length)) {
+          metricCoverage[metric] = (metricCoverage[metric] ?? 0) + 1;
+        }
+      }
     }
   }
+  const nativeLinkedRows = (linkStatusCounts.confirmed ?? 0) + (linkStatusCounts.heuristic ?? 0);
   return {
-    rawMoveRows: char.movelist?.moves.length ?? 0,
+    officialRows: char.movelist?.moves.length ?? 0,
     playerFamilies: families.length,
     playerRows,
-    communityRows: 0,
-    communityCoveredParserRows: 0,
-    parserFallbackFamilies: families.length,
-    sourceCounts,
-    confidenceCounts,
-    timelineStatusCounts,
+    nativeLinkedRows,
+    nativeUnlinkedRows: playerRows - nativeLinkedRows,
+    linkStatusCounts,
+    groupingConfidenceCounts,
+    metricCoverage,
   };
 }
 
@@ -167,22 +134,31 @@ export function familyStats(family: PlayerMoveFamily): FamilyStats {
     .map((row) => damageTotal(row.metrics.damage))
     .filter((value): value is number => value !== null);
   const unsafeCount = rows.filter((row) => {
+    if (row.isThrowInput) return false;
+    if (row.evidence.block.status !== "native-confirmed") return false;
     const block = parseFrameValue(row.metrics.block);
     return block !== null && block <= -10;
   }).length;
   const plusCount = rows.filter((row) => {
+    if (row.isThrowInput) return false;
+    if (row.evidence.block.status !== "native-confirmed") return false;
     const block = parseFrameValue(row.metrics.block);
     return block !== null && block > 0;
   }).length;
   return {
     startup: bestStartup(rows),
     damage: damages.length ? Math.max(...damages) : null,
-    block: worstBlock(rows),
-    hit: bestHit(rows),
+    // Family summaries may display statically inferred values as long as the
+    // row keeps its provenance tag.  Rankings above remain confirmed-only.
+    block: worstBlock(rows.filter((row) => row.evidence.block.status !== "unknown")),
+    hit: bestHit(rows.filter((row) => row.evidence.hit.status !== "unknown")),
     rowCount: rows.length,
     unsafeCount,
     plusCount,
-    launcherCount: rows.filter(rowLooksLikeLauncher).length,
+    launcherCount: rows.filter((row) => (
+      row.evidence.hit.status === "native-confirmed"
+      || row.evidence.counterHit.status === "native-confirmed"
+    ) && rowLooksLikeLauncher(row)).length,
   };
 }
 
@@ -199,7 +175,7 @@ export function familySearchText(family: PlayerMoveFamily): string {
       row.context ?? "",
       row.source,
       row.confidence,
-      row.timelineStatus,
+      row.nativeLink.status,
       row.metrics.hitLevels.join(" "),
       row.notes ?? "",
     ]),
@@ -216,11 +192,14 @@ export function familyCommandKeys(family: PlayerMoveFamily): string[] {
 
 export function buildFamilyViewModels(
   families: PlayerMoveFamily[],
-  dashboard?: PlayerDashboard,
+  _dashboard?: PlayerDashboard,
 ): FamilyViewModel[] {
   return families.map((family) => ({
     family,
-    stats: dashboard?.statsByFamily?.[family.id] ?? familyStats(family),
+    // Dashboard ids remain the trust gate for rankings.  Visible family
+    // summaries come from the rows so inferred values are not hidden by the
+    // confirmed-only dashboard aggregate.
+    stats: familyStats(family),
     searchText: familySearchText(family),
     commandKeys: familyCommandKeys(family),
   }));
@@ -228,22 +207,18 @@ export function buildFamilyViewModels(
 
 export function confidenceRank(confidence: SourceConfidence): number {
   switch (confidence) {
-    case "runtime-validated": return 7;
-    case "community-confirmed": return 6;
-    case "native-confirmed": return 5;
-    case "mixed-supported": return 4;
+    case "game-authored": return 4;
+    case "native-confirmed": return 3;
     case "native-inferred": return 3;
-    case "weak": return 2;
-    case "conflict": return 1;
     default: return 0;
   }
 }
 
-export function timelineRank(status: TimelineStatus): number {
+export function timelineRank(status: NativeLinkStatus): number {
   switch (status) {
-    case "resolved": return 3;
-    case "partial": return 2;
-    case "native-cell-only": return 1;
+    case "confirmed": return 3;
+    case "heuristic": return 2;
+    case "ambiguous": return 1;
     default: return 0;
   }
 }

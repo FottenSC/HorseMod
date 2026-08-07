@@ -17,6 +17,86 @@
 
 namespace Horse
 {
+    template <size_t N = 128>
+    class RollbackSummaryMatchAckWindow
+    {
+    public:
+        static_assert(N == 128,
+            "summary ACK wire bitmap currently covers 128 frames");
+
+        void clear() noexcept
+        {
+            m_next.clear();
+            m_slots = {};
+        }
+
+        void start(uint32_t first_frame) noexcept
+        {
+            if (!m_next.valid) m_next = first_frame;
+        }
+
+        bool observe(uint32_t frame) noexcept
+        {
+            if (!m_next.valid) return false;
+            if (RollbackFrameIsAfter(m_next.value, frame)) return true;
+            if (RollbackFrameDistance(frame, m_next.value) >= N)
+                return false;
+            Slot& slot = m_slots[frame % N];
+            if (slot.matched && slot.frame != frame) return false;
+            slot = {frame, true};
+            while (true)
+            {
+                Slot& next = m_slots[m_next.value % N];
+                if (!next.matched || next.frame != m_next.value) break;
+                next = {};
+                m_next = m_next.value + 1u;
+            }
+            return true;
+        }
+
+        uint32_t next_unmatched_frame() const noexcept
+        {
+            return m_next.valid ? m_next.value : 0;
+        }
+
+        bool valid() const noexcept { return m_next.valid; }
+
+        bool observed(uint32_t frame) const noexcept
+        {
+            if (!m_next.valid) return false;
+            if (RollbackFrameIsAfter(m_next.value, frame)) return true;
+            if (RollbackFrameDistance(frame, m_next.value) >= N)
+                return false;
+            const Slot& slot = m_slots[frame % N];
+            return slot.matched && slot.frame == frame;
+        }
+
+        void selective(uint64_t (&out)[2]) const noexcept
+        {
+            out[0] = 0;
+            out[1] = 0;
+            if (!m_next.valid) return;
+            for (size_t bit = 0; bit < N; ++bit)
+            {
+                const uint32_t frame =
+                    m_next.value + static_cast<uint32_t>(bit);
+                const Slot& slot = m_slots[frame % N];
+                if (slot.matched && slot.frame == frame)
+                    out[bit / 64u] |= uint64_t {1} << (bit % 64u);
+            }
+        }
+
+    private:
+        struct Slot
+        {
+            uint32_t frame {0};
+            bool matched {false};
+        };
+
+        RollbackFrameStamp m_next {};
+        std::array<Slot, N> m_slots {};
+    };
+
     enum class RollbackSummaryFrameClass : uint8_t
     {
         InWindow,
@@ -135,6 +215,9 @@ namespace Horse
         bool collision_rejected {false};
         bool too_far_rejected {false};
         bool wrap_aware {false};
+        bool cumulative_ack_recovers_loss {false};
+        bool selective_ack_reports_gap {false};
+        bool receipt_query_distinguishes_gap {false};
         const char* failure {"not-run"};
     };
 
@@ -195,6 +278,27 @@ namespace Horse
             && wrap.pop_contiguous(wrap_b)
             && wrap_b == UINT32_MAX;
 
+        RollbackSummaryMatchAckWindow<> ack_window {};
+        ack_window.start(20);
+        uint64_t selective[2] {};
+        const bool observed_gap =
+            ack_window.observe(22) && ack_window.observe(23);
+        ack_window.selective(selective);
+        report.selective_ack_reports_gap = observed_gap
+            && ack_window.next_unmatched_frame() == 20
+            && (selective[0] & (uint64_t {1} << 2u)) != 0
+            && (selective[0] & (uint64_t {1} << 3u)) != 0;
+        report.receipt_query_distinguishes_gap =
+            !ack_window.observed(20)
+            && ack_window.observed(22)
+            && !ack_window.observed(24);
+        report.cumulative_ack_recovers_loss =
+            ack_window.observe(20) && ack_window.observe(21)
+            && ack_window.next_unmatched_frame() == 24
+            && ack_window.observed(20)
+            && ack_window.observed(23)
+            && !ack_window.observed(24);
+
         report.ok = report.peer_summary_first
             && report.ack_first
             && report.later_frame_cannot_skip
@@ -204,7 +308,10 @@ namespace Horse
             && report.stale_after_reuse_safe
             && report.collision_rejected
             && report.too_far_rejected
-            && report.wrap_aware;
+            && report.wrap_aware
+            && report.cumulative_ack_recovers_loss
+            && report.selective_ack_reports_gap
+            && report.receipt_query_distinguishes_gap;
         report.failure = report.ok ? "ok" : "consensus-selftest-failed";
         return report;
     }

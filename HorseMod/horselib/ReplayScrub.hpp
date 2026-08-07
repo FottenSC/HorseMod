@@ -78,7 +78,18 @@
 #include "NativeBinding.hpp"
 #include "NativeReplayTraceHook.hpp"
 #include "ReplayDebugTrace.hpp"
+#include "ReplayAnimationPresentation.hpp"
+#include "ReplayInputPairAuthority.hpp"
+#include "ReplayMatrixBankRing.hpp"
 #include "ReplayScrubDiag.hpp"
+#include "RollbackMotionDecodeScratch.hpp"
+#include "RollbackMotionPoseResidue.hpp"
+#include "RollbackAiPaletteDiagnostics.hpp"
+#include "RollbackCharaAnimationState.hpp"
+#include "RollbackReplayOracle.hpp"
+#include "RollbackReplayTraceDiagnostics.hpp"
+#include "RollbackStageSnapshot.hpp"
+#include "RollbackStageWindSnapshot.hpp"
 #include "RngTraceHook.hpp"
 #include "SafeMemoryRead.hpp"
 #include "VitalTraceHook.hpp"
@@ -139,6 +150,8 @@ namespace Horse
         uint64_t request_id,
         const void* payload_data,
         size_t payload_size) noexcept;
+    void replay_scrub_note_animation_presentation_actor_post_tick(
+        void* actor) noexcept;
 
     // ------------------------------------------------------------------
     // HgCpuBufferShim - HorseMod's implementation of the engine's
@@ -239,6 +252,8 @@ namespace Horse
         // lifetime-safe graph. The snapshot still carries scalar timer
         // state, but its child-node addresses can belong to a prior round.
         static constexpr uintptr_t kRVA_LuxMoveVM_TimerConfig = 0x470DF28;
+        static constexpr uintptr_t
+            kRVA_LuxEffectSystemInstance = 0x470DF08;
         static constexpr uintptr_t
             kRVA_LuxCameraAction_DeserializeKnockdownState = 0x32ACE0;
         static constexpr size_t kTimerNodeRootSnapshotBytes = 0x2F0;
@@ -1091,6 +1106,21 @@ namespace Horse
             if (timer_root != dst)
                 return false;
 
+            void* effect_system = nullptr;
+            void* action_manager_root = nullptr;
+            if (!SafeReadPtr(
+                    reinterpret_cast<const void*>(
+                        base + kRVA_LuxEffectSystemInstance),
+                    &effect_system)
+                || !effect_system
+                || !SafeReadPtr(
+                    static_cast<const uint8_t*>(effect_system) + 0x7A0,
+                    &action_manager_root)
+                || action_manager_root != timer_root)
+            {
+                return false;
+            }
+
             if (backing_out)
                 (void)SafeReadPtr(static_cast<const uint8_t*>(timer_root) + 8,
                                   backing_out);
@@ -1736,6 +1766,98 @@ namespace Horse
             s_us{};
         static inline std::atomic<GenerationNativeProfileHooks*> s_instance{
             nullptr};
+    };
+
+    // ------------------------------------------------------------------
+    // ReplayAnimationPresentationTickObserver
+    //
+    // The presentation-envelope actor is not the simulation PLAYER stored
+    // in g_LuxBattle_CharaSlotP1/P2.  Its authoritative identity is the
+    // `this` pointer passed to the native TickActor implementation at
+    // SoulcaliburVI.exe+0x3D0190.  This observational detour calls the
+    // original unmodified, then reports the actor after both independent
+    // envelope consumers and all later presentation consumers completed.
+    // ------------------------------------------------------------------
+    class ReplayAnimationPresentationTickObserver
+    {
+    public:
+        ReplayAnimationPresentationTickObserver() noexcept
+        {
+            s_instance.store(this, std::memory_order_release);
+        }
+
+        ~ReplayAnimationPresentationTickObserver()
+        {
+            disengage();
+            if (s_instance.load(std::memory_order_acquire) == this)
+                s_instance.store(nullptr, std::memory_order_release);
+        }
+
+        bool engage() noexcept
+        {
+            if (m_detour) return true;
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            m_trampoline = 0;
+            try
+            {
+                m_detour = std::make_unique<PLH::x64Detour>(
+                    static_cast<uint64_t>(base + kRVA_PresentationTick),
+                    reinterpret_cast<uint64_t>(&detour_tick),
+                    &m_trampoline);
+            }
+            catch (...)
+            {
+                m_detour.reset();
+                m_trampoline = 0;
+                return false;
+            }
+            if (!m_detour->hook())
+            {
+                m_detour.reset();
+                m_trampoline = 0;
+                return false;
+            }
+            RC::Output::send<RC::LogLevel::Default>(STR(
+                "[ReplayScrub.AnimationPresentation] observational "
+                "post-TickActor hook installed at RVA 0x{:X}\n"),
+                kRVA_PresentationTick);
+            return true;
+        }
+
+        void disengage() noexcept
+        {
+            if (m_detour)
+            {
+                m_detour->unHook();
+                m_detour.reset();
+            }
+            m_trampoline = 0;
+        }
+
+    private:
+        static constexpr uintptr_t kRVA_PresentationTick = 0x3D0190;
+        using TickFn = void (__fastcall*)(void*, float, int, void*);
+
+        static void __fastcall detour_tick(
+            void* actor,
+            float delta_seconds,
+            int tick_type,
+            void* tick_function)
+        {
+            auto* instance = s_instance.load(std::memory_order_acquire);
+            if (!instance) return;
+            const TickFn original =
+                reinterpret_cast<TickFn>(instance->m_trampoline);
+            if (!original) return;
+            original(actor, delta_seconds, tick_type, tick_function);
+            replay_scrub_note_animation_presentation_actor_post_tick(actor);
+        }
+
+        std::unique_ptr<PLH::x64Detour> m_detour {};
+        uint64_t m_trampoline {0};
+        static inline std::atomic<
+            ReplayAnimationPresentationTickObserver*> s_instance {nullptr};
     };
 
     // ------------------------------------------------------------------
@@ -6301,6 +6423,25 @@ namespace Horse
         }
     }
 
+    static inline bool SafeInvokeNativePtrReturnsPtr(
+        void* (__fastcall* fn)(void*),
+        void* self,
+        void** out) noexcept
+    {
+        if (out) *out = nullptr;
+        if (!fn || !self || !out) return false;
+        __try
+        {
+            *out = fn(self);
+            return *out != nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            *out = nullptr;
+            return false;
+        }
+    }
+
     // ------------------------------------------------------------------
     // ReplayScrub - the deduplicated snapshot store + UI driver.
     //
@@ -6392,6 +6533,7 @@ namespace Horse
             CapturedSnapshotCompareFailed,
             CapturedSnapshotValidationStepFailed,
             CapturedSnapshotSemanticRepairFailed,
+            CapturedInputPairRepairFailed,
             CapturedRestoreProbeMismatch,
             CapturedGameplayStepFailed,
             SemanticMismatch,
@@ -6401,6 +6543,7 @@ namespace Horse
             TimelineIncomplete,
             NotLanded,
             BattleManagerStatusNotActive,
+            PresentationRefreshFailed,
         };
 
         enum class SeekApplyStatus : int
@@ -6579,6 +6722,9 @@ namespace Horse
             int32_t resume_state_compares {0};
             int32_t resume_state_mismatches {0};
             int32_t resume_state_last_compared_seq {-1};
+            bool validation_semantic_first_mismatch_traced {false};
+            bool resume_matrix_bank_first_mismatch_traced {false};
+            bool resume_matrix_bank_diagnostic_failure_traced {false};
             int32_t resume_rng_trace_window_start_seq {-1};
             int32_t resume_rng_trace_window_start_master {-1};
             bool resume_rng_trace_window_open {false};
@@ -6780,6 +6926,7 @@ namespace Horse
             int32_t native_step_last_grant_gate_policy_after {-1};
             int32_t native_step_last_drain_gate_policy_before {-1};
             int32_t native_step_last_drain_gate_policy_after {-1};
+            int32_t validation_diagnostic_last_master {-1};
             uint32_t native_step_last_grant_world_entry_counter {0};
             uint32_t native_step_last_drain_world_entry_counter {0};
             uint32_t native_step_last_drain_frame_counter_before {0};
@@ -6919,14 +7066,76 @@ namespace Horse
             int32_t wall {-1};
             int32_t master {-1};
             int32_t last_round_result {0};
+            bool world_mode_readable {false};
+            uint64_t world_mode_rva {0};
+            uint32_t world_mode_frame {0};
+            uint32_t world_mode_phase_timer {0};
             uint64_t rng_state {0};
+            uint32_t rng_lcg_state {0};
+            std::array<uint8_t, 0x64> rng_lfsr_state {};
             uint64_t rng_lfsr_hash {0};
             uint32_t rng_lfsr_index {0};
+            bool rng_gameplay_crt_present {false};
+            uint32_t rng_gameplay_crt_state {0};
+            uint32_t rng_gameplay_crt_seed {0};
+            uint32_t rng_gameplay_crt_draw_ordinal {0};
             bool rng_readable {false};
+            bool secondary_event_previous_variant_readable {false};
+            uint32_t secondary_event_previous_variant[2] {};
+            uint32_t round_control[5] {};
+            uint64_t breakable_gameplay_digest {0};
+            uint64_t breakable_presentation_digest {0};
+            uint64_t chara_animation_gameplay_digest {0};
+            uint64_t oracle_gameplay_hash_v1 {0};
+            uint64_t oracle_gameplay_hash_v9 {0};
+            uint64_t oracle_gameplay_hash_v10 {0};
+            uint64_t oracle_gameplay_hash_v11 {0};
+            uint64_t oracle_gameplay_hash_v12 {0};
+            uint64_t oracle_presentation_hash {0};
+            bool stage_wind_readable {false};
+            uint64_t stage_wind_canonical_hash {0};
+            uint64_t stage_wind_gameplay_hash {0};
+            uint64_t stage_wind_combined_rng_hash {0};
+            uint64_t stage_wind_emitter_hash {0};
+            uint64_t stage_wind_root_scheduler_hash {0};
+            uint64_t stage_wind_root_outputs_hash {0};
+            uint64_t stage_wind_presentation_hash {0};
+            uint64_t stage_wind_graph_nodes_hash {0};
+            uint64_t stage_wind_graph_hash {0};
+            uint32_t stage_wind_emitter_count {0};
+            uint32_t stage_wind_graph_count {0};
+            uint32_t stage_wind_output_active {0};
+            uint32_t stage_wind_active_bank {0};
+            int32_t stage_wind_pending_count {0};
+            int32_t stage_wind_schedule_state {0};
+            int32_t stage_wind_effect_pair_scheduled {0};
+            std::array<float, 12> stage_wind_output_forces {};
+            std::array<uint32_t, kRollbackStageWindGraphMaxNodes>
+                stage_wind_node_vtable_rva {};
+            std::array<uint64_t, kRollbackStageWindGraphMaxNodes>
+                stage_wind_node_hash {};
+            std::array<uint64_t, kRollbackStageWindGraphMaxNodes>
+                stage_wind_node_common_hash {};
+            std::array<uint64_t, kRollbackStageWindGraphMaxNodes>
+                stage_wind_node_body_hash {};
+            std::array<uint64_t, kRollbackStageWindGraphMaxNodes>
+                stage_wind_node_tail_hash {};
+            std::array<std::array<uint32_t, 16>,
+                kRollbackStageWindGraphMaxNodes>
+                stage_wind_node_common_words {};
+            std::array<uint32_t,
+                kRollbackStageWindEmitterMutableBytes / sizeof(uint32_t)>
+                stage_wind_emitter0_words {};
+            std::array<std::array<uint32_t, 0x170 / sizeof(uint32_t)>, 2>
+                stage_wind_node_semantic_words {};
+            bool beta_oracle_readable {false};
             ReplayScrubDiag::CharaMoveVmSnap p1 {};
             ReplayScrubDiag::CharaMoveVmSnap p2 {};
             uint64_t p1_input {0};
             uint64_t p2_input {0};
+            std::array<RollbackAiPaletteDiagnostics, 2> ai_palette {};
+            RollbackMotionPoseResidueSnapshot motion_pose_residue {};
+            uint64_t motion_pose_residue_hash {0};
         };
 
         struct CapturedFrameOracleCompareReport
@@ -7146,6 +7355,8 @@ namespace Horse
         static constexpr uintptr_t kRVA_PerPlayerInputCursor  = 0x485EB20;
         static constexpr uintptr_t kRVA_LfsrState             = 0x485EB30;
         static constexpr uintptr_t kRVA_LfsrIndex             = 0x485EB94;
+        static constexpr uintptr_t kRVA_LcgRngState           = 0x485EB28;
+        static constexpr uintptr_t kRVA_RoundControlScalars   = 0x484639C;
         static constexpr uintptr_t kRVA_StageWindRootPtr      = 0x470E038;
         static constexpr uintptr_t kRVA_StageWindEmitterList  = 0x470F1C0;
         static constexpr uintptr_t kRVA_StageWindEmitterCount = 0x470F1C8;
@@ -7290,14 +7501,109 @@ namespace Horse
             return s;
         }
 
-        bool repair_latest_engine_input_before_chara_input(
+        void note_animation_presentation_actor_post_tick(
+            void* actor_raw) noexcept
+        {
+            if (!actor_raw
+                || !m_initialized.load(std::memory_order_acquire)
+                || GameMode::instance().current_presence()
+                    != GamePresence::Replay)
+            {
+                return;
+            }
+
+            const uintptr_t actor =
+                reinterpret_cast<uintptr_t>(actor_raw);
+            LiveAnimationPresentationActor observation{};
+            observation.snapshot.identity.actor = actor;
+            observation.failure =
+                ReplayAnimationPresentationCaptureFailure::None;
+            (void)CaptureReplayAnimationPresentation(
+                actor,
+                ReplayAnimationPresentationCapturePhase::
+                    AfterNativeConsumers,
+                observation.snapshot,
+                [](uintptr_t address, void* dst,
+                   size_t bytes) noexcept {
+                    return SafeReadBytes(
+                        reinterpret_cast<const void*>(address),
+                        dst, bytes);
+                },
+                [this](uintptr_t presentation_actor,
+                       uintptr_t& provider) noexcept {
+                    return resolve_replay_presentation_provider(
+                        presentation_actor, provider);
+                },
+                &observation.failure);
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (base)
+            {
+                (void)SafeReadUInt32(
+                    reinterpret_cast<const void*>(
+                        base + kRVA_FrameCounter),
+                    &observation.frame_counter);
+            }
+            observation.master_clock = read_engine_master_clock();
+
+            std::lock_guard<std::mutex> lock(
+                m_animation_presentation_actor_mutex);
+            observation.observation_serial =
+                ++m_animation_presentation_observation_serial;
+            size_t destination =
+                kReplayAnimationPresentationMaxActors;
+            uint64_t oldest_serial =
+                std::numeric_limits<uint64_t>::max();
+            size_t oldest_index = 0;
+            for (size_t i = 0;
+                 i < m_live_animation_presentation_actor_count; ++i)
+            {
+                if (m_live_animation_presentation_actors[i]
+                        .snapshot.identity.actor == actor)
+                {
+                    destination = i;
+                    break;
+                }
+                if (m_live_animation_presentation_actors[i]
+                        .observation_serial < oldest_serial)
+                {
+                    oldest_serial =
+                        m_live_animation_presentation_actors[i]
+                            .observation_serial;
+                    oldest_index = i;
+                }
+            }
+            if (destination
+                == kReplayAnimationPresentationMaxActors)
+            {
+                if (m_live_animation_presentation_actor_count
+                    < kReplayAnimationPresentationMaxActors)
+                {
+                    destination =
+                        m_live_animation_presentation_actor_count++;
+                }
+                else
+                {
+                    destination = oldest_index;
+                }
+            }
+            m_live_animation_presentation_actors[destination] =
+                observation;
+        }
+
+        ReplayInputPairRepairResult
+        repair_latest_engine_input_before_chara_input(
             void* chara) noexcept
         {
-            const uintptr_t base = NativeBinding::imageBase();
-            if (!base || !chara) return false;
             if (GameMode::instance().current_presence()
                 != GamePresence::Replay)
-                return false;
+                return ReplayInputPairRepairResult::Inactive;
+            if (m_sc6_seek_job.phase == Sc6ExactSeekPhase::Failed
+                && m_sc6_seek_job.failure
+                    == NativeSeekFailure::CapturedInputPairRepairFailed)
+            {
+                return ReplayInputPairRepairResult::Failed;
+            }
 
             const bool seek_resume_active =
                 m_replay_seek_test.active
@@ -7309,58 +7615,43 @@ namespace Horse
                 m_sc6_seek_job.phase == Sc6ExactSeekPhase::ValidateStepToTarget
                 && m_sc6_seek_job.validation_compare_tick >= 0
                 && m_sc6_seek_job.validation_compare_seq >= 0;
+            const bool validation_warmup_active =
+                ReplayInputPairRepairPhaseActive(
+                    validation_step_active,
+                    m_sc6_seek_job.phase == Sc6ExactSeekPhase::FastForward,
+                    m_sc6_seek_job.native_step_warmup_to_target,
+                    m_sc6_seek_job.validation_mode
+                        == CapturedSeekValidationMode::PreviousToTarget);
             (void)seek_resume_active;
             (void)landed_play_active;
-            if (!validation_step_active)
-                return false;
+            if (!validation_warmup_active)
+                return ReplayInputPairRepairResult::Inactive;
+
+            auto fail_repair = [&]() noexcept
+            {
+                fail_sc6_exact_seek(
+                    NativeSeekFailure::CapturedInputPairRepairFailed);
+                return ReplayInputPairRepairResult::Failed;
+            };
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base || !chara)
+                return fail_repair();
             if (!live_battle_play_gate_active())
-                return false;
+                return fail_repair();
 
             uint8_t* c = static_cast<uint8_t*>(chara);
             uint8_t slot_byte = 0xFF;
             if (!SafeReadUInt8(c + 0x23C, &slot_byte) || slot_byte > 1)
-                return false;
+                return fail_repair();
             const size_t player_slot = static_cast<size_t>(slot_byte);
 
             const int32_t live_round = read_current_round();
             const int32_t live_master = read_engine_master_clock();
-            int32_t seq = -1;
-            bool validation_compare_authority = false;
-            bool validation_live_authority = false;
-            if (validation_step_active)
-            {
-                int32_t compare_seq = -1;
-                int32_t compare_round = -1;
-                int32_t compare_wall = -1;
-                int32_t compare_master = -1;
-                if (m_tags.get(
-                        static_cast<size_t>(
-                            m_sc6_seek_job.validation_compare_tick),
-                        compare_seq, compare_round, compare_wall,
-                        compare_master)
-                    && compare_seq >= 0 && compare_round >= 0
-                    && compare_master >= 0)
-                {
-                    const int32_t live_seq =
-                        find_slot_for_round_master(live_round, live_master);
-                    const int32_t live_ahead =
-                        live_master - compare_master;
-                    if (live_seq >= 0 && live_round == compare_round
-                        && live_ahead >= 0 && live_ahead <= 1)
-                    {
-                        seq = live_seq;
-                        validation_live_authority = true;
-                    }
-                    else
-                    {
-                        seq = m_sc6_seek_job.validation_compare_tick;
-                        validation_compare_authority = true;
-                    }
-                }
-            }
+            const int32_t seq =
+                find_slot_for_round_master(live_round, live_master);
             if (seq < 0)
-                seq = find_slot_for_round_master(live_round, live_master);
-            if (seq < 0) return false;
+                return fail_repair();
 
             int32_t tag_seq = -1;
             int32_t tag_round = -1;
@@ -7368,18 +7659,16 @@ namespace Horse
             int32_t tag_master = -1;
             if (!m_tags.get(static_cast<size_t>(seq), tag_seq, tag_round,
                             tag_frame, tag_master))
-                return false;
-            const int32_t master_delta = live_master >= tag_master
-                ? live_master - tag_master
-                : tag_master - live_master;
-            if (tag_round != live_round || master_delta > 1)
-                return false;
+                return fail_repair();
+            if (tag_round != live_round || tag_master != live_master)
+                return fail_repair();
             if (!captured_battle_play_gate_active(seq))
-                return false;
+                return fail_repair();
 
             const uint8_t* extras = m_extras_store.gather(
                 static_cast<size_t>(seq));
-            if (!extras) return false;
+            if (!extras)
+                return fail_repair();
 
             uint64_t expected_pair[2] {};
             std::memcpy(expected_pair,
@@ -7398,7 +7687,7 @@ namespace Horse
                 + player_slot * sizeof(expected));
             uint64_t live_before = 0;
             if (!SafeReadUInt64(live_addr, &live_before))
-                return false;
+                return fail_repair();
             const uint32_t expected_current =
                 static_cast<uint32_t>(expected & 0xFFFFFFFFu);
             const uint32_t live_current =
@@ -7411,44 +7700,47 @@ namespace Horse
 
             Sc6ReplaySeekContext ctx{};
             const bool ctx_ok = resolve_sc6_replay_seek_context(ctx);
+            if (!ctx_ok || !ctx.input_log_ok || ctx.input_log == 0
+                || !ctx.battle_manager_ok || ctx.battle_manager == 0)
+            {
+                return fail_repair();
+            }
             uint32_t live_log_current_pair[2] {};
             bool log_current_read_ok = false;
-            if (ctx_ok && ctx.input_log_ok && ctx.input_log != 0)
-            {
-                log_current_read_ok = SafeReadUInt32(
+            log_current_read_ok = SafeReadUInt32(
+                reinterpret_cast<const void*>(
+                    ctx.input_log + kIL_CurrentInputMirror_Off),
+                &live_log_current_pair[0])
+                && SafeReadUInt32(
                     reinterpret_cast<const void*>(
-                        ctx.input_log + kIL_CurrentInputMirror_Off),
-                    &live_log_current_pair[0])
-                    && SafeReadUInt32(
-                        reinterpret_cast<const void*>(
-                            ctx.input_log + kIL_CurrentInputMirror_Off
-                            + sizeof(uint32_t)),
-                        &live_log_current_pair[1]);
-            }
+                        ctx.input_log + kIL_CurrentInputMirror_Off
+                        + sizeof(uint32_t)),
+                    &live_log_current_pair[1]);
+            if (!log_current_read_ok)
+                return fail_repair();
 
             uintptr_t frame_input = 0;
             uint32_t live_frame_current_pair[2] {};
             bool frame_current_read_ok = false;
-            if (ctx_ok && ctx.battle_manager_ok && ctx.battle_manager != 0)
+            void* fi_raw = nullptr;
+            if (SafeReadPtr(reinterpret_cast<const void*>(
+                                ctx.battle_manager
+                                + kBM_FrameInputActor_Off),
+                            &fi_raw)
+                && fi_raw)
             {
-                void* fi_raw = nullptr;
-                if (SafeReadPtr(reinterpret_cast<const void*>(
-                                    ctx.battle_manager
-                                    + kBM_FrameInputActor_Off),
-                                &fi_raw)
-                    && fi_raw)
-                {
-                    frame_input = reinterpret_cast<uintptr_t>(fi_raw);
-                    uint8_t* fi = static_cast<uint8_t*>(fi_raw);
-                    frame_current_read_ok = SafeReadUInt32(
-                        fi + kFI_SlotRecords_Start,
-                        &live_frame_current_pair[0])
-                        && SafeReadUInt32(
-                            fi + kFI_SlotRecords_Start
-                            + kFI_SlotRecord_Stride,
-                            &live_frame_current_pair[1]);
-                }
+                frame_input = reinterpret_cast<uintptr_t>(fi_raw);
+                uint8_t* fi = static_cast<uint8_t*>(fi_raw);
+                frame_current_read_ok = SafeReadUInt32(
+                    fi + kFI_SlotRecords_Start,
+                    &live_frame_current_pair[0])
+                    && SafeReadUInt32(
+                        fi + kFI_SlotRecords_Start
+                        + kFI_SlotRecord_Stride,
+                        &live_frame_current_pair[1]);
             }
+            if (!frame_current_read_ok)
+                return fail_repair();
 
             const bool latest_current_ok = latest_pair_read_ok
                 && static_cast<uint32_t>(
@@ -7457,24 +7749,37 @@ namespace Horse
                 && static_cast<uint32_t>(
                        live_pair[1] & 0xFFFFFFFFu)
                     == expected_current_pair[1];
-            const bool log_current_ok = !log_current_read_ok
-                || (live_log_current_pair[0] == expected_current_pair[0]
-                    && live_log_current_pair[1]
-                        == expected_current_pair[1]);
-            const bool frame_current_ok = !frame_current_read_ok
-                || (live_frame_current_pair[0] == expected_current_pair[0]
-                    && live_frame_current_pair[1]
-                        == expected_current_pair[1]);
-            if (latest_current_ok && log_current_ok && frame_current_ok)
-                return false;
-
-            bool latest_write_ok = true;
-            if (!latest_current_ok)
+            ReplayInputPairRepairResult pair_repair =
+                ReplayInputPairRepairResult::Failed;
+            if (latest_pair_read_ok)
             {
-                latest_write_ok = SafeWriteBytes(
-                    reinterpret_cast<void*>(base + kRVA_LatestEngineInput),
-                    expected_pair, sizeof(expected_pair));
+                pair_repair = ReconcileReplayLatestEngineInputPair(
+                    live_pair[0], live_pair[1],
+                    expected_pair[0], expected_pair[1],
+                    [&](uint64_t p1, uint64_t p2) noexcept
+                    {
+                        const uint64_t repaired_pair[2] {p1, p2};
+                        return SafeWriteBytes(
+                            reinterpret_cast<void*>(
+                                base + kRVA_LatestEngineInput),
+                            repaired_pair, sizeof(repaired_pair));
+                    });
             }
+            const bool latest_pair_ok =
+                pair_repair == ReplayInputPairRepairResult::Exact;
+            if (pair_repair == ReplayInputPairRepairResult::Failed)
+                return fail_repair();
+            const bool log_current_ok =
+                live_log_current_pair[0] == expected_current_pair[0]
+                && live_log_current_pair[1] == expected_current_pair[1];
+            const bool frame_current_ok =
+                live_frame_current_pair[0] == expected_current_pair[0]
+                && live_frame_current_pair[1] == expected_current_pair[1];
+            if (latest_pair_ok && log_current_ok && frame_current_ok)
+                return ReplayInputPairRepairResult::Exact;
+
+            const bool latest_write_ok =
+                pair_repair != ReplayInputPairRepairResult::Failed;
 
             bool frame_write_ok = true;
             if (frame_current_read_ok && !frame_current_ok)
@@ -7524,7 +7829,7 @@ namespace Horse
              .integer("selected_seq", seq)
              .integer("selected_round", tag_round)
              .integer("selected_master", tag_master)
-              .integer("master_delta", master_delta)
+               .integer("master_delta", live_master - tag_master)
               .hex("live_latest_engine_input", live_before)
               .hex("expected_latest_engine_input", expected)
               .hex("live_current_input", live_current)
@@ -7541,6 +7846,10 @@ namespace Horse
               .hex("live_frame_current_p2", live_frame_current_pair[1])
               .hex("frame_input", frame_input)
               .boolean("latest_current_ok", latest_current_ok)
+              .boolean("latest_pair_ok", latest_pair_ok)
+              .boolean("latest_pair_repaired",
+                       pair_repair
+                           == ReplayInputPairRepairResult::Repaired)
               .boolean("log_current_ok", log_current_ok)
               .boolean("frame_current_ok", frame_current_ok)
               .boolean("latest_write_ok", latest_write_ok)
@@ -7554,10 +7863,9 @@ namespace Horse
               .boolean("seek_resume_active", seek_resume_active)
              .boolean("landed_play_active", landed_play_active)
              .boolean("validation_step_active", validation_step_active)
-             .boolean("validation_compare_authority",
-                      validation_compare_authority)
-             .boolean("validation_live_authority",
-                      validation_live_authority)
+             .boolean("validation_warmup_active",
+                      validation_warmup_active)
+             .string("input_pair_authority", "live-round-master")
              .integer("validation_compare_seq",
                       m_sc6_seek_job.validation_compare_seq)
              .integer("validation_compare_master",
@@ -7570,7 +7878,9 @@ namespace Horse
             ReplayDebugTrace::instance().event(
                 "latest_engine_input_tick_repair", f);
 
-            return write_ok;
+            if (!write_ok)
+                return fail_repair();
+            return ReplayInputPairRepairResult::Repaired;
         }
 
         void append_secondary_action_stack_push_trace_context(
@@ -8138,10 +8448,10 @@ namespace Horse
                             s.vel_z);
                 write_float(ReplayScrubDiag::kChara_flBodyFacing_Off,
                             s.facing);
-                write_float(ReplayScrubDiag::kChara_flExpectedMotion_X_Off,
-                            s.expected_motion_x);
-                write_float(ReplayScrubDiag::kChara_flExpectedMotion_Z_Off,
-                            s.expected_motion_z);
+                write_float(ReplayScrubDiag::kChara_flRootMotionCarry_X_Off,
+                            s.root_motion_carry_x);
+                write_float(ReplayScrubDiag::kChara_flRootMotionCarry_Z_Off,
+                            s.root_motion_carry_z);
                 write_float(ReplayScrubDiag::kChara_flFrameDelta_X_Off,
                             s.frame_delta_x);
                 write_float(ReplayScrubDiag::kChara_flFrameDelta_Z_Off,
@@ -8543,10 +8853,12 @@ namespace Horse
                             "vel-z", s.vel_z);
                 write_float(ReplayScrubDiag::kChara_flBodyFacing_Off,
                             "facing", s.facing);
-                write_float(ReplayScrubDiag::kChara_flExpectedMotion_X_Off,
-                            "expected-motion-x", s.expected_motion_x);
-                write_float(ReplayScrubDiag::kChara_flExpectedMotion_Z_Off,
-                            "expected-motion-z", s.expected_motion_z);
+                write_float(ReplayScrubDiag::kChara_flRootMotionCarry_X_Off,
+                            "root-motion-carry-x",
+                            s.root_motion_carry_x);
+                write_float(ReplayScrubDiag::kChara_flRootMotionCarry_Z_Off,
+                            "root-motion-carry-z",
+                            s.root_motion_carry_z);
                 write_float(ReplayScrubDiag::kChara_flFrameDelta_X_Off,
                             "frame-delta-x", s.frame_delta_x);
                 write_float(ReplayScrubDiag::kChara_flFrameDelta_Z_Off,
@@ -9123,6 +9435,301 @@ namespace Horse
             // restore calls cannot quietly return.
         }
 
+        bool resolve_replay_presentation_provider(
+            uintptr_t actor,
+            uintptr_t& out_provider) const noexcept
+        {
+            out_provider = 0;
+            if (!actor) return false;
+            void* battle_manager = nullptr;
+            if (!SafeReadPtr(reinterpret_cast<const void*>(
+                    actor + kChara_PresentationBattleManager_Off),
+                &battle_manager)
+                || !battle_manager)
+            {
+                return false;
+            }
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+            using ResolveFn = void* (__fastcall*)(void*);
+            void* provider = nullptr;
+            if (!SafeInvokeNativePtrReturnsPtr(
+                    reinterpret_cast<ResolveFn>(
+                        base
+                        + kRVA_GetLuxMoveProviderFromWorldContext),
+                    battle_manager,
+                    &provider))
+            {
+                return false;
+            }
+            out_provider = reinterpret_cast<uintptr_t>(provider);
+            return true;
+        }
+
+        bool capture_replay_animation_presentation_frame(
+            int32_t seq,
+            uint32_t wall_frame,
+            ReplayAnimationPresentationCapturePhase phase) noexcept
+        {
+            ReplayAnimationPresentationFrameSnapshot frame{};
+            frame.version =
+                kReplayAnimationPresentationSnapshotVersion;
+            frame.phase = phase;
+            uint32_t observed_this_frame = 0;
+            uint32_t failed_this_frame = 0;
+            uint32_t stale_observers = 0;
+            uint32_t registry_count = 0;
+            if (phase
+                == ReplayAnimationPresentationCapturePhase::Unavailable)
+            {
+                frame.valid = true;
+            }
+            else
+            {
+                std::lock_guard<std::mutex> lock(
+                    m_animation_presentation_actor_mutex);
+                registry_count = static_cast<uint32_t>(
+                    m_live_animation_presentation_actor_count);
+                for (size_t i = 0;
+                     i < m_live_animation_presentation_actor_count; ++i)
+                {
+                    const LiveAnimationPresentationActor& observation =
+                        m_live_animation_presentation_actors[i];
+                    if (observation.frame_counter != wall_frame)
+                    {
+                        ++stale_observers;
+                        continue;
+                    }
+                    ++observed_this_frame;
+                    if (!observation.snapshot.valid)
+                    {
+                        ++failed_this_frame;
+                        continue;
+                    }
+                    if (frame.actor_count
+                        >= kReplayAnimationPresentationMaxActors)
+                    {
+                        ++failed_this_frame;
+                        continue;
+                    }
+                    frame.actor[frame.actor_count++] =
+                        observation.snapshot;
+                }
+                // Runtime evidence shows one authoritative LuxMove
+                // presentation-envelope actor per wall frame. It publishes
+                // shared presentation work including both characters' foot
+                // IK. Other objects sharing this implementation may be
+                // observed, but one valid post-consumer actor is the minimum
+                // complete rendered lane.
+                frame.valid = frame.actor_count >= 1;
+            }
+            bool stored = true;
+
+            try
+            {
+                const size_t index = static_cast<size_t>(seq);
+                if (m_animation_presentation_frames.size()
+                    <= index)
+                {
+                    m_animation_presentation_frames.resize(index + 1);
+                }
+                m_animation_presentation_frames[index] = frame;
+            }
+            catch (const std::bad_alloc&)
+            {
+                stored = false;
+            }
+
+            ReplayTraceFields fields;
+            fields.integer("seq", seq)
+                .uinteger("wall_frame", wall_frame)
+                .uinteger("snapshot_version", frame.version)
+                .uinteger("capture_phase",
+                    static_cast<uint32_t>(phase))
+                .uinteger("actor_count", frame.actor_count)
+                .uinteger("registry_count", registry_count)
+                .uinteger("observed_this_frame",
+                    observed_this_frame)
+                .uinteger("failed_this_frame", failed_this_frame)
+                .uinteger("stale_observers", stale_observers)
+                .boolean("valid", frame.valid)
+                .boolean("stored", stored);
+            ReplayDebugTrace::instance().event(
+                "replay_animation_presentation_capture", fields);
+            return stored && frame.valid;
+        }
+
+        bool restore_replay_animation_presentation_for_tick(
+            const char* label,
+            int32_t seq,
+            int32_t tick) noexcept
+        {
+            const ReplayAnimationPresentationFrameSnapshot* frame =
+                nullptr;
+            if (tick >= 0
+                && static_cast<size_t>(tick)
+                    < m_animation_presentation_frames.size())
+            {
+                frame = &m_animation_presentation_frames[
+                    static_cast<size_t>(tick)];
+            }
+
+            const ReplayAnimationPresentationRestoreMode restore_mode =
+                SelectReplayAnimationPresentationRestoreMode(
+                    frame != nullptr,
+                    frame && frame->valid,
+                    frame ? frame->version : 0,
+                    frame
+                        ? frame->phase
+                        : ReplayAnimationPresentationCapturePhase::
+                            Unavailable);
+            const bool no_presentation_lane =
+                restore_mode
+                    == ReplayAnimationPresentationRestoreMode::
+                        NoPresentationLane;
+            if (no_presentation_lane)
+            {
+                ReplayTraceFields fields;
+                fields.string("label", label ? label : "?")
+                    .integer("seq", seq)
+                    .integer("tick", tick)
+                    .string("reason", "no-presentation-lane")
+                    .boolean("ok", true);
+                ReplayDebugTrace::instance().event(
+                    "replay_animation_legacy_refresh_disabled", fields);
+                return true;
+            }
+
+            std::array<uintptr_t,
+                       kReplayAnimationPresentationMaxActors>
+                actors_to_reseed {};
+            uint32_t reseed_actor_count = 0;
+            if (restore_mode
+                == ReplayAnimationPresentationRestoreMode::Reseed)
+            {
+                std::lock_guard<std::mutex> lock(
+                    m_animation_presentation_actor_mutex);
+                for (size_t i = 0;
+                     i < m_live_animation_presentation_actor_count
+                     && reseed_actor_count
+                         < kReplayAnimationPresentationMaxActors;
+                     ++i)
+                {
+                    if (m_live_animation_presentation_actors[i]
+                            .snapshot.valid)
+                    {
+                        actors_to_reseed[reseed_actor_count++] =
+                            m_live_animation_presentation_actors[i]
+                                .snapshot.identity.actor;
+                    }
+                }
+            }
+
+            const uint32_t actor_count =
+                restore_mode
+                    == ReplayAnimationPresentationRestoreMode::Exact
+                ? frame->actor_count
+                : reseed_actor_count;
+            bool all_ok = true;
+            if (actor_count == 0) all_ok = false;
+            for (uint32_t actor_index = 0;
+                 actor_index < actor_count; ++actor_index)
+            {
+                const uintptr_t actor =
+                    restore_mode
+                            == ReplayAnimationPresentationRestoreMode::Exact
+                        ? frame->actor[actor_index].identity.actor
+                        : actors_to_reseed[actor_index];
+
+                ReplayAnimationPresentationRestoreReport report{};
+                const bool exact_attempted =
+                    restore_mode
+                        == ReplayAnimationPresentationRestoreMode::Exact;
+                if (actor && exact_attempted)
+                {
+                    report = RestoreReplayAnimationPresentation(
+                        actor,
+                        ReplayAnimationPresentationCapturePhase::
+                            AfterNativeConsumers,
+                        frame->actor[actor_index],
+                        [](uintptr_t address, void* dst,
+                           size_t bytes) noexcept {
+                            return SafeReadBytes(
+                                reinterpret_cast<const void*>(address),
+                                dst, bytes);
+                        },
+                        [](uintptr_t address, const void* src,
+                           size_t bytes) noexcept {
+                            return SafeWriteBytes(
+                                reinterpret_cast<void*>(address),
+                                src, bytes);
+                        },
+                        [this](uintptr_t chara,
+                               uintptr_t& provider) noexcept {
+                            return resolve_replay_presentation_provider(
+                                chara, provider);
+                        });
+                }
+
+                bool reseeded = false;
+                if (actor
+                    && restore_mode
+                        == ReplayAnimationPresentationRestoreMode::Reseed
+                    && !report.ok())
+                {
+                    reseeded = ReseedReplayAnimationPresentation(
+                        actor,
+                        [](uintptr_t address, void* dst,
+                           size_t bytes) noexcept {
+                            return SafeReadBytes(
+                                reinterpret_cast<const void*>(address),
+                                dst, bytes);
+                        },
+                        [](uintptr_t address, const void* src,
+                           size_t bytes) noexcept {
+                            return SafeWriteBytes(
+                                reinterpret_cast<void*>(address),
+                                src, bytes);
+                        });
+                }
+                const bool actor_ok =
+                    actor && (report.ok() || reseeded);
+                all_ok = all_ok && actor_ok;
+
+                ReplayTraceFields fields;
+                fields.string("label", label ? label : "?")
+                    .integer("seq", seq)
+                    .integer("tick", tick)
+                    .integer("actor_index",
+                        static_cast<int32_t>(actor_index))
+                    .hex("actor", actor)
+                    .boolean("frame_present", frame != nullptr)
+                    .boolean("frame_valid", frame && frame->valid)
+                    .uinteger("actor_count", actor_count)
+                    .uinteger("snapshot_version",
+                        frame ? frame->version : 0)
+                    .uinteger("capture_phase",
+                        frame ? static_cast<uint32_t>(frame->phase) : 0)
+                    .boolean("exact_attempted", exact_attempted)
+                    .string("exact_result",
+                        ReplayAnimationPresentationRestoreResultName(
+                            report.result))
+                    .boolean("rollback_attempted",
+                        report.rollback_attempted)
+                    .boolean("rollback_ok", report.rollback_ok)
+                    .boolean("reseeded", reseeded)
+                    .boolean("ok", actor_ok);
+                ReplayDebugTrace::instance().event(
+                    "replay_animation_presentation_restore", fields);
+            }
+
+            // The exact/reseed transactions already restore the produced
+            // output values and arm their proven downstream dirty masks.
+            // Do not additionally write UE actor refresh offsets through the
+            // native g_pLuxBattleCharaP1/P2 PLAYER roots.
+            return all_ok;
+        }
+
         // Create the dedup store on first call; later calls are no-ops.
         // Should be called from on_unreal_init or the first cockpit tick
         // observing Replay presence.
@@ -9144,6 +9751,13 @@ namespace Horse
             ReplayUnhandledCrashTrace::install();
             (void)RngTraceHook::instance().install();
             (void)VitalTraceHook::instance().install();
+            if (!m_animation_presentation_tick_observer.engage())
+            {
+                RC::Output::send<RC::LogLevel::Error>(STR(
+                    "[ReplayScrub.AnimationPresentation] failed to "
+                    "install authoritative post-TickActor observer\n"));
+                return false;
+            }
 
             m_initialized.store(true, std::memory_order_release);
             RC::Output::send<RC::LogLevel::Default>(
@@ -9215,7 +9829,7 @@ namespace Horse
                     "hit_cue_pose_pack_trace=1 "
                     "hit_cue_pose_pack_restore=0 "
                     "hit_cue_linked_motion_trace=1 "
-                    "motion_provider_handoff_restore=targeted "
+                    "motion_provider_handoff_restore=snapshot "
                     "oracle_pose_render_restore=landing "
                     "native_resume_handoff=observed-no-per-tick-writes\n"),
                 kEnableLegacySeekDiagnostics ? 1 : 0,
@@ -9321,6 +9935,10 @@ namespace Horse
             m_frame_cap.disengage();
             m_screen_pct.disengage();
             m_render_skip.disengage();
+            m_animation_presentation_tick_observer.disengage();
+            (void)RngTraceHook::instance().disable_gameplay_crt(this);
+            m_split_gameplay_crt_control_requested.store(
+                false, std::memory_order_release);
             m_timeline_generation_mode.store(
                 static_cast<int>(TimelineGenerationMode::Normal),
                 std::memory_order_release);
@@ -11233,6 +11851,29 @@ namespace Horse
                 static_cast<int>(TimelineGenState::Generating),
                 std::memory_order_release);
 
+            m_generation_movevm_probe_hooks_owned = false;
+            m_generation_lifecycle_probe_hooks_owned = false;
+            bool generation_movevm_probe_hooks = false;
+            bool generation_lifecycle_probe_hooks = false;
+            if (generation_full_frame_trace_enabled())
+            {
+                auto& trace_hooks = NativeReplayTraceHook::instance();
+                generation_lifecycle_probe_hooks =
+                    trace_hooks.acquire_replay_lifecycle_trace(
+                        NativeReplayTraceHook::ReplayLifecycleTraceOwner::
+                            TimelineGeneration);
+                m_generation_lifecycle_probe_hooks_owned =
+                    generation_lifecycle_probe_hooks;
+                const bool already_active =
+                    trace_hooks.replay_resume_phase_signals_active();
+                generation_movevm_probe_hooks =
+                    already_active
+                    || trace_hooks.set_replay_resume_phase_signals_active(
+                        true);
+                m_generation_movevm_probe_hooks_owned =
+                    generation_movevm_probe_hooks && !already_active;
+            }
+
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayScrub] Generate timeline STARTED ({}) - frame cap "
                 "removed; replay fast-forwarding (master={} clean_start=1 "
@@ -11259,9 +11900,13 @@ namespace Horse
                  .boolean("seek_context_ok", ready.seek_context_ok)
                  .boolean("reset_source_ok", ready.reset_source_ok)
                  .boolean("live_bm_reset_ok", ready.live_bm_reset_ok)
-                  .boolean("engine_loop_tick_replacement", false)
+                 .boolean("engine_loop_tick_replacement", false)
                   .boolean("direct_lux_generation", lux_no_render)
-                  .hex("bm", ready.battle_manager)
+                 .boolean("movevm_probe_hooks",
+                          generation_movevm_probe_hooks)
+                 .boolean("lifecycle_probe_hooks",
+                          generation_lifecycle_probe_hooks)
+                 .hex("bm", ready.battle_manager)
                  .hex("input_log", ready.input_log)
                  .hex("replay_player", ready.replay_player)
                  .hex("state_reset_data", ready.state_reset_data);
@@ -11987,6 +12632,20 @@ namespace Horse
 
             if (was_generating)
             {
+                if (m_generation_movevm_probe_hooks_owned)
+                {
+                    NativeReplayTraceHook::instance()
+                        .set_replay_resume_phase_signals_active(false);
+                    m_generation_movevm_probe_hooks_owned = false;
+                }
+                if (m_generation_lifecycle_probe_hooks_owned)
+                {
+                    NativeReplayTraceHook::instance()
+                        .release_replay_lifecycle_trace(
+                            NativeReplayTraceHook::
+                                ReplayLifecycleTraceOwner::TimelineGeneration);
+                    m_generation_lifecycle_probe_hooks_owned = false;
+                }
                 if (generation_full_frame_trace_enabled())
                 {
                     emit_rng_u32_trace_window(
@@ -13198,6 +13857,21 @@ namespace Horse
             return out;
         }
 
+        bool read_native_trace_position(
+            int32_t& sequence,
+            int32_t& round,
+            int32_t& master) noexcept
+        {
+            // raw_latest_seq() is the last committed capture during timeline
+            // generation.  A diagnostic window intentionally includes a few
+            // frames on either side, so its one-frame producer/commit phase
+            // lag remains explicit rather than hidden by remapping.
+            sequence = raw_latest_seq();
+            round = read_current_round();
+            master = read_engine_master_clock();
+            return sequence >= 0 && round >= 0 && master >= 0;
+        }
+
         // A completed replay timeline is parked after the match and SC6
         // clears the active-battle resolver plus the two character-slot
         // globals. Exact seek can still restore a valid captured mid-battle
@@ -13348,7 +14022,11 @@ namespace Horse
                     return false;
                 uint32_t wall = 0;
                 if (!read_frame_counter(wall)
-                    || !capture_snapshot(static_cast<int32_t>(wall), true)
+                    || !capture_snapshot(
+                        static_cast<int32_t>(wall),
+                        true,
+                        ReplayAnimationPresentationCapturePhase::
+                            Unavailable)
                     || raw_latest_seq() != target_sequence)
                 {
                     return false;
@@ -13774,6 +14452,7 @@ namespace Horse
              .boolean("validation_active", validation_active);
             ReplayDebugTrace::instance().event(
                 "sc6_native_step_drained", f);
+            trace_validation_step_state_after_drain();
         }
 
         bool sc6_exact_seek_active() const noexcept
@@ -13915,6 +14594,7 @@ namespace Horse
             m_hold_kind.store(
                 static_cast<int32_t>(ReplayScrubHoldKind::None),
                 std::memory_order_release);
+            rollback_motion_decode_scratch().cancel_pending_restore();
             m_sc6_seek_job = Sc6ExactSeekJob{};
             publish_native_status(NativeSeekStatus::Idle);
             publish_preview_status(PreviewStatus::Idle);
@@ -14075,6 +14755,14 @@ namespace Horse
             // reset the gen state for the next replay.
             NativeReplayTraceHook::instance()
                 .set_replay_resume_phase_signals_active(false);
+            NativeReplayTraceHook::instance()
+                .release_replay_lifecycle_trace(
+                    NativeReplayTraceHook::ReplayLifecycleTraceOwner::
+                        TimelineGeneration);
+            NativeReplayTraceHook::instance()
+                .release_replay_lifecycle_trace(
+                    NativeReplayTraceHook::ReplayLifecycleTraceOwner::
+                        SeekTest);
             m_timeline_no_render_scope.exit("new-replay-reset", false);
             m_frame_cap.disengage();
             m_screen_pct.disengage();
@@ -14283,6 +14971,7 @@ namespace Horse
             int32_t left_shougou_id {-1};
             int32_t right_shougou_id {-1};
             int32_t round_timer_seconds {-1};
+            uint32_t random_seed {0};
             uint64_t timestamp_unix {0};
             std::string left_steam_id;
             std::string right_steam_id;
@@ -14325,6 +15014,7 @@ namespace Horse
             bool native_profile_applied {false};
             bool native_profile_waiting_emitted {false};
             bool generation_full_frame_trace {false};
+            bool split_gameplay_crt_control {false};
             uint32_t native_profile_summary_apply_count {0};
             bool game_initialize_requested {false};
             bool title_to_main_menu_requested {false};
@@ -14555,6 +15245,16 @@ namespace Horse
         ~ReplayScrub() { shutdown(); }
         ReplayScrub(const ReplayScrub&) = delete;
         ReplayScrub& operator=(const ReplayScrub&) = delete;
+
+        struct LiveAnimationPresentationActor
+        {
+            ReplayAnimationPresentationSnapshot snapshot {};
+            ReplayAnimationPresentationCaptureFailure failure {
+                ReplayAnimationPresentationCaptureFailure::None};
+            uint32_t frame_counter {0};
+            int32_t master_clock {-1};
+            uint64_t observation_serial {0};
+        };
 
         // Sentinel for "no seek pending".
         static constexpr int32_t kSeekIdle = -1;
@@ -15129,6 +15829,7 @@ namespace Horse
         static constexpr size_t kNativeReplayListContainerRightProfileOff =
             0x1BC0;
         static constexpr size_t kNativeReplayListItemBattleDataOff = 0xA0;
+        static constexpr size_t kNativeBattleRuleRandomSeedOff = 0x80;
         static constexpr size_t kNativeBattleReplayDataStageIndexOff = 0x98;
         static constexpr size_t kNativeBattleReplayDataLeftProfileOff = 0xA0;
         static constexpr size_t kNativeBattleReplayDataRightProfileOff = 0xCF0;
@@ -15857,6 +16558,13 @@ namespace Horse
         // when we sync the per-chara cursors).
         static constexpr uintptr_t kRVA_CharaSlotP1 = 0x470DE90;
         static constexpr uintptr_t kRVA_CharaSlotP2 = 0x470DE98;
+        // Ghidra: ALuxBattleCharaPresentation_Partial +0x98 and
+        // GetLuxMoveProviderFromWorldContext @ 0x1403F00B0.  The provider
+        // is authored identity evidence only; its bytes are never captured.
+        static constexpr uintptr_t
+            kChara_PresentationBattleManager_Off = 0x98;
+        static constexpr uintptr_t
+            kRVA_GetLuxMoveProviderFromWorldContext = 0x3F00B0;
 
         // BM internal-state byte offsets that gate SimulationLoop +
         // chara tick.  HgCpuDirect doesn't restore the BM actor's
@@ -15919,6 +16627,7 @@ namespace Horse
         //   [after stage wind root) stage wind graph nodes (bounded, pointer-safe)
         //   [after stage wind emitters) stage boundary grid/scbattle snapshot
         //   [after stage boundary) CMatrixBank ring-history data ranges
+        //   [after ring history) value-only CMatrixBank controller slots
         //   [after matrix bank) g_LuxMoveVM per-player global i16 banks
         //   [after MoveVM vars) secondary action-stack last random variant[2]
         //   [after secondary scalar) secondary action-stack fixed state[2]
@@ -16092,6 +16801,8 @@ namespace Horse
         static constexpr uint32_t kStageBoundaryFlag_GridAClipped = 0x00000004;
         static constexpr uint32_t kStageBoundaryFlag_GridBClipped = 0x00000008;
         static constexpr uint32_t kStageBoundaryFlag_ScbattleOk = 0x00000010;
+        static constexpr uint32_t kStageBoundaryFlag_ActiveContextOk =
+            0x00000020;
         static constexpr size_t kStageBoundary_MaxRecordsPerGrid = 512;
         static constexpr size_t kStageBoundary_RecordBytes = 0x40;
         static constexpr size_t kStageBoundary_HeaderBytes = 0x80;
@@ -16148,14 +16859,22 @@ namespace Horse
             * kMatrixBankRing_RangeBytes;
         static constexpr size_t kExtras_Off_MatrixBankRingHistory =
             kExtras_Off_StageBoundary + kStageBoundary_Bytes;
+        static constexpr size_t kMatrixBankRing_StateCount =
+            kMatrixBankRing_PlayerCount * kMatrixBankRing_BankCount;
+        static constexpr size_t kMatrixBankRing_StateBytes =
+            kMatrixBankRing_StateCount
+            * sizeof(ReplayMatrixBankRingState);
+        static constexpr size_t kExtras_Off_MatrixBankRingState =
+            kExtras_Off_MatrixBankRingHistory
+            + kMatrixBankRing_HistoryBytes;
         static constexpr size_t kMoveVMGlobalVarBank_PlayerStride = 0x1E0;
         static constexpr size_t kMoveVMGlobalVarBank_PlayerCount = 2;
         static constexpr size_t kMoveVMGlobalVarBank_Bytes =
             kMoveVMGlobalVarBank_PlayerStride
             * kMoveVMGlobalVarBank_PlayerCount;
         static constexpr size_t kExtras_Off_MoveVMGlobalVarBank =
-            kExtras_Off_MatrixBankRingHistory
-            + kMatrixBankRing_HistoryBytes;
+            kExtras_Off_MatrixBankRingState
+            + kMatrixBankRing_StateBytes;
         static constexpr uintptr_t kChara_SecondaryActionStack_Off = 0x95788;
         static constexpr size_t kSecondaryActionStack_SlotBytes = 0x18;
         static constexpr size_t kSecondaryActionStack_SlotCount = 0x18;
@@ -16205,9 +16924,32 @@ namespace Horse
         static constexpr uint32_t kHgCpuSnapshotLayoutMagic = 0x50434748; // HGCP
         static constexpr size_t kHgCpuWorldModeRelocationRecordBytes = 0x10;
         static constexpr size_t kHgCpuWorldModeRelocationRecordCount = 2;
-        static constexpr size_t kExtras_Bytes =
+        static constexpr size_t kExtras_Off_MotionDecodeScratch =
             kExtras_Off_HgCpuSnapshotLayout
             + kExtras_HgCpuSnapshotLayout_Bytes;
+        static constexpr size_t kExtras_MotionDecodeScratch_Bytes =
+            sizeof(RollbackMotionDecodeScratchSnapshot);
+        struct ReplayGameplayCrtSnapshot
+        {
+            uint32_t magic {0};
+            uint32_t version {0};
+            uint32_t internal_state {0};
+            uint32_t full_round_seed {0};
+            uint32_t gameplay_draw_ordinal {0};
+            uint32_t warmup_draws {0};
+            uint32_t owner_thread_id {0};
+            uint32_t flags {0};
+        };
+        static constexpr uint32_t kReplayGameplayCrtSnapshotMagic =
+            0x54524347u; // GCRT
+        static constexpr uint32_t kReplayGameplayCrtSnapshotVersion = 1;
+        static constexpr size_t kExtras_Off_GameplayCrt =
+            kExtras_Off_MotionDecodeScratch
+            + kExtras_MotionDecodeScratch_Bytes;
+        static constexpr size_t kExtras_GameplayCrt_Bytes =
+            sizeof(ReplayGameplayCrtSnapshot);
+        static constexpr size_t kExtras_Bytes =
+            kExtras_Off_GameplayCrt + kExtras_GameplayCrt_Bytes;
         static constexpr uint32_t kStageWindGraph_Magic = 0x57494752; // WIGR
         static constexpr uint32_t kStageWindGraph_Version = 3;
         static constexpr uint32_t kStageWindEmitter_Magic = 0x5749454D; // WIEM
@@ -16338,6 +17080,23 @@ namespace Horse
         // per-chara MoveVM state must match the captured tick before Play
         // can enable.
         std::vector<ReplayFrameOracleSnap> m_oracle_frames;
+        // Local-only, versioned presentation history.  This is intentionally
+        // separate from HgCpu/Gekko state, gameplay canonical hashes, peer
+        // authority, and rollback packets.  Each entry is phase-labelled so
+        // a post-actor-tick output can never be paired with a pre-tick cursor.
+        std::vector<ReplayAnimationPresentationFrameSnapshot>
+            m_animation_presentation_frames;
+        std::array<LiveAnimationPresentationActor,
+                   kReplayAnimationPresentationMaxActors>
+            m_live_animation_presentation_actors {};
+        size_t m_live_animation_presentation_actor_count {0};
+        uint64_t m_animation_presentation_observation_serial {0};
+        std::mutex m_animation_presentation_actor_mutex;
+        RollbackBreakableStageSnapshot m_oracle_breakable_snapshot;
+        RollbackStageWindSnapshot m_oracle_stage_wind_snapshot;
+        RollbackStageWindAllocationPool m_oracle_stage_wind_pool;
+        RollbackCharaAnimationStateHistory
+            m_oracle_chara_animation_history;
 
         // Native restore scratch used to strip engine-owned VFX/tree pointers
         // before feeding captured bytes back into SC6's HgCpuDirect reader.
@@ -16653,6 +17412,8 @@ namespace Horse
         // replay-file automation and tests. tick_generate_timeline()
         // consumes it on the game thread.
         GenerationNativeProfileHooks m_generation_native_profile;
+        ReplayAnimationPresentationTickObserver
+            m_animation_presentation_tick_observer;
         EngineLoopDirectBoostHook m_engine_loop_direct_boost;
         GenerationWorldTickFilter m_world_tick_filter;
         FrameCapOverride         m_frame_cap;
@@ -16793,6 +17554,11 @@ namespace Horse
         std::atomic<uint64_t> m_gen_trace_overlay_state_suppressed {0};
         std::atomic<uint64_t> m_gen_demo_time_fast_read_suppressed {0};
         std::atomic<bool> m_generation_full_frame_trace_requested {false};
+        std::atomic<bool> m_split_gameplay_crt_control_requested {false};
+        std::atomic<bool> m_split_gameplay_crt_fatal {false};
+        std::atomic<uint32_t> m_split_gameplay_crt_first_failure_rva {0};
+        bool m_generation_movevm_probe_hooks_owned {false};
+        bool m_generation_lifecycle_probe_hooks_owned {false};
         std::array<uint8_t, kStageBoundary_Bytes>
             m_gen_stage_boundary_cache {};
         bool m_gen_stage_boundary_cache_valid {false};
@@ -17331,6 +18097,7 @@ namespace Horse
         {
             exit_seek_presentation_suppression(
                 "clear-scrub-state", true);
+            rollback_motion_decode_scratch().cancel_pending_restore();
             m_ui = UiPlayheadState{};
             m_preview = PreviewState{};
             m_native = NativeSeekState{};
@@ -19531,9 +20298,14 @@ namespace Horse
             if (!has_context_valid_completed_timeline()
                 || has_pending_native_seek())
                 return false;
+            auto& trace_hooks = NativeReplayTraceHook::instance();
+            const bool lifecycle_probe_hooks =
+                !m_replay_seek_test.generation_full_frame_trace
+                || trace_hooks.acquire_replay_lifecycle_trace(
+                    NativeReplayTraceHook::ReplayLifecycleTraceOwner::
+                        SeekTest);
             const bool resume_phase_signals =
-                NativeReplayTraceHook::instance()
-                    .set_replay_resume_phase_signals_active(true);
+                trace_hooks.set_replay_resume_phase_signals_active(true);
             m_replay_seek_test.phase = ReplaySeekTestPhase::StartCase;
             replay_seek_test_set_deadline();
 
@@ -19542,9 +20314,10 @@ namespace Horse
              .integer("previous_phase", static_cast<int>(previous_phase))
              .integer("case_index",
                       static_cast<int64_t>(m_replay_seek_test.case_index))
-             .integer("latest_seq", latest_seq())
-             .integer("raw_latest_seq", raw_latest_seq())
-             .boolean("resume_phase_signals", resume_phase_signals);
+              .integer("latest_seq", latest_seq())
+              .integer("raw_latest_seq", raw_latest_seq())
+              .boolean("resume_phase_signals", resume_phase_signals)
+              .boolean("lifecycle_probe_hooks", lifecycle_probe_hooks);
             ReplayDebugTrace::instance().event(
                 "replay_seek_test_generation_park_ready", f);
             return true;
@@ -20029,6 +20802,10 @@ namespace Horse
                 "replay_seek_test_summary", f);
             NativeReplayTraceHook::instance()
                 .set_replay_resume_phase_signals_active(false);
+            NativeReplayTraceHook::instance()
+                .release_replay_lifecycle_trace(
+                    NativeReplayTraceHook::ReplayLifecycleTraceOwner::
+                        SeekTest);
         }
 
         void replay_seek_test_finish_case(ReplaySeekTestCase& c,
@@ -20173,6 +20950,8 @@ namespace Horse
 
             trace_secondary_action_stack_last_variant_compare(
                 c, expected_tick, live_seq);
+            trace_matrix_bank_first_resume_mismatch(
+                c, expected_tick, live_seq, "resume");
 
             CapturedFrameOracleCompareReport report{};
             const bool ok = compare_oracle_to_captured_tick(
@@ -21477,6 +22256,8 @@ namespace Horse
                .string("auto_generate_mode", state.auto_generate_mode.c_str())
                .boolean("generation_full_frame_trace",
                         state.generation_full_frame_trace)
+               .boolean("split_gameplay_crt_control",
+                        state.split_gameplay_crt_control)
                .boolean("auto_generate_armed", state.auto_generate_armed)
                .boolean("native_replay_imported", state.native_replay_imported)
                .boolean("native_replay_metadata_valid",
@@ -21494,7 +22275,8 @@ namespace Horse
                          replay_stage_map_index(
                              state.native_replay_meta.stage_index))
                 .integer("left_chara", state.native_replay_meta.left_chara_id)
-                .integer("right_chara", state.native_replay_meta.right_chara_id)
+               .integer("right_chara", state.native_replay_meta.right_chara_id)
+               .hex("random_seed", state.native_replay_meta.random_seed)
                .string("left_chara_label",
                        replay_style_label(
                            state.native_replay_meta.left_chara_id))
@@ -21693,7 +22475,8 @@ namespace Horse
             int32_t timeout_seconds,
             bool force_native_launch = false,
             const std::string& auto_generate_mode = std::string{},
-            bool generation_full_frame_trace = false) noexcept
+            bool generation_full_frame_trace = false,
+            bool split_gameplay_crt_control = false) noexcept
         {
             if (timeout_seconds <= 0) timeout_seconds = 180;
             release_replay_file_profile_container();
@@ -21706,6 +22489,7 @@ namespace Horse
             state.requested_path = requested_path;
             state.auto_generate_mode = auto_generate_mode;
             state.generation_full_frame_trace = generation_full_frame_trace;
+            state.split_gameplay_crt_control = split_gameplay_crt_control;
             m_last_replay_file_start_was_seek_test.store(
                 run_id.find("-seek") != std::string::npos,
                 std::memory_order_release);
@@ -21750,6 +22534,77 @@ namespace Horse
                                    state.resolved_path, 0, meta, reason);
         }
 
+        static bool split_gameplay_crt_owns_simulation(
+            void* context) noexcept
+        {
+            const auto* self = static_cast<const ReplayScrub*>(context);
+            return self
+                && self->m_split_gameplay_crt_control_requested.load(
+                    std::memory_order_acquire);
+        }
+
+        static bool split_gameplay_crt_has_pending_debt(
+            void*) noexcept
+        {
+            // The control lane never publishes speculative presentation
+            // work. It only produces the independently comparable gameplay
+            // RNG stream used by normal replay generation.
+            return false;
+        }
+
+        static void split_gameplay_crt_fatal(
+            void* context, const char*, uint32_t caller_rva) noexcept
+        {
+            auto* self = static_cast<ReplayScrub*>(context);
+            if (!self) return;
+            uint32_t expected = 0;
+            self->m_split_gameplay_crt_first_failure_rva.compare_exchange_strong(
+                expected,
+                caller_rva,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire);
+            self->m_split_gameplay_crt_fatal.store(
+                true, std::memory_order_release);
+        }
+
+        bool configure_split_gameplay_crt_control(bool requested) noexcept
+        {
+            auto& hook = RngTraceHook::instance();
+            if (!requested)
+            {
+                (void)hook.disable_gameplay_crt(this);
+                m_split_gameplay_crt_control_requested.store(
+                    false, std::memory_order_release);
+                m_split_gameplay_crt_fatal.store(
+                    false, std::memory_order_release);
+                m_split_gameplay_crt_first_failure_rva.store(
+                    0, std::memory_order_release);
+                return true;
+            }
+
+            m_split_gameplay_crt_fatal.store(
+                false, std::memory_order_release);
+            m_split_gameplay_crt_first_failure_rva.store(
+                0, std::memory_order_release);
+            m_split_gameplay_crt_control_requested.store(
+                true, std::memory_order_release);
+            if (!hook.install()
+                || !hook.configure_gameplay_crt(
+                    this,
+                    &ReplayScrub::split_gameplay_crt_owns_simulation,
+                    &ReplayScrub::split_gameplay_crt_has_pending_debt,
+                    &ReplayScrub::split_gameplay_crt_fatal,
+                    RngTraceHook::GameplayCrtRoutingMode::SplitControl))
+            {
+                m_split_gameplay_crt_control_requested.store(
+                    false, std::memory_order_release);
+                return false;
+            }
+            return hook.gameplay_crt_configured_for(
+                this,
+                RngTraceHook::GameplayCrtRoutingMode::SplitControl);
+        }
+
         bool replay_file_start_load_request(
             bool cancel_existing_on_success = false) noexcept
         {
@@ -21786,6 +22641,9 @@ namespace Horse
                                 generation_full_frame_trace);
             (void)json_get_bool(text, "full_frame_trace",
                                 generation_full_frame_trace);
+            bool split_gameplay_crt_control = false;
+            (void)json_get_bool(text, "split_gameplay_crt_control",
+                                split_gameplay_crt_control);
 
             std::string requested;
             if (!json_get_string(text, "path", requested) || requested.empty())
@@ -21807,6 +22665,15 @@ namespace Horse
                 return false;
             }
 
+            if (!configure_split_gameplay_crt_control(
+                    split_gameplay_crt_control))
+            {
+                parsed.resolved_path = resolved;
+                replay_file_start_emit_load_failure(
+                    parsed, "split gameplay CRT control unavailable");
+                return false;
+            }
+
             if (cancel_existing_on_success &&
                 m_replay_file_start_automation.active)
             {
@@ -21819,7 +22686,8 @@ namespace Horse
                                                timeout_seconds,
                                                force_native_launch,
                                                auto_generate_mode,
-                                               generation_full_frame_trace);
+                                               generation_full_frame_trace,
+                                               split_gameplay_crt_control);
             return true;
         }
 
@@ -23715,6 +24583,7 @@ namespace Horse
             int32_t stage_index = -1;
             uint8_t left_style = 0xff;
             uint8_t right_style = 0xff;
+            uint32_t random_seed = 0;
             std::memcpy(&stage_index,
                         battle + kNativeBattleReplayDataStageIndexOff,
                         sizeof(stage_index));
@@ -23728,15 +24597,20 @@ namespace Horse
                             kNativeProfileDataStyleDataOff +
                             kNativeProfileStyleDataStyleOff,
                         sizeof(right_style));
+            std::memcpy(&random_seed,
+                        battle + kNativeBattleRuleRandomSeedOff,
+                        sizeof(random_seed));
 
             if (stage_index < 0 || stage_index > 0xfff ||
-                left_style == 0xff || right_style == 0xff)
+                left_style == 0xff || right_style == 0xff
+                || random_seed == 0)
             {
                 char buf[160]{};
                 std::snprintf(buf, sizeof(buf),
                               "native replay start metadata invalid "
-                              "stage=%d left=%u right=%u",
-                              stage_index, left_style, right_style);
+                              "stage=%d left=%u right=%u seed=0x%08X",
+                              stage_index, left_style, right_style,
+                              random_seed);
                 reason = buf;
                 return false;
             }
@@ -23744,6 +24618,7 @@ namespace Horse
             meta.stage_index = stage_index;
             meta.left_chara_id = left_style;
             meta.right_chara_id = right_style;
+            meta.random_seed = random_seed;
             return true;
         }
 
@@ -24628,7 +25503,8 @@ namespace Horse
              .integer("replay_version", replay_version)
              .integer("stage", meta.stage_index)
              .integer("left_chara", meta.left_chara_id)
-             .integer("right_chara", meta.right_chara_id);
+             .integer("right_chara", meta.right_chara_id)
+             .hex("random_seed", meta.random_seed);
             ReplayDebugTrace::instance().event(
                 "native_replay_payload_validation", f);
 
@@ -27258,6 +28134,7 @@ namespace Horse
             // false rather than reading out of bounds.
             m_pool.clear();
             m_tags.clear();
+            rollback_motion_decode_scratch().reset();
             m_replay_fork_anchor_generation_target.store(
                 -1, std::memory_order_release);
             m_replay_fork_anchor_generation_done.store(
@@ -27270,6 +28147,15 @@ namespace Horse
                 0, std::memory_order_release);
             try { m_oracle_frames.clear(); }
             catch (...) {}
+            try { m_animation_presentation_frames.clear(); }
+            catch (...) {}
+            {
+                std::lock_guard<std::mutex> lock(
+                    m_animation_presentation_actor_mutex);
+                m_live_animation_presentation_actors = {};
+                m_live_animation_presentation_actor_count = 0;
+                m_animation_presentation_observation_serial = 0;
+            }
             m_sc6_round_reset_snapshot_valid.fill(false);
             m_sc6_round_reset_snapshot_seq.fill(-1);
             m_sc6_round_reset_snapshot_master.fill(-1);
@@ -27511,14 +28397,24 @@ namespace Horse
             bool oracle_ok = true;
             try { m_oracle_frames.reserve(reserve_ticks); }
             catch (const std::bad_alloc&) { oracle_ok = false; }
+            bool presentation_ok = true;
+            try
+            {
+                m_animation_presentation_frames.reserve(reserve_ticks);
+            }
+            catch (const std::bad_alloc&)
+            {
+                presentation_ok = false;
+            }
 
             RC::Output::send<RC::LogLevel::Default>(STR(
                 "[ReplayScrub] generation storage reserve ticks={} "
                 "total_recorded={} sim={} inputlog={} rdb={} extras={} "
-                "oracle={}\n"),
+                "oracle={} presentation={}\n"),
                 reserve_ticks, total_recorded,
                 sim_ok ? 1 : 0, il_ok ? 1 : 0, rdb_ok ? 1 : 0,
-                extras_ok ? 1 : 0, oracle_ok ? 1 : 0);
+                extras_ok ? 1 : 0, oracle_ok ? 1 : 0,
+                presentation_ok ? 1 : 0);
         }
 
         // Read g_LuxBattle_LastRoundResultType (i16 @ imageBase +
@@ -28625,7 +29521,11 @@ namespace Horse
 
                 const int32_t wall_tag =
                     live_master >= 0 ? live_master : before_master + 1;
-                if (!capture_snapshot(wall_tag, true))
+                if (!capture_snapshot(
+                        wall_tag,
+                        true,
+                        ReplayAnimationPresentationCapturePhase::
+                            Unavailable))
                 {
                     if (m_capture_ceiling_hit.load(std::memory_order_acquire))
                     {
@@ -28780,8 +29680,10 @@ namespace Horse
 
             const bool should_commit =
                 !m_gen_battle_step_probe.load(std::memory_order_acquire);
-            if (!capture_snapshot(static_cast<int32_t>(wall_after),
-                                 should_commit))
+            if (!capture_snapshot(
+                    static_cast<int32_t>(wall_after),
+                    should_commit,
+                    ReplayAnimationPresentationCapturePhase::Unavailable))
             {
                 if (m_capture_ceiling_hit.load(std::memory_order_acquire))
                 {
@@ -28811,7 +29713,12 @@ namespace Horse
                 == static_cast<int>(TimelineGenState::Generating);
         }
 
-        bool capture_snapshot(int32_t wall_tag, bool commit = true) noexcept
+        bool capture_snapshot(
+            int32_t wall_tag,
+            bool commit = true,
+            ReplayAnimationPresentationCapturePhase presentation_phase =
+                ReplayAnimationPresentationCapturePhase::
+                    AfterNativeConsumers) noexcept
         {
             if (!is_initialized() || !m_exec_write) return false;
             const bool profile_generation =
@@ -29055,6 +29962,8 @@ namespace Horse
                 t0 = std::chrono::steady_clock::now();
                 m_tags.append(seq_tag, round_tag, wall_tag, master_tag,
                               demo_time_ms);
+                (void)capture_replay_animation_presentation_frame(
+                    seq_tag, wall_tag, presentation_phase);
                 t1 = std::chrono::steady_clock::now();
                 tag_us = elapsed_us(t0, t1);
                 t0 = std::chrono::steady_clock::now();
@@ -29133,32 +30042,294 @@ namespace Horse
                 ReplayScrubDiag::read_chara_movevm(0);
             s.p2 =
                 ReplayScrubDiag::read_chara_movevm(1);
+            s.secondary_event_previous_variant_readable =
+                s.p1.chara_ptr != 0
+                && s.p2.chara_ptr != 0
+                && SafeReadUInt32(
+                    reinterpret_cast<const uint8_t*>(s.p1.chara_ptr)
+                        + kChara_SecondaryActionStack_Off
+                        + kSecondaryActionStack_LastRandomVariant_Off,
+                    &s.secondary_event_previous_variant[0])
+                && SafeReadUInt32(
+                    reinterpret_cast<const uint8_t*>(s.p2.chara_ptr)
+                        + kChara_SecondaryActionStack_Off
+                        + kSecondaryActionStack_LastRandomVariant_Off,
+                    &s.secondary_event_previous_variant[1]);
             ReplayScrubDiag::LatestEngineInputSnap input =
                 ReplayScrubDiag::read_latest_engine_input();
             s.p1_input = input.p1_input;
             s.p2_input = input.p2_input;
+            s.motion_pose_residue = rollback_motion_pose_residue().capture();
+            if (ValidateRollbackMotionPoseResidueSnapshot(
+                    s.motion_pose_residue)
+                && s.motion_pose_residue.valid == 1)
+            {
+                s.motion_pose_residue_hash =
+                    HashRollbackMotionPoseResidueSnapshot(
+                        s.motion_pose_residue);
+            }
             const uintptr_t base = NativeBinding::imageBase();
             if (base)
             {
-                std::array<uint8_t, kExtras_LfsrState_Bytes> lfsr{};
+                static constexpr uintptr_t kWorldModePumpRva = 0x4843ED0;
+                void* current_world_mode = nullptr;
+                if (SafeReadPtr(reinterpret_cast<const void*>(
+                            base + kWorldModePumpRva),
+                        &current_world_mode)
+                    && current_world_mode
+                    && SafeReadUInt32(reinterpret_cast<const void*>(
+                            reinterpret_cast<uintptr_t>(
+                                current_world_mode) + 8),
+                        &s.world_mode_frame)
+                    && SafeReadUInt32(reinterpret_cast<const void*>(
+                            reinterpret_cast<uintptr_t>(
+                                current_world_mode) + 12),
+                        &s.world_mode_phase_timer))
+                {
+                    const uintptr_t current =
+                        reinterpret_cast<uintptr_t>(current_world_mode);
+                    s.world_mode_readable = current >= base;
+                    s.world_mode_rva =
+                        s.world_mode_readable ? current - base : current;
+                }
                 const bool lfsr_ok = SafeReadBytes(
                     reinterpret_cast<const void*>(base + kRVA_LfsrState),
-                    lfsr.data(), lfsr.size());
+                    s.rng_lfsr_state.data(), s.rng_lfsr_state.size());
                 const bool index_ok = SafeReadUInt32(
                     reinterpret_cast<const void*>(base + kRVA_LfsrIndex),
                     &s.rng_lfsr_index);
+                const bool lcg_ok = SafeReadUInt32(
+                    reinterpret_cast<const void*>(base + kRVA_LcgRngState),
+                    &s.rng_lcg_state);
+                const bool round_ok = SafeReadBytes(
+                    reinterpret_cast<const void*>(
+                        base + kRVA_RoundControlScalars),
+                    s.round_control, sizeof(s.round_control));
+                const bool palette_ok =
+                    CaptureRollbackAiPaletteDiagnostics(
+                        base, s.ai_palette);
                 if (lfsr_ok && index_ok)
                 {
-                    std::memcpy(&s.rng_state, lfsr.data(),
+                    std::memcpy(&s.rng_state, s.rng_lfsr_state.data(),
                                 sizeof(s.rng_state));
-                    s.rng_lfsr_hash = hash_bytes64(lfsr.data(),
-                                                   lfsr.size());
+                    s.rng_lfsr_hash = hash_bytes64(
+                        s.rng_lfsr_state.data(), s.rng_lfsr_state.size());
                     s.rng_readable = true;
                 }
+                uintptr_t stage_actor_manager = 0;
+                if (RC::Unreal::UObject* bm =
+                        m_bm_ptr.get(L"LuxBattleManager"))
+                {
+                    void* raw_stage = nullptr;
+                    (void)SafeReadPtr(reinterpret_cast<const void*>(
+                        reinterpret_cast<uintptr_t>(bm) + 0x418),
+                        &raw_stage);
+                    if (!raw_stage)
+                    {
+                        Obj manager = Obj{bm}.getObj(
+                            L"BattleStageActorManager");
+                        raw_stage = manager.raw();
+                    }
+                    stage_actor_manager =
+                        reinterpret_cast<uintptr_t>(raw_stage);
+                }
+                const RollbackBreakableStageReport breakable =
+                    CaptureRollbackBreakableStageSnapshot(
+                        stage_actor_manager,
+                        m_oracle_breakable_snapshot);
+                if (breakable.ok)
+                {
+                    s.breakable_gameplay_digest =
+                        m_oracle_breakable_snapshot.canonical_hash;
+                    s.breakable_presentation_digest =
+                        HashRollbackBreakablePresentationDigest(
+                            m_oracle_breakable_snapshot);
+                }
+                m_oracle_stage_wind_pool.reset();
+                const RollbackStageWindSnapshotReport wind =
+                    CaptureRollbackStageWindSnapshot(
+                        NativeBinding::imageBase(),
+                        m_oracle_stage_wind_snapshot,
+                        &m_oracle_stage_wind_pool);
+                if (wind.ok)
+                {
+                    const RollbackStageWindCanonicalBreakdown breakdown =
+                        BuildRollbackStageWindCanonicalBreakdown(
+                            m_oracle_stage_wind_snapshot);
+                    s.stage_wind_readable = breakdown.combined != 0
+                        && breakdown.combined
+                            == m_oracle_stage_wind_snapshot.canonical_hash;
+                    s.stage_wind_canonical_hash = breakdown.combined;
+                    s.stage_wind_gameplay_hash =
+                        HashRollbackStageWindGameplay(
+                            m_oracle_stage_wind_snapshot);
+                    s.stage_wind_combined_rng_hash =
+                        breakdown.combined_rng;
+                    s.stage_wind_emitter_hash = breakdown.emitters;
+                    s.stage_wind_root_scheduler_hash =
+                        breakdown.root_scheduler;
+                    s.stage_wind_root_outputs_hash =
+                        breakdown.root_derived_outputs;
+                    s.stage_wind_presentation_hash =
+                        HashRollbackStageWindPresentation(
+                            m_oracle_stage_wind_snapshot);
+                    s.stage_wind_readable = s.stage_wind_readable
+                        && s.stage_wind_gameplay_hash != 0
+                        && s.stage_wind_presentation_hash != 0;
+                    s.stage_wind_graph_nodes_hash =
+                        breakdown.graph_nodes;
+                    s.stage_wind_graph_hash = breakdown.graph;
+                    s.stage_wind_emitter_count =
+                        m_oracle_stage_wind_snapshot.count;
+                    s.stage_wind_graph_count =
+                        m_oracle_stage_wind_snapshot.graph.count;
+                    s.stage_wind_output_active =
+                        m_oracle_stage_wind_snapshot.output_active;
+                    const auto& root =
+                        m_oracle_stage_wind_snapshot.graph.root_state;
+                    s.stage_wind_active_bank = root.active_bank;
+                    s.stage_wind_pending_count = root.pending_count;
+                    s.stage_wind_schedule_state = root.schedule_state;
+                    s.stage_wind_effect_pair_scheduled =
+                        root.effect_pair_scheduled;
+                    s.stage_wind_output_forces = root.output_forces;
+                    for (uint32_t index = 0;
+                         index < s.stage_wind_graph_count
+                            && index
+                                < s.stage_wind_node_vtable_rva.size();
+                         ++index)
+                    {
+                        const RollbackStageWindNodeCanonicalBreakdown node =
+                            BuildRollbackStageWindNodeCanonicalBreakdown(
+                                m_oracle_stage_wind_snapshot.graph
+                                    .nodes[index]);
+                        if (!node.valid)
+                        {
+                            s.stage_wind_readable = false;
+                            break;
+                        }
+                        s.stage_wind_node_vtable_rva[index] =
+                            node.vtable_rva;
+                        s.stage_wind_node_hash[index] = node.combined;
+                        s.stage_wind_node_common_hash[index] = node.common;
+                        s.stage_wind_node_body_hash[index] = node.body;
+                        s.stage_wind_node_tail_hash[index] = node.tail;
+                        std::memcpy(
+                            s.stage_wind_node_common_words[index].data(),
+                            m_oracle_stage_wind_snapshot.graph.nodes[index]
+                                .data.data() + 0x30,
+                            sizeof(s.stage_wind_node_common_words[index]));
+                        if (index
+                                < s.stage_wind_node_semantic_words.size()
+                            && node.bytes >= 0x70
+                            && node.bytes <= 0x1E0)
+                        {
+                            auto& words =
+                                s.stage_wind_node_semantic_words[index];
+                            std::memcpy(
+                                words.data(),
+                                m_oracle_stage_wind_snapshot.graph
+                                    .nodes[index].data.data() + 0x70,
+                                node.bytes - 0x70);
+                        }
+                    }
+                    if (s.stage_wind_emitter_count != 0)
+                    {
+                        std::memcpy(
+                            s.stage_wind_emitter0_words.data(),
+                            m_oracle_stage_wind_snapshot.emitters[0]
+                                .data.data(),
+                            sizeof(s.stage_wind_emitter0_words));
+                    }
+                }
+                const uintptr_t oracle_charas[2] = {
+                    s.p1.chara_ptr,
+                    s.p2.chara_ptr,
+                };
+                const bool chara_animation_ok =
+                    CaptureRollbackCharaAnimationState(
+                        oracle_charas,
+                        m_oracle_chara_animation_history);
+                if (chara_animation_ok)
+                {
+                    s.chara_animation_gameplay_digest =
+                        m_oracle_chara_animation_history.canonical_hash;
+                }
+                s.beta_oracle_readable = s.rng_readable && lcg_ok
+                    && round_ok && palette_ok
+                    && breakable.ok && s.stage_wind_readable
+                    && chara_animation_ok;
             }
             s.valid = s.round >= 0 && s.master >= 0
                 && s.p1.readable && s.p2.readable && input.readable
                 && s.rng_readable;
+            if (s.valid && s.beta_oracle_readable)
+            {
+                RollbackGameplayCrtState gameplay_crt {};
+                s.rng_gameplay_crt_present =
+                    RngTraceHook::instance().capture_gameplay_crt_state(
+                        gameplay_crt);
+                if (s.rng_gameplay_crt_present)
+                {
+                    s.rng_gameplay_crt_state = gameplay_crt.internal_state;
+                    s.rng_gameplay_crt_seed = gameplay_crt.full_round_seed;
+                    s.rng_gameplay_crt_draw_ordinal =
+                        gameplay_crt.gameplay_draw_ordinal;
+                }
+                if (m_split_gameplay_crt_control_requested.load(
+                        std::memory_order_acquire)
+                    && (!s.rng_gameplay_crt_present
+                        || m_split_gameplay_crt_fatal.load(
+                            std::memory_order_acquire)))
+                {
+                    s.beta_oracle_readable = false;
+                }
+            }
+            if (s.valid && s.beta_oracle_readable)
+            {
+                RollbackReplayOracleState oracle {};
+                oracle.input[0] = s.p1_input;
+                oracle.input[1] = s.p2_input;
+                oracle.rng_lcg_state = s.rng_lcg_state;
+                oracle.rng_lfsr_hash = s.rng_lfsr_hash;
+                oracle.rng_lfsr_index = s.rng_lfsr_index;
+                oracle.rng_gameplay_crt_present =
+                    s.rng_gameplay_crt_present;
+                oracle.rng_gameplay_crt_state =
+                    s.rng_gameplay_crt_state;
+                oracle.rng_gameplay_crt_seed =
+                    s.rng_gameplay_crt_seed;
+                oracle.rng_gameplay_crt_draw_ordinal =
+                    s.rng_gameplay_crt_draw_ordinal;
+                std::memcpy(oracle.round_control, s.round_control,
+                    sizeof(oracle.round_control));
+                oracle.breakable_gameplay_digest =
+                    s.breakable_gameplay_digest;
+                oracle.stage_wind_gameplay_digest =
+                    s.stage_wind_gameplay_hash;
+                oracle.chara_animation_gameplay_digest =
+                    s.chara_animation_gameplay_digest;
+                oracle.breakable_presentation_digest =
+                    s.breakable_presentation_digest;
+                oracle.stage_wind_presentation_digest =
+                    s.stage_wind_presentation_hash;
+                oracle.fighter[0] =
+                    BuildRollbackReplayOracleFighterState(s.p1);
+                oracle.fighter[1] =
+                    BuildRollbackReplayOracleFighterState(s.p2);
+                s.oracle_gameplay_hash_v1 =
+                    HashRollbackReplayOracleStateLegacyV1(oracle);
+                s.oracle_gameplay_hash_v9 =
+                    HashRollbackReplayOracleGameplayV9(oracle);
+                s.oracle_gameplay_hash_v10 =
+                    HashRollbackReplayOracleGameplayV10(oracle);
+                s.oracle_gameplay_hash_v11 =
+                    HashRollbackReplayOracleGameplayV11(oracle);
+                s.oracle_gameplay_hash_v12 =
+                    HashRollbackReplayOracleGameplayV12(oracle);
+                s.oracle_presentation_hash =
+                    HashRollbackReplayOraclePresentationV12(oracle);
+            }
             return s;
         }
 
@@ -29167,19 +30338,270 @@ namespace Horse
             const char* event_name = "oracle_frame") noexcept
         {
             if (!ReplayDebugTrace::instance().enabled()) return;
+            static constexpr char kHex[] = "0123456789abcdef";
+            std::array<char, kExtras_LfsrState_Bytes * 2 + 1> lfsr_hex {};
+            std::array<char, kRollbackMotionPoseResidueBytes * 2 + 1>
+                motion_pose_residue_hex {};
+            for (size_t i = 0; i < snap.rng_lfsr_state.size(); ++i)
+            {
+                lfsr_hex[i * 2] = kHex[snap.rng_lfsr_state[i] >> 4];
+                lfsr_hex[i * 2 + 1] = kHex[snap.rng_lfsr_state[i] & 0x0F];
+            }
+            for (size_t i = 0;
+                 i < snap.motion_pose_residue.retained.size(); ++i)
+            {
+                const uint8_t byte = snap.motion_pose_residue.retained[i];
+                motion_pose_residue_hex[i * 2] = kHex[byte >> 4];
+                motion_pose_residue_hex[i * 2 + 1] = kHex[byte & 0x0F];
+            }
             ReplayTraceFields f;
             f.integer("seq", snap.seq)
              .integer("round", snap.round)
              .integer("wall_tag", snap.wall)
              .integer("master", snap.master)
              .integer("last_round_result", snap.last_round_result)
+             .boolean("world_mode_readable", snap.world_mode_readable)
+             .hex("world_mode_rva", snap.world_mode_rva)
+             .uinteger("world_mode_frame", snap.world_mode_frame)
+             .uinteger("world_mode_phase_timer",
+                  snap.world_mode_phase_timer)
              .uinteger("rng_state", snap.rng_state)
+             .hex("rng_lcg_state", snap.rng_lcg_state)
              .hex("rng_lfsr_hash", snap.rng_lfsr_hash)
+             .string("rng_lfsr_state_hex", lfsr_hex.data())
              .integer("rng_lfsr_index", snap.rng_lfsr_index)
+             .boolean("motion_pose_residue_valid",
+                  snap.motion_pose_residue.valid == 1)
+             .integer("motion_pose_residue_last_player",
+                  snap.motion_pose_residue.last_player)
+             .hex("motion_pose_residue_hash",
+                  snap.motion_pose_residue_hash)
+             .string("motion_pose_residue_hex",
+                  motion_pose_residue_hex.data())
+             .boolean("rng_gameplay_crt_present",
+                  snap.rng_gameplay_crt_present)
+             .hex("rng_gameplay_crt_state",
+                  snap.rng_gameplay_crt_state)
+             .hex("rng_gameplay_crt_seed",
+                  snap.rng_gameplay_crt_seed)
+             .uinteger("rng_gameplay_crt_draw_ordinal",
+                  snap.rng_gameplay_crt_draw_ordinal)
+             .boolean("split_gameplay_crt_control",
+                  m_split_gameplay_crt_control_requested.load(
+                      std::memory_order_acquire))
+             .boolean("split_gameplay_crt_fatal",
+                  m_split_gameplay_crt_fatal.load(
+                      std::memory_order_acquire))
+             .hex("split_gameplay_crt_first_failure_rva",
+                  m_split_gameplay_crt_first_failure_rva.load(
+                      std::memory_order_acquire))
              .boolean("rng_readable", snap.rng_readable)
+             .boolean("secondary_event_previous_variant_readable",
+                  snap.secondary_event_previous_variant_readable)
+             .hex("p1_secondary_event_previous_variant",
+                  snap.secondary_event_previous_variant[0])
+             .hex("p2_secondary_event_previous_variant",
+                  snap.secondary_event_previous_variant[1])
+             .boolean("beta_oracle_readable", snap.beta_oracle_readable)
+             .uinteger("oracle_schema_version",
+                  kRollbackReplayOracleSchemaVersion)
+             .hex("oracle_gameplay_hash_v1",
+                  snap.oracle_gameplay_hash_v1)
+             .hex("oracle_gameplay_hash_v9",
+                  snap.oracle_gameplay_hash_v9)
+             .hex("oracle_gameplay_hash_v10",
+                  snap.oracle_gameplay_hash_v10)
+             .hex("oracle_gameplay_hash_v11",
+                  snap.oracle_gameplay_hash_v11)
+             .hex("oracle_gameplay_hash_v12",
+                  snap.oracle_gameplay_hash_v12)
+             .hex("oracle_presentation_hash",
+                  snap.oracle_presentation_hash)
+             .hex("breakable_gameplay_digest",
+                  snap.breakable_gameplay_digest)
+             .hex("breakable_presentation_digest",
+                  snap.breakable_presentation_digest)
+             .hex("chara_animation_gameplay_digest",
+                  snap.chara_animation_gameplay_digest)
+             .boolean("stage_wind_readable",
+                  snap.stage_wind_readable)
+             .hex("stage_wind_canonical_hash",
+                  snap.stage_wind_canonical_hash)
+             .hex("stage_wind_gameplay_hash",
+                  snap.stage_wind_gameplay_hash)
+             .hex("stage_wind_combined_rng_hash",
+                  snap.stage_wind_combined_rng_hash)
+             .hex("stage_wind_emitter_hash",
+                  snap.stage_wind_emitter_hash)
+             .hex("stage_wind_root_scheduler_hash",
+                  snap.stage_wind_root_scheduler_hash)
+             .hex("stage_wind_root_outputs_hash",
+                  snap.stage_wind_root_outputs_hash)
+             .hex("stage_wind_presentation_hash",
+                  snap.stage_wind_presentation_hash)
+             .hex("stage_wind_graph_nodes_hash",
+                  snap.stage_wind_graph_nodes_hash)
+             .hex("stage_wind_graph_hash",
+                  snap.stage_wind_graph_hash)
+             .uinteger("stage_wind_emitter_count",
+                  snap.stage_wind_emitter_count)
+             .uinteger("stage_wind_graph_count",
+                  snap.stage_wind_graph_count)
+             .uinteger("stage_wind_output_active",
+                  snap.stage_wind_output_active)
+             .uinteger("stage_wind_active_bank",
+                  snap.stage_wind_active_bank)
+             .integer("stage_wind_pending_count",
+                  snap.stage_wind_pending_count)
+             .integer("stage_wind_schedule_state",
+                  snap.stage_wind_schedule_state)
+             .integer("stage_wind_effect_pair_scheduled",
+                  snap.stage_wind_effect_pair_scheduled)
+             .uinteger("round_result_count", snap.round_control[0])
+             .uinteger("round_result_limit", snap.round_control[1])
+             .uinteger("round_current_index", snap.round_control[2])
+             .uinteger("round_applied_index", snap.round_control[3])
+             .uinteger("round_result_flow", snap.round_control[4])
              .boolean("valid", snap.valid);
+            for (size_t index = 0;
+                 index < snap.stage_wind_output_forces.size(); ++index)
+            {
+                const std::string key =
+                    "stage_wind_output_force_" + std::to_string(index);
+                f.real(key.c_str(), snap.stage_wind_output_forces[index]);
+            }
+            for (uint32_t index = 0;
+                 index < snap.stage_wind_graph_count
+                    && index < snap.stage_wind_node_vtable_rva.size();
+                 ++index)
+            {
+                const std::string prefix =
+                    "stage_wind_node_" + std::to_string(index);
+                f.hex((prefix + "_vtable_rva").c_str(),
+                    snap.stage_wind_node_vtable_rva[index])
+                 .hex((prefix + "_hash").c_str(),
+                    snap.stage_wind_node_hash[index])
+                 .hex((prefix + "_common_hash").c_str(),
+                    snap.stage_wind_node_common_hash[index])
+                 .hex((prefix + "_body_hash").c_str(),
+                    snap.stage_wind_node_body_hash[index])
+                 .hex((prefix + "_tail_hash").c_str(),
+                    snap.stage_wind_node_tail_hash[index]);
+                if (snap.master <= 160)
+                {
+                    for (size_t word = 0;
+                         word
+                            < snap.stage_wind_node_common_words[index].size();
+                         ++word)
+                    {
+                        const std::string word_key = prefix
+                            + "_word_" + std::to_string(0x30 + word * 4);
+                        f.hex(word_key.c_str(),
+                            snap.stage_wind_node_common_words[index][word]);
+                    }
+                }
+                // Full-frame replay-oracle traces are the normal-mode
+                // authority for rollback correction windows. Preserve the
+                // verified semantic words at every frame so a later
+                // component-hash mismatch resolves to its first primitive
+                // field instead of becoming an aggregate-only failure.
+                if (index < snap.stage_wind_node_semantic_words.size())
+                {
+                    const uint32_t vtable_rva =
+                        snap.stage_wind_node_vtable_rva[index];
+                    const uint32_t node_bytes =
+                        vtable_rva == kRollbackStageWindRingInVtableRva
+                            ? 0x1E0
+                            : (vtable_rva
+                                    == kRollbackStageWindShockWaveVtableRva
+                                ? 0x180 : 0x130);
+                    const RollbackStageWindSemanticRanges ranges =
+                        RollbackStageWindNodeSemanticRanges(
+                            vtable_rva, node_bytes);
+                    for (uint32_t range_index = 0;
+                         range_index < ranges.count; ++range_index)
+                    {
+                        const RollbackStageWindSemanticRange range =
+                            ranges.values[range_index];
+                        if (range.offset < 0x70) continue;
+                        for (uint32_t byte = 0; byte < range.bytes;
+                             byte += sizeof(uint32_t))
+                        {
+                            const uint32_t offset =
+                                range.offset + byte;
+                            const size_t word =
+                                (offset - 0x70) / sizeof(uint32_t);
+                            const std::string key = prefix
+                                + "_semantic_word_"
+                                + std::to_string(offset);
+                            f.hex(key.c_str(),
+                                snap.stage_wind_node_semantic_words[index]
+                                    [word]);
+                        }
+                    }
+                }
+            }
+            if (snap.master <= 128 && snap.stage_wind_emitter_count != 0)
+            {
+                for (size_t word = 0;
+                     word < snap.stage_wind_emitter0_words.size(); ++word)
+                {
+                    const std::string key =
+                        "stage_wind_emitter_0_word_"
+                        + std::to_string(
+                            kRollbackStageWindEmitterMutableOffset
+                            + word * sizeof(uint32_t));
+                    f.hex(key.c_str(),
+                        snap.stage_wind_emitter0_words[word]);
+                }
+            }
             add_oracle_player_fields(f, "p1", snap.p1, snap.p1_input);
             add_oracle_player_fields(f, "p2", snap.p2, snap.p2_input);
+            AddRollbackHitCueRootMotionTraceFields(f, "p1", snap.p1);
+            AddRollbackHitCueRootMotionTraceFields(f, "p2", snap.p2);
+            RollbackRoundResultCinematicEvidence cinematic {};
+            (void)CaptureRollbackRoundResultCinematicEvidence(
+                NativeBinding::imageBase(), cinematic);
+            AddRollbackRoundResultCinematicTraceFields(f, cinematic);
+            AddRollbackFloatingPointEnvironmentTraceFields(f);
+            for (size_t player = 0; player < 2; ++player)
+            {
+                const char* prefix = player == 0 ? "p1" : "p2";
+                const auto& palette = snap.ai_palette[player];
+                const auto key = [&](const char* suffix) {
+                    return std::string(prefix) + "_ai_palette_" + suffix;
+                };
+                f.boolean(key("readable").c_str(), palette.readable)
+                    .hex(key("scalar_hash").c_str(), palette.scalar_hash)
+                    .hex(key("active_motion_bank_rva").c_str(),
+                        palette.active_motion_bank_rva)
+                    .hex(key("key_buffer_rva").c_str(),
+                        palette.key_buffer_rva)
+                    .hex(key("bone_data_bank_rva").c_str(),
+                        palette.bone_data_bank_rva)
+                    .integer(key("current_mode").c_str(),
+                        palette.scalars.current_mode)
+                    .integer(key("mode").c_str(),
+                        palette.scalars.ai_mode)
+                    .real(key("phase").c_str(),
+                        palette.scalars.phase)
+                    .real(key("phase_velocity").c_str(),
+                        palette.scalars.phase_velocity)
+                    .real(key("phase_scale").c_str(),
+                        palette.scalars.phase_scale)
+                    .integer(key("repeat_count").c_str(),
+                        palette.scalars.repeat_count)
+                    .real(key("random_threshold").c_str(),
+                        palette.scalars.random_threshold)
+                    .integer(key("disabled").c_str(),
+                        palette.scalars.disabled)
+                    .integer(key("publish_disabled").c_str(),
+                        palette.scalars.publish_disabled)
+                    .integer(key("lookup_index").c_str(),
+                        palette.scalars.lookup_index)
+                    .uinteger(key("publish_tick_count").c_str(),
+                        palette.scalars.publish_tick_count);
+            }
             ReplayDebugTrace::instance().event(
                 event_name ? event_name : "oracle_frame", f);
         }
@@ -29432,6 +30854,17 @@ namespace Horse
              .real(key("_pos_x").c_str(), s.pos_x)
              .real(key("_pos_y").c_str(), s.pos_y)
              .real(key("_pos_z").c_str(), s.pos_z)
+             .real(key("_position_target_x").c_str(), s.position_target_x)
+             .real(key("_position_target_y").c_str(), s.position_target_y)
+             .real(key("_position_target_z").c_str(), s.position_target_z)
+             .real(key("_position_target_lerp_weight").c_str(),
+                   s.position_target_lerp_weight)
+             .real(key("_pose_pos_x").c_str(), s.pose_pos_x)
+             .real(key("_pose_pos_y").c_str(), s.pose_pos_y)
+             .real(key("_pose_pos_z").c_str(), s.pose_pos_z)
+             .real(key("_render_pos_x").c_str(), s.render_pos_x)
+             .real(key("_render_pos_y").c_str(), s.render_pos_y)
+             .real(key("_render_pos_z").c_str(), s.render_pos_z)
              .real(key("_vel_x").c_str(), s.vel_x)
              .real(key("_vel_y").c_str(), s.vel_y)
              .real(key("_vel_z").c_str(), s.vel_z)
@@ -29440,8 +30873,24 @@ namespace Horse
               .real(key("_ground_vel_z").c_str(), s.ground_vel_z)
               .real(key("_one_shot_x").c_str(), s.one_shot_x)
               .real(key("_one_shot_z").c_str(), s.one_shot_z)
-              .real(key("_expected_motion_x").c_str(), s.expected_motion_x)
-              .real(key("_expected_motion_z").c_str(), s.expected_motion_z)
+              .uinteger(key("_root_motion_carry_mode").c_str(),
+                        s.root_motion_carry_mode)
+              .real(key("_root_motion_carry_x").c_str(),
+                    s.root_motion_carry_x)
+              .real(key("_root_motion_carry_z").c_str(),
+                    s.root_motion_carry_z)
+              .real(key("_expected_motion_x").c_str(),
+                    s.root_motion_carry_x)
+              .real(key("_expected_motion_z").c_str(),
+                    s.root_motion_carry_z)
+              .real(key("_smoothed_root_motion_x").c_str(),
+                    s.smoothed_root_motion_x)
+              .real(key("_smoothed_root_motion_z").c_str(),
+                    s.smoothed_root_motion_z)
+              .real(key("_raw_root_motion_x").c_str(),
+                    s.raw_root_motion_x)
+              .real(key("_raw_root_motion_z").c_str(),
+                    s.raw_root_motion_z)
               .real(key("_frame_delta_x").c_str(), s.frame_delta_x)
               .real(key("_frame_delta_z").c_str(), s.frame_delta_z)
               .uinteger(key("_hit_slide_slot").c_str(),
@@ -29527,11 +30976,15 @@ namespace Horse
                        s.hit_slide_frame_timer_mirror)
               .hex(key("_hit_reaction_result").c_str(),
                    s.hit_reaction_result)
+              .uinteger(key("_hitstun").c_str(), s.in_hitstun)
+              .uinteger(key("_blockstun").c_str(), s.in_blockstun)
               .uinteger(key("_damped_motion_mode_16fb").c_str(),
                         s.damped_motion_mode_16fb)
               .uinteger(key("_airborne_16e2").c_str(), s.airborne_16e2)
+              .uinteger(key("_pose_finalize_tick_counter").c_str(),
+                        s.pose_finalize_tick_counter)
               .uinteger(key("_look_at_blend_frame_counter").c_str(),
-                        s.look_at_blend_frame_counter)
+                        s.pose_finalize_tick_counter)
               .uinteger(key("_hit_root_motion_gate").c_str(),
                         s.hit_root_motion_gate)
               .integer(key("_hitcue0_active_cue").c_str(),
@@ -29768,10 +31221,25 @@ namespace Horse
                        live.one_shot_x);
             diag_float("one-shot-z", expected.one_shot_z,
                        live.one_shot_z);
-            diag_float("expected-motion-x", expected.expected_motion_x,
-                       live.expected_motion_x);
-            diag_float("expected-motion-z", expected.expected_motion_z,
-                       live.expected_motion_z);
+            diag_u64("root-motion-carry-mode",
+                     expected.root_motion_carry_mode,
+                     live.root_motion_carry_mode);
+            diag_float("root-motion-carry-x",
+                       expected.root_motion_carry_x,
+                       live.root_motion_carry_x);
+            diag_float("root-motion-carry-z",
+                       expected.root_motion_carry_z,
+                       live.root_motion_carry_z);
+            diag_float("smoothed-root-motion-x",
+                       expected.smoothed_root_motion_x,
+                       live.smoothed_root_motion_x);
+            diag_float("smoothed-root-motion-z",
+                       expected.smoothed_root_motion_z,
+                       live.smoothed_root_motion_z);
+            diag_float("raw-root-motion-x", expected.raw_root_motion_x,
+                       live.raw_root_motion_x);
+            diag_float("raw-root-motion-z", expected.raw_root_motion_z,
+                       live.raw_root_motion_z);
             diag_float("frame-delta-x", expected.frame_delta_x,
                        live.frame_delta_x);
             diag_float("frame-delta-z", expected.frame_delta_z,
@@ -29811,9 +31279,9 @@ namespace Horse
                          : 0);
             diag_u64("camera-range-active", expected.camera_range_active,
                      live.camera_range_active);
-            diag_u64("look-at-blend-frame-counter",
-                     expected.look_at_blend_frame_counter,
-                     live.look_at_blend_frame_counter);
+            diag_u64("pose-finalize-tick-counter",
+                     expected.pose_finalize_tick_counter,
+                     live.pose_finalize_tick_counter);
             diag_u64("hit-root-motion-gate", expected.hit_root_motion_gate,
                      live.hit_root_motion_gate);
             diag_u64("move-transition-state", expected.move_transition_state,
@@ -31064,6 +32532,8 @@ namespace Horse
                 return "CapturedSnapshotValidationStepFailed";
             case NativeSeekFailure::CapturedSnapshotSemanticRepairFailed:
                 return "CapturedSnapshotSemanticRepairFailed";
+            case NativeSeekFailure::CapturedInputPairRepairFailed:
+                return "CapturedInputPairRepairFailed";
             case NativeSeekFailure::CapturedRestoreProbeMismatch:
                 return "CapturedRestoreProbeMismatch";
             case NativeSeekFailure::CapturedGameplayStepFailed:
@@ -31082,6 +32552,8 @@ namespace Horse
                 return "NotLanded";
             case NativeSeekFailure::BattleManagerStatusNotActive:
                 return "BattleManagerStatusNotActive";
+            case NativeSeekFailure::PresentationRefreshFailed:
+                return "PresentationRefreshFailed";
             default:
                 return "Unknown";
             }
@@ -33658,6 +35130,202 @@ namespace Horse
             return v;
         }
 
+        void trace_movevm_lane_state_compare_detail(
+            int32_t expected_tick,
+            int player,
+            const uint8_t* sim_blob,
+            const uint8_t* live_chara,
+            const uint8_t* live_sim_blob = nullptr) noexcept
+        {
+            const int player_index = player - 1;
+            if (player_index < 0 || player_index > 1
+                || !sim_blob || (!live_chara && !live_sim_blob))
+            {
+                return;
+            }
+
+            static constexpr size_t kLaneBytes = 0x468;
+            static constexpr size_t kEffectTableOffset = 0x1F4;
+            static constexpr size_t kEffectEntryBytes = 0x24;
+            static constexpr size_t kEffectCount = 16;
+            auto read_u16 = [](const uint8_t* p) noexcept {
+                uint16_t value = 0;
+                if (p) std::memcpy(&value, p, sizeof(value));
+                return value;
+            };
+            auto read_i16 = [](const uint8_t* p) noexcept {
+                int16_t value = 0;
+                if (p) std::memcpy(&value, p, sizeof(value));
+                return value;
+            };
+
+            int32_t expected_seq = -1;
+            int32_t expected_round = -1;
+            int32_t expected_wall = -1;
+            int32_t expected_master = -1;
+            (void)m_tags.get(static_cast<size_t>(expected_tick),
+                             expected_seq, expected_round,
+                             expected_wall, expected_master);
+
+            ReplayTraceFields f;
+            f.string("label", m_sc6_seek_job.label
+                         ? m_sc6_seek_job.label : "?")
+             .integer("expected_tick", expected_tick)
+             .integer("expected_seq", expected_seq)
+             .integer("expected_round", expected_round)
+             .integer("expected_master", expected_master)
+             .integer("live_round", read_current_round())
+             .integer("live_master", read_engine_master_clock())
+             .integer("player", player)
+             .string("live_source",
+                     live_sim_blob ? "captured-sim" : "live-chara");
+
+            for (size_t lane = 0; lane < 3; ++lane)
+            {
+                const int32_t local =
+                    kHgCpuLaneStateBlockStart
+                    + static_cast<int32_t>(lane * kLaneBytes);
+                const uint8_t* expected = nullptr;
+                const bool expected_ok =
+                    resolve_expected_hgcpu_chara_bytes(
+                        sim_blob, player_index, local, kLaneBytes,
+                        &expected)
+                    && expected;
+
+                std::array<uint8_t, kLaneBytes> live{};
+                const uint8_t* live_bytes = nullptr;
+                bool live_ok = false;
+                if (live_sim_blob)
+                {
+                    live_ok = resolve_expected_hgcpu_chara_bytes(
+                                  live_sim_blob, player_index, local,
+                                  kLaneBytes, &live_bytes)
+                        && live_bytes;
+                }
+                else
+                {
+                    live_ok = SafeReadBytes(
+                        live_chara + 0x444F0 + lane * kLaneBytes,
+                        live.data(), live.size());
+                    if (live_ok)
+                        live_bytes = live.data();
+                }
+
+                size_t first_mismatch = kLaneBytes;
+                uint8_t expected_byte = 0;
+                uint8_t live_byte = 0;
+                if (expected_ok && live_ok)
+                {
+                    for (size_t i = 0; i < kLaneBytes; ++i)
+                    {
+                        if (expected[i] == live_bytes[i])
+                            continue;
+                        first_mismatch = i;
+                        expected_byte = expected[i];
+                        live_byte = live_bytes[i];
+                        break;
+                    }
+                }
+
+                auto fired_mask = [](const uint8_t* lane_bytes) noexcept {
+                    uint32_t mask = 0;
+                    if (!lane_bytes)
+                        return mask;
+                    for (size_t i = 0; i < kEffectCount; ++i)
+                    {
+                        const size_t off = kEffectTableOffset
+                            + i * kEffectEntryBytes + 3;
+                        if (lane_bytes[off] != 0)
+                            mask |= 1u << i;
+                    }
+                    return mask;
+                };
+
+                char key[96]{};
+                auto add_bool = [&](const char* suffix, bool value) {
+                    std::snprintf(key, sizeof(key), "lane%zu_%s",
+                                  lane, suffix);
+                    f.boolean(key, value);
+                };
+                auto add_int = [&](const char* suffix, int64_t value) {
+                    std::snprintf(key, sizeof(key), "lane%zu_%s",
+                                  lane, suffix);
+                    f.integer(key, value);
+                };
+                auto add_hex = [&](const char* suffix, uint64_t value) {
+                    std::snprintf(key, sizeof(key), "lane%zu_%s",
+                                  lane, suffix);
+                    f.hex(key, value);
+                };
+                auto add_real = [&](const char* suffix, double value) {
+                    std::snprintf(key, sizeof(key), "lane%zu_%s",
+                                  lane, suffix);
+                    f.real(key, value);
+                };
+
+                add_bool("expected_ok", expected_ok);
+                add_bool("live_ok", live_ok);
+                add_hex("raw_expected_hash",
+                        expected_ok
+                            ? hash_bytes64(expected, kLaneBytes) : 0);
+                add_hex("raw_live_hash",
+                         live_ok
+                             ? hash_bytes64(live_bytes, kLaneBytes) : 0);
+                add_bool("raw_match",
+                         expected_ok && live_ok
+                             && first_mismatch == kLaneBytes);
+                add_int("first_mismatch_offset",
+                        first_mismatch == kLaneBytes
+                            ? -1 : static_cast<int64_t>(first_mismatch));
+                add_int("first_expected_byte", expected_byte);
+                add_int("first_live_byte", live_byte);
+
+                add_int("expected_move_id",
+                        expected_ok ? read_i16(expected + 2) : -1);
+                add_int("live_move_id",
+                        live_ok ? read_i16(live_bytes + 2) : -1);
+                add_int("expected_tick_counter",
+                        expected_ok ? load_u32_le(expected + 4) : 0);
+                add_int("live_tick_counter",
+                        live_ok ? load_u32_le(live_bytes + 4) : 0);
+                add_real("expected_anim_frame",
+                         expected_ok ? load_float_le(expected + 8) : 0.0f);
+                add_real("live_anim_frame",
+                         live_ok ? load_float_le(live_bytes + 8) : 0.0f);
+                add_int("expected_transition_marker",
+                        expected_ok ? load_i32_le(expected + 0x2C) : 0);
+                add_int("live_transition_marker",
+                        live_ok ? load_i32_le(live_bytes + 0x2C) : 0);
+                add_int("expected_script_rerun",
+                        expected_ok ? read_u16(expected + 0x50) : 0);
+                add_int("live_script_rerun",
+                        live_ok ? read_u16(live_bytes + 0x50) : 0);
+                add_int("expected_step_counter_54",
+                        expected_ok ? read_u16(expected + 0x54) : 0);
+                add_int("live_step_counter_54",
+                        live_ok ? read_u16(live_bytes + 0x54) : 0);
+                add_int("expected_lane_index_mirror_56",
+                        expected_ok ? read_u16(expected + 0x56) : 0);
+                add_int("live_lane_index_mirror_56",
+                        live_ok ? read_u16(live_bytes + 0x56) : 0);
+                add_int("expected_next_move_id_5a",
+                        expected_ok ? read_u16(expected + 0x5A) : 0);
+                add_int("live_next_move_id_5a",
+                        live_ok ? read_u16(live_bytes + 0x5A) : 0);
+                add_int("expected_raw_ec_u32",
+                        expected_ok ? load_u32_le(expected + 0xEC) : 0);
+                add_int("live_raw_ec_u32",
+                        live_ok ? load_u32_le(live_bytes + 0xEC) : 0);
+                add_hex("expected_effect_fired_mask",
+                        expected_ok ? fired_mask(expected) : 0);
+                add_hex("live_effect_fired_mask",
+                        live_ok ? fired_mask(live_bytes) : 0);
+            }
+
+            ReplayDebugTrace::instance().event(
+                "movevm_lane_state_compare_detail", f);
+        }
+
         void trace_retrack_oracle_compare_detail(
             int32_t expected_tick,
             int player,
@@ -33792,12 +35460,32 @@ namespace Horse
               .real("live_one_shot_x", live.one_shot_x)
               .real("expected_one_shot_z", expected.one_shot_z)
               .real("live_one_shot_z", live.one_shot_z)
-              .real("expected_expected_motion_x",
-                    expected.expected_motion_x)
-              .real("live_expected_motion_x", live.expected_motion_x)
-              .real("expected_expected_motion_z",
-                    expected.expected_motion_z)
-              .real("live_expected_motion_z", live.expected_motion_z)
+              .uinteger("expected_root_motion_carry_mode",
+                        expected.root_motion_carry_mode)
+              .uinteger("live_root_motion_carry_mode",
+                        live.root_motion_carry_mode)
+              .real("expected_root_motion_carry_x",
+                    expected.root_motion_carry_x)
+              .real("live_root_motion_carry_x",
+                    live.root_motion_carry_x)
+              .real("expected_root_motion_carry_z",
+                    expected.root_motion_carry_z)
+              .real("live_root_motion_carry_z",
+                    live.root_motion_carry_z)
+              .real("expected_smoothed_root_motion_x",
+                    expected.smoothed_root_motion_x)
+              .real("live_smoothed_root_motion_x",
+                    live.smoothed_root_motion_x)
+              .real("expected_smoothed_root_motion_z",
+                    expected.smoothed_root_motion_z)
+              .real("live_smoothed_root_motion_z",
+                    live.smoothed_root_motion_z)
+              .real("expected_raw_root_motion_x",
+                    expected.raw_root_motion_x)
+              .real("live_raw_root_motion_x", live.raw_root_motion_x)
+              .real("expected_raw_root_motion_z",
+                    expected.raw_root_motion_z)
+              .real("live_raw_root_motion_z", live.raw_root_motion_z)
               .real("expected_frame_delta_x", expected.frame_delta_x)
               .real("live_frame_delta_x", live.frame_delta_x)
               .real("expected_frame_delta_z", expected.frame_delta_z)
@@ -33848,10 +35536,10 @@ namespace Horse
               .uinteger("expected_camera_range_active",
                         expected.camera_range_active)
               .uinteger("live_camera_range_active", live.camera_range_active)
-              .uinteger("expected_look_at_blend_frame_counter",
-                        expected.look_at_blend_frame_counter)
-              .uinteger("live_look_at_blend_frame_counter",
-                        live.look_at_blend_frame_counter)
+              .uinteger("expected_pose_finalize_tick_counter",
+                        expected.pose_finalize_tick_counter)
+              .uinteger("live_pose_finalize_tick_counter",
+                        live.pose_finalize_tick_counter)
               .uinteger("expected_hit_root_motion_gate",
                         expected.hit_root_motion_gate)
               .uinteger("live_hit_root_motion_gate",
@@ -34266,6 +35954,8 @@ namespace Horse
 
             ReplayDebugTrace::instance().event(
                 "retrack_oracle_compare_detail", f);
+            trace_movevm_lane_state_compare_detail(
+                expected_tick, player, sim_blob, live_chara);
         }
 
         bool restore_hgcpu_final_semantic_repair(
@@ -34348,6 +36038,128 @@ namespace Horse
                     seq, tick, ok ? 1 : 0, probe_ok ? 1 : 0);
             }
             return ok && probe_ok;
+        }
+
+        bool restore_motion_provider_handoff_for_tick(
+            int32_t tick,
+            const char* label,
+            int32_t seq) noexcept
+        {
+            if (tick < 0) return false;
+
+            const uint8_t* sim_blob =
+                m_sim_store.gather(static_cast<size_t>(tick));
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!sim_blob || !base) return false;
+
+            const uintptr_t slot_rvas[2] = {
+                ReplayScrubDiag::kRVA_CharaSlotP1,
+                ReplayScrubDiag::kRVA_CharaSlotP2,
+            };
+            bool ok = true;
+
+            for (int pi = 0; pi < 2; ++pi)
+            {
+                void* chara_raw = nullptr;
+                if (!SafeReadPtr(reinterpret_cast<const void*>(
+                                     base + slot_rvas[pi]),
+                                 &chara_raw)
+                    || !chara_raw)
+                {
+                    ok = false;
+                    continue;
+                }
+
+                uint8_t* chara = reinterpret_cast<uint8_t*>(chara_raw);
+                auto restore_range = [&](int32_t provider_local,
+                                         size_t bytes,
+                                         const char* field) noexcept
+                {
+                    const uint8_t* expected = nullptr;
+                    const bool expected_ok =
+                        resolve_expected_hgcpu_chara_bytes(
+                            sim_blob, pi, provider_local, bytes, &expected)
+                        && expected != nullptr;
+
+                    uint8_t* live_ptr = nullptr;
+                    const bool live_ptr_ok =
+                        resolve_hgcpu_local_live_ptr(
+                            chara, provider_local, bytes, &live_ptr)
+                        && live_ptr != nullptr;
+
+                    std::array<uint8_t, 0x100> before{};
+                    std::array<uint8_t, 0x100> after{};
+                    const bool before_ok = live_ptr_ok
+                        && bytes <= before.size()
+                        && SafeReadBytes(live_ptr, before.data(), bytes);
+                    const bool write_ok = expected_ok && live_ptr_ok
+                        && SafeWriteBytes(live_ptr, expected, bytes);
+                    const bool after_ok = write_ok
+                        && bytes <= after.size()
+                        && SafeReadBytes(live_ptr, after.data(), bytes);
+
+                    const uint64_t expected_hash = expected_ok
+                        ? hash_bytes64(expected, bytes) : 0;
+                    const uint64_t before_hash = before_ok
+                        ? hash_bytes64(before.data(), bytes) : 0;
+                    const uint64_t after_hash = after_ok
+                        ? hash_bytes64(after.data(), bytes) : 0;
+                    const bool range_ok = expected_ok && live_ptr_ok
+                        && write_ok && after_ok
+                        && after_hash == expected_hash;
+
+                    ReplayTraceFields f;
+                    f.string("label", label ? label : "?")
+                     .integer("seq", seq)
+                     .integer("tick", tick)
+                     .integer("player", pi + 1)
+                     .string("field", field ? field : "?")
+                     .integer("provider_local",
+                              static_cast<int64_t>(provider_local))
+                     .integer("bytes", static_cast<int64_t>(bytes))
+                     .hex("live_ptr",
+                          reinterpret_cast<uintptr_t>(live_ptr))
+                     .boolean("expected_ok", expected_ok)
+                     .boolean("live_ptr_ok", live_ptr_ok)
+                     .boolean("before_ok", before_ok)
+                     .boolean("write_ok", write_ok)
+                     .boolean("after_ok", after_ok)
+                     .hex("expected_hash", expected_hash)
+                     .hex("before_hash", before_hash)
+                     .hex("after_hash", after_hash)
+                     .boolean("changed",
+                              before_ok && before_hash != expected_hash)
+                     .boolean("ok", range_ok)
+                     .string("reason",
+                             "snapshot-motion-provider-release-handoff");
+                    ReplayDebugTrace::instance().event(
+                        "motion_provider_handoff_restore", f);
+                    ok &= range_ok;
+                };
+
+                restore_range(
+                    kHgCpuMotionBankBlockStart,
+                    0x80,
+                    "primary-root0-root1-matrices");
+                restore_range(
+                    kHgCpuMotionBankBlockStart + 0x5F0,
+                    0x40,
+                    "primary-delta-5f0");
+                restore_range(
+                    kHgCpuMotionBankBlockStart + 0x800,
+                    0x80,
+                    "primary-interp-800");
+                restore_range(
+                    kHgCpuMotionBankBlockStart + 0xDE4,
+                    0x40,
+                    "primary-sub-de4");
+                restore_range(
+                    kHgCpuSecondaryMotionBlockStart + 0x40,
+                    0x40,
+                    "secondary-root1-matrix");
+            }
+
+            return ok;
         }
 
         bool restore_oracle_semantic_overlay_for_tick(
@@ -34472,52 +36284,6 @@ namespace Horse
                     "oracle_semantic_overlay_write", f);
             };
 
-            auto trace_provider_handoff_write =
-                [this, label, seq, tick](
-                    int player,
-                    const char* field,
-                    int32_t provider_local,
-                    size_t bytes,
-                    uintptr_t live_ptr,
-                    bool expected_ok,
-                    bool live_ptr_ok,
-                    bool before_ok,
-                    bool write_ok,
-                    bool after_ok,
-                    uint64_t expected_hash,
-                    uint64_t before_hash,
-                    uint64_t after_hash) noexcept
-            {
-                ReplayTraceFields f;
-                f.string("label", label ? label : "?")
-                 .integer("seq", seq)
-                 .integer("tick", tick)
-                 .integer("player", player + 1)
-                 .string("field", field ? field : "?")
-                 .integer("provider_local",
-                          static_cast<int64_t>(provider_local))
-                 .integer("bytes", static_cast<int64_t>(bytes))
-                 .hex("live_ptr", live_ptr)
-                 .boolean("expected_ok", expected_ok)
-                 .boolean("live_ptr_ok", live_ptr_ok)
-                 .boolean("before_ok", before_ok)
-                 .boolean("write_ok", write_ok)
-                 .boolean("after_ok", after_ok)
-                 .hex("expected_hash", expected_hash)
-                 .hex("before_hash", before_hash)
-                 .hex("after_hash", after_hash)
-                 .boolean("changed",
-                          before_ok && expected_ok
-                              && before_hash != expected_hash)
-                 .boolean("ok",
-                          expected_ok && live_ptr_ok && write_ok && after_ok
-                              && after_hash == expected_hash)
-                 .string("reason",
-                         "targeted-motion-provider-release-handoff");
-                ReplayDebugTrace::instance().event(
-                    "motion_provider_handoff_restore", f);
-            };
-
             for (int pi = 0; pi < 2; ++pi)
             {
                 const ReplayScrubDiag::CharaMoveVmSnap& s = *snaps[pi];
@@ -34537,65 +36303,6 @@ namespace Horse
                 }
 
                 uint8_t* c = reinterpret_cast<uint8_t*>(chara_raw);
-
-                auto restore_provider_handoff_range =
-                    [&](int32_t provider_local,
-                        size_t bytes,
-                        const char* field) noexcept
-                {
-                    const uint8_t* expected = nullptr;
-                    const bool expected_ok = sim_blob
-                        && resolve_expected_hgcpu_chara_bytes(
-                            sim_blob, pi, provider_local, bytes, &expected);
-
-                    uint8_t* live_ptr = nullptr;
-                    const bool live_ptr_ok =
-                        resolve_hgcpu_local_live_ptr(
-                            c, provider_local, bytes, &live_ptr)
-                        && live_ptr != nullptr;
-
-                    uint64_t expected_hash = 0;
-                    uint64_t before_hash = 0;
-                    uint64_t after_hash = 0;
-                    bool before_ok = false;
-                    bool after_ok = false;
-                    bool write_ok = false;
-
-                    std::array<uint8_t, 0x100> before{};
-                    std::array<uint8_t, 0x100> after{};
-                    if (expected_ok && expected)
-                        expected_hash = hash_bytes64(expected, bytes);
-                    if (live_ptr_ok && bytes <= before.size())
-                    {
-                        before_ok = SafeReadBytes(
-                            live_ptr, before.data(), bytes);
-                        if (before_ok)
-                            before_hash = hash_bytes64(
-                                before.data(), bytes);
-                    }
-                    if (expected_ok && live_ptr_ok && expected)
-                    {
-                        write_ok = SafeWriteBytes(
-                            live_ptr, expected, bytes);
-                    }
-                    if (write_ok && bytes <= after.size())
-                    {
-                        after_ok = SafeReadBytes(
-                            live_ptr, after.data(), bytes);
-                        if (after_ok)
-                            after_hash = hash_bytes64(
-                                after.data(), bytes);
-                    }
-
-                    trace_provider_handoff_write(
-                        pi, field, provider_local, bytes,
-                        reinterpret_cast<uintptr_t>(live_ptr),
-                        expected_ok, live_ptr_ok, before_ok, write_ok,
-                        after_ok, expected_hash, before_hash, after_hash);
-
-                    ok &= expected_ok && live_ptr_ok && write_ok
-                        && after_ok && after_hash == expected_hash;
-                };
 
                 auto write_oracle_u32 = [&, this](uintptr_t chara_off,
                                                   const char* field,
@@ -35065,11 +36772,11 @@ namespace Horse
                     ReplayScrubDiag::kChara_flBodyFacing_Off,
                     "facing", s.facing);
                 write_oracle_float(
-                    ReplayScrubDiag::kChara_flExpectedMotion_X_Off,
-                    "expected-motion-x", s.expected_motion_x);
+                    ReplayScrubDiag::kChara_flRootMotionCarry_X_Off,
+                    "root-motion-carry-x", s.root_motion_carry_x);
                 write_oracle_float(
-                    ReplayScrubDiag::kChara_flExpectedMotion_Z_Off,
-                    "expected-motion-z", s.expected_motion_z);
+                    ReplayScrubDiag::kChara_flRootMotionCarry_Z_Off,
+                    "root-motion-carry-z", s.root_motion_carry_z);
                 write_oracle_float(
                     ReplayScrubDiag::kChara_flFrameDelta_X_Off,
                     "frame-delta-x", s.frame_delta_x);
@@ -35476,33 +37183,6 @@ namespace Horse
                     }
                 }
 
-                // The native snapshot reader restores these provider buffers
-                // before global motion/physics/VFX finalization.  Traces show
-                // the matrix/delta subranges can be stale at Play handoff even
-                // while scalar move/input state is exact, which causes
-                // post-seek motion drift and visible snapping.  Keep this
-                // whitelist to non-pointer matrix/delta ranges only.
-                restore_provider_handoff_range(
-                    kHgCpuMotionBankBlockStart,
-                    0x80,
-                    "primary-root0-root1-matrices");
-                restore_provider_handoff_range(
-                    kHgCpuMotionBankBlockStart + 0x5F0,
-                    0x40,
-                    "primary-delta-5f0");
-                restore_provider_handoff_range(
-                    kHgCpuMotionBankBlockStart + 0x800,
-                    0x80,
-                    "primary-interp-800");
-                restore_provider_handoff_range(
-                    kHgCpuMotionBankBlockStart + 0xDE4,
-                    0x40,
-                    "primary-sub-de4");
-                restore_provider_handoff_range(
-                    kHgCpuSecondaryMotionBlockStart + 0x40,
-                    0x40,
-                    "secondary-root1-matrix");
-
             }
 
             ReplayTraceFields f;
@@ -35728,11 +37408,13 @@ namespace Horse
                             ReplayScrubDiag::kChara_flOneShotOffset_Z_Off,
                             "one-shot-z", s.one_shot_z, false);
                 trace_float(pi, s,
-                            ReplayScrubDiag::kChara_flExpectedMotion_X_Off,
-                            "expected-motion-x", s.expected_motion_x, false);
+                            ReplayScrubDiag::kChara_flRootMotionCarry_X_Off,
+                            "root-motion-carry-x",
+                            s.root_motion_carry_x, false);
                 trace_float(pi, s,
-                            ReplayScrubDiag::kChara_flExpectedMotion_Z_Off,
-                            "expected-motion-z", s.expected_motion_z, false);
+                            ReplayScrubDiag::kChara_flRootMotionCarry_Z_Off,
+                            "root-motion-carry-z",
+                            s.root_motion_carry_z, false);
                 trace_float(pi, s,
                             ReplayScrubDiag::kChara_flFrameDelta_X_Off,
                             "frame-delta-x", s.frame_delta_x, false);
@@ -36721,7 +38403,8 @@ namespace Horse
             trace_semantic_authority_for_tick(
                 "after-rdb-restore", sim_blob, out.tick, label, out.seq);
 
-            out.extras_restore_ok = restore_extras(extras_blob, true);
+            out.extras_restore_ok = restore_extras(
+                extras_blob, true, out.tick, out.seq);
             if (!out.extras_restore_ok)
             {
                 out.failure = NativeSeekFailure::CapturedSnapshotRestoreFailed;
@@ -36856,6 +38539,20 @@ namespace Horse
                 trace_captured_restore_failure(
                     label, out, "oracle-moveid-overlay",
                     "restore-oracle-semantic-overlay",
+                    tick, true, true, true, true, true);
+                return false;
+            }
+            // Provider matrices and deltas are snapshot state, not oracle
+            // overlay state. Restore them for both exact-target handoff and
+            // PreviousToTarget native warmup before the next native step.
+            if (!restore_motion_provider_handoff_for_tick(
+                    out.tick, label, out.seq))
+            {
+                out.failure =
+                    NativeSeekFailure::CapturedSnapshotSemanticRepairFailed;
+                trace_captured_restore_failure(
+                    label, out, "motion-provider-handoff",
+                    "restore-motion-provider-handoff",
                     tick, true, true, true, true, true);
                 return false;
             }
@@ -37705,6 +39402,7 @@ namespace Horse
 
         void cancel_sc6_exact_seek(const char* reason) noexcept
         {
+            rollback_motion_decode_scratch().cancel_pending_restore();
             if (m_sc6_seek_job.phase == Sc6ExactSeekPhase::ValidateStepToTarget)
                 emit_validation_rng_u32_trace(
                     m_sc6_seek_job.label, reason ? reason : "cancelled");
@@ -37735,6 +39433,7 @@ namespace Horse
                                       int32_t requested_seq,
                                       const char* label) noexcept
         {
+            rollback_motion_decode_scratch().cancel_pending_restore();
             exit_seek_presentation_suppression(
                 "queue-failed", true);
             if (reason == NativeSeekFailure::None)
@@ -38210,6 +39909,7 @@ namespace Horse
             if (sc6_exact_seek_phase_active(m_sc6_seek_job.phase))
                 cancel_sc6_exact_seek("new target");
 
+            rollback_motion_decode_scratch().cancel_pending_restore();
             m_sc6_seek_job = Sc6ExactSeekJob{};
             m_sc6_seek_job.generation = m_seek_generation;
             m_sc6_seek_job.phase =
@@ -39006,6 +40706,7 @@ namespace Horse
                                  const Sc6SeekVerifyReport* report =
                                      nullptr) noexcept
         {
+            rollback_motion_decode_scratch().cancel_pending_restore();
             const Sc6ExactSeekPhase failed_phase = m_sc6_seek_job.phase;
             if (failed_phase == Sc6ExactSeekPhase::ValidateStepToTarget)
                 emit_validation_rng_u32_trace(
@@ -40561,6 +42262,23 @@ namespace Horse
                 {
                     trace_captured_snapshot_compare(report);
                     trace_captured_snapshot_mismatch_detail(report, live);
+                    if (!compare_policy_ok
+                        && m_sc6_seek_job.validation_mode
+                            == CapturedSeekValidationMode::PreviousToTarget)
+                    {
+                        const uint8_t* expected_sim =
+                            m_sim_store.gather(static_cast<size_t>(
+                                m_sc6_seek_job.validation_compare_tick));
+                        if (expected_sim && live.sim_ok)
+                        {
+                            trace_movevm_lane_state_compare_detail(
+                                m_sc6_seek_job.validation_compare_tick,
+                                1, expected_sim, nullptr, live.sim.data());
+                            trace_movevm_lane_state_compare_detail(
+                                m_sc6_seek_job.validation_compare_tick,
+                                2, expected_sim, nullptr, live.sim.data());
+                        }
+                    }
                 }
                 if (!captured)
                 {
@@ -42115,6 +43833,22 @@ namespace Horse
                         "final_landing_verify", f);
                 }
 
+                // HgCpu restores gameplay, not the two actor-tick
+                // presentation envelopes.  Only after gameplay/input landing
+                // verification succeeds, restore the phase-matched local
+                // presentation keyframe and request downstream publication by
+                // dirty flags.  Never call either native updater here: both
+                // advance their independent clocks.
+                if (!restore_replay_animation_presentation_for_tick(
+                        m_sc6_seek_job.label,
+                        m_sc6_seek_job.target_seq,
+                        m_sc6_seek_job.target_tick))
+                {
+                    fail_sc6_exact_seek(
+                        NativeSeekFailure::PresentationRefreshFailed);
+                    return;
+                }
+
                 m_last_seek_target.store(m_sc6_seek_job.target_seq,
                                          std::memory_order_release);
                 m_last_seek_master_tag.store(
@@ -42669,6 +44403,37 @@ namespace Horse
                                   dst + kExtras_Off_LfsrIndex,
                                   kExtras_LfsrIndex_Bytes),
                     "lfsr-index");
+            ReplayGameplayCrtSnapshot gameplay_crt_snapshot {};
+            if (m_split_gameplay_crt_control_requested.load(
+                    std::memory_order_acquire))
+            {
+                RollbackGameplayCrtState gameplay_crt {};
+                const bool captured =
+                    RngTraceHook::instance().capture_gameplay_crt_state(
+                        gameplay_crt);
+                require(captured, "gameplay-crt-state");
+                if (captured)
+                {
+                    gameplay_crt_snapshot.magic =
+                        kReplayGameplayCrtSnapshotMagic;
+                    gameplay_crt_snapshot.version =
+                        kReplayGameplayCrtSnapshotVersion;
+                    gameplay_crt_snapshot.internal_state =
+                        gameplay_crt.internal_state;
+                    gameplay_crt_snapshot.full_round_seed =
+                        gameplay_crt.full_round_seed;
+                    gameplay_crt_snapshot.gameplay_draw_ordinal =
+                        gameplay_crt.gameplay_draw_ordinal;
+                    gameplay_crt_snapshot.warmup_draws =
+                        gameplay_crt.warmup_draws;
+                    gameplay_crt_snapshot.owner_thread_id =
+                        gameplay_crt.owner_thread_id;
+                    gameplay_crt_snapshot.flags = 1;
+                }
+            }
+            std::memcpy(dst + kExtras_Off_GameplayCrt,
+                        &gameplay_crt_snapshot,
+                        sizeof(gameplay_crt_snapshot));
             require(SafeReadBytes(reinterpret_cast<const void*>(
                                        base + kRVA_CCpuCommandArray),
                                    dst + kExtras_Off_CCpuCommandArray,
@@ -42710,6 +44475,30 @@ namespace Horse
                                      base + kRVA_LfsrIndex),
                                  src + kExtras_Off_LfsrIndex,
                                  kExtras_LfsrIndex_Bytes);
+            if (m_split_gameplay_crt_control_requested.load(
+                    std::memory_order_acquire))
+            {
+                ReplayGameplayCrtSnapshot snapshot {};
+                std::memcpy(&snapshot,
+                            src + kExtras_Off_GameplayCrt,
+                            sizeof(snapshot));
+                RollbackGameplayCrtState gameplay_crt {};
+                gameplay_crt.internal_state = snapshot.internal_state;
+                gameplay_crt.full_round_seed = snapshot.full_round_seed;
+                gameplay_crt.gameplay_draw_ordinal =
+                    snapshot.gameplay_draw_ordinal;
+                gameplay_crt.warmup_draws = snapshot.warmup_draws;
+                gameplay_crt.owner_thread_id = snapshot.owner_thread_id;
+                gameplay_crt.phase = RollbackGameplayCrtPhase::Ready;
+                gameplay_crt.native_seed_observed = true;
+                ok &= snapshot.magic == kReplayGameplayCrtSnapshotMagic
+                    && snapshot.version
+                        == kReplayGameplayCrtSnapshotVersion
+                    && snapshot.flags == 1
+                    && snapshot.owner_thread_id == ::GetCurrentThreadId()
+                    && RngTraceHook::instance().restore_gameplay_crt_state(
+                        gameplay_crt);
+            }
             ok &= SafeWriteBytes(reinterpret_cast<void*>(
                                       base + kRVA_CCpuCommandArray),
                                   src + kExtras_Off_CCpuCommandArray,
@@ -43267,7 +45056,10 @@ namespace Horse
             uint8_t active_b = 0;
             if (SafeReadUInt8(reinterpret_cast<const void*>(
                                   base + kRVA_FrameContextUseB), &active_b))
+            {
                 boundary[kStageBoundary_Off_ActiveB] = active_b;
+                flags |= kStageBoundaryFlag_ActiveContextOk;
+            }
 
             (void)capture_stage_boundary_grid(
                 base + kRVA_FrameBoundsGridA, boundary, 0, flags);
@@ -43295,21 +45087,35 @@ namespace Horse
                                hash_bytes64(sc, kStageBoundary_ScbattleBytes));
             }
             blob_write_u32(boundary, kStageBoundary_Off_Flags, flags);
-            return true;
+            return (flags & kStageBoundaryFlag_ActiveContextOk) != 0;
         }
 
-        void refresh_stage_boundary_dynamic_header(
+        bool refresh_stage_boundary_dynamic_header(
             uintptr_t base,
             uint8_t* boundary) noexcept
         {
-            if (!base || !boundary) return;
+            if (!base || !boundary) return false;
+            if (blob_read_u32(boundary, kStageBoundary_Off_Magic)
+                    != kStageBoundaryMagic
+                || blob_read_u32(boundary, kStageBoundary_Off_Version)
+                    != kStageBoundaryVersion)
+            {
+                return false;
+            }
 
             uint32_t flags = blob_read_u32(
                 boundary, kStageBoundary_Off_Flags);
             uint8_t active_b = 0;
             if (SafeReadUInt8(reinterpret_cast<const void*>(
                                   base + kRVA_FrameContextUseB), &active_b))
+            {
                 boundary[kStageBoundary_Off_ActiveB] = active_b;
+                flags |= kStageBoundaryFlag_ActiveContextOk;
+            }
+            else
+            {
+                flags &= ~kStageBoundaryFlag_ActiveContextOk;
+            }
 
             uint8_t* sc = boundary + kStageBoundary_Off_Scbattle;
             const bool sc_ok =
@@ -43337,6 +45143,7 @@ namespace Horse
                 blob_write_u64(boundary, kStageBoundary_Off_ScbattleHash, 0);
             }
             blob_write_u32(boundary, kStageBoundary_Off_Flags, flags);
+            return (flags & kStageBoundaryFlag_ActiveContextOk) != 0;
         }
 
         bool capture_stage_boundary_for_generation(
@@ -43364,10 +45171,11 @@ namespace Horse
 
             std::memcpy(boundary, m_gen_stage_boundary_cache.data(),
                         kStageBoundary_Bytes);
-            refresh_stage_boundary_dynamic_header(base, boundary);
+            const bool dynamic_header_ok =
+                refresh_stage_boundary_dynamic_header(base, boundary);
             m_gen_stage_boundary_cache_reuses.fetch_add(
                 1, std::memory_order_acq_rel);
-            return true;
+            return dynamic_header_ok;
         }
 
         bool restore_stage_boundary_grid(uintptr_t grid_addr,
@@ -43449,11 +45257,23 @@ namespace Horse
                     != kStageBoundaryMagic
                 || blob_read_u32(boundary, kStageBoundary_Off_Version)
                     != kStageBoundaryVersion)
-                return true;
+                return false;
 
             bool ok = true;
             const uint32_t flags = blob_read_u32(
                 boundary, kStageBoundary_Off_Flags);
+            if ((flags & kStageBoundaryFlag_ActiveContextOk) == 0)
+                return false;
+            const uint8_t expected_active_b =
+                boundary[kStageBoundary_Off_ActiveB];
+            ok &= SafeWriteBytes(
+                reinterpret_cast<void*>(base + kRVA_FrameContextUseB),
+                &expected_active_b, sizeof(expected_active_b));
+            uint8_t restored_active_b = 0;
+            ok &= SafeReadUInt8(
+                reinterpret_cast<const void*>(base + kRVA_FrameContextUseB),
+                &restored_active_b);
+            ok &= restored_active_b == expected_active_b;
             if ((flags & kStageBoundaryFlag_GridAOk) != 0)
                 ok &= restore_stage_boundary_grid(
                     base + kRVA_FrameBoundsGridA, boundary, 0);
@@ -43501,8 +45321,10 @@ namespace Horse
             uint32_t count_b = 0;
             bool clipped_a = false;
             bool clipped_b = false;
-            (void)SafeReadUInt8(reinterpret_cast<const void*>(
-                                    base + kRVA_FrameContextUseB), &active_b);
+            const bool active_b_ok = SafeReadUInt8(
+                reinterpret_cast<const void*>(
+                    base + kRVA_FrameContextUseB),
+                &active_b);
             const bool live_a_ok = collect_stage_boundary_records(
                 base + kRVA_FrameBoundsGridA, rec_a.data(), rec_a.size(),
                 count_a, clipped_a, &valid_a, &terrain_a);
@@ -43531,7 +45353,11 @@ namespace Horse
                 && blob_read_u32(boundary, kStageBoundary_Off_Magic)
                     == kStageBoundaryMagic
                 && blob_read_u32(boundary, kStageBoundary_Off_Version)
-                    == kStageBoundaryVersion;
+                    == kStageBoundaryVersion
+                && (blob_read_u32(boundary, kStageBoundary_Off_Flags)
+                        & kStageBoundaryFlag_ActiveContextOk) != 0;
+            const uint8_t expected_active_b = expected_ok
+                ? boundary[kStageBoundary_Off_ActiveB] : 0;
             const uint32_t expected_flags = expected_ok
                 ? blob_read_u32(boundary, kStageBoundary_Off_Flags) : 0;
             const uint64_t expected_hash_a = expected_ok
@@ -43565,6 +45391,8 @@ namespace Horse
              .integer("seq", seq)
              .boolean("expected_ok", expected_ok)
              .hex("expected_flags", expected_flags)
+             .boolean("expected_active_b", expected_active_b != 0)
+             .boolean("active_b_ok", active_b_ok)
              .boolean("active_b", active_b != 0)
              .boolean("grid_a_ok", live_a_ok)
              .boolean("grid_b_ok", live_b_ok)
@@ -43583,7 +45411,9 @@ namespace Horse
              .boolean("scbattle_live_ok", sc_live_ok)
              .hex("expected_scbattle_hash", expected_scbattle_hash)
              .hex("live_scbattle_hash", live_scbattle_hash)
-             .boolean("state_ok", expected_ok && live_a_ok && live_b_ok
+             .boolean("state_ok", expected_ok && active_b_ok
+                      && live_a_ok && live_b_ok
+                      && expected_active_b == active_b
                       && expected_hash_a == live_hash_a
                       && expected_hash_b == live_hash_b
                       && expected_scbattle_hash == live_scbattle_hash);
@@ -44834,6 +46664,51 @@ namespace Horse
                 "stage_wind_emitter_state", f);
         }
 
+        static bool capture_motion_decode_scratch(uint8_t* extras) noexcept
+        {
+            if (!extras) return false;
+            const RollbackMotionDecodeScratchSnapshot snapshot =
+                rollback_motion_decode_scratch().capture();
+            std::memcpy(
+                extras + kExtras_Off_MotionDecodeScratch,
+                &snapshot,
+                sizeof(snapshot));
+            return true;
+        }
+
+        bool restore_motion_decode_scratch(
+            const uint8_t* extras,
+            const char* label,
+            int32_t seq,
+            int32_t tick) noexcept
+        {
+            if (!extras) return false;
+            RollbackMotionDecodeScratchSnapshot snapshot {};
+            std::memcpy(
+                &snapshot,
+                extras + kExtras_Off_MotionDecodeScratch,
+                sizeof(snapshot));
+            const bool accepted =
+                rollback_motion_decode_scratch().restore(snapshot);
+
+            ReplayTraceFields f;
+            f.string("label", label ? label : "?")
+             .integer("seq", seq)
+             .integer("tick", tick)
+             .boolean("valid", snapshot.valid != 0)
+             .integer("last_player", snapshot.last_player + 1)
+             .hex("hash", hash_bytes64(
+                 snapshot.pair.data(), snapshot.pair.size()))
+             .boolean("pending",
+                      rollback_motion_decode_scratch().pending())
+             .boolean("accepted", accepted)
+             .string("reason",
+                     "restore-native-decoded-word-stack-scratch-sidecar");
+            ReplayDebugTrace::instance().event(
+                "motion_decode_scratch_restore_armed", f);
+            return accepted;
+        }
+
         static constexpr size_t matrix_bank_ring_history_offset(
             size_t player,
             size_t bank,
@@ -44845,6 +46720,233 @@ namespace Horse
                     * kMatrixBankRing_BufferCount + buffer)
                    * kMatrixBankRing_RangeCount + range)
                     * kMatrixBankRing_RangeBytes;
+        }
+
+        static constexpr size_t matrix_bank_ring_state_offset(
+            size_t player,
+            size_t bank) noexcept
+        {
+            return kExtras_Off_MatrixBankRingState
+                + (player * kMatrixBankRing_BankCount + bank)
+                    * sizeof(ReplayMatrixBankRingState);
+        }
+
+        static bool read_matrix_bank_ring_state(
+            uint8_t* bank,
+            ReplayMatrixBankRingState& state,
+            uintptr_t (&buffers)[kMatrixBankRing_BufferCount]) noexcept
+        {
+            state = ReplayMatrixBankRingState{};
+            std::memset(buffers, 0, sizeof(buffers));
+            if (!bank) return false;
+
+            uint32_t active_slot = 0;
+            if (!SafeReadUInt32(bank + 0x20, &active_slot))
+                return false;
+            for (size_t i = 0; i < kMatrixBankRing_BufferCount; ++i)
+            {
+                void* raw = nullptr;
+                if (!SafeReadPtr(bank + 0x08 + i * sizeof(void*), &raw)
+                    || !raw)
+                    return false;
+                buffers[i] = reinterpret_cast<uintptr_t>(raw);
+            }
+            if (buffers[0] == buffers[1]
+                || buffers[0] == buffers[2]
+                || buffers[1] == buffers[2])
+                return false;
+
+            void* current_raw = nullptr;
+            void* previous_raw = nullptr;
+            if (!SafeReadPtr(bank + 0x28, &current_raw)
+                || !SafeReadPtr(bank + 0x30, &previous_raw)
+                || !current_raw || !previous_raw)
+                return false;
+
+            auto slot_for = [&](void* raw) noexcept -> uint8_t {
+                const uintptr_t value = reinterpret_cast<uintptr_t>(raw);
+                for (uint8_t i = 0;
+                     i < static_cast<uint8_t>(kMatrixBankRing_BufferCount);
+                     ++i)
+                {
+                    if (buffers[i] == value) return i;
+                }
+                return 0xFF;
+            };
+
+            if (active_slot > 0xFF) return false;
+            state.active_slot = static_cast<uint8_t>(active_slot);
+            state.current_slot = slot_for(current_raw);
+            state.previous_slot = slot_for(previous_raw);
+            return ValidateReplayMatrixBankRingState(state);
+        }
+
+        bool capture_matrix_bank_ring_state(uintptr_t base,
+                                            uint8_t* dst) noexcept
+        {
+            if (!base || !dst) return false;
+
+            std::memset(dst + kExtras_Off_MatrixBankRingState, 0xFF,
+                        kMatrixBankRing_StateBytes);
+            bool ok = true;
+            const uintptr_t slot_rvas[kMatrixBankRing_PlayerCount] = {
+                ReplayScrubDiag::kRVA_CharaSlotP1,
+                ReplayScrubDiag::kRVA_CharaSlotP2,
+            };
+            const uintptr_t bank_offsets[kMatrixBankRing_BankCount] = {
+                0x35A0, 0x27760,
+            };
+
+            for (size_t pi = 0; pi < kMatrixBankRing_PlayerCount; ++pi)
+            {
+                void* chara_raw = nullptr;
+                const bool chara_ok = SafeReadPtr(
+                    reinterpret_cast<const void*>(base + slot_rvas[pi]),
+                    &chara_raw) && chara_raw;
+                for (size_t bi = 0; bi < kMatrixBankRing_BankCount; ++bi)
+                {
+                    ReplayMatrixBankRingState state {};
+                    uintptr_t buffers[kMatrixBankRing_BufferCount] {};
+                    const bool state_ok = chara_ok
+                        && read_matrix_bank_ring_state(
+                            reinterpret_cast<uint8_t*>(chara_raw)
+                                + bank_offsets[bi],
+                            state, buffers);
+                    if (state_ok)
+                    {
+                        std::memcpy(
+                            dst + matrix_bank_ring_state_offset(pi, bi),
+                            &state, sizeof(state));
+                    }
+                    else
+                    {
+                        ok = false;
+                    }
+                }
+            }
+            return ok;
+        }
+
+        bool restore_matrix_bank_ring_state(
+            const uint8_t* src,
+            const char* label,
+            int32_t seq,
+            int32_t tick) noexcept
+        {
+            if (!src) return false;
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return false;
+
+            bool ok = true;
+            const uintptr_t slot_rvas[kMatrixBankRing_PlayerCount] = {
+                ReplayScrubDiag::kRVA_CharaSlotP1,
+                ReplayScrubDiag::kRVA_CharaSlotP2,
+            };
+            const uintptr_t bank_offsets[kMatrixBankRing_BankCount] = {
+                0x35A0, 0x27760,
+            };
+            const char* bank_names[kMatrixBankRing_BankCount] = {
+                "primary", "secondary",
+            };
+
+            for (size_t pi = 0; pi < kMatrixBankRing_PlayerCount; ++pi)
+            {
+                void* chara_raw = nullptr;
+                const bool chara_ok = SafeReadPtr(
+                    reinterpret_cast<const void*>(base + slot_rvas[pi]),
+                    &chara_raw) && chara_raw;
+                for (size_t bi = 0; bi < kMatrixBankRing_BankCount; ++bi)
+                {
+                    ReplayMatrixBankRingState expected {};
+                    std::memcpy(
+                        &expected,
+                        src + matrix_bank_ring_state_offset(pi, bi),
+                        sizeof(expected));
+
+                    uint8_t* bank = chara_ok
+                        ? reinterpret_cast<uint8_t*>(chara_raw)
+                            + bank_offsets[bi]
+                        : nullptr;
+                    ReplayMatrixBankRingState before {};
+                    ReplayMatrixBankRingState after {};
+                    uintptr_t buffers[kMatrixBankRing_BufferCount] {};
+                    uintptr_t verified_buffers[kMatrixBankRing_BufferCount] {};
+                    const bool before_ok = bank
+                        && read_matrix_bank_ring_state(
+                            bank, before, buffers);
+                    const bool expected_ok =
+                        ValidateReplayMatrixBankRingState(expected);
+
+                    void* current_raw = expected_ok
+                        ? reinterpret_cast<void*>(
+                            buffers[expected.current_slot])
+                        : nullptr;
+                    void* previous_raw = expected_ok
+                        ? reinterpret_cast<void*>(
+                            buffers[expected.previous_slot])
+                        : nullptr;
+                    std::array<uint8_t, 0x18> controller {};
+                    const bool controller_ok = before_ok
+                        && SafeReadBytes(bank + 0x20, controller.data(),
+                                         controller.size());
+                    if (controller_ok && expected_ok)
+                    {
+                        const uint32_t active_slot =
+                            expected.active_slot;
+                        std::memcpy(controller.data(), &active_slot,
+                                    sizeof(active_slot));
+                        std::memcpy(controller.data() + 0x08,
+                                    &current_raw, sizeof(current_raw));
+                        std::memcpy(controller.data() + 0x10,
+                                    &previous_raw, sizeof(previous_raw));
+                    }
+                    const bool write_ok = controller_ok && expected_ok
+                        && SafeWriteBytes(bank + 0x20,
+                                          controller.data(),
+                                          controller.size());
+                    const bool after_ok = write_ok
+                        && read_matrix_bank_ring_state(
+                            bank, after, verified_buffers)
+                        && after.active_slot == expected.active_slot
+                        && after.current_slot == expected.current_slot
+                        && after.previous_slot == expected.previous_slot;
+                    ok &= chara_ok && before_ok && expected_ok && after_ok;
+
+                    ReplayTraceFields f;
+                    f.string("label", label ? label : "?")
+                     .integer("seq", seq)
+                     .integer("tick", tick)
+                     .integer("player", static_cast<int64_t>(pi + 1))
+                     .string("bank", bank_names[bi])
+                     .hex("chara", reinterpret_cast<uintptr_t>(chara_raw))
+                     .integer("expected_active_slot",
+                              expected.active_slot)
+                     .integer("expected_current_slot",
+                              expected.current_slot)
+                     .integer("expected_previous_slot",
+                              expected.previous_slot)
+                     .integer("before_active_slot", before.active_slot)
+                     .integer("before_current_slot", before.current_slot)
+                     .integer("before_previous_slot",
+                              before.previous_slot)
+                     .integer("after_active_slot", after.active_slot)
+                     .integer("after_current_slot", after.current_slot)
+                     .integer("after_previous_slot", after.previous_slot)
+                     .boolean("chara_ok", chara_ok)
+                     .boolean("before_ok", before_ok)
+                     .boolean("controller_ok", controller_ok)
+                     .boolean("expected_ok", expected_ok)
+                     .boolean("write_ok", write_ok)
+                     .boolean("after_ok", after_ok)
+                     .boolean("ok", chara_ok && before_ok
+                              && expected_ok && after_ok)
+                     .string("reason",
+                             "restore-value-only-matrix-ring-controller");
+                    ReplayDebugTrace::instance().event(
+                        "matrix_bank_ring_state_restore", f);
+                }
+            }
+            return ok;
         }
 
         bool capture_matrix_bank_ring_history(uintptr_t base,
@@ -45062,11 +47164,30 @@ namespace Horse
         bool restore_matrix_bank_historical_buffers_from_snapshots(
             const char* label,
             int32_t seq,
-            int32_t tick) noexcept
+            int32_t restored_tick) noexcept
         {
-            if (tick < 0) return false;
+            if (restored_tick < 0) return false;
             const uintptr_t base = NativeBinding::imageBase();
             if (!base) return false;
+
+            int32_t restored_seq_tag = -1;
+            int32_t restored_round = -1;
+            int32_t restored_wall = -1;
+            int32_t restored_master = -1;
+            if (!m_tags.get(
+                    static_cast<size_t>(restored_tick),
+                    restored_seq_tag, restored_round, restored_wall,
+                    restored_master)
+                || restored_seq_tag != seq)
+            {
+                return false;
+            }
+            const ReplayMatrixBankFrameIdentity restored_identity {
+                restored_tick,
+                restored_seq_tag,
+                restored_round,
+                restored_master,
+            };
 
             bool ok = true;
             const uintptr_t slot_rvas[kMatrixBankRing_PlayerCount] = {
@@ -45152,7 +47273,9 @@ namespace Horse
                     ReplayTraceFields f;
                     f.string("label", label ? label : "?")
                      .integer("seq", seq)
-                     .integer("tick", tick)
+                     .integer("tick", restored_tick)
+                     .integer("round", restored_round)
+                     .integer("master", restored_master)
                      .integer("player", static_cast<int64_t>(pi + 1))
                      .string("bank", spec.name)
                      .hex("chara", reinterpret_cast<uintptr_t>(chara_raw))
@@ -45174,15 +47297,46 @@ namespace Horse
                     }
 
                     int restored = 0;
-                    int skipped = 0;
+                    int boundary_skips = 0;
+                    int missing_required = 0;
                     int write_failures = 0;
                     int verify_failures = 0;
                     for (size_t age = 1; age <= 2; ++age)
                     {
-                        const int32_t source_tick = tick
-                            - static_cast<int32_t>(age);
+                        const int32_t source_tick =
+                            ReplayMatrixBankHistorySourceTick(
+                                restored_tick,
+                                static_cast<uint8_t>(age));
                         const bool source_tick_ok = source_tick >= 0;
-                        const uint8_t* source_blob = source_tick_ok
+                        int32_t source_seq = -1;
+                        int32_t source_round = -1;
+                        int32_t source_wall = -1;
+                        int32_t source_master = -1;
+                        const bool source_tags_ok = source_tick_ok
+                            && m_tags.get(
+                                static_cast<size_t>(source_tick),
+                                source_seq, source_round, source_wall,
+                                source_master);
+                        const ReplayMatrixBankFrameIdentity source_identity {
+                            source_tick,
+                            source_seq,
+                            source_round,
+                            source_master,
+                        };
+                        const auto source_disposition =
+                            ClassifyReplayMatrixBankHistorySource(
+                                restored_identity,
+                                source_identity,
+                                static_cast<uint8_t>(age));
+                        const bool source_required =
+                            source_disposition
+                                == ReplayMatrixBankHistorySourceDisposition::
+                                    Required;
+                        const bool source_is_boundary =
+                            source_disposition
+                                == ReplayMatrixBankHistorySourceDisposition::
+                                    RoundBoundary;
+                        const uint8_t* source_blob = source_required
                             ? m_sim_store.gather(
                                 static_cast<size_t>(source_tick))
                             : nullptr;
@@ -45190,6 +47344,7 @@ namespace Horse
                             ? (current_slot + static_cast<int>(age)) % 3
                             : -1;
                         const bool can_restore = bank_ok
+                            && source_required
                             && source_blob
                             && target_slot >= 0
                             && target_slot < static_cast<int>(
@@ -45238,9 +47393,15 @@ namespace Horse
 
                         const bool verify_ok = write_ok && read_ok
                             && live_hash == expected_hash;
-                        if (!source_tick_ok || !source_ok)
+                        if (source_is_boundary)
                         {
-                            ++skipped;
+                            ++boundary_skips;
+                        }
+                        else if (!source_required || !source_tags_ok
+                                 || !source_ok)
+                        {
+                            ok = false;
+                            ++missing_required;
                         }
                         else if (verify_ok)
                         {
@@ -45261,6 +47422,21 @@ namespace Horse
                                       "age%zu_target_slot", age);
                         f.integer(key, target_slot);
                         std::snprintf(key, sizeof(key),
+                                      "age%zu_source_seq", age);
+                        f.integer(key, source_seq);
+                        std::snprintf(key, sizeof(key),
+                                      "age%zu_source_round", age);
+                        f.integer(key, source_round);
+                        std::snprintf(key, sizeof(key),
+                                      "age%zu_source_master", age);
+                        f.integer(key, source_master);
+                        std::snprintf(key, sizeof(key),
+                                      "age%zu_required", age);
+                        f.boolean(key, source_required);
+                        std::snprintf(key, sizeof(key),
+                                      "age%zu_round_boundary", age);
+                        f.boolean(key, source_is_boundary);
+                        std::snprintf(key, sizeof(key),
                                       "age%zu_expected_hash", age);
                         f.hex(key, static_cast<uintptr_t>(expected_hash));
                         std::snprintf(key, sizeof(key),
@@ -45268,25 +47444,30 @@ namespace Horse
                         f.hex(key, static_cast<uintptr_t>(live_hash));
                         std::snprintf(key, sizeof(key),
                                       "age%zu_ok", age);
-                        f.boolean(key, verify_ok || !source_tick_ok);
+                        f.boolean(key, verify_ok || source_is_boundary);
                     }
 
                     f.integer("restored_buffers", restored)
-                     .integer("skipped_buffers", skipped)
+                     .integer("boundary_skips", boundary_skips)
+                     .integer("missing_required", missing_required)
                      .integer("write_failures", write_failures)
                      .integer("verify_failures", verify_failures)
                      .boolean("ok", write_failures == 0
-                              && verify_failures == 0
-                              && bank_ok);
+                               && verify_failures == 0
+                               && missing_required == 0
+                               && bank_ok);
                     ReplayDebugTrace::instance().event(
                         "matrix_bank_historical_buffers_restore", f);
                 }
             }
 
             // RegionStore::gather reuses scratch storage. Restore callers may
-            // still hold the target tick pointer after this helper probes
-            // older ticks, so rebuild the target snapshot before returning.
-            (void)m_sim_store.gather(static_cast<size_t>(tick));
+            // still hold the restored-tick pointer after this helper probes
+            // older ticks, so rebuild that exact snapshot before returning.
+            const bool restored_tick_regathered =
+                m_sim_store.gather(static_cast<size_t>(restored_tick))
+                != nullptr;
+            ok &= restored_tick_regathered;
             return ok;
         }
 
@@ -45967,6 +48148,494 @@ namespace Horse
                 "secondary_action_stack_last_variant_mismatch", f);
         }
 
+        void trace_validation_step_state_after_drain() noexcept
+        {
+            const bool validation_phase =
+                m_sc6_seek_job.phase == Sc6ExactSeekPhase::FastForward
+                || (m_sc6_seek_job.phase
+                        == Sc6ExactSeekPhase::CompareTargetSnapshot
+                    && m_sc6_seek_job.validation_diagnostic_last_master
+                        < m_sc6_seek_job.target_master);
+            if (!m_replay_seek_test.active
+                || m_replay_seek_test.case_index
+                    >= m_replay_seek_test.cases.size()
+                || !validation_phase
+                || !m_sc6_seek_job.native_step_warmup_to_target
+                || m_sc6_seek_job.validation_mode
+                    != CapturedSeekValidationMode::PreviousToTarget
+                || !m_replay_seek_test.generation_full_frame_trace
+                || !ReplayDebugTrace::instance().enabled())
+            {
+                return;
+            }
+
+            const int32_t live_round = read_current_round();
+            const int32_t live_master = read_engine_master_clock();
+            if (live_round != m_sc6_seek_job.target_round
+                || live_master <= m_sc6_seek_job.validation_origin_master
+                || live_master > m_sc6_seek_job.target_master
+                || live_master
+                    == m_sc6_seek_job.validation_diagnostic_last_master)
+            {
+                return;
+            }
+
+            const int32_t expected_tick =
+                find_slot_for_round_master(live_round, live_master);
+            if (expected_tick < 0) return;
+
+            int32_t expected_seq = -1;
+            int32_t expected_round = -1;
+            int32_t expected_wall = -1;
+            int32_t expected_master = -1;
+            if (!m_tags.get(static_cast<size_t>(expected_tick),
+                            expected_seq, expected_round, expected_wall,
+                            expected_master)
+                || expected_round != live_round
+                || expected_master != live_master)
+            {
+                return;
+            }
+            m_sc6_seek_job.validation_diagnostic_last_master = live_master;
+
+            ReplaySeekTestCase& c =
+                m_replay_seek_test.cases[m_replay_seek_test.case_index];
+            const uintptr_t base = NativeBinding::imageBase();
+            const uint8_t* sim_blob =
+                m_sim_store.gather(static_cast<size_t>(expected_tick));
+            const uint8_t* extras_blob =
+                m_extras_store.gather(static_cast<size_t>(expected_tick));
+            if (!base || !sim_blob || !extras_blob) return;
+
+            size_t captured_p1_bytes = 0;
+            size_t captured_p2_bytes = 0;
+            size_t captured_first_record = 0;
+            const bool layout_ok = read_captured_hgcpu_snapshot_layout(
+                extras_blob, &captured_p1_bytes, &captured_p2_bytes,
+                &captured_first_record);
+
+            uint8_t live_active_b = 0;
+            const bool live_active_b_ok = SafeReadUInt8(
+                reinterpret_cast<const void*>(base + kRVA_FrameContextUseB),
+                &live_active_b);
+            const uint8_t* boundary =
+                extras_blob + kExtras_Off_StageBoundary;
+            const bool expected_boundary_ok =
+                blob_read_u32(boundary, kStageBoundary_Off_Magic)
+                    == kStageBoundaryMagic
+                && blob_read_u32(boundary, kStageBoundary_Off_Version)
+                    == kStageBoundaryVersion
+                && (blob_read_u32(boundary, kStageBoundary_Off_Flags)
+                        & kStageBoundaryFlag_ActiveContextOk) != 0;
+            const uint8_t expected_active_b = expected_boundary_ok
+                ? boundary[kStageBoundary_Off_ActiveB] : 0;
+
+            struct ProbeSpec
+            {
+                uintptr_t chara_offset;
+                size_t bytes;
+                const char* name;
+            };
+            static constexpr ProbeSpec probes[] = {
+                {0xA0, 4, "pos_x"},
+                {0xA4, 4, "pos_y"},
+                {0xA8, 4, "pos_z"},
+                {0x134, 4, "move_velocity_y"},
+                {0x144, 4, "effect_velocity_y"},
+                {0x228, 4, "gravity_magnitude"},
+                {0x3C8, 4, "terrain_height"},
+                {0x16E2, 1, "airborne_gate"},
+                {0x16F9, 1, "support_gate"},
+                {0x1705, 1, "ground_correction_gate"},
+            };
+            static constexpr uintptr_t slot_rvas[] = {
+                ReplayScrubDiag::kRVA_CharaSlotP1,
+                ReplayScrubDiag::kRVA_CharaSlotP2,
+            };
+
+            for (size_t pi = 0; pi < std::size(slot_rvas); ++pi)
+            {
+                void* chara_raw = nullptr;
+                const bool chara_ok = SafeReadPtr(
+                    reinterpret_cast<const void*>(base + slot_rvas[pi]),
+                    &chara_raw) && chara_raw;
+                if (chara_ok)
+                {
+                    trace_movevm_lane_state_compare_detail(
+                        expected_tick, static_cast<int>(pi + 1),
+                        sim_blob, static_cast<const uint8_t*>(chara_raw));
+                }
+                const size_t record_bytes =
+                    pi == 0 ? captured_p1_bytes : captured_p2_bytes;
+                const size_t snapshot_base =
+                    pi == 0 ? 0 : captured_p1_bytes;
+
+                ReplayTraceFields f;
+                f.string("build", replay_seek_test_build_marker())
+                 .string("run_id", m_replay_seek_test.run_id.c_str())
+                 .string("label", c.label.c_str())
+                 .integer("case_index",
+                          static_cast<int64_t>(
+                              m_replay_seek_test.case_index))
+                 .integer("target_seq", c.target_seq)
+                 .integer("expected_tick", expected_tick)
+                 .integer("expected_seq", expected_seq)
+                 .integer("expected_round", expected_round)
+                 .integer("expected_master", expected_master)
+                 .integer("live_round", live_round)
+                 .integer("live_master", live_master)
+                 .integer("player", static_cast<int64_t>(pi + 1))
+                 .hex("chara", reinterpret_cast<uintptr_t>(chara_raw))
+                 .boolean("layout_ok", layout_ok)
+                 .boolean("chara_ok", chara_ok)
+                 .boolean("expected_boundary_ok", expected_boundary_ok)
+                 .boolean("live_active_b_ok", live_active_b_ok)
+                 .boolean("expected_active_b", expected_active_b != 0)
+                 .boolean("live_active_b", live_active_b != 0);
+
+                bool all_ok = layout_ok && chara_ok
+                    && expected_boundary_ok && live_active_b_ok
+                    && expected_active_b == live_active_b;
+                for (const ProbeSpec& probe : probes)
+                {
+                    const size_t local =
+                        static_cast<size_t>(probe.chara_offset - 0x10);
+                    uint32_t expected_bits = 0;
+                    uint32_t live_bits = 0;
+                    const bool expected_ok = layout_ok
+                        && local <= record_bytes
+                        && probe.bytes <= record_bytes - local
+                        && snapshot_base + local + probe.bytes
+                            <= kSnapshotStride;
+                    if (expected_ok)
+                    {
+                        std::memcpy(
+                            &expected_bits,
+                            sim_blob + snapshot_base + local,
+                            probe.bytes);
+                    }
+                    const bool live_ok = chara_ok && SafeReadBytes(
+                        static_cast<const uint8_t*>(chara_raw)
+                            + probe.chara_offset,
+                        &live_bits, probe.bytes);
+                    const bool match =
+                        expected_ok && live_ok && expected_bits == live_bits;
+                    all_ok &= match;
+
+                    char key[96]{};
+                    std::snprintf(key, sizeof(key), "%s_expected",
+                                  probe.name);
+                    f.hex(key, expected_bits);
+                    std::snprintf(key, sizeof(key), "%s_live", probe.name);
+                    f.hex(key, live_bits);
+                    std::snprintf(key, sizeof(key), "%s_match", probe.name);
+                    f.boolean(key, match);
+                }
+                f.boolean("ok", all_ok)
+                 .string("reason", all_ok
+                     ? "validation-terrain-pose-match"
+                     : "validation-terrain-pose-mismatch");
+                ReplayDebugTrace::instance().event(
+                    "validation_terrain_pose_probe", f);
+            }
+
+            CapturedFrameOracleCompareReport oracle_report{};
+            const bool oracle_ok = compare_oracle_to_captured_tick(
+                expected_tick, oracle_report, false, false, false, true);
+            if (!oracle_ok
+                && !c.validation_semantic_first_mismatch_traced)
+            {
+                c.validation_semantic_first_mismatch_traced = true;
+                ReplayTraceFields f;
+                f.string("build", replay_seek_test_build_marker())
+                 .string("run_id", m_replay_seek_test.run_id.c_str())
+                 .string("label", c.label.c_str())
+                 .integer("case_index",
+                          static_cast<int64_t>(
+                              m_replay_seek_test.case_index))
+                 .integer("expected_tick", expected_tick)
+                 .integer("expected_seq", oracle_report.expected_seq)
+                 .integer("expected_round", oracle_report.expected_round)
+                 .integer("expected_master", oracle_report.expected_master)
+                 .integer("live_round", oracle_report.live_round)
+                 .integer("live_master", oracle_report.live_master)
+                 .integer("player", oracle_report.player)
+                 .string("field", oracle_report.field
+                     ? oracle_report.field : "none")
+                 .hex("expected", oracle_report.expected_u64)
+                 .hex("live", oracle_report.live_u64)
+                 .real("expected_f", oracle_report.expected_float)
+                 .real("live_f", oracle_report.live_float)
+                 .boolean("ok", false)
+                 .string("reason", oracle_report.reason
+                     ? oracle_report.reason : "unknown");
+                ReplayDebugTrace::instance().event(
+                    "validation_first_semantic_mismatch", f);
+            }
+
+            trace_matrix_bank_first_resume_mismatch(
+                c, expected_tick, expected_seq, "validation");
+        }
+
+        void trace_matrix_bank_first_resume_mismatch(
+            ReplaySeekTestCase& c,
+            int32_t expected_tick,
+            int32_t live_seq,
+            const char* observation_phase) noexcept
+        {
+            if (c.resume_matrix_bank_first_mismatch_traced
+                || !m_replay_seek_test.generation_full_frame_trace
+                || !ReplayDebugTrace::instance().enabled()
+                || expected_tick < 0)
+            {
+                return;
+            }
+
+            static constexpr size_t kMaxBankBytes = 0x1840;
+            struct BankSpec
+            {
+                uintptr_t chara_offset;
+                int32_t snapshot_local;
+                size_t bytes;
+                const char* name;
+            };
+            static constexpr BankSpec banks[] = {
+                {0x35A0, kHgCpuMotionBankBlockStart, 0x1840, "primary"},
+                {0x27760, kHgCpuSecondaryMotionBlockStart, 0x800,
+                 "secondary"},
+            };
+            static constexpr uintptr_t slot_rvas[] = {
+                ReplayScrubDiag::kRVA_CharaSlotP1,
+                ReplayScrubDiag::kRVA_CharaSlotP2,
+            };
+            static constexpr const char* roles[] = {
+                "current", "previous",
+            };
+
+            const uintptr_t base = NativeBinding::imageBase();
+            if (!base) return;
+
+            int32_t current_seq = -1;
+            int32_t current_round = -1;
+            int32_t current_wall = -1;
+            int32_t current_master = -1;
+            const bool current_tags_ok = m_tags.get(
+                static_cast<size_t>(expected_tick), current_seq,
+                current_round, current_wall, current_master);
+
+            std::array<uint8_t, kMaxBankBytes> live_bytes {};
+            for (size_t pi = 0; pi < std::size(slot_rvas); ++pi)
+            {
+                void* chara_raw = nullptr;
+                const bool chara_ok = SafeReadPtr(
+                    reinterpret_cast<const void*>(base + slot_rvas[pi]),
+                    &chara_raw) && chara_raw;
+
+                for (const BankSpec& bank_spec : banks)
+                {
+                    uint8_t* bank = chara_ok
+                        ? reinterpret_cast<uint8_t*>(chara_raw)
+                            + bank_spec.chara_offset
+                        : nullptr;
+                    ReplayMatrixBankRingState ring_state {};
+                    uintptr_t buffers[kMatrixBankRing_BufferCount] {};
+                    const bool topology_ok = bank
+                        && read_matrix_bank_ring_state(
+                            bank, ring_state, buffers);
+                    for (size_t ri = 0; ri < std::size(roles); ++ri)
+                    {
+                        const int32_t source_tick = expected_tick
+                            - static_cast<int32_t>(ri);
+                        if (source_tick < 0) continue;
+
+                        int32_t expected_seq = -1;
+                        int32_t expected_round = -1;
+                        int32_t expected_wall = -1;
+                        int32_t expected_master = -1;
+                        const bool source_tags_ok = m_tags.get(
+                            static_cast<size_t>(source_tick), expected_seq,
+                            expected_round, expected_wall, expected_master);
+                        const bool continuity_ok = ri == 0
+                            ? source_tags_ok && current_tags_ok
+                                && expected_seq == current_seq
+                                && current_seq == live_seq
+                                && expected_round == current_round
+                                && expected_master == current_master
+                            : source_tags_ok && current_tags_ok
+                                && current_seq == live_seq
+                                && current_seq > 0
+                                && expected_seq == current_seq - 1
+                                && expected_round == current_round
+                                && expected_master == current_master - 1;
+
+                        const uint8_t* sim_blob = m_sim_store.gather(
+                            static_cast<size_t>(source_tick));
+                        const uint8_t* extras_blob = m_extras_store.gather(
+                            static_cast<size_t>(source_tick));
+                        size_t captured_p1_bytes = 0;
+                        size_t captured_p2_bytes = 0;
+                        size_t captured_first_record = 0;
+                        const bool layout_ok =
+                            read_captured_hgcpu_snapshot_layout(
+                                extras_blob, &captured_p1_bytes,
+                                &captured_p2_bytes,
+                                &captured_first_record);
+                        const size_t record_bytes = pi == 0
+                            ? captured_p1_bytes : captured_p2_bytes;
+                        const size_t snapshot_base = pi == 0
+                            ? 0 : captured_p1_bytes;
+                        const size_t local =
+                            static_cast<size_t>(bank_spec.snapshot_local);
+                        const uint8_t* expected = nullptr;
+                        const bool expected_ok = sim_blob && layout_ok
+                            && local <= record_bytes
+                            && bank_spec.bytes <= record_bytes - local
+                            && snapshot_base + local + bank_spec.bytes
+                                <= kSnapshotStride;
+                        if (expected_ok)
+                            expected = sim_blob + snapshot_base + local;
+
+                        const uint8_t live_slot = ri == 0
+                            ? ring_state.current_slot
+                            : ring_state.previous_slot;
+                        void* live_ptr_raw = topology_ok
+                            && live_slot < kMatrixBankRing_BufferCount
+                            ? reinterpret_cast<void*>(buffers[live_slot])
+                            : nullptr;
+                        const bool live_ptr_ok = live_ptr_raw != nullptr;
+                        const bool live_read_ok = live_ptr_ok
+                            && bank_spec.bytes <= live_bytes.size()
+                            && SafeReadBytes(live_ptr_raw, live_bytes.data(),
+                                             bank_spec.bytes);
+
+                        size_t first_offset = bank_spec.bytes;
+                        if (continuity_ok && expected_ok && live_read_ok)
+                        {
+                            for (size_t i = 0; i < bank_spec.bytes; ++i)
+                            {
+                                if (expected[i] != live_bytes[i])
+                                {
+                                    first_offset = i;
+                                    break;
+                                }
+                            }
+                            if (first_offset == bank_spec.bytes)
+                                continue;
+                        }
+
+                        const bool evidence_available = continuity_ok
+                            && chara_ok && topology_ok && expected_ok
+                            && live_ptr_ok && live_read_ok;
+                        if (!evidence_available
+                            && c.resume_matrix_bank_diagnostic_failure_traced)
+                        {
+                            return;
+                        }
+                        if (evidence_available)
+                            c.resume_matrix_bank_first_mismatch_traced = true;
+                        else
+                            c.resume_matrix_bank_diagnostic_failure_traced =
+                                true;
+
+                        const uint8_t expected_byte =
+                            expected_ok && first_offset < bank_spec.bytes
+                                ? expected[first_offset] : 0;
+                        const uint8_t live_byte =
+                            live_read_ok && first_offset < bank_spec.bytes
+                                ? live_bytes[first_offset] : 0;
+                        ReplayTraceFields f;
+                        f.string("build", replay_seek_test_build_marker())
+                         .string("run_id",
+                                 m_replay_seek_test.run_id.c_str())
+                         .string("label", c.label.c_str())
+                         .integer("case_index",
+                                  static_cast<int64_t>(
+                                      m_replay_seek_test.case_index))
+                         .integer("target_seq", c.target_seq)
+                         .integer("resume_start_seq", c.resume_start_seq)
+                         .integer("resume_frames_observed",
+                                  c.resume_observed_frames)
+                         .string("observation_phase",
+                                 observation_phase
+                                     ? observation_phase : "unknown")
+                         .integer("live_seq", live_seq)
+                         .integer("player",
+                                  static_cast<int64_t>(pi + 1))
+                         .string("bank", bank_spec.name)
+                         .string("role", roles[ri])
+                         .integer("source_tick", source_tick)
+                         .integer("expected_seq", expected_seq)
+                         .integer("expected_round", expected_round)
+                         .integer("expected_master", expected_master)
+                         .hex("chara",
+                              reinterpret_cast<uintptr_t>(chara_raw))
+                         .hex("live_buffer",
+                              reinterpret_cast<uintptr_t>(live_ptr_raw))
+                         .integer("bytes",
+                                  static_cast<int64_t>(bank_spec.bytes))
+                         .boolean("chara_ok", chara_ok)
+                         .boolean("current_tags_ok", current_tags_ok)
+                         .boolean("source_tags_ok", source_tags_ok)
+                         .boolean("continuity_ok", continuity_ok)
+                         .boolean("layout_ok", layout_ok)
+                         .integer("captured_p1_bytes",
+                                  static_cast<int64_t>(captured_p1_bytes))
+                         .integer("captured_p2_bytes",
+                                  static_cast<int64_t>(captured_p2_bytes))
+                         .integer("captured_first_record",
+                                  static_cast<int64_t>(
+                                      captured_first_record))
+                         .boolean("topology_ok", topology_ok)
+                         .integer("active_slot", ring_state.active_slot)
+                         .integer("current_slot", ring_state.current_slot)
+                         .integer("previous_slot",
+                                  ring_state.previous_slot)
+                         .integer("live_slot", live_slot)
+                         .boolean("expected_ok", expected_ok)
+                         .boolean("live_ptr_ok", live_ptr_ok)
+                         .boolean("live_read_ok", live_read_ok)
+                         .integer("first_mismatch_offset",
+                                  first_offset < bank_spec.bytes
+                                      ? static_cast<int64_t>(first_offset)
+                                      : -1)
+                         .uinteger("expected_byte", expected_byte)
+                         .uinteger("live_byte", live_byte)
+                         .hex("expected_hash",
+                              expected_ok
+                                  ? hash_bytes64(expected,
+                                                 bank_spec.bytes)
+                                  : 0)
+                         .hex("live_hash",
+                              live_read_ok
+                                  ? hash_bytes64(live_bytes.data(),
+                                                 bank_spec.bytes)
+                                  : 0)
+                         .boolean("ok", false)
+                         .string("reason",
+                                 evidence_available
+                                     ? "matrix-bank-byte-mismatch"
+                                     : "matrix-bank-evidence-unavailable");
+                        ReplayDebugTrace::instance().event(
+                            evidence_available
+                                ? (observation_phase
+                                       && std::strcmp(
+                                           observation_phase,
+                                           "validation") == 0
+                                      ? "matrix_bank_first_observed_validation_mismatch"
+                                      : "matrix_bank_first_observed_resume_mismatch")
+                                : (observation_phase
+                                       && std::strcmp(
+                                           observation_phase,
+                                           "validation") == 0
+                                      ? "matrix_bank_validation_diagnostic_unavailable"
+                                      : "matrix_bank_resume_diagnostic_unavailable"),
+                            f);
+                        return;
+                    }
+                }
+            }
+        }
+
         // Capture BlockInteractiveOps + cinematic head + BM state bytes +
         // FrameInput / per-chara replay state into `dst` (the extras
         // region's staging buffer, kExtras_Bytes).  The blob layout is
@@ -46272,6 +48941,8 @@ namespace Horse
             // 1s, 10s, 30s).  Cheap, single-shot per sample.
             chara_probe_log_if_due();
             required_ok &= capture_matrix_bank_ring_history(base, dst);
+            required_ok &= capture_matrix_bank_ring_state(base, dst);
+            required_ok &= capture_motion_decode_scratch(dst);
             required_ok &= capture_secondary_action_stack_last_variants(
                 base, dst);
             required_ok &= capture_secondary_action_stack_fixed_state(
@@ -46281,7 +48952,7 @@ namespace Horse
             capture_stage_wind_root(base, dst);
             capture_stage_wind_graph(base, dst);
             capture_stage_wind_emitters(base, dst);
-            capture_stage_boundary_for_generation(base, dst);
+            required_ok &= capture_stage_boundary_for_generation(base, dst);
             return required_ok;
         }
 
@@ -46291,9 +48962,14 @@ namespace Horse
         // validates the restored state byte-for-byte before enabling Play.
         bool restore_extras(
             const uint8_t* src,
-            bool full_for_validated_seek = false) noexcept
+            bool full_for_validated_seek = false,
+            int32_t restored_tick = -1,
+            int32_t restored_seq = -1) noexcept
         {
             if (!src) return false;
+            if (full_for_validated_seek
+                && (restored_tick < 0 || restored_seq < 0))
+                return false;
 
             const uintptr_t base = NativeBinding::imageBase();
             bool ok = true;
@@ -46304,26 +48980,26 @@ namespace Horse
                 trace_stage_wind_root_state(
                     "before-restore",
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_tick,
-                    m_sc6_seek_job.target_seq,
+                    restored_tick,
+                    restored_seq,
                     src);
                 trace_stage_wind_graph_state(
                     "before-restore",
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_tick,
-                    m_sc6_seek_job.target_seq,
+                    restored_tick,
+                    restored_seq,
                     src);
                 trace_stage_wind_emitter_state(
                     "before-restore",
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_tick,
-                    m_sc6_seek_job.target_seq,
+                    restored_tick,
+                    restored_seq,
                     src);
                 trace_stage_boundary_state(
                     "before-restore",
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_tick,
-                    m_sc6_seek_job.target_seq,
+                    restored_tick,
+                    restored_seq,
                     src);
 
                 SafeWriteBytes(reinterpret_cast<void*>(
@@ -46347,52 +49023,63 @@ namespace Horse
                 ok &= restore_stage_wind_graph(base, src);
                 ok &= restore_stage_wind_emitters(base, src);
                 ok &= restore_stage_boundary(base, src);
-                // Native HgCpu restore lands the CMatrixBank current view.
-                // Fill only the logical historical buffers behind that current
-                // pointer; the physical-slot capture stays diagnostic because
-                // it does not account for post-reset ring selector rotation.
+                // Native HgCpu restore lands only the serialized current
+                // matrix image. Restore the value-only ring controller first
+                // so the next native advance selects the same physical slot
+                // and previous image as the captured tick. Pointers are always
+                // resolved from the current process's immutable buffer table.
+                ok &= restore_matrix_bank_ring_state(
+                    src,
+                    m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
+                    restored_seq,
+                    restored_tick);
                 ok &= restore_matrix_bank_historical_buffers_from_snapshots(
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_seq,
-                    m_sc6_seek_job.target_tick);
+                    restored_seq,
+                    restored_tick);
+                ok &= restore_motion_decode_scratch(
+                    src,
+                    m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
+                    restored_seq,
+                    restored_tick);
                 ok &= restore_secondary_action_stack_last_variants(
                     src,
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_seq,
-                    m_sc6_seek_job.target_tick);
+                    restored_seq,
+                    restored_tick);
                 ok &= restore_secondary_action_stack_fixed_state(
                     src,
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_seq,
-                    m_sc6_seek_job.target_tick);
+                    restored_seq,
+                    restored_tick);
                 ok &= restore_secondary_action_header_cursors(
                     src,
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_seq,
-                    m_sc6_seek_job.target_tick);
+                    restored_seq,
+                    restored_tick);
                 trace_stage_wind_root_state(
                     "after-restore",
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_tick,
-                    m_sc6_seek_job.target_seq,
+                    restored_tick,
+                    restored_seq,
                     src);
                 trace_stage_wind_graph_state(
                     "after-restore",
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_tick,
-                    m_sc6_seek_job.target_seq,
+                    restored_tick,
+                    restored_seq,
                     src);
                 trace_stage_wind_emitter_state(
                     "after-restore",
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_tick,
-                    m_sc6_seek_job.target_seq,
+                    restored_tick,
+                    restored_seq,
                     src);
                 trace_stage_boundary_state(
                     "after-restore",
                     m_sc6_seek_job.label ? m_sc6_seek_job.label : "?",
-                    m_sc6_seek_job.target_tick,
-                    m_sc6_seek_job.target_seq,
+                    restored_tick,
+                    restored_seq,
                     src);
             }
 
@@ -48525,6 +51212,14 @@ namespace Horse
         if (m_active)
             return true;
 
+        constexpr ReplayTimelinePresentationPolicy presentation_policy =
+            ReplayTimelinePresentationPolicyFor(true);
+        static_assert(presentation_policy.suppress_render_submission);
+        static_assert(
+            !presentation_policy.suppress_character_actor_ticks);
+        static_assert(presentation_policy.retain_demo_animation_sync);
+        static_assert(presentation_policy.retain_anim_instance_sync);
+
         owner.m_timeline_no_render_cockpit_overlay_suppressed.store(
             0, std::memory_order_release);
         owner.m_timeline_no_render_imgui_overlay_suppressed.store(
@@ -48597,6 +51292,14 @@ namespace Horse
          .string("reason", reason ? reason : "?")
          .boolean("diagnostics_suppressed",
                   generation_diagnostics_suppressed)
+         .boolean("render_submission_suppressed",
+                  presentation_policy.suppress_render_submission)
+         .boolean("character_actor_ticks_suppressed",
+                  presentation_policy.suppress_character_actor_ticks)
+         .boolean("demo_animation_sync_retained",
+                  presentation_policy.retain_demo_animation_sync)
+         .boolean("anim_instance_sync_retained",
+                  presentation_policy.retain_anim_instance_sync)
          .boolean("priority_boosted", priority_ok)
          .boolean("native_profile_enabled", native_profile_ok)
          .boolean("engine_loop_direct_boost_enabled",
@@ -48871,7 +51574,8 @@ namespace Horse
             "timeline_no_render_exit", f);
     }
 
-    inline bool replay_scrub_repair_latest_engine_input_before_chara_input(
+    inline ReplayInputPairRepairResult
+    replay_scrub_repair_latest_engine_input_before_chara_input(
         void* chara) noexcept
     {
         return ReplayScrub::instance()
@@ -48883,6 +51587,15 @@ namespace Horse
     {
         ReplayScrub::instance()
             .append_secondary_action_stack_push_trace_context(f);
+    }
+
+    inline bool replay_scrub_read_native_trace_position(
+        int32_t& sequence,
+        int32_t& round,
+        int32_t& master) noexcept
+    {
+        return ReplayScrub::instance().read_native_trace_position(
+            sequence, round, master);
     }
 
     inline bool replay_scrub_repair_secondary_action_stack_last_variant_before_random_push(
@@ -48920,6 +51633,13 @@ namespace Horse
     {
         return ReplayScrub::instance().capture_native_replay_entry_payload(
             container, request_id, payload_data, payload_size);
+    }
+
+    inline void replay_scrub_note_animation_presentation_actor_post_tick(
+        void* actor) noexcept
+    {
+        ReplayScrub::instance()
+            .note_animation_presentation_actor_post_tick(actor);
     }
 
 }  // namespace Horse

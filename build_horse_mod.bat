@@ -61,6 +61,8 @@ setlocal enabledelayedexpansion
 
 rem Set the build directory
 set BUILD_DIR=build_cmake_LessEqual421__Shipping__Win64
+set BUILD_TARGET=HorseMod
+if not "%~1"=="" set BUILD_TARGET=%~1
 
 rem Setup MSVC developer environment for Ninja and correct toolset resolution
 call "E:\ProgramFiles\vsStudioCommunity\VC\Auxiliary\Build\vcvars64.bat"
@@ -116,7 +118,7 @@ rem --parallel: use all logical cores.  Ninja defaults are usually good, but
 rem   `NUMBER_OF_PROCESSORS` forces the ceiling explicitly (helps if a tool
 rem   in the chain has its own lower default).
 cmake -B "%BUILD_DIR%" -G Ninja -DCMAKE_BUILD_TYPE=LessEqual421__Shipping__Win64 %FAST_DEV_ARGS% %SCCACHE_ARGS%
-cmake --build "%BUILD_DIR%" --target HorseMod --parallel %NUMBER_OF_PROCESSORS%
+cmake --build "%BUILD_DIR%" --target "%BUILD_TARGET%" --parallel %NUMBER_OF_PROCESSORS%
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
@@ -125,9 +127,11 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo.
-echo Build completed successfully!
-echo.
-echo Your mod DLL is located at:
-echo %CD%\%BUILD_DIR%\HorseMod\HorseMod.dll
+echo Build target %BUILD_TARGET% completed successfully!
+if "%BUILD_TARGET%"=="HorseMod" (
+    echo.
+    echo Your mod DLL is located at:
+    echo %CD%\%BUILD_DIR%\HorseMod\HorseMod.dll
+)
 echo.
 exit /b 0

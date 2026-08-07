@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Run the rollback validation bundle.
+"""Run the non-release rollback developer validation bundle.
 
 This is the pinned review-bundle command for the rollback branch. By default it
 runs the local self-tests, in-game request-file lab gates, and the strict replay
-seek regression. Live online traffic capture remains opt-in because it requires
-an actual SC6 online peer/match.
+seek regression. It cannot certify beta: the only release authority is
+rollback_two_client_acceptance_run.py --beta-release-gate.
 """
 
 from __future__ import annotations
@@ -19,6 +19,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from rollback_ctest import (
+    RollbackCTest,
+    RollbackCTestError,
+    discover_rollback_selftests,
+)
 from rollback_report_contract import artifact, contract_fields, coverage, utc_now
 
 
@@ -27,6 +32,10 @@ BUILD_DIR = REPO / "build_cmake_LessEqual421__Shipping__Win64"
 HORSE_BUILD_DIR = BUILD_DIR / "HorseMod"
 REPORT_DIR = REPO / "reports" / "rollback_validation"
 REPLAY_FILE = REPO / "ReplayExample" / "REPLAY_12744704008398858106.bin"
+DEPLOYED_DLL = Path(
+    r"E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI"
+    r"\Binaries\Win64\ue4ss\Mods\HorseMod\dlls\main.dll"
+)
 DEFAULT_ACTIVATION_SOURCE_PEER = 0xA0
 DEFAULT_ACTIVATION_DESTINATION_PEER = 0xB0
 DEFAULT_ACTIVATION_SESSION_ID = 0x4C495645414354
@@ -37,82 +46,20 @@ FAULT_PROFILES = [
     "wifi_50ms_jitter",
     "bad_wifi_120ms_5pct_loss",
     "overseas_180ms_2pct_loss",
+    "wired_intercontinental_200ms_rtt",
     "spike_every_10s",
     "burst_loss_500ms",
     "corrupt_probe",
 ]
 
 
-SELFTESTS = [
-    HORSE_BUILD_DIR / "RollbackGekkoGameplayInputSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackGekkoSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackGekkoUdpSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackInputCacheAdapterSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackTransportSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackFaultInjectSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackOnlineSessionSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackLiveTransportSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackLivePeerPipelineSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackEndToEndSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackLiveActivationSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackLiveActivationExecutorSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackLiveBoundarySelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackStockTransportSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackStockTransportObserveSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackLiveOnlineCaptureSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackSnapshotSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackSnapshotStoreSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackSideEffectLedgerSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackProtocolV2SelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackUdpRuntimeSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackSummaryConsensusSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackUiNavigationSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackOnlineStageStateSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackStockInviteFallbackSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackLaunchContractSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackBattleSceneStateSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackProductionActiveGuardSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackHistoricalCameraArgsSelfTest.exe",
-    HORSE_BUILD_DIR / "RollbackStageWindSnapshotSelfTest.exe",
-]
-
-SELFTEST_TARGETS = [
-    "RollbackGekkoGameplayInputSelfTest",
-    "RollbackGekkoSelfTest",
-    "RollbackGekkoUdpSelfTest",
-    "RollbackInputCacheAdapterSelfTest",
-    "RollbackTransportSelfTest",
-    "RollbackFaultInjectSelfTest",
-    "RollbackOnlineSessionSelfTest",
-    "RollbackLiveTransportSelfTest",
-    "RollbackLivePeerPipelineSelfTest",
-    "RollbackEndToEndSelfTest",
-    "RollbackLiveActivationSelfTest",
-    "RollbackLiveActivationExecutorSelfTest",
-    "RollbackLiveBoundarySelfTest",
-    "RollbackStockTransportSelfTest",
-    "RollbackStockTransportObserveSelfTest",
-    "RollbackLiveOnlineCaptureSelfTest",
-    "RollbackSnapshotSelfTest",
-    "RollbackSnapshotStoreSelfTest",
-    "RollbackSideEffectLedgerSelfTest",
-    "RollbackProtocolV2SelfTest",
-    "RollbackUdpRuntimeSelfTest",
-    "RollbackSummaryConsensusSelfTest",
-    "RollbackUiNavigationSelfTest",
-    "RollbackOnlineStageStateSelfTest",
-    "RollbackStockInviteFallbackSelfTest",
-    "RollbackLaunchContractSelfTest",
-    "RollbackBattleSceneStateSelfTest",
-    "RollbackProductionActiveGuardSelfTest",
-    "RollbackHistoricalCameraArgsSelfTest",
-    "RollbackStageWindSnapshotSelfTest",
-]
-
 PYTHON_SELFTESTS = [
     REPO / "tools" / "sc6_launch_catalog_selftest.py",
     REPO / "tools" / "replay_input_script_selftest.py",
-    REPO / "tools" / "rollback_two_client_report_selftest.py",
+    REPO / "tools" / "rollback_golden_trace.py",
+    REPO / "tools" / "rollback_physical_case_run.py",
+    REPO / "tools" / "rollback_two_machine_qualification.py",
+    REPO / "tools" / "rollback_two_client_acceptance_run.py",
 ]
 
 
@@ -137,15 +84,29 @@ def now_id() -> str:
 
 def run_command(name: str, cmd: list[str], timeout: int) -> dict[str, object]:
     started = time.time()
-    proc = subprocess.run(
-        cmd,
-        cwd=str(REPO),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(REPO),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        output = error.stdout or ""
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="replace")
+        return {
+            "name": name,
+            "cmd": cmd,
+            "returncode": 124,
+            "elapsed_seconds": round(time.time() - started, 3),
+            "ok": False,
+            "output": output + f"\ncommand timed out after {timeout}s",
+            "failure_classification": "infrastructure-timeout",
+        }
     return {
         "name": name,
         "cmd": cmd,
@@ -156,9 +117,11 @@ def run_command(name: str, cmd: list[str], timeout: int) -> dict[str, object]:
     }
 
 
-def selftest_command(exe: Path, fault_profile: str) -> list[str]:
-    cmd = [str(exe)]
-    if exe.name == "RollbackFaultInjectSelfTest.exe" and fault_profile != "all":
+def selftest_command(
+    test: RollbackCTest, fault_profile: str
+) -> list[str]:
+    cmd = list(test.command)
+    if test.name == "RollbackFaultInjectSelfTest" and fault_profile != "all":
         cmd.extend(["--profile", fault_profile])
     return cmd
 
@@ -172,6 +135,17 @@ def failed_result(name: str, output: str) -> dict[str, object]:
         "ok": False,
         "output": output,
     }
+
+
+def load_json_result(path: Path, owner: dict[str, object], key: str) -> None:
+    """Attach JSON or turn malformed/missing evidence into a durable failure."""
+    try:
+        owner[key] = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        owner["ok"] = False
+        owner["failure_classification"] = "invalid-json-artifact"
+        owner["output"] = str(owner.get("output", "")) + \
+            f"\n{key} invalid: {type(exc).__name__}:{exc}"
 
 
 def output_field(output: str, field: str) -> str | None:
@@ -204,13 +178,11 @@ def close_game_command() -> list[str]:
 
 
 def build_selftests_command() -> list[str]:
-    targets = " ".join(SELFTEST_TARGETS)
     return [
         "cmd",
-        "/c",
-        "call E:\\ProgramFiles\\vsStudioCommunity\\VC\\Auxiliary\\Build\\"
-        f"vcvars64.bat >nul && cmake --build {BUILD_DIR} "
-        f"--target {targets} --parallel",
+        "/d", "/s", "/c",
+        str(REPO / "build_horse_mod.bat"),
+        "HorseModRollbackSelfTests",
     ]
 
 
@@ -252,7 +224,7 @@ def replay_command(*, warm_process: bool = False) -> list[str]:
         "--start-replay",
         str(REPLAY_FILE),
         "--timeline-generation-mode",
-        "lux-no-render",
+        "normal",
         "--case-preset",
         "watch",
         "--watch-frames",
@@ -270,6 +242,19 @@ def replay_command(*, warm_process: bool = False) -> list[str]:
     if not warm_process:
         cmd[2:2] = ["--kill-game", "--launch-game"]
     return cmd
+
+
+def trusted_golden_matrix_command(report_dir: Path) -> list[str]:
+    return [
+        sys.executable,
+        str(REPO / "tools" / "rollback_golden_matrix.py"),
+        "--candidate-dll",
+        str(HORSE_BUILD_DIR / "HorseMod.dll"),
+        "--deployed-dll",
+        str(DEPLOYED_DLL),
+        "--report-dir",
+        str(report_dir),
+    ]
 
 
 def live_online_command(
@@ -334,8 +319,7 @@ def append_live_online_capture(
     )
     result["live_online_summary_path"] = str(live_summary_path)
     if live_summary_path.exists():
-        result["live_online_summary"] = json.loads(
-            live_summary_path.read_text(encoding="utf-8"))
+        load_json_result(live_summary_path, result, "live_online_summary")
     results.append(result)
 
     trace_text = output_field(str(result.get("output", "")), "trace_file")
@@ -368,8 +352,8 @@ def append_live_online_capture(
         trace_result["ok"] = False
         trace_result["output"] += "\nmissing live online trace summary JSON"
     else:
-        trace_result["live_online_trace_summary"] = json.loads(
-            trace_summary_path.read_text(encoding="utf-8"))
+        load_json_result(
+            trace_summary_path, trace_result, "live_online_trace_summary")
     results.append(trace_result)
 
 
@@ -498,6 +482,12 @@ def run_strict_replay_with_retries(retries: int) -> dict[str, object]:
         1 for attempt in attempts if not attempt["ok"]
     )
     final["attempts"] = attempts
+    if not bool(attempts[0]["ok"]):
+        recovered = bool(attempts[-1]["ok"])
+        final["ok"] = False
+        final["failure_classification"] = (
+            "flaky-recovered-on-retry" if recovered else "failed"
+        )
     if len(attempts) > 1:
         final["output"] = "\n\n".join(
             f"=== strict replay attempt {idx + 1} ===\n{attempt['output']}"
@@ -512,6 +502,10 @@ def main() -> int:
     p.add_argument("--skip-selftests", action="store_true")
     p.add_argument("--skip-game-labs", action="store_true")
     p.add_argument("--skip-replay", action="store_true")
+    p.add_argument(
+        "--diagnostic", action="store_true",
+        help="permit an explicitly partial validation; never grants gate or "
+             "release authority")
     p.add_argument("--include-live-online", action="store_true")
     p.add_argument("--live-online-only", action="store_true")
     p.add_argument("--require-live-activation-candidate", action="store_true")
@@ -523,10 +517,18 @@ def main() -> int:
     p.add_argument("--output-dir", type=Path, default=REPORT_DIR)
     args = p.parse_args()
 
+    requested_skip = any((args.skip_build, args.skip_selftests,
+                          args.skip_game_labs, args.skip_replay))
+    if requested_skip and not args.diagnostic:
+        print("full-validation skip flags require explicit --diagnostic",
+              file=sys.stderr)
+        return 2
+
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run_id = now_id()
     report_path = args.output_dir / f"rollback_validation_{run_id}.json"
     results: list[dict[str, object]] = []
+    registered_selftests: list[RollbackCTest] = []
     live_online_watch_seconds = (
         args.live_online_watch_seconds
         if args.live_online_watch_seconds is not None else
@@ -534,30 +536,40 @@ def main() -> int:
         args.watch_seconds
     )
 
-    if not args.live_online_only and not args.skip_build:
+    try:
+        from rollback_golden_trace import load_manifest
+        load_manifest(REPO / "tools" / "rollback_goldens" / "manifest.json")
+        results.append({
+            "name": "golden-manifest-preflight", "cmd": [],
+            "returncode": 0, "elapsed_seconds": 0, "ok": True,
+            "output": "trusted golden manifest parsed and validated",
+        })
+        preflight_failed = False
+    except (ImportError, OSError, UnicodeError, ValueError, RuntimeError) as exc:
+        results.append(failed_result(
+            "golden-manifest-preflight", f"{type(exc).__name__}:{exc}"))
+        preflight_failed = True
+
+    if not preflight_failed and not args.live_online_only and not args.skip_build:
         results.append(run_command("preflight-close-game", close_game_command(),
                                    60))
         results.append(run_command("build-and-deploy", build_command(), 600))
         results.append(
             run_command("build-selftests", build_selftests_command(), 300))
 
-    if not args.live_online_only and not args.skip_selftests:
-        for exe in SELFTESTS:
-            if not exe.exists():
-                results.append({
-                    "name": exe.name,
-                    "cmd": [str(exe)],
-                    "returncode": 127,
-                    "elapsed_seconds": 0,
-                    "ok": False,
-                    "output": f"missing executable: {exe}",
-                })
-                continue
+    if not preflight_failed and not args.live_online_only:
+        try:
+            registered_selftests = discover_rollback_selftests(BUILD_DIR)
+        except RollbackCTestError as exc:
+            results.append(failed_result("discover-rollback-selftests", str(exc)))
+
+    if not preflight_failed and not args.live_online_only and not args.skip_selftests:
+        for test in registered_selftests:
             results.append(
                 run_command(
-                    exe.name,
-                    selftest_command(exe, args.simulation_profile),
-                    180 if exe.name == "RollbackFaultInjectSelfTest.exe"
+                    test.name,
+                    selftest_command(test, args.simulation_profile),
+                    180 if test.name == "RollbackFaultInjectSelfTest"
                     else 120,
                 ))
         for script in PYTHON_SELFTESTS:
@@ -565,10 +577,24 @@ def main() -> int:
                 results.append(failed_result(
                     script.name, f"missing script: {script}"))
                 continue
-            results.append(run_command(
-                script.name, [sys.executable, str(script)], 120))
+            command = [sys.executable, str(script)]
+            if script.name in {
+                "rollback_golden_trace.py",
+                "rollback_physical_case_run.py",
+                "rollback_two_machine_qualification.py",
+                "rollback_two_client_acceptance_run.py",
+            }:
+                command.append("--selftest")
+            results.append(run_command(script.name, command, 120))
+        policy_lint = REPO / "tools" / \
+            "rollback_two_client_acceptance_run.py"
+        results.append(run_command(
+            "rollback-policy-lint",
+            [sys.executable, str(policy_lint), "--policy-lint"],
+            120,
+        ))
 
-    if not args.live_online_only and not args.skip_game_labs:
+    if not preflight_failed and not args.live_online_only and not args.skip_game_labs:
         for case, require_flag in LAB_CASES:
             if case == "live-online-capture" and not args.include_live_online:
                 continue
@@ -596,8 +622,8 @@ def main() -> int:
             if live_summary_path is not None:
                 result["live_online_summary_path"] = str(live_summary_path)
                 if live_summary_path.exists():
-                    result["live_online_summary"] = json.loads(
-                        live_summary_path.read_text(encoding="utf-8"))
+                    load_json_result(
+                        live_summary_path, result, "live_online_summary")
                 trace_text = output_field(str(result.get("output", "")),
                                           "trace_file")
                 if not trace_text:
@@ -629,19 +655,27 @@ def main() -> int:
                         trace_result["output"] += (
                             "\nmissing live online trace summary JSON")
                     else:
-                        trace_result["live_online_trace_summary"] = json.loads(
-                            trace_summary_path.read_text(encoding="utf-8"))
+                        load_json_result(
+                            trace_summary_path, trace_result,
+                            "live_online_trace_summary")
                     pending_trace_result = trace_result
             results.append(result)
             if pending_trace_result is not None:
                 results.append(pending_trace_result)
 
-    if not args.live_online_only and not args.skip_replay:
+    if not preflight_failed and not args.live_online_only and not args.skip_replay:
+        results.append(run_command(
+            "trusted-golden-matrix",
+            trusted_golden_matrix_command(
+                args.output_dir / f"trusted_golden_matrix_{run_id}"
+            ),
+            3600,
+        ))
         results.append(
             run_strict_replay_with_retries(
                 max(0, args.strict_replay_retries)))
 
-    if args.include_live_online or args.live_online_only:
+    if not preflight_failed and (args.include_live_online or args.live_online_only):
         append_live_online_capture(
             results,
             run_id=run_id,
@@ -654,20 +688,24 @@ def main() -> int:
     workflow_ok = bool(results) and all(bool(r["ok"]) for r in results)
     if args.live_online_only:
         required = [
+            "golden-manifest-preflight",
             "live-online-capture",
             "analyze-live-online-capture-trace-live",
         ]
         workflow_kind = "live-online-capture"
     else:
         required = [
+            "golden-manifest-preflight",
             "preflight-close-game", "build-and-deploy", "build-selftests"
         ]
-        required.extend(exe.name for exe in SELFTESTS)
+        required.extend(test.name for test in registered_selftests)
         required.extend(script.name for script in PYTHON_SELFTESTS)
+        required.append("rollback-policy-lint")
         required.extend(
             f"lab-{case}" for case, _ in LAB_CASES
             if case != "live-online-capture"
         )
+        required.append("trusted-golden-matrix")
         required.append("strict-replay")
         workflow_kind = "local-regression"
         if args.include_live_online:
@@ -690,11 +728,25 @@ def main() -> int:
         output_label(strict_output, "report json") or ""
     )
     coverage_result = coverage(required, observed)
+    if args.diagnostic and requested_skip:
+        coverage_result = coverage(observed, observed)
     contract = contract_fields(
         workflow_kind=workflow_kind,
         workflow_ok=workflow_ok,
         coverage_result=coverage_result,
     )
+    contract["release_authority"] = False
+    contract["release_qualification"] = "not-evaluated"
+    contract["reason"] = (
+        "developer-validation-only; pass does not grant release authority"
+    )
+    diagnostic_ok = bool(results) and all(bool(item.get("ok"))
+                                          for item in results)
+    if args.diagnostic:
+        contract["diagnostic_ok"] = diagnostic_ok
+        contract["gate_ok"] = False
+        contract["verdict"] = (
+            "diagnostic-pass" if diagnostic_ok else "diagnostic-fail")
     summary = {
         **contract,
         "generated_at": utc_now(),
@@ -711,8 +763,7 @@ def main() -> int:
         },
         "artifacts": {
             "built_dll": artifact(HORSE_BUILD_DIR / "HorseMod.dll"),
-            "deployed_dll": artifact(Path(
-                r"E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\ue4ss\Mods\HorseMod\dlls\main.dll")),
+            "deployed_dll": artifact(DEPLOYED_DLL),
             "replay_input": artifact(REPLAY_FILE),
             "strict_replay_report": artifact(strict_report_path),
         },
@@ -728,7 +779,8 @@ def main() -> int:
     for r in results:
         status = "PASS" if r["ok"] else "FAIL"
         print(f"{status} {r['name']} ({r['elapsed_seconds']}s)")
-    return 0 if contract["verdict"] == "pass" else 1
+    return 0 if (diagnostic_ok if args.diagnostic
+                 else contract["verdict"] == "pass") else 1
 
 
 if __name__ == "__main__":

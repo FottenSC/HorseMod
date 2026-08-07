@@ -45,7 +45,8 @@ function HitboxesTab() {
                   <th>Y</th>
                   <th>Z</th>
                   <th>Radius</th>
-                  <th>ID</th>
+                  <th>Impulse</th>
+                  <th>UE4 bone</th>
                 </tr>
               </thead>
               <tbody>
@@ -62,7 +63,8 @@ function HitboxesTab() {
                     <td className="num mono">{r.tag === 0 ? r.y.toFixed(3) : "—"}</td>
                     <td className="num mono">{r.tag === 0 ? r.z.toFixed(3) : "—"}</td>
                     <td className="num mono">{r.tag === 0 ? r.radius.toFixed(3) : "—"}</td>
-                    <td className="num mono muted">0x{r.idLink.toString(16).toUpperCase().padStart(8, "0")}</td>
+                    <td className="num mono muted">{r.tag === 0 ? r.contactImpulseScale.toFixed(3) : "—"}</td>
+                    <td className="num mono muted">{r.tag === 0 ? r.boneIndexUe4 : "—"}</td>
                   </tr>
                 ))}
               </tbody>

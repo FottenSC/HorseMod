@@ -53,9 +53,19 @@ def test_jmp_target_followed():
     assert 0x05 in opcodes
 
 
-def test_jz_both_branches():
-    # JZ followed by RET on fall-through, with a real op at the jump target
-    #  0x00: JZ +5 (to 0x05)
+@pytest.mark.parametrize("opcode", [0x03, 0x04, 0x2A])
+def test_every_native_absolute_jump_has_no_fallthrough(opcode):
+    # All three opcodes share the absolute-jump case in
+    # LuxMoveVM_ExecuteBytecode @ 0x1402E5A30.
+    buf = bytes([opcode, 0x00, 0x04, 0x05, 0x05])
+    script = walk_stackvm(buf, 0)
+    assert [instruction.pc for instruction in script.instructions] == [0, 4]
+    assert script.instructions[0].mnemonic == "JMP_ABS"
+
+
+def test_jnz_both_branches():
+    # JNZ followed by RET on fall-through, with a real op at the jump target
+    #  0x00: JNZ +5 (to 0x05)
     #  0x03: RET   <-- fall-through end
     #  0x04: pad
     #  0x05: 0x05 RET (target)
@@ -63,7 +73,7 @@ def test_jz_both_branches():
     s = walk_stackvm(buf, 0)
     pcs = {i.pc for i in s.instructions}
     # Both branches walked
-    assert 0x00 in pcs   # the JZ itself
+    assert 0x00 in pcs   # the JNZ itself
     assert 0x03 in pcs   # fall-through RET
     assert 0x05 in pcs   # target RET
 

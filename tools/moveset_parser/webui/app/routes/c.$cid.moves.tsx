@@ -1,7 +1,7 @@
-﻿import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { AttackModifierBadges, EffectTagBadges, RevengeAttackBadge } from "../components/AttackClassBadge";
-import type { CharData, Cell, MovelistMove } from "../data/types";
+import { EffectTagBadges, RevengeAttackBadge } from "../components/AttackClassBadge";
+import type { CharData, MovelistMove } from "../data/types";
 
 export const Route = createFileRoute("/c/$cid/moves")({
   loader: async ({ params }) => {
@@ -15,27 +15,6 @@ export const Route = createFileRoute("/c/$cid/moves")({
 type SortKey = "order" | "stance" | "command" | "damage" | "impact" | "onBlock" | "onHit" | "class";
 type SortDir = "asc" | "desc";
 type PresetFilter = "punishable" | "fast" | "plus" | "launch" | "gi" | "revenge" | null;
-
-function pickPrimaryCell(move: MovelistMove, cells: Cell[]): {
-  cellIdx: number;
-  cell: Cell | null;
-  navSlot: number;
-} {
-  let cellIdx = -1;
-  const cs = move.commandSets ?? [];
-
-  for (const cset of cs) {
-    const ci = cset.cellIdx;
-    if (ci >= 0 && ci < cells.length && cells[ci]?.role === "Attack") {
-      cellIdx = ci;
-      break;
-    }
-  }
-
-  const navSlot = cs[0]?.slotIdx ?? -1;
-  const cell = cellIdx >= 0 && cellIdx < cells.length ? cells[cellIdx] : null;
-  return { cellIdx, cell, navSlot };
-}
 
 function parseFrameValue(value: string | number | null | undefined): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -60,30 +39,30 @@ function frameClass(value: string | number | null | undefined): string {
   return "frame-pill zero-bg";
 }
 
-function getImpact(move: MovelistMove, cell: Cell | null): number | null {
-  return move.communityFrame?.startup ?? (cell?.role === "Attack" ? cell.activeStart : null);
+function getImpact(move: MovelistMove): number | null {
+  return move.metrics.startup;
 }
 
-function getDamage(move: MovelistMove, cell: Cell | null): number | null {
-  const communityDamage = move.communityFrame?.damage ?? [];
-  if (communityDamage.length > 0) return communityDamage.reduce((sum, n) => sum + n, 0);
-  return cell?.role === "Attack" ? cell.damage : null;
+function getDamage(move: MovelistMove): number | null {
+  return move.metrics.damage.length > 0
+    ? move.metrics.damage.reduce((sum, n) => sum + n, 0)
+    : null;
 }
 
-function getBlock(move: MovelistMove, cell: Cell | null): string | number | null {
-  return move.communityFrame?.onBlock || (cell?.role === "Attack" ? cell.onBlock : null);
+function getBlock(move: MovelistMove): string | number | null {
+  return move.evidence.block.status !== "unknown" ? move.metrics.block : null;
 }
 
-function getHit(move: MovelistMove, cell: Cell | null): string | number | null {
-  return move.communityFrame?.onHit || (cell?.role === "Attack" ? cell.onHitStanding : null);
+function getHit(move: MovelistMove): string | number | null {
+  return move.evidence.hit.status !== "unknown" ? move.metrics.hit : null;
 }
 
-function getCounterHit(move: MovelistMove): string | null {
-  return move.communityFrame?.onCounterHit || null;
+function getCounterHit(move: MovelistMove): string | number | null {
+  return move.evidence.counterHit.status === "native-confirmed" ? move.metrics.counterHit : null;
 }
 
 function getGuardBurst(move: MovelistMove): string | number | null {
-  return move.communityFrame?.guardBurst ?? null;
+  return move.evidence.guardBurst.status === "native-confirmed" ? move.metrics.guardBurst : null;
 }
 
 const DIR_SYMBOLS: Record<string, string> = {
@@ -112,12 +91,8 @@ function CommandChips({ input }: { input: string }) {
   );
 }
 
-function HitLevelDots({ move, cell }: { move: MovelistMove; cell: Cell | null }) {
-  const levels = move.hitClasses.length > 0
-    ? move.hitClasses
-    : cell?.role === "Attack"
-      ? [cell.class]
-      : [];
+function HitLevelDots({ move }: { move: MovelistMove }) {
+  const levels = move.hitClasses;
   if (levels.length === 0) return <span className="muted">-</span>;
   return (
     <span className="hit-levels" title={levels.join(" / ")}>
@@ -144,49 +119,40 @@ function FramePill({ value }: { value: string | number | null | undefined }) {
 function MovesTab() {
   const char = Route.useLoaderData();
   const movelist = char.movelist;
-  const cells = useMemo(() => char.khd?.cells ?? [], [char.khd]);
 
   const [search, setSearch] = useState("");
   const [presetFilter, setPresetFilter] = useState<PresetFilter>(null);
   const [classFilter, setClassFilter] = useState<string | null>(null);
-  const [categoryFilter, setCategoryFilter] = useState<number | null>(null);
   const [conditionFilter, setConditionFilter] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("order");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   type EnrichedMove = MovelistMove & {
-    cell: Cell | null;       // cell to show for khd-only columns
-    cellIdx: number;
-    navSlot: number;         // slot the row navigates to
     classKey: string;        // first hit class, for filter/sort
     impact: number | null;
     damageTotal: number | null;
     blockValue: string | number | null;
     hitValue: string | number | null;
-    counterHitValue: string | null;
+    counterHitValue: string | number | null;
     guardBurstValue: string | number | null;
   };
 
   const enriched = useMemo<EnrichedMove[]>(() => {
     if (!movelist) return [];
     return movelist.moves.map((m) => {
-      const { cellIdx, cell, navSlot } = pickPrimaryCell(m, cells);
-      const classKey = m.hitClasses[0] ?? cell?.class ?? "";
+      const classKey = m.hitClasses[0] ?? "";
       return {
         ...m,
-        cell,
-        cellIdx,
-        navSlot,
         classKey,
-        impact: getImpact(m, cell),
-        damageTotal: getDamage(m, cell),
-        blockValue: getBlock(m, cell),
-        hitValue: getHit(m, cell),
+        impact: getImpact(m),
+        damageTotal: getDamage(m),
+        blockValue: getBlock(m),
+        hitValue: getHit(m),
         counterHitValue: getCounterHit(m),
         guardBurstValue: getGuardBurst(m),
       };
     });
-  }, [movelist, cells]);
+  }, [movelist]);
 
   const classChoices = useMemo(() => {
     const s = new Set<string>();
@@ -210,12 +176,24 @@ function MovesTab() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return enriched.filter((m) => {
-      if (categoryFilter !== null && m.category !== categoryFilter) return false;
       if (classFilter && m.classKey !== classFilter) return false;
-      if (presetFilter === "punishable" && (parseFrameValue(m.blockValue) ?? 999) > -10) return false;
+      if (presetFilter === "punishable" && (
+        m.isThrowInput
+        ||
+        m.evidence.block.status !== "native-confirmed"
+        || (parseFrameValue(m.blockValue) ?? 999) > -10
+      )) return false;
       if (presetFilter === "fast" && ((m.impact ?? 999) > 10)) return false;
-      if (presetFilter === "plus" && ((parseFrameValue(m.blockValue) ?? -999) <= 0)) return false;
-      if (presetFilter === "launch" && !/LNC|KND/i.test(`${m.hitValue ?? ""} ${m.counterHitValue ?? ""}`)) return false;
+      if (presetFilter === "plus" && (
+        m.isThrowInput
+        ||
+        m.evidence.block.status !== "native-confirmed"
+        || (parseFrameValue(m.blockValue) ?? -999) <= 0
+      )) return false;
+      if (presetFilter === "launch" && !(
+        (m.evidence.hit.status === "native-confirmed" && /LNC|KND/i.test(String(m.hitValue ?? "")))
+        || (m.evidence.counterHit.status === "native-confirmed" && /LNC|KND/i.test(String(m.counterHitValue ?? "")))
+      )) return false;
       if (presetFilter === "gi" && !m.effectTags.some((tag) => tag.code === "GI")) return false;
       if (presetFilter === "revenge" && !m.isRevengeAttack) return false;
       if (conditionFilter !== null) {
@@ -231,7 +209,7 @@ function MovesTab() {
       }
       return true;
     });
-  }, [enriched, search, presetFilter, classFilter, categoryFilter, conditionFilter]);
+  }, [enriched, search, presetFilter, classFilter, conditionFilter]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -247,9 +225,17 @@ function MovesTab() {
         case "impact":
           cmp = (a.impact ?? 9999) - (b.impact ?? 9999); break;
         case "onBlock":
-          cmp = (parseFrameValue(a.blockValue) ?? -9999) - (parseFrameValue(b.blockValue) ?? -9999); break;
+          cmp = (
+            a.evidence.block.status === "native-confirmed" ? parseFrameValue(a.blockValue) ?? -9999 : -9999
+          ) - (
+            b.evidence.block.status === "native-confirmed" ? parseFrameValue(b.blockValue) ?? -9999 : -9999
+          ); break;
         case "onHit":
-          cmp = (parseFrameValue(a.hitValue) ?? -9999) - (parseFrameValue(b.hitValue) ?? -9999); break;
+          cmp = (
+            a.evidence.hit.status === "native-confirmed" ? parseFrameValue(a.hitValue) ?? -9999 : -9999
+          ) - (
+            b.evidence.hit.status === "native-confirmed" ? parseFrameValue(b.hitValue) ?? -9999 : -9999
+          ); break;
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -317,33 +303,6 @@ function MovesTab() {
       <details className="advanced-move-filters">
         <summary>Advanced filters</summary>
         <div className="filters advanced-filter-row">
-          <span className="filter-label">Category:</span>
-          <button
-            type="button"
-            className={`chip ${categoryFilter === null ? "active" : ""}`}
-            onClick={() => setCategoryFilter(null)}
-          >
-            all
-          </button>
-          {movelist.categories.map((cat) =>
-            cat.itemOrders.length > 0 ? (
-              <button
-                key={cat.index}
-                type="button"
-                className={`chip ${categoryFilter === cat.index ? "active" : ""}`}
-                onClick={() => setCategoryFilter(categoryFilter === cat.index ? null : cat.index)}
-                title={`${cat.name} - ${cat.itemOrders.length} moves`}
-              >
-                {cat.name}
-                <span className="muted" style={{ marginLeft: 4, fontSize: 11 }}>
-                  ({cat.itemOrders.length})
-                </span>
-              </button>
-            ) : null,
-          )}
-        </div>
-
-        <div className="filters advanced-filter-row">
           <span className="filter-label">Class:</span>
           <button
             type="button"
@@ -396,7 +355,7 @@ function MovesTab() {
       <table className="moves-table frame-table">
         <thead>
           <tr>
-            <th className="col-details">Details</th>
+            <th className="col-details">MoveVM</th>
             <th
               className={sortClass("stance")}
               onClick={() => setSort("stance")}
@@ -447,34 +406,16 @@ function MovesTab() {
         </thead>
         <tbody>
           {sorted.map((m) => {
-            const c = m.cell;
-            const detailSearch = { move: m.moveId, order: m.order };
             const notes = [m.note, m.lethalHitCondition ? `LH: ${m.lethalHitCondition}` : "", m.mainTip]
               .filter(Boolean)
               .join(" · ");
             return (
               <tr key={m.order}>
                 <td className="col-details">
-                  {m.navSlot >= 0 ? (
-                    <Link
-                      className="details-link"
-                      to="/c/$cid/moves/$slot"
-                      params={{ cid: char.cid, slot: String(m.navSlot) }}
-                      search={detailSearch}
-                    >
-                      Details
-                    </Link>
-                  ) : m.cellIdx >= 0 ? (
-                    <Link
-                      className="details-link"
-                      to="/c/$cid/cells/$idx"
-                      params={{ cid: char.cid, idx: String(m.cellIdx) }}
-                    >
-                      Details
-                    </Link>
-                  ) : (
-                    <span className="muted">-</span>
-                  )}
+                  {m.nativeLink.definitions
+                    .map((definition) => definition.mainDefinitionId || definition.fallbackDefinitionId)
+                    .filter(Boolean)
+                    .join(", ") || <span className="muted">-</span>}
                 </td>
                 <td className="col-stance">
                   {m.condition || <span style={{ opacity: 0.35 }}>-</span>}
@@ -491,7 +432,7 @@ function MovesTab() {
                   )}
                 </td>
                 <td className="col-level">
-                  <HitLevelDots move={m} cell={c} />
+                  <HitLevelDots move={m} />
                 </td>
                 <td className="num mono">{m.impact ?? "-"}</td>
                 <td className="num mono">{m.damageTotal ?? "-"}</td>
@@ -502,9 +443,8 @@ function MovesTab() {
                 <td className="col-properties">
                   {m.effectTags.length > 0 ? <EffectTagBadges tags={m.effectTags} /> : null}
                   {m.isRevengeAttack && <RevengeAttackBadge />}
-                  {c?.role === "Attack" && <AttackModifierBadges cell={c} />}
                   {m.isThrowInput && <span className="badge badge-eff badge-eff-th">TH</span>}
-                  {m.effectTags.length === 0 && c?.role !== "Attack" && !m.isThrowInput && !m.isRevengeAttack && <span className="muted">-</span>}
+                  {m.effectTags.length === 0 && !m.isThrowInput && !m.isRevengeAttack && <span className="muted">-</span>}
                 </td>
                 <td className="col-notes" title={m.name || undefined}>
                   {notes || <span className="muted">-</span>}

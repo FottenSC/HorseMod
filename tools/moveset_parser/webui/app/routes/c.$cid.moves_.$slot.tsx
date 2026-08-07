@@ -1,7 +1,7 @@
 ﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { AttackClassBadge, AttackModifierBadges, EffectTagBadges, RevengeAttackBadge } from "../components/AttackClassBadge";
-import type { CharData, SlotEdge, FlatMove } from "../data/types";
+import type { CharData, SlotEdge, FlatMove, MovelistMove } from "../data/types";
 import { findInputVariations } from "../lib/moves";
 
 export const Route = createFileRoute("/c/$cid/moves_/$slot")({
@@ -26,6 +26,12 @@ export const Route = createFileRoute("/c/$cid/moves_/$slot")({
   component: MoveSlotDetail,
 });
 
+function officialMoveForRawSlot(): MovelistMove | undefined {
+  // There is deliberately no numeric fallback from a raw KHD slot to an
+  // official row. A future implementation must supply a proven static link.
+  return undefined;
+}
+
 function MoveSlotDetail() {
   const char = Route.useLoaderData();
   const { cid, slot: slotParam } = Route.useParams();
@@ -43,37 +49,14 @@ function MoveSlotDetail() {
     [khd, slotIdx],
   );
 
-  const search = Route.useSearch();
   const flatMove: FlatMove | undefined = useMemo(
     () => khd?.flatMoves.find((m) => m.slot === slotIdx),
     [khd, slotIdx],
   );
-  // Pick the canonical movelist entry. Priority:
-  //   1. Exact match via `order` (the row's index in movelist.moves) -
-  //      the most unambiguous identifier (each row is unique).
-  //   2. Match via `move` (= MoveListID) intersected with the slot.
-  //   3. Fallback: first movelist entry whose CommandSets reference
-  //      this slotIdx. May pick the wrong one in collision cases.
-  const movelistEntry = useMemo(() => {
-    const ml = char.movelist;
-    if (!ml) return undefined;
-    if (search.order !== undefined) {
-      const exact = ml.moves[search.order];
-      if (exact && exact.commandSets.some((cs) => cs.slotIdx === slotIdx)) {
-        return exact;
-      }
-    }
-    if (search.move !== undefined) {
-      const byMoveId = ml.moves.find(
-        (m) => m.moveId === search.move
-          && m.commandSets.some((cs) => cs.slotIdx === slotIdx),
-      );
-      if (byMoveId) return byMoveId;
-    }
-    return ml.moves.find((m) =>
-      m.commandSets.some((cs) => cs.slotIdx === slotIdx),
-    );
-  }, [char.movelist, slotIdx, search.order, search.move]);
+  // This is a raw KHD slot inspector. Native analysis does not prove that a
+  // DA_MovePlayData definition ID is the same index as this on-disk slot, so
+  // the page must not attach an official movelist row by numeric coincidence.
+  const movelistEntry = officialMoveForRawSlot();
 
   // Movelist "string" variations of this move (e.g. Astaroth's
   // "Poseidon Tide" 214A and "Poseidon Tide Rush" 214A.A.A.A.A.A are
@@ -105,20 +88,9 @@ function MoveSlotDetail() {
       cell: cellIdx >= 0 && cellIdx < khd.cells.length ? khd.cells[cellIdx] : null,
     }));
   const validCellRows = cellVariantRows.filter((r) => r.cell !== null);
-  // Pick the cell to feature. Priority:
-  //  1. The old MainIndex resolution (`commandSets.cellIdx`) when it
-  //     targets this slot.
-  //  2. The slot's first valid variant when there's no movelist entry.
-  let primaryCellIdx = -1;
-  if (primaryCellIdx < 0) {
-    const movelistCS = movelistEntry?.commandSets.find((cs) => cs.slotIdx === slotIdx);
-    const mci = movelistCS?.cellIdx ?? -1;
-    if (mci >= 0 && mci < khd.cells.length) {
-      primaryCellIdx = mci;
-    } else if (!movelistEntry) {
-      primaryCellIdx = validCellRows[0]?.cellIdx ?? -1;
-    }
-  }
+  // Feature the first cell authored directly on this raw KHD slot. No
+  // official movelist relationship is inferred from matching integers.
+  const primaryCellIdx = validCellRows[0]?.cellIdx ?? -1;
   const primaryCell = (primaryCellIdx >= 0 && primaryCellIdx < khd.cells.length)
     ? khd.cells[primaryCellIdx]
     : null;
@@ -230,23 +202,23 @@ function MoveSlotDetail() {
               <div className="stat-value">{primaryCell.damage}</div>
             </div>
             <div className="stat-block">
-              <div className="stat-label" title="cell.wI16MasterWindowStart -- first frame the cell is active">Startup</div>
-              <div className="stat-value">i{primaryCell.activeStart}</div>
+              <div className="stat-label" title="Raw wI16MasterWindowStart..End coordinates for this cell; not proven move startup">Cell window</div>
+              <div className="stat-value mono">{primaryCell.activeStartCoordinate}..{primaryCell.activeEndCoordinate}</div>
             </div>
             <div className="stat-block">
-              <div className="stat-label" title="Block stun from parsed khd cell">On Block</div>
-              <div className="stat-value">{primaryCell.onBlock}</div>
+              <div className="stat-label" title="Raw defender stun counter from the parsed KHD cell; not frame advantage">Raw block stun</div>
+              <div className="stat-value">{primaryCell.blockStunFrames}</div>
             </div>
             <div className="stat-block">
-              <div className="stat-label" title="Standing hit stun from parsed khd cell">On Hit</div>
-              <div className="stat-value">{primaryCell.onHitStanding}</div>
+              <div className="stat-label" title="Raw defender stun counter from the parsed KHD cell; not frame advantage">Raw hit stun</div>
+              <div className="stat-value">{primaryCell.baseHitStunFrames}</div>
             </div>
             <div className="stat-block">
-              <div className="stat-label" title="Counter-hit result from optional community frame-data. KHD exports do not currently derive this field.">On CH</div>
-              <div className="stat-value">{movelistEntry?.communityFrame?.onCounterHit || "-"}</div>
+              <div className="stat-label" title="Raw +0x48 defender stun selected by native contact mode 11; not frame advantage">Raw CH stun</div>
+              <div className="stat-value">{primaryCell.specialHitStunFrames}</div>
             </div>
             <div className="stat-block">
-              <div className="stat-label" title="activeEnd -- activeStart + 1">Active</div>
+              <div className="stat-label" title="activeEndCoordinate - activeStartCoordinate + 1">Active</div>
               <div className="stat-value">{primaryCell.activeFrames}<span className="stat-unit">f</span></div>
             </div>
             <div className="stat-block">
@@ -324,28 +296,28 @@ function MoveSlotDetail() {
         <div className="detail-cards">
           <section className="detail-card">
             <h2 className="card-title">Hit reactions</h2>
-            <p className="card-sub">Raw stun frames, by defender stance. Not frame advantage.</p>
+            <p className="card-sub">Raw stun frames by native contact variant. Not frame advantage.</p>
             <table className="kv-table">
               <tbody>
                 <tr>
-                  <td>Standing hit</td>
-                  <td className="num"><strong>{primaryCell.onHitStanding}</strong>f</td>
+                  <td>Normal contact</td>
+                  <td className="num"><strong>{primaryCell.baseHitStunFrames}</strong>f</td>
                 </tr>
                 <tr>
-                  <td>Standing - air</td>
-                  <td className="num">{primaryCell.onHitStandingAir}f</td>
+                  <td>Special contact (includes CH)</td>
+                  <td className="num">{primaryCell.specialHitStunFrames}f</td>
                 </tr>
                 <tr>
-                  <td>Crouching hit</td>
-                  <td className="num">{primaryCell.onHitCrouchNormal}f</td>
+                  <td>Alternate posture, normal</td>
+                  <td className="num">{primaryCell.alternatePostureBaseHitStunFrames}f</td>
                 </tr>
                 <tr>
-                  <td>Crouching - air</td>
-                  <td className="num">{primaryCell.onHitCrouchAir}f</td>
+                  <td>Alternate posture, special</td>
+                  <td className="num">{primaryCell.alternatePostureSpecialHitStunFrames}f</td>
                 </tr>
                 <tr className="kv-divider">
                   <td>On block</td>
-                  <td className="num">{primaryCell.onBlock}f</td>
+                  <td className="num">{primaryCell.blockStunFrames}f</td>
                 </tr>
               </tbody>
             </table>
@@ -399,11 +371,11 @@ function MoveSlotDetail() {
                 </tr>
                 <tr>
                   <td>Reaction id</td>
-                  <td className="num mono">{primaryCell.reactionIdStanding}</td>
+                  <td className="num mono">{primaryCell.reactionIdBaseContact}</td>
                 </tr>
                 <tr>
-                  <td>Reaction id (air)</td>
-                  <td className="num mono">{primaryCell.reactionIdAir}</td>
+                  <td>Reaction id (special contact)</td>
+                  <td className="num mono">{primaryCell.reactionIdSpecialContact}</td>
                 </tr>
                 <tr>
                   <td>Throw-escape id</td>
@@ -470,10 +442,10 @@ function MoveSlotDetail() {
                       <AttackModifierBadges cell={c} />
                     </td>
                     <td className="num">{c.damage}</td>
-                    <td className="num">i{c.activeStart}</td>
+                    <td className="num mono">coord {c.activeStartCoordinate}</td>
                     <td className="num muted">{c.activeFrames}f</td>
-                    <td className="num">{c.onHitStanding}f</td>
-                    <td className="num">{c.onBlock}f</td>
+                    <td className="num">{c.baseHitStunFrames}f</td>
+                    <td className="num">{c.blockStunFrames}f</td>
                     <td className="num mono muted" style={{ fontSize: 11 }}>
                       #{v.cellIdx} - {v.slotIdx}
                     </td>
@@ -523,9 +495,9 @@ function MoveSlotDetail() {
                     )}
                   </td>
                   <td className="num">{cell!.damage}</td>
-                  <td className="num">{cell!.role === "Attack" ? `i${cell!.activeStart}` : "-"}</td>
-                  <td className="num">{cell!.onHitStanding}f</td>
-                  <td className="num">{cell!.onBlock}f</td>
+                  <td className="num mono">{cell!.role === "Attack" ? `coord ${cell!.activeStartCoordinate}` : "-"}</td>
+                  <td className="num">{cell!.baseHitStunFrames}f</td>
+                  <td className="num">{cell!.blockStunFrames}f</td>
                 </tr>
               ))}
             </tbody>

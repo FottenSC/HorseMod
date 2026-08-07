@@ -21,8 +21,84 @@ if(HORSEMOD_ENABLE_GEKKONET)
         GekkoNet
         GIT_REPOSITORY https://github.com/HeatXD/GekkoNet.git
         GIT_TAG ${HORSEMOD_GEKKONET_GIT_TAG}
+        PATCH_COMMAND git apply --whitespace=nowarn
+            ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-correction-flush.patch
+            ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-authored-delay-prefix.patch
+            ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-authored-delay-prefix-ready.patch
+            ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-pre-gameplay-network-poll.patch
+            ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-external-disconnect-authority.patch
     )
     FetchContent_MakeAvailable(GekkoNet)
+    # FetchContent does not rerun PATCH_COMMAND for an already-populated
+    # dependency. Keep existing build trees honest as well as fresh clones.
+    file(READ "${gekkonet_SOURCE_DIR}/GekkoLib/include/gekkonet.h"
+        _horsemod_gekkonet_header)
+    if(NOT _horsemod_gekkonet_header MATCHES "gekko_flush_corrections")
+        execute_process(
+            COMMAND git apply --whitespace=nowarn
+                ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-correction-flush.patch
+            WORKING_DIRECTORY ${gekkonet_SOURCE_DIR}
+            RESULT_VARIABLE _horsemod_gekkonet_patch_result
+        )
+        if(NOT _horsemod_gekkonet_patch_result EQUAL 0)
+            message(FATAL_ERROR
+                "Failed to apply the required Gekko terminal-flush patch")
+        endif()
+    endif()
+    if(NOT _horsemod_gekkonet_header MATCHES
+            "gekko_prime_local_delay_prefix")
+        execute_process(
+            COMMAND git apply --whitespace=nowarn
+                ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-authored-delay-prefix.patch
+            WORKING_DIRECTORY ${gekkonet_SOURCE_DIR}
+            RESULT_VARIABLE _horsemod_gekkonet_prefix_patch_result
+        )
+        if(NOT _horsemod_gekkonet_prefix_patch_result EQUAL 0)
+            message(FATAL_ERROR
+                "Failed to apply the required Gekko authored-delay-prefix patch")
+        endif()
+    endif()
+    if(NOT _horsemod_gekkonet_header MATCHES
+            "gekko_delay_prefix_ready")
+        execute_process(
+            COMMAND git apply --whitespace=nowarn
+                ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-authored-delay-prefix-ready.patch
+            WORKING_DIRECTORY ${gekkonet_SOURCE_DIR}
+            RESULT_VARIABLE _horsemod_gekkonet_prefix_ready_patch_result
+        )
+        if(NOT _horsemod_gekkonet_prefix_ready_patch_result EQUAL 0)
+            message(FATAL_ERROR
+                "Failed to apply the required Gekko bilateral delay-prefix patch")
+        endif()
+    endif()
+    if(NOT _horsemod_gekkonet_header MATCHES
+            "external_disconnect_detection")
+        execute_process(
+            COMMAND git apply --whitespace=nowarn
+                ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-external-disconnect-authority.patch
+            WORKING_DIRECTORY ${gekkonet_SOURCE_DIR}
+            RESULT_VARIABLE _horsemod_gekkonet_disconnect_patch_result
+        )
+        if(NOT _horsemod_gekkonet_disconnect_patch_result EQUAL 0)
+            message(FATAL_ERROR
+                "Failed to apply the required Gekko external-disconnect-authority patch")
+        endif()
+    endif()
+    file(READ "${gekkonet_SOURCE_DIR}/GekkoLib/src/game_session.cpp"
+        _horsemod_gekkonet_game_session)
+    if(NOT _horsemod_gekkonet_game_session MATCHES
+            "Poll-only startup must progress actor/session synchronization")
+        execute_process(
+            COMMAND git apply --whitespace=nowarn
+                ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-pre-gameplay-network-poll.patch
+            WORKING_DIRECTORY ${gekkonet_SOURCE_DIR}
+            RESULT_VARIABLE _horsemod_gekkonet_poll_patch_result
+        )
+        if(NOT _horsemod_gekkonet_poll_patch_result EQUAL 0)
+            message(FATAL_ERROR
+                "Failed to apply the required Gekko pre-gameplay poll patch")
+        endif()
+    endif()
     if(TARGET GekkoNet AND MSVC)
         set_property(TARGET GekkoNet PROPERTY
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -61,6 +137,7 @@ set(HORSELIB_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/LuxBattleLauncherStartHook.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/HasSubProviderEntryHook.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ReplayDebugTrace.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ReplayTraceWriteBuffer.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ReplayScrub.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/ReplayScrubDiag.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackController.hpp
@@ -68,6 +145,7 @@ set(HORSELIB_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackDiag.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackEndToEndHarness.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackFaultInject.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackFrameZeroRngBaseline.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackGekkoAdapter.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackGekkoGameplayInputBridge.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackGekkoRuntimeCore.hpp
@@ -87,10 +165,13 @@ set(HORSELIB_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackLivePeerPipeline.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackLiveTransportQueue.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackOnlineSession.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackAudioPresentation.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackProtocolV2.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackProductionRuntime.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackP2PHarness.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackReplayInputScript.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackReplaySelectionAvailabilityPolicy.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackReplaySelectionAvailabilityHook.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackReplayForkRuntime.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackSidecar.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackSideEffectLedger.hpp
@@ -99,6 +180,7 @@ set(HORSELIB_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackStepHarness.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackStateHash.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackSummaryConsensus.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackSteamP2PTransport.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackStockTransportObserveHook.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackStockInviteFallback.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib/RollbackStockTransportObserveModel.hpp
@@ -246,6 +328,30 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
+add_executable(RollbackRouteManagerSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_route_manager_selftest.cpp
+)
+target_include_directories(RollbackRouteManagerSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+target_compile_features(RollbackRouteManagerSelfTest PRIVATE cxx_std_17)
+target_link_libraries(RollbackRouteManagerSelfTest PRIVATE ws2_32 bcrypt)
+if(MSVC)
+    set_property(TARGET RollbackRouteManagerSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackBetaConfigSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_beta_config_selftest.cpp
+)
+target_include_directories(RollbackBetaConfigSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackBetaConfigSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 add_executable(RollbackFaultInjectSelfTest
     ${CMAKE_SOURCE_DIR}/tools/rollback_fault_inject_selftest.cpp
 )
@@ -290,13 +396,13 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
-add_executable(RollbackEndToEndSelfTest
-    ${CMAKE_SOURCE_DIR}/tools/rollback_end_to_end_selftest.cpp
-)
-target_include_directories(RollbackEndToEndSelfTest PRIVATE
-    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
-)
 if(HORSEMOD_ENABLE_GEKKONET AND TARGET GekkoNet)
+    add_executable(RollbackEndToEndSelfTest
+        ${CMAKE_SOURCE_DIR}/tools/rollback_end_to_end_selftest.cpp
+    )
+    target_include_directories(RollbackEndToEndSelfTest PRIVATE
+        ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+    )
     target_compile_definitions(RollbackEndToEndSelfTest PRIVATE
         HORSE_ENABLE_GEKKONET=1
         GEKKONET_STATIC=1
@@ -305,10 +411,10 @@ if(HORSEMOD_ENABLE_GEKKONET AND TARGET GekkoNet)
         ${gekkonet_SOURCE_DIR}/GekkoLib/include
     )
     target_link_libraries(RollbackEndToEndSelfTest PRIVATE GekkoNet)
-endif()
-if(MSVC)
-    set_property(TARGET RollbackEndToEndSelfTest PROPERTY
-        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    if(MSVC)
+        set_property(TARGET RollbackEndToEndSelfTest PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    endif()
 endif()
 
 add_executable(RollbackLiveActivationSelfTest
@@ -388,6 +494,61 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
+add_executable(RollbackLuxMoveStateSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_lux_move_state_selftest.cpp
+)
+target_include_directories(RollbackLuxMoveStateSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackLuxMoveStateSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackFloatingPointEnvironmentSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_floating_point_environment_selftest.cpp
+)
+target_include_directories(RollbackFloatingPointEnvironmentSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackFloatingPointEnvironmentSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackBattleCameraSnapshotSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_battle_camera_snapshot_selftest.cpp
+)
+target_include_directories(RollbackBattleCameraSnapshotSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackBattleCameraSnapshotSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackPresentationSemanticSnapshotSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_presentation_semantic_snapshot_selftest.cpp
+)
+target_include_directories(RollbackPresentationSemanticSnapshotSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackPresentationSemanticSnapshotSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackCharaPresentationSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_chara_presentation_selftest.cpp
+)
+target_include_directories(RollbackCharaPresentationSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackCharaPresentationSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 add_executable(RollbackSnapshotStoreSelfTest
     ${CMAKE_SOURCE_DIR}/tools/rollback_snapshot_store_selftest.cpp
 )
@@ -410,6 +571,96 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
+add_executable(RollbackAudioPresentationSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_audio_presentation_selftest.cpp
+)
+target_include_directories(RollbackAudioPresentationSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackAudioPresentationSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackGameplayCrtSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_gameplay_crt_selftest.cpp
+)
+target_include_directories(RollbackGameplayCrtSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackGameplayCrtSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackFixtureEvidenceSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_fixture_evidence_selftest.cpp
+)
+target_include_directories(RollbackFixtureEvidenceSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackFixtureEvidenceSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(ReplayMatrixBankRingSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/replay_matrix_bank_ring_selftest.cpp
+)
+target_include_directories(ReplayMatrixBankRingSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET ReplayMatrixBankRingSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(ReplayInputPairAuthoritySelfTest
+    ${CMAKE_SOURCE_DIR}/tools/replay_input_pair_authority_selftest.cpp
+)
+target_include_directories(ReplayInputPairAuthoritySelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET ReplayInputPairAuthoritySelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackMotionDecodeScratchSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_motion_decode_scratch_selftest.cpp
+)
+target_include_directories(RollbackMotionDecodeScratchSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+target_compile_features(RollbackMotionDecodeScratchSelfTest PRIVATE cxx_std_17)
+if(MSVC)
+    set_property(TARGET RollbackMotionDecodeScratchSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackMotionDecodeTraceWindowSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_motion_decode_trace_window_selftest.cpp
+)
+target_include_directories(RollbackMotionDecodeTraceWindowSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackMotionDecodeTraceWindowSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackMotionPoseResidueSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_motion_pose_residue_selftest.cpp
+)
+target_include_directories(RollbackMotionPoseResidueSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+target_compile_features(RollbackMotionPoseResidueSelfTest PRIVATE cxx_std_17)
+if(MSVC)
+    set_property(TARGET RollbackMotionPoseResidueSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 add_executable(RollbackProtocolV2SelfTest
     ${CMAKE_SOURCE_DIR}/tools/rollback_protocol_v2_selftest.cpp
 )
@@ -422,6 +673,18 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
+add_executable(RollbackProtocolV2Benchmark
+    ${CMAKE_SOURCE_DIR}/tools/rollback_protocol_v2_benchmark.cpp
+)
+target_include_directories(RollbackProtocolV2Benchmark PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+target_link_libraries(RollbackProtocolV2Benchmark PRIVATE bcrypt)
+if(MSVC)
+    set_property(TARGET RollbackProtocolV2Benchmark PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 add_executable(RollbackUdpRuntimeSelfTest
     ${CMAKE_SOURCE_DIR}/tools/rollback_udp_runtime_selftest.cpp
 )
@@ -431,6 +694,19 @@ target_include_directories(RollbackUdpRuntimeSelfTest PRIVATE
 target_link_libraries(RollbackUdpRuntimeSelfTest PRIVATE ws2_32 bcrypt)
 if(MSVC)
     set_property(TARGET RollbackUdpRuntimeSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackSteamP2PTransportSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_steam_p2p_transport_selftest.cpp
+)
+target_include_directories(RollbackSteamP2PTransportSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+target_link_libraries(
+    RollbackSteamP2PTransportSelfTest PRIVATE ws2_32 bcrypt)
+if(MSVC)
+    set_property(TARGET RollbackSteamP2PTransportSelfTest PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
@@ -489,6 +765,50 @@ if(MSVC)
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
+add_executable(RollbackFrameZeroRngBaselineSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_frame_zero_rng_baseline_selftest.cpp
+)
+target_include_directories(RollbackFrameZeroRngBaselineSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackFrameZeroRngBaselineSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackReplayOracleSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_replay_oracle_selftest.cpp
+)
+target_include_directories(RollbackReplayOracleSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackReplayOracleSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackReplayInputSidecarSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_replay_input_sidecar_selftest.cpp
+)
+target_include_directories(RollbackReplayInputSidecarSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackReplayInputSidecarSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackProductionSummarySelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_production_summary_selftest.cpp
+)
+target_include_directories(RollbackProductionSummarySelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackProductionSummarySelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 add_executable(RollbackBattleSceneStateSelfTest
     ${CMAKE_SOURCE_DIR}/tools/rollback_battle_scene_state_selftest.cpp
 )
@@ -508,6 +828,107 @@ target_include_directories(RollbackProductionActiveGuardSelfTest PRIVATE
 )
 if(MSVC)
     set_property(TARGET RollbackProductionActiveGuardSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackPeerLivenessSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_peer_liveness_selftest.cpp
+)
+target_include_directories(RollbackPeerLivenessSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackPeerLivenessSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackRoundCoordinatorSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_round_coordinator_selftest.cpp
+)
+target_include_directories(RollbackRoundCoordinatorSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+
+add_executable(RollbackNativeTerminalGateSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_native_terminal_gate_selftest.cpp
+)
+target_include_directories(RollbackNativeTerminalGateSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+
+add_executable(RollbackNativePreNewRoundGateSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_native_pre_new_round_gate_selftest.cpp
+)
+target_include_directories(RollbackNativePreNewRoundGateSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+
+add_executable(RollbackNativeSimulationIterationSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_native_simulation_iteration_selftest.cpp
+)
+target_include_directories(RollbackNativeSimulationIterationSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+
+add_executable(RollbackInstallOnceCallbackGateSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_install_once_callback_gate_selftest.cpp
+)
+target_include_directories(RollbackInstallOnceCallbackGateSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackInstallOnceCallbackGateSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(ReplayTraceWriteBufferSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/replay_trace_write_buffer_selftest.cpp
+)
+target_include_directories(ReplayTraceWriteBufferSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+
+add_executable(RollbackVtableSlotPatchSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_vtable_slot_patch_selftest.cpp
+)
+target_include_directories(RollbackVtableSlotPatchSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackVtableSlotPatchSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(PeImportSlotResolverSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/pe_import_slot_resolver_selftest.cpp
+)
+target_include_directories(PeImportSlotResolverSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET PeImportSlotResolverSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackVfxPresentationSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_vfx_presentation_selftest.cpp
+)
+target_include_directories(RollbackVfxPresentationSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackVfxPresentationSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackScheduledBarrierSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_scheduled_barrier_selftest.cpp
+)
+target_include_directories(RollbackScheduledBarrierSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackScheduledBarrierSelfTest PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
@@ -531,16 +952,168 @@ target_include_directories(RollbackStageWindSnapshotSelfTest PRIVATE
 if(MSVC)
     set_property(TARGET RollbackStageWindSnapshotSelfTest PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    target_link_options(RollbackStageWindSnapshotSelfTest PRIVATE
+        /STACK:4194304)
 endif()
 
-set(HORSEMOD_ROLLBACK_SELFTEST_TARGETS
+add_executable(RollbackStageWindAuthoritySelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_stage_wind_authority_selftest.cpp
+)
+target_include_directories(RollbackStageWindAuthoritySelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackStageWindAuthoritySelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    target_link_options(RollbackStageWindAuthoritySelfTest PRIVATE
+        /STACK:4194304)
+endif()
+
+add_executable(RollbackModuleUnloadSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_module_unload_selftest.cpp
+)
+target_include_directories(RollbackModuleUnloadSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackModuleUnloadSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(ReplayAnimationPresentationSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/replay_animation_presentation_selftest.cpp
+)
+target_include_directories(ReplayAnimationPresentationSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET ReplayAnimationPresentationSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(LuxBattleCharaClipFrameLayoutSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/lux_battle_chara_clip_frame_layout_selftest.cpp
+)
+target_include_directories(LuxBattleCharaClipFrameLayoutSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET LuxBattleCharaClipFrameLayoutSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackCharaAnimationStateSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_chara_animation_state_selftest.cpp
+)
+target_include_directories(RollbackCharaAnimationStateSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackCharaAnimationStateSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackRootMotionTraceContractSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_root_motion_trace_contract_selftest.cpp
+)
+target_include_directories(RollbackRootMotionTraceContractSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackRootMotionTraceContractSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackPoseProducerTraceContractSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_pose_producer_trace_contract_selftest.cpp
+)
+target_include_directories(RollbackPoseProducerTraceContractSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackPoseProducerTraceContractSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackReplaySelectionAvailabilitySelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_replay_selection_availability_selftest.cpp
+)
+target_include_directories(RollbackReplaySelectionAvailabilitySelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackReplaySelectionAvailabilitySelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+set(HORSEMOD_ROLLBACK_SELFTEST_TARGETS)
+
+function(horsemod_register_rollback_selftest target)
+    if(NOT TARGET "${target}")
+        message(FATAL_ERROR
+            "Cannot register missing rollback self-test target: ${target}")
+    endif()
+
+    cmake_parse_arguments(
+        HORSEMOD_SELFTEST
+        "REQUIRES_GEKKO;PERFORMANCE"
+        ""
+        ""
+        ${ARGN}
+    )
+    if(HORSEMOD_SELFTEST_UNPARSED_ARGUMENTS)
+        message(FATAL_ERROR
+            "Unknown rollback self-test registration arguments for ${target}: "
+            "${HORSEMOD_SELFTEST_UNPARSED_ARGUMENTS}")
+    endif()
+
+    target_compile_features(${target} PRIVATE cxx_std_17)
+    add_test(NAME ${target} COMMAND $<TARGET_FILE:${target}>)
+
+    set(_horsemod_selftest_labels rollback)
+    if(HORSEMOD_SELFTEST_PERFORMANCE)
+        list(APPEND _horsemod_selftest_labels rollback-performance)
+    else()
+        list(APPEND _horsemod_selftest_labels rollback-fast)
+    endif()
+    if(HORSEMOD_SELFTEST_REQUIRES_GEKKO)
+        list(APPEND _horsemod_selftest_labels requires-gekko)
+    endif()
+    set_tests_properties(${target} PROPERTIES
+        LABELS "${_horsemod_selftest_labels}"
+        TIMEOUT 240
+    )
+
+    set(
+        HORSEMOD_ROLLBACK_SELFTEST_TARGETS
+        "${HORSEMOD_ROLLBACK_SELFTEST_TARGETS};${target}"
+        PARENT_SCOPE
+    )
+endfunction()
+
+set(_horsemod_rollback_selftests
+    LuxBattleCharaClipFrameLayoutSelfTest
+    ReplayAnimationPresentationSelfTest
+    ReplayTraceWriteBufferSelfTest
+    RollbackCharaAnimationStateSelfTest
+    RollbackPoseProducerTraceContractSelfTest
+    RollbackRootMotionTraceContractSelfTest
+    RollbackMotionDecodeScratchSelfTest
+    RollbackMotionDecodeTraceWindowSelfTest
+    RollbackMotionPoseResidueSelfTest
+    ReplayMatrixBankRingSelfTest
+    ReplayInputPairAuthoritySelfTest
+    RollbackReplayInputSidecarSelfTest
+    RollbackReplaySelectionAvailabilitySelfTest
+    RollbackProductionSummarySelfTest
     RollbackInputCacheAdapterSelfTest
     RollbackTransportSelfTest
+    RollbackRouteManagerSelfTest
+    RollbackBetaConfigSelfTest
     RollbackFaultInjectSelfTest
     RollbackOnlineSessionSelfTest
     RollbackLiveTransportSelfTest
     RollbackLivePeerPipelineSelfTest
-    RollbackEndToEndSelfTest
     RollbackLiveActivationSelfTest
     RollbackLiveActivationExecutorSelfTest
     RollbackLiveBoundarySelfTest
@@ -548,30 +1121,99 @@ set(HORSEMOD_ROLLBACK_SELFTEST_TARGETS
     RollbackStockTransportObserveSelfTest
     RollbackLiveOnlineCaptureSelfTest
     RollbackSnapshotSelfTest
+    RollbackLuxMoveStateSelfTest
+    RollbackFloatingPointEnvironmentSelfTest
+    RollbackBattleCameraSnapshotSelfTest
+    RollbackPresentationSemanticSnapshotSelfTest
+    RollbackCharaPresentationSelfTest
     RollbackSnapshotStoreSelfTest
     RollbackSideEffectLedgerSelfTest
+    RollbackAudioPresentationSelfTest
+    RollbackGameplayCrtSelfTest
+    RollbackFixtureEvidenceSelfTest
     RollbackProtocolV2SelfTest
     RollbackUdpRuntimeSelfTest
+    RollbackSteamP2PTransportSelfTest
     RollbackSummaryConsensusSelfTest
     RollbackUiNavigationSelfTest
     RollbackOnlineStageStateSelfTest
     RollbackStockInviteFallbackSelfTest
     RollbackLaunchContractSelfTest
+    RollbackFrameZeroRngBaselineSelfTest
+    RollbackReplayOracleSelfTest
     RollbackBattleSceneStateSelfTest
     RollbackProductionActiveGuardSelfTest
+    RollbackPeerLivenessSelfTest
+    RollbackRoundCoordinatorSelfTest
+    RollbackNativeTerminalGateSelfTest
+    RollbackNativePreNewRoundGateSelfTest
+    RollbackNativeSimulationIterationSelfTest
+    RollbackInstallOnceCallbackGateSelfTest
+    RollbackVtableSlotPatchSelfTest
+    PeImportSlotResolverSelfTest
+    RollbackVfxPresentationSelfTest
+    RollbackScheduledBarrierSelfTest
     RollbackHistoricalCameraArgsSelfTest
     RollbackStageWindSnapshotSelfTest
+    RollbackStageWindAuthoritySelfTest
+    RollbackModuleUnloadSelfTest
 )
+foreach(rollback_selftest IN LISTS _horsemod_rollback_selftests)
+    horsemod_register_rollback_selftest(${rollback_selftest})
+endforeach()
+horsemod_register_rollback_selftest(
+    RollbackProtocolV2Benchmark
+    PERFORMANCE
+)
+
 if(HORSEMOD_ENABLE_GEKKONET AND TARGET GekkoNet)
-    list(APPEND HORSEMOD_ROLLBACK_SELFTEST_TARGETS
+    set(_horsemod_gekkonet_selftests
         RollbackGekkoSelfTest
         RollbackGekkoGameplayInputSelfTest
         RollbackGekkoUdpSelfTest
+        RollbackGekkoRuntimeCoreSelfTest
+        RollbackEndToEndSelfTest
     )
+    foreach(rollback_selftest IN LISTS _horsemod_gekkonet_selftests)
+        horsemod_register_rollback_selftest(
+            ${rollback_selftest}
+            REQUIRES_GEKKO
+        )
+    endforeach()
 endif()
-foreach(rollback_selftest IN LISTS HORSEMOD_ROLLBACK_SELFTEST_TARGETS)
-    target_compile_features(${rollback_selftest} PRIVATE cxx_std_17)
+
+# Rollback self-tests are easy to add and easy to forget in a separate runner.
+# Fail configuration if any target matching the rollback/replay self-test naming
+# contract was not registered above. CTest is the sole executable inventory
+# consumed by the Python validation runners.
+get_property(
+    _horsemod_directory_targets
+    DIRECTORY
+    PROPERTY BUILDSYSTEM_TARGETS
+)
+foreach(_horsemod_target IN LISTS _horsemod_directory_targets)
+    if(_horsemod_target MATCHES "^(Rollback|Replay).+SelfTest$")
+        if(NOT _horsemod_target IN_LIST HORSEMOD_ROLLBACK_SELFTEST_TARGETS)
+            message(FATAL_ERROR
+                "Rollback self-test target is not registered with CTest: "
+                "${_horsemod_target}")
+        endif()
+    endif()
 endforeach()
+
+add_custom_target(HorseModRollbackSelfTests
+    DEPENDS ${HORSEMOD_ROLLBACK_SELFTEST_TARGETS}
+)
+add_custom_target(HorseModRollbackSelfTestsRun
+    COMMAND ${CMAKE_CTEST_COMMAND}
+        --test-dir ${CMAKE_BINARY_DIR}
+        -C $<CONFIG>
+        --output-on-failure
+        -L rollback
+    DEPENDS ${HORSEMOD_ROLLBACK_SELFTEST_TARGETS}
+    USES_TERMINAL
+    COMMENT "Running the registered rollback self-tests"
+)
 
 set(_horsemod_enable_ebtracer ${HORSEMOD_ENABLE_EBTRACER})
 set(_horsemod_enable_gekkonet ${HORSEMOD_ENABLE_GEKKONET})

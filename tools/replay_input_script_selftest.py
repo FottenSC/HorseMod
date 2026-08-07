@@ -55,7 +55,7 @@ def unwrap_payload(file_bytes: bytes) -> tuple[bytes, bool]:
     return file_bytes, False
 
 
-def extract(payload: bytes) -> dict[str, Any]:
+def extract(payload: bytes, *, include_streams: bool = False) -> dict[str, Any]:
     if len(payload) < 8 or payload[:4] != b"ULX1":
         raise ValueError("missing ULX1 replay payload")
     raw = zlib.decompress(payload[8:])
@@ -123,7 +123,7 @@ def extract(payload: bytes) -> dict[str, Any]:
 
     stream0 = struct.pack("<" + "I" * len(streams[0]), *streams[0])
     stream1 = struct.pack("<" + "I" * len(streams[1]), *streams[1])
-    return {
+    result = {
         "ok": bool(pairs) and len(streams[0]) == len(streams[1]),
         "decompressed_bytes": len(raw),
         "decompressed_hash": fnv1a64(raw),
@@ -135,6 +135,9 @@ def extract(payload: bytes) -> dict[str, Any]:
         "input_hash_p1": fnv1a64(stream1),
         "pairs": pairs,
     }
+    if include_streams:
+        result["streams"] = streams
+    return result
 
 
 def main() -> int:

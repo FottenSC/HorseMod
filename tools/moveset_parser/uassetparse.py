@@ -233,13 +233,22 @@ def parse_uexp(uexp_path: str, pkg: UAssetPackage,
       * dict[str, Any] — nested struct
     """
     with open(uexp_path, "rb") as f:
+        if not 0 <= export_idx < len(pkg.exports):
+            raise ValueError(f"export index {export_idx} is out of range")
         export = pkg.exports[export_idx]
         # .uexp offsets in the export table are RELATIVE to the start of
         # .uexp (UE4 4.20+ stores them with total_header_size as the base
         # for backwards-compat; we subtract that).
         rel_offset = export.serial_offset - pkg.total_header_size
-        f.seek(rel_offset)
         end_offset = rel_offset + export.serial_size
+        f.seek(0, io.SEEK_END)
+        file_size = f.tell()
+        if rel_offset < 0 or export.serial_size < 0 or end_offset > file_size:
+            raise ValueError(
+                f"export span [{rel_offset}, {end_offset}) is outside "
+                f"0x{file_size:X}-byte .uexp"
+            )
+        f.seek(rel_offset)
         return _read_property_block(f, pkg, end_offset=end_offset)
 
 
@@ -259,10 +268,19 @@ def parse_datatable(uexp_path: str, pkg: UAssetPackage,
     row names are decimal strings ("1", "2", ...).
     """
     with open(uexp_path, "rb") as f:
+        if not 0 <= export_idx < len(pkg.exports):
+            raise ValueError(f"export index {export_idx} is out of range")
         export = pkg.exports[export_idx]
         rel_offset = export.serial_offset - pkg.total_header_size
-        f.seek(rel_offset)
         end_offset = rel_offset + export.serial_size
+        f.seek(0, io.SEEK_END)
+        file_size = f.tell()
+        if rel_offset < 0 or export.serial_size < 0 or end_offset > file_size:
+            raise ValueError(
+                f"export span [{rel_offset}, {end_offset}) is outside "
+                f"0x{file_size:X}-byte .uexp"
+            )
+        f.seek(rel_offset)
         # (1) UObject tagged properties — RowStruct etc.
         _read_property_block(f, pkg, end_offset=end_offset)
         # The gap + NumRows fields need 8 bytes. If the export ends
@@ -294,12 +312,20 @@ def parse_datatable(uexp_path: str, pkg: UAssetPackage,
             )
         rows: dict[str, dict[str, Any]] = {}
         # (3) per-row { FName RowName, tagged-property block }
-        for _ in range(num_rows):
+        for row_index in range(num_rows):
             if f.tell() + 8 > end_offset:
-                break
+                raise ValueError(
+                    f"DataTable truncated before row {row_index} of {num_rows}"
+                )
             name_idx, name_number = _read_fname_index(f)
             row_name = pkg.name(name_idx, name_number)
+            if row_name in rows:
+                raise ValueError(f"DataTable duplicate row name {row_name!r}")
             row = _read_property_block(f, pkg, end_offset=end_offset)
+            if f.tell() > end_offset:
+                raise ValueError(
+                    f"DataTable row {row_name!r} exceeds export boundary"
+                )
             rows[row_name] = row
         return rows
 

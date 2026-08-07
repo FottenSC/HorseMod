@@ -12,6 +12,17 @@
 
 namespace Horse
 {
+    static constexpr bool ReuseAcceptedRollbackStageIdentity(
+        uint32_t accepted_identity,
+        bool require_consistent_identity,
+        uint32_t& out) noexcept
+    {
+        if (require_consistent_identity || accepted_identity == 0)
+            return false;
+        out = accepted_identity;
+        return true;
+    }
+
     enum class RollbackOnlineCreateStatus : uint8_t
     {
         Waiting,
@@ -47,6 +58,58 @@ namespace Horse
                     : RollbackOnlineCreateStatus::Waiting),
             provisional_false,
         };
+    }
+
+    static constexpr bool ShouldRetryRollbackHostCreateDecide(
+        uint64_t native_create_observe_calls,
+        uint32_t retry_count,
+        bool retry_active,
+        uint64_t last_decide_tick,
+        uint64_t current_tick,
+        uint64_t retry_delay_ticks,
+        uint32_t max_retries) noexcept
+    {
+        if (native_create_observe_calls != 0
+            || retry_count >= max_retries)
+        {
+            return false;
+        }
+        if (retry_active) return true;
+        return last_decide_tick != 0
+            && current_tick >= last_decide_tick
+            && current_tick - last_decide_tick >= retry_delay_ticks;
+    }
+
+    struct RollbackPrivateLobbyEvidence
+    {
+        bool player_match_session_observed {false};
+        int32_t native_public_flag {-1};
+        bool steam_lobby_type_attempted {false};
+        bool steam_lobby_type_private {false};
+        uint64_t lobby_id {0};
+        uint64_t lobby_owner_id {0};
+        uint64_t local_steam_id {0};
+        int32_t pre_invite_member_count {-1};
+    };
+
+    static constexpr bool RollbackPrivateLobbyReady(
+        const RollbackPrivateLobbyEvidence& evidence) noexcept
+    {
+        return evidence.player_match_session_observed
+            && evidence.native_public_flag == 0
+            && evidence.steam_lobby_type_attempted
+            && evidence.steam_lobby_type_private
+            && evidence.lobby_id != 0
+            && evidence.local_steam_id != 0
+            && evidence.lobby_owner_id == evidence.local_steam_id
+            && evidence.pre_invite_member_count == 1;
+    }
+
+    static constexpr bool RollbackPrivateLobbyMemberCountReady(
+        int32_t member_count,
+        bool invited_peer_expected) noexcept
+    {
+        return member_count == (invited_peer_expected ? 2 : 1);
     }
 
     enum class RollbackOnlinePingStatus : uint8_t

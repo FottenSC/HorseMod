@@ -4,6 +4,7 @@
 
 # --- Build outputs ----------------------------------------------------------
 build_cmake_*/
+build_rollback_presubmit/
 build/
 out/
 target/              # Rust (RE-UE4SS has patternsleuth crate)
@@ -90,10 +91,19 @@ tmp/
 test_runs/
 reports/
 
+# Large local replay-corpus partitions are bound by content hash in beta
+# manifests; they are not duplicated into source history.
+/ReplayExampleRemainingAfter109/
+/ReplayExampleRemainingAfter155/
+
+# Accidental PowerShell host-formatting capture; not a source artifact.
+/System.Management.Automation.Internal.Host.InternalHost
+
 # --- Moveset parser comparison artifacts -----------------------------------
 tools/moveset_parser/community_framedata.json
 tools/moveset_parser/community_framedata.xlsx
 tools/moveset_parser/comparison_*.json
+tools/moveset_parser/comparison_reports/
 tools/moveset_parser/.tmp_*.json
 tools/moveset_parser/.tmp_*.py
 tools/moveset_parser/_tmp_*.json
@@ -117,3 +127,11 @@ dist/
 # --- BlueprintToCpp generated pseudocode -----------------------------------
 # Decompiled SC6 Blueprint output is analysis evidence only; never commit it.
 /tools/BlueprintToCpp/BlueprintToCpp/bin/
+
+# .NET tool build products (source projects remain tracked).
+tools/asset_property_dump/bin/
+tools/asset_property_dump/obj/
+
+# Generated standalone analysis pages.
+/ukemi_character_ranking.html
+/ukemi_locomotion_data.js

@@ -17,8 +17,8 @@ Opcode encoding (verified against the dispatch switch):
     0x00            NOP / pad                 (1 byte)
     0x01 BE16       FRAME     <local_count>   (3 bytes)
     0x02            RET2                      (1 byte)
-    0x03 BE16       SET_ACC_U16 (no push)     (3 bytes)
-    0x04 BE16       SET_ACC_U16 (no push)     (3 bytes)
+    0x03 BE16       JMP_ABS                   (3 bytes)
+    0x04 BE16       JMP_ABS                   (3 bytes)
     0x05            RET / POP_RET             (1 byte)
     0x06            RET (alt)                 (1 byte)
     0x07            RETBRK                    (1 byte)
@@ -54,8 +54,8 @@ Opcode encoding (verified against the dispatch switch):
     0x25 u8,u8      CALLCOND <fn>,<argc>      (3 bytes)
     0x26            PUSH_ACC                  (1 byte)
     0x27            POP_ACC                   (1 byte)
-    0x28 BE16       JNZ <dest>                (3 bytes)
-    0x29 BE16       JZ  <dest>                (3 bytes)
+    0x28 BE16       JZ  <dest>                (3 bytes)
+    0x29 BE16       JNZ <dest>                (3 bytes)
     0x2A BE16       JMP <dest>                (3 bytes)
     0x2B..0x3C      NOP / unused              (1 byte)
 
@@ -90,8 +90,11 @@ _OPCODE_TABLE: dict[int, tuple[str, str]] = {
     0x00: ("NOP",         ""),
     0x01: ("FRAME",       "BE16"),
     0x02: ("RET2",        ""),
-    0x03: ("SET_ACC_U16", "BE16"),
-    0x04: ("SET_ACC_U16", "BE16"),
+    # Native LuxMoveVM_ExecuteBytecode groups 0x03, 0x04, and 0x2A in
+    # the same absolute-jump case.  Earlier tooling treated 0x03/0x04 as
+    # literals, which created impossible fall-through paths.
+    0x03: ("JMP_ABS",     "BE16"),
+    0x04: ("JMP_ABS",     "BE16"),
     0x05: ("RET",         ""),
     0x06: ("RET",         ""),
     0x07: ("RETBRK",      ""),
@@ -127,9 +130,9 @@ _OPCODE_TABLE: dict[int, tuple[str, str]] = {
     0x25: ("CALLCOND",    "BB"),
     0x26: ("PUSH_ACC",    ""),
     0x27: ("POP_ACC",     ""),
-    0x28: ("JNZ",         "BE16"),
-    0x29: ("JZ",          "BE16"),
-    0x2A: ("JMP",         "BE16"),
+    0x28: ("JZ",          "BE16"),
+    0x29: ("JNZ",         "BE16"),
+    0x2A: ("JMP_ABS",     "BE16"),
 }
 
 # Opcodes that fall into the "NOP / pad" no-op default in the dispatcher
@@ -337,9 +340,9 @@ def walk_stackvm(buf: bytes, start_off: int, max_bytes: int = 0x10000,
                 break
 
             # Control-flow:
-            # JMP (0x2A): unconditional, next_pc = start_off + imm
+            # JMP (0x03/0x04/0x2A): unconditional, next_pc = start_off + imm
             # JNZ/JZ (0x28/0x29): conditional, can also fall through
-            if follow_jumps and opcode == 0x2A:
+            if follow_jumps and opcode in (0x03, 0x04, 0x2A):
                 pc = start_off + inst.imm_u16  # absolute byte offset
                 if pc >= end_cap or pc < start_off:
                     break

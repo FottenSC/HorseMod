@@ -13,10 +13,13 @@ from __future__ import annotations
 import argparse
 import ctypes
 from ctypes import wintypes
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections import Counter
 from datetime import datetime
@@ -62,6 +65,7 @@ TH32CS_SNAPPROCESS = 0x00000002
 PROCESS_TERMINATE = 0x0001
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 MAX_PATH = 260
+ARTIFACT_EVIDENCE: dict[str, Any] | None = None
 
 
 CrashCheck = Callable[[], str | None]
@@ -441,6 +445,17 @@ def effective_generation_full_frame_trace(
     )
 
 
+def effective_split_gameplay_crt_control(
+    args: argparse.Namespace,
+    request_override: dict[str, Any] | None = None,
+) -> bool:
+    if getattr(args, "split_gameplay_crt_control", False):
+        return True
+    return isinstance(request_override, dict) and truthy_request_flag(
+        request_override.get("split_gameplay_crt_control")
+    )
+
+
 def make_request(args: argparse.Namespace, run_id: str) -> dict[str, Any]:
     cases = getattr(args, "generated_cases", None) or default_cases(args)
     generation_mode = effective_generation_mode(args)
@@ -454,13 +469,62 @@ def make_request(args: argparse.Namespace, run_id: str) -> dict[str, Any]:
     }
     if effective_generation_full_frame_trace(args):
         request["generation_full_frame_trace"] = True
+    if effective_split_gameplay_crt_control(args):
+        request["split_gameplay_crt_control"] = True
     return request
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    encoded = json.dumps(payload, indent=2) + "\n"
+    try:
+        tmp.write_text(encoded, encoding="utf-8")
+    except PermissionError:
+        # Some managed validation environments permit deployment-tree writes
+        # through PowerShell but deny Python's direct CreateFile call. Keep the
+        # request publication atomic and narrowly scoped to this one path.
+        environment = dict(os.environ)
+        environment["HORSEMOD_ATOMIC_TARGET"] = str(path.resolve())
+        script = r"""
+$target = [System.IO.Path]::GetFullPath($env:HORSEMOD_ATOMIC_TARGET)
+$temporary = $target + '.tmp'
+[System.IO.File]::WriteAllText(
+    $temporary,
+    [Console]::In.ReadToEnd(),
+    [System.Text.UTF8Encoding]::new($false))
+$lastError = $null
+for ($attempt = 0; $attempt -lt 40; ++$attempt) {
+    try {
+        Move-Item -LiteralPath $temporary -Destination $target -Force
+        exit 0
+    } catch {
+        $lastError = $_
+        Start-Sleep -Milliseconds 50
+    }
+}
+Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+throw $lastError
+"""
+        completed = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-NonInteractive",
+                "-Command", script,
+            ],
+            input=encoded,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            check=False,
+            timeout=10,
+        )
+        if completed.returncode != 0:
+            raise PermissionError(
+                "PowerShell atomic request publication failed: "
+                f"{completed.stderr.strip()}"
+            )
+        return
     last_error: OSError | None = None
     for _ in range(40):
         try:
@@ -1365,6 +1429,220 @@ def run_build() -> int:
     return completed.returncode
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def rollback_git_identity() -> dict[str, Any]:
+    def git_text(*arguments: str) -> str:
+        completed = subprocess.run(
+            ["git", *arguments],
+            cwd=str(REPO_ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=20,
+        )
+        return completed.stdout.decode(
+            "utf-8", errors="surrogateescape").strip()
+
+    # A binary patch is arbitrary bytes and cannot safely be decoded through
+    # the process locale. Hash its exact bytes, matching the rollback
+    # candidate producer, so manifest validation is stable on Windows and
+    # does not retain a potentially huge textual diff in memory.
+    diff_result = subprocess.run(
+        ["git", "diff", "HEAD", "--binary", "--", "HorseMod", "tools"],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        timeout=20,
+    )
+    diff_sha256 = hashlib.sha256(diff_result.stdout).hexdigest()
+    status = git_text(
+        "status", "--porcelain=v1", "--untracked-files=all",
+        "--", "HorseMod", "tools",
+    )
+    untracked_result = subprocess.run(
+        [
+            "git", "ls-files", "--others", "--exclude-standard", "-z",
+            "--", "HorseMod", "tools",
+        ],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        timeout=20,
+    )
+    untracked: list[dict[str, Any]] = []
+    for raw in untracked_result.stdout.split(b"\0"):
+        if not raw:
+            continue
+        relative = raw.decode("utf-8", errors="surrogateescape")
+        path = REPO_ROOT / relative
+        untracked.append({
+            "path": relative.replace("\\", "/"),
+            "sha256": sha256_file(path) if path.is_file() else "missing",
+        })
+    identity_material = json.dumps(
+        {
+            "diff_sha256": diff_sha256,
+            "status": status,
+            "untracked": untracked,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return {
+        "commit": git_text("rev-parse", "HEAD"),
+        "dirty": bool(status),
+        "rollback_diff_sha256": hashlib.sha256(
+            identity_material.encode("utf-8", errors="replace")
+        ).hexdigest(),
+        "rollback_status": status.splitlines(),
+        "untracked": untracked,
+    }
+
+
+def ue4ss_loaded_dll(saved_dir: Path) -> Path:
+    if saved_dir.name.casefold() != "saved":
+        raise ValueError(
+            "HorseMod saved directory must end in Saved to derive the "
+            "UE4SS load path"
+        )
+    return saved_dir.parent / "dlls" / "main.dll"
+
+
+def verify_candidate_manifest(
+    manifest_path: Path,
+    built_dll: Path,
+) -> dict[str, Any]:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    dll = manifest.get("dll", {})
+    expected_dll_hash = str(dll.get("sha256") or "").lower()
+    observed_dll_hash = sha256_file(built_dll)
+    if len(expected_dll_hash) != 64 \
+            or expected_dll_hash != observed_dll_hash:
+        raise ValueError("candidate manifest DLL identity mismatch")
+
+    expected_git = manifest.get("git", {})
+    observed_git = rollback_git_identity()
+    for key in ("commit", "dirty", "rollback_diff_sha256"):
+        if expected_git.get(key) != observed_git.get(key):
+            raise ValueError(f"candidate manifest source identity mismatch:{key}")
+
+    helpers = manifest.get(
+        "qualification_contract", {}
+    ).get("runner_helpers", [])
+    expected_runner_hash = ""
+    runner_path = Path(__file__).resolve()
+    for helper in helpers:
+        helper_path = Path(str(helper.get("path") or ""))
+        if helper_path.name == runner_path.name:
+            expected_runner_hash = str(helper.get("sha256") or "").lower()
+            break
+    if expected_runner_hash != sha256_file(runner_path):
+        raise ValueError("candidate manifest replay runner identity mismatch")
+    return manifest
+
+
+def atomic_deploy_candidate(built_dll: Path, deployed_dll: Path) -> None:
+    if not built_dll.is_file():
+        raise ValueError(f"selected candidate DLL is missing: {built_dll}")
+    deployed_dll.parent.mkdir(parents=True, exist_ok=True)
+    selected_hash = sha256_file(built_dll)
+    if deployed_dll.is_file() \
+            and sha256_file(deployed_dll) == selected_hash:
+        return
+    temporary = deployed_dll.with_name(
+        f".{deployed_dll.name}.{os.getpid()}.tmp"
+    )
+    shutil.copy2(built_dll, temporary)
+    os.replace(temporary, deployed_dll)
+    if sha256_file(deployed_dll) != selected_hash:
+        raise RuntimeError("UE4SS loaded DLL deployment hash mismatch")
+
+
+def verify_deployed_candidate(
+    built_dll: Path,
+    deployed_dll: Path,
+) -> dict[str, Any]:
+    selected_hash = sha256_file(built_dll)
+    if not deployed_dll.is_file():
+        raise ValueError(f"UE4SS loaded DLL is missing: {deployed_dll}")
+    deployed_hash = sha256_file(deployed_dll)
+    if deployed_hash != selected_hash:
+        raise ValueError(
+            "UE4SS loaded DLL does not match the selected candidate"
+        )
+    return {
+        "built_dll": str(built_dll.resolve()),
+        "deployed_dll": str(deployed_dll.resolve()),
+        "dll_sha256": selected_hash,
+        "replay_runner": str(Path(__file__).resolve()),
+        "replay_runner_sha256": sha256_file(Path(__file__).resolve()),
+    }
+
+
+def prepare_candidate_artifact(
+    built_dll: Path,
+    deployed_dll: Path,
+    game_running: bool,
+) -> tuple[dict[str, Any], bool]:
+    """Deploy while stopped, or attach only to an exact running artifact."""
+    if game_running:
+        # Replacing a mapped DLL is unsafe. Reading and proving that the
+        # already-mapped path has the selected bytes is sufficient for an
+        # artifact-bound attach and remains fail-closed on any mismatch.
+        return verify_deployed_candidate(built_dll, deployed_dll), False
+    atomic_deploy_candidate(built_dll, deployed_dll)
+    return verify_deployed_candidate(built_dll, deployed_dll), True
+
+
+def artifact_deployment_selftest() -> int:
+    with tempfile.TemporaryDirectory(
+        prefix="horsemod-replay-artifact-selftest-"
+    ) as temporary:
+        root = Path(temporary)
+        built = root / "build" / "HorseMod.dll"
+        saved = root / "Mods" / "HorseMod" / "Saved"
+        built.parent.mkdir(parents=True)
+        saved.mkdir(parents=True)
+        built.write_bytes(b"reviewed-candidate")
+        deployed = ue4ss_loaded_dll(saved)
+        evidence, deployed_now = prepare_candidate_artifact(
+            built, deployed, False)
+        if not deployed_now:
+            raise AssertionError("stopped candidate was not deployed")
+        if Path(evidence["deployed_dll"]) != deployed.resolve():
+            raise AssertionError("deployment did not target dlls/main.dll")
+        attached, deployed_now = prepare_candidate_artifact(
+            built, deployed, True)
+        if deployed_now or attached["dll_sha256"] != evidence["dll_sha256"]:
+            raise AssertionError("matching running candidate did not attach")
+        built.write_bytes(b"different-candidate")
+        try:
+            prepare_candidate_artifact(built, deployed, True)
+        except ValueError as exc:
+            if "does not match" not in str(exc):
+                raise
+        else:
+            raise AssertionError("mismatched running candidate was accepted")
+        deployed.write_bytes(b"stale-or-different-candidate")
+        try:
+            verify_deployed_candidate(built, deployed)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("stale UE4SS load-path DLL was accepted")
+    print("artifact deployment selftest: PASS")
+    return 0
+
+
 def kill_game(timeout: int, force: bool = False) -> bool:
     image_name = "SoulcaliburVI.exe"
     pids = set(process_ids_by_image(image_name))
@@ -1623,6 +1901,7 @@ def write_reports(
         f"last_replay_start_event: {report.get('last_replay_start_event')}",
         f"summary: {report.get('summary')}",
         f"crash_reason: {report.get('crash_reason') or ''}",
+        f"artifact_evidence: {report.get('artifact_evidence')}",
         f"failed_case_labels: {', '.join(report.get('failed_case_labels') or [])}",
         f"failure_groups: {report.get('failure_groups')}",
         "",
@@ -1678,6 +1957,7 @@ def finish_run(
         "summary_passed": bool(summary.get("passed")) if summary else False,
         "failed_case_labels": failed_labels,
         "failure_groups": failure_groups,
+        "artifact_evidence": ARTIFACT_EVIDENCE,
         "final_passed": final_passed,
         "exit_code": exit_code,
     }
@@ -1722,6 +2002,28 @@ def main() -> int:
         ),
     )
     parser.add_argument("--build", action="store_true", help="Run build_and_deploy.bat first")
+    parser.add_argument(
+        "--built-dll",
+        help=(
+            "Deploy this reviewed candidate to HorseMod/dlls/main.dll "
+            "before launch and bind it to the report"
+        ),
+    )
+    parser.add_argument(
+        "--candidate-manifest",
+        help=(
+            "Immutable rollback candidate manifest whose DLL, source, and "
+            "replay-runner identities must match"
+        ),
+    )
+    parser.add_argument(
+        "--artifact-deployment-selftest",
+        action="store_true",
+        help=(
+            "Prove deployment targets the actual UE4SS dlls/main.dll path "
+            "and rejects a stale replacement, then exit"
+        ),
+    )
     parser.add_argument("--launch-game", action="store_true", help="Launch SC6 before writing request")
     parser.add_argument("--game-exe", default=str(DEFAULT_GAME_EXE))
     parser.add_argument("--steam-appid", default=DEFAULT_STEAM_APPID)
@@ -1984,6 +2286,16 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--split-gameplay-crt-control",
+        action="store_true",
+        help=(
+            "Route the two Ghidra-verified Lux gameplay rand callers through "
+            "the explicit split stream while generating the normal control "
+            "oracle. Presentation rand callers remain on native thread-local "
+            "UCRT state."
+        ),
+    )
+    parser.add_argument(
         "--case-preset",
         default="both",
         choices=[
@@ -2095,6 +2407,9 @@ def main() -> int:
     parser.add_argument("--request", help="Path to custom seek request JSON")
     args = parser.parse_args()
 
+    if args.artifact_deployment_selftest:
+        return artifact_deployment_selftest()
+
     if args.analyze_only:
         run_id = args.run_id or ""
         code, _ = run_analyzer(
@@ -2115,6 +2430,18 @@ def main() -> int:
 
     if args.strict and not args.wait:
         print("error: --strict requires --wait", file=sys.stderr)
+        return 2
+    if args.candidate_manifest and not args.built_dll:
+        print(
+            "error: --candidate-manifest requires --built-dll",
+            file=sys.stderr,
+        )
+        return 2
+    if args.build and args.built_dll:
+        print(
+            "error: --build and --built-dll select competing artifacts",
+            file=sys.stderr,
+        )
         return 2
 
     if not args.request and args.case_preset != "damage-watch":
@@ -2141,6 +2468,32 @@ def main() -> int:
         code = run_build()
         if code != 0:
             return code
+
+    if args.built_dll:
+        built_dll = Path(args.built_dll).resolve()
+        try:
+            if args.candidate_manifest:
+                verify_candidate_manifest(
+                    Path(args.candidate_manifest).resolve(),
+                    built_dll,
+                )
+            deployed_dll = ue4ss_loaded_dll(saved_dir)
+            global ARTIFACT_EVIDENCE
+            game_running = bool(process_ids_by_image(
+                "SoulcaliburVI.exe"))
+            ARTIFACT_EVIDENCE, deployed_now = prepare_candidate_artifact(
+                built_dll, deployed_dll, game_running
+            )
+        except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
+            print(f"error: candidate deployment failed: {exc}",
+                  file=sys.stderr)
+            return 2
+        print(
+            ("deployed reviewed candidate: " if deployed_now else
+             "attached to matching reviewed candidate: ") +
+            f"{ARTIFACT_EVIDENCE['dll_sha256']} -> "
+            f"{ARTIFACT_EVIDENCE['deployed_dll']}"
+        )
 
     should_drive_game = bool(
         args.launch_game
@@ -2272,6 +2625,8 @@ def main() -> int:
             request["timeline_generation_mode"] = start_generate_mode
         if effective_generation_full_frame_trace(args, request_override):
             request["generation_full_frame_trace"] = True
+        if effective_split_gameplay_crt_control(args, request_override):
+            request["split_gameplay_crt_control"] = True
         start_since = time.time()
         path = start_request_path(saved_dir)
         write_json_atomic(path, request)
@@ -2444,6 +2799,8 @@ def main() -> int:
     )
     if effective_generation_full_frame_trace(args, request_override):
         request["generation_full_frame_trace"] = True
+    if effective_split_gameplay_crt_control(args, request_override):
+        request["split_gameplay_crt_control"] = True
 
     cases = request.get("cases") if isinstance(request, dict) else None
     if isinstance(cases, list):

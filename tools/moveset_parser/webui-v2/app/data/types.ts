@@ -24,11 +24,11 @@ export interface Cell {
   role: CellRole;
   class: string;
   damage: number;
-  activeStart: number;
-  activeEnd: number;
+  activeStartCoordinate: number;
+  activeEndCoordinate: number;
   activeFrames: number;
-  onBlock: number;
-  onHitStanding: number;
+  blockStunFrames: number;
+  baseHitStunFrames: number;
   attackFlagsDecoded?: string;
   isBreakAttack?: boolean;
   isGiImmune?: boolean;
@@ -51,18 +51,9 @@ export interface KhdPayload {
   slots: Slot[];
 }
 
-export interface CommunityFrameData {
-  source: "community";
-  startup: number | null;
-  damage: number[];
-  onBlock: string;
-  onHit: string;
-  onCounterHit: string;
-  guardBurst: number | null;
-  notes: string;
-}
-
 export interface MovelistCommandSet {
+  commandSetIndex: number;
+  lane: "primary-fighter" | "paired-opponent" | string;
   mainIndex: number;
   introIndex: number;
   cellIdx: number;
@@ -80,6 +71,8 @@ export interface MovelistInputVariant {
 export interface MovelistMove {
   moveId: number;
   category: number;
+  categoryMemberships?: number[];
+  listingOrders?: number[];
   order: number;
   name: string;
   condition: string;
@@ -91,7 +84,6 @@ export interface MovelistMove {
   isMovementOnly: boolean;
   hasInputAlternatives: boolean;
   inputVariants: MovelistInputVariant[];
-  communityFrame: CommunityFrameData | null;
   isThrowInput: boolean;
   attributeTag: string;
   hitClasses: string[];
@@ -100,6 +92,9 @@ export interface MovelistMove {
   lethalHitCondition: string;
   groupIds?: string[];
   commandSets: MovelistCommandSet[];
+  nativeLink: NativeLink;
+  metrics: PlayerMoveFamilyMetrics;
+  evidence: PlayerMoveMetricEvidence;
 }
 
 export interface MovelistCategory {
@@ -120,51 +115,59 @@ export interface MovelistGroup {
   displayName: string;
 }
 
-export type SourceConfidence =
-  | "runtime-validated"
-  | "community-confirmed"
-  | "native-confirmed"
-  | "mixed-supported"
-  | "native-inferred"
-  | "weak"
-  | "conflict"
-  | "unknown";
+export type SourceConfidence = "game-authored" | "native-confirmed" | "native-inferred" | "unknown";
+export type NativeLinkStatus = "confirmed" | "heuristic" | "ambiguous" | "unresolved";
+export type MetricSource = "game-movelist-table" | "khd-attack-cell" | "khd-static-timeline" | "unknown";
+export type MetricEvidenceStatus = "game-authored" | "native-confirmed" | "native-inferred" | "unknown";
+export type PlayerMoveFamilyRowSource = "game-movelist-table";
 
-export type TimelineStatus =
-  | "resolved"
-  | "partial"
-  | "native-cell-only"
-  | "unresolved";
+export interface NativeLink {
+  status: NativeLinkStatus;
+  resolutions: string[];
+  definitions: Array<{
+    lane: string;
+    mainDefinitionId: number;
+    fallbackDefinitionId: number;
+  }>;
+  slots: number[];
+  cells: number[];
+  attackSlots?: number[];
+  attackCells?: number[];
+  startupTimingStatus?: "resolved" | "unresolved";
+  frameEndpointStatus?: "resolved" | "unresolved";
+  hitSequenceStatus?: "resolved" | "unresolved";
+}
 
-export type PlayerMoveFamilyRowSource =
-  | "community"
-  | "movelist"
-  | "mixed"
-  | "native-inferred";
+export interface MetricEvidence {
+  source: MetricSource;
+  status: MetricEvidenceStatus;
+}
 
 export interface PlayerMoveFamilyMetrics {
   startup: number | null;
   damage: number[];
   block: string | number | null;
   hit: string | number | null;
-  counterHit: string | null;
+  counterHit: string | number | null;
+  guardBurst: number | null;
   hitLevels: string[];
 }
+
+export type PlayerMoveMetricEvidence = Record<keyof PlayerMoveFamilyMetrics, MetricEvidence>;
 
 export interface PlayerMoveFamilyRow {
   id: string;
   displayCommand: string;
   displayName: string;
   context?: string;
+  isThrowInput: boolean;
   source: PlayerMoveFamilyRowSource;
   confidence: SourceConfidence;
   parserMoveOrders: number[];
-  nativeSlots: number[];
-  nativeCells: number[];
+  nativeLink: NativeLink;
   metrics: PlayerMoveFamilyMetrics;
+  evidence: PlayerMoveMetricEvidence;
   notes?: string;
-  guardBurst?: number | null;
-  timelineStatus: TimelineStatus;
 }
 
 export interface PlayerMoveFamilyEdge {
@@ -191,15 +194,14 @@ export interface PlayerMoveFamily {
 }
 
 export interface PlayerMoveSummary {
-  rawMoveRows: number;
+  officialRows: number;
   playerFamilies: number;
   playerRows: number;
-  communityRows: number;
-  communityCoveredParserRows: number;
-  parserFallbackFamilies: number;
-  sourceCounts: Record<string, number>;
-  confidenceCounts: Record<string, number>;
-  timelineStatusCounts: Record<string, number>;
+  nativeLinkedRows: number;
+  nativeUnlinkedRows: number;
+  linkStatusCounts: Record<string, number>;
+  groupingConfidenceCounts: Record<string, number>;
+  metricCoverage: Record<string, number>;
 }
 
 export interface PlayerFamilyStats {
@@ -236,6 +238,7 @@ export interface NativeSummary {
 }
 
 export interface PlayerCharPayload {
+  schemaVersion: 2;
   cid: string;
   name: string;
   kind: CharaKind;
@@ -259,8 +262,7 @@ export interface LookupFamilySummary {
   relations: string[];
   rowCount: number;
   metrics: PlayerFamilyStats;
-  sourceCounts: Record<string, number>;
-  timelineStatusCounts: Record<string, number>;
+  linkStatusCounts: Record<string, number>;
   commandKeys: string[];
   searchText: string;
 }
@@ -280,6 +282,8 @@ export interface RawMovelistRow {
   order: number;
   moveId: number;
   category: number;
+  categoryMemberships?: number[];
+  listingOrders?: number[];
   name: string;
   condition: string;
   input: string;
@@ -294,11 +298,12 @@ export interface RawMovelistRow {
   lethalHitCondition: string;
   groupIds: string[];
   metrics: PlayerMoveFamilyMetrics;
-  nativeSlots: number[];
-  nativeCells: number[];
+  evidence: PlayerMoveMetricEvidence;
+  nativeLink: NativeLink;
 }
 
 export interface RawMovelistPayload {
+  schemaVersion: 2;
   cid: string;
   name: string;
   kind: CharaKind;
@@ -317,6 +322,7 @@ export interface Movelist {
 }
 
 export interface CharData {
+  schemaVersion?: 2;
   cid: string;
   name: string;
   kind: CharaKind;

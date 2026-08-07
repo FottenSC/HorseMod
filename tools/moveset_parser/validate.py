@@ -315,7 +315,11 @@ def run(root: str, verbose: bool = False) -> int:
     for name in sorted(os.listdir(os.path.join(root, "mot"))):
         if name.endswith(".mot"):
             process(os.path.join(root, "mot", name), validate_offset_table, "mot",
-                    expected_min_count=10, expected_max_count=4096, parser=parse_mot)
+                    # Auxiliary chrc*/chrd* banks legitimately contain only
+                    # one to three clips.  Structural validity belongs in
+                    # parse_mot; a guessed content-size floor is not a format
+                    # invariant.
+                    expected_min_count=1, expected_max_count=4096, parser=parse_mot)
 
     print("[3/4] Validating .dtp files...")
     for name in sorted(os.listdir(os.path.join(root, "cpu"))):

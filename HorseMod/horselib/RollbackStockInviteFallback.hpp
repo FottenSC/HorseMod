@@ -1,9 +1,7 @@
 // ============================================================================
-// Horse::RollbackStockInviteFallback
+// Horse::RollbackStockInvite
 //
-// Allocation-free policy for the authenticated Steam invite fallback.  Steam
-// membership is deliberately not a success state: the complete native
-// conversion/delegate/join/transport chain is required.
+// Allocation-free contract for authenticated stock invite injection.
 // ============================================================================
 
 #pragma once
@@ -15,27 +13,33 @@ namespace Horse
 {
     enum class RollbackStockJoinRoute : uint8_t
     {
-        Browser,
-        InviteFallback,
+        InjectedStockInvite,
     };
+
+    static constexpr bool RollbackStockJoinRouteUsesAuthenticatedOffer(
+        RollbackStockJoinRoute route) noexcept
+    {
+        return route == RollbackStockJoinRoute::InjectedStockInvite;
+    }
+
+    static constexpr bool RollbackStockJoinRouteInjectsStockHandler(
+        RollbackStockJoinRoute route) noexcept
+    {
+        return route == RollbackStockJoinRoute::InjectedStockInvite;
+    }
 
     static constexpr const char* RollbackStockJoinRouteName(
         RollbackStockJoinRoute route) noexcept
     {
-        return route == RollbackStockJoinRoute::InviteFallback
-            ? "invite-fallback" : "browser";
+        (void)route;
+        return "injected-stock-invite";
     }
 
     static constexpr RollbackStockJoinRoute
     RollbackStockJoinRouteFromString(const char* value) noexcept
     {
-        if (!value) return RollbackStockJoinRoute::Browser;
-        const char expected[] = "invite-fallback";
-        size_t i = 0;
-        while (expected[i] != '\0' && value[i] == expected[i]) ++i;
-        return expected[i] == '\0' && value[i] == '\0'
-            ? RollbackStockJoinRoute::InviteFallback
-            : RollbackStockJoinRoute::Browser;
+        (void)value;
+        return RollbackStockJoinRoute::InjectedStockInvite;
     }
 
 #pragma pack(push, 1)
@@ -79,116 +83,6 @@ namespace Horse
             reinterpret_cast<const uint8_t*>(&activation_token_hash),
             sizeof(activation_token_hash),
             h);
-    }
-
-    struct RollbackStockInviteEvidence
-    {
-        bool fallback_enabled {false};
-        bool browser_budget_exhausted {false};
-        bool no_presence_budget_exhausted {false};
-        bool peer_alive {false};
-        bool offer_received {false};
-        bool offer_authenticated {false};
-        bool identity_match {false};
-        bool owner_match {false};
-        bool generation_match {false};
-        bool schema_match {false};
-        bool lobby_unchanged {false};
-        bool invite_sent {false};
-        bool lobby_enter_ok {false};
-        bool metadata_requested {false};
-        bool conversion_seen {false};
-        bool conversion_ok {false};
-        bool invite_delegate_dispatched {false};
-        bool native_join_complete {false};
-        bool native_member_join {false};
-        bool named_session_lobby_match {false};
-        bool native_transport_ready {false};
-    };
-
-    struct RollbackStockInviteDecision
-    {
-        bool activate_fallback {false};
-        bool may_send_invite {false};
-        bool may_join_lobby {false};
-        bool native_bridge_complete {false};
-        bool lobby_gate {false};
-        bool battle_gate {false};
-        const char* failure {"invite-fallback-disabled"};
-    };
-
-    static constexpr RollbackStockInviteDecision
-    EvaluateRollbackStockInviteFallback(
-        const RollbackStockInviteEvidence& e) noexcept
-    {
-        RollbackStockInviteDecision out {};
-        if (!e.fallback_enabled) return out;
-        if (!e.browser_budget_exhausted)
-        {
-            out.failure = "browser-budget-not-exhausted";
-            return out;
-        }
-        if (!e.no_presence_budget_exhausted)
-        {
-            out.failure = "no-presence-budget-not-exhausted";
-            return out;
-        }
-        out.activate_fallback = true;
-        if (!e.peer_alive)
-        {
-            out.failure = "peer-lost";
-            return out;
-        }
-        const bool offer_valid = e.offer_received
-            && e.offer_authenticated
-            && e.identity_match
-            && e.owner_match
-            && e.generation_match
-            && e.schema_match
-            && e.lobby_unchanged;
-        out.may_send_invite = offer_valid;
-        out.may_join_lobby = offer_valid && e.invite_sent;
-        if (!offer_valid)
-        {
-            out.failure = "offer-invalid";
-            return out;
-        }
-        if (!e.invite_sent)
-        {
-            out.failure = "invite-not-sent";
-            return out;
-        }
-        if (!e.lobby_enter_ok)
-        {
-            out.failure = "lobby-enter-not-proven";
-            return out;
-        }
-        if (!e.metadata_requested || !e.conversion_seen || !e.conversion_ok)
-        {
-            out.failure = "native-conversion-not-proven";
-            return out;
-        }
-        if (!e.invite_delegate_dispatched)
-        {
-            out.failure = "invite-delegate-not-dispatched";
-            return out;
-        }
-        out.native_bridge_complete = true;
-        if (!e.native_join_complete || !e.native_member_join
-            || !e.named_session_lobby_match)
-        {
-            out.failure = "native-membership-not-ready";
-            return out;
-        }
-        out.lobby_gate = true;
-        if (!e.native_transport_ready)
-        {
-            out.failure = "native-transport-not-ready";
-            return out;
-        }
-        out.battle_gate = true;
-        out.failure = "ok";
-        return out;
     }
 
     class RollbackStockInviteExactlyOnce

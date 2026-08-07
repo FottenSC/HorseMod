@@ -5,8 +5,11 @@ bit layout, which we've broken twice during this project.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from luxformats import parse_khd
 from stackvm import StackVMInstruction, StackVMScript
 from stackvm_emulate import (
     Concrete, VarRef, Unknown,
@@ -16,6 +19,9 @@ from stackvm_emulate import (
     _decode_direction,
     _decode_input_mask,
     _decode_motion_pattern,
+    _decode_direction_condition_mask,
+    _c_div,
+    _c_mod,
     decode_predicate,
     emulate,
 )
@@ -94,17 +100,27 @@ class TestInputMask:
 
 class TestMotionPattern:
     def test_neutral_sentinel(self):
-        assert _decode_motion_pattern(0x8000) == "stick:neutral"
+        assert _decode_motion_pattern(0x8000) == "buttons:none"
 
     def test_any_sentinel(self):
-        assert _decode_motion_pattern(0x8001) == "stick:any"
+        assert _decode_motion_pattern(0x8001) == "buttons:any"
 
     def test_always_true(self):
-        assert _decode_motion_pattern(0x8002) == "stick:*"
+        assert _decode_motion_pattern(0x8002) == "input:*"
 
-    def test_simple_back(self):
-        # REQUIRED-ANY: bit 0x01 = "back" by our convention
-        assert "back" in _decode_motion_pattern(0x0001)
+    def test_low_nibble_uses_abkg_layout(self):
+        assert _decode_motion_pattern(0x0001) == "(any:A)"
+        assert _decode_motion_pattern(0x0F00) == "(A+B+K+G)"
+
+    def test_unresolved_bit_five_stays_explicit(self):
+        assert _decode_motion_pattern(0x0020) == "(any:?bit5)"
+
+    def test_side_direction_mask_has_distinct_layout(self):
+        assert _decode_direction_condition_mask(0x01) == "8"
+        assert _decode_direction_condition_mask(0x02) == "2"
+        assert _decode_direction_condition_mask(0x04) == "6"
+        assert _decode_direction_condition_mask(0x08) == "4"
+        assert _decode_direction_condition_mask(0x09) == "8|4"
 
 
 # ---------------------------------------------------------------------------
@@ -133,28 +149,39 @@ class TestDecodePredicate:
         assert d.kind == "always"
         assert d.text == "(unconditional)"
 
-    def test_button_mask_sub_op_1(self):
-        # sub-op 1: raw button mask test
-        d = decode_predicate(_pred(0x01, 0x0004))  # K button
-        assert d.kind == "buttons"
-        assert d.text == "K"
+    def test_primary_direction_nibble_sub_op_1(self):
+        d = decode_predicate(_pred(0x01, 0x0004))
+        assert d.kind == "direction"
+        assert d.text == "raw-dir:any(8)"
 
     def test_button_indirect(self):
         d = decode_predicate(_pred_indirect(0x01))
         # We can't know the mask, so this should be tagged indirect
         assert d.kind == "indirect"
 
-    def test_multi_arg_input_check_nibble_4(self):
-        # sub-op 0x24 with arg nibble 4 (dwCurrentInputMask check)
-        d = decode_predicate(_pred(0x24, 0x4001))  # 0x4000 nibble + A
-        assert d.kind == "buttons"
-        assert "A" in d.text
+    def test_primary_side_decoded_direction_sequence(self):
+        d = decode_predicate(_pred(0x02, 0x0006, 3, 10))
+        assert d.kind == "direction"
+        assert d.text == "side-dir:4"
 
-    def test_multi_arg_stance_nibble_1(self):
-        # nibble 1 = stance ring 1 check — purely contextual, no buttons
-        d = decode_predicate(_pred(0x24, 0x1008))  # stance1 == 8
-        assert d.kind == "stance"
-        assert "stance1==8" in d.text
+    def test_secondary_exact_direction_forms(self):
+        assert decode_predicate(_pred(0x26, 0x0008)).text == "alt-raw-dir:2"
+        assert decode_predicate(_pred(0x28, 0x0006)).text == "alt-side-dir:4"
+
+    def test_secondary_multi_arg_direction_sources_are_labeled(self):
+        d = decode_predicate(_pred(0x25, 0x3008, 0x2004))
+        assert d.kind == "direction"
+        assert d.text == "alt-dir:any(4)+alt-raw-dir:6"
+
+    def test_multi_arg_raw_direction_nibble_4(self):
+        d = decode_predicate(_pred(0x24, 0x4001))
+        assert d.kind == "direction"
+        assert d.text == "raw-dir:any(4)"
+
+    def test_multi_arg_side_decoded_direction_nibble_1(self):
+        d = decode_predicate(_pred(0x24, 0x1008))
+        assert d.kind == "direction"
+        assert d.text == "side-dir:2"
 
     def test_command_input(self):
         # sub-op 0x2C: command-input system (LuxBattle_EvaluateMoveTransitionConditions)
@@ -163,16 +190,34 @@ class TestDecodePredicate:
         assert "cmd:0x0001" in d.text
 
     def test_motion_check(self):
-        # sub-op 5: motion sequence (history-ring scan)
-        d = decode_predicate(_pred(0x05, 0x8001))  # "any stick"
+        # Sub-op 5 scans compact-input history entry +0x00. Its low nibble
+        # is A/B/K/G, not direction.
+        d = decode_predicate(_pred(0x05, 0x8001))
+        assert d.kind == "buttons"
+        assert d.text == "buttons:any"
+
+    def test_side_direction_mask_check(self):
+        d = decode_predicate(_pred(0x03, 0x0008))
         assert d.kind == "direction"
-        assert "stick:any" in d.text
+        assert d.text == "dir:any(4)"
+
+    def test_multi_arg_direction_sources_use_native_layouts(self):
+        d = decode_predicate(_pred(0x24, 0x3004, 0x1006))
+        assert d.kind == "direction"
+        assert d.text == "dir:any(6)+side-dir:4"
 
     def test_frame_window(self):
         # sub-op 8: active-frame-window test
         d = decode_predicate(_pred(0x08, 5, 12))
         assert d.kind == "frame"
         assert "5" in d.text and "12" in d.text
+
+    def test_orientation_window(self):
+        # Native sub-op 0x13 compares the character's wrapped orientation
+        # against two authored signed-degree bounds. It is not a frame gate.
+        d = decode_predicate(_pred(0x13, -90 & 0xFFFF, 90))
+        assert d.kind == "orientation"
+        assert d.text == "orientation [-90\N{DEGREE SIGN}..90\N{DEGREE SIGN}]"
 
     def test_move_id_check(self):
         # sub-op 0x0E: current move id == arg
@@ -188,6 +233,26 @@ class TestDecodePredicate:
         # Any sub-op not in the known set returns "other" kind
         d = decode_predicate(_pred(0x99))
         assert d.kind == "other"
+
+
+@pytest.mark.needs_dump
+def test_voldo_back_ukemi_routes_head_end_to_e3_and_feet_end_to_e5():
+    bank = parse_khd(Path("E:/myMods/dump/Battle/hdr/hdr005.khd").read_bytes())
+    transitions = emulate(bank.slots[0x76].bytecode, 0x76).transitions
+
+    assert len(transitions) == 2
+    head_end, feet_end = transitions
+    assert head_end.next_move_slot == 0x81
+    assert bank.slots[head_end.next_move_slot].wAnimationIndex_00 == 0x10E3
+    assert head_end.predicate is not None
+    assert [arg.value for arg in head_end.predicate.args if isinstance(arg, Concrete)] == [
+        0x13,
+        0xFFA6,
+        0x005A,
+    ]
+    assert feet_end.next_move_slot == 0x7F
+    assert bank.slots[feet_end.next_move_slot].wAnimationIndex_00 == 0x10E5
+    assert feet_end.predicate is None
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +315,8 @@ class TestEmulator:
         assert t.next_move_ignored_bit_11 is True
 
     def test_predicate_gates_transition(self):
-        # PUSH sub_op=1; PUSH 0x0001 (A button); CALLCOND 0x00 (EvalIf), 2
+        # PUSH sub_op=1; PUSH raw-direction bit 0x0001 (back);
+        # CALLCOND 0x00 (EvalIf), 2
         # JZ skip
         # PUSH 0x456; CALLCOND 0x05 (TransitionAuthor), 1
         script = StackVMScript(bytecode_offset=0, instructions=[
@@ -267,10 +333,10 @@ class TestEmulator:
         assert t.next_move_id_raw == 0x456
         assert t.predicate is not None
         assert t.predicate.sub_opcode == 1
-        # The decoder should classify this as a button press
+        # IF0001 tests the primary raw direction nibble at +0x2164.
         d = decode_predicate(t.predicate)
-        assert d.kind == "buttons"
-        assert d.text == "A"
+        assert d.kind == "direction"
+        assert d.text == "raw-dir:any(4)"
 
     def test_transition_author_resets_last_predicate(self):
         # A second TransitionAuthor without a fresh EvalIf should NOT inherit
@@ -325,3 +391,23 @@ def test_lux_fp16_literal_decode():
     assert _decode_lux_fp16_literal(0) == 0.0
     assert _decode_lux_fp16_literal(0x5640) == pytest.approx(100.0)
     assert _decode_lux_fp16_literal(0xBE00) == pytest.approx(-3.0)
+
+
+def test_signed_division_and_remainder_match_native_c_semantics():
+    assert _c_div(-7, 3) == -2
+    assert _c_mod(-7, 3) == -1
+    assert _c_div(7, -3) == -2
+    assert _c_mod(7, -3) == 1
+    with pytest.raises(ZeroDivisionError):
+        _c_div(1, 0)
+
+
+@pytest.mark.needs_dump
+def test_cfg_emulator_does_not_mix_incompatible_branch_stacks():
+    bank = parse_khd(Path("E:/myMods/dump/Battle/hdr/hdr001.khd").read_bytes())
+    transitions = emulate(bank.slots[281].bytecode, 281).transitions
+    event = next(transition for transition in transitions if transition.source_pc == 0x4C738)
+
+    assert len(event.args) == 5
+    assert isinstance(event.args[3], (VarRef, Unknown))
+    assert not (isinstance(event.args[3], Concrete) and event.args[3].value == 2)

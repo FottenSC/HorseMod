@@ -9,6 +9,7 @@
 
 #include "RollbackStateHash.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -60,6 +61,18 @@ namespace Horse
             for (auto& cursors : header_cursors) cursors.fill(0);
             hash = 0;
         }
+
+        void recycle_for_capture()
+        {
+            ok = false;
+            std::memset(chara, 0, sizeof(chara));
+            std::memset(table_header, 0, sizeof(table_header));
+            std::memset(event_headers, 0, sizeof(event_headers));
+            std::memset(event_payloads, 0, sizeof(event_payloads));
+            std::memset(header_count, 0, sizeof(header_count));
+            std::memset(headers_truncated, 0, sizeof(headers_truncated));
+            hash = 0;
+        }
     };
 
     static inline uint64_t RollbackHashSecondaryEventStackHistory(
@@ -76,37 +89,79 @@ namespace Horse
         h.add_bytes(history.header_count, sizeof(history.header_count));
         h.add_bytes(
             history.headers_truncated, sizeof(history.headers_truncated));
-        for (const auto& cursors : history.header_cursors)
-            h.add_bytes(cursors.data(), cursors.size() * sizeof(uint16_t));
+        for (size_t player = 0; player < 2; ++player)
+        {
+            h.add_bytes(
+                history.header_cursors[player].data(),
+                history.header_count[player] * sizeof(uint16_t));
+        }
         return h.value;
+    }
+
+    static inline void RollbackAddSecondaryEventSlotStateCanonical(
+        RollbackHash& hash,
+        const RollbackSecondaryEventStackHistory& history,
+        size_t player) noexcept
+    {
+        const auto& image = history.bytes[player];
+        for (size_t slot = 0;
+             slot < kRollbackSecondaryEventSlotCount;
+             ++slot)
+        {
+            const size_t offset = slot * kRollbackSecondaryEventSlotBytes;
+            hash.add_bytes(image.data() + offset, 0x08);
+            // +0x08 is a process-local ALuxBattleChara* back-pointer.
+            hash.add_bytes(image.data() + offset + 0x10, 0x08);
+        }
+        hash.add_bytes(
+            image.data() + kRollbackSecondaryEventScalarOffset,
+            kRollbackSecondaryEventScalarBytes);
+    }
+
+    static inline void RollbackAddSecondaryEventCursorCanonical(
+        RollbackHash& hash,
+        const RollbackSecondaryEventStackHistory& history,
+        size_t player) noexcept
+    {
+        hash.add_scalar(history.header_count[player]);
+        hash.add_scalar(history.headers_truncated[player]);
+        hash.add_bytes(
+            history.header_cursors[player].data(),
+            history.header_count[player] * sizeof(uint16_t));
+    }
+
+    static inline uint64_t RollbackHashSecondaryEventSlotStateCanonical(
+        const RollbackSecondaryEventStackHistory& history,
+        size_t player) noexcept
+    {
+        if (!history.ok || player >= 2) return 0;
+        RollbackHash hash {};
+        RollbackAddSecondaryEventSlotStateCanonical(hash, history, player);
+        return hash.value;
+    }
+
+    static inline uint64_t RollbackHashSecondaryEventCursorCanonical(
+        const RollbackSecondaryEventStackHistory& history,
+        size_t player) noexcept
+    {
+        if (!history.ok || player >= 2) return 0;
+        RollbackHash hash {};
+        RollbackAddSecondaryEventCursorCanonical(hash, history, player);
+        return hash.value;
     }
 
     static inline uint64_t RollbackHashSecondaryEventStackCanonical(
         const RollbackSecondaryEventStackHistory& history) noexcept
     {
         if (!history.ok) return 0;
-        RollbackHash h {};
+        RollbackHash hash {};
         for (size_t player = 0; player < 2; ++player)
         {
-            const auto& image = history.bytes[player];
-            for (size_t slot = 0;
-                 slot < kRollbackSecondaryEventSlotCount;
-                 ++slot)
-            {
-                const size_t offset = slot * kRollbackSecondaryEventSlotBytes;
-                h.add_bytes(image.data() + offset, 0x08);
-                // +0x08 is a process-local ALuxBattleChara* back-pointer.
-                h.add_bytes(image.data() + offset + 0x10, 0x08);
-            }
-            h.add_bytes(
-                image.data() + kRollbackSecondaryEventScalarOffset,
-                kRollbackSecondaryEventScalarBytes);
-            h.add_scalar(history.header_count[player]);
-            h.add_scalar(history.headers_truncated[player]);
-            h.add_bytes(
-                history.header_cursors[player].data(),
-                history.header_count[player] * sizeof(uint16_t));
+            RollbackAddSecondaryEventSlotStateCanonical(
+                hash, history, player);
+            RollbackAddSecondaryEventCursorCanonical(
+                hash, history, player);
         }
-        return h.value;
+        return hash.value;
     }
 }

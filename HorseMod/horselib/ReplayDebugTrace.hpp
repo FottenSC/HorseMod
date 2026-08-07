@@ -9,6 +9,7 @@
 #pragma once
 
 #include "NativeBinding.hpp"
+#include "ReplayTraceWriteBuffer.hpp"
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
@@ -398,11 +399,16 @@ namespace Horse
                                  FILE_ATTRIBUTE_NORMAL, nullptr);
             if (m_file == INVALID_HANDLE_VALUE)
                 return disable_open_failed_locked(L"CreateFileW failed");
+            m_last_flush_qpc = 0;
 
             ReplayTraceFields f;
+            LARGE_INTEGER qpc_frequency {};
+            QueryPerformanceFrequency(&qpc_frequency);
             f.string("reason", narrow(reason ? reason : L"manual").c_str())
              .string("mod_root", narrow(root))
              .string("trace_path", narrow(m_current_path))
+             .uinteger("qpc_frequency",
+                       static_cast<uint64_t>(qpc_frequency.QuadPart))
              .boolean("function_map_loaded", m_function_map.loaded())
              .string("function_map_path",
                      narrow(m_function_map.loaded_path()));
@@ -644,11 +650,16 @@ namespace Horse
                                  FILE_ATTRIBUTE_NORMAL, nullptr);
             if (m_file == INVALID_HANDLE_VALUE)
                 return disable_open_failed_locked(L"CreateFileW failed");
+            m_last_flush_qpc = 0;
 
             ReplayTraceFields f;
+            LARGE_INTEGER qpc_frequency {};
+            QueryPerformanceFrequency(&qpc_frequency);
             f.string("reason", narrow(reason ? reason : L"auto"))
              .string("mod_root", narrow(root))
              .string("trace_path", narrow(m_current_path))
+             .uinteger("qpc_frequency",
+                       static_cast<uint64_t>(qpc_frequency.QuadPart))
              .boolean("function_map_loaded", m_function_map.loaded())
              .string("function_map_path",
                      narrow(m_function_map.loaded_path()));
@@ -663,9 +674,11 @@ namespace Horse
         {
             if (m_file != INVALID_HANDLE_VALUE)
             {
+                (void)flush_write_buffer_locked();
                 CloseHandle(m_file);
                 m_file = INVALID_HANDLE_VALUE;
             }
+            m_write_buffer.clear();
         }
 
         void load_function_map_locked() noexcept
@@ -725,10 +738,21 @@ namespace Horse
 
             if (m_file != INVALID_HANDLE_VALUE)
             {
-                DWORD written = 0;
-                (void)WriteFile(m_file, line.data(),
-                                static_cast<DWORD>(line.size()),
-                                &written, nullptr);
+                m_write_buffer.append(line);
+                LARGE_INTEGER frequency {};
+                QueryPerformanceFrequency(&frequency);
+                if (m_write_buffer.should_flush(
+                        qpc.QuadPart, m_last_flush_qpc,
+                        frequency.QuadPart)
+                    && !flush_write_buffer_locked())
+                {
+                    m_enabled.store(false, std::memory_order_release);
+                    CloseHandle(m_file);
+                    m_file = INVALID_HANDLE_VALUE;
+                    m_write_buffer.clear();
+                    RC::Output::send<RC::LogLevel::Warning>(STR(
+                        "[ReplayTrace] disabled - WriteFile failed\n"));
+                }
             }
             if (m_mirror_to_log.load(std::memory_order_acquire))
             {
@@ -736,6 +760,33 @@ namespace Horse
                     "[ReplayTrace] {}\n"),
                     RC::to_generic_string(line));
             }
+        }
+
+        bool flush_write_buffer_locked() noexcept
+        {
+            if (m_file == INVALID_HANDLE_VALUE || m_write_buffer.empty())
+                return true;
+
+            size_t offset = 0;
+            while (offset < m_write_buffer.size())
+            {
+                const size_t remaining = m_write_buffer.size() - offset;
+                const DWORD request = static_cast<DWORD>(std::min<size_t>(
+                    remaining, static_cast<size_t>(MAXDWORD)));
+                DWORD written = 0;
+                if (!WriteFile(m_file, m_write_buffer.data() + offset,
+                               request, &written, nullptr)
+                    || written == 0)
+                {
+                    return false;
+                }
+                offset += written;
+            }
+            m_write_buffer.clear();
+            LARGE_INTEGER qpc {};
+            QueryPerformanceCounter(&qpc);
+            m_last_flush_qpc = qpc.QuadPart;
+            return true;
         }
 
         static uint64_t process_start_marker() noexcept
@@ -765,6 +816,8 @@ namespace Horse
         std::atomic<bool> m_verbose_slices {false};
         mutable std::mutex m_mutex;
         HANDLE m_file {INVALID_HANDLE_VALUE};
+        ReplayTraceWriteBuffer m_write_buffer;
+        int64_t m_last_flush_qpc {0};
         std::wstring m_current_path;
         ReplayFunctionMap m_function_map;
         bool m_function_map_loaded_attempted {false};

@@ -115,13 +115,6 @@ namespace Horse
         static void emit_sidecar_handshake(
             const RollbackSidecarReport& report,
             const RollbackLabConfig& cfg) noexcept;
-        static void emit_direct_connect(
-            const RollbackSidecarReport& report,
-            const RollbackLabConfig& cfg) noexcept;
-        static void emit_direct_correction(
-            const RollbackSidecarReport& sidecar,
-            const RollbackResimWindowReport& resim,
-            const RollbackLabConfig& cfg) noexcept;
         static void emit_live_cache_write(
             const RollbackSidecarReport& sidecar,
             const RollbackLiveOnlineCaptureReport& capture,

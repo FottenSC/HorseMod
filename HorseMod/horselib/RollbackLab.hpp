@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "RollbackBetaConfig.hpp"
 #include "RollbackController.hpp"
 
 #include <DynamicOutput/DynamicOutput.hpp>
@@ -21,6 +22,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <cwchar>
 #include <mutex>
 #include <string>
@@ -52,6 +54,8 @@ namespace Horse
                 has_flag(L"--horsemod-rollback-lab")
                 || has_flag(L"--horsemod-rollback-enable");
             cfg.trace_enabled = has_flag(L"--horsemod-rollback-trace");
+            cfg.native_lifecycle_trace_frame_input_log_only = has_flag(
+                L"--horsemod-rollback-frame-input-log-trace-only");
             if (option_value(L"--horsemod-rollback-case", value))
                 cfg.test_case = rollback_case_from_string(wide_to_utf8(value));
             if (option_value(L"--horsemod-rollback-window", value))
@@ -94,9 +98,19 @@ namespace Horse
                     L"--horsemod-rollback-launch-right-character", value))
                 cfg.launch_right_character_override = parse_i32(
                     value, cfg.launch_right_character_override);
+            if (option_value(
+                    L"--horsemod-rollback-launch-left-character-code", value))
+                cfg.launch_left_character_code_override = wide_to_utf8(value);
+            if (option_value(
+                    L"--horsemod-rollback-launch-right-character-code", value))
+                cfg.launch_right_character_code_override = wide_to_utf8(value);
             if (option_value(L"--horsemod-rollback-launch-stage", value))
                 cfg.launch_stage_override = parse_i32(
                     value, cfg.launch_stage_override);
+            if (option_value(
+                    L"--horsemod-rollback-launch-rounds-to-win", value))
+                cfg.launch_rounds_to_win_override = parse_i32(
+                    value, cfg.launch_rounds_to_win_override);
             if (option_value(
                     L"--horsemod-rollback-lifecycle-mode", value))
             {
@@ -115,6 +129,48 @@ namespace Horse
             if (option_value(L"--horsemod-rollback-input-delay", value))
                 cfg.production.input_delay = static_cast<uint16_t>(
                     parse_u32(value, cfg.production.input_delay));
+            cfg.production.deterministic_input.enabled =
+                has_flag(L"--horsemod-rollback-deterministic-input");
+            if (option_value(
+                    L"--horsemod-rollback-fixture-id", value))
+                cfg.production.deterministic_input.fixture_id = parse_u32(
+                    value, cfg.production.deterministic_input.fixture_id);
+            if (option_value(
+                    L"--horsemod-rollback-correction-start", value))
+                cfg.production.deterministic_input.correction_start =
+                    parse_u32(value,
+                        cfg.production.deterministic_input.correction_start);
+            if (option_value(
+                    L"--horsemod-rollback-hold-updates", value))
+                cfg.production.deterministic_input.hold_updates =
+                    static_cast<uint16_t>(parse_u32(value,
+                        cfg.production.deterministic_input.hold_updates));
+            if (option_value(
+                    L"--horsemod-rollback-prediction-lead", value))
+                cfg.production.deterministic_input.prediction_lead_updates =
+                    static_cast<uint16_t>(parse_u32(value,
+                        cfg.production.deterministic_input
+                            .prediction_lead_updates));
+            cfg.production.replay_input.enabled =
+                has_flag(L"--horsemod-rollback-replay-input");
+            if (option_value(
+                    L"--horsemod-rollback-replay-input-round", value))
+                cfg.production.replay_input.round_index = parse_u32(
+                    value, cfg.production.replay_input.round_index);
+            if (option_value(
+                    L"--horsemod-rollback-replay-input-start", value))
+                cfg.production.replay_input.start_frame = parse_u32(
+                    value, cfg.production.replay_input.start_frame);
+            cfg.production.replay_input.swap_players =
+                has_flag(L"--horsemod-rollback-replay-input-swap-players");
+            if (option_value(
+                    L"--horsemod-rollback-replay-input-sha256", value))
+            {
+                if (!parse_sha256_ascii(
+                        wide_to_utf8(value),
+                        cfg.production.replay_input.file_sha256))
+                    cfg.production.replay_input.file_sha256 = {};
+            }
             if (option_value(
                     L"--horsemod-rollback-network-profile", value))
             {
@@ -149,6 +205,33 @@ namespace Horse
                     parse_u64(value, cfg.live_activation_session_id);
             if (option_value(L"--horsemod-rollback-client-role", value))
                 cfg.client_role = wide_to_utf8(value);
+            if (option_value(
+                    L"--horsemod-rollback-qualification-contract", value))
+                cfg.qualification_contract_version = parse_u32(
+                    value, cfg.qualification_contract_version);
+            if (option_value(
+                    L"--horsemod-rollback-qualification-run", value))
+                cfg.qualification_run_id = wide_to_utf8(value);
+            if (option_value(
+                    L"--horsemod-rollback-qualification-case", value))
+                cfg.qualification_case_id = wide_to_utf8(value);
+            if (option_value(
+                    L"--horsemod-rollback-qualification-segment", value))
+                cfg.qualification_segment_id = wide_to_utf8(value);
+            if (option_value(
+                    L"--horsemod-rollback-qualification-schedule", value))
+                cfg.qualification_schedule_hash = wide_to_utf8(value);
+            if (option_value(
+                    L"--horsemod-rollback-qualification-content", value))
+                cfg.qualification_content_sha256 = wide_to_utf8(value);
+            if (option_value(
+                    L"--horsemod-rollback-qualification-protocol", value))
+                cfg.qualification_protocol_version = parse_u32(
+                    value, cfg.qualification_protocol_version);
+            if (option_value(
+                    L"--horsemod-rollback-qualification-snapshot", value))
+                cfg.qualification_snapshot_version = parse_u32(
+                    value, cfg.qualification_snapshot_version);
             if (option_value(L"--horsemod-rollback-sandbox-root", value))
                 cfg.sandbox_root = wide_to_utf8(value);
             if (option_value(L"--horsemod-rollback-sandbox-box", value))
@@ -171,82 +254,24 @@ namespace Horse
                 cfg.sidecar_remote_addr = wide_to_utf8(value);
             if (option_value(L"--horsemod-rollback-activation-token", value))
                 cfg.activation_token = wide_to_utf8(value);
-            cfg.force_live_prediction_divergence =
-                has_flag(L"--horsemod-rollback-force-live-prediction-divergence");
-            cfg.debug_steam_probe =
-                has_flag(L"--horsemod-rollback-debug-steam-probe");
-            cfg.debug_steam_filter_probe =
-                has_flag(L"--horsemod-rollback-debug-steam-filter-probe");
-            cfg.debug_direct_stage_begin_play =
-                has_flag(L"--horsemod-rollback-debug-direct-stage-begin-play");
             cfg.observe_gameflow_requested =
                 has_flag(L"--horsemod-rollback-observe-gameflow");
             cfg.observe_gameflow_process_events =
                 has_flag(L"--horsemod-rollback-observe-gameflow-process-events");
             if (has_flag(L"--horsemod-rollback-observe-gameflow-no-process-events"))
                 cfg.observe_gameflow_process_events = false;
-            cfg.online_stage_network_check_compat =
-                has_flag(L"--horsemod-rollback-online-stage-network-check-compat");
-            cfg.online_stage_join_complete_compat =
-                has_flag(L"--horsemod-rollback-online-stage-join-complete-compat");
-            cfg.online_stage_transport_ready_compat =
-                has_flag(L"--horsemod-rollback-online-stage-transport-ready-compat");
-            cfg.online_stage_ready_open_compat =
-                has_flag(L"--horsemod-rollback-online-stage-ready-open-compat");
-            cfg.online_stage_peer_route_tag_fix =
-                has_flag(L"--horsemod-rollback-online-stage-peer-route-tag-fix");
-            cfg.online_stage_in_room_transition_compat =
-                has_flag(L"--horsemod-rollback-online-stage-in-room-transition-compat");
-            cfg.online_stage_direct_native_join_diagnostic =
-                has_flag(L"--horsemod-rollback-online-stage-direct-native-join-diagnostic");
             cfg.online_stage_requested =
                 has_flag(L"--horsemod-rollback-online-stage");
-            cfg.online_stage_no_presence_find =
-                has_flag(L"--horsemod-rollback-online-stage-no-presence-find");
             cfg.online_stage_cleanup_only =
                 has_flag(L"--horsemod-rollback-online-stage-cleanup-only");
-            cfg.online_stage_find_only =
-                has_flag(L"--horsemod-rollback-online-stage-find-only");
             cfg.online_stage_wait_host_room_ready_marker =
                 has_flag(L"--horsemod-rollback-online-stage-wait-host-room-ready-marker");
-            cfg.online_stage_diagnostic_reflection =
-                has_flag(L"--horsemod-rollback-online-stage-diagnostic-reflection");
-            cfg.direct_stage_requested =
-                has_flag(L"--horsemod-rollback-direct-stage");
-            cfg.direct_stage_observe_only =
-                has_flag(L"--horsemod-rollback-direct-stage-observe-only");
-            cfg.direct_connect_requested =
-                has_flag(L"--horsemod-rollback-direct-connect");
-            cfg.direct_replay_input_requested =
-                has_flag(L"--horsemod-rollback-direct-replay-input");
-            cfg.direct_correction_requested =
-                has_flag(L"--horsemod-rollback-direct-correction");
             if (option_value(
                     L"--horsemod-rollback-main-user-id-override", value))
                 cfg.online_stage_main_user_id_override =
                     parse_i32(
                         value,
                         cfg.online_stage_main_user_id_override);
-            cfg.live_replay_input_requested =
-                has_flag(L"--horsemod-rollback-live-replay-input");
-            if (option_value(L"--horsemod-rollback-native-session-name", value))
-                cfg.online_stage_native_session_name = wide_to_utf8(value);
-            if (option_value(L"--horsemod-rollback-session-name", value))
-                cfg.online_stage_session_name = wide_to_utf8(value);
-            if (option_value(L"--horsemod-rollback-room-name", value))
-                cfg.online_stage_room_name = wide_to_utf8(value);
-            if (option_value(L"--horsemod-rollback-target-owner-id", value))
-                cfg.online_stage_target_owner_id =
-                    parse_u64(value, cfg.online_stage_target_owner_id);
-            if (option_value(L"--horsemod-rollback-invite-target-id", value))
-                cfg.online_stage_invite_target_id =
-                    parse_u64(value, cfg.online_stage_invite_target_id);
-            if (option_value(L"--horsemod-rollback-join-lobby-id", value))
-                cfg.online_stage_join_lobby_id =
-                    parse_u64(value, cfg.online_stage_join_lobby_id);
-            if (option_value(L"--horsemod-rollback-stock-join-route", value))
-                cfg.stock_join_route = RollbackStockJoinRouteFromString(
-                    wide_to_utf8(value).c_str());
             if (option_value(L"--horsemod-rollback-host-room-ready-marker",
                              value))
                 cfg.online_stage_host_room_ready_marker =
@@ -283,6 +308,18 @@ namespace Horse
 
             if (!cfg.enabled && !cfg.trace_enabled)
             {
+                const std::wstring request_path = request_file_path();
+                if (!request_path.empty()
+                    && GetFileAttributesW(request_path.c_str())
+                        != INVALID_FILE_ATTRIBUTES)
+                {
+                    cfg.source = "default-disabled";
+                    m_controller.configure(std::move(cfg));
+                    consume_request_file();
+                    return;
+                }
+                if (configure_beta_file())
+                    return;
                 cfg.source = "default-disabled";
                 m_controller.configure(std::move(cfg));
                 consume_request_file();
@@ -303,6 +340,11 @@ namespace Horse
         void shutdown() noexcept
         {
             m_controller.shutdown();
+        }
+
+        RollbackModuleUnloadResult prepare_for_module_unload() noexcept
+        {
+            return m_controller.prepare_for_module_unload();
         }
 
         void service_game_thread() noexcept
@@ -451,6 +493,17 @@ namespace Horse
             return root + L"Saved\\rollback_lab_request.txt";
         }
 
+        static std::wstring beta_file_path()
+        {
+            std::wstring root = parent_dir(module_path());
+            if (root.empty()) return {};
+            if (_wcsicmp(leaf_dir(root).c_str(), L"dlls") == 0)
+                root = parent_dir(root);
+            if (root.empty()) return {};
+            if (!root.empty() && root.back() != L'\\') root += L'\\';
+            return root + L"Saved\\rollback_beta.ini";
+        }
+
         static std::string trim_ascii(std::string s)
         {
             auto is_space = [](unsigned char c) {
@@ -549,9 +602,12 @@ namespace Horse
 
         static bool read_text_file(
             const std::wstring& path,
-            std::string& out)
+            std::string& out,
+            size_t limit = 16384,
+            bool* too_large = nullptr)
         {
             out.clear();
+            if (too_large) *too_large = false;
             FILE* f = nullptr;
             if (_wfopen_s(&f, path.c_str(), L"rb") != 0 || !f)
                 return false;
@@ -565,14 +621,114 @@ namespace Horse
             } file_guard {f};
             char buf[4096];
             size_t total = 0;
-            while (!std::feof(f) && total < 16384)
+            while (!std::feof(f))
             {
-                const size_t n = std::fread(buf, 1, sizeof(buf), f);
+                const size_t remaining =
+                    total <= limit ? limit - total : 0;
+                const size_t request =
+                    (std::min)(sizeof(buf), remaining + 1);
+                const size_t n = std::fread(buf, 1, request, f);
                 if (n == 0) break;
                 out.append(buf, n);
                 total += n;
+                if (total > limit)
+                {
+                    out.clear();
+                    if (too_large) *too_large = true;
+                    return false;
+                }
             }
-            return !out.empty();
+            return !out.empty() && std::ferror(f) == 0;
+        }
+
+        bool configure_beta_file() noexcept
+        {
+            try
+            {
+                const std::wstring path = beta_file_path();
+                if (path.empty()
+                    || GetFileAttributesW(path.c_str())
+                        == INVALID_FILE_ATTRIBUTES)
+                    return false;
+                std::string text;
+                bool too_large = false;
+                if (!read_text_file(path, text, 16384, &too_large))
+                {
+                    m_controller.reject_configuration_failure(
+                        too_large
+                            ? "beta-config-too-large"
+                            : "beta-config-read-failed");
+                    return true;
+                }
+                RollbackBetaConfig beta {};
+                if (!ParseRollbackBetaConfig(text, beta))
+                {
+                    if (std::strcmp(
+                            beta.failure, "beta-config-disabled") == 0)
+                    {
+                        RollbackLabConfig disabled {};
+                        disabled.source = "beta-config-disabled";
+                        m_controller.configure(std::move(disabled));
+                    }
+                    else
+                    {
+                        m_controller.reject_configuration_failure(
+                            beta.failure);
+                    }
+                    return true;
+                }
+
+                RollbackLabConfig cfg {};
+                cfg.enabled = true;
+                cfg.trace_enabled = beta.trace;
+                cfg.test_case = RollbackLabCase::Production;
+                cfg.rollback_window = beta.rollback_window;
+                cfg.client_role =
+                    beta.transport == RollbackBetaTransport::SteamP2P
+                    ? "steam" : RollbackBetaRoleName(beta.role);
+                cfg.request_id =
+                    beta.config_version == kRollbackBetaConfigVersion
+                    ? "rollback-beta-v2" : "rollback-beta-v1";
+                cfg.request_generation = 1;
+                cfg.source = "beta-config";
+                cfg.production.enabled = true;
+                cfg.production.transport_mode =
+                    beta.transport == RollbackBetaTransport::SteamP2P
+                    ? RollbackTransportMode::SteamP2P
+                    : RollbackTransportMode::DirectUdp;
+                cfg.production.bind_address = beta.bind_address;
+                cfg.production.bind_port = beta.bind_port;
+                cfg.production.peer_address = beta.peer_address;
+                cfg.production.peer_port = beta.peer_port;
+                if (beta.transport != RollbackBetaTransport::SteamP2P)
+                {
+                    cfg.production.local_player_slot =
+                        beta.local_player_slot();
+                    cfg.production.native_input_source_slot =
+                        beta.local_player_slot();
+                    cfg.production.local_peer = beta.local_peer();
+                    cfg.production.remote_peer = beta.remote_peer();
+                }
+                cfg.production.lifecycle_mode =
+                    RollbackLifecycleMode::StockOnlinePvp;
+                cfg.production.session_domain =
+                    RollbackSessionDomain::Production;
+                cfg.production.secret = beta.secret;
+                cfg.production.input_delay = beta.input_delay;
+                cfg.production.bind_observed_stock_selection = true;
+                cfg.production.network_profile =
+                    RollbackNetworkProfileKind::Clean0ms;
+                if (cfg.trace_enabled)
+                    ReplayDebugTrace::instance().set_enabled(true);
+                m_controller.configure(std::move(cfg));
+                return true;
+            }
+            catch (...)
+            {
+                m_controller.reject_configuration_failure(
+                    "beta-config-allocation-failed");
+                return true;
+            }
         }
 
         void consume_request_file() noexcept
@@ -622,6 +778,11 @@ namespace Horse
                 else if (key == "trace")
                     cfg.trace_enabled =
                         parse_bool_string(value, cfg.trace_enabled);
+                else if (key == "frame_input_log_trace_only")
+                    cfg.native_lifecycle_trace_frame_input_log_only =
+                        parse_bool_string(
+                            value,
+                            cfg.native_lifecycle_trace_frame_input_log_only);
                 else if (key == "case")
                     cfg.test_case = rollback_case_from_string(value);
                 else if (key == "window")
@@ -632,6 +793,21 @@ namespace Horse
                 else if (key == "production_enabled")
                     cfg.production.enabled = parse_bool_string(
                         value, cfg.production.enabled);
+                else if (key == "production_transport")
+                {
+                    const std::string transport = lower_ascii(value);
+                    cfg.production.transport_mode =
+                        transport == "steam-p2p"
+                        ? RollbackTransportMode::SteamP2P
+                        : (transport == "direct-udp"
+                            ? RollbackTransportMode::DirectUdp
+                            : static_cast<RollbackTransportMode>(0xFF));
+                }
+                else if (key == "diagnostic_logical_release_only")
+                    cfg.production_logical_release_only =
+                        parse_bool_string(
+                            value,
+                            cfg.production_logical_release_only);
                 else if (key == "replay_fork")
                     cfg.replay_fork_requested = parse_bool_string(
                         value, cfg.replay_fork_requested);
@@ -658,15 +834,30 @@ namespace Horse
                     cfg.production.lifecycle_mode =
                         rollback_lifecycle_mode_from_string(
                             lower_ascii(value));
+                else if (key == "bind_observed_stock_selection")
+                    cfg.production.bind_observed_stock_selection =
+                        parse_bool_string(value,
+                            cfg.production.bind_observed_stock_selection);
+                else if (key == "replay_test_selection_override")
+                    cfg.production.replay_test_selection_override =
+                        parse_bool_string(value,
+                            cfg.production.replay_test_selection_override);
                 else if (key == "launch_left_character")
                     cfg.launch_left_character_override = parse_i32_ascii(
                         value, cfg.launch_left_character_override);
                 else if (key == "launch_right_character")
                     cfg.launch_right_character_override = parse_i32_ascii(
                         value, cfg.launch_right_character_override);
+                else if (key == "launch_left_character_code")
+                    cfg.launch_left_character_code_override = value;
+                else if (key == "launch_right_character_code")
+                    cfg.launch_right_character_code_override = value;
                 else if (key == "launch_stage")
                     cfg.launch_stage_override = parse_i32_ascii(
                         value, cfg.launch_stage_override);
+                else if (key == "launch_rounds_to_win")
+                    cfg.launch_rounds_to_win_override = parse_i32_ascii(
+                        value, cfg.launch_rounds_to_win_override);
                 else if (key == "production_local_peer")
                     cfg.production.local_peer = static_cast<uint8_t>(
                         parse_u32_ascii(value, cfg.production.local_peer));
@@ -678,6 +869,125 @@ namespace Horse
                 else if (key == "input_delay")
                     cfg.production.input_delay = static_cast<uint16_t>(
                         parse_u32_ascii(value, cfg.production.input_delay));
+                else if (key == "deterministic_input_enabled")
+                    cfg.production.deterministic_input.enabled =
+                        parse_bool_string(value,
+                            cfg.production.deterministic_input.enabled);
+                else if (key == "fixture_id")
+                    cfg.production.deterministic_input.fixture_id =
+                        parse_u32_ascii(value,
+                            cfg.production.deterministic_input.fixture_id);
+                else if (key == "correction_start")
+                    cfg.production.deterministic_input.correction_start =
+                        parse_u32_ascii(value,
+                            cfg.production.deterministic_input.correction_start);
+                else if (key == "hold_updates")
+                    cfg.production.deterministic_input.hold_updates =
+                        static_cast<uint16_t>(parse_u32_ascii(value,
+                            cfg.production.deterministic_input.hold_updates));
+                else if (key == "prediction_lead_updates")
+                    cfg.production.deterministic_input
+                        .prediction_lead_updates = static_cast<uint16_t>(
+                            parse_u32_ascii(value,
+                                cfg.production.deterministic_input
+                                    .prediction_lead_updates));
+                else if (key == "replay_input_enabled")
+                    cfg.production.replay_input.enabled = parse_bool_string(
+                        value, cfg.production.replay_input.enabled);
+                else if (key == "replay_input_file")
+                    cfg.replay_input_file = value;
+                else if (key == "replay_input_round")
+                    cfg.production.replay_input.round_index =
+                        parse_u32_ascii(
+                            value, cfg.production.replay_input.round_index);
+                else if (key == "replay_input_start_frame")
+                    cfg.production.replay_input.start_frame =
+                        parse_u32_ascii(
+                            value, cfg.production.replay_input.start_frame);
+                else if (key == "replay_input_random_seed")
+                    cfg.production.replay_input.replay_random_seed =
+                        parse_u32_ascii(
+                            value,
+                            cfg.production.replay_input.replay_random_seed);
+                else if (key == "replay_input_round_start_frames")
+                {
+                    auto& replay = cfg.production.replay_input;
+                    replay.round_start_frames.fill(0);
+                    replay.round_start_count = 0;
+                    size_t cursor = 0;
+                    while (cursor < value.size()
+                        && replay.round_start_count
+                            < replay.round_start_frames.size())
+                    {
+                        const size_t comma = value.find(',', cursor);
+                        const std::string token = value.substr(
+                            cursor,
+                            comma == std::string::npos
+                                ? std::string::npos : comma - cursor);
+                        if (token.empty())
+                        {
+                            replay.round_start_count = 0;
+                            break;
+                        }
+                        const uint32_t parsed = parse_u32_ascii(
+                            token, UINT32_MAX);
+                        if (parsed > UINT16_MAX)
+                        {
+                            replay.round_start_count = 0;
+                            break;
+                        }
+                        replay.round_start_frames[
+                            replay.round_start_count++] =
+                            static_cast<uint16_t>(parsed);
+                        if (comma == std::string::npos) break;
+                        cursor = comma + 1;
+                    }
+                }
+                else if (key == "replay_input_round_frames")
+                    cfg.production.replay_input.round_frame_count =
+                        parse_u32_ascii(value,
+                            cfg.production.replay_input.round_frame_count);
+                else if (key == "replay_input_hash_p0")
+                    cfg.production.replay_input.round_input_hash[0] =
+                        parse_u64_ascii(value,
+                            cfg.production.replay_input.round_input_hash[0]);
+                else if (key == "replay_input_hash_p1")
+                    cfg.production.replay_input.round_input_hash[1] =
+                        parse_u64_ascii(value,
+                            cfg.production.replay_input.round_input_hash[1]);
+                else if (key == "replay_input_swap_players")
+                    cfg.production.replay_input.swap_players =
+                        parse_bool_string(
+                            value, cfg.production.replay_input.swap_players);
+                else if (key == "replay_input_exact_delay_alignment")
+                    cfg.production.replay_input.alignment =
+                        parse_bool_string(value, true)
+                        ? RollbackReplayInputAlignment::ExactConsumedFrame
+                        : static_cast<RollbackReplayInputAlignment>(0xFF);
+                else if (key == "replay_trace_compare")
+                    cfg.production.replay_trace_compare =
+                        parse_bool_string(
+                            value, cfg.production.replay_trace_compare);
+                else if (key == "replay_deep_trace_diagnostics")
+                    cfg.production.replay_deep_trace_diagnostics =
+                        parse_bool_string(
+                            value,
+                            cfg.production.replay_deep_trace_diagnostics);
+                else if (key == "callback_inventory_only")
+                    cfg.production.callback_inventory_only =
+                        parse_bool_string(
+                            value, cfg.production.callback_inventory_only);
+                else if (key == "native_correction_only")
+                    cfg.production.native_correction_only =
+                        parse_bool_string(
+                            value, cfg.production.native_correction_only);
+                else if (key == "replay_input_sha256")
+                {
+                    if (!parse_sha256_ascii(
+                            value,
+                            cfg.production.replay_input.file_sha256))
+                        cfg.production.replay_input.file_sha256 = {};
+                }
                 else if (key == "network_profile")
                 {
                     RollbackNetworkProfileKind profile {};
@@ -690,6 +1000,35 @@ namespace Horse
                 else if (key == "fault_seed")
                     cfg.production.fault_seed = static_cast<uint32_t>(
                         parse_u64_ascii(value, cfg.production.fault_seed));
+                else if (key == "qualification_contract_version")
+                    cfg.qualification_contract_version = parse_u32_ascii(
+                        value, cfg.qualification_contract_version);
+                else if (key == "qualification_run_id")
+                    cfg.qualification_run_id = value;
+                else if (key == "qualification_case_id")
+                    cfg.qualification_case_id = value;
+                else if (key == "qualification_segment_id")
+                    cfg.qualification_segment_id = value;
+                else if (key == "qualification_schedule_hash")
+                    cfg.qualification_schedule_hash = value;
+                else if (key == "qualification_content_sha256")
+                    cfg.qualification_content_sha256 = value;
+                else if (key == "qualification_protocol_version")
+                    cfg.qualification_protocol_version = parse_u32_ascii(
+                        value, cfg.qualification_protocol_version);
+                else if (key == "qualification_snapshot_version")
+                    cfg.qualification_snapshot_version = parse_u32_ascii(
+                        value, cfg.qualification_snapshot_version);
+                else if (key == "test_worker_stall_after_ms")
+                    cfg.production.test_worker_stall_after_ms =
+                        parse_u32_ascii(
+                            value,
+                            cfg.production.test_worker_stall_after_ms);
+                else if (key == "test_worker_stall_duration_ms")
+                    cfg.production.test_worker_stall_duration_ms =
+                        parse_u32_ascii(
+                            value,
+                            cfg.production.test_worker_stall_duration_ms);
                 else if (key == "expected_build_id")
                     cfg.production.expected_build_id = parse_u64_ascii(
                         value, cfg.production.expected_build_id);
@@ -763,21 +1102,6 @@ namespace Horse
                     cfg.sidecar_remote_addr = value;
                 else if (key == "activation_token")
                     cfg.activation_token = value;
-                else if (key == "force_live_prediction_divergence")
-                    cfg.force_live_prediction_divergence =
-                        parse_bool_string(
-                            value, cfg.force_live_prediction_divergence);
-                else if (key == "debug_steam_probe")
-                    cfg.debug_steam_probe =
-                        parse_bool_string(value, cfg.debug_steam_probe);
-                else if (key == "debug_steam_filter_probe")
-                    cfg.debug_steam_filter_probe =
-                        parse_bool_string(
-                            value, cfg.debug_steam_filter_probe);
-                else if (key == "debug_direct_stage_begin_play")
-                    cfg.debug_direct_stage_begin_play =
-                        parse_bool_string(
-                            value, cfg.debug_direct_stage_begin_play);
                 else if (key == "observe_gameflow")
                     cfg.observe_gameflow_requested =
                         parse_bool_string(
@@ -787,122 +1111,27 @@ namespace Horse
                         parse_bool_string(
                             value,
                             cfg.observe_gameflow_process_events);
-                else if (key == "online_stage_network_check_compat")
-                    cfg.online_stage_network_check_compat =
-                        parse_bool_string(
-                            value,
-                            cfg.online_stage_network_check_compat);
-                else if (key == "online_stage_join_complete_compat")
-                    cfg.online_stage_join_complete_compat =
-                        parse_bool_string(
-                            value,
-                            cfg.online_stage_join_complete_compat);
-                else if (key == "online_stage_transport_ready_compat")
-                    cfg.online_stage_transport_ready_compat =
-                        parse_bool_string(
-                            value,
-                            cfg.online_stage_transport_ready_compat);
-                else if (key == "online_stage_ready_open_compat")
-                    cfg.online_stage_ready_open_compat =
-                        parse_bool_string(
-                            value,
-                            cfg.online_stage_ready_open_compat);
-                else if (key == "online_stage_peer_route_tag_fix")
-                    cfg.online_stage_peer_route_tag_fix =
-                        parse_bool_string(
-                            value,
-                            cfg.online_stage_peer_route_tag_fix);
-                else if (key == "online_stage_in_room_transition_compat")
-                    cfg.online_stage_in_room_transition_compat =
-                        parse_bool_string(
-                            value,
-                            cfg.online_stage_in_room_transition_compat);
-                else if (key == "online_stage_direct_native_join_diagnostic")
-                    cfg.online_stage_direct_native_join_diagnostic =
-                        parse_bool_string(
-                            value,
-                            cfg.online_stage_direct_native_join_diagnostic);
                 else if (key == "online_stage")
                     cfg.online_stage_requested =
                         parse_bool_string(value, cfg.online_stage_requested);
-                else if (key == "online_stage_no_presence_find")
-                    cfg.online_stage_no_presence_find =
-                        parse_bool_string(
-                            value, cfg.online_stage_no_presence_find);
                 else if (key == "online_stage_cleanup_only")
                     cfg.online_stage_cleanup_only =
                         parse_bool_string(
                             value, cfg.online_stage_cleanup_only);
-                else if (key == "online_stage_find_only")
-                    cfg.online_stage_find_only =
-                        parse_bool_string(value,
-                                          cfg.online_stage_find_only);
                 else if (key == "online_stage_wait_host_room_ready_marker")
                     cfg.online_stage_wait_host_room_ready_marker =
                         parse_bool_string(
                             value,
                             cfg.online_stage_wait_host_room_ready_marker);
-                else if (key == "online_stage_diagnostic_reflection")
-                    cfg.online_stage_diagnostic_reflection =
-                        parse_bool_string(
-                            value,
-                            cfg.online_stage_diagnostic_reflection);
-                else if (key == "direct_stage")
-                    cfg.direct_stage_requested =
-                        parse_bool_string(value,
-                                          cfg.direct_stage_requested);
-                else if (key == "direct_stage_observe_only")
-                    cfg.direct_stage_observe_only =
-                        parse_bool_string(value,
-                                          cfg.direct_stage_observe_only);
-                else if (key == "direct_connect")
-                    cfg.direct_connect_requested =
-                        parse_bool_string(value,
-                                          cfg.direct_connect_requested);
-                else if (key == "direct_replay_input")
-                    cfg.direct_replay_input_requested =
-                        parse_bool_string(
-                            value, cfg.direct_replay_input_requested);
-                else if (key == "direct_correction")
-                    cfg.direct_correction_requested =
-                        parse_bool_string(
-                            value, cfg.direct_correction_requested);
                 else if (key == "online_stage_main_user_id_override")
                     cfg.online_stage_main_user_id_override =
                         parse_i32_ascii(
                             value,
                             cfg.online_stage_main_user_id_override);
-                else if (key == "online_stage_native_session_name")
-                    cfg.online_stage_native_session_name = value;
-                else if (key == "online_stage_session_name")
-                    cfg.online_stage_session_name = value;
-                else if (key == "online_stage_room_name")
-                    cfg.online_stage_room_name = value;
-                else if (key == "online_stage_target_owner_id")
-                    cfg.online_stage_target_owner_id =
-                        parse_u64_ascii(value,
-                                        cfg.online_stage_target_owner_id);
-                else if (key == "online_stage_invite_target_id")
-                    cfg.online_stage_invite_target_id =
-                        parse_u64_ascii(value,
-                                        cfg.online_stage_invite_target_id);
-                else if (key == "online_stage_join_lobby_id")
-                    cfg.online_stage_join_lobby_id =
-                        parse_u64_ascii(value,
-                                        cfg.online_stage_join_lobby_id);
-                else if (key == "stock_join_route")
-                    cfg.stock_join_route =
-                        RollbackStockJoinRouteFromString(value.c_str());
                 else if (key == "online_stage_host_room_ready_marker")
                     cfg.online_stage_host_room_ready_marker = value;
                 else if (key == "online_stage_goal")
                     cfg.online_stage_goal = value;
-                else if (key == "live_replay_input")
-                    cfg.live_replay_input_requested =
-                        parse_bool_string(
-                            value, cfg.live_replay_input_requested);
-                else if (key == "replay_input_file")
-                    cfg.replay_input_file = value;
                 else if (key == "main_menu_player_match_route")
                     cfg.main_menu_player_match_route = value;
                 else if (key == "local_replay_player")
@@ -1056,6 +1285,12 @@ namespace Horse
          .string("network_profile",
                  RollbackNetworkProfileName(
                      cfg.production.network_profile))
+         .boolean("callback_inventory_only",
+                  cfg.production.callback_inventory_only)
+         .boolean("native_correction_only",
+                  cfg.production.native_correction_only)
+         .boolean("diagnostic_logical_release_only",
+                  cfg.production_logical_release_only)
          .hex("fault_seed", cfg.production.fault_seed)
          .boolean("live_activation_operator_enable",
                   cfg.live_activation_operator_enable)
@@ -1081,70 +1316,22 @@ namespace Horse
          .string("sidecar_remote_addr", cfg.sidecar_remote_addr)
          .hex("activation_token_hash",
               RollbackSidecarTokenHash(cfg.activation_token))
-         .boolean("force_live_prediction_divergence",
-                  cfg.force_live_prediction_divergence)
-         .boolean("debug_steam_probe", cfg.debug_steam_probe)
-         .boolean("debug_steam_filter_probe",
-                  cfg.debug_steam_filter_probe)
-         .boolean("debug_direct_stage_begin_play",
-                  cfg.debug_direct_stage_begin_play)
          .boolean("observe_gameflow_requested",
                   cfg.observe_gameflow_requested)
          .boolean("observe_gameflow_process_events",
                   cfg.observe_gameflow_process_events)
-         .boolean("online_stage_network_check_compat",
-                  cfg.online_stage_network_check_compat)
-         .boolean("online_stage_join_complete_compat",
-                  cfg.online_stage_join_complete_compat)
-         .boolean("online_stage_transport_ready_compat",
-                  cfg.online_stage_transport_ready_compat)
-         .boolean("online_stage_ready_open_compat",
-                  cfg.online_stage_ready_open_compat)
-         .boolean("online_stage_peer_route_tag_fix",
-                  cfg.online_stage_peer_route_tag_fix)
-         .boolean("online_stage_in_room_transition_compat",
-                  cfg.online_stage_in_room_transition_compat)
-         .boolean("online_stage_direct_native_join_diagnostic",
-                  cfg.online_stage_direct_native_join_diagnostic)
          .boolean("online_stage_requested", cfg.online_stage_requested)
-         .boolean("online_stage_no_presence_find",
-                  cfg.online_stage_no_presence_find)
          .boolean("online_stage_cleanup_only",
                   cfg.online_stage_cleanup_only)
-         .boolean("online_stage_find_only", cfg.online_stage_find_only)
          .boolean("online_stage_wait_host_room_ready_marker",
                   cfg.online_stage_wait_host_room_ready_marker)
-         .boolean("online_stage_diagnostic_reflection",
-                  cfg.online_stage_diagnostic_reflection)
-         .boolean("direct_stage_requested", cfg.direct_stage_requested)
-         .boolean("direct_stage_observe_only",
-                  cfg.direct_stage_observe_only)
-         .boolean("direct_connect_requested", cfg.direct_connect_requested)
-         .boolean("direct_replay_input_requested",
-                  cfg.direct_replay_input_requested)
-         .boolean("direct_correction_requested",
-                  cfg.direct_correction_requested)
          .integer("online_stage_main_user_id_override",
                   cfg.online_stage_main_user_id_override)
-         .boolean("live_replay_input_requested",
-                  cfg.live_replay_input_requested)
-         .string("online_stage_native_session_name",
-                 cfg.online_stage_native_session_name)
-         .string("online_stage_session_name",
-                 cfg.online_stage_session_name)
-         .string("online_stage_room_name", cfg.online_stage_room_name)
-         .hex("online_stage_target_owner_id",
-              cfg.online_stage_target_owner_id)
-         .hex("online_stage_invite_target_id",
-              cfg.online_stage_invite_target_id)
-         .hex("online_stage_join_lobby_id",
-              cfg.online_stage_join_lobby_id)
          .string("stock_join_route",
                  RollbackStockJoinRouteName(cfg.stock_join_route))
          .string("online_stage_host_room_ready_marker",
                  cfg.online_stage_host_room_ready_marker)
          .string("online_stage_goal", cfg.online_stage_goal)
-         .string("replay_input_file", cfg.replay_input_file)
          .string("main_menu_player_match_route",
                  cfg.main_menu_player_match_route)
          .uinteger("local_replay_player",
@@ -1256,70 +1443,22 @@ namespace Horse
          .hex("activation_token_hash",
               RollbackSidecarTokenHash(cfg.activation_token))
          .boolean("sidecar_requested", cfg.sidecar_requested())
-         .boolean("force_live_prediction_divergence",
-                  cfg.force_live_prediction_divergence)
-         .boolean("debug_steam_probe", cfg.debug_steam_probe)
-         .boolean("debug_steam_filter_probe",
-                  cfg.debug_steam_filter_probe)
-         .boolean("debug_direct_stage_begin_play",
-                  cfg.debug_direct_stage_begin_play)
          .boolean("observe_gameflow_requested",
                   cfg.observe_gameflow_requested)
          .boolean("observe_gameflow_process_events",
                   cfg.observe_gameflow_process_events)
-         .boolean("online_stage_network_check_compat",
-                  cfg.online_stage_network_check_compat)
-         .boolean("online_stage_join_complete_compat",
-                  cfg.online_stage_join_complete_compat)
-         .boolean("online_stage_transport_ready_compat",
-                  cfg.online_stage_transport_ready_compat)
-         .boolean("online_stage_ready_open_compat",
-                  cfg.online_stage_ready_open_compat)
-         .boolean("online_stage_peer_route_tag_fix",
-                  cfg.online_stage_peer_route_tag_fix)
-         .boolean("online_stage_in_room_transition_compat",
-                  cfg.online_stage_in_room_transition_compat)
-         .boolean("online_stage_direct_native_join_diagnostic",
-                  cfg.online_stage_direct_native_join_diagnostic)
          .boolean("online_stage_requested", cfg.online_stage_requested)
-         .boolean("online_stage_no_presence_find",
-                  cfg.online_stage_no_presence_find)
          .boolean("online_stage_cleanup_only",
                   cfg.online_stage_cleanup_only)
-         .boolean("online_stage_find_only", cfg.online_stage_find_only)
          .boolean("online_stage_wait_host_room_ready_marker",
                   cfg.online_stage_wait_host_room_ready_marker)
-         .boolean("online_stage_diagnostic_reflection",
-                  cfg.online_stage_diagnostic_reflection)
-         .boolean("direct_stage_requested", cfg.direct_stage_requested)
-         .boolean("direct_stage_observe_only",
-                  cfg.direct_stage_observe_only)
-         .boolean("direct_connect_requested", cfg.direct_connect_requested)
-         .boolean("direct_replay_input_requested",
-                  cfg.direct_replay_input_requested)
-         .boolean("direct_correction_requested",
-                  cfg.direct_correction_requested)
          .integer("online_stage_main_user_id_override",
                   cfg.online_stage_main_user_id_override)
-         .boolean("live_replay_input_requested",
-                  cfg.live_replay_input_requested)
-         .string("online_stage_native_session_name",
-                 cfg.online_stage_native_session_name)
-         .string("online_stage_session_name",
-                 cfg.online_stage_session_name)
-         .string("online_stage_room_name", cfg.online_stage_room_name)
-         .hex("online_stage_target_owner_id",
-              cfg.online_stage_target_owner_id)
-         .hex("online_stage_invite_target_id",
-              cfg.online_stage_invite_target_id)
-         .hex("online_stage_join_lobby_id",
-              cfg.online_stage_join_lobby_id)
          .string("stock_join_route",
                  RollbackStockJoinRouteName(cfg.stock_join_route))
          .string("online_stage_host_room_ready_marker",
                  cfg.online_stage_host_room_ready_marker)
          .string("online_stage_goal", cfg.online_stage_goal)
-         .string("replay_input_file", cfg.replay_input_file)
          .uinteger("local_replay_player",
                    static_cast<uint64_t>(cfg.local_replay_player))
          .uinteger("remote_replay_player",
@@ -3738,246 +3877,6 @@ namespace Horse
             report.packets_rejected,
             RC::to_generic_string(std::string(
                 report.failure ? report.failure : "?")));
-    }
-
-    inline void RollbackDiag::emit_direct_connect(
-        const RollbackSidecarReport& report,
-        const RollbackLabConfig& cfg) noexcept
-    {
-        const bool ok =
-            report.enabled
-            && report.bound_loopback
-            && report.validated_peer
-            && report.direct_input_enabled
-            && report.sent_direct_input
-            && report.received_direct_input
-            && report.validated_direct_input
-            && report.direct_payload_hash_valid
-            && report.udp_connreset_disabled
-            && report.sendto_error == 0
-            && report.recvfrom_error == 0
-            && report.direct_packets_rejected == 0
-            && report.remote_frame_count > 0
-            && report.remote_input_hash
-                   == report.expected_remote_input_hash;
-        ReplayTraceFields f;
-        f.boolean("ok", ok)
-         .string("case", rollback_case_name(cfg.test_case))
-         .string("request_id", cfg.request_id)
-         .string("client_role", cfg.client_role)
-         .string("proof_source", "horse-direct-loopback-sidecar")
-         .boolean("steam_stage_bypassed", true)
-          .boolean("sidecar_ready", report.validated_peer)
-          .boolean("udp_connreset_disabled",
-                   report.udp_connreset_disabled)
-          .boolean("direct_input_enabled", report.direct_input_enabled)
-         .boolean("sent_direct_input", report.sent_direct_input)
-         .boolean("received_direct_input", report.received_direct_input)
-         .boolean("validated_direct_input",
-                  report.validated_direct_input)
-         .boolean("direct_payload_hash_valid",
-                  report.direct_payload_hash_valid)
-         .uinteger("local_peer_id", report.local_peer)
-         .uinteger("remote_peer_id", report.remote_peer)
-         .hex("session_id", report.session_id)
-         .uinteger("sidecar_local_port", report.local_port)
-         .uinteger("sidecar_remote_port", report.remote_port)
-         .uinteger("local_replay_player", report.local_replay_player)
-         .uinteger("remote_replay_player", report.remote_replay_player)
-         .uinteger("local_direct_sequence",
-                   report.local_direct_sequence)
-         .uinteger("remote_direct_sequence",
-                   report.remote_direct_sequence)
-         .uinteger("local_first_frame", report.local_first_frame)
-         .uinteger("local_frame_count", report.local_frame_count)
-         .uinteger("remote_first_frame", report.remote_first_frame)
-         .uinteger("remote_frame_count", report.remote_frame_count)
-         .hex("local_input_hash", report.local_input_hash)
-         .hex("expected_remote_input_hash",
-              report.expected_remote_input_hash)
-         .hex("remote_input_hash", report.remote_input_hash)
-         .hex("local_direct_payload_hash",
-              report.local_direct_payload_hash)
-         .hex("remote_direct_payload_hash",
-              report.remote_direct_payload_hash)
-         .uinteger("direct_packets_sent", report.direct_packets_sent)
-         .uinteger("direct_packets_received",
-                   report.direct_packets_received)
-         .uinteger("direct_packets_rejected",
-                   report.direct_packets_rejected)
-         .boolean("wrong_endpoint_rejected",
-                  report.wrong_endpoint_rejected)
-         .boolean("wrong_route_rejected", report.wrong_route_rejected)
-         .boolean("wrong_token_rejected", report.wrong_token_rejected)
-         .boolean("wrong_packet_type_rejected",
-                  report.wrong_packet_type_rejected)
-         .boolean("wrong_direct_sequence_rejected",
-                  report.wrong_direct_sequence_rejected)
-         .boolean("wrong_direct_payload_rejected",
-                  report.wrong_direct_payload_rejected)
-          .integer("sendto_error", report.sendto_error)
-          .integer("recvfrom_error", report.recvfrom_error)
-          .integer("udp_connreset_error", report.udp_connreset_error)
-          .string("failure", ok ? "ok" : report.failure);
-        ReplayDebugTrace::instance().event("rollback_direct_connect", f);
-    }
-
-    inline void RollbackDiag::emit_direct_correction(
-        const RollbackSidecarReport& sidecar,
-        const RollbackResimWindowReport& resim,
-        const RollbackLabConfig& cfg) noexcept
-    {
-        const bool nonzero_depth = resim.window > 0;
-        const bool ok =
-            sidecar.validated_direct_input
-            && resim.ok
-            && resim.context_ready
-            && resim.predicted_ok
-            && resim.corrected_ok
-            && resim.predicted_differs_from_baseline
-            && resim.corrected_matches_baseline
-            && nonzero_depth
-            && resim.corrected_hash != 0;
-        auto append_step_report = [](
-            ReplayTraceFields& f,
-            const char* prefix,
-            const RollbackStepStateReport& step) noexcept
-        {
-            std::string key(prefix ? prefix : "step");
-            f.boolean((key + "_ok").c_str(), step.ok)
-             .string((key + "_failure").c_str(), step.failure)
-             .boolean((key + "_hgcpu_ok").c_str(), step.hgcpu_ok)
-             .string((key + "_hgcpu_failure").c_str(),
-                     step.hgcpu_report.failure)
-             .boolean((key + "_hgcpu_faulted").c_str(),
-                      step.hgcpu_report.fault.faulted)
-             .hex((key + "_hgcpu_exception_code").c_str(),
-                  step.hgcpu_report.fault.exception_code)
-             .hex((key + "_hgcpu_exception_rip").c_str(),
-                  step.hgcpu_report.fault.exception_address)
-             .hex((key + "_hgcpu_function").c_str(),
-                  step.hgcpu_report.function_address)
-             .uinteger((key + "_hgcpu_cursor").c_str(),
-                       step.hgcpu_report.cursor);
-        };
-        ReplayTraceFields f;
-        f.boolean("ok", ok)
-         .string("case", rollback_case_name(cfg.test_case))
-         .string("request_id", cfg.request_id)
-         .string("client_role", cfg.client_role)
-         .string("proof_source", "horse-direct-loopback-resim-probe")
-         .boolean("steam_stage_bypassed", true)
-         .boolean("game_thread", true)
-         .boolean("sidecar_ready", sidecar.validated_peer)
-         .boolean("direct_input_ready", sidecar.validated_direct_input)
-         .boolean("confirmed_input_applied", resim.corrected_ok)
-         .boolean("correction_scheduled",
-                  resim.predicted_differs_from_baseline)
-         .boolean("nonzero_correction_depth", nonzero_depth)
-         .boolean("snapshot_restore", resim.restore_start_after_ok)
-         .boolean("hidden_resim", resim.steps_ok > 0)
-         .boolean("corrected_matches_baseline",
-                  resim.corrected_matches_baseline)
-         .boolean("predicted_differs_from_baseline",
-                  resim.predicted_differs_from_baseline)
-         .uinteger("correction_depth", resim.window)
-         .uinteger("steps_ok", resim.steps_ok)
-         .uinteger("steps_attempted", resim.steps_attempted)
-         .uinteger("fault_frame_index", resim.fault_frame_index)
-         .uinteger("start_frame", resim.start_frame)
-         .uinteger("baseline_frame", resim.baseline_frame)
-         .uinteger("predicted_frame", resim.predicted_frame)
-         .uinteger("corrected_frame", resim.corrected_frame)
-         .hex("baseline_hash", resim.baseline_hash)
-         .hex("predicted_hash", resim.predicted_hash)
-         .hex("corrected_hash", resim.corrected_hash)
-         .hex("baseline_explicit_hash", resim.baseline_explicit_hash)
-         .hex("predicted_explicit_hash", resim.predicted_explicit_hash)
-         .hex("corrected_explicit_hash", resim.corrected_explicit_hash)
-         .hex("post_baseline_restore_explicit_hash",
-              resim.post_baseline_restore_explicit_hash)
-         .hex("post_predicted_restore_explicit_hash",
-              resim.post_predicted_restore_explicit_hash)
-         .boolean("post_baseline_restore_explicit_ok",
-                  resim.post_baseline_restore_explicit_ok)
-         .boolean("post_baseline_restore_explicit_match",
-                  resim.post_baseline_restore_explicit_match)
-         .boolean("post_predicted_restore_explicit_ok",
-                  resim.post_predicted_restore_explicit_ok)
-         .boolean("post_predicted_restore_explicit_match",
-                  resim.post_predicted_restore_explicit_match)
-         .boolean("start_lfsr_index_ok", resim.start_lfsr_index_ok)
-         .boolean("baseline_lfsr_index_ok", resim.baseline_lfsr_index_ok)
-         .boolean("predicted_lfsr_index_ok", resim.predicted_lfsr_index_ok)
-         .boolean("corrected_lfsr_index_ok", resim.corrected_lfsr_index_ok)
-         .boolean("post_baseline_restore_lfsr_index_ok",
-                  resim.post_baseline_restore_lfsr_index_ok)
-         .boolean("post_predicted_restore_lfsr_index_ok",
-                  resim.post_predicted_restore_lfsr_index_ok)
-         .boolean("wind_rng_gate_resolved", resim.wind_rng_gate_resolved)
-         .boolean("wind_rng_gate_enabled", resim.wind_rng_gate_enabled)
-         .uinteger("start_lfsr_index", resim.start_lfsr_index)
-         .uinteger("baseline_lfsr_index", resim.baseline_lfsr_index)
-         .uinteger("predicted_lfsr_index", resim.predicted_lfsr_index)
-         .uinteger("corrected_lfsr_index", resim.corrected_lfsr_index)
-         .uinteger("post_baseline_restore_lfsr_index",
-                   resim.post_baseline_restore_lfsr_index)
-         .uinteger("post_predicted_restore_lfsr_index",
-                   resim.post_predicted_restore_lfsr_index)
-         .hex("baseline_input_p2", resim.baseline_input_p2)
-         .hex("predicted_input_p2", resim.predicted_input_p2)
-         .boolean("baseline_ok", resim.baseline_ok)
-         .boolean("predicted_ok", resim.predicted_ok)
-         .boolean("corrected_ok", resim.corrected_ok)
-         .boolean("restore_start_after_ok", resim.restore_start_after_ok)
-         .boolean("explicit_match", resim.explicit_match)
-         .boolean("hgcpu_policy_match", resim.hgcpu_policy_match)
-         .boolean("hgcpu_topology_match",
-                  resim.corrected_compare.topology_match)
-         .boolean("hgcpu_motion_bank_match",
-                  resim.corrected_compare.motion_bank_match)
-         .boolean("hgcpu_motion_tail_match",
-                  resim.corrected_compare.motion_tail_match)
-         .boolean("hgcpu_timer_node_match",
-                  resim.corrected_compare.timer_node_match)
-         .boolean("frame_counter_match", resim.frame_counter_match)
-         .boolean("frame_counter_delta_ok", resim.frame_counter_delta_ok)
-         .boolean("all_steps_ok", resim.all_steps_ok)
-         .uinteger("hgcpu_mismatch_count",
-                   resim.corrected_compare.mismatch_count)
-         .uinteger("hgcpu_ignored_mismatch_count",
-                   resim.corrected_compare.ignored_mismatch_count)
-         .uinteger("hgcpu_unignored_mismatch_count",
-                   resim.corrected_compare.unignored_mismatch_count)
-         .hex("baseline_hgcpu_topology_hash",
-              resim.corrected_compare.topology_hash_a)
-         .hex("corrected_hgcpu_topology_hash",
-              resim.corrected_compare.topology_hash_b)
-         .hex("baseline_hgcpu_motion_bank_hash",
-              resim.corrected_compare.motion_bank_hash_a)
-         .hex("corrected_hgcpu_motion_bank_hash",
-              resim.corrected_compare.motion_bank_hash_b)
-         .hex("baseline_hgcpu_motion_tail_hash",
-              resim.corrected_compare.motion_tail_hash_a)
-         .hex("corrected_hgcpu_motion_tail_hash",
-              resim.corrected_compare.motion_tail_hash_b)
-         .hex("baseline_hgcpu_timer_node_hash",
-              resim.corrected_compare.timer_node_hash_a)
-         .hex("corrected_hgcpu_timer_node_hash",
-              resim.corrected_compare.timer_node_hash_b)
-         .hex("local_input_hash", sidecar.local_input_hash)
-         .hex("remote_input_hash", sidecar.remote_input_hash)
-         .string("failure", ok ? "ok" : resim.failure);
-        append_step_report(f, "start_capture", resim.start_capture);
-        append_step_report(f, "baseline_capture", resim.baseline_capture);
-        append_step_report(
-            f, "post_baseline_restore", resim.post_baseline_restore);
-        append_step_report(f, "predicted_capture", resim.predicted_capture);
-        append_step_report(
-            f, "post_predicted_restore", resim.post_predicted_restore);
-        append_step_report(f, "corrected_capture", resim.corrected_capture);
-        append_step_report(f, "final_restore", resim.final_restore);
-        ReplayDebugTrace::instance().event("rollback_direct_correction", f);
     }
 
     inline void RollbackDiag::emit_live_cache_write(

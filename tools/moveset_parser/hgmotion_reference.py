@@ -22,7 +22,11 @@ from luxformats import MotionBankFile
 
 LUX_UNITS_PER_INT = 0.0010000000474974513
 MAX_CHANNELS = 96
-ROOT_CHANNEL_TYPES = {0x14, 0x17, 0x18}
+# LuxMotion_BlendKeyframeTransforms @ 0x1402E79C0 proves selector 0x16
+# writes logical transform 1, the root transform consumed by the native
+# motion-slot/direct-position path.  Selector 0x14 only updates shared
+# scratch values and must not be used as authored root translation.
+ROOT_CHANNEL_TYPES = {0x16}
 KNOWN_CHANNEL_TYPES = {
     0x00,
     0x02,
@@ -174,6 +178,9 @@ class MotionClip:
     offset: int
     raw: bytes
     frame_count: int
+    playback_frame_count: int
+    encoded_frame_count: int
+    effective_frame_count: float
     decoded_word_count: int
     flags: int
     descriptor: int
@@ -338,6 +345,18 @@ def _add_i16(a: int, b: int) -> int:
     return _i16_to_signed((a + b) & 0xFFFF)
 
 
+def _motion_frame_counts(frame_count: int, flags: int) -> tuple[int, float, int]:
+    """Return native playback, effective, and stored-keyframe counts."""
+    playback_frame_count = frame_count + (1 if flags & 0x10 else 0)
+    if flags & 0x04:
+        effective_frame_count = (playback_frame_count + 1) * 0.5
+    elif flags & 0x08:
+        effective_frame_count = (playback_frame_count + 3) * 0.25
+    else:
+        effective_frame_count = float(playback_frame_count)
+    return playback_frame_count, effective_frame_count, int(effective_frame_count)
+
+
 def parse_motion_clip(raw: bytes, clip_index: int = 0, offset: int = 0) -> MotionClip:
     if len(raw) < 0x20:
         raise MotionDecodeError("invalid_clip_header", "clip smaller than 0x20")
@@ -351,7 +370,13 @@ def parse_motion_clip(raw: bytes, clip_index: int = 0, offset: int = 0) -> Motio
         raise MotionDecodeError(
             "invalid_clip_header", f"implausible decoded word count {decoded_word_count}"
         )
-    group_count = (frame_count + 7) // 8
+    # LuxMotion_SampleKeyframeTransforms adds the optional final frame before
+    # applying half/quarter-rate sampling.  Its compressed table contains the
+    # integer number of keyframes addressable after that transform.
+    playback_frame_count, effective_frame_count, encoded_frame_count = (
+        _motion_frame_counts(frame_count, flags)
+    )
+    group_count = (encoded_frame_count + 7) // 8
     static_data_offset = 0x1C + group_count * 2
     if static_data_offset > len(raw):
         raise MotionDecodeError("invalid_clip_header", "frame-group table exceeds clip")
@@ -360,6 +385,9 @@ def parse_motion_clip(raw: bytes, clip_index: int = 0, offset: int = 0) -> Motio
         offset=offset,
         raw=raw,
         frame_count=frame_count,
+        playback_frame_count=playback_frame_count,
+        encoded_frame_count=encoded_frame_count,
+        effective_frame_count=effective_frame_count,
         decoded_word_count=decoded_word_count,
         flags=flags,
         descriptor=descriptor,
@@ -431,7 +459,7 @@ def _decode_huffman_delta(symbol: int, reader: HuffmanBitReader) -> int:
 
 
 def _decode_frame_words(clip: MotionClip, frame_index: int) -> tuple[list[int], list[str]]:
-    if frame_index < 0 or frame_index >= clip.frame_count:
+    if frame_index < 0 or frame_index >= clip.encoded_frame_count:
         raise MotionDecodeError("huffman_decode", f"frame {frame_index} outside clip")
     group = frame_group_index(frame_index)
     in_group = frame_in_group(frame_index)
@@ -472,7 +500,7 @@ def decode_huffman_keyframe_data(
     clip = parse_motion_clip(raw, state.clip_index, state.bank.offsets[state.clip_index])
     words, trace = _decode_frame_words(clip, frame_index)
     secondary: list[int] | None = None
-    if want_secondary and frame_index + 1 < clip.frame_count:
+    if want_secondary and frame_index + 1 < clip.encoded_frame_count:
         secondary, secondary_trace = _decode_frame_words(clip, frame_index + 1)
         trace.extend(f"secondary:{line}" for line in secondary_trace)
     return DecodedFrame(
@@ -527,6 +555,45 @@ def _read_vec3(
     return raw[0] * scale, raw[1] * scale, raw[2] * scale, raw
 
 
+def _read_selector16_root(
+    words: list[int],
+    byte_offset: int,
+    flags: int,
+) -> tuple[float, float, float, tuple[int | float, ...]]:
+    """Decode selector 0x16's authored logical-root translation.
+
+    Native selector 0x16 consumes XYZ followed by a separate signed-short
+    normalized-turn side channel.  Flag bit 28 selects float XYZ; flag bit 14
+    selects 1/16000 units instead of the ordinary 0.001 Lux-unit scale.  The
+    side channel is retained in diagnostics but is not a translation axis.
+    """
+
+    full_precision = ((flags >> 0x1C) & 1) != 0
+    scale = (1.0 / 16000.0) if ((flags >> 14) & 1) != 0 else LUX_UNITS_PER_INT
+    word_idx = byte_offset // 2
+    if full_precision:
+        if word_idx + 6 >= len(words):
+            raise MotionDecodeError(
+                "channel_stream_walk", "full-precision selector 0x16 exceeds decoded words"
+            )
+        packed = b"".join(struct.pack("<h", words[word_idx + i]) for i in range(6))
+        x, y, z = struct.unpack_from("<fff", packed, 0)
+        facing_turn = words[word_idx + 6]
+        return x * scale, y * scale, z * scale, (x, y, z, facing_turn)
+
+    if word_idx + 3 >= len(words):
+        raise MotionDecodeError(
+            "channel_stream_walk", "selector 0x16 exceeds decoded words"
+        )
+    raw_x, raw_y, raw_z, facing_turn = words[word_idx : word_idx + 4]
+    return (
+        raw_x * scale,
+        raw_y * scale,
+        raw_z * scale,
+        (raw_x, raw_y, raw_z, facing_turn),
+    )
+
+
 def extract_root_channel(clip: MotionClip, words: list[int]) -> ChannelValue:
     stream, stream_name = _stream_for_clip(clip)
     mask = clip.descriptor
@@ -543,11 +610,8 @@ def extract_root_channel(clip: MotionClip, words: list[int]) -> ChannelValue:
             )
         has_primary = (mask & bit) != 0
         if has_primary and channel_type in ROOT_CHANNEL_TYPES:
-            x, y, z, raw_components = _read_vec3(
-                words,
-                byte_offset,
-                clip.flags,
-                channel_type,
+            x, y, z, raw_components = _read_selector16_root(
+                words, byte_offset, clip.flags
             )
             root_value = ChannelValue(
                 channel_type=channel_type,
@@ -557,10 +621,7 @@ def extract_root_channel(clip: MotionClip, words: list[int]) -> ChannelValue:
                 z=z,
                 raw_components=raw_components,
             )
-            if channel_type == 0x14:
-                return root_value
-            if fallback_root is None:
-                fallback_root = root_value
+            return root_value
         if has_primary:
             byte_offset += _consume_bytes_for_channel(channel_type, clip.flags)
         if channel_type == 0x1B:
@@ -570,8 +631,6 @@ def extract_root_channel(clip: MotionClip, words: list[int]) -> ChannelValue:
         channel_index += 1
         if channel_index > MAX_CHANNELS:
             raise MotionDecodeError("channel_stream_walk", f"{stream_name} did not terminate")
-    if fallback_root is not None:
-        return fallback_root
     raise MotionDecodeError("root_channel_missing", "no active root channel in decoded stream")
 
 
@@ -579,31 +638,54 @@ def decode_root_movement_frames(raw: bytes, clip_index: int = 0, offset: int = 0
     clip = parse_motion_clip(raw, clip_index, offset)
     frames: list[MovementFrame] = []
     prev_x = prev_y = prev_z = 0.0
-    for frame_no in range(clip.frame_count):
-        words, _trace = _decode_frame_words(clip, frame_no)
-        root = extract_root_channel(clip, words)
-        if root.x is None or root.y is None or root.z is None:
+    sample_scale = 0.5 if clip.flags & 0x04 else 0.25 if clip.flags & 0x08 else 1.0
+    max_sample = clip.effective_frame_count - 1.0
+    base_turn = (_u16(clip.raw, 0x10) & 0xF000) / 65536.0
+    angle = base_turn * math.tau
+    cos_angle = math.cos(angle)
+    sin_angle = math.sin(angle)
+    for frame_no in range(clip.playback_frame_count):
+        sample = min(max(frame_no * sample_scale, 0.0), max_sample)
+        primary_index = int(sample)
+        blend = sample - primary_index
+        primary_words, _trace = _decode_frame_words(clip, primary_index)
+        primary = extract_root_channel(clip, primary_words)
+        if primary.x is None or primary.y is None or primary.z is None:
             raise MotionDecodeError("root_channel_missing", "root channel did not produce XYZ")
-        dx = root.x - prev_x
-        dy = root.y - prev_y
-        dz = root.z - prev_z
-        prev_x, prev_y, prev_z = root.x, root.y, root.z
+        x, y, z = primary.x, primary.y, primary.z
+        if blend and primary_index + 1 < clip.encoded_frame_count:
+            secondary_words, _ = _decode_frame_words(clip, primary_index + 1)
+            secondary = extract_root_channel(clip, secondary_words)
+            if secondary.x is None or secondary.y is None or secondary.z is None:
+                raise MotionDecodeError("root_channel_missing", "root channel did not produce XYZ")
+            x += (secondary.x - x) * blend
+            y += (secondary.y - y) * blend
+            z += (secondary.z - z) * blend
+
+        # Selector 0x16 rotates the interpolated translation by the clip's
+        # authored base turn using a Y-axis quaternion.
+        rotated_x = cos_angle * x + sin_angle * z
+        rotated_z = -sin_angle * x + cos_angle * z
+        dx = rotated_x - prev_x
+        dy = y - prev_y
+        dz = rotated_z - prev_z
+        prev_x, prev_y, prev_z = rotated_x, y, rotated_z
         frames.append(
             MovementFrame(
                 frame=frame_no,
-                local_x=root.x,
-                local_y=root.y,
-                local_z=root.z,
+                local_x=rotated_x,
+                local_y=y,
+                local_z=rotated_z,
                 delta_x=dx,
                 delta_y=dy,
                 delta_z=dz,
-                cumulative_x=root.x,
-                cumulative_y=root.y,
-                cumulative_z=root.z,
-                backward_distance=abs(root.z),
-                lateral_distance=abs(root.x),
-                forward_distance=abs(root.z),
-                source_channel=f"0x{root.channel_type:02X}",
+                cumulative_x=rotated_x,
+                cumulative_y=y,
+                cumulative_z=rotated_z,
+                backward_distance=abs(rotated_z),
+                lateral_distance=abs(rotated_x),
+                forward_distance=abs(rotated_z),
+                source_channel=f"0x{primary.channel_type:02X}",
                 confidence="high",
             )
         )

@@ -85,6 +85,7 @@
 #include "NativeBinding.hpp"
 #include "KHitWalker.hpp"
 #include "ReplayDebugTrace.hpp"
+#include "ReplayScrubDiag.hpp"
 #include "SafeMemoryRead.hpp"
 
 #include <polyhook2/Detour/x64Detour.hpp>
@@ -354,7 +355,9 @@ namespace Horse
             (void)SafeReadFloat(c + 0x158, &one_shot_z);
             (void)SafeReadFloat(c + 0x180, &root_x);
             (void)SafeReadFloat(c + 0x188, &root_z);
-            (void)SafeReadFloat(c + 0x2B47C, &clip_frame);
+            (void)SafeReadFloat(
+                c + ReplayScrubDiag::kChara_flCurrentClipFrame_Off,
+                &clip_frame);
             (void)SafeReadUInt32(c + 0x324, &move_id);
             (void)SafeReadInt32(c + 0x3A0, &replay_frame);
             (void)SafeReadInt32(c + 0x3A4, &replay_master);

@@ -34,49 +34,20 @@ namespace
         const char* text,
         Horse::RollbackNetworkProfileKind& out)
     {
-        if (!text)
-            return false;
-        struct NameMap
-        {
-            const char* name;
-            Horse::RollbackNetworkProfileKind kind;
-        };
-        const NameMap names[] = {
-            {"clean_0ms", Horse::RollbackNetworkProfileKind::Clean0ms},
-            {"wifi_50ms_jitter",
-             Horse::RollbackNetworkProfileKind::Wifi50msJitter},
-            {"bad_wifi_120ms_5pct_loss",
-             Horse::RollbackNetworkProfileKind::BadWifi120ms5PctLoss},
-            {"overseas_180ms_2pct_loss",
-             Horse::RollbackNetworkProfileKind::Overseas180ms2PctLoss},
-            {"spike_every_10s",
-             Horse::RollbackNetworkProfileKind::SpikeEvery10s},
-            {"burst_loss_500ms",
-             Horse::RollbackNetworkProfileKind::BurstLoss500ms},
-            {"corrupt_probe",
-             Horse::RollbackNetworkProfileKind::CorruptProbe},
-        };
-        for (const NameMap& entry : names)
-        {
-            if (std::strcmp(text, entry.name) == 0)
-            {
-                out = entry.kind;
-                return true;
-            }
-        }
-        return false;
+        return text
+            && Horse::TryParseRollbackNetworkProfile(text, out);
     }
 
     void print_profiles()
     {
-        std::printf(
-            "clean_0ms\n"
-            "wifi_50ms_jitter\n"
-            "bad_wifi_120ms_5pct_loss\n"
-            "overseas_180ms_2pct_loss\n"
-            "spike_every_10s\n"
-            "burst_loss_500ms\n"
-            "corrupt_probe\n");
+        for (uint8_t raw = 0;
+             raw <= static_cast<uint8_t>(
+                 Horse::RollbackNetworkProfileKind::DuplicateOnly);
+             ++raw)
+        {
+            std::printf("%s\n", Horse::RollbackNetworkProfileName(
+                static_cast<Horse::RollbackNetworkProfileKind>(raw)));
+        }
     }
 
     int run_single_profile(Horse::RollbackNetworkProfileKind kind)
@@ -155,7 +126,7 @@ int main(int argc, char** argv)
         std::printf(
             "rollback fault-injection self-test failed failure=%s "
             "profiles=%u/%u clean=%d wifi=%d bad_wifi=%d overseas=%d "
-            "spike=%d burst=%d corrupt=%d converged=%d "
+            "spike=%d burst=%d corrupt=%d duplicate_only=%d converged=%d "
             "failed_profile=%s failed_reason=%s ticks=%u frames=%u "
             "a_contig=%u b_contig=%u a_ack=%u b_ack=%u "
             "accepted_a=%u accepted_b=%u payload_match=%d "
@@ -172,6 +143,7 @@ int main(int argc, char** argv)
             report.spike_profile_ok ? 1 : 0,
             report.burst_profile_ok ? 1 : 0,
             report.corrupt_probe_ok ? 1 : 0,
+            report.duplicate_only_ok ? 1 : 0,
             report.same_machine_profiles_converged ? 1 : 0,
             fail.profile_name ? fail.profile_name : "?",
             fail.failure ? fail.failure : "?",
@@ -200,7 +172,7 @@ int main(int argc, char** argv)
     std::printf(
         "rollback fault-injection self-test passed profiles=%u/%u "
         "clean=%d wifi=%d bad_wifi=%d overseas=%d spike=%d burst=%d "
-        "corrupt=%d converged=%d\n",
+        "corrupt=%d duplicate_only=%d converged=%d\n",
         report.profiles_passed,
         report.profiles_run,
         report.clean_profile_ok ? 1 : 0,
@@ -210,6 +182,7 @@ int main(int argc, char** argv)
         report.spike_profile_ok ? 1 : 0,
         report.burst_profile_ok ? 1 : 0,
         report.corrupt_probe_ok ? 1 : 0,
+        report.duplicate_only_ok ? 1 : 0,
         report.same_machine_profiles_converged ? 1 : 0);
     return 0;
 }

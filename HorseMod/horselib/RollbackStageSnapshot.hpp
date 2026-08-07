@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstring>
 #include <new>
+#include <array>
 #include <vector>
 
 namespace Horse
@@ -26,6 +27,14 @@ namespace Horse
     static constexpr uintptr_t kRollbackStageWallBreakStateOffset = 0x468;
     static constexpr uintptr_t kRollbackStageWallFadeTimerOffset = 0x46C;
     static constexpr uintptr_t kRollbackStageWallFadeRateOffset = 0x470;
+    static constexpr uintptr_t kRollbackStageWallRootComponentOffset = 0x168;
+    static constexpr uintptr_t kRollbackStageWallParticleSystemOffset = 0x458;
+    static constexpr uintptr_t
+        kRollbackStageWallParticleComponentOffset = 0x460;
+    static constexpr uintptr_t
+        kRollbackSceneComponentWorldRotationOffset = 0x270;
+    static constexpr uintptr_t
+        kRollbackSceneComponentWorldTranslationOffset = 0x280;
     static constexpr uintptr_t kRollbackStageWallIntactOpaqueOffset = 0x420;
     static constexpr uintptr_t kRollbackStageWallIntactTranslucentOffset = 0x428;
     static constexpr uintptr_t kRollbackStageWallBrokenOpaqueOffset = 0x430;
@@ -39,6 +48,13 @@ namespace Horse
     static constexpr uintptr_t kRollbackStageBarrierBackOffset = 0x408;
     static constexpr uintptr_t kRollbackStageBarrierFloorOffset = 0x410;
     static constexpr uintptr_t kRollbackStageBarrierBreakingOffset = 0x418;
+    // Lifecycle-bound presentation fields used only by the confirmed
+    // barrier-hit terminal transaction. They are deliberately excluded from
+    // snapshot/canonical state.
+    static constexpr uintptr_t kRollbackStageBarrierHitEffectOffset = 0x470;
+    static constexpr uintptr_t kRollbackStageBarrierBreakEffectOffset = 0x478;
+    static constexpr uintptr_t
+        kRollbackStageBarrierMaterialRuntimeDirtyOffset = 0x4E0;
     static constexpr int32_t kRollbackStageMaxActorsPerKind = 256;
 
     struct RollbackStageArrayHeader
@@ -65,6 +81,28 @@ namespace Horse
         uintptr_t translucent_offset {0};
         bool opaque_visible {false};
     };
+
+    struct RollbackBarrierPresentationVisibility
+    {
+        bool valid {false};
+        bool face_visible {false};
+        bool back_visible {false};
+        bool breaking_visible {false};
+    };
+
+    static inline RollbackBarrierPresentationVisibility
+    ComputeRollbackBarrierPresentationVisibility(
+        int32_t hit_count, int32_t endurance) noexcept
+    {
+        RollbackBarrierPresentationVisibility result {};
+        if (endurance <= 0 || hit_count < 0) return result;
+        const bool intact = hit_count < endurance;
+        result.valid = true;
+        result.face_visible = intact;
+        result.back_visible = intact;
+        result.breaking_visible = !intact;
+        return result;
+    }
 
     static inline RollbackWallPresentationVisibility
     ComputeRollbackWallPresentationVisibility(
@@ -111,6 +149,11 @@ namespace Horse
         int32_t id {0};
         uint32_t ordinal {0};
         uintptr_t actor {0};
+        // Local lifecycle identity only. Native UObject/vtable addresses are
+        // never part of the peer-canonical projection.
+        uintptr_t vtable {0};
+        uintptr_t root_component {0};
+        uintptr_t root_component_vtable {0};
         int32_t scalar {0};
         int32_t endurance {0};
         float fade_timer {0.0f};
@@ -130,11 +173,113 @@ namespace Horse
         {
             stage_actor_manager = 0;
             records.clear();
+            reset_metadata();
+        }
+
+        void recycle_for_capture()
+        {
+            stage_actor_manager = 0;
+            reset_metadata();
+        }
+
+    private:
+        void reset_metadata()
+        {
             stage_layout_digest = 0;
             actor_set_digest = 0;
             canonical_hash = 0;
             integrity_hash = 0;
         }
+
+    public:
+    };
+
+    struct RollbackBreakablePresentationValue
+    {
+        int32_t scalar {0};
+        int32_t endurance {0};
+        float fade_timer {0.0f};
+        float fade_rate {0.0f};
+    };
+
+    template <size_t MaximumActors =
+                  static_cast<size_t>(kRollbackStageMaxActorsPerKind) * 2u>
+    struct RollbackBreakablePresentationFrame
+    {
+        uint64_t epoch {0};
+        uint32_t frame {0};
+        uint32_t count {0};
+        uint64_t stage_layout_digest {0};
+        uint64_t actor_set_digest {0};
+        uint64_t canonical_hash {0};
+        bool valid {false};
+        std::array<RollbackBreakablePresentationValue, MaximumActors> values {};
+    };
+
+    // Confirmed presentation can trail simulation farther than the rollback
+    // load window. Keep only the small value fields needed for presentation,
+    // keyed by logical frame, instead of retaining full native snapshots.
+    template <size_t FrameCapacity = 128,
+              size_t MaximumActors =
+                  static_cast<size_t>(kRollbackStageMaxActorsPerKind) * 2u>
+    class RollbackBreakablePresentationHistory
+    {
+        static_assert(FrameCapacity >= 2
+            && (FrameCapacity & (FrameCapacity - 1u)) == 0,
+            "presentation history capacity must be a power of two");
+
+    public:
+        using Frame = RollbackBreakablePresentationFrame<MaximumActors>;
+
+        bool record(
+            uint64_t epoch,
+            uint32_t frame,
+            const RollbackBreakableStageSnapshot& snapshot) noexcept
+        {
+            if (epoch == 0 || snapshot.records.size() > MaximumActors
+                || snapshot.stage_layout_digest == 0
+                || snapshot.actor_set_digest == 0
+                || snapshot.canonical_hash == 0)
+            {
+                return false;
+            }
+            Frame& out = m_frames[frame & (FrameCapacity - 1u)];
+            out.epoch = epoch;
+            out.frame = frame;
+            out.count = static_cast<uint32_t>(snapshot.records.size());
+            out.stage_layout_digest = snapshot.stage_layout_digest;
+            out.actor_set_digest = snapshot.actor_set_digest;
+            out.canonical_hash = snapshot.canonical_hash;
+            for (size_t i = 0; i < snapshot.records.size(); ++i)
+            {
+                const RollbackBreakableStageRecord& record =
+                    snapshot.records[i];
+                out.values[i] = {
+                    record.scalar,
+                    record.endurance,
+                    record.fade_timer,
+                    record.fade_rate,
+                };
+            }
+            out.valid = true;
+            return true;
+        }
+
+        const Frame* find(uint64_t epoch, uint32_t frame) const noexcept
+        {
+            const Frame& found = m_frames[frame & (FrameCapacity - 1u)];
+            return found.valid && found.epoch == epoch
+                    && found.frame == frame
+                ? &found : nullptr;
+        }
+
+        void clear() noexcept
+        {
+            for (Frame& frame : m_frames) frame.valid = false;
+        }
+
+    private:
+        std::array<Frame, FrameCapacity> m_frames {};
     };
 
     struct RollbackBreakableStageReport
@@ -150,6 +295,24 @@ namespace Horse
         uintptr_t failed_actor {0};
         const char* failure {"not-run"};
     };
+
+    static inline uint64_t HashRollbackBreakablePresentationDigest(
+        const RollbackBreakableStageSnapshot& snapshot) noexcept
+    {
+        if (snapshot.records.empty()) return 0;
+        RollbackHash hash {};
+        for (const auto& record : snapshot.records)
+        {
+            hash.add_scalar(static_cast<uint8_t>(record.kind));
+            hash.add_scalar(record.id);
+            hash.add_scalar(record.ordinal);
+            hash.add_scalar(record.scalar);
+            hash.add_scalar(record.endurance);
+            hash.add_scalar(record.fade_timer);
+            hash.add_scalar(record.fade_rate);
+        }
+        return hash.value ? hash.value : 1;
+    }
 
     struct RollbackBreakableStageHashes
     {
@@ -200,6 +363,9 @@ namespace Horse
             actors.add_scalar(record.id);
             actors.add_scalar(record.ordinal);
             actors.add_scalar(record.actor);
+            actors.add_scalar(record.vtable);
+            actors.add_scalar(record.root_component);
+            actors.add_scalar(record.root_component_vtable);
             canonical.add_scalar(kind);
             canonical.add_scalar(record.id);
             canonical.add_scalar(record.ordinal);
@@ -209,6 +375,9 @@ namespace Horse
             integrity.add_scalar(record.id);
             integrity.add_scalar(record.ordinal);
             integrity.add_scalar(record.actor);
+            integrity.add_scalar(record.vtable);
+            integrity.add_scalar(record.root_component);
+            integrity.add_scalar(record.root_component_vtable);
             integrity.add_scalar(record.scalar);
             integrity.add_scalar(record.endurance);
             integrity.add_scalar(record.fade_timer);
@@ -271,6 +440,15 @@ namespace Horse
             record.kind = kind;
             record.ordinal = static_cast<uint32_t>(ordinal);
             record.actor = actor;
+            if (!SafeReadBytes(
+                    reinterpret_cast<const void*>(actor),
+                    &record.vtable, sizeof(record.vtable))
+                || !record.vtable)
+            {
+                report.failed_actor = actor;
+                report.failure = "stage-actor-vtable-read-failed";
+                return false;
+            }
             if (kind == RollbackBreakableActorKind::Wall)
             {
                 uint8_t state = 0;
@@ -293,7 +471,17 @@ namespace Horse
                         reinterpret_cast<const void*>(
                             actor + kRollbackStageWallFadeRateOffset),
                         &record.fade_rate,
-                        sizeof(record.fade_rate)))
+                        sizeof(record.fade_rate))
+                    || !SafeReadBytes(reinterpret_cast<const void*>(actor
+                            + kRollbackStageWallRootComponentOffset),
+                        &record.root_component,
+                        sizeof(record.root_component))
+                    || (record.root_component
+                        && (!SafeReadBytes(reinterpret_cast<const void*>(
+                                record.root_component),
+                            &record.root_component_vtable,
+                            sizeof(record.root_component_vtable))
+                            || !record.root_component_vtable)))
                 {
                     report.failed_actor = actor;
                     report.failure = "breakable-wall-read-failed";
@@ -405,6 +593,113 @@ namespace Horse
             && out.integrity_hash != 0;
         if (!report.ok) report.failure = "stage-snapshot-hash-failed";
         return report;
+    }
+
+    // Active rollback already validated the immutable actor topology at the
+    // round boundary. Refresh only the mutable gameplay scalars; rediscovering
+    // and sorting the stage arrays every frame is both redundant and allocates.
+    static inline RollbackBreakableStageReport
+    CaptureRollbackBreakableStageScalars(
+        const RollbackBreakableStageSnapshot& identity,
+        RollbackBreakableStageSnapshot& out) noexcept
+    {
+        RollbackBreakableStageReport report {};
+        report.failure = "ok";
+        if (!identity.stage_actor_manager
+            || identity.stage_layout_digest == 0
+            || identity.actor_set_digest == 0)
+        {
+            report.failure = "stage-identity-invalid";
+            return report;
+        }
+        out.recycle_for_capture();
+        if (identity.records.size() > out.records.capacity())
+        {
+            report.failure = "stage-record-preallocated-capacity-exceeded";
+            return report;
+        }
+        try
+        {
+            out.records.resize(identity.records.size());
+        }
+        catch (const std::bad_alloc&)
+        {
+            report.failure = "stage-record-capacity-growth";
+            return report;
+        }
+        out.stage_actor_manager = identity.stage_actor_manager;
+        for (size_t i = 0; i < identity.records.size(); ++i)
+        {
+            const RollbackBreakableStageRecord& expected =
+                identity.records[i];
+            RollbackBreakableStageRecord& record = out.records[i];
+            record = expected;
+            if (record.kind == RollbackBreakableActorKind::Wall)
+            {
+                uint8_t state = 0;
+                uintptr_t live_root_component = 0;
+                uintptr_t live_root_vtable = 0;
+                if (!SafeReadBytes(reinterpret_cast<const void*>(
+                        record.actor + kRollbackStageWallBreakStateOffset),
+                        &state, sizeof(state))
+                    || !SafeReadBytes(reinterpret_cast<const void*>(
+                        record.actor + kRollbackStageWallFadeTimerOffset),
+                        &record.fade_timer, sizeof(record.fade_timer))
+                    || !SafeReadBytes(reinterpret_cast<const void*>(
+                        record.actor + kRollbackStageWallFadeRateOffset),
+                        &record.fade_rate, sizeof(record.fade_rate))
+                    || !SafeReadBytes(reinterpret_cast<const void*>(
+                            record.actor
+                            + kRollbackStageWallRootComponentOffset),
+                        &live_root_component,
+                        sizeof(live_root_component))
+                    || (live_root_component
+                        && (!SafeReadBytes(reinterpret_cast<const void*>(
+                                live_root_component), &live_root_vtable,
+                            sizeof(live_root_vtable))
+                            || !live_root_vtable))
+                    || live_root_component != record.root_component
+                    || live_root_vtable != record.root_component_vtable)
+                {
+                    report.failed_actor = record.actor;
+                    report.failure = "breakable-wall-read-failed";
+                    return report;
+                }
+                record.scalar = state;
+                ++report.wall_count;
+            }
+            else
+            {
+                if (!SafeReadBytes(reinterpret_cast<const void*>(
+                        record.actor + kRollbackStageBarrierEnduranceOffset),
+                        &record.endurance, sizeof(record.endurance))
+                    || !SafeReadBytes(reinterpret_cast<const void*>(
+                        record.actor + kRollbackStageBarrierHitCountOffset),
+                        &record.scalar, sizeof(record.scalar)))
+                {
+                    report.failed_actor = record.actor;
+                    report.failure = "breakable-barrier-read-failed";
+                    return report;
+                }
+                ++report.barrier_count;
+            }
+        }
+        HashRollbackBreakableStageSnapshot(out);
+        report.ok = out.stage_layout_digest == identity.stage_layout_digest
+            && out.actor_set_digest == identity.actor_set_digest
+            && out.canonical_hash != 0 && out.integrity_hash != 0;
+        if (!report.ok) report.failure = "stage-identity-drift";
+        return report;
+    }
+
+    static inline bool RollbackBreakableStagePreallocatedCaptureReady(
+        const RollbackBreakableStageSnapshot& identity,
+        const RollbackBreakableStageSnapshot& out) noexcept
+    {
+        return identity.stage_actor_manager != 0
+            && identity.stage_layout_digest != 0
+            && identity.actor_set_digest != 0
+            && identity.records.size() <= out.records.capacity();
     }
 
     static inline bool WriteRollbackBreakableStageSnapshotUnchecked(

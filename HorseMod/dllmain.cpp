@@ -1317,7 +1317,6 @@ private:
     // chara mesh's anim montage plays out via the UE4-side actor tick.
     // See horselib/ActorTickGate.hpp for the full plate.
     Horse::ActorTickGate m_actor_tick_gate{};
-    bool m_timeline_visual_actor_tick_gate_active{false};
     // Sibling gate that forces LuxMoveVM_GetTimeDilationScalar
     // (0x14030A8C0) to return 0.0 when WorldTickGate's policy slot is 0.
     // The function's normal-play fall-through path bypasses VMFreezeByte
@@ -1399,9 +1398,9 @@ private:
     Horse::VFXOff     m_vfx_off{};
     std::atomic<bool> m_suppress_vfx{false};
 
-    // Draws the deterministic scbattle gameplay boundary copied into
-    // g_scbattle_StageInfo_BarrierArray. Controlled only by the General
-    // tab checkbox; deliberately independent of the F5 hitbox overlay.
+    // Draws the deterministic J_StgHitChkData terrain/edge/wall triangles and
+    // current breakable-stage presentation bounds. Controlled only by the
+    // General tab checkbox; deliberately independent of the F5 overlay.
     std::atomic<bool> m_show_stage_boundary{false};
     Horse::StageBoundaryOverlay m_stage_boundary{};
 
@@ -4376,9 +4375,10 @@ public:
         }
         Horse::GameImGui::shutdown();
 
-        // Rollback shutdown now runs after engine/UI callback removal. It
-        // unhooks native rollback entry points, joins the UDP worker, destroys
-        // Gekko, closes sockets, and finally releases snapshot storage.
+        // Ordinary rollback shutdown leaves reusable native detours in
+        // pass-through mode, joins the UDP worker, destroys Gekko, closes
+        // sockets, and releases snapshot storage. The exported uninstall
+        // preflight performs final detachment before this destructor can run.
         Horse::RollbackLab::instance().shutdown();
 
         if (m_hook_registered && !m_hook_path.empty())
@@ -4406,6 +4406,10 @@ public:
         // Tear down native diagnostic detours installed after image-base
         // resolution.  Idempotent if install never succeeded.
         Horse::VitalTraceHook::instance().uninstall();
+
+        // RngTraceHook owns native Lux RNG detours plus process-UCRT
+        // rand/srand detours. They must not survive unloading this DLL.
+        Horse::RngTraceHook::instance().uninstall();
 
         // Tear down stock replay-launch trace probes.  Observability only.
         Horse::NativeReplayTraceHook::instance().uninstall();
@@ -6340,8 +6344,6 @@ private:
         // character objects can exist before the battle runtime is stable.
         Horse::NativeReplayTraceHook::instance()
             .set_replay_lifecycle_trace_active(false);
-        if (m_timeline_visual_actor_tick_gate_active)
-            sync_timeline_visual_actor_tick_gate();
         if (to == GMP::Replay)
             (void)Horse::ReplayScrub::instance().ensure_initialized();
 
@@ -6399,51 +6401,6 @@ private:
         }
 
         scrub.service_engine_tick_replay_fallback();
-    }
-
-    void sync_timeline_visual_actor_tick_gate()
-    {
-        const bool want =
-            Horse::ReplayScrub::instance()
-                .should_suppress_timeline_presentation();
-        if (want)
-        {
-            if (m_timeline_visual_actor_tick_gate_active)
-                return;
-
-            if (!m_world_tick_gate.is_resolved())
-                m_world_tick_gate.resolve();
-            if (m_world_tick_gate.is_resolved()
-                && !m_actor_tick_gate.is_resolved())
-            {
-                m_actor_tick_gate.resolve(
-                    m_world_tick_gate.policy_slot_address());
-            }
-
-            const bool enabled = m_actor_tick_gate.is_resolved()
-                && m_actor_tick_gate.enable_visual_only();
-            if (enabled)
-            {
-                m_timeline_visual_actor_tick_gate_active = true;
-                Horse::ReplayTraceFields f;
-                f.boolean("enabled", true)
-                 .integer("policy", m_world_tick_gate.policy());
-                Horse::ReplayDebugTrace::instance().event(
-                    "timeline_no_render_visual_actor_tick_gate", f);
-            }
-            return;
-        }
-
-        if (!m_timeline_visual_actor_tick_gate_active)
-            return;
-
-        m_timeline_visual_actor_tick_gate_active = false;
-        m_actor_tick_gate.disable_visual_only();
-        Horse::ReplayTraceFields f;
-        f.boolean("enabled", false)
-         .integer("policy", m_world_tick_gate.policy());
-        Horse::ReplayDebugTrace::instance().event(
-            "timeline_no_render_visual_actor_tick_gate", f);
     }
 
     // ------------------------------------------------------------------
@@ -7063,10 +7020,8 @@ private:
 
         if (replay_scrub.should_suppress_timeline_presentation())
         {
-            sync_timeline_visual_actor_tick_gate();
             replay_scrub.tick_capture(false);
             tick_generate_timeline_with_replay_window(replay_scrub);
-            sync_timeline_visual_actor_tick_gate();
             if (replay_scrub.should_suppress_timeline_presentation())
                 replay_scrub.note_timeline_cockpit_overlay_suppressed();
             m_have_prev_yaw[0] = false;
@@ -7146,7 +7101,6 @@ private:
             m_replay_scrub_time_suspended_logged = false;
         }
 
-        sync_timeline_visual_actor_tick_gate();
         if (!timeline_presentation_suppressed)
             replay_scrub.service_pre_frame_gate();
 
@@ -9928,16 +9882,19 @@ private:
             ImGui::Separator();
 
             // --- Stage boundary -----------------------------------------
-            // Draws the scbattle gameplay boundary used by stage/ring
-            // logic. This is intentionally independent of the F5 hitbox
-            // overlay toggle.
+            // Draws the live LuxBattle frame-bounds geometry used by terrain,
+            // edge, and wall logic. This is intentionally independent of the
+            // F5 hitbox overlay toggle.
             {
                 bool sb = m_show_stage_boundary.load();
                 if (ImGui::Checkbox("Stage boundary", &sb))
                     m_show_stage_boundary.store(sb);
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Draw the deterministic gameplay stage boundary. "
-                    "Unaffected by F5.");
+                    "Draw exact LuxBattle terrain triangles plus current "
+                    "breakable-stage presentation bounds. Orange: ring/wall "
+                    "clearance; blue: floor/ceiling; cyan: edge/ring-out; "
+                    "purple: point-sampled special terrain; grey: excluded "
+                    "scan entries. Unaffected by F5.");
             }
 
             {
@@ -10135,8 +10092,53 @@ private:
 
 // ----------------------------------------------------------------------------
 #define HORSE_MOD_API __declspec(dllexport)
+namespace
+{
+    std::atomic<bool> g_horsemod_hot_reload_blocked {false};
+}
+
 extern "C"
 {
-    HORSE_MOD_API CppUserModBase* start_mod()                    { return new HorseMod(); }
-    HORSE_MOD_API void             uninstall_mod(CppUserModBase* m) { delete m; }
+    HORSE_MOD_API CppUserModBase* start_mod()
+    {
+        if (g_horsemod_hot_reload_blocked.load(
+                std::memory_order_acquire))
+        {
+            RC::Output::send<RC::LogLevel::Error>(STR(
+                "[HorseMod] reload refused after an unsafe unload attempt; "
+                "restart the process before loading HorseMod again\n"));
+            return nullptr;
+        }
+        return new HorseMod();
+    }
+
+    HORSE_MOD_API void uninstall_mod(CppUserModBase* mod)
+    {
+        const Horse::RollbackModuleUnloadResult unload =
+            Horse::RollbackLab::instance().prepare_for_module_unload();
+        if (unload != Horse::RollbackModuleUnloadResult::Ready)
+        {
+            g_horsemod_hot_reload_blocked.store(
+                true, std::memory_order_release);
+            // UE4SS's C++ mod ABI has no cancellable pre-unload callback:
+            // uninstall_mod returns void and CppMod immediately calls
+            // FreeLibrary. Pinning is the only safe fail-closed response once
+            // rollback still owns a callback/transition or hook detachment
+            // failed. The process must be restarted before loading HorseMod
+            // again.
+            HMODULE pinned_module = nullptr;
+            const bool pinned = GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                    | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                reinterpret_cast<LPCWSTR>(&uninstall_mod),
+                &pinned_module) != FALSE;
+            RC::Output::send<RC::LogLevel::Error>(STR(
+                "[HorseMod] hot unload refused result_code={} pinned={}; "
+                "restart the process before reloading HorseMod\n"),
+                static_cast<uint32_t>(unload),
+                pinned);
+            return;
+        }
+        delete mod;
+    }
 }

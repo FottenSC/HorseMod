@@ -403,7 +403,7 @@ def write_audit(path: Path, rows: list[AuditRow]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generated", type=Path, default=Path("docs/investigations/generated"))
-    parser.add_argument("--out", type=Path, default=Path("docs/investigations/sc6-character-movement-player-readable-2026-05-21.md"))
+    parser.add_argument("--out", type=Path, default=Path("docs/investigations/generated/sc6-character-movement-player-readable.md"))
     args = parser.parse_args()
 
     audit_rows = render(args.generated, args.out)

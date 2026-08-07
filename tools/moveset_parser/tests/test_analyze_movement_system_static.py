@@ -67,8 +67,10 @@ def test_static_movement_analyzer_finds_core_candidates():
         for row in basic_routes
         if row["character"] == "Hilde" and row["movement_type"] == "backstep_candidate"
     )
-    assert hilde_backstep["trust_status"] == "unresolved"
-    assert "offensive cell" in hilde_backstep["trust_reason"]
+    assert hilde_backstep["trust_status"] == "trusted_basic"
+    assert "direct movement predicate" in hilde_backstep["trust_reason"]
+    assert hilde_backstep["src_slot"] == 2670
+    assert hilde_backstep["dst_slot"] == 473
 
     quality_by_character = {
         row["character"]: row

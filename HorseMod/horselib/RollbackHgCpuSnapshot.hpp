@@ -8,48 +8,78 @@
 
 #pragma once
 
-#include "NativeBinding.hpp"
-#include "ReplayDebugTrace.hpp"
-#include "RollbackSnapshot.hpp"
+#include "RollbackHgCpuPeerBreakdown.hpp"
+#include "RollbackHgCpuCanonical.hpp"
+#include "RollbackAiPaletteDiagnostics.hpp"
+#include "RollbackCharaAnimationState.hpp"
+#include "RollbackMotionBankCanonical.hpp"
 #include "RollbackSecondaryEventStack.hpp"
 #include "RollbackStateHash.hpp"
+
+#if !defined(HORSE_ROLLBACK_HGCPU_PURE_STATE_ONLY)
+#include "NativeBinding.hpp"
+#include "ReplayDebugTrace.hpp"
+#include "RollbackPreallocatedHgCpuCapacity.hpp"
+#include "RollbackSnapshot.hpp"
 #include "SafeMemoryRead.hpp"
+#endif
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
 #include <cstring>
+#include <limits>
 #include <new>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace Horse
 {
     static constexpr size_t kRollbackHgCpuSnapshotBytes = 0x28018;
+    static constexpr size_t kRollbackTimerMaximumSnapshotNodes = 17;
     static constexpr uintptr_t kRollbackRVA_ExecMoveChangeAndPost = 0x3841E0;
     static constexpr uintptr_t kRollbackRVA_ExecFinalizeAndPost = 0x384540;
     static constexpr size_t kRollbackHgCpuFallbackPerCharaBytes = 0x1400C;
     static constexpr size_t kRollbackHgCpuAiResetSlotEnd = 0x79AC;
     static constexpr size_t kRollbackHgCpuHitAreaLocalStart = 0x79AC;
     static constexpr size_t kRollbackHgCpuHitAreaFixedBytes = 0x41C;
+    static_assert(kRollbackHgCpuHitAreaLocalStart
+            + kRollbackHgCpuHitAreaFixedBytes
+        == kRollbackHgCpuCanonicalKHitNodeStreamStart);
     static constexpr size_t kRollbackHgCpuHitAreaRelocBytes = 0x90;
     static constexpr uintptr_t kRollbackKHitListControlStart = 0x44470;
     static constexpr size_t kRollbackKHitListControlBytes = 0x50;
     static constexpr size_t kRollbackKHitNodeImageBytes = 0xA0;
+    static constexpr size_t kRollbackKHitMaximumSnapshotNodes = 3u * 256u;
     static constexpr uintptr_t kRollbackCharaHitAreaFixedStart = 0x44078;
-    static constexpr size_t kRollbackMotionBankPlayerCount = 2;
-    static constexpr size_t kRollbackMotionBankCount = 2;
-    static constexpr size_t kRollbackMotionBankBufferCount = 3;
     static constexpr uintptr_t kRollbackPrimaryMotionBankCharaOffset = 0x35A0;
     static constexpr uintptr_t kRollbackSecondaryMotionBankCharaOffset = 0x27760;
     static constexpr size_t kRollbackPrimaryMotionBankSnapshotLocal = 0x3590;
     static constexpr size_t kRollbackSecondaryMotionBankSnapshotLocal = 0x4DD0;
-    static constexpr size_t kRollbackPrimaryMotionBankBytes = 0x1840;
-    static constexpr size_t kRollbackSecondaryMotionBankBytes = 0x800;
     static constexpr size_t kRollbackMotionBankControlBytes = 0x38;
+
+    struct RollbackMotionBankSpec
+    {
+        uintptr_t chara_offset {0};
+        size_t bytes {0};
+    };
+
+    static constexpr RollbackMotionBankSpec kRollbackMotionBankSpecs[] = {
+        {kRollbackPrimaryMotionBankCharaOffset, kRollbackPrimaryMotionBankBytes},
+        {kRollbackSecondaryMotionBankCharaOffset, kRollbackSecondaryMotionBankBytes},
+    };
+
     static constexpr uintptr_t kRollbackMoveVMMotionTailCharaOffset = 0x96490;
     static constexpr size_t kRollbackMoveVMMotionTailBytes = 0x1000;
+    // FLuxCharaVfxEffectAnchorBlock begins at chara+0x95FA0. Its nine
+    // extra-bone matrices begin at anchor+0x5C0, hence motion-tail+0xD0.
+    // SolveBonePose can copy these retained matrices directly into bones
+    // 23..31 and KHit consumes those bones in the same tick.
+    static constexpr size_t kRollbackMotionTailExtraBoneCacheOffset = 0xD0;
+    static constexpr size_t kRollbackMotionTailExtraBoneCacheBytes = 0x240;
     // LuxMoveVM_ResetAISlotStateArray reaches the skeleton runtime while the
     // native HgCpu reader rebuilds AI-owned state. The native writer does not
     // serialize this runtime: a 0x200-byte owner/control header followed by an
@@ -64,14 +94,20 @@ namespace Horse
     static constexpr size_t kRollbackSkeletonMaxChains = 128;
     static constexpr size_t kRollbackSkeletonMaxSpringNodes = 512;
     static constexpr uintptr_t kRollbackRVA_LuxMoveVM_TimerConfig = 0x470DF28;
+    static constexpr uintptr_t
+        kRollbackRVA_LuxEffectSystemInstance = 0x470DF08;
     static constexpr size_t kRollbackTimerNodeRootBytes = 0x2F0;
     static constexpr size_t kRollbackTimerNodeBackingBytes = 0x41E0;
     static constexpr size_t kRollbackTimerNodeChildPtrOffset = 0x10;
     static constexpr size_t kRollbackTimerNodeChildPtrCount = 0x11;
     static constexpr size_t kRollbackTimerIndexedObjectBytes = 0x310;
 
-    using RollbackHgCpuExecFn =
-        void* (__fastcall*)(class RollbackHgCpuBufferShim*);
+    static inline bool RollbackTimerActionManagerAliasValid(
+        uintptr_t timer_root,
+        uintptr_t action_manager_root) noexcept
+    {
+        return timer_root != 0 && timer_root == action_manager_root;
+    }
 
     static inline size_t RollbackKHitSnapshotWriterBytes(
         uint8_t tag,
@@ -154,6 +190,10 @@ namespace Horse
         }
         return false;
     }
+
+#if !defined(HORSE_ROLLBACK_HGCPU_PURE_STATE_ONLY)
+    using RollbackHgCpuExecFn =
+        void* (__fastcall*)(class RollbackHgCpuBufferShim*);
 
     class RollbackHgCpuBufferShim
     {
@@ -277,6 +317,7 @@ namespace Horse
 
     inline const void* const* RollbackHgCpuBufferShim::s_vtable =
         RollbackHgCpuBufferShim::build_vtable();
+#endif
 
     struct RollbackHgCpuSnapshotFrame
     {
@@ -406,9 +447,21 @@ namespace Horse
                 std::memset(aux_head, 0, sizeof(aux_head));
                 std::memset(chain_head, 0, sizeof(chain_head));
                 inline_bytes.clear();
-                aux_nodes.clear();
-                chains.clear();
-                spring_nodes.clear();
+                for (NodeImage& node : aux_nodes)
+                {
+                    node.address = 0;
+                    node.vtable = 0;
+                    node.next = 0;
+                    node.bytes.clear();
+                }
+                for (ChainImage& chain : chains) chain = {};
+                for (NodeImage& node : spring_nodes)
+                {
+                    node.address = 0;
+                    node.vtable = 0;
+                    node.next = 0;
+                    node.bytes.clear();
+                }
                 hash = 0;
             }
         };
@@ -419,8 +472,9 @@ namespace Horse
             {
                 uintptr_t root {0};
                 uintptr_t backing {0};
-                std::vector<uint8_t> root_bytes;
-                std::vector<uint8_t> backing_bytes;
+                std::array<uint8_t, kRollbackTimerNodeRootBytes> root_bytes {};
+                std::array<uint8_t, kRollbackTimerNodeBackingBytes>
+                    backing_bytes {};
             };
 
             bool ok {false};
@@ -463,13 +517,17 @@ namespace Horse
                     indexed_object_captured,
                     0,
                     sizeof(indexed_object_captured));
-                for (auto& bytes : indexed_object_bytes)
-                    bytes.fill(0);
                 hash = 0;
                 std::memset(child, 0, sizeof(child));
                 root_bytes.clear();
                 backing_bytes.clear();
-                nodes.clear();
+                for (NodeImage& node : nodes)
+                {
+                    node.root = 0;
+                    node.backing = 0;
+                    node.root_bytes.fill(0);
+                    node.backing_bytes.fill(0);
+                }
             }
         };
 
@@ -480,6 +538,7 @@ namespace Horse
         uint64_t motion_bank_hash {0};
         uint64_t motion_tail_hash {0};
         uint64_t secondary_event_stack_hash {0};
+        uint64_t chara_animation_hash {0};
         uint64_t skeleton_runtime_hash {0};
         uint64_t timer_node_hash {0};
         // Peer-canonical gameplay digest. Native writer-selected fields and
@@ -492,18 +551,57 @@ namespace Horse
         MotionBankHistory motion_banks {};
         MotionTailHistory motion_tail {};
         RollbackSecondaryEventStackHistory secondary_event_stack {};
+        RollbackCharaAnimationStateHistory chara_animation {};
         SkeletonRuntimeHistory skeleton_runtime {};
         TimerNodeHistory timer_node {};
 
         void clear()
         {
             bytes.clear();
+            reset_metadata();
+        }
+
+        // Arena recycling keeps the fixed native buffer live. The writer
+        // overwrites every byte up to used_bytes, so clearing 0x28018 bytes
+        // before every Save is wasted work.
+        void recycle_for_capture()
+        {
             used_bytes = 0;
             byte_hash = 0;
             khit_topology_hash = 0;
             motion_bank_hash = 0;
             motion_tail_hash = 0;
             secondary_event_stack_hash = 0;
+            chara_animation_hash = 0;
+            skeleton_runtime_hash = 0;
+            timer_node_hash = 0;
+            canonical_hash = 0;
+            hash = 0;
+            khit_topology_ok = false;
+            khit_topology[0].clear();
+            khit_topology[1].clear();
+            motion_banks.ok = false;
+            motion_banks.hash = 0;
+            motion_tail.ok = false;
+            motion_tail.hash = 0;
+            secondary_event_stack.recycle_for_capture();
+            chara_animation.recycle_for_capture();
+            skeleton_runtime.ok = false;
+            skeleton_runtime.hash = 0;
+            timer_node.ok = false;
+            timer_node.hash = 0;
+        }
+
+    private:
+        void reset_metadata()
+        {
+            used_bytes = 0;
+            byte_hash = 0;
+            khit_topology_hash = 0;
+            motion_bank_hash = 0;
+            motion_tail_hash = 0;
+            secondary_event_stack_hash = 0;
+            chara_animation_hash = 0;
             skeleton_runtime_hash = 0;
             timer_node_hash = 0;
             canonical_hash = 0;
@@ -514,11 +612,25 @@ namespace Horse
             motion_banks.clear();
             motion_tail.clear();
             secondary_event_stack.clear();
+            chara_animation.clear();
             skeleton_runtime.clear();
             timer_node.clear();
         }
+
+    public:
     };
 
+    static constexpr uint32_t kRollbackHgCpuPeerMismatchChara0 = 1u << 0;
+    static constexpr uint32_t kRollbackHgCpuPeerMismatchChara1 = 1u << 1;
+    static constexpr uint32_t kRollbackHgCpuPeerMismatchKHit0 = 1u << 2;
+    static constexpr uint32_t kRollbackHgCpuPeerMismatchKHit1 = 1u << 3;
+    static constexpr uint32_t kRollbackHgCpuPeerMismatchMotion = 1u << 4;
+    static constexpr uint32_t kRollbackHgCpuPeerMismatchSecondary = 1u << 5;
+    static constexpr uint32_t kRollbackHgCpuPeerMismatchTimer = 1u << 6;
+    static constexpr uint32_t kRollbackHgCpuPeerMismatchSkeleton = 1u << 7;
+    static constexpr uint32_t kRollbackHgCpuPeerMismatchShape = 1u << 8;
+
+#if !defined(HORSE_ROLLBACK_HGCPU_PURE_STATE_ONLY)
     struct RollbackHgCpuSnapshotReport
     {
         bool ok {false};
@@ -531,6 +643,12 @@ namespace Horse
         uintptr_t chara_p1 {0};
         uintptr_t chara_p2 {0};
         uint64_t hash {0};
+        uint64_t emergency_capture_nanoseconds {0};
+        uint64_t native_capture_nanoseconds {0};
+        uint64_t emergency_restore_nanoseconds {0};
+        uint64_t khit_capture_nanoseconds {0};
+        uint64_t timer_capture_nanoseconds {0};
+        uint64_t hash_finalize_nanoseconds {0};
         NativeCallFault fault {};
         const char* failure {"not-run"};
     };
@@ -560,6 +678,29 @@ namespace Horse
         RollbackHgCpuSnapshotReport restore {};
         RollbackHgCpuSnapshotReport recapture {};
     };
+#endif
+
+    // Capture, restore validation, and terminal-checkpoint validation must use
+    // one aggregate formula. In particular, character animation history is
+    // part of exact local rewind integrity even though its pointer-normalized
+    // canonical contribution is handled separately.
+    static inline uint64_t RollbackHashHgCpuIntegrityComponents(
+        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        return RollbackHashCombine(
+            RollbackHashCombine(
+                RollbackHashCombine(
+                    RollbackHashCombine(
+                        frame.byte_hash, frame.khit_topology_hash),
+                    frame.motion_bank_hash),
+                RollbackHashCombine(
+                    frame.motion_tail_hash,
+                    RollbackHashCombine(
+                        frame.secondary_event_stack_hash,
+                        frame.chara_animation_hash))),
+            RollbackHashCombine(
+                frame.skeleton_runtime_hash, frame.timer_node_hash));
+    }
 
     static inline size_t RollbackHgCpuCharaRecordBytes(
         const RollbackHgCpuSnapshotFrame* frame,
@@ -598,184 +739,141 @@ namespace Horse
         return frame.bytes.size();
     }
 
-    struct RollbackHgCpuIgnoreRange
-    {
-        size_t offset {0};
-        size_t bytes {0};
-        const char* reason {"unspecified"};
-    };
-
     static inline bool RollbackHgCpuRoundTripOffsetIgnored(
         size_t offset,
         const char** reason_out = nullptr,
         const RollbackHgCpuSnapshotFrame* frame = nullptr) noexcept
     {
-        static constexpr RollbackHgCpuIgnoreRange kRanges[] = {
-            {0x16C0, 0x180, "rebuilt FLuxBattleChara motion-input flag/history"},
-            {0x2144, 0x1020, "rebuilt FLuxBattleChara input/command-history window"},
-            {0x3590, 0x1840, "motion-bank primary presentation cache; rollback restores control and MoveVM motion tail"},
-            {0x4DD0, 0x800, "motion-bank secondary presentation cache; rollback restores control and MoveVM motion tail"},
-            {0x290, 0x10, "UpdateLookAtIKTarget rebuilds chara+0x2A0 look-at target vector A"},
-            {0x2A0, 0x10, "UpdateLookAtIKTarget rebuilds chara+0x2B0 look-at source vector A"},
-            {0x2C0, 0x10, "UpdateLookAtIKTarget rebuilds chara+0x2D0 look-at target vector B"},
-            {0x2D0, 0x10, "UpdateLookAtIKTarget rebuilds chara+0x2E0 look-at source/temp vector B"},
-            {0x260, 0x0C, "native reader/VFX dispatcher owns chara+0x270 restore-slot flags"},
-            {0x3580, 0x10, "native reader/VFX dispatcher owns chara+0x3590 tree holder"},
-            {0x5670, 0x30, "native reader rewrites chara+0x43DF0 self-pointer block"},
-            {0x5778, 0x10, "native reader rewrites lane-state helper pointers"},
-            {0x5BE0, 0x10, "native reader rewrites lane-state helper pointers"},
-            {0x6748, 0x11F0, "native reader/VFX dispatcher canonicalizes chara+0x95FA0 effect-anchor block"},
-            // WriteCharaStateToSnapshot serializes the AI reset-slot's
-            // process-local object/handle tuple here. The exact restore path
-            // deliberately starts at +0x18 (local 0x7964), where the stable
-            // palette scalars begin; hashing the preceding identities made
-            // identical replay forks disagree across processes.
-            {0x794C, 0x18, "AI reset-slot process identity tuple; stable palette scalars start at +0x18"},
-        };
-
         const size_t p2_base = RollbackHgCpuCharaRecordBytes(frame, 0);
         const size_t bases[2] = {0, p2_base};
-        for (const auto& range : kRanges)
+        if (frame && frame->khit_topology_ok)
         {
             for (size_t player = 0; player < 2; ++player)
             {
-                const size_t start = bases[player] + range.offset;
-                if (offset >= start && offset < start + range.bytes)
+                const size_t start = bases[player]
+                    + kRollbackHgCpuHitAreaLocalStart
+                    + kRollbackHgCpuHitAreaFixedBytes;
+                const size_t end = bases[player]
+                    + RollbackHgCpuCharaRecordBytes(frame, player);
+                if (offset >= start && offset < end)
                 {
-                    if (reason_out) *reason_out = range.reason;
+                    if (reason_out)
+                    {
+                        *reason_out =
+                            "KHit node stream is verified by pointer-free topology";
+                    }
                     return true;
                 }
+            }
+        }
+        for (size_t player = 0; player < 2; ++player)
+        {
+            if (offset < bases[player]) continue;
+            const char* ignore_reason = nullptr;
+            if (RollbackHgCpuRestoreLocalOffsetIgnored(
+                    offset - bases[player], &ignore_reason))
+            {
+                if (reason_out) *reason_out = ignore_reason;
+                return true;
             }
         }
         if (reason_out) *reason_out = nullptr;
         return false;
     }
 
-    static inline uint64_t RollbackHashHgCpuCanonical(
-        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    static inline bool RollbackAddHgCpuCanonicalCharaRecord(
+        RollbackFastHash& hash,
+        const RollbackHgCpuSnapshotFrame& frame,
+        size_t player,
+        size_t effective,
+        size_t local_begin = 0,
+        size_t local_limit = static_cast<size_t>(-1)) noexcept
     {
-        if (!frame.khit_topology_ok
-            || !frame.motion_banks.ok
-            || !frame.motion_tail.ok
-            || !frame.secondary_event_stack.ok
-            || !frame.skeleton_runtime.ok
-            || !frame.timer_node.ok)
+        size_t base = 0;
+        if (player >= 2
+            || !RollbackHgCpuSnapshotCharaBase(frame, player, base))
         {
-            return 0;
+            return false;
         }
+        const size_t record = RollbackHgCpuCharaRecordBytes(&frame, player);
+        const size_t effective_local = effective > base
+            ? (std::min)(record, effective - base)
+            : 0;
+        const size_t record_limit = (std::min)(
+            effective_local, (std::min)(record, local_limit));
+        const size_t khit_node_stream_start =
+            kRollbackHgCpuHitAreaLocalStart
+            + kRollbackHgCpuHitAreaFixedBytes;
+        // Native HgCpu appends a variable KHit node stream after the fixed
+        // record. Its pointer-free topology is hashed separately below.
+        return RollbackAddHgCpuCanonicalCharaBytes(
+            hash, frame.bytes.data() + base, record_limit, local_begin,
+            khit_node_stream_start);
+    }
 
-        RollbackHash hash {};
+    static inline bool RollbackAddHgCpuCanonicalCharaRecordFromBytes(
+        RollbackFastHash& hash,
+        const uint8_t* bytes,
+        size_t effective,
+        const RollbackHgCpuSnapshotFrame& layout,
+        size_t player) noexcept
+    {
+        if (!bytes || player >= 2) return false;
+        size_t base = 0;
+        if (!RollbackHgCpuSnapshotCharaBase(layout, player, base))
+            return false;
+        const size_t record =
+            RollbackHgCpuCharaRecordBytes(&layout, player);
+        if (base > effective || record > effective - base)
+            return false;
+        return RollbackAddHgCpuCanonicalCharaBytes(
+            hash, bytes + base, record, 0,
+            kRollbackHgCpuHitAreaLocalStart
+                + kRollbackHgCpuHitAreaFixedBytes);
+    }
+
+    static inline uint64_t RollbackHashHgCpuCanonicalCharaChunk(
+        const RollbackHgCpuSnapshotFrame& frame,
+        size_t player,
+        size_t local_begin,
+        size_t local_limit) noexcept
+    {
         const size_t effective = RollbackHgCpuEffectiveBytes(frame);
-        hash.add_scalar(effective);
-
-        // Canonicalize the native two-character stream in place logically.
-        // Ghidra/native-reader-proven presentation/self-pointer ranges and the
-        // trailing KHit relocation tokens are zeroed while preserving layout.
-        size_t p2_base = 0;
-        if (!RollbackHgCpuSnapshotCharaBase(frame, 1, p2_base))
+        size_t base = 0;
+        if (player >= 2
+            || !RollbackHgCpuSnapshotCharaBase(frame, player, base))
+        {
             return 0;
-        const size_t bases[2] = {0, p2_base};
-        const size_t records[2] = {
-            RollbackHgCpuCharaRecordBytes(&frame, 0),
-            RollbackHgCpuCharaRecordBytes(&frame, 1),
-        };
-        for (size_t player = 0; player < 2; ++player)
-        {
-            const size_t record_end = (std::min)(
-                effective, bases[player] + records[player]);
-            for (size_t offset = bases[player]; offset < record_end;)
-            {
-                uint64_t value = 0;
-                const size_t local = offset - bases[player];
-                const bool relocation = records[player]
-                        >= kRollbackHgCpuHitAreaRelocBytes
-                    && local >= records[player]
-                        - kRollbackHgCpuHitAreaRelocBytes;
-                const bool ignored =
-                    RollbackHgCpuRoundTripOffsetIgnored(offset, nullptr, &frame);
-                if (!relocation && !ignored
-                    && offset + sizeof(value) <= record_end)
-                {
-                    bool entire_qword_live = true;
-                    for (size_t lane = 1; lane < sizeof(value); ++lane)
-                    {
-                        const size_t lane_offset = offset + lane;
-                        const size_t lane_local = local + lane;
-                        if ((records[player]
-                                >= kRollbackHgCpuHitAreaRelocBytes
-                             && lane_local >= records[player]
-                                - kRollbackHgCpuHitAreaRelocBytes)
-                            || RollbackHgCpuRoundTripOffsetIgnored(
-                                lane_offset, nullptr, &frame))
-                        {
-                            entire_qword_live = false;
-                            break;
-                        }
-                    }
-                    if (entire_qword_live)
-                    {
-                        std::memcpy(&value, frame.bytes.data() + offset,
-                                    sizeof(value));
-                        hash.add_scalar(value);
-                        offset += sizeof(value);
-                        continue;
-                    }
-                }
-                const uint8_t byte = relocation || ignored
-                    ? 0 : frame.bytes[offset];
-                hash.add_scalar(byte);
-                ++offset;
-            }
         }
+        const size_t record = RollbackHgCpuCharaRecordBytes(&frame, player);
+        const size_t effective_local = effective > base
+            ? (std::min)(record, effective - base)
+            : 0;
+        return RollbackHashHgCpuCanonicalCharaChunkBytes(
+            frame.bytes.data() + base, effective_local, player,
+            local_begin, local_limit,
+            kRollbackHgCpuHitAreaLocalStart
+                + kRollbackHgCpuHitAreaFixedBytes);
+    }
 
-        // KHit is serialized in list/index order. Addresses, vtables, next
-        // pointers, and raw list-control allocator links are intentionally not
-        // part of the peer digest.
-        for (size_t player = 0; player < 2; ++player)
-        {
-            const auto& topology = frame.khit_topology[player];
-            hash.add_scalar(topology.nodes.size());
-            for (const auto& node : topology.nodes)
-            {
-                hash.add_scalar(node.list_index);
-                hash.add_scalar(node.node_index);
-                hash.add_scalar(node.writer_tag);
-                hash.add_scalar(node.writer_bytes);
-                for (size_t serialized = 0;
-                     serialized < node.writer_bytes;
-                     ++serialized)
-                {
-                    uintptr_t source_offset = 0;
-                    size_t contiguous = 0;
-                    if (!RollbackKHitSourceOffsetForSerializedOffset(
-                            node.writer_tag, serialized,
-                            &source_offset, &contiguous)
-                        || source_offset >= node.bytes.size())
-                    {
-                        return 0;
-                    }
-                    hash.add_scalar(node.bytes[source_offset]);
-                }
-            }
-        }
+    static inline void RollbackAddHgCpuMotionSlotPeerState(
+        RollbackFastHash& hash,
+        const RollbackHgCpuSnapshotFrame::MotionBankHistory& motion,
+        bool& ok) noexcept
+    {
+        ok = RollbackAddMotionBankPeerState(hash, motion);
+    }
 
-        // Motion/timer object images below are Horse restore-integrity caches,
-        // not a second peer-canonical state source. The native HgCpu writer
-        // has already serialized its selected motion, terrain, component,
-        // timer-node, and fixed timer fields into frame.bytes above. Cover
-        // only stable cache shape/ownership metadata here; raw object images
-        // can contain process links and are verified locally by their
-        // integrity hashes during restore.
-        for (size_t player = 0; player < kRollbackMotionBankPlayerCount;
-             ++player)
-        {
-            for (size_t bank = 0; bank < kRollbackMotionBankCount; ++bank)
-            {
-                hash.add_scalar(frame.motion_banks.current_slot[player][bank]);
-                hash.add_scalar(frame.motion_banks.provider_slot[player][bank]);
-            }
-        }
-        const auto& timer = frame.timer_node;
+    static inline uint64_t RollbackHashHgCpuMotionSlotPeerState(
+        const RollbackHgCpuSnapshotFrame::MotionBankHistory& motion) noexcept
+    {
+        return RollbackHashMotionBankPeerState(motion);
+    }
+
+    static inline void RollbackAddHgCpuTimerShapePeerState(
+        RollbackFastHash& hash,
+        const RollbackHgCpuSnapshotFrame::TimerNodeHistory& timer) noexcept
+    {
         hash.add_scalar(timer.indexed_nonzero_count);
         hash.add_scalar(timer.indexed_captured_count);
         hash.add_scalar(timer.indexed_object_captured_count);
@@ -786,42 +884,654 @@ namespace Horse
             hash.add_scalar(timer.indexed_object_captured[slot]);
         }
         hash.add_scalar(timer.nodes.size());
+    }
+
+    static inline uint64_t RollbackHashHgCpuTimerShapePeerState(
+        const RollbackHgCpuSnapshotFrame::TimerNodeHistory& timer) noexcept
+    {
+        if (!timer.ok) return 0;
+        RollbackFastHash hash {};
+        RollbackAddHgCpuTimerShapePeerState(hash, timer);
+        return hash.finish();
+    }
+
+    static inline void RollbackAddHgCpuSkeletonShapePeerState(
+        RollbackFastHash& hash,
+        const RollbackHgCpuSnapshotFrame::SkeletonRuntimeHistory& skeleton)
+        noexcept
+    {
+        hash.add_scalar(skeleton.inline_bytes.size());
+        hash.add_scalar(skeleton.aux_nodes.size());
+        hash.add_scalar(skeleton.chains.size());
+        hash.add_scalar(skeleton.spring_nodes.size());
+    }
+
+    static inline uint64_t RollbackHashHgCpuSkeletonShapePeerState(
+        const RollbackHgCpuSnapshotFrame::SkeletonRuntimeHistory& skeleton)
+        noexcept
+    {
+        if (!skeleton.ok) return 0;
+        RollbackFastHash hash {};
+        RollbackAddHgCpuSkeletonShapePeerState(hash, skeleton);
+        return hash.finish();
+    }
+
+    static inline bool RollbackAddHgCpuKHitPlayerPeerState(
+        RollbackFastHash& hash,
+        const RollbackHgCpuSnapshotFrame& frame,
+        size_t player) noexcept
+    {
+        if (player >= 2 || !frame.khit_topology_ok) return false;
+        const auto& topology = frame.khit_topology[player];
+        hash.add_scalar(topology.nodes.size());
+        for (const auto& node : topology.nodes)
+        {
+            hash.add_scalar(node.list_index);
+            hash.add_scalar(node.node_index);
+            hash.add_scalar(node.writer_tag);
+            hash.add_scalar(node.writer_bytes);
+            for (size_t serialized = 0; serialized < node.writer_bytes;)
+            {
+                uintptr_t source_offset = 0;
+                size_t contiguous = 0;
+                if (!RollbackKHitSourceOffsetForSerializedOffset(
+                        node.writer_tag, serialized,
+                        &source_offset, &contiguous)
+                    || contiguous == 0
+                    || source_offset >= node.bytes.size())
+                {
+                    return false;
+                }
+                const size_t remaining = node.writer_bytes - serialized;
+                const size_t bytes = (std::min)(contiguous, remaining);
+                if (bytes > node.bytes.size() - source_offset) return false;
+                hash.add_bytes(node.bytes.data() + source_offset, bytes);
+                serialized += bytes;
+            }
+        }
+        return true;
+    }
+
+    static inline uint64_t RollbackHashHgCpuKHitPlayerPeerState(
+        const RollbackHgCpuSnapshotFrame& frame,
+        size_t player) noexcept
+    {
+        RollbackFastHash hash {};
+        hash.add_scalar(player);
+        return RollbackAddHgCpuKHitPlayerPeerState(hash, frame, player)
+            ? hash.finish() : 0;
+    }
+
+    enum class RollbackKHitPeerDiagnosticPart : uint8_t
+    {
+        Full = 0,
+        ActiveWord = 1,
+        PayloadLane0 = 2,
+        PayloadLane1 = 3,
+        PayloadLane2 = 4,
+        PayloadLane3 = 5,
+        WriterTag0 = 6,
+        WriterTag1 = 7,
+        WriterTag2 = 8,
+    };
+
+    static inline uint64_t RollbackHashHgCpuKHitListDiagnostic(
+        const RollbackHgCpuSnapshotFrame& frame,
+        size_t player,
+        size_t list_index,
+        RollbackKHitPeerDiagnosticPart part) noexcept
+    {
+        if (player >= 2 || list_index >= kRollbackHgCpuKHitListCount
+            || !frame.khit_topology_ok
+            || !frame.khit_topology[player].ok)
+        {
+            return 0;
+        }
+        RollbackFastHash hash {};
+        hash.add_scalar(player);
+        hash.add_scalar(list_index);
+        hash.add_scalar(static_cast<uint8_t>(part));
+        size_t matched_nodes = 0;
+        for (const auto& node : frame.khit_topology[player].nodes)
+        {
+            if (node.list_index != list_index) continue;
+            if (part >= RollbackKHitPeerDiagnosticPart::WriterTag0)
+            {
+                const uint8_t required_tag =
+                    static_cast<uint8_t>(part)
+                    - static_cast<uint8_t>(
+                        RollbackKHitPeerDiagnosticPart::WriterTag0);
+                if (node.writer_tag != required_tag) continue;
+            }
+            ++matched_nodes;
+            hash.add_scalar(node.node_index);
+            hash.add_scalar(node.writer_tag);
+            hash.add_scalar(node.writer_bytes);
+
+            size_t serialized_begin = 0;
+            size_t serialized_end = node.writer_bytes;
+            if (part == RollbackKHitPeerDiagnosticPart::ActiveWord)
+            {
+                serialized_end = (std::min)(size_t {2}, node.writer_bytes);
+            }
+            else if (part >= RollbackKHitPeerDiagnosticPart::PayloadLane0
+                && part <= RollbackKHitPeerDiagnosticPart::PayloadLane3)
+            {
+                const size_t lane = static_cast<size_t>(part)
+                    - static_cast<size_t>(
+                        RollbackKHitPeerDiagnosticPart::PayloadLane0);
+                serialized_begin = 2 + lane * 0x10;
+                serialized_end = (std::min)(
+                    serialized_begin + 0x10, node.writer_bytes);
+                const bool present = serialized_begin < node.writer_bytes;
+                hash.add_scalar(present);
+                if (!present) continue;
+            }
+
+            for (size_t serialized = serialized_begin;
+                 serialized < serialized_end;)
+            {
+                uintptr_t source_offset = 0;
+                size_t contiguous = 0;
+                if (!RollbackKHitSourceOffsetForSerializedOffset(
+                        node.writer_tag, serialized,
+                        &source_offset, &contiguous)
+                    || contiguous == 0
+                    || source_offset >= node.bytes.size())
+                {
+                    return 0;
+                }
+                const size_t remaining = serialized_end - serialized;
+                const size_t bytes = (std::min)(contiguous, remaining);
+                if (bytes > node.bytes.size() - source_offset) return 0;
+                hash.add_bytes(node.bytes.data() + source_offset, bytes);
+                serialized += bytes;
+            }
+        }
+        hash.add_scalar(matched_nodes);
+        return hash.finish();
+    }
+
+    static inline uint64_t RollbackHashHgCpuKHitSourceMatrices(
+        const RollbackHgCpuSnapshotFrame& frame,
+        size_t player,
+        size_t list_index,
+        uint16_t* bone_min_out,
+        uint16_t* bone_max_out) noexcept
+    {
+        if (bone_min_out) *bone_min_out = 0;
+        if (bone_max_out) *bone_max_out = 0;
+        if (player >= 2 || list_index >= kRollbackHgCpuKHitListCount
+            || !frame.khit_topology_ok
+            || !frame.khit_topology[player].ok)
+        {
+            return 0;
+        }
+
+        size_t current_offset = 0;
+        size_t current_bytes = 0;
+        if (!RollbackMotionBankLogicalCurrentLocation(
+                frame.motion_banks, player, 0,
+                current_offset, current_bytes))
+        {
+            return 0;
+        }
+
+        RollbackFastHash hash {};
+        hash.add_scalar(player);
+        hash.add_scalar(list_index);
+        uint32_t bone_min = (std::numeric_limits<uint32_t>::max)();
+        uint32_t bone_max = 0;
+        size_t matrix_count = 0;
+        for (const auto& node : frame.khit_topology[player].nodes)
+        {
+            if (node.list_index != list_index) continue;
+            uint32_t bones[2] {};
+            size_t bone_count = 0;
+            if (node.writer_tag == 0)
+            {
+                std::memcpy(&bones[0], node.bytes.data() + 0x7c,
+                    sizeof(bones[0]));
+                bone_count = 1;
+            }
+            else if (node.writer_tag == 1)
+            {
+                std::memcpy(&bones[0], node.bytes.data() + 0x90,
+                    sizeof(bones[0]));
+                std::memcpy(&bones[1], node.bytes.data() + 0x94,
+                    sizeof(bones[1]));
+                bone_count = 2;
+            }
+            for (size_t index = 0; index < bone_count; ++index)
+            {
+                const size_t matrix_offset =
+                    static_cast<size_t>(bones[index])
+                    * kRollbackMotionBankMatrixBytes;
+                if (matrix_offset > current_bytes
+                    || kRollbackMotionBankMatrixBytes
+                        > current_bytes - matrix_offset)
+                {
+                    return 0;
+                }
+                hash.add_scalar(node.node_index);
+                hash.add_scalar(node.writer_tag);
+                hash.add_scalar(bones[index]);
+                hash.add_bytes(
+                    frame.motion_banks.bytes.data()
+                        + current_offset + matrix_offset,
+                    kRollbackMotionBankMatrixBytes);
+                bone_min = (std::min)(bone_min, bones[index]);
+                bone_max = (std::max)(bone_max, bones[index]);
+                ++matrix_count;
+            }
+        }
+        hash.add_scalar(matrix_count);
+        if (matrix_count != 0)
+        {
+            if (bone_min_out)
+                *bone_min_out = static_cast<uint16_t>((std::min)(
+                    bone_min, static_cast<uint32_t>(0xffff)));
+            if (bone_max_out)
+                *bone_max_out = static_cast<uint16_t>((std::min)(
+                    bone_max, static_cast<uint32_t>(0xffff)));
+        }
+        return hash.finish();
+    }
+
+    static inline RollbackHgCpuPeerBreakdown RollbackBuildHgCpuPeerBreakdown(
+        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        RollbackHgCpuPeerBreakdown out {};
+        const size_t effective = RollbackHgCpuEffectiveBytes(frame);
+        out.effective_bytes = static_cast<uint32_t>((std::min)(
+            effective,
+            static_cast<size_t>((std::numeric_limits<uint32_t>::max)())));
+        for (size_t player = 0; player < 2; ++player)
+        {
+            out.chara_stream_hash[player] =
+                RollbackHashHgCpuCanonicalCharaChunk(
+                    frame, player, 0, static_cast<size_t>(-1));
+            for (size_t chunk = 0;
+                 chunk < kRollbackHgCpuPeerCharaChunkCount; ++chunk)
+            {
+                const size_t begin = chunk * kRollbackHgCpuPeerCharaChunkBytes;
+                out.chara_chunk_hash[player][chunk] =
+                    RollbackHashHgCpuCanonicalCharaChunk(
+                        frame, player, begin,
+                        begin + kRollbackHgCpuPeerCharaChunkBytes);
+            }
+            out.khit_hash[player] =
+                RollbackHashHgCpuKHitPlayerPeerState(frame, player);
+            for (size_t list = 0;
+                 list < kRollbackHgCpuKHitListCount; ++list)
+            {
+                out.khit_list_hash[player][list] =
+                    RollbackHashHgCpuKHitListDiagnostic(
+                        frame, player, list,
+                        RollbackKHitPeerDiagnosticPart::Full);
+                out.khit_source_matrix_hash[player][list] =
+                    RollbackHashHgCpuKHitSourceMatrices(
+                        frame, player, list,
+                        &out.khit_source_bone_min[player][list],
+                        &out.khit_source_bone_max[player][list]);
+                for (size_t lane = 0;
+                     lane < kRollbackHgCpuKHitPayloadLaneCount; ++lane)
+                {
+                    out.khit_payload_lane_hash[player][list][lane] =
+                        RollbackHashHgCpuKHitListDiagnostic(
+                            frame, player, list,
+                            static_cast<RollbackKHitPeerDiagnosticPart>(
+                                static_cast<uint8_t>(
+                                    RollbackKHitPeerDiagnosticPart::PayloadLane0)
+                                + static_cast<uint8_t>(lane)));
+                }
+            }
+            out.khit_node_count[player] = static_cast<uint16_t>((std::min)(
+                frame.khit_topology[player].nodes.size(),
+                static_cast<size_t>(
+                    (std::numeric_limits<uint16_t>::max)())));
+        }
+        out.motion_slot_hash =
+            RollbackHashHgCpuMotionSlotPeerState(frame.motion_banks);
+        for (size_t player = 0;
+             player < kRollbackMotionBankPlayerCount; ++player)
+        {
+            size_t current_offset = 0;
+            size_t current_bytes = 0;
+            if (RollbackMotionBankLogicalCurrentLocation(
+                    frame.motion_banks, player, 0,
+                    current_offset, current_bytes))
+            {
+                static constexpr size_t partition_begin[] = {16, 24, 25};
+                static constexpr size_t partition_end[] = {24, 25, 26};
+                for (size_t partition = 0;
+                     partition < kRollbackHgCpuCurrentMatrixPartitionCount;
+                     ++partition)
+                {
+                    const size_t begin = partition_begin[partition]
+                        * kRollbackMotionBankMatrixBytes;
+                    const size_t end = partition_end[partition]
+                        * kRollbackMotionBankMatrixBytes;
+                    if (begin > current_bytes || end > current_bytes)
+                    {
+                        break;
+                    }
+                    RollbackFastHash matrix_hash {};
+                    matrix_hash.add_bytes(
+                        frame.motion_banks.bytes.data()
+                            + current_offset + begin,
+                        end - begin);
+                    out.motion_current_partition_hash[player][partition] =
+                        matrix_hash.finish();
+                }
+            }
+            for (size_t bank = 0; bank < kRollbackMotionBankCount; ++bank)
+            {
+                uint32_t age = 0;
+                size_t offset = 0;
+                size_t bytes = 0;
+                if (RollbackMotionBankLogicalPreviousLocation(
+                        frame.motion_banks, player, bank, age, offset, bytes))
+                {
+                    out.motion_provider_age[player][bank] =
+                        static_cast<uint8_t>(age);
+                    RollbackFastHash image_hash {};
+                    image_hash.add_bytes(
+                        frame.motion_banks.bytes.data() + offset, bytes);
+                    out.motion_provider_hash[player][bank] =
+                        image_hash.finish();
+                }
+            }
+        }
+        // Keep the fixed peer-breakdown width while expanding this existing
+        // animation/event bucket to cover the scheduler that produces the
+        // secondary animation-notify stack.
+        out.secondary_event_hash = RollbackHashCombine(
+            RollbackHashSecondaryEventStackCanonical(
+                frame.secondary_event_stack),
+            RollbackHashCharaAnimationCanonical(
+                frame.chara_animation));
+        out.timer_shape_hash =
+            RollbackHashHgCpuTimerShapePeerState(frame.timer_node);
+        out.skeleton_shape_hash =
+            RollbackHashHgCpuSkeletonShapePeerState(frame.skeleton_runtime);
+        return out;
+    }
+
+    static inline uint32_t RollbackHgCpuPeerBreakdownMismatchMask(
+        const RollbackHgCpuPeerBreakdown& local,
+        const RollbackHgCpuPeerBreakdown& remote) noexcept
+    {
+        uint32_t mask = 0;
+        if (local.chara_stream_hash[0] != remote.chara_stream_hash[0])
+            mask |= kRollbackHgCpuPeerMismatchChara0;
+        if (local.chara_stream_hash[1] != remote.chara_stream_hash[1])
+            mask |= kRollbackHgCpuPeerMismatchChara1;
+        if (local.khit_hash[0] != remote.khit_hash[0])
+            mask |= kRollbackHgCpuPeerMismatchKHit0;
+        if (local.khit_hash[1] != remote.khit_hash[1])
+            mask |= kRollbackHgCpuPeerMismatchKHit1;
+        if (local.motion_slot_hash != remote.motion_slot_hash)
+            mask |= kRollbackHgCpuPeerMismatchMotion;
+        if (local.secondary_event_hash != remote.secondary_event_hash)
+            mask |= kRollbackHgCpuPeerMismatchSecondary;
+        if (local.timer_shape_hash != remote.timer_shape_hash)
+            mask |= kRollbackHgCpuPeerMismatchTimer;
+        if (local.skeleton_shape_hash != remote.skeleton_shape_hash)
+            mask |= kRollbackHgCpuPeerMismatchSkeleton;
+        if (local.effective_bytes != remote.effective_bytes
+            || local.khit_node_count[0] != remote.khit_node_count[0]
+            || local.khit_node_count[1] != remote.khit_node_count[1])
+        {
+            mask |= kRollbackHgCpuPeerMismatchShape;
+        }
+        return mask;
+    }
+
+    static inline uint32_t RollbackHgCpuPeerMotionContributionMismatchMask(
+        const RollbackHgCpuPeerBreakdown& local,
+        const RollbackHgCpuPeerBreakdown& remote) noexcept
+    {
+        uint32_t mask = 0;
+        for (size_t player = 0;
+             player < kRollbackMotionBankPlayerCount; ++player)
+        {
+            for (size_t bank = 0; bank < kRollbackMotionBankCount; ++bank)
+            {
+                if (local.motion_provider_age[player][bank]
+                        != remote.motion_provider_age[player][bank]
+                    || local.motion_provider_hash[player][bank]
+                        != remote.motion_provider_hash[player][bank])
+                {
+                    mask |= 1u << static_cast<uint32_t>(
+                        player * kRollbackMotionBankCount + bank);
+                }
+            }
+        }
+        return mask;
+    }
+
+    static inline uint32_t RollbackHgCpuPeerCharaChunkMismatchMask(
+        const RollbackHgCpuPeerBreakdown& local,
+        const RollbackHgCpuPeerBreakdown& remote) noexcept
+    {
+        uint32_t mask = 0;
+        for (size_t player = 0; player < 2; ++player)
+        {
+            for (size_t chunk = 0;
+                 chunk < kRollbackHgCpuPeerCharaChunkCount; ++chunk)
+            {
+                if (local.chara_chunk_hash[player][chunk]
+                    != remote.chara_chunk_hash[player][chunk])
+                {
+                    mask |= 1u << static_cast<uint32_t>(
+                        player * kRollbackHgCpuPeerCharaChunkCount + chunk);
+                }
+            }
+        }
+        return mask;
+    }
+
+    static inline uint64_t RollbackHashHgCpuCanonical(
+        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        if (!frame.khit_topology_ok
+            || !frame.motion_banks.ok
+            || !frame.motion_tail.ok
+            || !frame.secondary_event_stack.ok
+            || !frame.chara_animation.ok
+            || !frame.skeleton_runtime.ok
+            || !frame.timer_node.ok)
+        {
+            return 0;
+        }
+
+        RollbackFastHash hash {};
+        const size_t effective = RollbackHgCpuEffectiveBytes(frame);
+        hash.add_scalar(effective);
+
+        // Canonicalize the native two-character stream in place logically.
+        // Ghidra/native-reader-proven presentation/self-pointer ranges and the
+        // variable KHit node stream/trailer are zeroed while preserving
+        // layout; their pointer-free logical topology is added below.
+        for (size_t player = 0; player < 2; ++player)
+        {
+            if (!RollbackAddHgCpuCanonicalCharaRecord(
+                    hash, frame, player, effective))
+                return 0;
+        }
+
+        // KHit is serialized in list/index order. Addresses, vtables, next
+        // pointers, and raw list-control allocator links are intentionally not
+        // part of the peer digest. The first two serialized bytes are the
+        // gameplay-owned active gate. The remainder is world-space collision
+        // cache and remains canonical while rollback owns gameplay.
+        for (size_t player = 0; player < 2; ++player)
+            if (!RollbackAddHgCpuKHitPlayerPeerState(hash, frame, player))
+                return 0;
+
+        // The native chara stream's solved-pose payload is excluded from its
+        // raw peer hash because physical ring slots and presentation pose can
+        // differ across peers. Add the four logical primary matrices with
+        // proven pre/post-rotation gameplay consumers plus provider age. Full
+        // buffers remain captured and locally verified for restore.
+        // Timer object images remain local integrity caches, so only their
+        // stable shape/ownership metadata is peer-canonical below.
+        bool motion_peer_state_ok = false;
+        RollbackAddHgCpuMotionSlotPeerState(
+            hash, frame.motion_banks, motion_peer_state_ok);
+        if (!motion_peer_state_ok) return 0;
+        // Unlike the rest of the process-local motion tail, this inline
+        // cache is future gameplay state. Replay106 proves bone 25 can reuse
+        // it directly and diverge KHit while sampled transform 25 and its
+        // parent both match. Include the exact nine-matrix cache for each
+        // player in peer authority.
+        for (size_t player = 0; player < 2; ++player)
+        {
+            const size_t cache_offset =
+                player * kRollbackMoveVMMotionTailBytes
+                + kRollbackMotionTailExtraBoneCacheOffset;
+            if (cache_offset > frame.motion_tail.bytes.size()
+                || kRollbackMotionTailExtraBoneCacheBytes
+                    > frame.motion_tail.bytes.size() - cache_offset)
+            {
+                return 0;
+            }
+            hash.add_bytes(
+                frame.motion_tail.bytes.data() + cache_offset,
+                kRollbackMotionTailExtraBoneCacheBytes);
+        }
+        const auto& timer = frame.timer_node;
+        RollbackAddHgCpuTimerShapePeerState(hash, timer);
         // Skeleton runtime images contain native pointers and remain a
         // same-process restore cache. Only logical shape is peer-canonical;
         // addresses and raw images are covered by local integrity.
-        hash.add_scalar(frame.skeleton_runtime.inline_bytes.size());
-        hash.add_scalar(frame.skeleton_runtime.aux_nodes.size());
-        hash.add_scalar(frame.skeleton_runtime.chains.size());
-        hash.add_scalar(frame.skeleton_runtime.spring_nodes.size());
+        RollbackAddHgCpuSkeletonShapePeerState(
+            hash, frame.skeleton_runtime);
         const uint64_t secondary_event_hash =
             RollbackHashSecondaryEventStackCanonical(
                 frame.secondary_event_stack);
-        if (secondary_event_hash == 0) return 0;
+        const uint64_t chara_animation_hash =
+            RollbackHashCharaAnimationCanonical(
+                frame.chara_animation);
+        if (secondary_event_hash == 0 || chara_animation_hash == 0)
+            return 0;
         hash.add_scalar(secondary_event_hash);
-        return hash.value;
+        hash.add_scalar(chara_animation_hash);
+        return hash.finish();
     }
 
+    static inline bool RollbackAddHgCpuSerializedKHitPlayerPeerState(
+        RollbackFastHash& hash,
+        const uint8_t* bytes,
+        size_t effective,
+        const RollbackHgCpuSnapshotFrame& layout,
+        size_t player) noexcept
+    {
+        size_t base = 0;
+        if (!bytes || player >= 2 || !layout.khit_topology_ok
+            || !layout.khit_topology[player].ok
+            || !RollbackHgCpuSnapshotCharaBase(layout, player, base))
+        {
+            return false;
+        }
+        const auto& topology = layout.khit_topology[player];
+        const size_t record =
+            RollbackHgCpuCharaRecordBytes(&layout, player);
+        if (base > effective || record > effective - base)
+            return false;
+        size_t cursor = base + kRollbackHgCpuHitAreaLocalStart
+            + kRollbackHgCpuHitAreaFixedBytes;
+        const size_t stream_end = cursor + topology.node_stream_bytes;
+        if (stream_end > base + record
+            || kRollbackHgCpuHitAreaRelocBytes
+                > base + record - stream_end)
+        {
+            return false;
+        }
+        hash.add_scalar(topology.nodes.size());
+        for (const auto& node : topology.nodes)
+        {
+            if (node.writer_bytes > stream_end - cursor)
+                return false;
+            hash.add_scalar(node.list_index);
+            hash.add_scalar(node.node_index);
+            hash.add_scalar(node.writer_tag);
+            hash.add_scalar(node.writer_bytes);
+            hash.add_bytes(bytes + cursor, node.writer_bytes);
+            cursor += node.writer_bytes;
+        }
+        return cursor == stream_end;
+    }
+
+    // Canonicalize a stock CBattleSerializeStream payload using the logical
+    // KHit layout captured beside it on the same simulation boundary. Unlike
+    // the full Horse HgCpu snapshot, a native MoveVM palette checkpoint owns
+    // only this serialized stream; Horse-only motion/timer/skeleton caches do
+    // not belong to the checkpoint's future Apply operation.
+    static inline uint64_t RollbackHashHgCpuSerializedPayloadCanonical(
+        const uint8_t* bytes,
+        size_t effective,
+        const RollbackHgCpuSnapshotFrame& layout) noexcept
+    {
+        if (!bytes || effective == 0
+            || !layout.khit_topology_ok
+            || !layout.khit_topology[0].ok
+            || !layout.khit_topology[1].ok)
+        {
+            return 0;
+        }
+        const size_t record0 =
+            RollbackHgCpuCharaRecordBytes(&layout, 0);
+        const size_t record1 =
+            RollbackHgCpuCharaRecordBytes(&layout, 1);
+        if (record0 > effective || record1 > effective - record0)
+            return 0;
+
+        RollbackFastHash hash {};
+        hash.add_scalar(effective);
+        for (size_t player = 0; player < 2; ++player)
+        {
+            if (!RollbackAddHgCpuCanonicalCharaRecordFromBytes(
+                    hash, bytes, effective, layout, player)
+                || !RollbackAddHgCpuSerializedKHitPlayerPeerState(
+                    hash, bytes, effective, layout, player))
+            {
+                return 0;
+            }
+        }
+        const size_t tail_base = record0 + record1;
+        hash.add_bytes(bytes + tail_base, effective - tail_base);
+        return hash.finish();
+    }
+
+#if !defined(HORSE_ROLLBACK_HGCPU_PURE_STATE_ONLY)
     static inline bool RollbackReadCharaPointers(
         uintptr_t image_base,
         uintptr_t& p1,
         uintptr_t& p2) noexcept
     {
-        p1 = 0;
-        p2 = 0;
         if (!image_base) return false;
-
-        void* p1_raw = nullptr;
-        void* p2_raw = nullptr;
-        const uintptr_t p1_addr = rollback_absolute_from_image_base(
-            image_base, 0x14470DE90ull);
-        const uintptr_t p2_addr = rollback_absolute_from_image_base(
-            image_base, 0x14470DE98ull);
-        if (!SafeReadPtr(reinterpret_cast<const void*>(p1_addr), &p1_raw)
-            || !SafeReadPtr(reinterpret_cast<const void*>(p2_addr), &p2_raw))
-            return false;
-        p1 = reinterpret_cast<uintptr_t>(p1_raw);
-        p2 = reinterpret_cast<uintptr_t>(p2_raw);
-        return p1 != 0 && p2 != 0;
+        // LuxBattle_InitTwoCharaRuntimeSlots owns fixed backing storage. Do
+        // not rediscover production fighters through the legacy pointer
+        // globals; derive the schema-verified slots and validate their links.
+        p1 = image_base + 0x47156F0;
+        p2 = image_base + 0x47ACAE0;
+        uint8_t slot_p1 = 0xFF;
+        uint8_t slot_p2 = 0xFF;
+        void* opponent_p1 = nullptr;
+        void* opponent_p2 = nullptr;
+        return SafeReadUInt8(reinterpret_cast<const void*>(p1 + 0x23C),
+                    &slot_p1)
+            && SafeReadUInt8(reinterpret_cast<const void*>(p2 + 0x23C),
+                    &slot_p2)
+            && SafeReadPtr(reinterpret_cast<const void*>(p1 + 0x973E8),
+                    &opponent_p1)
+            && SafeReadPtr(reinterpret_cast<const void*>(p2 + 0x973E8),
+                    &opponent_p2)
+            && slot_p1 == 0 && slot_p2 == 1
+            && reinterpret_cast<uintptr_t>(opponent_p1) == p2
+            && reinterpret_cast<uintptr_t>(opponent_p2) == p1;
     }
 
     static inline size_t RollbackSkeletonNodeBytes(
@@ -857,10 +1567,10 @@ namespace Horse
         const RollbackHgCpuSnapshotFrame::SkeletonRuntimeHistory& history)
         noexcept
     {
-        RollbackHash hash {};
+        RollbackFastHash hash {};
         hash.add_scalar(history.inline_bytes.size());
         if (!history.inline_bytes.empty())
-            hash.add_scalar(RollbackHashBytes(
+            hash.add_scalar(RollbackFastIntegrityHashBytes(
                 history.inline_bytes.data(), history.inline_bytes.size()));
         for (size_t player = 0; player < 2; ++player)
         {
@@ -881,7 +1591,7 @@ namespace Horse
                 hash.add_scalar(node.next);
                 hash.add_scalar(node.bytes.size());
                 if (!node.bytes.empty())
-                    hash.add_scalar(RollbackHashBytes(
+                    hash.add_scalar(RollbackFastIntegrityHashBytes(
                         node.bytes.data(), node.bytes.size()));
             }
         };
@@ -892,11 +1602,11 @@ namespace Horse
             hash.add_scalar(chain.address);
             hash.add_scalar(chain.next);
             hash.add_scalar(chain.child);
-            hash.add_scalar(RollbackHashBytes(
+            hash.add_scalar(RollbackFastIntegrityHashBytes(
                 chain.bytes.data(), chain.bytes.size()));
         }
         add_nodes(history.spring_nodes);
-        return hash.value;
+        return hash.finish();
     }
 
     static inline bool RollbackSkeletonNodeAlreadyCaptured(
@@ -922,16 +1632,19 @@ namespace Horse
         uintptr_t head,
         size_t maximum,
         std::vector<RollbackHgCpuSnapshotFrame::
-            SkeletonRuntimeHistory::NodeImage>& nodes) noexcept
+            SkeletonRuntimeHistory::NodeImage>& nodes,
+        size_t& captured_count,
+        bool require_preallocated = false) noexcept
     {
         try
         {
             uintptr_t address = head;
             while (address)
             {
-                if (nodes.size() >= maximum
-                    || RollbackSkeletonNodeAlreadyCaptured(nodes, address))
+                if (captured_count >= maximum)
                     return false;
+                for (size_t i = 0; i < captured_count; ++i)
+                    if (nodes[i].address == address) return false;
                 void* vtable_raw = nullptr;
                 void* next_raw = nullptr;
                 if (!SafeReadPtr(reinterpret_cast<const void*>(address),
@@ -944,16 +1657,24 @@ namespace Horse
                 const size_t bytes = RollbackSkeletonNodeBytes(
                     image_base, vtable);
                 if (!bytes) return false;
-                RollbackHgCpuSnapshotFrame::SkeletonRuntimeHistory::NodeImage
-                    node {};
+                if (captured_count == nodes.size())
+                {
+                    if (require_preallocated
+                        && nodes.size() == nodes.capacity())
+                        return false;
+                    nodes.emplace_back();
+                }
+                auto& node = nodes[captured_count];
                 node.address = address;
                 node.vtable = vtable;
                 node.next = reinterpret_cast<uintptr_t>(next_raw);
+                if (require_preallocated && bytes > node.bytes.capacity())
+                    return false;
                 node.bytes.resize(bytes);
                 if (!SafeReadBytes(reinterpret_cast<const void*>(address),
                         node.bytes.data(), node.bytes.size()))
                     return false;
-                nodes.push_back(std::move(node));
+                ++captured_count;
                 address = reinterpret_cast<uintptr_t>(next_raw);
             }
             return true;
@@ -966,9 +1687,15 @@ namespace Horse
 
     static inline bool RollbackCaptureSkeletonRuntime(
         uintptr_t image_base,
-        RollbackHgCpuSnapshotFrame& frame) noexcept
+        RollbackHgCpuSnapshotFrame& frame,
+        bool require_preallocated = false) noexcept
     {
-        RollbackHgCpuSnapshotFrame::SkeletonRuntimeHistory history {};
+        auto& history = frame.skeleton_runtime;
+        const size_t expected_aux_nodes = history.aux_nodes.size();
+        const size_t expected_chains = history.chains.size();
+        const size_t expected_spring_nodes = history.spring_nodes.size();
+        history.ok = false;
+        history.hash = 0;
         uintptr_t p1 = 0;
         uintptr_t p2 = 0;
         if (!RollbackReadCharaPointers(image_base, p1, p2)) return false;
@@ -977,18 +1704,28 @@ namespace Horse
         const uintptr_t charas[2] = {p1, p2};
         static constexpr uintptr_t kAuxHeadOffsets[2] = {0x08, 0x18};
         static constexpr uintptr_t kChainHeadOffsets[2] = {0x10, 0x20};
+        if (require_preallocated
+            && 2 * kRollbackSkeletonRuntimeBytes
+                > history.inline_bytes.capacity())
+            return false;
         try
         {
             history.inline_bytes.resize(2 * kRollbackSkeletonRuntimeBytes);
-            history.aux_nodes.reserve(384);
-            history.chains.reserve(64);
-            history.spring_nodes.reserve(256);
+            if (!require_preallocated && expected_aux_nodes == 0)
+                history.aux_nodes.reserve(384);
+            if (!require_preallocated && expected_chains == 0)
+                history.chains.reserve(64);
+            if (!require_preallocated && expected_spring_nodes == 0)
+                history.spring_nodes.reserve(256);
         }
         catch (...)
         {
             return false;
         }
 
+        size_t aux_node_count = 0;
+        size_t chain_count = 0;
+        size_t spring_node_count = 0;
         for (size_t player = 0; player < 2; ++player)
         {
             const uintptr_t runtime = charas[player]
@@ -1013,17 +1750,19 @@ namespace Horse
                     reinterpret_cast<uintptr_t>(chain_raw);
                 if (!RollbackCaptureSkeletonNodeList(image_base,
                         history.aux_head[player][list],
-                        kRollbackSkeletonMaxAuxNodes, history.aux_nodes))
+                        kRollbackSkeletonMaxAuxNodes, history.aux_nodes,
+                        aux_node_count, require_preallocated))
                     return false;
 
                 uintptr_t chain_address =
                     history.chain_head[player][list];
                 while (chain_address)
                 {
-                    if (history.chains.size() >= kRollbackSkeletonMaxChains
-                        || RollbackSkeletonChainAlreadyCaptured(
-                            history.chains, chain_address))
+                    if (chain_count >= kRollbackSkeletonMaxChains)
                         return false;
+                    for (size_t i = 0; i < chain_count; ++i)
+                        if (history.chains[i].address == chain_address)
+                            return false;
                     void* next_raw = nullptr;
                     void* child_raw = nullptr;
                     if (!SafeReadPtr(reinterpret_cast<const void*>(
@@ -1031,8 +1770,15 @@ namespace Horse
                         || !SafeReadPtr(reinterpret_cast<const void*>(
                             chain_address + 0x48), &child_raw))
                         return false;
-                    RollbackHgCpuSnapshotFrame::SkeletonRuntimeHistory::
-                        ChainImage chain {};
+                    if (chain_count == history.chains.size())
+                    {
+                        if (require_preallocated
+                            && history.chains.size()
+                                == history.chains.capacity())
+                            return false;
+                        history.chains.emplace_back();
+                    }
+                    auto& chain = history.chains[chain_count];
                     chain.address = chain_address;
                     chain.next = reinterpret_cast<uintptr_t>(next_raw);
                     chain.child = reinterpret_cast<uintptr_t>(child_raw);
@@ -1040,34 +1786,153 @@ namespace Horse
                             chain_address), chain.bytes.data(),
                             chain.bytes.size()))
                         return false;
-                    history.chains.push_back(std::move(chain));
+                    ++chain_count;
                     if (!RollbackCaptureSkeletonNodeList(image_base,
                             reinterpret_cast<uintptr_t>(child_raw),
                             kRollbackSkeletonMaxSpringNodes,
-                            history.spring_nodes))
+                            history.spring_nodes, spring_node_count,
+                            require_preallocated))
                         return false;
                     chain_address = reinterpret_cast<uintptr_t>(next_raw);
                 }
             }
         }
+        if ((expected_aux_nodes != 0
+                && aux_node_count != expected_aux_nodes)
+            || (expected_chains != 0 && chain_count != expected_chains)
+            || (expected_spring_nodes != 0
+                && spring_node_count != expected_spring_nodes))
+        {
+            return false;
+        }
         history.hash = RollbackHashSkeletonRuntimeHistory(history);
         history.ok = history.hash != 0;
         if (!history.ok) return false;
-        frame.skeleton_runtime = std::move(history);
-        frame.skeleton_runtime_hash = frame.skeleton_runtime.hash;
+        frame.skeleton_runtime_hash = history.hash;
         return true;
+    }
+
+    static inline bool RollbackSkeletonRuntimeTemplateReady(
+        const RollbackHgCpuSnapshotFrame::SkeletonRuntimeHistory& history)
+        noexcept
+    {
+        if (!history.chara[0] || !history.chara[1]
+            || history.inline_bytes.size()
+                != 2 * kRollbackSkeletonRuntimeBytes)
+            return false;
+        for (const auto& node : history.aux_nodes)
+            if (!node.address || !node.vtable || node.bytes.empty())
+                return false;
+        for (const auto& chain : history.chains)
+            if (!chain.address) return false;
+        for (const auto& node : history.spring_nodes)
+            if (!node.address || !node.vtable || node.bytes.empty())
+                return false;
+        return true;
+    }
+
+    // Active rollback has already accepted this round's immutable skeleton
+    // topology. Re-read the fixed object images and validate pointer order;
+    // do not rediscover linked lists on every Save.
+    static inline bool RollbackCaptureSkeletonRuntimeFromTemplate(
+        uintptr_t image_base,
+        RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        auto& history = frame.skeleton_runtime;
+        if (!RollbackSkeletonRuntimeTemplateReady(history)) return false;
+
+        uintptr_t p1 = 0;
+        uintptr_t p2 = 0;
+        if (!RollbackReadCharaPointers(image_base, p1, p2)
+            || p1 != history.chara[0] || p2 != history.chara[1])
+            return false;
+        const uintptr_t charas[2] = {p1, p2};
+        static constexpr uintptr_t kAuxHeadOffsets[2] = {0x08, 0x18};
+        static constexpr uintptr_t kChainHeadOffsets[2] = {0x10, 0x20};
+        for (size_t player = 0; player < 2; ++player)
+        {
+            const uintptr_t runtime = charas[player]
+                + kRollbackSkeletonRuntimeCharaOffset;
+            if (!SafeReadBytes(
+                    reinterpret_cast<const void*>(runtime),
+                    history.inline_bytes.data()
+                        + player * kRollbackSkeletonRuntimeBytes,
+                    kRollbackSkeletonRuntimeBytes))
+                return false;
+            for (size_t list = 0; list < 2; ++list)
+            {
+                void* aux_raw = nullptr;
+                void* chain_raw = nullptr;
+                if (!SafeReadPtr(reinterpret_cast<const void*>(
+                        runtime + kAuxHeadOffsets[list]), &aux_raw)
+                    || !SafeReadPtr(reinterpret_cast<const void*>(
+                        runtime + kChainHeadOffsets[list]), &chain_raw)
+                    || reinterpret_cast<uintptr_t>(aux_raw)
+                        != history.aux_head[player][list]
+                    || reinterpret_cast<uintptr_t>(chain_raw)
+                        != history.chain_head[player][list])
+                    return false;
+            }
+        }
+
+        const auto capture_nodes = [image_base](auto& nodes) noexcept
+        {
+            for (auto& node : nodes)
+            {
+                void* vtable_raw = nullptr;
+                void* next_raw = nullptr;
+                if (!SafeReadPtr(reinterpret_cast<const void*>(node.address),
+                        &vtable_raw)
+                    || !SafeReadPtr(reinterpret_cast<const void*>(
+                        node.address + 0x28), &next_raw)
+                    || reinterpret_cast<uintptr_t>(vtable_raw) != node.vtable
+                    || reinterpret_cast<uintptr_t>(next_raw) != node.next
+                    || RollbackSkeletonNodeBytes(image_base, node.vtable)
+                        != node.bytes.size()
+                    || !SafeReadBytes(
+                        reinterpret_cast<const void*>(node.address),
+                        node.bytes.data(), node.bytes.size()))
+                    return false;
+            }
+            return true;
+        };
+        if (!capture_nodes(history.aux_nodes)
+            || !capture_nodes(history.spring_nodes))
+            return false;
+        for (auto& chain : history.chains)
+        {
+            void* next_raw = nullptr;
+            void* child_raw = nullptr;
+            if (!SafeReadPtr(reinterpret_cast<const void*>(
+                    chain.address + 0x40), &next_raw)
+                || !SafeReadPtr(reinterpret_cast<const void*>(
+                    chain.address + 0x48), &child_raw)
+                || reinterpret_cast<uintptr_t>(next_raw) != chain.next
+                || reinterpret_cast<uintptr_t>(child_raw) != chain.child
+                || !SafeReadBytes(
+                    reinterpret_cast<const void*>(chain.address),
+                    chain.bytes.data(), chain.bytes.size()))
+                return false;
+        }
+        history.hash = RollbackHashSkeletonRuntimeHistory(history);
+        history.ok = history.hash != 0;
+        frame.skeleton_runtime_hash = history.hash;
+        return history.ok;
     }
 
     static inline bool RollbackRestoreSkeletonRuntime(
         uintptr_t image_base,
-        const RollbackHgCpuSnapshotFrame& frame) noexcept
+        const RollbackHgCpuSnapshotFrame& frame,
+        bool verify_integrity = true) noexcept
     {
         const auto& history = frame.skeleton_runtime;
         if (!history.ok
             || history.inline_bytes.size()
                 != 2 * kRollbackSkeletonRuntimeBytes
             || history.hash == 0
-            || history.hash != RollbackHashSkeletonRuntimeHistory(history))
+            || (verify_integrity
+                && history.hash
+                    != RollbackHashSkeletonRuntimeHistory(history)))
             return false;
 
         uintptr_t p1 = 0;
@@ -1167,7 +2032,7 @@ namespace Horse
     static inline uint64_t RollbackHashKHitTopology(
         const RollbackHgCpuSnapshotFrame& frame) noexcept
     {
-        RollbackHash h {};
+        RollbackFastHash h {};
         h.add_scalar(frame.khit_topology_ok);
         for (const auto& topology : frame.khit_topology)
         {
@@ -1190,13 +2055,13 @@ namespace Horse
                 h.add_bytes(node.bytes.data(), node.bytes.size());
             }
         }
-        return h.value;
+        return h.finish();
     }
 
     static inline uint64_t RollbackHashMotionBankHistory(
         const RollbackHgCpuSnapshotFrame::MotionBankHistory& history) noexcept
     {
-        RollbackHash h {};
+        RollbackFastHash h {};
         h.add_scalar(history.ok);
         h.add_bytes(history.chara, sizeof(history.chara));
         h.add_bytes(history.bank, sizeof(history.bank));
@@ -1211,25 +2076,25 @@ namespace Horse
         const size_t payload_bytes = history.bytes.size();
         h.add_scalar(payload_bytes);
         h.add_bytes(history.bytes.data(), payload_bytes);
-        return h.value;
+        return h.finish();
     }
 
     static inline uint64_t RollbackHashMotionTailHistory(
         const RollbackHgCpuSnapshotFrame::MotionTailHistory& history) noexcept
     {
-        RollbackHash h {};
+        RollbackFastHash h {};
         h.add_scalar(history.ok);
         h.add_bytes(history.chara, sizeof(history.chara));
         const size_t payload_bytes = history.bytes.size();
         h.add_scalar(payload_bytes);
         h.add_bytes(history.bytes.data(), payload_bytes);
-        return h.value;
+        return h.finish();
     }
 
     static inline uint64_t RollbackHashTimerNodeHistory(
         const RollbackHgCpuSnapshotFrame::TimerNodeHistory& history) noexcept
     {
-        RollbackHash h {};
+        RollbackFastHash h {};
         h.add_scalar(history.ok);
         h.add_scalar(history.timer_config);
         h.add_scalar(history.root);
@@ -1242,18 +2107,17 @@ namespace Horse
         h.add_bytes(
             history.indexed_object_captured,
             sizeof(history.indexed_object_captured));
-        for (const auto& bytes : history.indexed_object_bytes)
+        for (size_t i = 0; i < std::size(history.indexed_object_bytes); ++i)
+        {
+            if (!history.indexed_object_captured[i]) continue;
+            h.add_scalar(i);
+            const auto& bytes = history.indexed_object_bytes[i];
             h.add_bytes(bytes.data(), bytes.size());
+        }
         h.add_scalar(history.indexed_nonzero_count);
         h.add_scalar(history.indexed_captured_count);
         h.add_scalar(history.indexed_object_captured_count);
         h.add_bytes(history.child, sizeof(history.child));
-        const size_t root_bytes = history.root_bytes.size();
-        h.add_scalar(root_bytes);
-        h.add_bytes(history.root_bytes.data(), root_bytes);
-        const size_t backing_bytes = history.backing_bytes.size();
-        h.add_scalar(backing_bytes);
-        h.add_bytes(history.backing_bytes.data(), backing_bytes);
         const size_t node_count = history.nodes.size();
         h.add_scalar(node_count);
         for (const auto& node : history.nodes)
@@ -1267,12 +2131,13 @@ namespace Horse
             h.add_scalar(node_backing_bytes);
             h.add_bytes(node.backing_bytes.data(), node_backing_bytes);
         }
-        return h.value;
+        return h.finish();
     }
 
     static inline bool RollbackCaptureKHitTopology(
         uintptr_t image_base,
-        RollbackHgCpuSnapshotFrame& frame) noexcept
+        RollbackHgCpuSnapshotFrame& frame,
+        bool require_preallocated = false) noexcept
     {
         uintptr_t p1 = 0;
         uintptr_t p2 = 0;
@@ -1374,6 +2239,14 @@ namespace Horse
                     image.stream_start_local = stream_cursor;
                     topology.node_stream_bytes += writer_bytes;
                     stream_cursor += writer_bytes;
+                    if (require_preallocated
+                        && topology.nodes.size()
+                            == topology.nodes.capacity())
+                    {
+                        player_ok = false;
+                        ok = false;
+                        break;
+                    }
                     try
                     {
                         topology.nodes.push_back(image);
@@ -1414,67 +2287,117 @@ namespace Horse
     {
         if (!image_base || !frame.khit_topology_ok)
             return false;
-
-        RollbackHgCpuSnapshotFrame live {};
-        if (!RollbackCaptureKHitTopology(image_base, live)
-            || !live.khit_topology_ok)
-            return false;
-
+        uintptr_t p1 = 0;
+        uintptr_t p2 = 0;
+        if (!RollbackReadCharaPointers(image_base, p1, p2)) return false;
+        static constexpr uintptr_t kListHeads[] = {
+            0x44478, 0x44498, 0x444B8,
+        };
+        const uintptr_t charas[2] = {p1, p2};
         bool ok = true;
         for (size_t player = 0; player < 2; ++player)
         {
             const auto& saved = frame.khit_topology[player];
-            const auto& current = live.khit_topology[player];
-            if (!saved.ok || !current.ok
-                || saved.nodes.size() != current.nodes.size())
+            if (!saved.ok || !charas[player])
             {
                 ok = false;
                 continue;
             }
-
-            for (size_t index = 0; index < saved.nodes.size(); ++index)
+            size_t saved_index = 0;
+            for (size_t list_index = 0;
+                 list_index < std::size(kListHeads); ++list_index)
             {
-                const auto& source = saved.nodes[index];
-                const auto& target = current.nodes[index];
-                if (source.list_index != target.list_index
-                    || source.node_index != target.node_index
-                    || source.writer_tag != target.writer_tag
-                    || source.writer_bytes != target.writer_bytes
-                    || target.address == 0)
+                void* node_raw = nullptr;
+                if (!SafeReadPtr(reinterpret_cast<const void*>(
+                        charas[player] + kListHeads[list_index]),
+                        &node_raw))
                 {
                     ok = false;
                     continue;
                 }
-                for (size_t serialized = 0;
-                     serialized < source.writer_bytes;)
+                for (uint16_t node_index = 0; node_raw; ++node_index)
                 {
-                    uintptr_t node_offset = 0;
-                    size_t contiguous = 0;
-                    if (!RollbackKHitSourceOffsetForSerializedOffset(
-                            source.writer_tag, serialized,
-                            &node_offset, &contiguous)
-                        || contiguous == 0
-                        || node_offset >= source.bytes.size())
+                    if (node_index >= 256
+                        || saved_index >= saved.nodes.size())
                     {
                         ok = false;
                         break;
                     }
-                    const size_t remaining =
-                        source.writer_bytes - serialized;
-                    const size_t bytes = (std::min)(contiguous, remaining);
-                    if (bytes > source.bytes.size() - node_offset
-                        || !SafeWriteBytes(
-                            reinterpret_cast<void*>(
-                                target.address + node_offset),
-                            source.bytes.data() + node_offset,
-                            bytes))
+                    const auto& source = saved.nodes[saved_index++];
+                    std::array<uint8_t, kRollbackKHitNodeImageBytes>
+                        current_bytes {};
+                    if (!SafeReadBytes(node_raw, current_bytes.data(),
+                            current_bytes.size()))
                     {
                         ok = false;
                         break;
                     }
-                    serialized += bytes;
+                    uintptr_t vtable = 0;
+                    void* next_raw = nullptr;
+                    uint8_t tag = 0xff;
+                    std::memcpy(&vtable, current_bytes.data(), sizeof(vtable));
+                    std::memcpy(&tag, current_bytes.data() + 0x16,
+                        sizeof(tag));
+                    std::memcpy(&next_raw, current_bytes.data() + 0x18,
+                        sizeof(next_raw));
+                    const size_t writer_bytes =
+                        RollbackKHitSnapshotWriterBytes(
+                            tag, vtable, image_base);
+                    const uint8_t writer_tag = tag <= 2 ? tag
+                        : static_cast<uint8_t>(
+                            writer_bytes == 0x26 ? 0
+                            : (writer_bytes == 0x42 ? 1
+                               : (writer_bytes == 0x32 ? 2 : tag)));
+                    if (source.list_index != list_index
+                        || source.node_index != node_index
+                        || source.writer_tag != writer_tag
+                        || source.writer_bytes != writer_bytes)
+                    {
+                        ok = false;
+                        break;
+                    }
+                    for (size_t serialized = 0;
+                         serialized < source.writer_bytes;)
+                    {
+                        uintptr_t node_offset = 0;
+                        size_t contiguous = 0;
+                        if (!RollbackKHitSourceOffsetForSerializedOffset(
+                                source.writer_tag, serialized,
+                                &node_offset, &contiguous)
+                            || contiguous == 0
+                            || node_offset >= source.bytes.size())
+                        {
+                            ok = false;
+                            break;
+                        }
+                        const size_t remaining =
+                            source.writer_bytes - serialized;
+                        const size_t bytes =
+                            (std::min)(contiguous, remaining);
+                        if (bytes > source.bytes.size() - node_offset
+                            || !SafeWriteBytes(
+                                reinterpret_cast<void*>(
+                                    reinterpret_cast<uintptr_t>(node_raw)
+                                        + node_offset),
+                                source.bytes.data() + node_offset,
+                                bytes))
+                        {
+                            ok = false;
+                            break;
+                        }
+                        serialized += bytes;
+                    }
+                    if (!ok) break;
+                    if (next_raw == node_raw)
+                    {
+                        ok = false;
+                        break;
+                    }
+                    node_raw = next_raw;
                 }
+                if (!ok) break;
             }
+            if (saved_index != saved.nodes.size()) ok = false;
         }
         return ok;
     }
@@ -1562,7 +2485,8 @@ namespace Horse
         const size_t hash_bytes = report.cursor <= bytes.size()
             ? report.cursor
             : bytes.size();
-        report.hash = RollbackHashBytes(bytes.data(), hash_bytes);
+        report.hash = RollbackFastIntegrityHashBytes(
+            bytes.data(), hash_bytes);
         return report;
     }
 
@@ -1812,29 +2736,10 @@ namespace Horse
         return ok;
     }
 
-    struct RollbackMotionBankSpec
-    {
-        uintptr_t chara_offset {0};
-        size_t bytes {0};
-    };
-
-    static constexpr RollbackMotionBankSpec kRollbackMotionBankSpecs[] = {
-        {kRollbackPrimaryMotionBankCharaOffset, kRollbackPrimaryMotionBankBytes},
-        {kRollbackSecondaryMotionBankCharaOffset, kRollbackSecondaryMotionBankBytes},
-    };
-
     static constexpr size_t kRollbackMotionBankSnapshotLocals[] = {
         kRollbackPrimaryMotionBankSnapshotLocal,
         kRollbackSecondaryMotionBankSnapshotLocal,
     };
-
-    static inline size_t RollbackMotionBankTotalBytes() noexcept
-    {
-        size_t per_player = 0;
-        for (const auto& spec : kRollbackMotionBankSpecs)
-            per_player += spec.bytes * kRollbackMotionBankBufferCount;
-        return per_player * kRollbackMotionBankPlayerCount;
-    }
 
     static inline size_t RollbackMotionBankControlTotalBytes() noexcept
     {
@@ -1851,35 +2756,36 @@ namespace Horse
             * kRollbackMotionBankControlBytes;
     }
 
-    static inline size_t RollbackMotionBankByteOffset(
-        size_t player,
-        size_t bank,
-        size_t buffer) noexcept
-    {
-        size_t per_player = 0;
-        for (const auto& spec : kRollbackMotionBankSpecs)
-            per_player += spec.bytes * kRollbackMotionBankBufferCount;
-
-        size_t bank_base = player * per_player;
-        for (size_t i = 0; i < bank && i < kRollbackMotionBankCount; ++i)
-            bank_base += kRollbackMotionBankSpecs[i].bytes
-                * kRollbackMotionBankBufferCount;
-        return bank_base
-            + buffer * kRollbackMotionBankSpecs[bank].bytes;
-    }
-
     static inline bool RollbackCaptureMotionBankHistory(
         uintptr_t image_base,
-        RollbackHgCpuSnapshotFrame& frame) noexcept
+        RollbackHgCpuSnapshotFrame& frame,
+        bool require_preallocated = false) noexcept
     {
         auto& history = frame.motion_banks;
-        history.clear();
+        history.ok = false;
+        history.hash = 0;
+        std::memset(history.chara, 0, sizeof(history.chara));
+        std::memset(history.bank, 0, sizeof(history.bank));
+        std::memset(history.current, 0, sizeof(history.current));
+        std::memset(history.provider, 0, sizeof(history.provider));
+        std::memset(history.buffer, 0, sizeof(history.buffer));
+        for (auto& per_player : history.current_slot)
+            for (int& slot : per_player) slot = -1;
+        for (auto& per_player : history.provider_slot)
+            for (int& slot : per_player) slot = -1;
 
+        const size_t required_bytes = RollbackMotionBankTotalBytes();
+        const size_t required_control_bytes =
+            RollbackMotionBankControlTotalBytes();
+        if (require_preallocated
+            && (required_bytes > history.bytes.capacity()
+                || required_control_bytes
+                    > history.control_bytes.capacity()))
+            return false;
         try
         {
-            history.bytes.assign(RollbackMotionBankTotalBytes(), 0);
-            history.control_bytes.assign(
-                RollbackMotionBankControlTotalBytes(), 0);
+            history.bytes.resize(required_bytes);
+            history.control_bytes.resize(required_control_bytes);
         }
         catch (const std::bad_alloc&)
         {
@@ -1998,7 +2904,7 @@ namespace Horse
         return ok;
     }
 
-    static inline bool RollbackRestoreMotionBankHistory(
+    static inline bool RollbackMotionBankRestorePreflight(
         uintptr_t image_base,
         const RollbackHgCpuSnapshotFrame& frame) noexcept
     {
@@ -2013,16 +2919,12 @@ namespace Horse
             return false;
         const uintptr_t charas[kRollbackMotionBankPlayerCount] = {p1, p2};
 
-        bool ok = true;
         for (size_t player = 0;
              player < kRollbackMotionBankPlayerCount;
              ++player)
         {
             if (charas[player] != history.chara[player])
-            {
-                ok = false;
-                continue;
-            }
+                return false;
             auto* chara = reinterpret_cast<uint8_t*>(charas[player]);
 
             for (size_t bank = 0; bank < kRollbackMotionBankCount; ++bank)
@@ -2032,15 +2934,8 @@ namespace Horse
                 const size_t control_src =
                     RollbackMotionBankControlOffset(player, bank);
                 if (control_src + kRollbackMotionBankControlBytes
-                        > history.control_bytes.size()
-                    || !SafeWriteBytes(
-                        bank_ptr,
-                        history.control_bytes.data() + control_src,
-                        kRollbackMotionBankControlBytes))
-                {
-                    ok = false;
-                    continue;
-                }
+                        > history.control_bytes.size())
+                    return false;
 
                 for (size_t buffer = 0;
                      buffer < kRollbackMotionBankBufferCount;
@@ -2054,38 +2949,71 @@ namespace Horse
                         || !live_raw
                         || reinterpret_cast<uintptr_t>(live_raw)
                             != history.buffer[player][bank][buffer])
-                    {
-                        ok = false;
-                        continue;
-                    }
+                        return false;
 
                     const size_t src = RollbackMotionBankByteOffset(
                         player, bank, buffer);
-                    if (src + spec.bytes > history.bytes.size()
-                        || !SafeWriteBytes(
-                            live_raw,
-                            history.bytes.data() + src,
-                            spec.bytes))
-                    {
-                        ok = false;
-                    }
+                    if (src + spec.bytes > history.bytes.size()) return false;
                 }
             }
         }
-        return ok;
+        return true;
+    }
+
+    static inline bool RollbackRestoreMotionBankHistory(
+        uintptr_t image_base,
+        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        if (!RollbackMotionBankRestorePreflight(image_base, frame))
+            return false;
+        const auto& history = frame.motion_banks;
+        for (size_t player = 0;
+             player < kRollbackMotionBankPlayerCount; ++player)
+        {
+            auto* chara = reinterpret_cast<uint8_t*>(history.chara[player]);
+            for (size_t bank = 0; bank < kRollbackMotionBankCount; ++bank)
+            {
+                const auto& spec = kRollbackMotionBankSpecs[bank];
+                auto* bank_ptr = chara + spec.chara_offset;
+                const size_t control_src =
+                    RollbackMotionBankControlOffset(player, bank);
+                if (!SafeWriteBytes(bank_ptr,
+                        history.control_bytes.data() + control_src,
+                        kRollbackMotionBankControlBytes))
+                    return false;
+                for (size_t buffer = 0;
+                     buffer < kRollbackMotionBankBufferCount; ++buffer)
+                {
+                    const size_t src = RollbackMotionBankByteOffset(
+                        player, bank, buffer);
+                    if (!SafeWriteBytes(
+                            reinterpret_cast<void*>(
+                                history.buffer[player][bank][buffer]),
+                            history.bytes.data() + src, spec.bytes))
+                        return false;
+                }
+            }
+        }
+        return true;
     }
 
     static inline bool RollbackCaptureMoveVMMotionTail(
         uintptr_t image_base,
-        RollbackHgCpuSnapshotFrame& frame) noexcept
+        RollbackHgCpuSnapshotFrame& frame,
+        bool require_preallocated = false) noexcept
     {
         auto& history = frame.motion_tail;
-        history.clear();
+        history.ok = false;
+        history.hash = 0;
+        std::memset(history.chara, 0, sizeof(history.chara));
 
+        const size_t required_bytes = kRollbackMoveVMMotionTailBytes * 2;
+        if (require_preallocated
+            && required_bytes > history.bytes.capacity())
+            return false;
         try
         {
-            history.bytes.assign(
-                kRollbackMoveVMMotionTailBytes * 2, 0);
+            history.bytes.resize(required_bytes);
         }
         catch (const std::bad_alloc&)
         {
@@ -2165,10 +3093,9 @@ namespace Horse
 
     static inline bool RollbackCaptureSecondaryEventStack(
         uintptr_t image_base,
-        RollbackHgCpuSnapshotFrame& frame) noexcept
+        RollbackSecondaryEventStackHistory& history) noexcept
     {
-        auto& history = frame.secondary_event_stack;
-        history.clear();
+        history.recycle_for_capture();
 
         uintptr_t p1 = 0;
         uintptr_t p2 = 0;
@@ -2255,15 +3182,24 @@ namespace Horse
         history.ok = ok;
         history.hash = ok
             ? RollbackHashSecondaryEventStackHistory(history) : 0;
-        frame.secondary_event_stack_hash = history.hash;
         return ok;
     }
 
-    static inline bool RollbackRestoreSecondaryEventStack(
+    static inline bool RollbackCaptureSecondaryEventStack(
         uintptr_t image_base,
-        const RollbackHgCpuSnapshotFrame& frame) noexcept
+        RollbackHgCpuSnapshotFrame& frame) noexcept
     {
-        const auto& history = frame.secondary_event_stack;
+        const bool ok = RollbackCaptureSecondaryEventStack(
+            image_base, frame.secondary_event_stack);
+        frame.secondary_event_stack_hash =
+            frame.secondary_event_stack.hash;
+        return ok;
+    }
+
+    static inline bool RollbackSecondaryEventStackRestorePreflight(
+        uintptr_t image_base,
+        const RollbackSecondaryEventStackHistory& history) noexcept
+    {
         if (!history.ok) return false;
 
         uintptr_t p1 = 0;
@@ -2272,14 +3208,10 @@ namespace Horse
             return false;
         const uintptr_t charas[2] = {p1, p2};
 
-        bool ok = true;
         for (size_t player = 0; player < 2; ++player)
         {
             if (charas[player] != history.chara[player])
-            {
-                ok = false;
-                continue;
-            }
+                return false;
             auto* stack = reinterpret_cast<uint8_t*>(
                 charas[player] + kRollbackSecondaryEventStackCharaOffset);
 
@@ -2302,10 +3234,57 @@ namespace Horse
                     == history.event_headers[player]
                 && reinterpret_cast<uintptr_t>(event_payloads_raw)
                     == history.event_payloads[player];
-            if (!identity_ok)
+            int32_t header_count = -1;
+            if (!identity_ok
+                || !SafeReadBytes(
+                    reinterpret_cast<const uint8_t*>(table_header_raw)
+                        + kRollbackSecondaryEventHeaderCountOffset,
+                    &header_count, sizeof(header_count))
+                || header_count < 0
+                || static_cast<uint32_t>(header_count)
+                    != history.header_count[player])
             {
-                ok = false;
-                continue;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static inline bool RollbackSecondaryEventStackRestorePreflight(
+        uintptr_t image_base,
+        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        return RollbackSecondaryEventStackRestorePreflight(
+            image_base, frame.secondary_event_stack);
+    }
+
+    static inline bool RollbackRestoreSecondaryEventStack(
+        uintptr_t image_base,
+        const RollbackSecondaryEventStackHistory& history) noexcept
+    {
+        if (!RollbackSecondaryEventStackRestorePreflight(
+                image_base, history))
+            return false;
+
+        uintptr_t p1 = 0;
+        uintptr_t p2 = 0;
+        if (!RollbackReadCharaPointers(image_base, p1, p2))
+            return false;
+        const uintptr_t charas[2] = {p1, p2};
+
+        bool ok = true;
+        for (size_t player = 0; player < 2; ++player)
+        {
+            auto* stack = reinterpret_cast<uint8_t*>(
+                charas[player] + kRollbackSecondaryEventStackCharaOffset);
+            void* event_headers_raw = nullptr;
+            if (!SafeReadPtr(
+                    stack + kRollbackSecondaryEventPointerBlockOffset + 0x08,
+                    &event_headers_raw)
+                || reinterpret_cast<uintptr_t>(event_headers_raw)
+                    != history.event_headers[player])
+            {
+                return false;
             }
 
             ok &= SafeWriteBytes(
@@ -2331,6 +3310,82 @@ namespace Horse
             }
         }
         return ok;
+    }
+
+    static inline bool RollbackRestoreSecondaryEventStack(
+        uintptr_t image_base,
+        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        return RollbackRestoreSecondaryEventStack(
+            image_base, frame.secondary_event_stack);
+    }
+
+    static inline bool RollbackCaptureCharaAnimationState(
+        uintptr_t image_base,
+        RollbackCharaAnimationStateHistory& history) noexcept
+    {
+        uintptr_t p1 = 0;
+        uintptr_t p2 = 0;
+        if (!RollbackReadCharaPointers(image_base, p1, p2))
+            return false;
+        const uintptr_t charas[2] = {p1, p2};
+        return CaptureRollbackCharaAnimationState(charas, history);
+    }
+
+    static inline bool RollbackCaptureCharaAnimationState(
+        uintptr_t image_base,
+        RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        const bool ok = RollbackCaptureCharaAnimationState(
+            image_base, frame.chara_animation);
+        frame.chara_animation_hash =
+            frame.chara_animation.integrity_hash;
+        return ok;
+    }
+
+    static inline bool RollbackCharaAnimationRestorePreflight(
+        uintptr_t image_base,
+        const RollbackCharaAnimationStateHistory& history) noexcept
+    {
+        uintptr_t p1 = 0;
+        uintptr_t p2 = 0;
+        if (!RollbackReadCharaPointers(image_base, p1, p2))
+            return false;
+        const uintptr_t charas[2] = {p1, p2};
+        return RollbackCharaAnimationRestorePreflight(charas, history);
+    }
+
+    static inline RollbackCharaAnimationPreflightFailure
+    RollbackCharaAnimationRestorePreflightFailure(
+        uintptr_t image_base,
+        const RollbackCharaAnimationStateHistory& history) noexcept
+    {
+        uintptr_t p1 = 0;
+        uintptr_t p2 = 0;
+        if (!RollbackReadCharaPointers(image_base, p1, p2))
+            return RollbackCharaAnimationPreflightFailure::LiveCaptureFailed;
+        const uintptr_t charas[2] = {p1, p2};
+        return RollbackCharaAnimationRestorePreflightFailure(charas, history);
+    }
+
+    static inline bool RollbackRestoreCharaAnimationState(
+        uintptr_t image_base,
+        const RollbackCharaAnimationStateHistory& history) noexcept
+    {
+        uintptr_t p1 = 0;
+        uintptr_t p2 = 0;
+        if (!RollbackReadCharaPointers(image_base, p1, p2))
+            return false;
+        const uintptr_t charas[2] = {p1, p2};
+        return RestoreRollbackCharaAnimationState(charas, history);
+    }
+
+    static inline bool RollbackRestoreCharaAnimationState(
+        uintptr_t image_base,
+        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        return RollbackRestoreCharaAnimationState(
+            image_base, frame.chara_animation);
     }
 
     static inline bool RollbackRestoreMotionBankHistoryFromTimeline(
@@ -2423,8 +3478,14 @@ namespace Horse
                     if (source_history.ok
                         && source_history.chara[player] == charas[player])
                     {
+                        // The timeline entry represents frame t-age after its
+                        // producer has rotated and written the current slot.
+                        // provider_slot already represents t-age-1, so using
+                        // it here shifts reconstructed history one extra frame
+                        // into the past.
                         const int source_slot =
-                            source_history.provider_slot[player][bank];
+                            RollbackMotionBankTimelineFrameSlot(
+                                source_history, player, bank);
                         if (source_slot >= 0
                             && source_slot < static_cast<int>(
                                 kRollbackMotionBankBufferCount))
@@ -2521,6 +3582,25 @@ namespace Horse
             return false;
         }
 
+        void* effect_system_raw = nullptr;
+        void* action_manager_root_raw = nullptr;
+        if (!SafeReadPtr(
+                reinterpret_cast<const void*>(
+                    image_base
+                        + kRollbackRVA_LuxEffectSystemInstance),
+                &effect_system_raw)
+            || !effect_system_raw
+            || !SafeReadPtr(
+                static_cast<const uint8_t*>(effect_system_raw) + 0x7A0,
+                &action_manager_root_raw)
+            || !RollbackTimerActionManagerAliasValid(
+                reinterpret_cast<uintptr_t>(root_raw),
+                reinterpret_cast<uintptr_t>(
+                    action_manager_root_raw)))
+        {
+            return false;
+        }
+
         timer_config = reinterpret_cast<uintptr_t>(timer_config_raw);
         root = reinterpret_cast<uintptr_t>(root_raw);
         backing = reinterpret_cast<uintptr_t>(backing_raw);
@@ -2529,10 +3609,30 @@ namespace Horse
 
     static inline bool RollbackCaptureTimerNodeHistory(
         uintptr_t image_base,
-        RollbackHgCpuSnapshotFrame& frame) noexcept
+        RollbackHgCpuSnapshotFrame& frame,
+        bool require_preallocated = false) noexcept
     {
         auto& history = frame.timer_node;
-        history.clear();
+        history.ok = false;
+        history.timer_config = 0;
+        history.root = 0;
+        history.backing = 0;
+        history.indexed_table = 0;
+        history.indexed_nonzero_count = 0;
+        history.indexed_captured_count = 0;
+        history.indexed_object_captured_count = 0;
+        std::memset(history.indexed_root, 0, sizeof(history.indexed_root));
+        std::memset(history.indexed_vtable, 0, sizeof(history.indexed_vtable));
+        std::memset(history.indexed_writer, 0, sizeof(history.indexed_writer));
+        std::memset(
+            history.indexed_captured, 0, sizeof(history.indexed_captured));
+        std::memset(
+            history.indexed_object_captured,
+            0,
+            sizeof(history.indexed_object_captured));
+        std::memset(history.child, 0, sizeof(history.child));
+        history.hash = 0;
+        size_t captured_node_count = 0;
 
         if (!RollbackReadTimerNodePointers(
                 image_base, history.timer_config, history.root,
@@ -2546,9 +3646,9 @@ namespace Horse
                 bool required) noexcept -> bool
         {
             if (!root) return !required;
-            for (const auto& node : history.nodes)
+            for (size_t i = 0; i < captured_node_count; ++i)
             {
-                if (node.root == root)
+                if (history.nodes[i].root == root)
                     return true;
             }
 
@@ -2561,18 +3661,23 @@ namespace Horse
                 return !required;
             }
 
-            RollbackHgCpuSnapshotFrame::TimerNodeHistory::NodeImage node {};
+            const bool appended =
+                captured_node_count == history.nodes.size();
+            if (appended)
+            {
+                if (history.nodes.size()
+                    >= kRollbackTimerMaximumSnapshotNodes)
+                {
+                    return false;
+                }
+                if (require_preallocated
+                    && history.nodes.size() == history.nodes.capacity())
+                    return false;
+                history.nodes.emplace_back();
+            }
+            auto& node = history.nodes[captured_node_count];
             node.root = root;
             node.backing = reinterpret_cast<uintptr_t>(backing_raw);
-            try
-            {
-                node.root_bytes.assign(kRollbackTimerNodeRootBytes, 0);
-                node.backing_bytes.assign(kRollbackTimerNodeBackingBytes, 0);
-            }
-            catch (const std::bad_alloc&)
-            {
-                return false;
-            }
 
             const bool ok =
                 SafeReadBytes(
@@ -2584,33 +3689,24 @@ namespace Horse
                     node.backing_bytes.data(),
                     node.backing_bytes.size());
             if (!ok)
+            {
+                // Optional indexed nodes may disappear between reads. Do not
+                // retain a half-captured logical node; the fixed outer arena
+                // keeps its capacity for a later capture.
+                node.root = 0;
+                node.backing = 0;
+                if (appended)
+                {
+                    history.nodes.pop_back();
+                }
                 return !required;
+            }
 
-            try
-            {
-                history.nodes.push_back(std::move(node));
-            }
-            catch (const std::bad_alloc&)
-            {
-                return false;
-            }
+            ++captured_node_count;
             return true;
         };
 
         bool ok = capture_node(history.root, true);
-        if (!history.nodes.empty())
-        {
-            try
-            {
-                history.root_bytes = history.nodes[0].root_bytes;
-                history.backing_bytes = history.nodes[0].backing_bytes;
-            }
-            catch (...)
-            {
-                return false;
-            }
-        }
-
         for (size_t i = 0; i < kRollbackTimerNodeChildPtrCount; ++i)
         {
             void* child_raw = nullptr;
@@ -2669,10 +3765,10 @@ namespace Horse
                         }
                     }
 
-                    const size_t before_count = history.nodes.size();
+                    const size_t before_count = captured_node_count;
                     ok &= capture_node(node_addr, false);
                     history.indexed_captured[i] =
-                        history.nodes.size() != before_count
+                        captured_node_count != before_count
                         || node_addr == history.root;
                     if (history.indexed_captured[i])
                         ++history.indexed_captured_count;
@@ -2680,6 +3776,10 @@ namespace Horse
             }
         }
 
+        // Logical timer nodes may appear or disappear during gameplay. The
+        // vector capacity is fixed at activation and each node owns fixed
+        // byte arrays, so trimming the logical size cannot allocate.
+        history.nodes.resize(captured_node_count);
         history.ok = ok;
         if (ok)
         {
@@ -2694,9 +3794,9 @@ namespace Horse
         const RollbackHgCpuSnapshotFrame& frame) noexcept
     {
         const auto& history = frame.timer_node;
-        if (!history.ok
-            || history.root_bytes.size() != kRollbackTimerNodeRootBytes
-            || history.backing_bytes.size() != kRollbackTimerNodeBackingBytes)
+        if (!history.ok || history.nodes.empty()
+            || history.nodes[0].root != history.root
+            || history.nodes[0].backing != history.backing)
         {
             return false;
         }
@@ -2716,41 +3816,95 @@ namespace Horse
             return false;
         }
 
-        bool ok = SafeWriteBytes(
-            reinterpret_cast<void*>(history.root),
-            history.root_bytes.data(),
-            history.root_bytes.size());
-        ok &= SafeWriteBytes(
-            reinterpret_cast<void*>(history.backing),
-            history.backing_bytes.data(),
-            history.backing_bytes.size());
+        // Complete the replaceable-generation preflight before the first
+        // restore write. The indexed table is the camera director's 16-slot
+        // component table; a component may be destroyed/replaced while the
+        // process-global timer root itself remains unchanged.
+        void* indexed_table_raw = nullptr;
+        if (!SafeReadPtr(
+                reinterpret_cast<const uint8_t*>(timer_config) + 0x90,
+                &indexed_table_raw)
+            || reinterpret_cast<uintptr_t>(indexed_table_raw)
+                != history.indexed_table)
+        {
+            return false;
+        }
         for (size_t i = 0; i < 0x10; ++i)
         {
-            if (!history.indexed_object_captured[i]
-                || !history.indexed_root[i])
+            void* indexed_root_raw = nullptr;
+            if (history.indexed_table
+                && !SafeReadPtr(
+                    reinterpret_cast<const uint8_t*>(history.indexed_table)
+                        + 0x270 + i * sizeof(void*),
+                    &indexed_root_raw))
             {
+                return false;
+            }
+            const uintptr_t indexed_root =
+                reinterpret_cast<uintptr_t>(indexed_root_raw);
+            if (indexed_root != history.indexed_root[i]) return false;
+            if (!indexed_root)
+            {
+                if (history.indexed_vtable[i]
+                    || history.indexed_writer[i]
+                    || history.indexed_captured[i]
+                    || history.indexed_object_captured[i])
+                {
+                    return false;
+                }
                 continue;
             }
-            ok &= SafeWriteBytes(
-                reinterpret_cast<void*>(history.indexed_root[i]),
-                history.indexed_object_bytes[i].data(),
-                history.indexed_object_bytes[i].size());
+
+            void* vtable_raw = nullptr;
+            void* writer_raw = nullptr;
+            if (!SafeReadPtr(
+                    reinterpret_cast<const void*>(indexed_root),
+                    &vtable_raw)
+                || reinterpret_cast<uintptr_t>(vtable_raw)
+                    != history.indexed_vtable[i]
+                || !vtable_raw
+                || !SafeReadPtr(
+                    static_cast<const uint8_t*>(vtable_raw) + 0x100,
+                    &writer_raw)
+                || reinterpret_cast<uintptr_t>(writer_raw)
+                    != history.indexed_writer[i])
+            {
+                return false;
+            }
         }
+        for (const auto& node : history.nodes)
+        {
+            void* live_backing_raw = nullptr;
+            if (!node.root || !node.backing
+                || !SafeReadPtr(
+                    reinterpret_cast<const uint8_t*>(node.root) + 0x08,
+                    &live_backing_raw)
+                || reinterpret_cast<uintptr_t>(live_backing_raw)
+                    != node.backing)
+            {
+                return false;
+            }
+        }
+
+        bool ok = SafeWriteBytes(
+            reinterpret_cast<void*>(history.root),
+            history.nodes[0].root_bytes.data(),
+            history.nodes[0].root_bytes.size());
+        ok &= SafeWriteBytes(
+            reinterpret_cast<void*>(history.backing),
+            history.nodes[0].backing_bytes.data(),
+            history.nodes[0].backing_bytes.size());
+        // The indexed roots are effect-camera components. Keep their raw
+        // images for diagnostics and generation evidence only: those images
+        // contain subtype-specific pointers and caches that the native
+        // component deserializers deliberately omit. The separately ordered
+        // RollbackBattleCameraSnapshot restores the exact +0x100 serializer
+        // projection and rebinds/clears identity fields using the live round
+        // generation. Never bulk-write these object images.
         for (const auto& node : history.nodes)
         {
             if (node.root == history.root)
                 continue;
-            void* backing_raw = nullptr;
-            const bool backing_ok =
-                SafeReadPtr(
-                    reinterpret_cast<const uint8_t*>(node.root) + 0x08,
-                    &backing_raw)
-                && reinterpret_cast<uintptr_t>(backing_raw) == node.backing;
-            if (!backing_ok)
-            {
-                ok = false;
-                continue;
-            }
             ok &= SafeWriteBytes(
                 reinterpret_cast<void*>(node.root),
                 node.root_bytes.data(),
@@ -2763,23 +3917,72 @@ namespace Horse
         return ok;
     }
 
+    static inline const char* RollbackHgCpuPreallocatedCaptureFailure(
+        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        return RollbackPreallocatedHgCpuCapacityFailure(
+            frame,
+            kRollbackHgCpuSnapshotBytes,
+            kRollbackKHitMaximumSnapshotNodes,
+            RollbackMotionBankTotalBytes(),
+            RollbackMotionBankControlTotalBytes(),
+            kRollbackMoveVMMotionTailBytes * 2,
+            2 * kRollbackSkeletonRuntimeBytes,
+            kRollbackTimerNodeRootBytes,
+            kRollbackTimerNodeBackingBytes,
+            kRollbackTimerMaximumSnapshotNodes);
+    }
+
+    static inline bool RollbackHgCpuPreallocatedCaptureReady(
+        const RollbackHgCpuSnapshotFrame& frame) noexcept
+    {
+        return std::strcmp(
+            RollbackHgCpuPreallocatedCaptureFailure(frame), "ok") == 0;
+    }
+
     static inline RollbackHgCpuSnapshotReport CaptureRollbackHgCpuSnapshot(
         uintptr_t image_base,
-        RollbackHgCpuSnapshotFrame& out) noexcept
+        RollbackHgCpuSnapshotFrame& out,
+        RollbackHgCpuSnapshotFrame* emergency_scratch = nullptr,
+        bool require_preallocated = false) noexcept
     {
-        out.clear();
+        if (require_preallocated
+            && (!emergency_scratch
+                || !RollbackHgCpuPreallocatedCaptureReady(out)
+                || !RollbackHgCpuPreallocatedCaptureReady(
+                    *emergency_scratch)))
+        {
+            RollbackHgCpuSnapshotReport report {};
+            report.failure = "hgcpu-preallocated-capture-preflight-failed";
+            return report;
+        }
+        out.recycle_for_capture();
+        auto phase_started = std::chrono::steady_clock::now();
+        const auto finish_phase = [&phase_started]() noexcept {
+            const auto now = std::chrono::steady_clock::now();
+            const uint64_t elapsed = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    now - phase_started).count());
+            phase_started = now;
+            return elapsed;
+        };
         // The native writer is observably mutating. Keep the presentation and
         // MoveVM histories in a separate emergency frame until the writer has
         // returned and cleanup has succeeded on every exit path.
-        RollbackHgCpuSnapshotFrame emergency {};
-        if (!RollbackCaptureMotionBankHistory(image_base, emergency))
+        RollbackHgCpuSnapshotFrame local_emergency {};
+        RollbackHgCpuSnapshotFrame& emergency = emergency_scratch
+            ? *emergency_scratch : local_emergency;
+        emergency.recycle_for_capture();
+        if (!RollbackCaptureMotionBankHistory(
+                image_base, emergency, require_preallocated))
         {
             RollbackHgCpuSnapshotReport report {};
             report.ok = false;
             report.failure = "motion-bank-history-capture-failed";
             return report;
         }
-        if (!RollbackCaptureMoveVMMotionTail(image_base, emergency))
+        if (!RollbackCaptureMoveVMMotionTail(
+                image_base, emergency, require_preallocated))
         {
             RollbackHgCpuSnapshotReport report {};
             report.ok = false;
@@ -2793,17 +3996,47 @@ namespace Horse
             report.failure = "secondary-event-stack-capture-failed";
             return report;
         }
-        if (!RollbackCaptureSkeletonRuntime(image_base, emergency))
+        if (!RollbackCaptureCharaAnimationState(image_base, emergency))
+        {
+            RollbackHgCpuSnapshotReport report {};
+            report.ok = false;
+            report.failure = "chara-animation-state-capture-failed";
+            return report;
+        }
+        const bool skeleton_template_ready =
+            RollbackSkeletonRuntimeTemplateReady(
+                emergency.skeleton_runtime);
+        if (require_preallocated && !skeleton_template_ready)
+        {
+            RollbackHgCpuSnapshotReport report {};
+            report.ok = false;
+            report.failure = "skeleton-runtime-preallocated-template-missing";
+            return report;
+        }
+        if (!(skeleton_template_ready
+                ? RollbackCaptureSkeletonRuntimeFromTemplate(
+                    image_base, emergency)
+                : RollbackCaptureSkeletonRuntime(
+                    image_base, emergency, require_preallocated)))
         {
             RollbackHgCpuSnapshotReport report {};
             report.ok = false;
             report.failure = "skeleton-runtime-capture-failed";
             return report;
         }
+        const uint64_t emergency_capture_nanoseconds = finish_phase();
 
+        if (require_preallocated
+            && kRollbackHgCpuSnapshotBytes > out.bytes.capacity())
+        {
+            RollbackHgCpuSnapshotReport report {};
+            report.failure = "hgcpu-preallocated-capacity-exceeded";
+            return report;
+        }
         try
         {
-            out.bytes.assign(kRollbackHgCpuSnapshotBytes, 0);
+            if (out.bytes.size() != kRollbackHgCpuSnapshotBytes)
+                out.bytes.resize(kRollbackHgCpuSnapshotBytes);
         }
         catch (...)
         {
@@ -2812,23 +4045,54 @@ namespace Horse
             report.failure = "hgcpu-snapshot-allocation-failed";
             return report;
         }
+        std::array<RollbackAiPaletteDiagnostics, 2>
+            ai_palette_before_native_writer {};
+        if (!CaptureRollbackAiPaletteDiagnostics(
+                image_base, ai_palette_before_native_writer))
+        {
+            out.clear();
+            RollbackHgCpuSnapshotReport report {};
+            report.failure =
+                "ai-palette-pre-native-writer-capture-failed";
+            return report;
+        }
         RollbackHgCpuSnapshotReport report = RollbackInvokeHgCpuSnapshot(
             image_base, kRollbackRVA_ExecMoveChangeAndPost, out.bytes, true);
+        report.emergency_capture_nanoseconds =
+            emergency_capture_nanoseconds;
+        report.native_capture_nanoseconds = finish_phase();
+        const bool ai_palette_restored =
+            RestoreRollbackAiPaletteDiagnostics(
+                image_base, ai_palette_before_native_writer);
         const bool motion_bank_restored =
             RollbackRestoreMotionBankHistory(image_base, emergency);
         const bool motion_tail_restored =
             RollbackRestoreMoveVMMotionTail(image_base, emergency);
         const bool secondary_event_stack_restored =
             RollbackRestoreSecondaryEventStack(image_base, emergency);
+        const bool chara_animation_restored =
+            RollbackRestoreCharaAnimationState(image_base, emergency);
         const bool skeleton_runtime_restored =
-            RollbackRestoreSkeletonRuntime(image_base, emergency);
+            RollbackRestoreSkeletonRuntime(
+                image_base, emergency, false);
+        report.emergency_restore_nanoseconds = finish_phase();
         if (!report.ok)
         {
             out.clear();
-            if (!motion_bank_restored || !motion_tail_restored
+            if (!ai_palette_restored
+                || !motion_bank_restored || !motion_tail_restored
                 || !secondary_event_stack_restored
+                || !chara_animation_restored
                 || !skeleton_runtime_restored)
                 report.failure = "native-capture-and-emergency-restore-failed";
+            return report;
+        }
+        if (!ai_palette_restored)
+        {
+            out.clear();
+            report.ok = false;
+            report.failure =
+                "ai-palette-restore-after-native-writer-failed";
             return report;
         }
         if (!motion_bank_restored)
@@ -2853,6 +4117,14 @@ namespace Horse
                 "secondary-event-stack-restore-after-capture-failed";
             return report;
         }
+        if (!chara_animation_restored)
+        {
+            out.clear();
+            report.ok = false;
+            report.failure =
+                "chara-animation-restore-after-capture-failed";
+            return report;
+        }
         if (!skeleton_runtime_restored)
         {
             out.clear();
@@ -2862,47 +4134,72 @@ namespace Horse
             return report;
         }
 
-        out.motion_banks = std::move(emergency.motion_banks);
-        out.motion_tail = std::move(emergency.motion_tail);
-        out.secondary_event_stack =
-            std::move(emergency.secondary_event_stack);
-        out.skeleton_runtime =
-            std::move(emergency.skeleton_runtime);
-        out.motion_bank_hash = emergency.motion_bank_hash;
-        out.motion_tail_hash = emergency.motion_tail_hash;
-        out.secondary_event_stack_hash =
+        const uint64_t motion_bank_hash = emergency.motion_bank_hash;
+        const uint64_t motion_tail_hash = emergency.motion_tail_hash;
+        const uint64_t secondary_event_stack_hash =
             emergency.secondary_event_stack_hash;
-        out.skeleton_runtime_hash = emergency.skeleton_runtime_hash;
+        const uint64_t chara_animation_hash =
+            emergency.chara_animation_hash;
+        const uint64_t skeleton_runtime_hash =
+            emergency.skeleton_runtime_hash;
+        if (emergency_scratch)
+        {
+            // Both frames own baseline-sized buffers. Exchange their captured
+            // histories instead of deep-copying four containers every tick;
+            // the scratch frame receives the output slot's cleared buffers
+            // for the next capture, so capacities remain fixed.
+            std::swap(out.motion_banks, emergency.motion_banks);
+            std::swap(out.motion_tail, emergency.motion_tail);
+            std::swap(
+                out.secondary_event_stack,
+                emergency.secondary_event_stack);
+            std::swap(
+                out.chara_animation,
+                emergency.chara_animation);
+            std::swap(out.skeleton_runtime, emergency.skeleton_runtime);
+        }
+        else
+        {
+            out.motion_banks = std::move(emergency.motion_banks);
+            out.motion_tail = std::move(emergency.motion_tail);
+            out.secondary_event_stack =
+                std::move(emergency.secondary_event_stack);
+            out.chara_animation =
+                std::move(emergency.chara_animation);
+            out.skeleton_runtime =
+                std::move(emergency.skeleton_runtime);
+        }
+        out.motion_bank_hash = motion_bank_hash;
+        out.motion_tail_hash = motion_tail_hash;
+        out.secondary_event_stack_hash =
+            secondary_event_stack_hash;
+        out.chara_animation_hash = chara_animation_hash;
+        out.skeleton_runtime_hash = skeleton_runtime_hash;
 
-        if (!RollbackCaptureKHitTopology(image_base, out))
+        if (!RollbackCaptureKHitTopology(
+                image_base, out, require_preallocated))
         {
             out.clear();
             report.ok = false;
             report.failure = "khit-topology-capture-failed";
             return report;
         }
-        if (!RollbackCaptureTimerNodeHistory(image_base, out))
+        report.khit_capture_nanoseconds = finish_phase();
+        if (!RollbackCaptureTimerNodeHistory(
+                image_base, out, require_preallocated))
         {
             out.clear();
             report.ok = false;
             report.failure = "timer-node-history-capture-failed";
             return report;
         }
+        report.timer_capture_nanoseconds = finish_phase();
 
         out.used_bytes = report.cursor;
         out.byte_hash = report.hash;
-        out.hash = RollbackHashCombine(
-            RollbackHashCombine(
-                RollbackHashCombine(
-                    RollbackHashCombine(
-                        out.byte_hash, out.khit_topology_hash),
-                    out.motion_bank_hash),
-                RollbackHashCombine(
-                    out.motion_tail_hash,
-                    out.secondary_event_stack_hash)),
-            RollbackHashCombine(
-                out.skeleton_runtime_hash, out.timer_node_hash));
+        out.hash = RollbackHashHgCpuIntegrityComponents(out);
         out.canonical_hash = RollbackHashHgCpuCanonical(out);
+        report.hash_finalize_nanoseconds = finish_phase();
         if (out.canonical_hash == 0)
         {
             out.clear();
@@ -2917,6 +4214,21 @@ namespace Horse
         uintptr_t image_base,
         const RollbackHgCpuSnapshotFrame& frame) noexcept
     {
+        // Refuse an unsupported scheduler reconfiguration before the native
+        // reader or any companion history mutates live state.
+        const RollbackCharaAnimationPreflightFailure animation_preflight =
+            RollbackCharaAnimationRestorePreflightFailure(
+                image_base, frame.chara_animation);
+        if (animation_preflight
+            != RollbackCharaAnimationPreflightFailure::None)
+        {
+            RollbackHgCpuSnapshotReport report {};
+            report.failure = RollbackCharaAnimationPreflightFailureName(
+                animation_preflight);
+            report.capacity = frame.bytes.size();
+            report.image_base = image_base;
+            return report;
+        }
         if (!RollbackRestoreKHitTopology(image_base, frame))
         {
             RollbackHgCpuSnapshotReport report {};
@@ -2948,6 +4260,12 @@ namespace Horse
         {
             report.ok = false;
             report.failure = "timer-node-history-restore-failed";
+        }
+        if (report.ok
+            && !RollbackRestoreCharaAnimationState(image_base, frame))
+        {
+            report.ok = false;
+            report.failure = "chara-animation-state-restore-failed";
         }
         if (report.ok
             && !RollbackRestoreSecondaryEventStack(image_base, frame))
@@ -3056,4 +4374,5 @@ namespace Horse
             && (report.hash_match || report.policy_match);
         return report;
     }
+#endif
 }

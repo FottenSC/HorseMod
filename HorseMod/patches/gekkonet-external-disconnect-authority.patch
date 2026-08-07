@@ -1,0 +1,90 @@
+diff --git a/GekkoLib/include/gekkonet.h b/GekkoLib/include/gekkonet.h
+--- a/GekkoLib/include/gekkonet.h
++++ b/GekkoLib/include/gekkonet.h
+@@ -70,6 +70,7 @@ typedef struct GekkoConfig {
+     unsigned int state_size;
+     bool limited_saving;
+     bool desync_detection;
++    bool external_disconnect_detection;
+     unsigned int check_distance;
+ } GekkoConfig;
+ 
+diff --git a/GekkoLib/include/private/backend.h b/GekkoLib/include/private/backend.h
+--- a/GekkoLib/include/private/backend.h
++++ b/GekkoLib/include/private/backend.h
+@@ -97,7 +97,8 @@ namespace Gekko {
+ 	public:
+ 		MessageSystem();
+ 
+-        void Init(u8 num_players, u32 input_size);
++        void Init(u8 num_players, u32 input_size,
++            bool external_disconnect_detection = false);
+ 
+ 		void AddInput(Frame input_frame, Handle player, u8 input[], bool remote = false);
+ 
+@@ -204,3 +205,5 @@ namespace Gekko {
+ 
+         u64 _last_sent_network_check;
++
++        bool _external_disconnect_detection;
+ 	};
+ 
+diff --git a/GekkoLib/src/backend.cpp b/GekkoLib/src/backend.cpp
+--- a/GekkoLib/src/backend.cpp
++++ b/GekkoLib/src/backend.cpp
+@@ -20,6 +20,7 @@ Gekko::MessageSystem::MessageSystem()
+     _num_players = 0;
+ 	_input_size = 0;
+     _last_sent_network_check = 0;
++    _external_disconnect_detection = false;
+ 
+ 	// gen magic for session
+ 	std::srand((unsigned int)std::time(nullptr));
+@@ -28,10 +29,11 @@ Gekko::MessageSystem::MessageSystem()
+     session_events = SessionEventSystem();
+ }
+ 
+-void Gekko::MessageSystem::Init(u8 num_players, u32 input_size)
++void Gekko::MessageSystem::Init(u8 num_players, u32 input_size, bool external_disconnect_detection)
+ {
+     _num_players = num_players;
+ 	_input_size = input_size;
++    _external_disconnect_detection = external_disconnect_detection;
+ 
+     _net_player_queue.resize(num_players);
+ 
+@@ -101,8 +103,8 @@ void Gekko::MessageSystem::SendPendingOutput(GekkoNetAdapter* host)
+ 			SendInputsToPeer(peer.get(), host, false);
+ 		}
+ 	}
+-	// check for disconnects (runs even in spectator sessions with no locals)
+-	if (!remotes.empty()) {
++	// Let an embedding transport with an independent receive worker own liveness.
++	if (!_external_disconnect_detection && !remotes.empty()) {
+ 		HandleTooFarBehindActors(false);
+ 	}
+ 
+@@ -112,8 +114,8 @@ void Gekko::MessageSystem::SendPendingOutput(GekkoNetAdapter* host)
+ 			SendInputsToPeer(peer.get(), host, true);
+ 		}
+ 	}
+-	// check for disconnects
+-	if (!spectators.empty()) {
++	// Spectator liveness follows the same configured authority.
++	if (!_external_disconnect_detection && !spectators.empty()) {
+ 		HandleTooFarBehindActors(true);
+ 	}
+ 
+diff --git a/GekkoLib/src/game_session.cpp b/GekkoLib/src/game_session.cpp
+--- a/GekkoLib/src/game_session.cpp
++++ b/GekkoLib/src/game_session.cpp
+@@ -27,7 +27,8 @@ void Gekko::GameSession::Init(GekkoConfig* config)
+     _sync.Init(_config.num_players, _config.input_size);
+
+     // setup message system.
+-    _msg.Init(_config.num_players, _config.input_size);
++    _msg.Init(_config.num_players, _config.input_size,
++        _config.external_disconnect_detection);
+ 
+     // setup game event system
+     _game_events.Init(_config.input_size * _config.num_players);

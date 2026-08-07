@@ -11,6 +11,7 @@ characters. Two real regressions are covered:
 from __future__ import annotations
 
 import os
+import struct
 from pathlib import Path
 
 import pytest
@@ -98,9 +99,12 @@ def test_mitsurugi_has_movelist_shape():
     assert isinstance(cs["MainIndex"], int)
 
 
-def test_movelist_main_indices_are_valid_slots():
-    """The MainIndex values should point into Mitsurugi's slot table
-    (0..len(slots)-1). If they don't, our cross-reference will be broken."""
+def test_movelist_main_indices_mostly_overlap_local_slot_range():
+    """Track the corpus property used by the legacy navigation heuristic.
+
+    This does not prove MainIndex is a KHD slot index; its consumer is in
+    cooked Blueprint code that is absent from the current dump.
+    """
     from uassetparse import parse_uasset, parse_uexp
     import luxformats as lf
 
@@ -176,6 +180,56 @@ def test_parse_datatable_rejects_non_datatable():
     pkg = uassetparse.parse_uasset(str(p))
     with pytest.raises(ValueError):
         uassetparse.parse_datatable(str(p).replace(".uasset", ".uexp"), pkg)
+
+
+def _synthetic_datatable_package(payload_size: int):
+    from uassetparse import UAssetExport, UAssetPackage
+
+    return UAssetPackage(
+        name_table=["None", "RowA"],
+        exports=[UAssetExport(0, 0, 0, payload_size, 0)],
+        total_header_size=0,
+    )
+
+
+def test_parse_datatable_rejects_advertised_rows_missing_from_export(tmp_path):
+    import uassetparse
+
+    none_tag = struct.pack("<ii", 0, 0)
+    row_a = struct.pack("<ii", 1, 0) + none_tag
+    payload = none_tag + struct.pack("<ii", 0, 2) + row_a
+    path = tmp_path / "truncated.uexp"
+    path.write_bytes(payload)
+
+    with pytest.raises(ValueError, match="truncated before row 1 of 2"):
+        uassetparse.parse_datatable(
+            str(path), _synthetic_datatable_package(len(payload))
+        )
+
+
+def test_parse_datatable_rejects_duplicate_row_names(tmp_path):
+    import uassetparse
+
+    none_tag = struct.pack("<ii", 0, 0)
+    row_a = struct.pack("<ii", 1, 0) + none_tag
+    payload = none_tag + struct.pack("<ii", 0, 2) + row_a + row_a
+    path = tmp_path / "duplicates.uexp"
+    path.write_bytes(payload)
+
+    with pytest.raises(ValueError, match="duplicate row name 'RowA'"):
+        uassetparse.parse_datatable(
+            str(path), _synthetic_datatable_package(len(payload))
+        )
+
+
+def test_parse_uexp_rejects_export_span_outside_file(tmp_path):
+    import uassetparse
+
+    path = tmp_path / "short.uexp"
+    path.write_bytes(bytes(8))
+    pkg = _synthetic_datatable_package(9)
+    with pytest.raises(ValueError, match="outside"):
+        uassetparse.parse_uexp(str(path), pkg)
 
 
 def test_tiamats_rampage_metadata():

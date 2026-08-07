@@ -21,6 +21,7 @@
 #include "RollbackFaultInject.hpp"
 #include "RollbackLaunchContract.hpp"
 #include "RollbackProtocolV2.hpp"
+#include "RollbackStateHash.hpp"
 
 #include <algorithm>
 #include <array>
@@ -28,6 +29,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -56,7 +58,7 @@ namespace Horse
             || domain == RollbackSessionDomain::ReplayForkLab;
     }
 
-    static constexpr uint8_t kRollbackUdpHandshakeProfileVersion = 4;
+    static constexpr uint8_t kRollbackUdpHandshakeProfileVersion = 8;
     static constexpr uint32_t kRollbackUdpHeartbeatMs = 250;
     static constexpr uint32_t kRollbackUdpReadinessExpiryMs = 2000;
     static constexpr uint32_t kRollbackUdpReopenMinMs = 250;
@@ -72,15 +74,29 @@ namespace Horse
         uint8_t native_input_source_slot {0};
         uint16_t rollback_window {0};
         uint16_t input_delay {0};
-        uint32_t launch_seed {0};
         RollbackNetworkProfileKind network_profile {
             RollbackNetworkProfileKind::Clean0ms};
         RollbackSessionDomain session_domain {
             RollbackSessionDomain::Production};
         uint8_t reserved8[2] {};
         uint32_t fault_seed {0};
-        uint32_t reserved {0};
-        uint64_t desired_launch_descriptor_hash {0};
+        uint32_t expected_native_stage_identity {0};
+        uint32_t fixture_id {0};
+        uint32_t fixture_correction_start {0};
+        uint16_t fixture_hold_updates {0};
+        uint16_t fixture_prediction_lead_updates {0};
+        uint8_t fixture_delay_owner_slot {0};
+        uint8_t fixture_enabled {0};
+        uint8_t replay_input_enabled {0};
+        uint8_t replay_input_swap_players {0};
+        RollbackReplayInputAlignment replay_input_alignment {
+            RollbackReplayInputAlignment::ExactConsumedFrame};
+        uint8_t replay_input_reserved {0};
+        uint32_t replay_input_round {0};
+        uint32_t replay_input_start_frame {0};
+        uint32_t replay_input_round_frames {0};
+        std::array<uint64_t, 2> replay_input_round_hash {};
+        std::array<uint8_t, 32> replay_input_sha256 {};
         std::array<uint8_t, 32> replay_sha256 {};
         int32_t replay_anchor_sequence {-1};
         int32_t replay_anchor_round {-1};
@@ -91,7 +107,7 @@ namespace Horse
     };
 #pragma pack(pop)
 
-    static_assert(sizeof(RollbackUdpHandshakeProfile) == 100);
+    static_assert(sizeof(RollbackUdpHandshakeProfile) == 166);
 
     struct RollbackSequenceStamp
     {
@@ -111,9 +127,31 @@ namespace Horse
         }
     };
 
+    enum class RollbackTransportMode : uint8_t
+    {
+        DirectUdp = 0,
+        SteamP2P = 1,
+    };
+
+    static constexpr bool RollbackTransportModeValid(
+        RollbackTransportMode mode) noexcept
+    {
+        return mode == RollbackTransportMode::DirectUdp
+            || mode == RollbackTransportMode::SteamP2P;
+    }
+
+    static constexpr const char* RollbackTransportModeName(
+        RollbackTransportMode mode) noexcept
+    {
+        return mode == RollbackTransportMode::SteamP2P
+            ? "steam-p2p" : "direct-udp";
+    }
+
     struct RollbackProductionConfig
     {
         bool enabled {false};
+        RollbackTransportMode transport_mode {
+            RollbackTransportMode::DirectUdp};
         std::string bind_address {"0.0.0.0"};
         uint16_t bind_port {0};
         std::string peer_address;
@@ -126,43 +164,85 @@ namespace Horse
             RollbackLifecycleMode::StockOnlinePvp};
         RollbackSessionDomain session_domain {
             RollbackSessionDomain::Production};
-        RollbackBattleLaunchDescriptor launch_descriptor {};
         std::array<uint8_t, 32> replay_sha256 {};
         int32_t replay_anchor_sequence {-1};
         int32_t replay_anchor_round {-1};
         int32_t replay_anchor_master {-1};
         uint64_t replay_run_nonce_hash {0};
         std::string secret;
-        uint16_t rollback_window {60};
+        uint16_t rollback_window {12};
         uint16_t input_delay {1};
+        RollbackDeterministicInputConfig deterministic_input {};
+        std::string replay_input_file;
+        RollbackReplayInputConfig replay_input {};
+        bool replay_trace_compare {false};
+        bool replay_deep_trace_diagnostics {false};
+        bool replay_trace_input_only {false};
+        bool callback_inventory_only {false};
+        bool native_correction_only {false};
+        std::string request_id;
+        std::string client_role;
         RollbackNetworkProfileKind network_profile {
             RollbackNetworkProfileKind::Clean0ms};
         uint32_t fault_seed {0x5C6B0001u};
+        // Test-only bounded application-level transport worker stall. These
+        // fields are deliberately excluded from the handshake and protocol
+        // profile: they stress one local worker without changing wire or
+        // snapshot semantics.
+        uint32_t test_worker_stall_after_ms {0};
+        uint32_t test_worker_stall_duration_ms {0};
         uint64_t expected_build_id {0};
         uint64_t expected_schema_id {0};
+        uint32_t expected_native_stage_identity {0};
+        uint64_t expected_selection_hash {0};
+        bool bind_observed_stock_selection {false};
+        bool replay_test_selection_override {false};
 
         bool valid() const noexcept
         {
             return enabled
-                && bind_port != 0
-                && peer_port != 0
-                && !peer_address.empty()
+                && RollbackTransportModeValid(transport_mode)
+                && (transport_mode == RollbackTransportMode::SteamP2P
+                    || (bind_port != 0
+                        && peer_port != 0
+                        && !peer_address.empty()
+                        && secret.size() >= 16))
                 && local_player_slot < 2
                 && native_input_source_slot < 2
                 && local_peer != 0
                 && remote_peer != 0
                 && local_peer != remote_peer
-                && secret.size() >= 16
                 && rollback_window != 0
                 && rollback_window <= 60
                 && input_delay != 0
                 && input_delay <= rollback_window
+                && test_worker_stall_duration_ms <= 1000
+                && ((test_worker_stall_after_ms == 0
+                        && test_worker_stall_duration_ms == 0)
+                    || (test_worker_stall_after_ms != 0
+                        && test_worker_stall_duration_ms != 0))
+                && deterministic_input.valid()
+                && deterministic_input.prediction_lead_updates
+                    <= rollback_window
+                && replay_input.requested_valid()
+                && (!replay_deep_trace_diagnostics
+                    || (replay_trace_compare && replay_input.enabled))
+                && (!replay_input.enabled
+                    || (deterministic_input.enabled
+                        && !replay_input_file.empty()))
                 && static_cast<uint8_t>(network_profile)
                     <= static_cast<uint8_t>(
                         RollbackNetworkProfileKind::CorruptProbe)
                 && fault_seed != 0
                 && expected_build_id != 0
                 && expected_schema_id != 0
+                && (session_domain != RollbackSessionDomain::Production
+                    || expected_native_stage_identity != 0
+                    || bind_observed_stock_selection)
+                && (!replay_test_selection_override
+                    || (replay_input.enabled
+                        && !bind_observed_stock_selection
+                        && expected_selection_hash != 0))
                 && RollbackLifecycleModeValid(lifecycle_mode)
                 && RollbackSessionDomainValid(session_domain)
                 && (session_domain == RollbackSessionDomain::ReplayForkLab
@@ -174,11 +254,7 @@ namespace Horse
                        && replay_anchor_round >= 0
                        && replay_anchor_master >= 0
                        && replay_run_nonce_hash != 0)
-                    : (lifecycle_mode
-                            == RollbackLifecycleMode::StockOnlinePvp
-                        ? native_input_source_slot == local_player_slot
-                        : (native_input_source_slot == 0
-                           && launch_descriptor.valid())));
+                    : native_input_source_slot == local_player_slot);
         }
     };
 
@@ -186,11 +262,8 @@ namespace Horse
         const RollbackProductionConfig& left,
         const RollbackProductionConfig& right) noexcept
     {
-        const RollbackBattleLaunchDescriptor& left_launch =
-            left.launch_descriptor;
-        const RollbackBattleLaunchDescriptor& right_launch =
-            right.launch_descriptor;
         return left.enabled == right.enabled
+            && left.transport_mode == right.transport_mode
             && left.bind_address == right.bind_address
             && left.bind_port == right.bind_port
             && left.peer_address == right.peer_address
@@ -202,20 +275,6 @@ namespace Horse
             && left.remote_peer == right.remote_peer
             && left.lifecycle_mode == right.lifecycle_mode
             && left.session_domain == right.session_domain
-            && left_launch.left_character == right_launch.left_character
-            && left_launch.right_character == right_launch.right_character
-            && left_launch.left_color == right_launch.left_color
-            && left_launch.right_color == right_launch.right_color
-            && left_launch.stage == right_launch.stage
-            && left_launch.battle_time_seconds
-                == right_launch.battle_time_seconds
-            && left_launch.battle_rule_type
-                == right_launch.battle_rule_type
-            && left_launch.versus_type == right_launch.versus_type
-            && left_launch.seed == right_launch.seed
-            && left_launch.auto_start == right_launch.auto_start
-            && left_launch.local_battle_provider
-                == right_launch.local_battle_provider
             && left.replay_sha256 == right.replay_sha256
             && left.replay_anchor_sequence == right.replay_anchor_sequence
             && left.replay_anchor_round == right.replay_anchor_round
@@ -224,10 +283,65 @@ namespace Horse
             && left.secret == right.secret
             && left.rollback_window == right.rollback_window
             && left.input_delay == right.input_delay
+            && left.deterministic_input.hash()
+                == right.deterministic_input.hash()
+            && left.replay_input_file == right.replay_input_file
+            && left.replay_input.hash() == right.replay_input.hash()
+            && left.replay_trace_compare == right.replay_trace_compare
+            && left.replay_deep_trace_diagnostics
+                == right.replay_deep_trace_diagnostics
+            && left.replay_trace_input_only
+                == right.replay_trace_input_only
+            && left.callback_inventory_only == right.callback_inventory_only
+            && left.native_correction_only == right.native_correction_only
+            && left.request_id == right.request_id
+            && left.client_role == right.client_role
             && left.network_profile == right.network_profile
             && left.fault_seed == right.fault_seed
+            && left.test_worker_stall_after_ms
+                == right.test_worker_stall_after_ms
+            && left.test_worker_stall_duration_ms
+                == right.test_worker_stall_duration_ms
             && left.expected_build_id == right.expected_build_id
-            && left.expected_schema_id == right.expected_schema_id;
+            && left.expected_schema_id == right.expected_schema_id
+            && left.expected_native_stage_identity
+                == right.expected_native_stage_identity
+            && left.expected_selection_hash
+                == right.expected_selection_hash
+            && left.bind_observed_stock_selection
+                == right.bind_observed_stock_selection
+            && left.replay_test_selection_override
+                == right.replay_test_selection_override;
+    }
+
+    static inline uint64_t ComputeRollbackSessionContractHash(
+        const RollbackProductionConfig& config,
+        uint64_t selection_hash) noexcept
+    {
+        RollbackHash hash {};
+        hash.add_scalar(kRollbackProtocolV2Version);
+        hash.add_scalar(static_cast<uint8_t>(config.transport_mode));
+        hash.add_scalar(config.expected_build_id);
+        hash.add_scalar(config.expected_schema_id);
+        hash.add_scalar(config.rollback_window);
+        hash.add_scalar(config.input_delay);
+        hash.add_scalar(static_cast<uint8_t>(config.lifecycle_mode));
+        hash.add_scalar(static_cast<uint8_t>(config.session_domain));
+        hash.add_scalar(static_cast<uint8_t>(config.network_profile));
+        hash.add_scalar(config.fault_seed);
+        hash.add_scalar(config.expected_native_stage_identity);
+        hash.add_scalar(config.expected_selection_hash);
+        hash.add_scalar(config.bind_observed_stock_selection);
+        hash.add_scalar(config.replay_test_selection_override);
+        hash.add_scalar(config.deterministic_input.hash());
+        hash.add_scalar(config.replay_input.hash());
+        hash.add_scalar(config.callback_inventory_only);
+        hash.add_scalar(config.native_correction_only);
+        hash.add_bytes(config.request_id.data(), config.request_id.size());
+        hash.add_bytes(config.replay_input.file_sha256.data(),
+            config.replay_input.file_sha256.size());
+        hash.add_scalar(selection_hash);
+        return hash.value ? hash.value : 1;
     }
 
     template<typename T, size_t N>
@@ -418,8 +532,55 @@ namespace Horse
             out = {};
             out.sin_family = AF_INET;
             out.sin_port = htons(port);
-            return port != 0
-                && InetPtonA(AF_INET, address.c_str(), &out.sin_addr) == 1;
+            if (port == 0 || address.empty()) return false;
+            if (InetPtonA(
+                    AF_INET, address.c_str(), &out.sin_addr) == 1)
+                return true;
+
+            // Resolve once during transport startup, then pin every packet to
+            // the selected numeric endpoint. DNS is never consulted on the
+            // worker hot path and a later DNS change cannot redirect an
+            // authenticated live session.
+            WSADATA data {};
+            if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
+                return false;
+            addrinfo hints {};
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_DGRAM;
+            hints.ai_protocol = IPPROTO_UDP;
+            char service[6] {};
+            if (sprintf_s(
+                    service, sizeof(service), "%u",
+                    static_cast<unsigned>(port)) <= 0)
+            {
+                WSACleanup();
+                return false;
+            }
+            addrinfo* results = nullptr;
+            const int resolve = getaddrinfo(
+                address.c_str(), service, &hints, &results);
+            bool found = false;
+            if (resolve == 0)
+            {
+                for (const addrinfo* item = results;
+                     item != nullptr; item = item->ai_next)
+                {
+                    if (item->ai_family != AF_INET
+                        || item->ai_addrlen
+                            < static_cast<int>(sizeof(sockaddr_in))
+                        || !item->ai_addr)
+                        continue;
+                    std::memcpy(
+                        &out, item->ai_addr, sizeof(sockaddr_in));
+                    out.sin_port = htons(port);
+                    found = true;
+                    break;
+                }
+            }
+            if (results) freeaddrinfo(results);
+            WSACleanup();
+            if (!found) out = {};
+            return found;
         }
 
         bool send(
@@ -514,6 +675,106 @@ namespace Horse
         RollbackUdpEndpointReport m_report {};
     };
 
+    // Backend-neutral datagram seam used by the authenticated Protocol V2
+    // worker. A backend owns and validates its peer address/identity before a
+    // datagram reaches CNG, so an unexpected sender cannot force HMAC work.
+    class IRollbackWireEndpoint
+    {
+    public:
+        enum class ReceiveStatus : uint8_t
+        {
+            NoData,
+            Packet,
+            Rejected,
+            Error,
+        };
+
+        virtual ~IRollbackWireEndpoint() = default;
+        virtual bool open(
+            const RollbackProductionConfig& config) noexcept = 0;
+        virtual void close() noexcept = 0;
+        virtual bool is_open() const noexcept = 0;
+        virtual bool send(
+            const RollbackProtocolV2WirePacket& packet) noexcept = 0;
+        virtual ReceiveStatus receive(
+            RollbackProtocolV2WirePacket& packet) noexcept = 0;
+        virtual ReceiveStatus wait_readable(
+            uint32_t timeout_ms) noexcept = 0;
+    };
+
+    class RollbackWinsockWireEndpoint final : public IRollbackWireEndpoint
+    {
+    public:
+        bool open(
+            const RollbackProductionConfig& config) noexcept override
+        {
+            sockaddr_in expected {};
+            if (!RollbackUdpEndpoint::parse_address(
+                    config.peer_address, config.peer_port, expected))
+            {
+                return false;
+            }
+            m_expected_peer = expected;
+            return m_endpoint.open(config.bind_address, config.bind_port);
+        }
+
+        void close() noexcept override
+        {
+            m_endpoint.close();
+            m_expected_peer = {};
+        }
+
+        bool is_open() const noexcept override
+        {
+            return m_endpoint.is_open();
+        }
+
+        bool send(
+            const RollbackProtocolV2WirePacket& packet) noexcept override
+        {
+            return m_endpoint.send(packet, m_expected_peer);
+        }
+
+        ReceiveStatus receive(
+            RollbackProtocolV2WirePacket& packet) noexcept override
+        {
+            sockaddr_in from {};
+            const RollbackUdpEndpoint::ReceiveStatus status =
+                m_endpoint.receive(packet, from);
+            if (status == RollbackUdpEndpoint::ReceiveStatus::NoData)
+                return ReceiveStatus::NoData;
+            if (status == RollbackUdpEndpoint::ReceiveStatus::Error)
+                return ReceiveStatus::Error;
+            return endpoint_equal(from, m_expected_peer)
+                ? ReceiveStatus::Packet : ReceiveStatus::Rejected;
+        }
+
+        ReceiveStatus wait_readable(
+            uint32_t timeout_ms) noexcept override
+        {
+            const RollbackUdpEndpoint::ReceiveStatus status =
+                m_endpoint.wait_readable(timeout_ms);
+            if (status == RollbackUdpEndpoint::ReceiveStatus::NoData)
+                return ReceiveStatus::NoData;
+            if (status == RollbackUdpEndpoint::ReceiveStatus::Error)
+                return ReceiveStatus::Error;
+            return ReceiveStatus::Packet;
+        }
+
+    private:
+        static bool endpoint_equal(
+            const sockaddr_in& left,
+            const sockaddr_in& right) noexcept
+        {
+            return left.sin_family == right.sin_family
+                && left.sin_port == right.sin_port
+                && left.sin_addr.s_addr == right.sin_addr.s_addr;
+        }
+
+        RollbackUdpEndpoint m_endpoint {};
+        sockaddr_in m_expected_peer {};
+    };
+
     struct RollbackUdpMessage
     {
         RollbackProtocolV2PacketType packet_type {
@@ -521,6 +782,12 @@ namespace Horse
         RollbackSequenceStamp ack {};
         uint64_t handshake_generation {0};
         uint64_t sequence {0};
+        bool sequence_assigned {false};
+        // Internal delivery metadata, never serialized onto Protocol V2.
+        // Route managers stamp the authenticated child route that won
+        // cross-route deduplication so deadline evidence is attributable.
+        uint8_t route_index {UINT8_MAX};
+        bool route_index_assigned {false};
         uint16_t payload_bytes {0};
         std::array<uint8_t, kRollbackProtocolV2MaxPayloadBytes> payload {};
     };
@@ -572,17 +839,38 @@ namespace Horse
         return "unknown";
     }
 
+    enum class RollbackTransportLifecycle : uint8_t
+    {
+        Stopped = 0,
+        Starting = 1,
+        RetryDelay = 2,
+        Ready = 3,
+        Failed = 4,
+    };
+
     struct RollbackUdpWorkerStatus
     {
+        RollbackTransportLifecycle transport_lifecycle {
+            RollbackTransportLifecycle::Stopped};
         bool running {false};
         bool endpoint_open {false};
         bool peer_ready {false};
         bool endpoint_pinned {false};
+        uint32_t bootstrap_attempt {0};
+        uint32_t bootstrap_attempt_limit {0};
+        bool retry_exhausted {false};
+        uint64_t bound_native_epoch_key {0};
+        RollbackUdpWorkerFailure last_failure {
+            RollbackUdpWorkerFailure::None};
         uint64_t packets_sent {0};
         uint64_t packets_received {0};
         uint64_t packets_authenticated {0};
         uint64_t packets_rejected {0};
+        uint64_t packets_decode_rejected {0};
+        uint64_t packets_route_rejected {0};
+        uint64_t packets_replay_rejected {0};
         uint64_t queue_overflows {0};
+        uint64_t redundant_enqueue_deferrals {0};
         uint64_t reopen_count {0};
         uint64_t handshake_generation {0};
         RollbackNetworkProfileKind network_profile {
@@ -598,22 +886,97 @@ namespace Horse
         uint64_t fault_packets_spiked {0};
         uint64_t fault_packets_burst_dropped {0};
         uint64_t fault_queue_overflows {0};
+        uint64_t test_worker_stalls_started {0};
+        uint64_t test_worker_stalls_completed {0};
+        uint64_t test_worker_stall_actual_ms {0};
         RollbackUdpWorkerFailure failure {RollbackUdpWorkerFailure::None};
     };
 
-    class RollbackUdpNetworkWorker
+    class IRollbackTransport
     {
     public:
-        RollbackUdpNetworkWorker() = default;
-        ~RollbackUdpNetworkWorker() noexcept { stop(); }
-        RollbackUdpNetworkWorker(const RollbackUdpNetworkWorker&) = delete;
-        RollbackUdpNetworkWorker& operator=(
-            const RollbackUdpNetworkWorker&) = delete;
+        virtual ~IRollbackTransport() = default;
 
-        bool start(const RollbackProductionConfig& config) noexcept
+        virtual bool start(
+            const RollbackProductionConfig& config) noexcept = 0;
+        virtual void stop() noexcept = 0;
+        virtual bool enqueue(
+            RollbackProtocolV2PacketType type,
+            const void* payload,
+            uint16_t payload_bytes,
+            RollbackSequenceStamp ack = {},
+            uint64_t expected_generation = UINT64_MAX) noexcept = 0;
+        // Idempotent reliability traffic must never terminate an otherwise
+        // healthy session merely because the primary gameplay queue is under
+        // transient pressure. Concrete transports may give this traffic a
+        // separate bounded lane and report a deferral without latching a
+        // QueueOverflow failure.
+        virtual bool enqueue_redundant(
+            RollbackProtocolV2PacketType type,
+            const void* payload,
+            uint16_t payload_bytes,
+            RollbackSequenceStamp ack = {},
+            uint64_t expected_generation = UINT64_MAX) noexcept
+        {
+            return enqueue(
+                type, payload, payload_bytes, ack, expected_generation);
+        }
+        virtual bool dequeue(RollbackUdpMessage& message) noexcept = 0;
+        virtual bool peer_ready() const noexcept = 0;
+        virtual RollbackUdpWorkerStatus status() const noexcept = 0;
+    };
+
+    class RollbackAuthenticatedNetworkWorker final : public IRollbackTransport
+    {
+    public:
+        explicit RollbackAuthenticatedNetworkWorker(
+            IRollbackWireEndpoint& endpoint) noexcept
+            : m_endpoint(endpoint)
+        {
+        }
+        ~RollbackAuthenticatedNetworkWorker() noexcept { stop(); }
+        RollbackAuthenticatedNetworkWorker(
+            const RollbackAuthenticatedNetworkWorker&) = delete;
+        RollbackAuthenticatedNetworkWorker& operator=(
+            const RollbackAuthenticatedNetworkWorker&) = delete;
+
+        bool start(const RollbackProductionConfig& config) noexcept override
+        {
+            m_preconfirmed_start = false;
+            return start_worker(config);
+        }
+
+        bool start_preconfirmed(
+            const RollbackProductionConfig& config,
+            const std::array<uint8_t, kRollbackProtocolV2NonceBytes>&
+                local_nonce,
+            const std::array<uint8_t, kRollbackProtocolV2NonceBytes>&
+                remote_nonce) noexcept
+        {
+            const std::array<uint8_t, kRollbackProtocolV2NonceBytes> zero {};
+            if (local_nonce == zero || remote_nonce == zero
+                || local_nonce == remote_nonce)
+            {
+                m_failure.store(
+                    RollbackUdpWorkerFailure::InvalidConfig,
+                    std::memory_order_release);
+                return false;
+            }
+            m_preconfirmed_local_nonce = local_nonce;
+            m_preconfirmed_remote_nonce = remote_nonce;
+            m_preconfirmed_start = true;
+            if (start_worker(config)) return true;
+            m_preconfirmed_start = false;
+            return false;
+        }
+
+    private:
+        bool start_worker(const RollbackProductionConfig& config) noexcept
         {
             stop();
-            if (!m_outbound.initialized() || !m_inbound.initialized()
+            if (!m_outbound.initialized()
+                || !m_redundant_outbound.initialized()
+                || !m_inbound.initialized()
                 || !m_fault_datagrams)
             {
                 m_failure.store(
@@ -622,15 +985,6 @@ namespace Horse
                 return false;
             }
             if (!config.valid())
-            {
-                m_failure.store(
-                    RollbackUdpWorkerFailure::InvalidConfig,
-                    std::memory_order_release);
-                return false;
-            }
-            sockaddr_in expected_peer {};
-            if (!RollbackUdpEndpoint::parse_address(
-                    config.peer_address, config.peer_port, expected_peer))
             {
                 m_failure.store(
                     RollbackUdpWorkerFailure::InvalidConfig,
@@ -649,10 +1003,20 @@ namespace Horse
                     std::memory_order_release);
                 return false;
             }
-            m_expected_peer = expected_peer;
             m_outbound.clear();
+            m_redundant_outbound.clear();
             m_inbound.clear();
             reset_status();
+            if (m_preconfirmed_start)
+            {
+                // Publish generation 1 before start() returns. Callers may
+                // enqueue immediately; leaving generation at zero until the
+                // worker thread is scheduled would silently stale-drop that
+                // first gameplay message.
+                m_handshake_generation.store(1, std::memory_order_relaxed);
+                m_endpoint_pinned.store(true, std::memory_order_relaxed);
+                m_ready.store(true, std::memory_order_relaxed);
+            }
             m_stop.store(false, std::memory_order_release);
             try
             {
@@ -669,7 +1033,8 @@ namespace Horse
             return true;
         }
 
-        void stop() noexcept
+    public:
+        void stop() noexcept override
         {
             m_stop.store(true, std::memory_order_release);
             if (m_thread.joinable())
@@ -719,7 +1084,7 @@ namespace Horse
             const void* payload,
             uint16_t payload_bytes,
             RollbackSequenceStamp ack = {},
-            uint64_t expected_generation = UINT64_MAX) noexcept
+            uint64_t expected_generation = UINT64_MAX) noexcept override
         {
             if (payload_bytes > kRollbackProtocolV2MaxPayloadBytes
                 || (payload_bytes != 0 && !payload))
@@ -753,7 +1118,43 @@ namespace Horse
             return true;
         }
 
-        bool dequeue(RollbackUdpMessage& message) noexcept
+        bool enqueue_redundant(
+            RollbackProtocolV2PacketType type,
+            const void* payload,
+            uint16_t payload_bytes,
+            RollbackSequenceStamp ack = {},
+            uint64_t expected_generation = UINT64_MAX) noexcept override
+        {
+            if (payload_bytes > kRollbackProtocolV2MaxPayloadBytes
+                || (payload_bytes != 0 && !payload))
+            {
+                return false;
+            }
+            RollbackUdpMessage message {};
+            message.packet_type = type;
+            message.ack = ack;
+            const uint64_t current_generation =
+                m_handshake_generation.load(std::memory_order_acquire);
+            if (expected_generation != UINT64_MAX
+                && current_generation != expected_generation)
+            {
+                return false;
+            }
+            message.handshake_generation = expected_generation != UINT64_MAX
+                ? expected_generation : current_generation;
+            message.payload_bytes = payload_bytes;
+            if (payload_bytes)
+                std::memcpy(message.payload.data(), payload, payload_bytes);
+            if (!m_redundant_outbound.push(message))
+            {
+                m_redundant_enqueue_deferrals.fetch_add(
+                    1, std::memory_order_relaxed);
+                return false;
+            }
+            return true;
+        }
+
+        bool dequeue(RollbackUdpMessage& message) noexcept override
         {
             const uint64_t generation =
                 m_handshake_generation.load(std::memory_order_acquire);
@@ -765,12 +1166,12 @@ namespace Horse
             return false;
         }
 
-        bool peer_ready() const noexcept
+        bool peer_ready() const noexcept override
         {
             return m_ready.load(std::memory_order_acquire);
         }
 
-        RollbackUdpWorkerStatus status() const noexcept
+        RollbackUdpWorkerStatus status() const noexcept override
         {
             RollbackUdpWorkerStatus out {};
             out.running = m_running.load(std::memory_order_acquire);
@@ -786,8 +1187,17 @@ namespace Horse
                 m_packets_authenticated.load(std::memory_order_relaxed);
             out.packets_rejected =
                 m_packets_rejected.load(std::memory_order_relaxed);
+            out.packets_decode_rejected =
+                m_packets_decode_rejected.load(std::memory_order_relaxed);
+            out.packets_route_rejected =
+                m_packets_route_rejected.load(std::memory_order_relaxed);
+            out.packets_replay_rejected =
+                m_packets_replay_rejected.load(std::memory_order_relaxed);
             out.queue_overflows =
                 m_queue_overflows.load(std::memory_order_relaxed);
+            out.redundant_enqueue_deferrals =
+                m_redundant_enqueue_deferrals.load(
+                    std::memory_order_relaxed);
             out.reopen_count = m_reopen_count.load(std::memory_order_relaxed);
             out.handshake_generation =
                 m_handshake_generation.load(std::memory_order_acquire);
@@ -814,7 +1224,25 @@ namespace Horse
                     std::memory_order_relaxed);
             out.fault_queue_overflows =
                 m_fault_queue_overflows.load(std::memory_order_relaxed);
+            out.test_worker_stalls_started =
+                m_test_worker_stalls_started.load(
+                    std::memory_order_relaxed);
+            out.test_worker_stalls_completed =
+                m_test_worker_stalls_completed.load(
+                    std::memory_order_relaxed);
+            out.test_worker_stall_actual_ms =
+                m_test_worker_stall_actual_ms.load(
+                    std::memory_order_relaxed);
             out.failure = m_failure.load(std::memory_order_acquire);
+            out.last_failure = out.failure;
+            out.transport_lifecycle = out.failure
+                    != RollbackUdpWorkerFailure::None
+                ? RollbackTransportLifecycle::Failed
+                : (out.peer_ready
+                    ? RollbackTransportLifecycle::Ready
+                    : (out.running
+                        ? RollbackTransportLifecycle::Starting
+                        : RollbackTransportLifecycle::Stopped));
             return out;
         }
 
@@ -833,15 +1261,6 @@ namespace Horse
         static constexpr uint32_t kFaultFrameMillisecondsNumerator = 1000;
         static constexpr uint32_t kFaultFramesPerSecond = 60;
 
-        static bool endpoint_equal(
-            const sockaddr_in& a,
-            const sockaddr_in& b) noexcept
-        {
-            return a.sin_family == b.sin_family
-                && a.sin_port == b.sin_port
-                && a.sin_addr.s_addr == b.sin_addr.s_addr;
-        }
-
         void reset_status() noexcept
         {
             m_running.store(false, std::memory_order_relaxed);
@@ -855,7 +1274,12 @@ namespace Horse
             m_packets_received.store(0, std::memory_order_relaxed);
             m_packets_authenticated.store(0, std::memory_order_relaxed);
             m_packets_rejected.store(0, std::memory_order_relaxed);
+            m_packets_decode_rejected.store(0, std::memory_order_relaxed);
+            m_packets_route_rejected.store(0, std::memory_order_relaxed);
+            m_packets_replay_rejected.store(0, std::memory_order_relaxed);
             m_queue_overflows.store(0, std::memory_order_relaxed);
+            m_redundant_enqueue_deferrals.store(
+                0, std::memory_order_relaxed);
             m_reopen_count.store(0, std::memory_order_relaxed);
             m_handshake_generation.store(0, std::memory_order_relaxed);
             m_fault_packets_submitted.store(0, std::memory_order_relaxed);
@@ -869,6 +1293,12 @@ namespace Horse
             m_fault_packets_burst_dropped.store(
                 0, std::memory_order_relaxed);
             m_fault_queue_overflows.store(0, std::memory_order_relaxed);
+            m_test_worker_stalls_started.store(
+                0, std::memory_order_relaxed);
+            m_test_worker_stalls_completed.store(
+                0, std::memory_order_relaxed);
+            m_test_worker_stall_actual_ms.store(
+                0, std::memory_order_relaxed);
             m_fault_last_spike_period = 0;
             for (size_t i = 0; i < kFaultDatagramCapacity; ++i)
                 m_fault_datagrams[i] = {};
@@ -893,7 +1323,7 @@ namespace Horse
             m_replay.clear();
             m_handshake_replay.clear();
             m_highest_remote_sequence.clear();
-            m_next_sequence = 1;
+            m_next_sequence.store(1, std::memory_order_release);
             for (size_t i = 0; i < kFaultDatagramCapacity; ++i)
                 m_fault_datagrams[i] = {};
             if (!RollbackProtocolV2RandomNonce(m_local_nonce))
@@ -1021,7 +1451,7 @@ namespace Horse
                 GetRollbackNetworkProfile(m_config.network_profile);
             if (!RollbackFaultProfileHasFaults(profile))
             {
-                if (!m_endpoint.send(wire, m_expected_peer)) return false;
+                if (!m_endpoint.send(wire)) return false;
                 m_packets_sent.fetch_add(1, std::memory_order_relaxed);
                 m_fault_packets_delivered.fetch_add(
                     1, std::memory_order_relaxed);
@@ -1110,7 +1540,7 @@ namespace Horse
                 const RollbackProtocolV2WirePacket wire =
                     m_fault_datagrams[best].wire;
                 m_fault_datagrams[best] = {};
-                if (!m_endpoint.send(wire, m_expected_peer)) return false;
+                if (!m_endpoint.send(wire)) return false;
                 m_packets_sent.fetch_add(1, std::memory_order_relaxed);
                 m_fault_packets_delivered.fetch_add(
                     1, std::memory_order_relaxed);
@@ -1128,7 +1558,8 @@ namespace Horse
             header.packet_type = type;
             header.source_peer = m_config.local_peer;
             header.destination_peer = m_config.remote_peer;
-            header.sequence = m_next_sequence++;
+            header.sequence = m_next_sequence.fetch_add(
+                1, std::memory_order_acq_rel);
             header.build_id = m_config.expected_build_id;
             header.schema_id = m_config.expected_schema_id;
             header.source_nonce = m_local_nonce;
@@ -1153,11 +1584,9 @@ namespace Horse
         }
 
         bool route_and_nonce_valid(
-            const RollbackProtocolV2Packet& packet,
-            const sockaddr_in& from) const noexcept
+            const RollbackProtocolV2Packet& packet) const noexcept
         {
-            if (!endpoint_equal(from, m_expected_peer)
-                || packet.header.source_peer != m_config.remote_peer
+            if (packet.header.source_peer != m_config.remote_peer
                 || packet.header.destination_peer != m_config.local_peer)
             {
                 return false;
@@ -1184,16 +1613,37 @@ namespace Horse
                 m_config.native_input_source_slot;
             profile.rollback_window = m_config.rollback_window;
             profile.input_delay = m_config.input_delay;
-            profile.launch_seed = m_config.lifecycle_mode
-                    == RollbackLifecycleMode::MirroredVersus
-                ? m_config.launch_descriptor.seed : 0;
             profile.network_profile = m_config.network_profile;
             profile.fault_seed = m_config.fault_seed;
-            profile.desired_launch_descriptor_hash =
-                m_config.session_domain == RollbackSessionDomain::Production
-                    && m_config.lifecycle_mode
-                        == RollbackLifecycleMode::MirroredVersus
-                    ? m_config.launch_descriptor.hash() : 0;
+            profile.expected_native_stage_identity =
+                m_config.expected_native_stage_identity;
+            profile.fixture_id = m_config.deterministic_input.fixture_id;
+            profile.fixture_correction_start =
+                m_config.deterministic_input.correction_start;
+            profile.fixture_hold_updates =
+                m_config.deterministic_input.hold_updates;
+            profile.fixture_prediction_lead_updates =
+                m_config.deterministic_input.prediction_lead_updates;
+            profile.fixture_delay_owner_slot =
+                m_config.deterministic_input.delay_owner_slot;
+            profile.fixture_enabled =
+                m_config.deterministic_input.enabled ? 1u : 0u;
+            profile.replay_input_enabled =
+                m_config.replay_input.enabled ? 1u : 0u;
+            profile.replay_input_swap_players =
+                m_config.replay_input.swap_players ? 1u : 0u;
+            profile.replay_input_alignment =
+                m_config.replay_input.alignment;
+            profile.replay_input_round =
+                m_config.replay_input.round_index;
+            profile.replay_input_start_frame =
+                m_config.replay_input.start_frame;
+            profile.replay_input_round_frames =
+                m_config.replay_input.round_frame_count;
+            profile.replay_input_round_hash =
+                m_config.replay_input.round_input_hash;
+            profile.replay_input_sha256 =
+                m_config.replay_input.file_sha256;
             profile.expected_build_id = m_config.expected_build_id;
             profile.expected_schema_id = m_config.expected_schema_id;
             if (m_config.session_domain
@@ -1219,24 +1669,8 @@ namespace Horse
             std::memcpy(&peer, packet.payload.data(), sizeof(peer));
             const bool replay_fork = m_config.session_domain
                 == RollbackSessionDomain::ReplayForkLab;
-            const bool source_policy_matches = replay_fork
-                ? peer.native_input_source_slot == peer.local_player_slot
-                : (m_config.lifecycle_mode
-                        == RollbackLifecycleMode::MirroredVersus
-                    ? peer.native_input_source_slot
-                        == m_config.native_input_source_slot
-                    : peer.native_input_source_slot
-                        == peer.local_player_slot);
-            const uint64_t expected_launch_hash =
-                !replay_fork && m_config.lifecycle_mode
-                        == RollbackLifecycleMode::MirroredVersus
-                    ? m_config.launch_descriptor.hash()
-                    : 0;
-            const uint32_t expected_launch_seed =
-                !replay_fork && m_config.lifecycle_mode
-                        == RollbackLifecycleMode::MirroredVersus
-                    ? m_config.launch_descriptor.seed
-                    : 0;
+            const bool source_policy_matches =
+                peer.native_input_source_slot == peer.local_player_slot;
             return peer.profile_version
                     == kRollbackUdpHandshakeProfileVersion
                 && peer.local_player_slot
@@ -1246,13 +1680,41 @@ namespace Horse
                 && source_policy_matches
                 && peer.rollback_window == m_config.rollback_window
                 && peer.input_delay == m_config.input_delay
-                && peer.launch_seed == expected_launch_seed
                 && peer.network_profile == m_config.network_profile
                 && peer.fault_seed == m_config.fault_seed
+                && peer.fixture_id
+                    == m_config.deterministic_input.fixture_id
+                && peer.fixture_correction_start
+                    == m_config.deterministic_input.correction_start
+                && peer.fixture_hold_updates
+                    == m_config.deterministic_input.hold_updates
+                && peer.fixture_prediction_lead_updates
+                    == m_config.deterministic_input.prediction_lead_updates
+                && peer.fixture_delay_owner_slot
+                    == m_config.deterministic_input.delay_owner_slot
+                && peer.fixture_enabled
+                    == (m_config.deterministic_input.enabled ? 1u : 0u)
+                && peer.replay_input_enabled
+                    == (m_config.replay_input.enabled ? 1u : 0u)
+                && peer.replay_input_swap_players
+                    == (m_config.replay_input.swap_players ? 1u : 0u)
+                && peer.replay_input_alignment
+                    == m_config.replay_input.alignment
+                && peer.replay_input_reserved == 0
+                && peer.replay_input_round
+                    == m_config.replay_input.round_index
+                && peer.replay_input_start_frame
+                    == m_config.replay_input.start_frame
+                && peer.replay_input_round_frames
+                    == m_config.replay_input.round_frame_count
+                && peer.replay_input_round_hash
+                    == m_config.replay_input.round_input_hash
+                && peer.replay_input_sha256
+                    == m_config.replay_input.file_sha256
                 && peer.expected_build_id == m_config.expected_build_id
                 && peer.expected_schema_id == m_config.expected_schema_id
-                && peer.desired_launch_descriptor_hash
-                    == expected_launch_hash
+                && peer.expected_native_stage_identity
+                    == m_config.expected_native_stage_identity
                 && (!replay_fork
                     || (peer.replay_sha256 == m_config.replay_sha256
                         && peer.replay_anchor_sequence
@@ -1271,19 +1733,17 @@ namespace Horse
                         && peer.replay_anchor_master == -1
                         && peer.replay_run_nonce_hash == 0))
                 && peer.reserved8[0] == 0
-                && peer.reserved8[1] == 0
-                && peer.reserved == 0;
+                && peer.reserved8[1] == 0;
         }
 
         bool receive_one(const Clock::time_point now) noexcept
         {
             RollbackProtocolV2WirePacket wire {};
-            sockaddr_in from {};
-            const RollbackUdpEndpoint::ReceiveStatus status =
-                m_endpoint.receive(wire, from);
-            if (status == RollbackUdpEndpoint::ReceiveStatus::NoData)
+            const IRollbackWireEndpoint::ReceiveStatus status =
+                m_endpoint.receive(wire);
+            if (status == IRollbackWireEndpoint::ReceiveStatus::NoData)
                 return false;
-            if (status == RollbackUdpEndpoint::ReceiveStatus::Error)
+            if (status == IRollbackWireEndpoint::ReceiveStatus::Error)
             {
                 mark_io_failure();
                 return false;
@@ -1294,9 +1754,11 @@ namespace Horse
             // validation is repeated after authentication for defense in
             // depth, but unauthenticated hosts must not be able to force the
             // comparatively expensive crypto path.
-            if (!endpoint_equal(from, m_expected_peer))
+            if (status == IRollbackWireEndpoint::ReceiveStatus::Rejected)
             {
                 m_packets_rejected.fetch_add(1, std::memory_order_relaxed);
+                m_packets_route_rejected.fetch_add(
+                    1, std::memory_order_relaxed);
                 return true;
             }
 
@@ -1312,18 +1774,21 @@ namespace Horse
             if (!decoded.ok)
             {
                 m_packets_rejected.fetch_add(1, std::memory_order_relaxed);
+                m_packets_decode_rejected.fetch_add(
+                    1, std::memory_order_relaxed);
                 return true;
             }
 
             if (packet.header.packet_type
                 == RollbackProtocolV2PacketType::Hello)
             {
-                if (!endpoint_equal(from, m_expected_peer)
-                    || packet.header.source_peer != m_config.remote_peer
+                if (packet.header.source_peer != m_config.remote_peer
                     || packet.header.destination_peer != m_config.local_peer
                     || !peer_profile_valid(packet))
                 {
                     m_packets_rejected.fetch_add(1, std::memory_order_relaxed);
+                    m_packets_route_rejected.fetch_add(
+                        1, std::memory_order_relaxed);
                     return true;
                 }
                 const bool was_ready =
@@ -1336,12 +1801,16 @@ namespace Horse
                     // it can mutate the active session's replay window.
                     m_packets_rejected.fetch_add(
                         1, std::memory_order_relaxed);
+                    m_packets_replay_rejected.fetch_add(
+                        1, std::memory_order_relaxed);
                     return true;
                 }
                 if (m_has_retired_remote_nonce
                     && packet.header.source_nonce == m_retired_remote_nonce)
                 {
                     m_packets_rejected.fetch_add(
+                        1, std::memory_order_relaxed);
+                    m_packets_replay_rejected.fetch_add(
                         1, std::memory_order_relaxed);
                     return true;
                 }
@@ -1377,13 +1846,14 @@ namespace Horse
             if (packet.header.packet_type
                 == RollbackProtocolV2PacketType::HelloAck)
             {
-                if (!endpoint_equal(from, m_expected_peer)
-                    || packet.header.source_peer != m_config.remote_peer
+                if (packet.header.source_peer != m_config.remote_peer
                     || packet.header.destination_peer != m_config.local_peer
                     || packet.header.destination_nonce != m_local_nonce
                     || !peer_profile_valid(packet))
                 {
                     m_packets_rejected.fetch_add(1, std::memory_order_relaxed);
+                    m_packets_route_rejected.fetch_add(
+                        1, std::memory_order_relaxed);
                     return true;
                 }
                 const bool was_ready =
@@ -1406,6 +1876,8 @@ namespace Horse
                 {
                     m_packets_rejected.fetch_add(
                         1, std::memory_order_relaxed);
+                    m_packets_replay_rejected.fetch_add(
+                        1, std::memory_order_relaxed);
                     return true;
                 }
                 const bool replay_accepted = was_ready
@@ -1416,6 +1888,8 @@ namespace Horse
                 if (!replay_accepted)
                 {
                     m_packets_rejected.fetch_add(
+                        1, std::memory_order_relaxed);
+                    m_packets_replay_rejected.fetch_add(
                         1, std::memory_order_relaxed);
                     return true;
                 }
@@ -1443,15 +1917,19 @@ namespace Horse
             }
 
             if (!m_ready.load(std::memory_order_acquire)
-                || !route_and_nonce_valid(packet, from))
+                || !route_and_nonce_valid(packet))
             {
                 m_packets_rejected.fetch_add(1, std::memory_order_relaxed);
+                m_packets_route_rejected.fetch_add(
+                    1, std::memory_order_relaxed);
                 return true;
             }
             if (!m_replay.accept(
                     packet.header.source_nonce, packet.header.sequence))
             {
                 m_packets_rejected.fetch_add(1, std::memory_order_relaxed);
+                m_packets_replay_rejected.fetch_add(
+                    1, std::memory_order_relaxed);
                 return true;
             }
             m_highest_remote_sequence =
@@ -1467,6 +1945,7 @@ namespace Horse
                 message.handshake_generation =
                     m_handshake_generation.load(std::memory_order_acquire);
                 message.sequence = packet.header.sequence;
+                message.sequence_assigned = true;
                 if ((packet.header.flags
                     & RollbackProtocolV2FlagAckPresent) != 0)
                 {
@@ -1497,19 +1976,68 @@ namespace Horse
         void run() noexcept
         {
             m_running.store(true, std::memory_order_release);
-            if (!reset_session())
+            if (m_preconfirmed_start)
+            {
+                m_local_nonce = m_preconfirmed_local_nonce;
+                m_remote_nonce = m_preconfirmed_remote_nonce;
+                m_has_retired_remote_nonce = false;
+                m_replay.bind(m_remote_nonce);
+                m_handshake_replay.clear();
+                m_highest_remote_sequence.clear();
+                m_next_sequence.store(1, std::memory_order_release);
+                m_handshake_generation.store(1, std::memory_order_release);
+                m_endpoint_pinned.store(true, std::memory_order_release);
+                m_ready.store(true, std::memory_order_release);
+                m_last_authenticated = Clock::now();
+            }
+            else if (!reset_session())
             {
                 m_running.store(false, std::memory_order_release);
                 return;
             }
             uint32_t reopen_backoff = kRollbackUdpReopenMinMs;
             Clock::time_point next_open = Clock::now();
+            const Clock::time_point worker_started = next_open;
             Clock::time_point next_handshake = next_open;
             Clock::time_point next_heartbeat = next_open;
+            if (m_endpoint.is_open())
+            {
+                // A composed transport may authenticate and open its physical
+                // endpoint before starting this common protocol worker.
+                m_endpoint_open.store(true, std::memory_order_release);
+            }
 
             while (!m_stop.load(std::memory_order_acquire))
             {
                 const Clock::time_point now = Clock::now();
+                if (m_config.test_worker_stall_duration_ms != 0
+                    && m_test_worker_stalls_started.load(
+                        std::memory_order_relaxed) == 0
+                    && now - worker_started >= std::chrono::milliseconds(
+                        m_config.test_worker_stall_after_ms))
+                {
+                    m_test_worker_stalls_started.fetch_add(
+                        1, std::memory_order_relaxed);
+                    const Clock::time_point stall_started = Clock::now();
+                    const Clock::time_point stall_until = stall_started
+                        + std::chrono::milliseconds(
+                            m_config.test_worker_stall_duration_ms);
+                    while (!m_stop.load(std::memory_order_acquire)
+                        && Clock::now() < stall_until)
+                    {
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(1));
+                    }
+                    const uint64_t actual_ms = static_cast<uint64_t>(
+                        std::chrono::duration_cast<
+                            std::chrono::milliseconds>(
+                            Clock::now() - stall_started).count());
+                    m_test_worker_stall_actual_ms.store(
+                        actual_ms, std::memory_order_relaxed);
+                    m_test_worker_stalls_completed.fetch_add(
+                        1, std::memory_order_release);
+                    continue;
+                }
                 if (!m_endpoint.is_open())
                 {
                     if (now < next_open)
@@ -1522,9 +2050,7 @@ namespace Horse
                             wait, std::chrono::milliseconds(10)));
                         continue;
                     }
-                    if (!m_endpoint.open(
-                            m_config.bind_address,
-                            m_config.bind_port))
+                    if (!m_endpoint.open(m_config))
                     {
                         set_recoverable_failure(
                             RollbackUdpWorkerFailure::EndpointOpenFailed);
@@ -1663,10 +2189,35 @@ namespace Horse
                             break;
                         }
                     }
+                    // Redundant control traffic has an independent bounded
+                    // lane so it cannot crowd out Gekko/input traffic. A
+                    // producer-side full lane is a retryable deferral, not a
+                    // session-fatal queue overflow.
+                    for (uint32_t i = 0;
+                         i < 4 && m_redundant_outbound.pop(outbound);
+                         ++i)
+                    {
+                        if (outbound.handshake_generation
+                            != m_handshake_generation.load(
+                                std::memory_order_acquire))
+                        {
+                            continue;
+                        }
+                        if (!send_packet(
+                                outbound.packet_type,
+                                outbound.payload.data(),
+                                outbound.payload_bytes,
+                                outbound.ack,
+                                false))
+                        {
+                            mark_io_failure();
+                            break;
+                        }
+                    }
                 }
                 if (m_endpoint.is_open()
                     && m_endpoint.wait_readable(2)
-                        == RollbackUdpEndpoint::ReceiveStatus::Error)
+                        == IRollbackWireEndpoint::ReceiveStatus::Error)
                 {
                     mark_io_failure();
                 }
@@ -1679,9 +2230,10 @@ namespace Horse
         }
 
         RollbackProductionConfig m_config {};
-        sockaddr_in m_expected_peer {};
-        RollbackUdpEndpoint m_endpoint {};
+        IRollbackWireEndpoint& m_endpoint;
         RollbackBoundedSpscQueue<RollbackUdpMessage, 256> m_outbound {};
+        RollbackBoundedSpscQueue<RollbackUdpMessage, 8>
+            m_redundant_outbound {};
         RollbackBoundedSpscQueue<RollbackUdpMessage, 256> m_inbound {};
         std::unique_ptr<QueuedFaultDatagram[]> m_fault_datagrams {
             new (std::nothrow)
@@ -1700,7 +2252,7 @@ namespace Horse
         RollbackProtocolV2NonceReplayWindow m_handshake_replay {};
         RollbackSequenceStamp m_highest_remote_sequence {};
         Clock::time_point m_last_authenticated {Clock::now()};
-        uint64_t m_next_sequence {1};
+        std::atomic<uint64_t> m_next_sequence {1};
         std::atomic<bool> m_stop {true};
         std::atomic<bool> m_running {false};
         std::atomic<bool> m_endpoint_open {false};
@@ -1712,9 +2264,18 @@ namespace Horse
         std::atomic<uint64_t> m_packets_received {0};
         std::atomic<uint64_t> m_packets_authenticated {0};
         std::atomic<uint64_t> m_packets_rejected {0};
+        std::atomic<uint64_t> m_packets_decode_rejected {0};
+        std::atomic<uint64_t> m_packets_route_rejected {0};
+        std::atomic<uint64_t> m_packets_replay_rejected {0};
         std::atomic<uint64_t> m_queue_overflows {0};
+        std::atomic<uint64_t> m_redundant_enqueue_deferrals {0};
         std::atomic<uint64_t> m_reopen_count {0};
         std::atomic<uint64_t> m_handshake_generation {0};
+        bool m_preconfirmed_start {false};
+        std::array<uint8_t, kRollbackProtocolV2NonceBytes>
+            m_preconfirmed_local_nonce {};
+        std::array<uint8_t, kRollbackProtocolV2NonceBytes>
+            m_preconfirmed_remote_nonce {};
         std::atomic<uint64_t> m_fault_packets_submitted {0};
         std::atomic<uint64_t> m_fault_packets_queued {0};
         std::atomic<uint64_t> m_fault_packets_delivered {0};
@@ -1725,5 +2286,96 @@ namespace Horse
         std::atomic<uint64_t> m_fault_packets_spiked {0};
         std::atomic<uint64_t> m_fault_packets_burst_dropped {0};
         std::atomic<uint64_t> m_fault_queue_overflows {0};
+        std::atomic<uint64_t> m_test_worker_stalls_started {0};
+        std::atomic<uint64_t> m_test_worker_stalls_completed {0};
+        std::atomic<uint64_t> m_test_worker_stall_actual_ms {0};
+    };
+
+    // Compatibility wrapper preserving the existing Direct UDP production and
+    // self-test surface while the authenticated worker is shared by additional
+    // datagram backends.
+    class RollbackUdpNetworkWorker final : public IRollbackTransport
+    {
+    public:
+        RollbackUdpNetworkWorker() noexcept
+            : m_worker(m_endpoint)
+        {
+        }
+        ~RollbackUdpNetworkWorker() noexcept { stop(); }
+        RollbackUdpNetworkWorker(const RollbackUdpNetworkWorker&) = delete;
+        RollbackUdpNetworkWorker& operator=(
+            const RollbackUdpNetworkWorker&) = delete;
+
+        bool start(
+            const RollbackProductionConfig& config) noexcept override
+        {
+            m_prestart_failure = RollbackUdpWorkerFailure::None;
+            sockaddr_in expected {};
+            if (!RollbackUdpEndpoint::parse_address(
+                    config.peer_address, config.peer_port, expected))
+            {
+                m_prestart_failure =
+                    RollbackUdpWorkerFailure::InvalidConfig;
+                return false;
+            }
+            return m_worker.start(config);
+        }
+
+        void stop() noexcept override
+        {
+            m_worker.stop();
+            m_prestart_failure = RollbackUdpWorkerFailure::None;
+        }
+
+        bool enqueue(
+            RollbackProtocolV2PacketType type,
+            const void* payload,
+            uint16_t payload_bytes,
+            RollbackSequenceStamp ack = {},
+            uint64_t expected_generation = UINT64_MAX) noexcept override
+        {
+            return m_worker.enqueue(
+                type, payload, payload_bytes, ack, expected_generation);
+        }
+
+        bool enqueue_redundant(
+            RollbackProtocolV2PacketType type,
+            const void* payload,
+            uint16_t payload_bytes,
+            RollbackSequenceStamp ack = {},
+            uint64_t expected_generation = UINT64_MAX) noexcept override
+        {
+            return m_worker.enqueue_redundant(
+                type, payload, payload_bytes, ack, expected_generation);
+        }
+
+        bool dequeue(RollbackUdpMessage& message) noexcept override
+        {
+            return m_worker.dequeue(message);
+        }
+
+        bool peer_ready() const noexcept override
+        {
+            return m_worker.peer_ready();
+        }
+
+        RollbackUdpWorkerStatus status() const noexcept override
+        {
+            RollbackUdpWorkerStatus out = m_worker.status();
+            if (m_prestart_failure != RollbackUdpWorkerFailure::None)
+            {
+                out.failure = m_prestart_failure;
+                out.last_failure = m_prestart_failure;
+                out.transport_lifecycle =
+                    RollbackTransportLifecycle::Failed;
+            }
+            return out;
+        }
+
+    private:
+        RollbackWinsockWireEndpoint m_endpoint {};
+        RollbackAuthenticatedNetworkWorker m_worker;
+        RollbackUdpWorkerFailure m_prestart_failure {
+            RollbackUdpWorkerFailure::None};
     };
 }

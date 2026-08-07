@@ -1,0 +1,144 @@
+diff --git a/GekkoLib/include/gekkonet.h b/GekkoLib/include/gekkonet.h
+index fdeddea..c986c5b 100644
+--- a/GekkoLib/include/gekkonet.h
++++ b/GekkoLib/include/gekkonet.h
+@@ -193,6 +193,9 @@ GEKKONET_API void gekko_set_runahead(GekkoSession* session, unsigned char runahe
+ 
+ GEKKONET_API void gekko_add_local_input(GekkoSession* session, int player, void* input);
+ 
++GEKKONET_API bool gekko_prime_local_delay_prefix(
++    GekkoSession* session, int player, void* inputs, unsigned char count);
++
+ GEKKONET_API GekkoGameEvent** gekko_update_session(GekkoSession* session, int* count);
+ 
+ GEKKONET_API GekkoGameEvent** gekko_flush_corrections(GekkoSession* session, int* count);
+diff --git a/GekkoLib/include/private/input.h b/GekkoLib/include/private/input.h
+index b3f3485..9574fa7 100644
+--- a/GekkoLib/include/private/input.h
++++ b/GekkoLib/include/private/input.h
+@@ -36,6 +36,8 @@ namespace Gekko {
+ 
+ 		void AddLocalInput(Frame frame, u8* input);
+ 
++		bool PrimeLocalDelayPrefix(u8* inputs, u8 count);
++
+ 		void AddInput(Frame frame, u8* input);
+ 
+ 		void SetDelay(u8 delay);
+diff --git a/GekkoLib/include/private/session.h b/GekkoLib/include/private/session.h
+index 4638094..6c22c9b 100644
+--- a/GekkoLib/include/private/session.h
++++ b/GekkoLib/include/private/session.h
+@@ -19,6 +19,7 @@ struct GekkoSession {
+     virtual void SetNetAdapter(GekkoNetAdapter* adapter) = 0;
+     virtual i32 AddActor(GekkoPlayerType type, GekkoNetAddress* addr) = 0;
+     virtual void AddLocalInput(i32 player, void* input) = 0;
++    virtual bool PrimeLocalDelayPrefix(i32 player, void* inputs, u8 count) { return false; }
+     virtual GekkoGameEvent** UpdateSession(i32* count) = 0;
+     virtual GekkoGameEvent** FlushCorrections(i32* count) { *count = 0; return nullptr; }
+     virtual GekkoSessionEvent** Events(i32* count) = 0;
+@@ -46,6 +47,8 @@ namespace Gekko {
+ 
+         void AddLocalInput(i32 player, void* input) override;
+ 
++        bool PrimeLocalDelayPrefix(i32 player, void* inputs, u8 count) override;
++
+         GekkoGameEvent** UpdateSession(i32* count) override;
+ 
+         GekkoGameEvent** FlushCorrections(i32* count) override;
+diff --git a/GekkoLib/include/private/sync.h b/GekkoLib/include/private/sync.h
+index 1a7aaf2..9051c9e 100644
+--- a/GekkoLib/include/private/sync.h
++++ b/GekkoLib/include/private/sync.h
+@@ -15,6 +15,8 @@ namespace Gekko {
+ 
+ 		void AddLocalInput(Handle player, u8* input);
+ 
++		bool PrimeLocalDelayPrefix(Handle player, u8* inputs, u8 count);
++
+ 		void AddRemoteInput(Handle player, u8* input, Frame frame);
+ 
+ 		void IncrementFrame();
+diff --git a/GekkoLib/src/game_session.cpp b/GekkoLib/src/game_session.cpp
+index 5fedf63..c5de323 100644
+--- a/GekkoLib/src/game_session.cpp
++++ b/GekkoLib/src/game_session.cpp
+@@ -117,6 +117,18 @@ void Gekko::GameSession::AddLocalInput(i32 player, void* input)
+     }
+ }
+ 
++bool Gekko::GameSession::PrimeLocalDelayPrefix(i32 player, void* inputs, u8 count)
++{
++    if (!inputs) return false;
++    for (u32 i = 0; i < _msg.locals.size(); i++) {
++        if (_msg.locals[i]->handle == player) {
++            return _sync.PrimeLocalDelayPrefix(
++                player, static_cast<u8*>(inputs), count);
++        }
++    }
++    return false;
++}
++
+ GekkoGameEvent** Gekko::GameSession::UpdateSession(i32* count)
+ {
+     return UpdateSessionInternal(count, true);
+diff --git a/GekkoLib/src/gekkonet.cpp b/GekkoLib/src/gekkonet.cpp
+index 0f8cb30..00b019c 100644
+--- a/GekkoLib/src/gekkonet.cpp
++++ b/GekkoLib/src/gekkonet.cpp
+@@ -69,6 +69,12 @@ void gekko_add_local_input(GekkoSession* session, int player, void* input)
+     session->AddLocalInput(player, input);
+ }
+ 
++bool gekko_prime_local_delay_prefix(
++    GekkoSession* session, int player, void* inputs, unsigned char count)
++{
++    return session->PrimeLocalDelayPrefix(player, inputs, count);
++}
++
+ GekkoGameEvent** gekko_update_session(GekkoSession* session, int* count)
+ {
+     return session->UpdateSession(count);
+diff --git a/GekkoLib/src/input.cpp b/GekkoLib/src/input.cpp
+index 2001ecb..ae54f31 100644
+--- a/GekkoLib/src/input.cpp
++++ b/GekkoLib/src/input.cpp
+@@ -53,6 +53,18 @@ void Gekko::InputBuffer::AddLocalInput(Frame frame, u8* input)
+ 	AddInput(frame + _input_delay, input);
+ }
+ 
++bool Gekko::InputBuffer::PrimeLocalDelayPrefix(u8* inputs, u8 count)
++{
++    if (!inputs || count == 0 || count != _input_delay
++        || _last_received_input != GameInput::NULL_FRAME) {
++        return false;
++    }
++    for (u8 frame = 0; frame < count; ++frame) {
++        AddInput(frame, inputs + static_cast<u32>(frame) * _input_size);
++    }
++    return _last_received_input == static_cast<Frame>(count) - 1;
++}
++
+ void Gekko::InputBuffer::AddInput(Frame frame, u8* input)
+ {
+     // only allow sequential input insertion
+diff --git a/GekkoLib/src/sync.cpp b/GekkoLib/src/sync.cpp
+index e6586bd..79eaf09 100644
+--- a/GekkoLib/src/sync.cpp
++++ b/GekkoLib/src/sync.cpp
+@@ -28,6 +28,15 @@ void Gekko::SyncSystem::AddLocalInput(Handle player, u8* input)
+ 	_input_buffers[player].AddLocalInput(_current_frame, input);
+ }
+ 
++bool Gekko::SyncSystem::PrimeLocalDelayPrefix(
++    Handle player, u8* inputs, u8 count)
++{
++    if (player >= _num_players || player < 0) {
++        return false;
++    }
++    return _input_buffers[player].PrimeLocalDelayPrefix(inputs, count);
++}
++
+ void Gekko::SyncSystem::AddRemoteInput(Handle player, u8* input, Frame frame)
+ {
+ 	// drop inputs from incorrect handles

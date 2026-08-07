@@ -31,16 +31,16 @@ export interface Cell {
   moveType: string;
   animKind: string;
   damage: number;
-  activeStart: number;
-  activeEnd: number;
+  activeStartCoordinate: number;
+  activeEndCoordinate: number;
   activeFrames: number;
-  onBlock: number;
-  onHitStanding: number;
-  onHitStandingAir: number;
-  onHitCrouchNormal: number;
-  onHitCrouchAir: number;
-  reactionIdStanding: number;
-  reactionIdAir: number;
+  blockStunFrames: number;
+  baseHitStunFrames: number;
+  specialHitStunFrames: number;
+  alternatePostureBaseHitStunFrames: number;
+  alternatePostureSpecialHitStunFrames: number;
+  reactionIdBaseContact: number;
+  reactionIdSpecialContact: number;
   throwEscapeId: number;
   rangeStandMin: number;
   rangeStandMax: number;
@@ -135,7 +135,8 @@ export interface HitRecord {
   y: number;
   z: number;
   radius: number;
-  idLink: number;
+  contactImpulseScale: number;
+  boneIndexUe4: number;
 }
 
 export interface HitFile {
@@ -214,6 +215,7 @@ export interface KhdPayload {
 }
 
 export interface CharData {
+  schemaVersion?: 2;
   cid: string;
   name: string;
   kind: CharaKind;
@@ -232,28 +234,17 @@ export interface CharData {
 // In-game canonical movelist - sourced from UE4 DataAsset
 // (DA_MovePlayData_<cid>.uexp) + Game.archive localization.
 export interface MovelistCommandSet {
-  mainIndex: number;       // raw DA_MovePlayData field - indexes the
-                           // movelist-DEMO command player, NOT a cell
-  // Raw CommandSet.IntroIndex - the move's LEAD-IN cell: 8-Way Run
-  // direction, While-crouching/rising state, or stance entry. Shared
-  // across every move with the same lead-in; it is NOT one of the
-  // move's hits (a 1-hit move still has one). The UI does not read it
-  // - the lead-in is already conveyed by `condition` + `command`.
+  commandSetIndex: number;
+  lane: "primary-fighter" | "paired-opponent" | string;
+  // Native code passes these to the MoveVM pump as a primary definition
+  // and same-lane fallback definition. They are not attack-cell indices.
+  mainIndex: number;
   introIndex: number;
-  // LEGACY MainIndex resolution - UNRELIABLE (the cell it picks is sometimes wrong).
-  // Kept only as a navigation fallback. Prefer commandSet candidates
-  // with real Attack-role cells from this payload when rendering stats.
-  cellIdx: number;         // resolved attack-cell index (-1 if none)
-  slotIdx: number;         // resolved slot index (for navigation, -1 if none)
-  resolution:
-    | "cell-direct"
-    | "slot-overrides-direct"
-    | "cell-direct-invalid-startup"
-    | "cell"
-    | "slot"
-    | "slot-no-cell"
-    | "movement-only"
-    | "none";
+  // Reserved for independently proven static links. Definition IDs are
+  // never copied into these fields.
+  cellIdx: number;
+  slotIdx: number;
+  resolution: string;
   tracking: MoveTrackingSummary;
 }
 
@@ -276,15 +267,36 @@ export interface MoveTrackingSummary {
   events: MoveEffectEvent[];
 }
 
-export interface CommunityFrameData {
-  source: "community";
+export interface NativeLink {
+  status: "confirmed" | "heuristic" | "ambiguous" | "unresolved";
+  resolutions: string[];
+  definitions: Array<{
+    lane: string;
+    mainDefinitionId: number;
+    fallbackDefinitionId: number;
+  }>;
+  slots: number[];
+  cells: number[];
+  attackSlots?: number[];
+  attackCells?: number[];
+  startupTimingStatus?: "resolved" | "unresolved";
+  frameEndpointStatus?: "resolved" | "unresolved";
+  hitSequenceStatus?: "resolved" | "unresolved";
+}
+
+export interface MoveMetrics {
   startup: number | null;
   damage: number[];
-  onBlock: string;
-  onHit: string;
-  onCounterHit: string;
+  block: string | number | null;
+  hit: string | number | null;
+  counterHit: string | number | null;
   guardBurst: number | null;
-  notes: string;
+  hitLevels: string[];
+}
+
+export interface MetricEvidence {
+  source: "game-movelist-table" | "khd-attack-cell" | "khd-static-timeline" | "unknown";
+  status: "game-authored" | "native-confirmed" | "native-inferred" | "unknown";
 }
 
 // One direction-modified alternate cell found by the exporter's
@@ -304,8 +316,10 @@ export interface MovelistInputVariant {
 // (DA_MovePlayData.MainIndex addresses the demo command-player, not the
 export interface MovelistMove {
   moveId: number;          // MoveListID from DA_MovePlayData
-  category: number;        // index into Movelist.categories
-  order: number;           // sequential order in the in-game listing
+  category: number;        // -1: category is not part of player-facing identity
+  categoryMemberships?: number[]; // retained only as authored diagnostic metadata
+  listingOrders?: number[]; // all category-listing positions collapsed into this move
+  order: number;           // sequential order of unique MoveListIDs
   name: string;            // localized display name (e.g. "Heaven Cannon")
   // Split for separate UI columns. "During Mist B.B.B.B" becomes
   // condition="During Mist", input="B.B.B.B". `fullCommand` preserves
@@ -333,7 +347,9 @@ export interface MovelistMove {
   hasInputAlternatives: boolean;
   inputVariants: MovelistInputVariant[];
   tracking: MoveTrackingSummary;
-  communityFrame: CommunityFrameData | null;
+  nativeLink: NativeLink;
+  metrics: MoveMetrics;
+  evidence: Record<keyof MoveMetrics, MetricEvidence>;
   // True when the canonical input contains `+G` (e.g. A+G, 6A+G,
   // 46A+G). The resolved cell is typically the STRIKE-PHASE / whiff
   // cell, not the throw cinematic damage cell - the actual throw cell
@@ -373,7 +389,7 @@ export interface MovelistCategory {
 
 export interface MovelistGroup {
   id: string;
-  kind: "duplicate-move-id" | "input-family";
+  kind: "duplicate-move-id" | "native-route-alternative" | "native-timing-variant" | "input-family";
   reason: string;
   rootOrder: number;
   orders: number[];

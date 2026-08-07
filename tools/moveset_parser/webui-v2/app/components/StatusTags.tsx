@@ -1,49 +1,38 @@
 import { Tag } from "@digdir/designsystemet-react";
-import type { PlayerMoveFamilyRowSource, SourceConfidence, TimelineStatus } from "../data/types";
+import type { MetricEvidence, NativeLinkStatus, PlayerMoveFamilyRowSource, SourceConfidence } from "../data/types";
 import { frameTone, type FrameTone } from "../lib/frames";
 
 type TagColor = "info" | "success" | "warning" | "danger" | "neutral";
 
 const CONFIDENCE_LABELS: Record<SourceConfidence, string> = {
-  "runtime-validated": "runtime",
-  "community-confirmed": "community",
+  "game-authored": "game authored",
   "native-confirmed": "native",
-  "mixed-supported": "mixed",
   "native-inferred": "native inferred",
-  weak: "weak",
-  conflict: "conflict",
   unknown: "unknown",
 };
 
 const CONFIDENCE_COLORS: Record<SourceConfidence, TagColor> = {
-  "runtime-validated": "success",
-  "community-confirmed": "success",
+  "game-authored": "success",
   "native-confirmed": "info",
-  "mixed-supported": "info",
   "native-inferred": "warning",
-  weak: "warning",
-  conflict: "danger",
   unknown: "neutral",
 };
 
 const SOURCE_LABELS: Record<PlayerMoveFamilyRowSource, string> = {
-  community: "community",
-  movelist: "movelist",
-  mixed: "mixed",
-  "native-inferred": "native inferred",
+  "game-movelist-table": "official movelist",
 };
 
-const TIMELINE_LABELS: Record<TimelineStatus, string> = {
-  resolved: "resolved",
-  partial: "partial",
-  "native-cell-only": "native cell",
+const TIMELINE_LABELS: Record<NativeLinkStatus, string> = {
+  confirmed: "confirmed link",
+  heuristic: "heuristic link",
+  ambiguous: "ambiguous link",
   unresolved: "unresolved",
 };
 
-const TIMELINE_COLORS: Record<TimelineStatus, TagColor> = {
-  resolved: "success",
-  partial: "info",
-  "native-cell-only": "warning",
+const TIMELINE_COLORS: Record<NativeLinkStatus, TagColor> = {
+  confirmed: "success",
+  heuristic: "warning",
+  ambiguous: "danger",
   unresolved: "neutral",
 };
 
@@ -60,20 +49,29 @@ export function ConfidenceTag({ value }: { value: SourceConfidence }) {
 }
 
 export function SourceTag({ value }: { value: PlayerMoveFamilyRowSource }) {
-  const color = value === "community" || value === "mixed" ? "success" : value === "movelist" ? "info" : "warning";
   return (
-    <Tag data-color={color} variant="outline">
+    <Tag data-color="success" variant="outline">
       {SOURCE_LABELS[value]}
     </Tag>
   );
 }
 
-export function TimelineTag({ value }: { value: TimelineStatus }) {
+export function TimelineTag({ value }: { value: NativeLinkStatus }) {
   return (
     <Tag data-color={tagColor(TIMELINE_COLORS[value])} variant="outline">
       {TIMELINE_LABELS[value]}
     </Tag>
   );
+}
+
+export function MetricEvidenceTag({ value, metric }: { value: MetricEvidence; metric?: string }) {
+  const evidenceLabel = value.status === "unknown" ? "unknown" : `${value.status}: ${value.source}`;
+  const label = metric ? `${metric}: ${evidenceLabel}` : evidenceLabel;
+  const color: TagColor = value.status === "game-authored" ? "success"
+    : value.status === "native-confirmed" ? "info"
+      : value.status === "native-inferred" ? "warning"
+        : "neutral";
+  return <Tag data-color={tagColor(color)} variant="outline">{label}</Tag>;
 }
 
 export function FrameTag({ value }: { value: string | number | null | undefined }) {

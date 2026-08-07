@@ -18,6 +18,8 @@
 #include <bcrypt.h>
 
 #include <array>
+#include <bitset>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -31,7 +33,168 @@ namespace Horse
     static constexpr uint16_t kRollbackProtocolV2Version = 2;
     static constexpr size_t kRollbackProtocolV2TagBytes = 16;
     static constexpr size_t kRollbackProtocolV2NonceBytes = 16;
-    static constexpr size_t kRollbackProtocolV2MaxPayloadBytes = 1200;
+    // Steam's legacy k_EP2PSendUnreliable contract limits the complete
+    // datagram, including Horse's authenticated header, to 1200 bytes.
+    // Keeping the common Protocol V2 ceiling at that transport-safe size also
+    // prevents direct UDP from relying on IP fragmentation.
+    static constexpr size_t kRollbackProtocolV2MaxWireBytes = 1200;
+    // Every application packet carried by the route manager receives this
+    // fixed authenticated logical-routing prefix. Keep upstream application
+    // limits below the wire payload ceiling instead of failing late in send.
+    static constexpr size_t kRollbackRoutedEnvelopeHeaderBytes = 36;
+
+    struct RollbackProtocolV2HmacCacheStats
+    {
+        uint64_t provider_initializations {0};
+        uint64_t property_queries {0};
+        uint64_t workspace_growths {0};
+    };
+
+    inline std::atomic<uint64_t>
+        g_rollback_protocol_v2_hmac_provider_initializations {0};
+    inline std::atomic<uint64_t>
+        g_rollback_protocol_v2_hmac_property_queries {0};
+    inline std::atomic<uint64_t>
+        g_rollback_protocol_v2_hmac_workspace_growths {0};
+
+    class RollbackProtocolV2HmacProvider final
+    {
+    public:
+        RollbackProtocolV2HmacProvider() noexcept
+        {
+            g_rollback_protocol_v2_hmac_provider_initializations.fetch_add(
+                1, std::memory_order_relaxed);
+            if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(
+                    &m_algorithm,
+                    BCRYPT_SHA256_ALGORITHM,
+                    nullptr,
+                    BCRYPT_ALG_HANDLE_HMAC_FLAG)))
+            {
+                m_algorithm = nullptr;
+                return;
+            }
+            DWORD result_bytes = 0;
+            g_rollback_protocol_v2_hmac_property_queries.fetch_add(
+                2, std::memory_order_relaxed);
+            if (!BCRYPT_SUCCESS(BCryptGetProperty(
+                    m_algorithm,
+                    BCRYPT_OBJECT_LENGTH,
+                    reinterpret_cast<PUCHAR>(&m_object_bytes),
+                    sizeof(m_object_bytes),
+                    &result_bytes,
+                    0))
+                || !BCRYPT_SUCCESS(BCryptGetProperty(
+                    m_algorithm,
+                    BCRYPT_HASH_LENGTH,
+                    reinterpret_cast<PUCHAR>(&m_digest_bytes),
+                    sizeof(m_digest_bytes),
+                    &result_bytes,
+                    0))
+                || m_digest_bytes < kRollbackProtocolV2TagBytes)
+            {
+                BCryptCloseAlgorithmProvider(m_algorithm, 0);
+                m_algorithm = nullptr;
+                m_object_bytes = 0;
+                m_digest_bytes = 0;
+            }
+        }
+
+        // Deliberately process-lifetime. Closing the shared CNG provider from
+        // DLL static destruction would call bcrypt while loader lock is held.
+        // Windows reclaims the handle at process exit, and UE4SS hot unload is
+        // refused once rollback hooks have been installed.
+        ~RollbackProtocolV2HmacProvider() = default;
+
+        RollbackProtocolV2HmacProvider(
+            const RollbackProtocolV2HmacProvider&) = delete;
+        RollbackProtocolV2HmacProvider& operator=(
+            const RollbackProtocolV2HmacProvider&) = delete;
+
+        bool ready() const noexcept
+        {
+            return m_algorithm != nullptr;
+        }
+
+        BCRYPT_ALG_HANDLE algorithm() const noexcept
+        {
+            return m_algorithm;
+        }
+
+        DWORD object_bytes() const noexcept
+        {
+            return m_object_bytes;
+        }
+
+        DWORD digest_bytes() const noexcept
+        {
+            return m_digest_bytes;
+        }
+
+    private:
+        BCRYPT_ALG_HANDLE m_algorithm {nullptr};
+        DWORD m_object_bytes {0};
+        DWORD m_digest_bytes {0};
+    };
+
+    struct RollbackProtocolV2HmacWorkspace
+    {
+        std::vector<uint8_t> object;
+        std::vector<uint8_t> digest;
+
+        bool ensure_capacity(
+            size_t object_bytes, size_t digest_bytes) noexcept
+        {
+            try
+            {
+                if (object.capacity() < object_bytes)
+                {
+                    object.reserve(object_bytes);
+                    g_rollback_protocol_v2_hmac_workspace_growths.fetch_add(
+                        1, std::memory_order_relaxed);
+                }
+                if (digest.capacity() < digest_bytes)
+                {
+                    digest.reserve(digest_bytes);
+                    g_rollback_protocol_v2_hmac_workspace_growths.fetch_add(
+                        1, std::memory_order_relaxed);
+                }
+                object.resize(object_bytes);
+                digest.resize(digest_bytes);
+                return true;
+            }
+            catch (...)
+            {
+                return false;
+            }
+        }
+    };
+
+    inline RollbackProtocolV2HmacProvider&
+    RollbackProtocolV2GetHmacProvider() noexcept
+    {
+        static RollbackProtocolV2HmacProvider provider;
+        return provider;
+    }
+
+    inline RollbackProtocolV2HmacWorkspace&
+    RollbackProtocolV2GetHmacWorkspace() noexcept
+    {
+        thread_local RollbackProtocolV2HmacWorkspace workspace;
+        return workspace;
+    }
+
+    inline RollbackProtocolV2HmacCacheStats
+    GetRollbackProtocolV2HmacCacheStats() noexcept
+    {
+        return {
+            g_rollback_protocol_v2_hmac_provider_initializations.load(
+                std::memory_order_relaxed),
+            g_rollback_protocol_v2_hmac_property_queries.load(
+                std::memory_order_relaxed),
+            g_rollback_protocol_v2_hmac_workspace_growths.load(
+                std::memory_order_relaxed),
+        };
+    }
 
     enum class RollbackProtocolV2PacketType : uint8_t
     {
@@ -43,7 +206,67 @@ namespace Horse
         Disconnect = 6,
         Desync = 7,
         LaunchBarrier = 8,
+        FixtureBarrier = 9,
+        SessionContract = 10,
+        RoundTransition = 11,
+        SecondaryEventAuthority = 12,
+        MotionBankAuthority = 13,
+        StageWindAuthority = 14,
+        Routed = 15,
+        RouteProbe = 16,
+        RouteProbeAck = 17,
     };
+
+    enum class RollbackPreGekkoPacketDisposition : uint8_t
+    {
+        AcceptLaunchBarrier,
+        AcceptSessionContract,
+        AcceptRoundBoundary,
+        AcceptSecondaryEventAuthority,
+        AcceptMotionBankAuthority,
+        AcceptStageWindAuthority,
+        QueueForSession,
+        PeerDisconnected,
+        PeerDesynced,
+        Reject,
+    };
+
+    constexpr RollbackPreGekkoPacketDisposition
+    ClassifyRollbackPreGekkoPacket(
+        RollbackProtocolV2PacketType packet_type) noexcept
+    {
+        switch (packet_type)
+        {
+        case RollbackProtocolV2PacketType::LaunchBarrier:
+            return RollbackPreGekkoPacketDisposition::AcceptLaunchBarrier;
+        case RollbackProtocolV2PacketType::SessionContract:
+            return RollbackPreGekkoPacketDisposition::AcceptSessionContract;
+        case RollbackProtocolV2PacketType::RoundTransition:
+            return RollbackPreGekkoPacketDisposition::AcceptRoundBoundary;
+        case RollbackProtocolV2PacketType::SecondaryEventAuthority:
+            return RollbackPreGekkoPacketDisposition::
+                AcceptSecondaryEventAuthority;
+        case RollbackProtocolV2PacketType::MotionBankAuthority:
+            return RollbackPreGekkoPacketDisposition::
+                AcceptMotionBankAuthority;
+        case RollbackProtocolV2PacketType::StageWindAuthority:
+            return RollbackPreGekkoPacketDisposition::
+                AcceptStageWindAuthority;
+        case RollbackProtocolV2PacketType::Gekko:
+        case RollbackProtocolV2PacketType::Input:
+        case RollbackProtocolV2PacketType::FixtureBarrier:
+            // One peer can finish the bilateral barrier first. Preserve both
+            // Gekko traffic and confirmed-frame summaries until the lagging
+            // peer has created its session.
+            return RollbackPreGekkoPacketDisposition::QueueForSession;
+        case RollbackProtocolV2PacketType::Disconnect:
+            return RollbackPreGekkoPacketDisposition::PeerDisconnected;
+        case RollbackProtocolV2PacketType::Desync:
+            return RollbackPreGekkoPacketDisposition::PeerDesynced;
+        default:
+            return RollbackPreGekkoPacketDisposition::Reject;
+        }
+    }
 
     enum RollbackProtocolV2Flags : uint16_t
     {
@@ -76,6 +299,23 @@ namespace Horse
     static_assert(
         sizeof(RollbackProtocolV2Header) < 256,
         "protocol header byte count must fit uint8");
+    static_assert(
+        sizeof(RollbackProtocolV2Header) == 94,
+        "Protocol V2 wire header is a frozen compatibility contract");
+    static_assert(
+        kRollbackProtocolV2MaxWireBytes
+            > sizeof(RollbackProtocolV2Header)
+                + kRollbackRoutedEnvelopeHeaderBytes,
+        "transport-safe wire ceiling must carry routed payloads");
+
+    static constexpr size_t kRollbackProtocolV2MaxPayloadBytes =
+        kRollbackProtocolV2MaxWireBytes
+        - sizeof(RollbackProtocolV2Header);
+    static constexpr size_t kRollbackProtocolV2ApplicationMaxPayloadBytes =
+        kRollbackProtocolV2MaxPayloadBytes
+        - kRollbackRoutedEnvelopeHeaderBytes;
+    static_assert(kRollbackProtocolV2MaxPayloadBytes == 1106);
+    static_assert(kRollbackProtocolV2ApplicationMaxPayloadBytes == 1070);
 
     struct RollbackProtocolV2WirePacket
     {
@@ -85,6 +325,11 @@ namespace Horse
                 + kRollbackProtocolV2MaxPayloadBytes> bytes {};
         uint16_t size {0};
     };
+    static_assert(
+        std::tuple_size<
+            decltype(RollbackProtocolV2WirePacket::bytes)>::value
+            == kRollbackProtocolV2MaxWireBytes,
+        "Protocol V2 wire storage must match the unreliable datagram ceiling");
 
     struct RollbackProtocolV2Packet
     {
@@ -102,16 +347,25 @@ namespace Horse
         const char* failure {"not-run"};
     };
 
+    // The same authenticated packet sequence covers Gekko traffic, frame
+    // summaries, acknowledgement windows, and control messages.  Under the
+    // qualified impairment profiles this can exceed 500 packets/second, and
+    // a packet may be deliberately reordered by more than 400 ms.  A 64-bit
+    // history therefore rejected authenticated, unique packets which were
+    // still inside the supported network envelope.  This is receiver-local
+    // state; increasing it does not change the wire protocol.
+    static constexpr size_t kRollbackProtocolV2ReplayWindowBits = 1024;
+
     struct RollbackProtocolV2ReplayWindow
     {
         uint64_t highest_sequence {0};
-        uint64_t bitmap {0};
+        std::bitset<kRollbackProtocolV2ReplayWindowBits> bitmap {};
         bool valid {false};
 
         void clear() noexcept
         {
             highest_sequence = 0;
-            bitmap = 0;
+            bitmap.reset();
             valid = false;
         }
 
@@ -121,22 +375,28 @@ namespace Horse
             if (!valid)
             {
                 highest_sequence = sequence;
-                bitmap = 1;
+                bitmap.reset();
+                bitmap.set(0);
                 valid = true;
                 return true;
             }
             if (sequence > highest_sequence)
             {
                 const uint64_t distance = sequence - highest_sequence;
-                bitmap = distance >= 64 ? 1 : (bitmap << distance) | 1;
+                if (distance >= kRollbackProtocolV2ReplayWindowBits)
+                    bitmap.reset();
+                else
+                    bitmap <<= static_cast<size_t>(distance);
+                bitmap.set(0);
                 highest_sequence = sequence;
                 return true;
             }
             const uint64_t distance = highest_sequence - sequence;
-            if (distance >= 64) return false;
-            const uint64_t mask = uint64_t {1} << distance;
-            if ((bitmap & mask) != 0) return false;
-            bitmap |= mask;
+            if (distance >= kRollbackProtocolV2ReplayWindowBits)
+                return false;
+            const size_t bit = static_cast<size_t>(distance);
+            if (bitmap.test(bit)) return false;
+            bitmap.set(bit);
             return true;
         }
     };
@@ -188,7 +448,91 @@ namespace Horse
         RollbackProtocolV2PacketType type) noexcept
     {
         return type >= RollbackProtocolV2PacketType::Hello
-            && type <= RollbackProtocolV2PacketType::LaunchBarrier;
+            && type
+                <= RollbackProtocolV2PacketType::RouteProbeAck;
+    }
+
+    static constexpr uint8_t kRollbackGekkoRoundDatagramVersion = 1;
+
+#pragma pack(push, 1)
+    struct RollbackGekkoRoundDatagramHeader
+    {
+        uint8_t version {kRollbackGekkoRoundDatagramVersion};
+        uint8_t source_player_slot {0};
+        uint16_t header_bytes {28};
+        uint32_t round_ordinal {0};
+        uint64_t session_epoch {0};
+        uint64_t round_epoch {0};
+        uint16_t payload_bytes {0};
+        uint16_t reserved {0};
+    };
+#pragma pack(pop)
+
+    static_assert(sizeof(RollbackGekkoRoundDatagramHeader) == 28);
+    static constexpr size_t kRollbackGekkoRoundMaxPayloadBytes =
+        kRollbackProtocolV2ApplicationMaxPayloadBytes
+        - sizeof(RollbackGekkoRoundDatagramHeader);
+    static_assert(
+        kRollbackGekkoRoundMaxPayloadBytes
+                + sizeof(RollbackGekkoRoundDatagramHeader)
+                + kRollbackRoutedEnvelopeHeaderBytes
+            == kRollbackProtocolV2MaxPayloadBytes);
+
+    enum class RollbackGekkoRoundDatagramDisposition : uint8_t
+    {
+        Invalid,
+        WrongSession,
+        Stale,
+        Current,
+        Future,
+    };
+
+    static inline bool RollbackGekkoRoundDatagramHeaderValid(
+        const RollbackGekkoRoundDatagramHeader& header,
+        size_t available_bytes) noexcept
+    {
+        return header.version == kRollbackGekkoRoundDatagramVersion
+            && header.source_player_slot < 2
+            && header.header_bytes == sizeof(header)
+            && (header.round_ordinal & 0xFFFF0000u) == 0
+            && header.session_epoch != 0 && header.round_epoch != 0
+            && header.payload_bytes != 0
+            && header.payload_bytes <= kRollbackGekkoRoundMaxPayloadBytes
+            && header.reserved == 0
+            && available_bytes == sizeof(header) + header.payload_bytes;
+    }
+
+    static inline RollbackGekkoRoundDatagramDisposition
+    ClassifyRollbackGekkoRoundDatagram(
+        const RollbackGekkoRoundDatagramHeader& header,
+        size_t available_bytes,
+        uint8_t expected_source_slot,
+        uint64_t expected_session_epoch,
+        uint32_t expected_round_ordinal,
+        uint64_t expected_round_epoch) noexcept
+    {
+        if (!RollbackGekkoRoundDatagramHeaderValid(
+                header, available_bytes)
+            || expected_source_slot >= 2
+            || (expected_round_ordinal & 0xFFFF0000u) != 0)
+        {
+            return RollbackGekkoRoundDatagramDisposition::Invalid;
+        }
+        if (header.source_player_slot != expected_source_slot
+            || header.session_epoch != expected_session_epoch)
+        {
+            return RollbackGekkoRoundDatagramDisposition::WrongSession;
+        }
+        const uint16_t delta_bits = static_cast<uint16_t>(
+            header.round_ordinal - expected_round_ordinal);
+        if (delta_bits == 0x8000u)
+            return RollbackGekkoRoundDatagramDisposition::Invalid;
+        const int16_t delta = static_cast<int16_t>(delta_bits);
+        if (delta < 0) return RollbackGekkoRoundDatagramDisposition::Stale;
+        if (delta > 0) return RollbackGekkoRoundDatagramDisposition::Future;
+        return header.round_epoch == expected_round_epoch
+            ? RollbackGekkoRoundDatagramDisposition::Current
+            : RollbackGekkoRoundDatagramDisposition::Invalid;
     }
 
     static inline bool RollbackProtocolV2ConstantTimeEqual(
@@ -225,59 +569,24 @@ namespace Horse
         if (secret.empty() || !header || header_bytes == 0)
             return false;
 
-        BCRYPT_ALG_HANDLE algorithm = nullptr;
+        auto& provider = RollbackProtocolV2GetHmacProvider();
+        if (!provider.ready())
+            return false;
+        auto& workspace = RollbackProtocolV2GetHmacWorkspace();
+        if (!workspace.ensure_capacity(
+                provider.object_bytes(), provider.digest_bytes()))
+        {
+            return false;
+        }
+
         BCRYPT_HASH_HANDLE hash = nullptr;
-        DWORD object_bytes = 0;
-        DWORD result_bytes = 0;
-        DWORD digest_bytes = 0;
-        std::vector<uint8_t> object;
-        std::vector<uint8_t> digest;
         bool ok = false;
 
-        if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(
-                &algorithm,
-                BCRYPT_SHA256_ALGORITHM,
-                nullptr,
-                BCRYPT_ALG_HANDLE_HMAC_FLAG)))
-        {
-            return false;
-        }
-        if (!BCRYPT_SUCCESS(BCryptGetProperty(
-                algorithm,
-                BCRYPT_OBJECT_LENGTH,
-                reinterpret_cast<PUCHAR>(&object_bytes),
-                sizeof(object_bytes),
-                &result_bytes,
-                0))
-            || !BCRYPT_SUCCESS(BCryptGetProperty(
-                algorithm,
-                BCRYPT_HASH_LENGTH,
-                reinterpret_cast<PUCHAR>(&digest_bytes),
-                sizeof(digest_bytes),
-                &result_bytes,
-                0))
-            || digest_bytes < kRollbackProtocolV2TagBytes)
-        {
-            BCryptCloseAlgorithmProvider(algorithm, 0);
-            return false;
-        }
-
-        try
-        {
-            object.resize(object_bytes);
-            digest.resize(digest_bytes);
-        }
-        catch (...)
-        {
-            BCryptCloseAlgorithmProvider(algorithm, 0);
-            return false;
-        }
-
         if (BCRYPT_SUCCESS(BCryptCreateHash(
-                algorithm,
+                provider.algorithm(),
                 &hash,
-                object.data(),
-                static_cast<ULONG>(object.size()),
+                workspace.object.data(),
+                static_cast<ULONG>(workspace.object.size()),
                 reinterpret_cast<PUCHAR>(
                     const_cast<char*>(secret.data())),
                 static_cast<ULONG>(secret.size()),
@@ -296,16 +605,16 @@ namespace Horse
                         0))))
             && BCRYPT_SUCCESS(BCryptFinishHash(
                 hash,
-                digest.data(),
-                static_cast<ULONG>(digest.size()),
+                workspace.digest.data(),
+                static_cast<ULONG>(workspace.digest.size()),
                 0)))
         {
-            std::memcpy(tag.data(), digest.data(), tag.size());
+            std::memcpy(
+                tag.data(), workspace.digest.data(), tag.size());
             ok = true;
         }
 
         if (hash) BCryptDestroyHash(hash);
-        BCryptCloseAlgorithmProvider(algorithm, 0);
         return ok;
     }
 
@@ -529,11 +838,13 @@ namespace Horse
         const bool c = replay.accept(3);
         const bool reordered = replay.accept(2);
         const bool stale = replay.accept(1);
-        const bool far_ahead = replay.accept(70);
-        const bool too_old = replay.accept(5);
+        const bool far_ahead = replay.accept(2048);
+        const bool deep_reordered = replay.accept(1536);
+        const bool deep_duplicate = replay.accept(1536);
+        const bool too_old = replay.accept(1023);
         report.replay_window_ok =
             a && !duplicate && c && reordered && !stale
-            && far_ahead && !too_old;
+            && far_ahead && deep_reordered && !deep_duplicate && !too_old;
 
         std::array<uint8_t, kRollbackProtocolV2NonceBytes> nonce_a {};
         std::array<uint8_t, kRollbackProtocolV2NonceBytes> nonce_b {};

@@ -71,6 +71,11 @@
 //
 // ActorTickGate does NOT decrement the slot — Site 9 (PerFrameTick) is the
 // sole step-credit consumer.  Same rationale as ReplayClockGate's plate.
+//
+// This gate is a replay-freeze primitive, not a no-render optimization.
+// DemoHuman and BattleChara ticks synchronize replay animation tracks and
+// Unreal AnimInstances; suppressing them while timeline simulation advances
+// produces correct gameplay snapshots with stale visible animation.
 // ============================================================================
 
 #pragma once
@@ -304,20 +309,6 @@ namespace Horse
                             m_patch_21b, "Site 21b (BM Update_Impl)"))
                 return false;
 
-            // Lux-only timeline generation needs these presentation actor
-            // ticks fully suppressed while keeping authoritative replay,
-            // input-log, and BM ticks live.  These are unconditional RET
-            // patches, independent of the freeze-policy trampolines.
-            if (!prepare_ret_site(site22, /*orig_len=*/6, m_visual_patch_22,
-                                  "Visual Site 22 (Chara::TickActor)")
-                || !prepare_ret_site(
-                    site22b, /*orig_len=*/5, m_visual_patch_22b,
-                    "Visual Site 22b (DemoHumanActor::TickActor)")
-                || !prepare_ret_site(
-                    site22c, /*orig_len=*/5, m_visual_patch_22c,
-                    "Visual Site 22c (PreviewHumanActor::TickActor)"))
-                return false;
-
             m_resolved_ok = true;
             RC::Output::send<RC::LogLevel::Verbose>(
                 STR("[Horse.ActorTickGate] resolved (Site 20 @ 0x{:x}, "
@@ -347,8 +338,6 @@ namespace Horse
                         "ignoring\n"));
                 return false;
             }
-            if (m_visual_only_enabled.load(std::memory_order_acquire))
-                disable_visual_only();
             if (m_enabled.load(std::memory_order_acquire)) return true;
             const bool ok_20  = m_patch_20.enable();
             const bool ok_11  = m_patch_11.enable();
@@ -388,49 +377,6 @@ namespace Horse
             return true;
         }
 
-        bool enable_visual_only()
-        {
-            if (!m_resolved_ok)
-            {
-                RC::Output::send<RC::LogLevel::Warning>(
-                    STR("[Horse.ActorTickGate] enable_visual_only() before "
-                        "resolve() - ignoring\n"));
-                return false;
-            }
-            if (m_enabled.load(std::memory_order_acquire))
-            {
-                RC::Output::send<RC::LogLevel::Warning>(
-                    STR("[Horse.ActorTickGate] enable_visual_only() while "
-                        "full actor gate is active - ignoring\n"));
-                return false;
-            }
-            if (m_visual_only_enabled.load(std::memory_order_acquire))
-                return true;
-
-            const bool ok_22  = m_visual_patch_22.enable();
-            const bool ok_22b = m_visual_patch_22b.enable();
-            const bool ok_22c = m_visual_patch_22c.enable();
-            if (!ok_22 || !ok_22b || !ok_22c)
-            {
-                RC::Output::send<RC::LogLevel::Error>(
-                    STR("[Horse.ActorTickGate] visual-only enable failed "
-                        "(Site 22={}, Site 22b={}, Site 22c={})\n"),
-                    ok_22  ? STR("ok") : STR("FAIL"),
-                    ok_22b ? STR("ok") : STR("FAIL"),
-                    ok_22c ? STR("ok") : STR("FAIL"));
-                if (ok_22)  m_visual_patch_22.disable();
-                if (ok_22b) m_visual_patch_22b.disable();
-                if (ok_22c) m_visual_patch_22c.disable();
-                return false;
-            }
-
-            m_visual_only_enabled.store(true, std::memory_order_release);
-            RC::Output::send<RC::LogLevel::Default>(
-                STR("[Horse.ActorTickGate] visual-only enabled "
-                    "(chara/demo/preview TickActor unconditional RETs)\n"));
-            return true;
-        }
-
         // Revert all seven patches.
         void disable()
         {
@@ -447,51 +393,10 @@ namespace Horse
                 STR("[Horse.ActorTickGate] disabled\n"));
         }
 
-        void disable_visual_only()
-        {
-            if (!m_visual_only_enabled.exchange(
-                    false, std::memory_order_acq_rel))
-                return;
-
-            m_visual_patch_22.disable();
-            m_visual_patch_22b.disable();
-            m_visual_patch_22c.disable();
-            RC::Output::send<RC::LogLevel::Default>(
-                STR("[Horse.ActorTickGate] visual-only disabled\n"));
-        }
-
         bool is_enabled()  const { return m_enabled.load(std::memory_order_acquire); }
-        bool is_visual_only_enabled() const
-        {
-            return m_visual_only_enabled.load(std::memory_order_acquire);
-        }
         bool is_resolved() const { return m_resolved_ok; }
 
     private:
-        static bool prepare_ret_site(void* site, size_t orig_len,
-                                     BytePatch& patch, const char* tag)
-        {
-            if (orig_len == 0 || orig_len > 16)
-            {
-                RC::Output::send<RC::LogLevel::Error>(
-                    STR("[Horse.ActorTickGate] {} invalid visual RET len {}\n"),
-                    RC::to_generic_string(tag), orig_len);
-                return false;
-            }
-
-            uint8_t patch_buf[16] = {0};
-            patch_buf[0] = 0xC3;
-            for (size_t i = 1; i < orig_len; ++i) patch_buf[i] = 0x90;
-            if (!patch.prepare(site, patch_buf, orig_len))
-            {
-                RC::Output::send<RC::LogLevel::Error>(
-                    STR("[Horse.ActorTickGate] {} visual RET prepare failed\n"),
-                    RC::to_generic_string(tag));
-                return false;
-            }
-            return true;
-        }
-
         // Build one entry-RET trampoline + BytePatch for a given function
         // entry.  Trampoline layout (16 + orig_len bytes):
         //
@@ -603,13 +508,9 @@ namespace Horse
         BytePatch m_patch_22b{};  // ALuxDemoHumanActor::TickActor (derived)
         BytePatch m_patch_22c{};  // APreviewHumanActor::TickActor (derived)
         BytePatch m_patch_21b{};  // ALuxBattleManager_Update_Impl (round timer)
-        BytePatch m_visual_patch_22{};   // unconditional no-render RET
-        BytePatch m_visual_patch_22b{};  // unconditional no-render RET
-        BytePatch m_visual_patch_22c{};  // unconditional no-render RET
         bool      m_resolved    = false;
         bool      m_resolved_ok = false;
         std::atomic<bool> m_enabled{false};
-        std::atomic<bool> m_visual_only_enabled{false};
     };
 
 } // namespace Horse

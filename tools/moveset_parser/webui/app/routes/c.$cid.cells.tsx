@@ -12,7 +12,7 @@ export const Route = createFileRoute("/c/$cid/cells")({
   component: MovesTab,
 });
 
-type SortKey = "idx" | "class" | "damage" | "activeStart" | "onBlock" | "onHitStanding" | "rangeStandMax";
+type SortKey = "idx" | "class" | "damage" | "activeStartCoordinate" | "blockStunFrames" | "baseHitStunFrames" | "rangeStandMax";
 type SortDir = "asc" | "desc";
 
 function MovesTab() {
@@ -66,7 +66,7 @@ function MovesTab() {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
     } else {
       setSortKey(k);
-      setSortDir(k === "damage" || k === "onHitStanding" ? "desc" : "asc");
+      setSortDir(k === "damage" || k === "baseHitStunFrames" ? "desc" : "asc");
     }
   };
 
@@ -139,10 +139,10 @@ function MovesTab() {
             <th className={sortClass("idx")} onClick={() => setSort("idx")}>#</th>
             <th className={sortClass("class")} onClick={() => setSort("class")}>Class</th>
             <th className={sortClass("damage")} onClick={() => setSort("damage")}>Damage</th>
-            <th className={sortClass("activeStart")} onClick={() => setSort("activeStart")}>Startup</th>
+            <th className={sortClass("activeStartCoordinate")} onClick={() => setSort("activeStartCoordinate")}>Window start</th>
             <th>Active</th>
-            <th className={sortClass("onHitStanding")} onClick={() => setSort("onHitStanding")}>On-hit</th>
-            <th className={sortClass("onBlock")} onClick={() => setSort("onBlock")}>On-block</th>
+            <th className={sortClass("baseHitStunFrames")} onClick={() => setSort("baseHitStunFrames")}>Hit stun</th>
+            <th className={sortClass("blockStunFrames")} onClick={() => setSort("blockStunFrames")}>Block stun</th>
             <th className={sortClass("rangeStandMax")} onClick={() => setSort("rangeStandMax")}>Range</th>
             <th>Used by</th>
           </tr>
@@ -192,10 +192,10 @@ function MoveRow({
         )}
       </td>
       <td className="num">{cell.damage}</td>
-      <td className="num">{cell.role === "Attack" ? `i${cell.activeStart}` : ""}</td>
+      <td className="num mono">{cell.role === "Attack" ? `coord ${cell.activeStartCoordinate}` : ""}</td>
       <td className="num muted">{cell.activeFrames}f</td>
-      <td className="num">{cell.onHitStanding}</td>
-      <td className="num">{cell.onBlock}</td>
+      <td className="num">{cell.baseHitStunFrames}</td>
+      <td className="num">{cell.blockStunFrames}</td>
       <td className="num mono">{rangeText}</td>
       <td className="num muted">{usedBy}</td>
     </tr>
