@@ -7,6 +7,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -16,7 +17,8 @@ import tempfile
 
 
 LEGACY_CONFIG_VERSION = 1
-CONFIG_VERSION = 2
+OBSOLETE_STEAM_CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 DEFAULT_PORT = 47170
 MAX_PROFILE_BYTES = 16 * 1024
 VALID_KEYS = {
@@ -32,6 +34,11 @@ VALID_KEYS = {
     "rollback_window",
     "input_delay",
     "trace",
+    "save_policy",
+    "lead_pacing",
+    "lead_pacing_enter",
+    "lead_pacing_exit",
+    "lead_pacing_max_holds",
 }
 COMMON_REQUIRED_KEYS = {"config_version", "enabled"}
 DIRECT_REQUIRED_KEYS = {"role", "peer_address", "peer_port", "secret"}
@@ -73,6 +80,8 @@ def parse_profile_text(text: str) -> dict[str, str]:
     if missing:
         raise ValueError("missing required keys: " + ",".join(missing))
     version = int(values["config_version"], 10)
+    if version == OBSOLETE_STEAM_CONFIG_VERSION:
+        raise ValueError("beta-config-upgrade-required")
     if version not in {LEGACY_CONFIG_VERSION, CONFIG_VERSION}:
         raise ValueError("unsupported config_version")
     if not parse_bool(values["enabled"]):
@@ -111,6 +120,28 @@ def parse_profile_text(text: str) -> dict[str, str]:
             "secret must be 64 hexadecimal characters with strong entropy")
     if "trace" in values:
         parse_bool(values["trace"])
+    if version == CONFIG_VERSION:
+        required = {
+            "save_policy", "lead_pacing", "lead_pacing_enter",
+            "lead_pacing_exit", "lead_pacing_max_holds",
+        }
+        missing = sorted(required - values.keys())
+        if missing:
+            raise ValueError("missing required keys: " + ",".join(missing))
+        if values["save_policy"].strip().lower() \
+                != "confirmed-speculative":
+            raise ValueError("save_policy must be confirmed-speculative")
+        if not parse_bool(values["lead_pacing"]):
+            raise ValueError("lead_pacing must be enabled for beta")
+        enter = float(values["lead_pacing_enter"])
+        exit_at = float(values["lead_pacing_exit"])
+        holds = int(values["lead_pacing_max_holds"], 10)
+        if (not math.isfinite(enter)
+                or not math.isfinite(exit_at)
+                or not (enter > 0 and 0 <= exit_at < enter)):
+            raise ValueError("lead pacing thresholds are invalid")
+        if holds <= 0 or holds > 8:
+            raise ValueError("lead_pacing_max_holds is outside 1..8")
     return values
 
 
@@ -138,6 +169,11 @@ def render_profile(
         f"secret={secret_value}\n"
         f"rollback_window={rollback_window}\n"
         f"input_delay={input_delay}\n"
+        "save_policy=confirmed-speculative\n"
+        "lead_pacing=true\n"
+        "lead_pacing_enter=1.5\n"
+        "lead_pacing_exit=0.5\n"
+        "lead_pacing_max_holds=2\n"
         f"trace={'true' if trace else 'false'}\n"
     )
 
@@ -156,6 +192,11 @@ def render_steam_profile(
         "transport=steam-p2p\n"
         f"rollback_window={rollback_window}\n"
         f"input_delay={input_delay}\n"
+        "save_policy=confirmed-speculative\n"
+        "lead_pacing=true\n"
+        "lead_pacing_enter=1.5\n"
+        "lead_pacing_exit=0.5\n"
+        "lead_pacing_max_holds=2\n"
         f"trace={'true' if trace else 'false'}\n"
     )
 
@@ -401,7 +442,7 @@ def selftest() -> int:
         rejected = False
         try:
             parse_profile_text(
-                "config_version=2\nenabled=true\ntransport=direct-udp\n"
+                "config_version=3\nenabled=true\ntransport=direct-udp\n"
                 "role=host\n"
                 "peer_address=bad/address\npeer_port=47170\n"
                 "secret=0123456789abcdef0123456789abcdef\n")
@@ -410,7 +451,7 @@ def selftest() -> int:
         weak_secret_rejected = False
         try:
             parse_profile_text(
-                "config_version=2\nenabled=true\ntransport=direct-udp\n"
+                "config_version=3\nenabled=true\ntransport=direct-udp\n"
                 "role=host\n"
                 "peer_address=peer.example.net\npeer_port=47170\n"
                 f"secret={'0' * 64}\n")

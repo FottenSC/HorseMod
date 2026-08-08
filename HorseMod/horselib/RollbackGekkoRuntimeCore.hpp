@@ -14,6 +14,7 @@
 
 #include "RollbackGekkoSessionStart.hpp"
 #include "RollbackProtocolV2.hpp"
+#include "RollbackRuntimePolicy.hpp"
 
 #include <array>
 #include <cstdint>
@@ -69,12 +70,19 @@ namespace Horse
         uint16_t rollback_window {60};
         uint16_t input_delay {1};
         uint32_t state_size {0};
+        RollbackSavePolicy save_policy {
+            RollbackSavePolicy::ConfirmedSpeculative};
+        uint8_t forced_rollback_depth {0};
 
         bool valid() const noexcept
         {
             return local_player_slot < 2 && remote_peer != 0
                 && rollback_window != 0 && rollback_window <= 60
                 && input_delay <= rollback_window
+                && RollbackSavePolicyValid(save_policy)
+                && forced_rollback_depth <= rollback_window
+                && (forced_rollback_depth == 0
+                    || save_policy == RollbackSavePolicy::EveryAdvance)
                 && state_size != 0;
         }
     };
@@ -132,7 +140,12 @@ namespace Horse
                 config.rollback_window);
             gekko.input_size = sizeof(uint32_t);
             gekko.state_size = config.state_size;
-            gekko.limited_saving = false;
+            gekko.limited_saving = config.save_policy
+                == RollbackSavePolicy::ConfirmedSpeculative;
+            gekko.save_policy = config.save_policy
+                    == RollbackSavePolicy::ConfirmedSpeculative
+                ? GekkoSaveConfirmedSpeculative
+                : GekkoSaveEveryAdvance;
             // Horse compares authenticated 64-bit canonical summaries at the
             // contiguous confirmed-frame frontier. Gekko's earlier 32-bit
             // checksum abort races that stronger proof and hides component
@@ -174,6 +187,12 @@ namespace Horse
             gekko_set_local_delay(
                 m_session, config.local_player_slot,
                 static_cast<unsigned char>(config.input_delay));
+            if (!gekko_set_forced_rollback_depth(
+                    m_session, config.forced_rollback_depth))
+            {
+                shutdown();
+                return false;
+            }
             m_pre_activity = true;
             return true;
         }
@@ -187,6 +206,8 @@ namespace Horse
             m_failure_reason = nullptr;
             m_update_calls = 0;
             m_correction_flush_calls = 0;
+            m_forced_rollback_eligible_updates = 0;
+            m_forced_rollback_completed_updates = 0;
             m_delay_prefix_inputs = 0;
             m_delay_prefix_primed = false;
             m_pre_activity = false;
@@ -246,6 +267,15 @@ namespace Horse
             // bootstrap traffic.
             if (!m_session || m_fatal) return false;
             m_pre_activity = false;
+            const bool forced_rollback_expected =
+                m_config.forced_rollback_depth != 0
+                && m_session_started
+                && m_next_input_frame > m_config.forced_rollback_depth;
+            const uint32_t forced_load_frame = forced_rollback_expected
+                ? m_next_input_frame - m_config.forced_rollback_depth - 1u
+                : 0u;
+            if (forced_rollback_expected)
+                ++m_forced_rollback_eligible_updates;
             AdapterScope scope(*this);
             gekko_add_local_input(
                 m_session, m_config.local_player_slot, &local_input);
@@ -254,6 +284,16 @@ namespace Horse
                 gekko_update_session(m_session, &event_count);
             ++m_update_calls;
             if (m_fatal || !process_session_events()) return false;
+            if (forced_rollback_expected
+                && !validate_forced_rollback_batch(
+                    events, event_count, forced_load_frame,
+                    m_config.forced_rollback_depth))
+            {
+                fail("gekko-forced-rollback-depth-invariant-failed");
+                return false;
+            }
+            if (forced_rollback_expected)
+                ++m_forced_rollback_completed_updates;
             for (int index = 0; index < event_count; ++index)
             {
                 GekkoGameEvent* event = events[index];
@@ -268,11 +308,10 @@ namespace Horse
             return ok && !m_fatal;
         }
 
-        // The pinned Gekko extension runs polling, rollback, confirmed-save,
-        // health, and integrity work without emitting the ordinary Advance
-        // that gekko_update_session always attempts. This is the only safe
-        // terminal correction path: no unauthored gameplay frame may run.
-        bool flush_terminal_corrections(const void* auxiliary) noexcept
+        // Poll, restore, and resimulate pending corrections without emitting
+        // an ordinary Advance. Terminal handoff and peer-lead pacing share
+        // this path so neither can author a hidden gameplay frame.
+        bool flush_corrections(const void* auxiliary) noexcept
         {
             if (!m_session || m_fatal) return false;
             m_pre_activity = false;
@@ -289,7 +328,7 @@ namespace Horse
                     && !event->data.adv.rolling_back
                     && !event->data.adv.running_ahead)
                 {
-                    fail("gekko-terminal-flush-emitted-ordinary-advance");
+                    fail("gekko-correction-flush-emitted-ordinary-advance");
                     return false;
                 }
                 if (!event || !m_callbacks.game_event(
@@ -303,12 +342,25 @@ namespace Horse
             return ok && !m_fatal;
         }
 
+        bool flush_terminal_corrections(const void* auxiliary) noexcept
+        {
+            return flush_corrections(auxiliary);
+        }
+
         bool created() const noexcept { return m_session != nullptr; }
         bool session_started() const noexcept { return m_session_started; }
         uint64_t update_calls() const noexcept { return m_update_calls; }
         uint64_t correction_flush_calls() const noexcept
         {
             return m_correction_flush_calls;
+        }
+        uint64_t forced_rollback_eligible_updates() const noexcept
+        {
+            return m_forced_rollback_eligible_updates;
+        }
+        uint64_t forced_rollback_completed_updates() const noexcept
+        {
+            return m_forced_rollback_completed_updates;
         }
         uint16_t delay_prefix_inputs() const noexcept
         {
@@ -317,6 +369,16 @@ namespace Horse
         uint32_t next_input_frame() const noexcept
         {
             return m_next_input_frame;
+        }
+        float frames_ahead() const noexcept
+        {
+            return m_session && !m_fatal
+                ? gekko_frames_ahead(m_session) : 0.0f;
+        }
+        int32_t confirmed_input_frame() const noexcept
+        {
+            return m_session && !m_fatal
+                ? gekko_confirmed_frame(m_session) : -1;
         }
         uint64_t desync_events() const noexcept { return m_desync_events; }
         int last_desync_frame() const noexcept { return m_last_desync_frame; }
@@ -339,6 +401,43 @@ namespace Horse
         }
 
     private:
+        static bool validate_forced_rollback_batch(
+            GekkoGameEvent* const* events, int count,
+            uint32_t load_frame, uint8_t depth) noexcept
+        {
+            if (!events || count <= 0 || depth == 0) return false;
+            int load_index = -1;
+            for (int index = 0; index < count; ++index)
+            {
+                const GekkoGameEvent* event = events[index];
+                if (event && event->type == GekkoLoadEvent
+                    && event->data.load.frame
+                        == static_cast<int32_t>(load_frame))
+                {
+                    load_index = index;
+                    break;
+                }
+            }
+            if (load_index < 0) return false;
+            uint32_t expected_frame = load_frame + 1u;
+            uint32_t advances = 0;
+            for (int index = load_index + 1;
+                 index < count && advances < depth; ++index)
+            {
+                const GekkoGameEvent* event = events[index];
+                if (!event || event->type != GekkoAdvanceEvent)
+                    continue;
+                if (!event->data.adv.rolling_back
+                    || event->data.adv.running_ahead
+                    || event->data.adv.frame
+                        != static_cast<int32_t>(expected_frame))
+                    return false;
+                ++advances;
+                ++expected_frame;
+            }
+            return advances == depth;
+        }
+
         void observe_next_input_frame(const GekkoGameEvent& event) noexcept
         {
             m_next_input_frame = RollbackGekkoNextInputFrameAfterEvent(
@@ -487,6 +586,8 @@ namespace Horse
         const char* m_failure_reason {nullptr};
         uint64_t m_update_calls {0};
         uint64_t m_correction_flush_calls {0};
+        uint64_t m_forced_rollback_eligible_updates {0};
+        uint64_t m_forced_rollback_completed_updates {0};
         uint16_t m_delay_prefix_inputs {0};
         bool m_delay_prefix_primed {false};
         bool m_pre_activity {false};
@@ -535,6 +636,9 @@ namespace Horse
         uint16_t rollback_window {60};
         uint16_t input_delay {1};
         uint32_t state_size {0};
+        RollbackSavePolicy save_policy {
+            RollbackSavePolicy::ConfirmedSpeculative};
+        uint8_t forced_rollback_depth {0};
 
         bool valid() const noexcept { return false; }
     };
@@ -567,6 +671,7 @@ namespace Horse
         void shutdown() noexcept {}
         bool poll() noexcept { return false; }
         bool update(uint32_t, const void*) noexcept { return false; }
+        bool flush_corrections(const void*) noexcept { return false; }
         bool flush_terminal_corrections(const void*) noexcept { return false; }
         bool prime_local_delay_prefix(const uint32_t*, uint16_t) noexcept
         {
@@ -577,8 +682,18 @@ namespace Horse
         bool session_started() const noexcept { return false; }
         uint64_t update_calls() const noexcept { return 0; }
         uint64_t correction_flush_calls() const noexcept { return 0; }
+        uint64_t forced_rollback_eligible_updates() const noexcept
+        {
+            return 0;
+        }
+        uint64_t forced_rollback_completed_updates() const noexcept
+        {
+            return 0;
+        }
         uint16_t delay_prefix_inputs() const noexcept { return 0; }
         uint32_t next_input_frame() const noexcept { return 0; }
+        float frames_ahead() const noexcept { return 0.0f; }
+        int32_t confirmed_input_frame() const noexcept { return -1; }
         uint64_t desync_events() const noexcept { return 0; }
         int last_desync_frame() const noexcept { return -1; }
         uint32_t last_desync_local_checksum() const noexcept { return 0; }

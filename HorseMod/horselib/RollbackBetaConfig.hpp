@@ -1,14 +1,18 @@
 // ============================================================================
 // Horse::RollbackBetaConfig
 //
-// Strict persistent configuration for the public rollback beta. Version 2
+// Strict persistent configuration for the public rollback beta. Version 3
 // defaults to SC6's Steam P2P session, so users do not exchange IP addresses,
 // forward ports, or provision a shared gameplay secret. Version 1 remains a
-// read-only compatibility format for explicit direct-UDP deployments.
+// read-only compatibility format for explicit direct-UDP deployments;
+// enabled version-2 Steam profiles fail with an upgrade-required error.
 // ============================================================================
 
 #pragma once
 
+#include "RollbackRuntimePolicy.hpp"
+
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -17,7 +21,8 @@
 namespace Horse
 {
     static constexpr uint32_t kRollbackBetaLegacyConfigVersion = 1;
-    static constexpr uint32_t kRollbackBetaConfigVersion = 2;
+    static constexpr uint32_t kRollbackBetaObsoleteSteamConfigVersion = 2;
+    static constexpr uint32_t kRollbackBetaConfigVersion = 3;
     static constexpr uint16_t kRollbackBetaDefaultPort = 47170;
 
     enum class RollbackBetaRole : uint8_t
@@ -72,6 +77,9 @@ namespace Horse
         std::string secret;
         uint16_t rollback_window {12};
         uint16_t input_delay {1};
+        RollbackSavePolicy save_policy {
+            RollbackSavePolicy::ConfirmedSpeculative};
+        RollbackLeadPacingConfig lead_pacing {};
         const char* failure {"ok"};
 
         bool valid() const noexcept
@@ -83,9 +91,18 @@ namespace Horse
                 && input_delay <= rollback_window;
             if (!common) return false;
             if (config_version == kRollbackBetaConfigVersion
+                && (save_policy
+                        != RollbackSavePolicy::ConfirmedSpeculative
+                    || !lead_pacing.enabled
+                    || !lead_pacing.valid()))
+                return false;
+            if (config_version == kRollbackBetaConfigVersion
                 && transport == RollbackBetaTransport::SteamP2P)
             {
-                return true;
+                return save_policy
+                        == RollbackSavePolicy::ConfirmedSpeculative
+                    && lead_pacing.enabled
+                    && lead_pacing.valid();
             }
             const bool direct =
                 (config_version == kRollbackBetaLegacyConfigVersion
@@ -228,6 +245,19 @@ namespace Horse
         return true;
     }
 
+    static inline bool RollbackBetaParseFloat(
+        const std::string& value, float& out) noexcept
+    {
+        if (value.empty()) return false;
+        char* end = nullptr;
+        const float parsed = std::strtof(value.c_str(), &end);
+        if (end == value.c_str() || *end != '\0'
+            || !std::isfinite(parsed))
+            return false;
+        out = parsed;
+        return true;
+    }
+
     static inline bool ParseRollbackBetaConfig(
         const std::string& text,
         RollbackBetaConfig& out) noexcept
@@ -269,6 +299,11 @@ namespace Horse
                 else if (key == "input_delay") bit = 1u << 9;
                 else if (key == "trace") bit = 1u << 10;
                 else if (key == "transport") bit = 1u << 11;
+                else if (key == "save_policy") bit = 1u << 12;
+                else if (key == "lead_pacing") bit = 1u << 13;
+                else if (key == "lead_pacing_enter") bit = 1u << 14;
+                else if (key == "lead_pacing_exit") bit = 1u << 15;
+                else if (key == "lead_pacing_max_holds") bit = 1u << 16;
                 else
                 {
                     out.failure = "beta-config-unknown-key";
@@ -324,6 +359,60 @@ namespace Horse
                         out.failure = "beta-config-transport-invalid";
                         return false;
                     }
+                }
+                else if (key == "save_policy")
+                {
+                    const std::string policy =
+                        RollbackBetaLowerAscii(value);
+                    if (policy != "confirmed-speculative")
+                    {
+                        out.failure = "beta-config-save-policy-invalid";
+                        return false;
+                    }
+                    out.save_policy =
+                        RollbackSavePolicy::ConfirmedSpeculative;
+                }
+                else if (key == "lead_pacing")
+                {
+                    if (!RollbackBetaParseBool(
+                            value, out.lead_pacing.enabled))
+                    {
+                        out.failure = "beta-config-lead-pacing-invalid";
+                        return false;
+                    }
+                }
+                else if (key == "lead_pacing_enter")
+                {
+                    if (!RollbackBetaParseFloat(
+                            value, out.lead_pacing.enter_frames))
+                    {
+                        out.failure =
+                            "beta-config-lead-pacing-enter-invalid";
+                        return false;
+                    }
+                }
+                else if (key == "lead_pacing_exit")
+                {
+                    if (!RollbackBetaParseFloat(
+                            value, out.lead_pacing.exit_frames))
+                    {
+                        out.failure =
+                            "beta-config-lead-pacing-exit-invalid";
+                        return false;
+                    }
+                }
+                else if (key == "lead_pacing_max_holds")
+                {
+                    uint16_t parsed = 0;
+                    if (!RollbackBetaParseU16(value, parsed)
+                        || parsed > 8)
+                    {
+                        out.failure =
+                            "beta-config-lead-pacing-holds-invalid";
+                        return false;
+                    }
+                    out.lead_pacing.maximum_consecutive_holds =
+                        static_cast<uint8_t>(parsed);
                 }
                 else if (key == "role")
                 {
@@ -391,12 +480,21 @@ namespace Horse
                 out.config_version == kRollbackBetaLegacyConfigVersion;
             const bool current =
                 out.config_version == kRollbackBetaConfigVersion;
+            if (out.config_version
+                == kRollbackBetaObsoleteSteamConfigVersion)
+            {
+                out.failure = "beta-config-upgrade-required";
+                return false;
+            }
             if (!legacy && !current)
             {
                 out.failure = "beta-config-version-unsupported";
                 return false;
             }
-            if (current && (seen & (1u << 11)) == 0)
+            const uint32_t current_required =
+                (1u << 11) | (1u << 12) | (1u << 13)
+                | (1u << 14) | (1u << 15) | (1u << 16);
+            if (current && (seen & current_required) != current_required)
             {
                 out.failure = "beta-config-required-key-missing";
                 return false;

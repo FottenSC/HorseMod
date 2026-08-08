@@ -21,12 +21,13 @@ if(HORSEMOD_ENABLE_GEKKONET)
         GekkoNet
         GIT_REPOSITORY https://github.com/HeatXD/GekkoNet.git
         GIT_TAG ${HORSEMOD_GEKKONET_GIT_TAG}
-        PATCH_COMMAND git apply --whitespace=nowarn
+        PATCH_COMMAND git apply --whitespace=nowarn --unidiff-zero
             ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-correction-flush.patch
             ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-authored-delay-prefix.patch
             ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-authored-delay-prefix-ready.patch
             ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-pre-gameplay-network-poll.patch
             ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-external-disconnect-authority.patch
+            ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-confirmed-speculative.patch
     )
     FetchContent_MakeAvailable(GekkoNet)
     # FetchContent does not rerun PATCH_COMMAND for an already-populated
@@ -97,6 +98,18 @@ if(HORSEMOD_ENABLE_GEKKONET)
         if(NOT _horsemod_gekkonet_poll_patch_result EQUAL 0)
             message(FATAL_ERROR
                 "Failed to apply the required Gekko pre-gameplay poll patch")
+        endif()
+    endif()
+    if(NOT _horsemod_gekkonet_header MATCHES "gekko_confirmed_frame")
+        execute_process(
+            COMMAND git apply --whitespace=nowarn --unidiff-zero
+                ${CMAKE_CURRENT_SOURCE_DIR}/patches/gekkonet-confirmed-speculative.patch
+            WORKING_DIRECTORY ${gekkonet_SOURCE_DIR}
+            RESULT_VARIABLE _horsemod_gekkonet_save_policy_patch_result
+        )
+        if(NOT _horsemod_gekkonet_save_policy_patch_result EQUAL 0)
+            message(FATAL_ERROR
+                "Failed to apply the required Gekko confirmed/speculative-save patch")
         endif()
     endif()
     if(TARGET GekkoNet AND MSVC)
@@ -349,6 +362,17 @@ target_include_directories(RollbackBetaConfigSelfTest PRIVATE
 )
 if(MSVC)
     set_property(TARGET RollbackBetaConfigSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+add_executable(RollbackRuntimePolicySelfTest
+    ${CMAKE_SOURCE_DIR}/tools/rollback_runtime_policy_selftest.cpp
+)
+target_include_directories(RollbackRuntimePolicySelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+if(MSVC)
+    set_property(TARGET RollbackRuntimePolicySelfTest PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
@@ -1110,6 +1134,7 @@ set(_horsemod_rollback_selftests
     RollbackTransportSelfTest
     RollbackRouteManagerSelfTest
     RollbackBetaConfigSelfTest
+    RollbackRuntimePolicySelfTest
     RollbackFaultInjectSelfTest
     RollbackOnlineSessionSelfTest
     RollbackLiveTransportSelfTest

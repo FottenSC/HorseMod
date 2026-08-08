@@ -529,6 +529,65 @@ int main()
         && pregame_prefix_gate_sequence && failed_poll_rejected
         && prefix_a.state == prefix_b.state
         && !prefix_a.failure && !prefix_b.failure;
+
+    Endpoint forced_a {13};
+    Endpoint forced_b {14};
+    forced_a.remote = &forced_b;
+    forced_b.remote = &forced_a;
+    auto forced_core_a =
+        std::make_unique<Horse::RollbackGekkoRuntimeCore>();
+    auto forced_core_b =
+        std::make_unique<Horse::RollbackGekkoRuntimeCore>();
+    Horse::RollbackGekkoRuntimeConfig invalid_forced = config_a;
+    invalid_forced.forced_rollback_depth = 6;
+    const bool forced_requires_every_advance = !invalid_forced.valid();
+    Horse::RollbackGekkoRuntimeConfig forced_config_a = invalid_forced;
+    forced_config_a.save_policy = Horse::RollbackSavePolicy::EveryAdvance;
+    forced_config_a.remote_peer = forced_b.peer;
+    Horse::RollbackGekkoRuntimeConfig forced_config_b = forced_config_a;
+    forced_config_b.local_player_slot = 1;
+    forced_config_b.remote_peer = forced_a.peer;
+    const bool forced_created = forced_core_a->start(
+            forced_config_a, callbacks(forced_a))
+        && forced_core_b->start(forced_config_b, callbacks(forced_b));
+    int32_t confirmed_a = -1;
+    int32_t confirmed_b = -1;
+    bool confirmed_monotonic = true;
+    for (uint32_t frame = 0; forced_created && frame < 40; ++frame)
+    {
+        if (!forced_core_a->update(frame & 3u, nullptr)
+            || !forced_core_b->update((frame + 1u) & 3u, nullptr))
+            break;
+        (void)forced_core_a->poll();
+        (void)forced_core_b->poll();
+        const int32_t next_a = forced_core_a->confirmed_input_frame();
+        const int32_t next_b = forced_core_b->confirmed_input_frame();
+        confirmed_monotonic = confirmed_monotonic
+            && (confirmed_a < 0 || next_a < 0 || next_a >= confirmed_a)
+            && (confirmed_b < 0 || next_b < 0 || next_b >= confirmed_b);
+        if (next_a >= 0) confirmed_a = next_a;
+        if (next_b >= 0) confirmed_b = next_b;
+    }
+    for (uint32_t poll = 0; forced_created && poll < 20; ++poll)
+    {
+        (void)forced_core_a->poll();
+        (void)forced_core_b->poll();
+        (void)forced_core_a->flush_corrections(nullptr);
+        (void)forced_core_b->flush_corrections(nullptr);
+    }
+    const bool forced_characterized = forced_requires_every_advance
+        && forced_created && confirmed_monotonic
+        && forced_core_a->forced_rollback_eligible_updates() > 0
+        && forced_core_b->forced_rollback_eligible_updates() > 0
+        && forced_core_a->forced_rollback_completed_updates()
+            == forced_core_a->forced_rollback_eligible_updates()
+        && forced_core_b->forced_rollback_completed_updates()
+            == forced_core_b->forced_rollback_eligible_updates()
+        && forced_a.loads > 0 && forced_b.loads > 0
+        && forced_a.rollback_advances >= 6
+        && forced_b.rollback_advances >= 6
+        && forced_a.state == forced_b.state
+        && !forced_a.failure && !forced_b.failure;
     std::fprintf(stderr,
         "gekko-runtime-core phase=prefix-result ok=%d consumed=%d "
         "ready=%d gate=%d poll-fail=%d first=%d zero=%d late=%d "
@@ -553,6 +612,7 @@ int main()
         "failure=%s/%s\n",
         characterized && external_disconnect_authority
             && fixture_characterized && prefix_characterized
+            && forced_characterized
             ? "passed" : "failed",
         started ? 1 : 0,
         a.saves, b.saves, a.loads, b.loads, a.advances, b.advances,
@@ -619,7 +679,10 @@ int main()
     zero_delay_core->shutdown();
     late_prime_core->shutdown();
     failed_poll_core->shutdown();
+    forced_core_a->shutdown();
+    forced_core_b->shutdown();
     return characterized && external_disconnect_authority
         && fixture_characterized && prefix_characterized
+        && forced_characterized
         ? 0 : 1;
 }

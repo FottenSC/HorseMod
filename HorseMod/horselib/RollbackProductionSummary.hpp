@@ -47,6 +47,35 @@ namespace Horse
         uint64_t receipt_selective[2] {};
     };
 
+    // Per-frame deterministic evidence deliberately excludes all restorable
+    // payload bytes. The current capture adapter may still use provisional
+    // RollbackStepState storage to derive these values; the release performance
+    // gate prevents that transitional implementation from being mistaken for
+    // the completed hash-only capture path.
+    struct RollbackFrameEvidence
+    {
+        bool valid {false};
+        uint8_t pass_kind {0};
+        uint16_t reserved {0};
+        uint64_t lifecycle_epoch {0};
+        uint64_t pair_epoch {0};
+        uint32_t logical_frame {0};
+        uint64_t integrity_hash {0};
+        uint64_t canonical_hash {0};
+        uint64_t component_hash[4] {};
+        // Ordered by the fencepost contract: input-injected,
+        // input-consumed-post-filter, pre-native-simulation,
+        // post-native-per-frame-tick, four truthful final component
+        // projections (MoveVM/HgCpu/wind/camera), post-terminal-capture, and
+        // post-canonical-summary. Projections are not intra-native boundary
+        // captures and must not be presented as such.
+        uint64_t fencepost_hash[10] {};
+        uint64_t input_provenance_hash {0};
+        uint64_t lifecycle_digest {0};
+        uint64_t presentation_digest {0};
+        uint64_t summary_digest {0};
+    };
+
     static constexpr uint16_t kRollbackProductionSummaryAckVersion = 2;
 
     struct RollbackProductionSummaryAckWindow

@@ -3549,6 +3549,232 @@ namespace Horse
                             fields.hex(peer_key, peer_partition);
                         }
                     }
+                    fields
+                        .uinteger("rollback_metric_contract_version", 1)
+                        .real("gekko_frames_ahead",
+                            status.gekko_frames_ahead)
+                        .integer("exact_confirmed_input_frame",
+                            status.exact_confirmed_input_frame)
+                        .uinteger("exact_confirmed_input_high_water",
+                            status.exact_confirmed_input_high_water)
+                        .boolean("exact_confirmed_input_valid",
+                            status.exact_confirmed_input_valid)
+                        .uinteger("exact_confirmed_plateaus",
+                            status.exact_confirmed_plateaus)
+                        .uinteger("lead_pacing_holds",
+                            status.lead_pacing_holds)
+                        .uinteger("lead_pacing_forced_advances",
+                            status.lead_pacing_forced_advances)
+                        .uinteger("lead_pacing_consecutive_holds",
+                            status.lead_pacing_consecutive_holds)
+                        .uinteger("forced_rollback_depth",
+                            status.forced_rollback_depth)
+                        .uinteger("forced_rollback_eligible_updates",
+                            status.forced_rollback_eligible_updates)
+                        .uinteger("forced_rollback_completed_updates",
+                            status.forced_rollback_completed_updates)
+                        .uinteger("snapshot_slots_in_use",
+                            status.snapshot_slots_in_use)
+                        .uinteger("snapshot_slots_peak",
+                            status.snapshot_slots_peak)
+                        .uinteger("snapshot_slot_capacity",
+                            status.snapshot_slot_capacity)
+                        .uinteger("snapshot_bytes_in_use",
+                            status.snapshot_bytes_in_use)
+                        .uinteger("snapshot_bytes_peak",
+                            status.snapshot_bytes_peak)
+                        .uinteger("snapshot_bytes_allocated",
+                            status.snapshot_bytes_allocated)
+                        .uinteger("snapshot_evictions",
+                            status.snapshot_evictions)
+                        .uinteger("snapshot_promotions",
+                            status.snapshot_promotions)
+                        .uinteger("snapshot_fallback_loads",
+                            status.snapshot_fallback_loads)
+                        .boolean("snapshot_evidence_split_active",
+                            status.snapshot_evidence_split_active)
+                        .boolean("snapshot_anchor_events_observable",
+                            status.snapshot_anchor_events_observable);
+                    const std::array<std::pair<const char*,
+                        const RollbackDurationHistogram*>, 6>
+                        duration_histograms {{
+                            {"owned_tick", &status.performance.owned_tick},
+                            {"rollback_transaction",
+                                &status.performance.rollback_transaction},
+                            {"full_capture",
+                                &status.performance.full_capture},
+                            {"evidence_capture",
+                                &status.performance.evidence_capture},
+                            {"restore", &status.performance.restore},
+                            {"verification",
+                                &status.performance.verification},
+                        }};
+                    for (const auto& named : duration_histograms)
+                    {
+                        char key[80] {};
+                        std::snprintf(key, sizeof(key),
+                            "metric_%s_samples", named.first);
+                        fields.uinteger(key, named.second->samples);
+                        std::snprintf(key, sizeof(key),
+                            "metric_%s_bucket_count", named.first);
+                        fields.uinteger(key, named.second->buckets.size());
+                        std::snprintf(key, sizeof(key),
+                            "metric_%s_max_ns", named.first);
+                        fields.uinteger(key, named.second->maximum);
+                        std::snprintf(key, sizeof(key),
+                            "metric_%s_conserved", named.first);
+                        fields.boolean(key, named.second->conserved());
+                        std::snprintf(key, sizeof(key),
+                            "metric_%s_saturated", named.first);
+                        fields.boolean(key, named.second->saturated);
+                        for (size_t bucket = 0;
+                             bucket < named.second->buckets.size(); ++bucket)
+                        {
+                            std::snprintf(key, sizeof(key),
+                                "metric_%s_bucket_%zu",
+                                named.first, bucket);
+                            fields.uinteger(
+                                key, named.second->buckets[bucket]);
+                        }
+                    }
+                    const size_t rollback_depth_maximum =
+                        std::min<size_t>(
+                            m_config.rollback_window,
+                            RollbackDepthHistogram::kMaximumDepth);
+                    for (size_t bucket = 0;
+                         bucket <= rollback_depth_maximum; ++bucket)
+                    {
+                        char key[64] {};
+                        std::snprintf(key, sizeof(key),
+                            "metric_rollback_depth_bucket_%zu", bucket);
+                        fields.uinteger(key,
+                            status.performance.rollback_depth
+                                .buckets[bucket]);
+                    }
+                    uint64_t rollback_depth_overflow = 0;
+                    bool rollback_depth_overflow_saturated = false;
+                    for (size_t bucket = rollback_depth_maximum + 1;
+                         bucket < status.performance.rollback_depth
+                            .buckets.size(); ++bucket)
+                    {
+                        const uint64_t value =
+                            status.performance.rollback_depth.buckets[bucket];
+                        if (rollback_depth_overflow
+                            > std::numeric_limits<uint64_t>::max() - value)
+                        {
+                            rollback_depth_overflow_saturated = true;
+                            break;
+                        }
+                        rollback_depth_overflow += value;
+                    }
+                    {
+                        char key[64] {};
+                        std::snprintf(key, sizeof(key),
+                            "metric_rollback_depth_bucket_%zu",
+                            rollback_depth_maximum + 1);
+                        fields.uinteger(key, rollback_depth_overflow);
+                    }
+                    fields
+                        .uinteger("metric_rollback_depth_bucket_count",
+                            rollback_depth_maximum + 2)
+                        .uinteger("metric_rollback_depth_samples",
+                            status.performance.rollback_depth.samples)
+                        .uinteger("metric_rollback_depth_maximum",
+                            status.performance.rollback_depth.maximum)
+                        .boolean("metric_rollback_depth_conserved",
+                            status.performance.rollback_depth.conserved())
+                        .boolean("metric_rollback_depth_saturated",
+                            status.performance.rollback_depth.saturated
+                                || rollback_depth_overflow_saturated);
+                    for (size_t bucket = 0;
+                         bucket < status.performance.frame_lead
+                            .buckets.size(); ++bucket)
+                    {
+                        char key[64] {};
+                        std::snprintf(key, sizeof(key),
+                            "metric_frame_lead_bucket_%zu", bucket);
+                        fields.uinteger(key,
+                            status.performance.frame_lead.buckets[bucket]);
+                    }
+                    fields
+                        .uinteger("metric_frame_lead_bucket_count",
+                            status.performance.frame_lead.buckets.size())
+                        .uinteger("metric_frame_lead_samples",
+                            status.performance.frame_lead.samples)
+                        .real("metric_frame_lead_minimum",
+                            status.performance.frame_lead.minimum)
+                        .real("metric_frame_lead_maximum",
+                            status.performance.frame_lead.maximum)
+                        .boolean("metric_frame_lead_conserved",
+                            status.performance.frame_lead.conserved())
+                        .boolean("metric_frame_lead_saturated",
+                            status.performance.frame_lead.saturated);
+                    static constexpr const char* kSaveClassNames[] = {
+                        "baseline", "confirmed", "midpoint", "end"};
+                    for (size_t save_class = 0;
+                         save_class < status.performance.saves_by_class.size();
+                         ++save_class)
+                    {
+                        char key[64] {};
+                        std::snprintf(key, sizeof(key),
+                            "metric_saves_%s",
+                            kSaveClassNames[save_class]);
+                        fields.uinteger(key,
+                            status.performance.saves_by_class[save_class]);
+                    }
+                    fields
+                        .uinteger("metric_exact_confirmed_lag_samples",
+                            status.performance.exact_confirmed_lag_samples)
+                        .uinteger("metric_exact_confirmed_lag_total_frames",
+                            status.performance.exact_confirmed_lag_total)
+                        .uinteger("metric_exact_confirmed_lag_max_frames",
+                            status.performance.exact_confirmed_lag_maximum)
+                        .uinteger("metric_pair_confirmed_lag_samples",
+                            status.performance.pair_confirmed_lag_samples)
+                        .uinteger("metric_pair_confirmed_lag_total_frames",
+                            status.performance.pair_confirmed_lag_total)
+                        .uinteger("metric_pair_confirmed_lag_max_frames",
+                            status.performance.pair_confirmed_lag_maximum);
+                    static constexpr const char* kEffectTypeNames[] = {
+                        "audio", "vfx", "camera", "transition"};
+                    for (size_t effect_type = 0;
+                         effect_type
+                            < RollbackPerformanceTelemetry::
+                                kSideEffectTypeCount;
+                         ++effect_type)
+                    {
+                        char key[96] {};
+                        std::snprintf(key, sizeof(key),
+                            "metric_effect_%s_produced_to_eligible_samples",
+                            kEffectTypeNames[effect_type]);
+                        fields.uinteger(key, status.performance
+                            .effect_produced_to_eligible_samples[effect_type]);
+                        std::snprintf(key, sizeof(key),
+                            "metric_effect_%s_produced_to_eligible_total_frames",
+                            kEffectTypeNames[effect_type]);
+                        fields.uinteger(key, status.performance
+                            .effect_produced_to_eligible_total[effect_type]);
+                        std::snprintf(key, sizeof(key),
+                            "metric_effect_%s_produced_to_eligible_max_frames",
+                            kEffectTypeNames[effect_type]);
+                        fields.uinteger(key, status.performance
+                            .effect_produced_to_eligible_maximum[effect_type]);
+                        std::snprintf(key, sizeof(key),
+                            "metric_effect_%s_eligible_to_committed_samples",
+                            kEffectTypeNames[effect_type]);
+                        fields.uinteger(key, status.performance
+                            .effect_eligible_to_committed_samples[effect_type]);
+                        std::snprintf(key, sizeof(key),
+                            "metric_effect_%s_eligible_to_committed_total_frames",
+                            kEffectTypeNames[effect_type]);
+                        fields.uinteger(key, status.performance
+                            .effect_eligible_to_committed_total[effect_type]);
+                        std::snprintf(key, sizeof(key),
+                            "metric_effect_%s_eligible_to_committed_max_frames",
+                            kEffectTypeNames[effect_type]);
+                        fields.uinteger(key, status.performance
+                            .effect_eligible_to_committed_maximum[effect_type]);
+                    }
                     observe_qualification_status(status);
                     if (m_config.qualification_enabled())
                         append_qualification_tags(fields);

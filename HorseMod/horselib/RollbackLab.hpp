@@ -688,7 +688,7 @@ namespace Horse
                     ? "steam" : RollbackBetaRoleName(beta.role);
                 cfg.request_id =
                     beta.config_version == kRollbackBetaConfigVersion
-                    ? "rollback-beta-v2" : "rollback-beta-v1";
+                    ? "rollback-beta-v3" : "rollback-beta-v1";
                 cfg.request_generation = 1;
                 cfg.source = "beta-config";
                 cfg.production.enabled = true;
@@ -715,6 +715,8 @@ namespace Horse
                     RollbackSessionDomain::Production;
                 cfg.production.secret = beta.secret;
                 cfg.production.input_delay = beta.input_delay;
+                cfg.production.save_policy = beta.save_policy;
+                cfg.production.lead_pacing = beta.lead_pacing;
                 cfg.production.bind_observed_stock_selection = true;
                 cfg.production.network_profile =
                     RollbackNetworkProfileKind::Clean0ms;
@@ -869,6 +871,39 @@ namespace Horse
                 else if (key == "input_delay")
                     cfg.production.input_delay = static_cast<uint16_t>(
                         parse_u32_ascii(value, cfg.production.input_delay));
+                else if (key == "save_policy")
+                    cfg.production.save_policy = lower_ascii(value)
+                            == "confirmed-speculative"
+                        ? RollbackSavePolicy::ConfirmedSpeculative
+                        : lower_ascii(value) == "every-advance"
+                            ? RollbackSavePolicy::EveryAdvance
+                            : static_cast<RollbackSavePolicy>(0xFF);
+                else if (key == "lead_pacing")
+                    cfg.production.lead_pacing.enabled =
+                        parse_bool_string(
+                            value, cfg.production.lead_pacing.enabled);
+                else if (key == "lead_pacing_enter_milliframes")
+                {
+                    const uint32_t parsed = parse_u32_ascii(value, UINT32_MAX);
+                    cfg.production.lead_pacing.enter_frames =
+                        parsed <= UINT16_MAX
+                        ? RollbackMilliframesToFrames(
+                            static_cast<uint16_t>(parsed)) : -1.0f;
+                }
+                else if (key == "lead_pacing_exit_milliframes")
+                {
+                    const uint32_t parsed = parse_u32_ascii(value, UINT32_MAX);
+                    cfg.production.lead_pacing.exit_frames =
+                        parsed <= UINT16_MAX
+                        ? RollbackMilliframesToFrames(
+                            static_cast<uint16_t>(parsed)) : -1.0f;
+                }
+                else if (key == "lead_pacing_max_holds")
+                    cfg.production.lead_pacing.maximum_consecutive_holds =
+                        static_cast<uint8_t>(parse_u32_ascii(
+                            value,
+                            cfg.production.lead_pacing
+                                .maximum_consecutive_holds));
                 else if (key == "deterministic_input_enabled")
                     cfg.production.deterministic_input.enabled =
                         parse_bool_string(value,
@@ -1029,6 +1064,13 @@ namespace Horse
                         parse_u32_ascii(
                             value,
                             cfg.production.test_worker_stall_duration_ms);
+                else if (key == "test_forced_rollback_depth")
+                {
+                    const uint32_t parsed = parse_u32_ascii(value, UINT32_MAX);
+                    cfg.production.test_forced_rollback_depth =
+                        parsed <= UINT8_MAX
+                        ? static_cast<uint8_t>(parsed) : UINT8_MAX;
+                }
                 else if (key == "expected_build_id")
                     cfg.production.expected_build_id = parse_u64_ascii(
                         value, cfg.production.expected_build_id);

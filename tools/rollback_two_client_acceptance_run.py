@@ -144,14 +144,14 @@ CALLBACK_INVENTORY_EXPECTED_STOPS = {
     "native-callback-target-coverage-unproven",
     "native-callback-inventory-diagnostic-complete",
 }
-REPORT_SCHEMA_VERSION = 8
+REPORT_SCHEMA_VERSION = 13
 REPLAY_CORPUS_SCHEMA_VERSION = 5
-CANDIDATE_MANIFEST_SCHEMA_VERSION = 5
-QUALIFICATION_CONTRACT_SCHEMA_VERSION = 4
+CANDIDATE_MANIFEST_SCHEMA_VERSION = 6
+QUALIFICATION_CONTRACT_SCHEMA_VERSION = 5
 LOCAL_STAGE_INVENTORY_SCHEMA_VERSION = 2
-ROLLBACK_PROTOCOL_VERSION = 2
+ROLLBACK_PROTOCOL_VERSION = 3
 ROLLBACK_SNAPSHOT_VERSION = 38
-ROLLBACK_ORACLE_SCHEMA_VERSION = 12
+ROLLBACK_ORACLE_SCHEMA_VERSION = 13
 STEAM_BETA_TRANSPORT = "steam-p2p"
 ROLLBACK_INPUT_SOURCES = ("fixture", "replay", "native")
 ROLLBACK_NETWORK_PROFILES = (
@@ -1840,11 +1840,48 @@ def qualification_contract_value(
         "rollback_window": rollback_window,
         "input_delay": input_delay,
         "rollback_depth": rollback_depth,
+        "save_policy": "confirmed-speculative",
+        "snapshot_anchor_count": rollback_window + 2,
+        "lead_pacing": {
+            "enabled": True,
+            "enter_frames": 1.5,
+            "exit_frames": 0.5,
+            "maximum_consecutive_holds": 2,
+            "strategy": "correction-only-no-ordinary-advance",
+        },
         "local_beta_soak_seconds": local_beta_soak_seconds,
         "local_beta_soak_min_matches": local_beta_soak_min_matches,
         "native_controller_phase_seconds":
             native_controller_phase_seconds,
         "performance_policy": {
+            "metric_contract_version": 1,
+            "duration_bucket_upper_ms": [
+                0.25, 0.5, 1, 2, 4, 8, 12, 16.67,
+                20, 25, 33.33, 50,
+            ],
+            "duration_overflow_bucket": True,
+            "depth_buckets": {
+                "minimum": 0,
+                "maximum": rollback_window,
+                "overflow": True,
+            },
+            "lead_half_frame_buckets": {
+                "minimum": -8,
+                "maximum": 8,
+                "underflow": True,
+                "overflow": True,
+            },
+            "confirmation_lag_units": "logical-frames",
+            "effect_lag": {
+                "types": ["audio", "vfx", "camera", "transition"],
+                "produced_to_eligible":
+                    "exact-input-eligibility-observation-frame-minus-produced-frame",
+                "eligible_to_committed":
+                    "pair-commit-observation-frame-minus-exact-eligibility-observation-frame",
+                "commit_policy": "bilateral-pair-proof-after-exact-input-eligibility",
+            },
+            "minimum_owned_ticks_within_16_67ms_ratio": 0.99,
+            "minimum_rollback_transactions_within_16_67ms_ratio": 0.99,
             "minimum_hz": MINIMUM_HZ,
             "subwindow_seconds": RATE_SUBWINDOW_SECONDS,
             "maximum_status_sample_gap_seconds":
@@ -1935,6 +1972,15 @@ def beta_config_profile_failures(
     if values.get("trace", "").strip().lower() not in {
             "1", "true", "yes", "on"}:
         failures.append("beta-config-profile-trace")
+    if values.get("save_policy") != "confirmed-speculative":
+        failures.append("beta-config-profile-save-policy")
+    if values.get("lead_pacing", "").strip().lower() not in {
+            "1", "true", "yes", "on"}:
+        failures.append("beta-config-profile-lead-pacing")
+    if values.get("lead_pacing_enter") != "1.5" \
+            or values.get("lead_pacing_exit") != "0.5" \
+            or values.get("lead_pacing_max_holds") != "2":
+        failures.append("beta-config-profile-lead-pacing-policy")
     return failures
 
 
@@ -1955,6 +2001,29 @@ def golden_manifest_preflight_failures(path: Path) -> list[str]:
     if observed != expected:
         return ["trusted-golden-manifest-case-inventory"]
     return []
+
+
+def runbook_inventory_drift_failures() -> list[str]:
+    """Reject release-relevant prose that duplicates manifest inventory."""
+    failures: list[str] = []
+    forbidden = {
+        "all 14 replays": "hardcoded-replay-count",
+        "snapshot 37": "stale-snapshot-version",
+        "candidate schema 5": "stale-candidate-schema",
+        "runtime contract is protocol 2": "stale-protocol-version",
+    }
+    for path in (
+            REPO / "tools" / "rollback_beta_runbook.md",
+            REPO / "tools" / "rollback_two_machine_qualification_runbook.md"):
+        try:
+            text = path.read_text(encoding="utf-8").lower()
+        except (OSError, UnicodeError) as exc:
+            failures.append(f"runbook-unreadable:{path.name}:{exc}")
+            continue
+        for phrase, reason in forbidden.items():
+            if phrase in text:
+                failures.append(f"runbook-inventory-drift:{path.name}:{reason}")
+    return failures
 
 
 def candidate_manifest_value(
@@ -1985,6 +2054,7 @@ def candidate_manifest_failures(
         return ["candidate-manifest-invalid"]
     failures: list[str] = []
     failures.extend(beta_config_profile_failures(args))
+    failures.extend(runbook_inventory_drift_failures())
     failures.extend(golden_manifest_preflight_failures(Path(getattr(
         args, "trusted_golden_manifest",
         DEFAULT_TRUSTED_GOLDEN_MANIFEST))))
@@ -5252,9 +5322,212 @@ def rate_window(samples: list[dict[str, Any]], active: bool,
     }
 
 
+def exact_runtime_metric_failures(
+        samples: list[dict[str, Any]],
+        expected_rollback_window: int | None = None) -> list[str]:
+    """Validate candidate-bound fixed histograms, never sparse estimates."""
+    active = [sample for sample in samples
+              if sample.get("state_name") == "active"
+              or int(sample.get("state", -1)) == ACTIVE_STATE]
+    if not active:
+        return ["runtime-metrics-active-sample-missing"]
+    latest = active[-1]
+    failures: list[str] = []
+    if _trace_int(latest.get("rollback_metric_contract_version")) != 1:
+        return ["runtime-metric-contract-version"]
+    if latest.get("snapshot_evidence_split_active") is not True:
+        failures.append("runtime-snapshot-evidence-split-inactive")
+    if latest.get("snapshot_anchor_events_observable") is not True:
+        failures.append("runtime-snapshot-anchor-events-unobservable")
+    histogram_names = (
+        "owned_tick", "rollback_transaction", "full_capture",
+        "evidence_capture", "restore", "verification",
+    )
+    for name in histogram_names:
+        samples_key = f"metric_{name}_samples"
+        observed = [_trace_int(sample.get(samples_key), -1)
+                    for sample in active]
+        if any(value < 0 for value in observed):
+            failures.append(f"runtime-metric-missing:{name}")
+            continue
+        if any(after < before
+               for before, after in zip(observed, observed[1:])):
+            failures.append(f"runtime-metric-nonmonotonic:{name}")
+        if not bool(latest.get(f"metric_{name}_conserved")):
+            failures.append(f"runtime-metric-not-conserved:{name}")
+        if bool(latest.get(f"metric_{name}_saturated")):
+            failures.append(f"runtime-metric-saturated:{name}")
+        bucket_count = _trace_int(
+            latest.get(f"metric_{name}_bucket_count"), -1)
+        if bucket_count != 13:
+            failures.append(
+                f"runtime-metric-bucket-count:{name}:{bucket_count}/13")
+            continue
+        latest_buckets = [
+            _trace_int(latest.get(f"metric_{name}_bucket_{bucket}"), -1)
+            for bucket in range(bucket_count)
+        ]
+        if any(value < 0 for value in latest_buckets):
+            failures.append(f"runtime-metric-buckets-missing:{name}")
+        elif sum(latest_buckets) != observed[-1]:
+            failures.append(f"runtime-metric-buckets-disagree:{name}")
+    for name in ("rollback_depth", "frame_lead"):
+        if not bool(latest.get(f"metric_{name}_conserved")):
+            failures.append(f"runtime-metric-not-conserved:{name}")
+        if bool(latest.get(f"metric_{name}_saturated")):
+            failures.append(f"runtime-metric-saturated:{name}")
+    depth_bucket_count = _trace_int(
+        latest.get("metric_rollback_depth_bucket_count"), -1)
+    expected_depth_bucket_count = (
+        expected_rollback_window + 2
+        if expected_rollback_window is not None else None
+    )
+    if expected_depth_bucket_count is not None \
+            and depth_bucket_count != expected_depth_bucket_count:
+        failures.append(
+            "runtime-depth-bucket-count:"
+            f"{depth_bucket_count}/{expected_depth_bucket_count}")
+    elif depth_bucket_count < 2 or depth_bucket_count > 62:
+        failures.append("runtime-depth-bucket-count")
+    else:
+        depth_buckets = [
+            _trace_int(latest.get(
+                f"metric_rollback_depth_bucket_{bucket}"), -1)
+            for bucket in range(depth_bucket_count)
+        ]
+        depth_samples = _trace_int(
+            latest.get("metric_rollback_depth_samples"), -1)
+        if any(value < 0 for value in depth_buckets):
+            failures.append("runtime-depth-buckets-missing")
+        elif sum(depth_buckets) != depth_samples:
+            failures.append("runtime-depth-buckets-disagree")
+    lead_bucket_count = _trace_int(
+        latest.get("metric_frame_lead_bucket_count"), -1)
+    if lead_bucket_count != 35:
+        failures.append(
+            f"runtime-lead-bucket-count:{lead_bucket_count}/35")
+    else:
+        lead_buckets = [
+            _trace_int(latest.get(
+                f"metric_frame_lead_bucket_{bucket}"), -1)
+            for bucket in range(lead_bucket_count)
+        ]
+        lead_samples = _trace_int(
+            latest.get("metric_frame_lead_samples"), -1)
+        if any(value < 0 for value in lead_buckets):
+            failures.append("runtime-lead-buckets-missing")
+        elif sum(lead_buckets) != lead_samples:
+            failures.append("runtime-lead-buckets-disagree")
+    monotonic_counters = (
+        "snapshot_slots_peak", "snapshot_bytes_peak",
+        "snapshot_evictions", "snapshot_promotions",
+        "snapshot_fallback_loads",
+    )
+    for key in monotonic_counters:
+        values = [_trace_int(sample.get(key), -1) for sample in active]
+        if any(value < 0 for value in values):
+            failures.append(f"runtime-metric-missing:{key}")
+        elif any(after < before
+                 for before, after in zip(values, values[1:])):
+            failures.append(f"runtime-metric-nonmonotonic:{key}")
+    slots = _trace_int(latest.get("snapshot_slots_in_use"), -1)
+    slot_peak = _trace_int(latest.get("snapshot_slots_peak"), -1)
+    slot_capacity = _trace_int(latest.get("snapshot_slot_capacity"), -1)
+    bytes_in_use = _trace_int(latest.get("snapshot_bytes_in_use"), -1)
+    bytes_peak = _trace_int(latest.get("snapshot_bytes_peak"), -1)
+    bytes_allocated = _trace_int(latest.get("snapshot_bytes_allocated"), -1)
+    if min(slots, slot_peak, slot_capacity, bytes_in_use,
+           bytes_peak, bytes_allocated) < 0:
+        failures.append("runtime-snapshot-occupancy-missing")
+    elif slots > slot_peak or slot_peak > slot_capacity \
+            or bytes_in_use > bytes_peak \
+            or bytes_peak > bytes_allocated:
+        failures.append("runtime-snapshot-occupancy-inconsistent")
+    for name in ("owned_tick", "rollback_transaction"):
+        total = _trace_int(latest.get(f"metric_{name}_samples"))
+        within = sum(_trace_int(latest.get(
+            f"metric_{name}_bucket_{bucket}")) for bucket in range(8))
+        if total <= 0:
+            failures.append(f"runtime-metric-no-samples:{name}")
+        elif within / total < 0.99:
+            failures.append(
+                f"runtime-metric-deadline:{name}:{within}/{total}")
+    save_total = sum(_trace_int(latest.get(f"metric_saves_{name}"))
+                     for name in ("baseline", "confirmed",
+                                  "midpoint", "end"))
+    if save_total != _trace_int(latest.get("saves")):
+        failures.append(
+            f"runtime-save-conservation:{save_total}/"
+            f"{_trace_int(latest.get('saves'))}")
+    forced_depth = _trace_int(latest.get("forced_rollback_depth"), -1)
+    forced_eligible = _trace_int(
+        latest.get("forced_rollback_eligible_updates"), -1)
+    forced_completed = _trace_int(
+        latest.get("forced_rollback_completed_updates"), -1)
+    if min(forced_depth, forced_eligible, forced_completed) < 0:
+        failures.append("runtime-forced-rollback-metrics-missing")
+    elif forced_depth != 0 and (
+            forced_eligible == 0 or forced_completed != forced_eligible):
+        failures.append(
+            "runtime-forced-rollback-incomplete:"
+            f"{forced_completed}/{forced_eligible}@{forced_depth}")
+    for effect_name, committed_key in (
+            ("audio", "audio_effects_committed"),
+            ("vfx", "vfx_effects_committed"),
+            ("camera", "camera_effects_committed"),
+            ("transition", "transitions_committed")):
+        produced_samples = _trace_int(latest.get(
+            f"metric_effect_{effect_name}_produced_to_eligible_samples"), -1)
+        committed_samples = _trace_int(latest.get(
+            f"metric_effect_{effect_name}_eligible_to_committed_samples"), -1)
+        committed = _trace_int(latest.get(committed_key), -1)
+        produced_total = _trace_int(latest.get(
+            f"metric_effect_{effect_name}_produced_to_eligible_total_frames"),
+            -1)
+        produced_maximum = _trace_int(latest.get(
+            f"metric_effect_{effect_name}_produced_to_eligible_max_frames"),
+            -1)
+        committed_total = _trace_int(latest.get(
+            f"metric_effect_{effect_name}_eligible_to_committed_total_frames"),
+            -1)
+        committed_maximum = _trace_int(latest.get(
+            f"metric_effect_{effect_name}_eligible_to_committed_max_frames"),
+            -1)
+        if produced_samples < 0 or committed_samples < 0 or committed < 0:
+            failures.append(f"runtime-effect-metric-missing:{effect_name}")
+        elif produced_samples != committed \
+                or committed_samples != committed:
+            failures.append(
+                f"runtime-effect-metric-conservation:{effect_name}:"
+                f"{produced_samples}/{committed_samples}/{committed}")
+        if min(produced_total, produced_maximum,
+               committed_total, committed_maximum) < 0:
+            failures.append(
+                f"runtime-effect-aggregate-missing:{effect_name}")
+        elif (produced_samples == 0
+                and (produced_total != 0 or produced_maximum != 0)) \
+                or (committed_samples == 0
+                    and (committed_total != 0 or committed_maximum != 0)) \
+                or produced_total < produced_maximum \
+                or committed_total < committed_maximum \
+                or (produced_samples > 0
+                    and produced_total
+                    > produced_maximum * produced_samples) \
+                or (committed_samples > 0
+                    and committed_total
+                    > committed_maximum * committed_samples):
+            failures.append(
+                f"runtime-effect-aggregate-invalid:{effect_name}")
+    return failures
+
+
 def request_text(args: argparse.Namespace, role: str, run_id: str,
                  secret: str, marker: str,
                  request_generation: int) -> str:
+    forced_rollback_depth = int(
+        getattr(args, "test_forced_rollback_depth", 0) or 0)
+    diagnostic_every_advance = bool(
+        getattr(args, "test_every_advance_save_policy", False))
     host = role == "host"
     local_port = (
         getattr(args, "host_port", HOST_PORT) if host
@@ -5328,6 +5601,16 @@ def request_text(args: argparse.Namespace, role: str, run_id: str,
         "production_remote_peer": 2 if host else 1,
         "secret": secret,
         "input_delay": args.input_delay,
+        "save_policy": (
+            "every-advance" if forced_rollback_depth
+                or diagnostic_every_advance
+            else "confirmed-speculative"),
+        "lead_pacing": int(
+            not bool(forced_rollback_depth)),
+        "lead_pacing_enter_milliframes": 1500,
+        "lead_pacing_exit_milliframes": 500,
+        "lead_pacing_max_holds": 2,
+        "test_forced_rollback_depth": forced_rollback_depth,
         "network_profile": args.profile,
         "fault_seed": hex(args.fault_seed),
         "test_worker_stall_after_ms": (
@@ -7615,6 +7898,10 @@ def core_failures(states: list[RoleState], args: argparse.Namespace,
                 f"p95={active_rate.get('estimated_frame_time_ms', {}).get('p95', 0.0):.2f}ms "
                 f"p99={active_rate.get('estimated_frame_time_ms', {}).get('p99', 0.0):.2f}ms"
             )
+        failures.extend(
+            f"{prefix}:{failure}"
+            for failure in exact_runtime_metric_failures(
+                state.status_samples, args.rollback_window))
         preownership_rate = rate_window(state.status_samples, False)
         # Diagnostic only: this interval spans menus, loading screens, asset
         # synchronization, and stock battle setup, none of which promises a
@@ -9978,6 +10265,13 @@ def build_replay_corpus_online_command(
         ])
     if getattr(args, "shutdown_clients", False):
         command.append("--shutdown-clients")
+    if getattr(args, "test_every_advance_save_policy", False):
+        command.append("--test-every-advance-save-policy")
+    if getattr(args, "test_forced_rollback_depth", 0):
+        command.extend([
+            "--test-forced-rollback-depth",
+            str(args.test_forced_rollback_depth),
+        ])
     if args.expected_schema_id is not None:
         command.extend([
             "--expected-schema-id", hex(args.expected_schema_id),
@@ -13036,17 +13330,27 @@ def selftest(*, policy_only: bool = False) -> int:
     replay_override_request = request_text(
         replay_override_args, "host", "replay-override-selftest", "a" * 48,
         "marker", 0x1237)
+    save_policy_ab_args = SimpleNamespace(**vars(replay_args))
+    save_policy_ab_args.test_every_advance_save_policy = True
+    save_policy_ab_request = request_text(
+        save_policy_ab_args, "host", "save-policy-ab-selftest", "a" * 48,
+        "marker", 0x1238)
     corpus_manifest = build_replay_corpus_manifest(
         REPO / "ReplayExample", "a" * 64)
+    discovered_corpus_files = len(list(
+        (REPO / "ReplayExample").glob("*.bin")))
     corpus_manifest_ok = (
         corpus_manifest["ok"]
-        and corpus_manifest["summary"]["files"] == 10
-        and corpus_manifest["summary"]["characterized"] == 10
-        and corpus_manifest["summary"]["direct_input_extraction"] == 4
-        and corpus_manifest["summary"]["needs_test_selection_override"] == 6
+        and corpus_manifest["summary"]["files"]
+            == discovered_corpus_files
+        and corpus_manifest["summary"]["characterized"]
+            == discovered_corpus_files
+        and corpus_manifest["summary"]["direct_input_extraction"]
+            + corpus_manifest["summary"]["needs_test_selection_override"]
+            == discovered_corpus_files
         and len({
             entry["sha256"] for entry in corpus_manifest["entries"]
-        }) == 10
+        }) == discovered_corpus_files
         and sum(
             entry["base_game_state_oracle"]["compatible"] is False
             for entry in corpus_manifest["entries"]
@@ -13071,6 +13375,47 @@ def selftest(*, policy_only: bool = False) -> int:
             entry["classification"] == "static-corpus-inventory"
             for entry in [corpus_manifest]
         )
+    )
+    corpus_expected_replays = [
+        {"sha256": entry["sha256"]}
+        for entry in corpus_manifest["entries"]
+    ]
+    corpus_candidate_report = {
+        "ok": True,
+        "verdict": "pass",
+        "transport": STEAM_BETA_TRANSPORT,
+        "input_source": "replay",
+        "artifact_sha256": "a" * 64,
+        "runner_sha256": "b" * 64,
+        "manifest": {"entries": corpus_manifest["entries"]},
+        "cases": {
+            entry["sha256"]: {
+                "status": "pass",
+                "replay_sha256": entry["sha256"],
+                "metadata": {
+                    "left_style_id": entry["characters"]["left"]["style_id"],
+                    "right_style_id": entry["characters"]["right"]["style_id"],
+                    "stage_index": index,
+                },
+            }
+            for index, entry in enumerate(corpus_manifest["entries"])
+        },
+    }
+    corpus_candidate_inventory_ok = (
+        not replay_corpus_local_coverage_failures(
+            corpus_candidate_report, "a" * 64, "b" * 64,
+            corpus_expected_replays)
+        and "corpus-candidate-inventory-mismatch"
+            in replay_corpus_local_coverage_failures(
+                corpus_candidate_report, "a" * 64, "b" * 64,
+                corpus_expected_replays[:-1])
+        and "corpus-candidate-inventory-mismatch"
+            in replay_corpus_local_coverage_failures(
+                corpus_candidate_report | {
+                    "cases": dict(list(
+                        corpus_candidate_report["cases"].items())[1:]),
+                },
+                "a" * 64, "b" * 64, corpus_expected_replays)
     )
     corpus_override_entry = next(
         entry for entry in corpus_manifest["entries"]
@@ -13941,7 +14286,9 @@ def selftest(*, policy_only: bool = False) -> int:
         and "bind_observed_stock_selection=1\n" in attach_request \
         and "replay_test_selection_override=0\n" in request \
         and "replay_test_selection_override=0\n" in attach_request \
-        and "replay_test_selection_override=1\n" in replay_override_request
+        and "replay_test_selection_override=1\n" in replay_override_request \
+        and "save_policy=every-advance\n" in save_policy_ab_request \
+        and "lead_pacing=1\n" in save_policy_ab_request
     synthetic = [
         {
             "state": ACTIVE_STATE,
@@ -18963,6 +19310,7 @@ def selftest(*, policy_only: bool = False) -> int:
         and prepoll_cleanup_evidence_ok \
         and role_local_epoch_sequence_ok \
         and corpus_manifest_ok \
+        and corpus_candidate_inventory_ok \
         and replay_override_scope_ok \
         and replay_selection_evidence_ok \
         and corpus_identity_ok \
@@ -19085,6 +19433,7 @@ def selftest(*, policy_only: bool = False) -> int:
         f" role_local_epoch_sequence={int(role_local_epoch_sequence_ok)}"
         f" carried_authority={int(carried_authority_source_ok)}"
         f" replay_corpus={int(corpus_manifest_ok)}"
+        f" replay_candidate_inventory={int(corpus_candidate_inventory_ok)}"
         f" replay_override_scope={int(replay_override_scope_ok)}"
         f" replay_corpus_identity={int(corpus_identity_ok)}"
         f" replay_corpus_limit={int(corpus_limit_ok)}"
@@ -19482,7 +19831,7 @@ def local_child_evidence_failures(
 
 def replay_corpus_local_coverage_failures(
         report: dict[str, Any], artifact_hash: str,
-        runner_hash: str, minimum_cases: int = 14,
+        runner_hash: str, expected_replays: list[dict[str, Any]],
         minimum_content_pairs: int = 4) -> list[str]:
     failures: list[str] = []
     if report.get("ok") is not True \
@@ -19498,9 +19847,33 @@ def replay_corpus_local_coverage_failures(
     cases_value = report.get("cases", {})
     cases = list(cases_value.values()) \
         if isinstance(cases_value, dict) else list(cases_value or [])
+    expected_hashes = {
+        str(entry.get("sha256") or "").lower()
+        for entry in expected_replays
+        if valid_sha256_text(str(entry.get("sha256") or "").lower())
+    }
+    observed_hashes = {
+        str(case.get("replay_sha256") or "").lower()
+        for case in cases
+        if valid_sha256_text(str(case.get("replay_sha256") or "").lower())
+    }
+    if len(expected_hashes) != len(expected_replays):
+        failures.append("corpus-candidate-inventory-invalid")
+    if observed_hashes != expected_hashes:
+        failures.append("corpus-candidate-inventory-mismatch")
+    report_manifest_entries = report.get("manifest", {}).get("entries", [])
+    report_manifest_hashes = {
+        str(entry.get("sha256") or "").lower()
+        for entry in report_manifest_entries
+        if isinstance(entry, dict)
+        and valid_sha256_text(str(entry.get("sha256") or "").lower())
+    }
+    if report_manifest_hashes != expected_hashes:
+        failures.append("corpus-report-manifest-mismatch")
     passed = [case for case in cases if case.get("status") == "pass"]
-    if len(passed) < minimum_cases:
-        failures.append(f"corpus-passed={len(passed)}/{minimum_cases}")
+    if len(passed) != len(expected_hashes):
+        failures.append(
+            f"corpus-passed={len(passed)}/{len(expected_hashes)}")
     content_pairs = {
         (
             _trace_int(case.get("metadata", {}).get("left_style_id"), -1),
@@ -19539,7 +19912,7 @@ def expected_full_local_stage_names(soak_matches: int) -> list[str]:
     ]
     names.extend(f"matrix:{case[0]}" for case in BETA_MATRIX_CASES)
     names.extend([
-        "replay-corpus-all14",
+        "replay-corpus-candidate",
         "replay-corpus-content-coverage",
         "native-two-controller-attach",
     ])
@@ -19969,7 +20342,7 @@ def local_beta_gate(args: argparse.Namespace) -> int:
             print(f"report={report_path}")
             return 1
 
-    corpus_report = evidence_dir / "replay-corpus-all14.json"
+    corpus_report = evidence_dir / "replay-corpus-candidate.json"
     corpus_command = [
         sys.executable, str(Path(__file__).resolve()),
         "--replay-corpus", str(args.local_beta_replay_corpus),
@@ -19997,7 +20370,7 @@ def local_beta_gate(args: argparse.Namespace) -> int:
         "--expected-runner-sha256", runner_hash,
         "--report", str(corpus_report),
     ]
-    if not run_stage("replay-corpus-all14", corpus_command, 21600):
+    if not run_stage("replay-corpus-candidate", corpus_command, 21600):
         print(f"report={report_path}")
         return 1
     try:
@@ -20006,10 +20379,12 @@ def local_beta_gate(args: argparse.Namespace) -> int:
     except (OSError, ValueError):
         corpus_value = {}
     corpus_failures = replay_corpus_local_coverage_failures(
-        corpus_value, artifact_hash, runner_hash)
+        corpus_value, artifact_hash, runner_hash,
+        list(candidate.get("qualification_contract", {}).get(
+            "replay_corpus", {}).get("replays", [])))
     aggregate["stages"].append({
         "name": "replay-corpus-content-coverage",
-        "aggregate_children": ["replay-corpus-all14"],
+        "aggregate_children": ["replay-corpus-candidate"],
         "failures": corpus_failures,
         "ok": not corpus_failures,
     })
@@ -20378,9 +20753,11 @@ def local_stage_semantic_failures(
             ("golden-manifest", child.get("manifest_sha256") == contract.get(
                 "trusted_golden_manifest", {}).get("sha256")),
         ) if not ok]
-    if stage_name == "replay-corpus-all14":
+    if stage_name == "replay-corpus-candidate":
         return replay_corpus_local_coverage_failures(
-            child, artifact_hash, runner_hash)
+            child, artifact_hash, runner_hash,
+            list(candidate.get("qualification_contract", {}).get(
+                "replay_corpus", {}).get("replays", [])))
     if stage_name == "native-two-controller-attach":
         return validate_manual_attach_certification(
             child, artifact_hash, runner_hash,
@@ -20529,10 +20906,10 @@ def beta_release_bundle_failures(
             if stage_name == "replay-corpus-content-coverage":
                 parent = next((item for item in local.get("stages", [])
                                if item.get("name")
-                               == "replay-corpus-all14"), None)
+                               == "replay-corpus-candidate"), None)
                 if not isinstance(parent, dict) \
                         or stage.get("aggregate_children") \
-                            != ["replay-corpus-all14"] \
+                            != ["replay-corpus-candidate"] \
                         or stage.get("ok") is not True \
                         or stage.get("failures"):
                     failures.append(
@@ -20902,6 +21279,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rollback-depth", type=int, default=6,
                         help="target replay correction depth; depth plus "
                              "input delay must fit the rollback window")
+    parser.add_argument(
+        "--test-forced-rollback-depth", type=int,
+        choices=(0, 1, 6, 11), default=0,
+        help="diagnostic-only: force this rollback depth on every owned "
+             "update; rejected by release qualification")
+    parser.add_argument(
+        "--test-every-advance-save-policy", action="store_true",
+        help="diagnostic-only: negotiate EveryAdvance without forced "
+             "rollback for identical-input save-policy A/B; rejected by "
+             "local and release qualification")
     parser.add_argument("--fault-seed", type=lambda value: int(value, 0),
                         default=0x5C6B5001)
     parser.add_argument(
@@ -21236,6 +21623,15 @@ def _main(args: argparse.Namespace) -> int:
             "report-evidence-path-exists:" + str(args.report),
             file=sys.stderr,
         )
+        return 2
+    if args.beta_release_gate and args.test_forced_rollback_depth:
+        print("forced rollback is diagnostic evidence, not release evidence",
+              file=sys.stderr)
+        return 2
+    if (args.beta_release_gate or args.local_beta_gate) \
+            and args.test_every_advance_save_policy:
+        print("EveryAdvance is diagnostic A/B evidence, not release evidence",
+              file=sys.stderr)
         return 2
     if args.beta_release_gate:
         return beta_release_gate(args)

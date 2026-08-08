@@ -44,11 +44,16 @@ Install the resulting file on both PCs at:
 The minimal profile is:
 
 ```ini
-config_version=2
+config_version=3
 enabled=true
 transport=steam-p2p
 rollback_window=12
 input_delay=1
+save_policy=confirmed-speculative
+lead_pacing=true
+lead_pacing_enter=1.5
+lead_pacing_exit=0.5
+lead_pacing_max_holds=2
 trace=true
 ```
 
@@ -90,6 +95,31 @@ delay-based simulation after rollback owns the native tick.
 
 ## Qualification before distribution
 
+Do not freeze a candidate while either
+`snapshot_evidence_split_active=false` or
+`snapshot_anchor_events_observable=false` appears in an active production
+status record. Those fields deliberately keep qualification closed until an
+Advance captures only lightweight evidence and Gekko reports real promotion,
+eviction, fallback, and capacity events. Zero-valued placeholder counters are
+not evidence.
+
+Before candidate freeze, run the request-file-only forced rollback diagnostic
+at depths 1, 6, and 11. Every active status must report
+`forced_rollback_completed_updates == forced_rollback_eligible_updates`, and
+the latter must be nonzero. Run the complete candidate replay inventory at
+depth 6 and the trusted representative cases at depths 1 and 11 for at least
+600 active frames. Forced rollback selects `EveryAdvance` only for that
+diagnostic; the release runner rejects forced rollback evidence.
+
+An identical-input `EveryAdvance` versus `ConfirmedSpeculative` comparison is
+also required before freeze. Compare every named fencepost, canonical and
+component hashes, input history, terminal digest, side-effect counts, and final
+state. Add `--test-every-advance-save-policy` to the diagnostic corpus command
+for the `EveryAdvance` half; omit it for the optimized half. The option is
+request-file-only, keeps lead pacing unchanged, and is rejected by local and
+release qualification. Do not generate trusted goldens until this comparison
+and the strict normal-render oracle are clean.
+
 Freeze the candidate only after the runner and DLL have been built. Candidate
 manifests are immutable and bind the Steam transport, protocol/snapshot
 versions, source commit/diff identity, runner SHA-256, DLL SHA-256, replay
@@ -122,7 +152,8 @@ python tools\rollback_two_client_acceptance_run.py `
 ```
 
 The full local gate consumes that report and executes the ON/OFF CMake matrix,
-Steam/Sandboxie profile and seed matrix, all 14 replays, recovery cases,
+the candidate-manifest-bound Steam/Sandboxie profile/seed matrix and exact
+replay inventory, recovery cases,
 both-role bounded worker stalls, a duplicate-only profile, a one-hour
 same-process lobby/match lifecycle soak, a separate one-hour continuous
 session soak with process resource telemetry, and strict replay:

@@ -7,11 +7,16 @@
 int main()
 {
     const std::string steam =
-        "config_version=2\n"
+        "config_version=3\n"
         "enabled=true\n"
         "transport=steam-p2p\n"
         "rollback_window=12\n"
         "input_delay=1\n"
+        "save_policy=confirmed-speculative\n"
+        "lead_pacing=true\n"
+        "lead_pacing_enter=1.5\n"
+        "lead_pacing_exit=0.5\n"
+        "lead_pacing_max_holds=2\n"
         "trace=false\n";
     Horse::RollbackBetaConfig steam_config {};
     const bool steam_valid =
@@ -62,7 +67,7 @@ int main()
 
     Horse::RollbackBetaConfig missing {};
     const bool missing_rejected = !Horse::ParseRollbackBetaConfig(
-            "config_version=2\nenabled=true\n",
+            "config_version=3\nenabled=true\n",
             missing)
         && std::strcmp(
             missing.failure,
@@ -124,7 +129,7 @@ int main()
     unsupported_text.replace(
         unsupported_text.find("config_version=1"),
         std::strlen("config_version=1"),
-        "config_version=3");
+        "config_version=4");
     const bool unsupported_rejected =
         !Horse::ParseRollbackBetaConfig(
             unsupported_text, unsupported)
@@ -138,22 +143,23 @@ int main()
         std::strlen("config_version=1"),
         "config_version=2\ntransport=direct-udp");
     Horse::RollbackBetaConfig direct_v2_config {};
-    const bool direct_v2_valid =
-        Horse::ParseRollbackBetaConfig(direct_v2, direct_v2_config)
-        && direct_v2_config.transport
-            == Horse::RollbackBetaTransport::DirectUdp;
+    const bool direct_v2_rejected =
+        !Horse::ParseRollbackBetaConfig(direct_v2, direct_v2_config)
+        && std::strcmp(
+            direct_v2_config.failure,
+            "beta-config-upgrade-required") == 0;
 
     const bool ok = steam_valid && host_valid && guest_valid
         && missing_rejected && duplicate_rejected
         && unknown_rejected && malformed_secret_rejected
         && repeated_secret_rejected
         && invalid_host_rejected && unsupported_rejected
-        && direct_v2_valid;
+        && direct_v2_rejected;
     std::printf(
         "rollback beta config self-test %s steam=%d host=%d guest=%d "
         "missing=%d duplicate=%d unknown=%d malformed_secret=%d "
         "repeated_secret=%d "
-        "invalid_host=%d unsupported=%d direct_v2=%d\n",
+        "invalid_host=%d unsupported=%d direct_v2_rejected=%d\n",
         ok ? "passed" : "failed",
         steam_valid ? 1 : 0,
         host_valid ? 1 : 0,
@@ -165,6 +171,6 @@ int main()
         repeated_secret_rejected ? 1 : 0,
         invalid_host_rejected ? 1 : 0,
         unsupported_rejected ? 1 : 0,
-        direct_v2_valid ? 1 : 0);
+        direct_v2_rejected ? 1 : 0);
     return ok ? 0 : 1;
 }

@@ -6,7 +6,7 @@
 
 namespace Horse
 {
-    static constexpr uint32_t kRollbackReplayOracleSchemaVersion = 12;
+    static constexpr uint32_t kRollbackReplayOracleSchemaVersion = 13;
     static constexpr uint32_t kRollbackReplayOracleLegacyV2SchemaVersion = 2;
     static constexpr uint32_t kRollbackReplayOracleLegacyV3SchemaVersion = 3;
     static constexpr uint32_t kRollbackReplayOracleLegacyV4SchemaVersion = 4;

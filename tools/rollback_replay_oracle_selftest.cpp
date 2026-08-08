@@ -135,7 +135,7 @@ int main()
             == presentation;
 
     const bool ok =
-        kRollbackReplayOracleSchemaVersion == 12
+        kRollbackReplayOracleSchemaVersion == 13
         && kRollbackReplayOracleLegacyV2SchemaVersion == 2
         && kRollbackReplayOracleLegacyV3SchemaVersion == 3
         && kRollbackReplayOracleLegacyV4SchemaVersion == 4
@@ -182,6 +182,6 @@ int main()
         return 1;
     }
 
-    std::puts("rollback replay oracle self-test passed schema=12");
+    std::puts("rollback replay oracle self-test passed schema=13");
     return 0;
 }

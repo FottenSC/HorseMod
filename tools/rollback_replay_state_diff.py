@@ -302,7 +302,7 @@ def hit_cue_semantic_byte_difference(
             }
         offset += size
     return None
-ORACLE_SCHEMA_VERSION = 12
+ORACLE_SCHEMA_VERSION = 13
 AGGREGATE_FIELDS = ("oracle_gameplay_hash_v12",)
 PRESENTATION_FIELDS = (
     "oracle_presentation_hash",

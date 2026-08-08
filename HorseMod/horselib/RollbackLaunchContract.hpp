@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "RollbackRuntimePolicy.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -921,7 +923,7 @@ namespace Horse
         Accepted = 2,
     };
 
-    static constexpr uint8_t kRollbackSessionContractVersion = 1;
+    static constexpr uint8_t kRollbackSessionContractVersion = 2;
 
 #pragma pack(push, 1)
     struct RollbackSessionContractMessage
@@ -933,6 +935,12 @@ namespace Horse
         uint8_t local_is_host {0};
         uint16_t rollback_window {0};
         uint16_t input_delay {0};
+        RollbackSavePolicy save_policy {
+            RollbackSavePolicy::ConfirmedSpeculative};
+        uint8_t lead_pacing_enabled {1};
+        uint16_t lead_pacing_enter_milliframes {1500};
+        uint16_t lead_pacing_exit_milliframes {500};
+        uint8_t lead_pacing_maximum_holds {2};
         uint64_t lobby_id {0};
         uint64_t owner_steam_id {0};
         uint64_t local_steam_id {0};
@@ -946,7 +954,7 @@ namespace Horse
     };
 #pragma pack(pop)
 
-    static_assert(sizeof(RollbackSessionContractMessage) == 88);
+    static_assert(sizeof(RollbackSessionContractMessage) == 95);
 
     static constexpr bool RollbackSessionContractValid(
         const RollbackSessionContractMessage& message) noexcept
@@ -960,6 +968,13 @@ namespace Horse
             && message.local_is_host < 2
             && message.rollback_window != 0
             && message.input_delay <= message.rollback_window
+            && RollbackSavePolicyValid(message.save_policy)
+            && message.lead_pacing_enabled < 2
+            && message.lead_pacing_enter_milliframes != 0
+            && message.lead_pacing_exit_milliframes
+                < message.lead_pacing_enter_milliframes
+            && message.lead_pacing_maximum_holds != 0
+            && message.lead_pacing_maximum_holds <= 8
             && message.lobby_id != 0
             && message.owner_steam_id != 0
             && message.local_steam_id != 0
@@ -990,6 +1005,14 @@ namespace Horse
             && local.selection_hash == remote.selection_hash
             && local.rollback_window == remote.rollback_window
             && local.input_delay == remote.input_delay
+            && local.save_policy == remote.save_policy
+            && local.lead_pacing_enabled == remote.lead_pacing_enabled
+            && local.lead_pacing_enter_milliframes
+                == remote.lead_pacing_enter_milliframes
+            && local.lead_pacing_exit_milliframes
+                == remote.lead_pacing_exit_milliframes
+            && local.lead_pacing_maximum_holds
+                == remote.lead_pacing_maximum_holds
             && local.build_id == remote.build_id
             && local.schema_id == remote.schema_id
             && local.contract_hash == remote.contract_hash

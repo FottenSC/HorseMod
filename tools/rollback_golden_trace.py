@@ -19,7 +19,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 4
-ORACLE_SCHEMA_VERSION = 12
+ORACLE_SCHEMA_VERSION = 13
 RAW_ORACLE_CANONICALIZATION = "trusted-common-gameplay-json-sha256-v10"
 UNSTABLE_RAW_ORACLE_CANONICALIZATION = \
     "trusted-common-gameplay-json-sha256-v5"

@@ -545,6 +545,19 @@ namespace Horse
             return count;
         }
 
+        size_t valid_handles() const noexcept
+        {
+            size_t count = 0;
+            for (size_t i = 0; i < m_active_capacity; ++i)
+                if (m_slots[i].handle.valid()) ++count;
+            return count;
+        }
+
+        size_t active_capacity() const noexcept
+        {
+            return m_active_capacity;
+        }
+
         uint64_t saves() const noexcept { return m_saves; }
 
     private:

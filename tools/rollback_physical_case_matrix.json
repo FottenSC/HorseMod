@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "classification": "rollback-physical-case-policy",
-  "trace_contract_version": 1,
+  "trace_contract_version": 2,
   "cases": {
     "clean": {
       "runtime_profile": "clean_0ms",

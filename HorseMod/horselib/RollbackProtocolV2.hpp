@@ -30,7 +30,7 @@
 namespace Horse
 {
     static constexpr uint32_t kRollbackProtocolV2Magic = 0x32425248u;
-    static constexpr uint16_t kRollbackProtocolV2Version = 2;
+    static constexpr uint16_t kRollbackProtocolV2Version = 3;
     static constexpr size_t kRollbackProtocolV2TagBytes = 16;
     static constexpr size_t kRollbackProtocolV2NonceBytes = 16;
     // Steam's legacy k_EP2PSendUnreliable contract limits the complete

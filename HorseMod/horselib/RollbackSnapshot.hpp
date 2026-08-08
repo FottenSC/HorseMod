@@ -48,7 +48,7 @@ namespace Horse
     // packet/profile layouts, or production frame-summary semantics change.
     // schema_hash() includes both values, so a Horse runtime ABI mismatch is
     // rejected by the authenticated protocol before activation.
-    static constexpr uint32_t kRollbackRuntimeAbiVersion = 48;
+    static constexpr uint32_t kRollbackRuntimeAbiVersion = 49;
     static constexpr uint32_t kRollbackCanonicalSchemaVersion = 35;
 
     enum class RollbackCoverage : uint8_t

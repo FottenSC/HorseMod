@@ -13,11 +13,16 @@ import time
 from typing import Any
 
 from rollback_beta_config import parse_bool, parse_profile_text, read_profile
+from rollback_two_client_acceptance_run import (
+    ROLLBACK_PROTOCOL_VERSION,
+    ROLLBACK_SNAPSHOT_VERSION,
+    exact_runtime_metric_failures,
+)
 
 
-REPORT_SCHEMA_VERSION = 2
-TRACE_CONTRACT_VERSION = 1
-CANDIDATE_SCHEMA_VERSION = 5
+REPORT_SCHEMA_VERSION = 13
+TRACE_CONTRACT_VERSION = 2
+CANDIDATE_SCHEMA_VERSION = 6
 MATRIX_SCHEMA_VERSION = 1
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 TAG_KEYS = (
@@ -128,6 +133,9 @@ def candidate_bindings(candidate_path: Path, dll: Path, profile: Path,
         raise ValueError("candidate beta profile must enable trace=true")
     if not parse_bool(values["enabled"]):
         raise ValueError("candidate beta profile is disabled")
+    rollback_window = int(contract.get("rollback_window", -1))
+    if rollback_window <= 0 or rollback_window > 60:
+        raise ValueError("candidate rollback window is invalid")
     commit = str(candidate.get("git", {}).get("commit", "")).lower()
     if re.fullmatch(r"[0-9a-f]{40,64}", commit) is None:
         raise ValueError("candidate source commit is invalid")
@@ -140,6 +148,7 @@ def candidate_bindings(candidate_path: Path, dll: Path, profile: Path,
         "protocol_version": int(candidate.get("protocol_version", -1)),
         "snapshot_version": int(candidate.get("snapshot_version", -1)),
         "qualification_contract_sha256": str(contract.get("sha256", "")),
+        "rollback_window": rollback_window,
     }
 
 
@@ -319,6 +328,12 @@ def analyze_trace(trace_path: Path, *, case_id: str, segment_id: str,
             if value < prior_counters[key]:
                 raise ValueError(f"production counter {key} regresses")
             prior_counters[key] = value
+    metric_failures = exact_runtime_metric_failures(
+        statuses, bindings["rollback_window"])
+    if metric_failures:
+        raise ValueError(
+            "physical runtime metric contract failed: "
+            + ",".join(metric_failures))
     first, last = statuses[0], statuses[-1]
     for key in (*MONOTONIC_COUNTERS, "steam_route_current_rtt_us",
                 "steam_route_jitter_us"):
@@ -481,16 +496,79 @@ def _selftest_trace(tags: dict[str, Any], profile: str) -> str:
     counters = {key: 0 for key in MONOTONIC_COUNTERS}
     counters.update({"confirmed_frame": 0, "steam_route_current_rtt_us": 0,
                      "steam_route_jitter_us": 0})
+    runtime_metrics: dict[str, Any] = {
+        "state_name": "active",
+        "rollback_metric_contract_version": 1,
+        "metric_rollback_depth_conserved": True,
+        "metric_rollback_depth_saturated": False,
+        "metric_rollback_depth_bucket_count": 14,
+        "metric_rollback_depth_samples": 1,
+        "metric_rollback_depth_bucket_0": 1,
+        "metric_frame_lead_conserved": True,
+        "metric_frame_lead_saturated": False,
+        "metric_frame_lead_bucket_count": 35,
+        "metric_frame_lead_samples": 1,
+        "metric_frame_lead_bucket_17": 1,
+        "snapshot_slots_in_use": 0,
+        "snapshot_slots_peak": 0,
+        "snapshot_slot_capacity": 14,
+        "snapshot_bytes_in_use": 0,
+        "snapshot_bytes_peak": 0,
+        "snapshot_bytes_allocated": 1,
+        "snapshot_evictions": 0,
+        "snapshot_promotions": 0,
+        "snapshot_fallback_loads": 0,
+        "snapshot_evidence_split_active": True,
+        "snapshot_anchor_events_observable": True,
+        "saves": 0,
+        "metric_saves_baseline": 0,
+        "metric_saves_confirmed": 0,
+        "metric_saves_midpoint": 0,
+        "metric_saves_end": 0,
+        "forced_rollback_depth": 0,
+        "forced_rollback_eligible_updates": 0,
+        "forced_rollback_completed_updates": 0,
+    }
+    for name in (
+            "owned_tick", "rollback_transaction", "full_capture",
+            "evidence_capture", "restore", "verification"):
+        runtime_metrics.update({
+            f"metric_{name}_samples": 1,
+            f"metric_{name}_bucket_count": 13,
+            f"metric_{name}_bucket_0": 1,
+            f"metric_{name}_conserved": True,
+            f"metric_{name}_saturated": False,
+        })
+        for bucket in range(1, 13):
+            runtime_metrics[f"metric_{name}_bucket_{bucket}"] = 0
+    for bucket in range(1, 14):
+        runtime_metrics[f"metric_rollback_depth_bucket_{bucket}"] = 0
+    for bucket in range(35):
+        runtime_metrics.setdefault(f"metric_frame_lead_bucket_{bucket}", 0)
+    for effect_name, committed_key in (
+            ("audio", "audio_effects_committed"),
+            ("vfx", "vfx_effects_committed"),
+            ("camera", "camera_effects_committed"),
+            ("transition", "transitions_committed")):
+        runtime_metrics.update({
+            f"metric_effect_{effect_name}_produced_to_eligible_samples": 0,
+            f"metric_effect_{effect_name}_produced_to_eligible_total_frames": 0,
+            f"metric_effect_{effect_name}_produced_to_eligible_max_frames": 0,
+            f"metric_effect_{effect_name}_eligible_to_committed_samples": 0,
+            f"metric_effect_{effect_name}_eligible_to_committed_total_frames": 0,
+            f"metric_effect_{effect_name}_eligible_to_committed_max_frames": 0,
+            committed_key: 0,
+        })
     events = [
         {**base, "ts_qpc": 100, "event": "session_start"},
         {**base, **tags, "ts_qpc": 200,
          "event": "rollback_qualification_activation", "qpc_frequency": 10},
-        {**base, **tags, **counters, "ts_qpc": 210,
+        {**base, **tags, **counters, **runtime_metrics, "ts_qpc": 210,
          "event": "rollback_production_status", "service_tick": 1},
     ]
     counters.update({"confirmed_frame": 130,
                      "network_packets_authenticated": 2})
-    events.append({**base, **tags, **counters, "ts_qpc": 520,
+    events.append({**base, **tags, **counters, **runtime_metrics, "ts_qpc": 520,
                    "event": "rollback_production_status", "service_tick": 2})
     events.append({**base, **tags, **counters, "ts_qpc": 530,
                    "event": "rollback_qualification_terminal",
@@ -521,13 +599,15 @@ def selftest() -> int:
             "qualification_schedule_hash": schedule_hash,
             "runtime_profile": "clean_0ms",
             "qualification_seed": 7,
-            "protocol_version": 2,
-            "snapshot_version": 38,
+            "protocol_version": ROLLBACK_PROTOCOL_VERSION,
+            "snapshot_version": ROLLBACK_SNAPSHOT_VERSION,
             "qualification_role": "host",
         }
         trace = root / "trace.jsonl"
         trace.write_text(_selftest_trace(tags, "clean_0ms"), encoding="utf-8")
-        bindings = {"protocol_version": 2, "snapshot_version": 38,
+        bindings = {"protocol_version": ROLLBACK_PROTOCOL_VERSION,
+                    "snapshot_version": ROLLBACK_SNAPSHOT_VERSION,
+                    "rollback_window": 12,
                     "candidate_manifest_sha256": "b" * 64,
                     "candidate_dll_sha256": "c" * 64,
                     "beta_profile_sha256": "d" * 64,
@@ -591,6 +671,42 @@ def selftest() -> int:
             changed_tags_rejected = False
         except ValueError:
             changed_tags_rejected = True
+        missing_metrics = root / "missing-metrics.jsonl"
+        missing_events = [
+            json.loads(line) for line in
+            trace.read_text(encoding="utf-8").splitlines()
+        ]
+        for event in missing_events:
+            if event.get("event") == "rollback_production_status":
+                event.pop("metric_frame_lead_bucket_0", None)
+        missing_metrics.write_text(
+            "".join(json.dumps(event, sort_keys=True) + "\n"
+                    for event in missing_events),
+            encoding="utf-8")
+        try:
+            analyze_trace(
+                missing_metrics, case_id="clean", segment_id="active",
+                role="host", run_id="run-selftest",
+                schedule_hash=schedule_hash, seed=7, policy=policy,
+                bindings=bindings)
+            missing_metrics_rejected = False
+        except ValueError:
+            missing_metrics_rejected = True
+        impossible_aggregate = json.loads(
+            trace.read_text(encoding="utf-8").splitlines()[2])
+        impossible_aggregate.update({
+            "audio_effects_committed": 1,
+            "metric_effect_audio_produced_to_eligible_samples": 1,
+            "metric_effect_audio_produced_to_eligible_total_frames": 10,
+            "metric_effect_audio_produced_to_eligible_max_frames": 5,
+            "metric_effect_audio_eligible_to_committed_samples": 1,
+            "metric_effect_audio_eligible_to_committed_total_frames": 10,
+            "metric_effect_audio_eligible_to_committed_max_frames": 5,
+        })
+        impossible_aggregate_rejected = any(
+            failure == "runtime-effect-aggregate-invalid:audio"
+            for failure in exact_runtime_metric_failures(
+                [impossible_aggregate], bindings["rollback_window"]))
         matrix = load_matrix(Path(__file__).with_name(
             "rollback_physical_case_matrix.json"))
         threshold_cases_rejected = all(
@@ -617,7 +733,9 @@ def selftest() -> int:
             for case_policy in matrix["cases"].values())
     ok = (valid and altered_report_rejected and one_line_rejected
           and truncated_rejected and mixed_rejected
-          and changed_tags_rejected and threshold_cases_rejected)
+          and changed_tags_rejected and missing_metrics_rejected
+          and impossible_aggregate_rejected
+          and threshold_cases_rejected)
     print("rollback physical case self-test "
           f"valid={int(valid)} altered_report_rejected="
           f"{int(altered_report_rejected)} "
@@ -625,6 +743,9 @@ def selftest() -> int:
           f"truncated_rejected={int(truncated_rejected)} "
           f"mixed_rejected={int(mixed_rejected)} "
           f"changed_tags_rejected={int(changed_tags_rejected)} "
+          f"missing_metrics_rejected={int(missing_metrics_rejected)} "
+          f"impossible_aggregate_rejected="
+          f"{int(impossible_aggregate_rejected)} "
           f"threshold_cases_rejected={int(threshold_cases_rejected)}")
     return 0 if ok else 1
 

@@ -3,17 +3,18 @@
 Physical qualification is trace-derived and candidate-bound. Operator-authored
 counters and schema-1 per-machine reports are not evidence. All commands must
 use the exact candidate DLL, `trace=true` beta profile, and
-`rollback_physical_case_matrix.json` frozen into candidate schema 5.
+`rollback_physical_case_matrix.json` frozen into the candidate manifest.
 
-The runtime contract is protocol 2, snapshot 37, physical manifest 5, and
-per-machine report 2. Normal rendering is mandatory; `lux-no-render` is never
-release evidence.
+Protocol, snapshot, candidate, trace, physical-manifest, and per-machine
+report versions are read from and validated against the immutable candidate;
+operators must not transcribe them from this runbook. Normal rendering is
+mandatory; `lux-no-render` is never release evidence.
 
 ## Initialize
 
 Create the candidate manifest only after the repository and recursive
-submodules are clean. Candidate creation parses the schema-4/oracle-12 trusted
-golden manifest before writing anything.
+submodules are clean. Candidate creation validates the trusted-golden schema
+and oracle contract before writing anything.
 
 ```powershell
 python tools\rollback_two_client_acceptance_run.py `
@@ -29,8 +30,8 @@ python tools\rollback_two_machine_qualification.py `
   --guest-endpoint steam:<GUEST_STEAM_ID64>
 ```
 
-Initialization derives commit, DLL, protocol, snapshot, profile, matrix, and
-tool hashes from the candidate. Steam endpoints are bound to the inverse
+Initialization derives commit, DLL, protocol, snapshot, replay/golden/profile
+inventory, matrix, and tool hashes from the candidate. Steam endpoints are bound to the inverse
 runtime Steam ID64 values. Machine names remain explicit operator attestations;
 the tooling does not claim hardware-backed machine identity.
 

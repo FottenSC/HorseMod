@@ -459,6 +459,41 @@ namespace Horse
         return hash.value ? hash.value : 1;
     }
 
+    static inline uint64_t RollbackStepStateReservedBytes(
+        const RollbackStepState& state) noexcept
+    {
+        uint64_t total = sizeof(RollbackStepState);
+        const auto add = [&total](const auto& values) noexcept {
+            using Value = typename std::decay_t<decltype(values)>::value_type;
+            const uint64_t bytes = static_cast<uint64_t>(values.capacity())
+                * static_cast<uint64_t>(sizeof(Value));
+            total = total > UINT64_MAX - bytes ? UINT64_MAX : total + bytes;
+        };
+        add(state.hgcpu.bytes);
+        add(state.palette_variants.payload);
+        add(state.palette_variants.writer_nodes);
+        for (const auto& topology : state.hgcpu.khit_topology)
+            add(topology.nodes);
+        add(state.hgcpu.motion_banks.control_bytes);
+        add(state.hgcpu.motion_banks.bytes);
+        add(state.hgcpu.motion_tail.bytes);
+        const auto& skeleton = state.hgcpu.skeleton_runtime;
+        add(skeleton.inline_bytes);
+        add(skeleton.aux_nodes);
+        for (const auto& node : skeleton.aux_nodes) add(node.bytes);
+        add(skeleton.chains);
+        add(skeleton.spring_nodes);
+        for (const auto& node : skeleton.spring_nodes) add(node.bytes);
+        const auto& timer = state.hgcpu.timer_node;
+        add(timer.root_bytes);
+        add(timer.backing_bytes);
+        add(timer.nodes);
+        add(state.explicit_snapshot.bytes);
+        add(state.explicit_snapshot.ranges);
+        add(state.breakable_stage.records);
+        return total;
+    }
+
     using RollbackProductionStepStateStorageIdentity =
         RollbackStepStateStorageIdentity<
             kRollbackSkeletonMaxAuxNodes,

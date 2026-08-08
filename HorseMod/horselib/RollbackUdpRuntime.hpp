@@ -20,6 +20,7 @@
 #include "RollbackFrameStamp.hpp"
 #include "RollbackFaultInject.hpp"
 #include "RollbackLaunchContract.hpp"
+#include "RollbackRuntimePolicy.hpp"
 #include "RollbackProtocolV2.hpp"
 #include "RollbackStateHash.hpp"
 
@@ -58,7 +59,7 @@ namespace Horse
             || domain == RollbackSessionDomain::ReplayForkLab;
     }
 
-    static constexpr uint8_t kRollbackUdpHandshakeProfileVersion = 8;
+    static constexpr uint8_t kRollbackUdpHandshakeProfileVersion = 9;
     static constexpr uint32_t kRollbackUdpHeartbeatMs = 250;
     static constexpr uint32_t kRollbackUdpReadinessExpiryMs = 2000;
     static constexpr uint32_t kRollbackUdpReopenMinMs = 250;
@@ -74,11 +75,17 @@ namespace Horse
         uint8_t native_input_source_slot {0};
         uint16_t rollback_window {0};
         uint16_t input_delay {0};
+        RollbackSavePolicy save_policy {
+            RollbackSavePolicy::ConfirmedSpeculative};
+        uint8_t lead_pacing_enabled {1};
+        uint16_t lead_pacing_enter_milliframes {1500};
+        uint16_t lead_pacing_exit_milliframes {500};
+        uint8_t lead_pacing_maximum_holds {2};
         RollbackNetworkProfileKind network_profile {
             RollbackNetworkProfileKind::Clean0ms};
         RollbackSessionDomain session_domain {
             RollbackSessionDomain::Production};
-        uint8_t reserved8[2] {};
+        uint8_t diagnostic_forced_rollback_depth {0};
         uint32_t fault_seed {0};
         uint32_t expected_native_stage_identity {0};
         uint32_t fixture_id {0};
@@ -107,7 +114,7 @@ namespace Horse
     };
 #pragma pack(pop)
 
-    static_assert(sizeof(RollbackUdpHandshakeProfile) == 166);
+    static_assert(sizeof(RollbackUdpHandshakeProfile) == 172);
 
     struct RollbackSequenceStamp
     {
@@ -172,6 +179,9 @@ namespace Horse
         std::string secret;
         uint16_t rollback_window {12};
         uint16_t input_delay {1};
+        RollbackSavePolicy save_policy {
+            RollbackSavePolicy::ConfirmedSpeculative};
+        RollbackLeadPacingConfig lead_pacing {};
         RollbackDeterministicInputConfig deterministic_input {};
         std::string replay_input_file;
         RollbackReplayInputConfig replay_input {};
@@ -191,6 +201,9 @@ namespace Horse
         // snapshot semantics.
         uint32_t test_worker_stall_after_ms {0};
         uint32_t test_worker_stall_duration_ms {0};
+        // Request-file-only correctness stress. Persistent beta parsing never
+        // populates this field and release tooling rejects nonzero values.
+        uint8_t test_forced_rollback_depth {0};
         uint64_t expected_build_id {0};
         uint64_t expected_schema_id {0};
         uint32_t expected_native_stage_identity {0};
@@ -216,6 +229,15 @@ namespace Horse
                 && rollback_window <= 60
                 && input_delay != 0
                 && input_delay <= rollback_window
+                && RollbackSavePolicyValid(save_policy)
+                && lead_pacing.valid()
+                && (test_forced_rollback_depth == 0
+                    || (test_forced_rollback_depth
+                            <= rollback_window - input_delay
+                        && (test_forced_rollback_depth == 1
+                            || test_forced_rollback_depth == 6
+                            || test_forced_rollback_depth
+                                == rollback_window - input_delay)))
                 && test_worker_stall_duration_ms <= 1000
                 && ((test_worker_stall_after_ms == 0
                         && test_worker_stall_duration_ms == 0)
@@ -283,6 +305,14 @@ namespace Horse
             && left.secret == right.secret
             && left.rollback_window == right.rollback_window
             && left.input_delay == right.input_delay
+            && left.save_policy == right.save_policy
+            && left.lead_pacing.enabled == right.lead_pacing.enabled
+            && left.lead_pacing.enter_frames
+                == right.lead_pacing.enter_frames
+            && left.lead_pacing.exit_frames
+                == right.lead_pacing.exit_frames
+            && left.lead_pacing.maximum_consecutive_holds
+                == right.lead_pacing.maximum_consecutive_holds
             && left.deterministic_input.hash()
                 == right.deterministic_input.hash()
             && left.replay_input_file == right.replay_input_file
@@ -302,6 +332,8 @@ namespace Horse
                 == right.test_worker_stall_after_ms
             && left.test_worker_stall_duration_ms
                 == right.test_worker_stall_duration_ms
+            && left.test_forced_rollback_depth
+                == right.test_forced_rollback_depth
             && left.expected_build_id == right.expected_build_id
             && left.expected_schema_id == right.expected_schema_id
             && left.expected_native_stage_identity
@@ -325,6 +357,13 @@ namespace Horse
         hash.add_scalar(config.expected_schema_id);
         hash.add_scalar(config.rollback_window);
         hash.add_scalar(config.input_delay);
+        hash.add_scalar(static_cast<uint8_t>(config.save_policy));
+        hash.add_scalar(config.lead_pacing.enabled);
+        hash.add_scalar(RollbackFramesToMilliframes(
+            config.lead_pacing.enter_frames));
+        hash.add_scalar(RollbackFramesToMilliframes(
+            config.lead_pacing.exit_frames));
+        hash.add_scalar(config.lead_pacing.maximum_consecutive_holds);
         hash.add_scalar(static_cast<uint8_t>(config.lifecycle_mode));
         hash.add_scalar(static_cast<uint8_t>(config.session_domain));
         hash.add_scalar(static_cast<uint8_t>(config.network_profile));
@@ -1613,6 +1652,19 @@ namespace Horse
                 m_config.native_input_source_slot;
             profile.rollback_window = m_config.rollback_window;
             profile.input_delay = m_config.input_delay;
+            profile.save_policy = m_config.save_policy;
+            profile.lead_pacing_enabled =
+                m_config.lead_pacing.enabled ? 1u : 0u;
+            profile.lead_pacing_enter_milliframes =
+                RollbackFramesToMilliframes(
+                    m_config.lead_pacing.enter_frames);
+            profile.lead_pacing_exit_milliframes =
+                RollbackFramesToMilliframes(
+                    m_config.lead_pacing.exit_frames);
+            profile.lead_pacing_maximum_holds =
+                m_config.lead_pacing.maximum_consecutive_holds;
+            profile.diagnostic_forced_rollback_depth =
+                m_config.test_forced_rollback_depth;
             profile.network_profile = m_config.network_profile;
             profile.fault_seed = m_config.fault_seed;
             profile.expected_native_stage_identity =
@@ -1680,6 +1732,19 @@ namespace Horse
                 && source_policy_matches
                 && peer.rollback_window == m_config.rollback_window
                 && peer.input_delay == m_config.input_delay
+                && peer.save_policy == m_config.save_policy
+                && peer.lead_pacing_enabled
+                    == (m_config.lead_pacing.enabled ? 1u : 0u)
+                && peer.lead_pacing_enter_milliframes
+                    == RollbackFramesToMilliframes(
+                        m_config.lead_pacing.enter_frames)
+                && peer.lead_pacing_exit_milliframes
+                    == RollbackFramesToMilliframes(
+                        m_config.lead_pacing.exit_frames)
+                && peer.lead_pacing_maximum_holds
+                    == m_config.lead_pacing.maximum_consecutive_holds
+                && peer.diagnostic_forced_rollback_depth
+                    == m_config.test_forced_rollback_depth
                 && peer.network_profile == m_config.network_profile
                 && peer.fault_seed == m_config.fault_seed
                 && peer.fixture_id
@@ -1732,8 +1797,7 @@ namespace Horse
                         && peer.replay_anchor_round == -1
                         && peer.replay_anchor_master == -1
                         && peer.replay_run_nonce_hash == 0))
-                && peer.reserved8[0] == 0
-                && peer.reserved8[1] == 0;
+                ;
         }
 
         bool receive_one(const Clock::time_point now) noexcept

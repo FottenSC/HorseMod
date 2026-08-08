@@ -24,6 +24,7 @@
 #include "RollbackNativeTerminalGate.hpp"
 #include "RollbackProductionActiveGuard.hpp"
 #include "RollbackPeerLiveness.hpp"
+#include "RollbackPerformanceTelemetry.hpp"
 #include "RollbackProductionSummary.hpp"
 #include "RollbackCarriedStateTransaction.hpp"
 #include "RollbackCharaPresentation.hpp"
@@ -153,23 +154,30 @@ namespace Horse
     {
     public:
         RollbackNanosecondCounterScope(
-            uint64_t& total, uint64_t& calls) noexcept
+            uint64_t& total, uint64_t& calls,
+            RollbackDurationHistogram* histogram = nullptr) noexcept
             : m_total(total), m_calls(calls),
+              m_histogram(histogram),
               m_started(std::chrono::steady_clock::now())
         {
         }
 
         ~RollbackNanosecondCounterScope() noexcept
         {
-            m_total += static_cast<uint64_t>(
+            const uint64_t elapsed = static_cast<uint64_t>(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(
                     std::chrono::steady_clock::now() - m_started).count());
+            m_total += elapsed;
             ++m_calls;
+            if (m_histogram)
+                m_histogram->observe(
+                    elapsed, kRollbackDurationBucketUpperNanoseconds);
         }
 
     private:
         uint64_t& m_total;
         uint64_t& m_calls;
+        RollbackDurationHistogram* m_histogram;
         std::chrono::steady_clock::time_point m_started;
     };
 
@@ -1189,6 +1197,33 @@ namespace Horse
         uint64_t native_tick_calls {0};
         uint64_t transition_capture_nanoseconds {0};
         uint64_t transition_capture_calls {0};
+        RollbackPerformanceTelemetry performance {};
+        float gekko_frames_ahead {0.0f};
+        int32_t exact_confirmed_input_frame {-1};
+        uint32_t exact_confirmed_input_high_water {0};
+        bool exact_confirmed_input_valid {false};
+        uint64_t exact_confirmed_plateaus {0};
+        uint64_t lead_pacing_holds {0};
+        uint64_t lead_pacing_forced_advances {0};
+        uint8_t lead_pacing_consecutive_holds {0};
+        uint8_t forced_rollback_depth {0};
+        uint64_t forced_rollback_eligible_updates {0};
+        uint64_t forced_rollback_completed_updates {0};
+        uint32_t snapshot_slots_in_use {0};
+        uint32_t snapshot_slots_peak {0};
+        uint32_t snapshot_slot_capacity {0};
+        uint64_t snapshot_bytes_in_use {0};
+        uint64_t snapshot_bytes_peak {0};
+        uint64_t snapshot_bytes_allocated {0};
+        uint64_t snapshot_evictions {0};
+        uint64_t snapshot_promotions {0};
+        uint64_t snapshot_fallback_loads {0};
+        // These remain false until Advance no longer performs a full
+        // RollbackStepState capture and Gekko exposes anchor lifecycle
+        // events. Qualification fails closed instead of treating zero-valued
+        // placeholder counters as optimization evidence.
+        bool snapshot_evidence_split_active {false};
+        bool snapshot_anchor_events_observable {false};
         uint64_t production_simulation_tick_calls {0};
         uint64_t owned_simulation_organic_entries {0};
         uint64_t owned_simulation_service_checks {0};
@@ -2448,6 +2483,7 @@ namespace Horse
                 return;
             }
             m_local_summaries = {};
+            m_frame_evidence = {};
             m_remote_summaries = {};
             m_local_summary_valid = {};
             m_remote_summary_valid = {};
@@ -3672,6 +3708,8 @@ namespace Horse
             m_first_advance_frame.clear();
             m_last_summary_published.clear();
             m_pending_effect_confirmation.clear();
+            m_exact_eligibility_frames = {};
+            m_exact_eligibility_observed_at = {};
             m_pending_presentation_checkpoint = {};
             m_last_model_reconciliation_frame.clear();
             m_model_reconciliation_pending = false;
@@ -3705,6 +3743,7 @@ namespace Horse
             m_active_replay_input_config = {};
             m_replay_input_submission_hash = {};
             m_local_summaries = {};
+            m_frame_evidence = {};
             m_remote_summaries = {};
             m_local_summary_valid = {};
             m_remote_summary_valid = {};
@@ -4442,6 +4481,17 @@ namespace Horse
                     != m_steam_session_identity.selection_hash
                 || contract.rollback_window != m_config.rollback_window
                 || contract.input_delay != m_config.input_delay
+                || contract.save_policy != m_config.save_policy
+                || contract.lead_pacing_enabled
+                    != (m_config.lead_pacing.enabled ? 1u : 0u)
+                || contract.lead_pacing_enter_milliframes
+                    != RollbackFramesToMilliframes(
+                        m_config.lead_pacing.enter_frames)
+                || contract.lead_pacing_exit_milliframes
+                    != RollbackFramesToMilliframes(
+                        m_config.lead_pacing.exit_frames)
+                || contract.lead_pacing_maximum_holds
+                    != m_config.lead_pacing.maximum_consecutive_holds
                 || contract.build_id != m_config.expected_build_id
                 || contract.schema_id != m_config.expected_schema_id
                 || contract.contract_hash != expected_hash)
@@ -4525,6 +4575,17 @@ namespace Horse
                         ? 1u : 0u;
                 local.rollback_window = m_config.rollback_window;
                 local.input_delay = m_config.input_delay;
+                local.save_policy = m_config.save_policy;
+                local.lead_pacing_enabled =
+                    m_config.lead_pacing.enabled ? 1u : 0u;
+                local.lead_pacing_enter_milliframes =
+                    RollbackFramesToMilliframes(
+                        m_config.lead_pacing.enter_frames);
+                local.lead_pacing_exit_milliframes =
+                    RollbackFramesToMilliframes(
+                        m_config.lead_pacing.exit_frames);
+                local.lead_pacing_maximum_holds =
+                    m_config.lead_pacing.maximum_consecutive_holds;
                 local.lobby_id = m_steam_session_identity.lobby_id;
                 local.owner_steam_id =
                     m_steam_session_identity.owner_steam_id;
@@ -5314,6 +5375,11 @@ namespace Horse
             m_store.invalidate_recycling();
             m_terminal_store.invalidate_recycling();
             m_ledger.clear();
+            // Ledger committed counters are round-local. Keep both effect-lag
+            // legs on the same lifetime so conservation remains meaningful
+            // after rematch/rearm instead of comparing session totals with a
+            // freshly cleared ledger report.
+            m_status.performance.reset_effect_lag();
             revoke_audio_terminal_epoch();
             m_camera_history.clear();
             m_transition_history = {};
@@ -5329,6 +5395,8 @@ namespace Horse
             m_first_advance_frame.clear();
             m_last_summary_published.clear();
             m_pending_effect_confirmation.clear();
+            m_exact_eligibility_frames = {};
+            m_exact_eligibility_observed_at = {};
             m_pending_presentation_checkpoint = {};
             m_last_model_reconciliation_frame.clear();
             m_model_reconciliation_pending = false;
@@ -5339,6 +5407,7 @@ namespace Horse
             m_gekko_update_calls = 0;
             m_route_deadline_tracker.reset();
             m_local_summaries = {};
+            m_frame_evidence = {};
             m_remote_summaries = {};
             m_local_summary_valid = {};
             m_remote_summary_valid = {};
@@ -10851,6 +10920,17 @@ namespace Horse
         {
             m_gekko_frame_high_water.clear();
             m_gekko_update_calls = 0;
+            m_lead_pacing.reset();
+            m_status.gekko_frames_ahead = 0.0f;
+            m_status.exact_confirmed_input_frame = -1;
+            m_status.exact_confirmed_input_high_water = 0;
+            m_status.exact_confirmed_input_valid = false;
+            m_status.exact_confirmed_plateaus = 0;
+            m_status.lead_pacing_consecutive_holds = 0;
+            m_status.forced_rollback_depth =
+                m_config.test_forced_rollback_depth;
+            m_status.forced_rollback_eligible_updates = 0;
+            m_status.forced_rollback_completed_updates = 0;
             m_route_deadline_tracker.reset();
             m_session_handshake_generation =
                 m_network->status().handshake_generation;
@@ -10862,6 +10942,11 @@ namespace Horse
             config.remote_peer = m_config.remote_peer;
             config.rollback_window = m_config.rollback_window;
             config.input_delay = m_config.input_delay;
+            config.save_policy = m_config.test_forced_rollback_depth != 0
+                ? RollbackSavePolicy::EveryAdvance
+                : m_config.save_policy;
+            config.forced_rollback_depth =
+                m_config.test_forced_rollback_depth;
             config.state_size = sizeof(RollbackSnapshotHandle);
             RollbackGekkoRuntimeCallbacks callbacks {};
             callbacks.context = this;
@@ -19887,6 +19972,24 @@ namespace Horse
             return true;
         }
 
+        void observe_rollback_batch(
+            std::chrono::steady_clock::time_point started,
+            uint64_t loads_before,
+            uint64_t rollback_advances_before) noexcept
+        {
+            if (m_status.loads <= loads_before) return;
+            const uint64_t elapsed = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - started).count());
+            m_status.performance.observe_duration(
+                m_status.performance.rollback_transaction, elapsed);
+            const uint64_t advances = m_status.rollback_advances
+                - rollback_advances_before;
+            m_status.performance.rollback_depth.observe(
+                advances > UINT32_MAX
+                    ? UINT32_MAX : static_cast<uint32_t>(advances));
+        }
+
         void on_tick(RollbackProductionTickArgs* args) noexcept
         {
             TickFn original = reinterpret_cast<TickFn>(m_tick_trampoline);
@@ -19961,7 +20064,8 @@ namespace Horse
             }
             RollbackNanosecondCounterScope owned_tick_timing(
                 m_status.owned_tick_nanoseconds,
-                m_status.owned_tick_calls);
+                m_status.owned_tick_calls,
+                &m_status.performance.owned_tick);
             const DWORD current_thread = GetCurrentThreadId();
             if (m_simulation_thread_id == 0)
                 m_simulation_thread_id = current_thread;
@@ -20125,9 +20229,14 @@ namespace Horse
                 == RollbackNativeTerminalGekkoPump::DrainControlOnly)
             {
                 const bool control_ok = drain_round_terminal_transport();
-                const bool retry_ok = control_ok
+                const bool confirmation_ok = control_ok
+                    && (!m_current_frame.valid
+                        || publish_confirmed_summary(
+                            m_current_frame.value));
+                const bool retry_ok = confirmation_ok
                     && resend_terminal_candidate();
-                (void)finish_gekko_batch(control_ok && retry_ok);
+                (void)finish_gekko_batch(
+                    control_ok && confirmation_ok && retry_ok);
                 return;
             }
             if (terminal_pump
@@ -20137,6 +20246,11 @@ namespace Horse
                 // pair-matched candidate has selected the terminal frame.
                 // Keep polling, Save/Load, and rollback correction alive
                 // without simulating another ordinary frame.
+                const auto rollback_started =
+                    std::chrono::steady_clock::now();
+                const uint64_t loads_before = m_status.loads;
+                const uint64_t rollback_advances_before =
+                    m_status.rollback_advances;
                 const bool events_ok =
                     m_gekko.flush_terminal_corrections(
                         args->camera_input);
@@ -20166,9 +20280,16 @@ namespace Horse
                         "gekko-terminal-correction-flush-failed");
                     return;
                 }
+                if (events_ok && m_current_frame.valid
+                    && !publish_confirmed_summary(
+                        m_current_frame.value))
+                    return;
                 if (events_ok && !resend_terminal_candidate())
                     return;
                 (void)finish_gekko_batch(events_ok);
+                observe_rollback_batch(
+                    rollback_started, loads_before,
+                    rollback_advances_before);
                 return;
             }
             const uint64_t* source =
@@ -20234,16 +20355,94 @@ namespace Horse
             {
                 ++m_status.summary_consensus_backpressure_ticks;
                 const bool poll_ok = m_gekko.poll();
-                const bool recovery_ok =
+                const bool confirmation_ok = poll_ok
+                    && (!m_current_frame.valid
+                        || publish_confirmed_summary(
+                            m_current_frame.value));
+                const bool recovery_ok = confirmation_ok &&
                     send_oldest_unacknowledged_summary()
                     && send_summary_ack_window();
                 const bool batch_finished =
                     finish_gekko_batch(poll_ok && recovery_ok);
-                if (!poll_ok || !recovery_ok || !batch_finished)
+                if (!poll_ok || !confirmation_ok
+                    || !recovery_ok || !batch_finished)
                 {
                     fail_closed("summary-consensus-backpressure-poll-failed");
                 }
                 m_gekko_update_calls = m_gekko.update_calls();
+                return;
+            }
+            m_status.gekko_frames_ahead = m_gekko.frames_ahead();
+            m_status.performance.frame_lead.observe(
+                m_status.gekko_frames_ahead);
+            const bool pacing_eligible =
+                m_status.state == RollbackProductionState::Active
+                && m_gekko_session_started
+                && m_config.test_forced_rollback_depth == 0
+                && !executing_frozen_frame_zero
+                // A held render tick does not author a logical input frame.
+                // Never merge compact bitsets from different samples: that
+                // can create opposite/press-release combinations the player
+                // never authored. Any asserted input gets an ordinary update.
+                && local_input == 0;
+            const RollbackLeadPacingDecision pacing_decision =
+                m_lead_pacing.decide(
+                    m_config.lead_pacing,
+                    m_status.gekko_frames_ahead,
+                    pacing_eligible);
+            m_status.lead_pacing_consecutive_holds =
+                m_lead_pacing.consecutive_holds();
+            if (m_lead_pacing.forced_advance_last_decision())
+            {
+                ++m_status.lead_pacing_forced_advances;
+                ++m_status.performance.pacing_forced_advances;
+            }
+            if (pacing_decision
+                == RollbackLeadPacingDecision::HoldAndFlushCorrections)
+            {
+                ++m_status.lead_pacing_holds;
+                ++m_status.performance.pacing_holds;
+                const auto rollback_started =
+                    std::chrono::steady_clock::now();
+                const uint64_t loads_before = m_status.loads;
+                const uint64_t rollback_advances_before =
+                    m_status.rollback_advances;
+                const bool events_ok =
+                    m_gekko.flush_corrections(args->camera_input);
+                m_gekko_session_started = m_gekko.session_started();
+                m_status.gekko_ready = m_gekko_session_started;
+                m_status.gekko_correction_flush_calls =
+                    m_gekko.correction_flush_calls();
+                m_gekko_update_calls = m_gekko.update_calls();
+                const RollbackUdpWorkerStatus post_pacing_network =
+                    m_network->status();
+                if (!post_pacing_network.peer_ready
+                    || post_pacing_network.failure
+                        != RollbackUdpWorkerFailure::None
+                    || post_pacing_network.handshake_generation
+                        != m_session_handshake_generation)
+                {
+                    fail_closed(
+                        "peer-generation-changed-during-pacing-flush");
+                    return;
+                }
+                if (!events_ok
+                    && (m_status.state
+                            == RollbackProductionState::Active
+                        || m_status.state
+                            == RollbackProductionState::WaitingForGekko))
+                {
+                    fail_closed("gekko-pacing-correction-flush-failed");
+                    return;
+                }
+                if (events_ok && m_current_frame.valid
+                    && !publish_confirmed_summary(
+                        m_current_frame.value))
+                    return;
+                (void)finish_gekko_batch(events_ok);
+                observe_rollback_batch(
+                    rollback_started, loads_before,
+                    rollback_advances_before);
                 return;
             }
             if (m_fixture_clock_armed)
@@ -20327,6 +20526,11 @@ namespace Horse
                 fail_closed("frame-zero-baseline-restore-failed");
                 return;
             }
+            const auto rollback_started =
+                std::chrono::steady_clock::now();
+            const uint64_t loads_before = m_status.loads;
+            const uint64_t rollback_advances_before =
+                m_status.rollback_advances;
             bool events_ok = m_gekko.update(
                 local_input, args->camera_input);
             m_gekko_session_started = m_gekko.session_started();
@@ -20351,6 +20555,10 @@ namespace Horse
                 }
             }
             m_gekko_update_calls = m_gekko.update_calls();
+            m_status.forced_rollback_eligible_updates =
+                m_gekko.forced_rollback_eligible_updates();
+            m_status.forced_rollback_completed_updates =
+                m_gekko.forced_rollback_completed_updates();
             const RollbackUdpWorkerStatus post_update_network =
                 m_network->status();
             if (!post_update_network.peer_ready
@@ -20368,6 +20576,9 @@ namespace Horse
                         == RollbackProductionState::WaitingForGekko))
                 fail_closed("gekko-event-batch-failed");
             const bool batch_finished = finish_gekko_batch(events_ok);
+            observe_rollback_batch(
+                rollback_started, loads_before,
+                rollback_advances_before);
             if (executing_frozen_frame_zero)
             {
                 if (!batch_finished
@@ -20439,6 +20650,14 @@ namespace Horse
             {
                 const uint32_t confirmed =
                     m_pending_effect_confirmation.value;
+                if (m_current_frame.valid
+                    && !RollbackFrameIsAfter(
+                        confirmed, m_current_frame.value))
+                {
+                    m_status.performance.observe_lag(
+                        RollbackFrameDistance(
+                            m_current_frame.value, confirmed), true);
+                }
                 m_pending_effect_confirmation.clear();
                 const bool fixture_target_confirmation =
                     m_fixture_presentation_checkpoint_ready
@@ -20626,6 +20845,28 @@ namespace Horse
         }
 
 #if HORSE_ENABLE_GEKKONET
+        void emit_determinism_fencepost(
+            const char* checkpoint,
+            uint32_t frame,
+            bool rolling_back,
+            bool running_ahead,
+            uint64_t canonical_hash,
+            uint64_t component_hash) noexcept
+        {
+            if (!checkpoint || canonical_hash == 0) return;
+            ReplayTraceFields fields;
+            fields.uinteger("trace_contract_version", 2)
+                .uinteger("epoch", m_manifest.epoch.generation)
+                .uinteger("logical_frame", frame)
+                .string("pass_kind", rolling_back ? "rollback"
+                    : running_ahead ? "runahead" : "ordinary")
+                .string("checkpoint_id", checkpoint)
+                .hex("canonical_hash", canonical_hash)
+                .hex("component_hash", component_hash);
+            ReplayDebugTrace::instance().event(
+                "rollback_determinism_fencepost", fields);
+        }
+
         bool process_game_event(
             GekkoGameEvent& event,
             const void* camera_input) noexcept
@@ -20689,7 +20930,8 @@ namespace Horse
                 {
                     RollbackNanosecondCounterScope capture_timing(
                         m_status.state_capture_nanoseconds,
-                        m_status.state_capture_calls);
+                        m_status.state_capture_calls,
+                        &m_status.performance.full_capture);
                     captured = CaptureRollbackStepState(
                         m_image_base,
                         m_manifest,
@@ -20736,6 +20978,32 @@ namespace Horse
                     return false;
                 }
                 mark_snapshot_capture_coverage();
+            }
+            if (!baseline)
+            {
+                const auto& evidence = m_frame_evidence[
+                    frame & kRollbackProductionFrameHistoryMask];
+                if (!evidence.valid
+                    || evidence.lifecycle_epoch
+                        != m_manifest.epoch.generation
+                    || evidence.logical_frame != frame
+                    || evidence.integrity_hash
+                        != m_post_advance_state.combined_hash
+                    || evidence.canonical_hash
+                        != m_post_advance_state.canonical_hash
+                    || evidence.component_hash[0]
+                        != m_post_advance_state.hgcpu.canonical_hash
+                    || evidence.component_hash[1]
+                        != m_post_advance_state.explicit_snapshot
+                            .canonical_hash
+                    || evidence.component_hash[2]
+                        != m_post_advance_state.breakable_stage.canonical_hash
+                    || evidence.component_hash[3]
+                        != m_post_advance_state.stage_wind.canonical_hash)
+                {
+                    fail_closed("frame-evidence-snapshot-disagreement");
+                    return false;
+                }
             }
             if (baseline)
             {
@@ -20829,6 +21097,55 @@ namespace Horse
             *event.data.save.checksum = static_cast<uint32_t>(
                 handle.canonical_hash ^ (handle.canonical_hash >> 32));
             ++m_status.saves;
+            RollbackSaveClass save_class = RollbackSaveClass::Confirmed;
+            switch (event.data.save.kind)
+            {
+            case GekkoSaveBaseline:
+                save_class = RollbackSaveClass::Baseline;
+                break;
+            case GekkoSaveSpeculativeMidpoint:
+                save_class = RollbackSaveClass::Midpoint;
+                break;
+            case GekkoSaveSpeculativeEnd:
+                save_class = RollbackSaveClass::End;
+                break;
+            case GekkoSaveConfirmed:
+            default:
+                break;
+            }
+            ++m_status.performance.saves_by_class[
+                static_cast<size_t>(save_class)];
+            m_status.snapshot_slots_in_use = static_cast<uint32_t>(
+                m_store.valid_handles());
+            m_status.snapshot_slot_capacity = static_cast<uint32_t>(
+                m_store.active_capacity());
+            const uint64_t snapshot_bytes_per_slot =
+                RollbackStepStateReservedBytes(m_post_advance_state);
+            const auto multiply_saturated = [](uint64_t left,
+                                               uint64_t right) noexcept {
+                return right != 0 && left > UINT64_MAX / right
+                    ? UINT64_MAX : left * right;
+            };
+            m_status.snapshot_bytes_in_use = multiply_saturated(
+                snapshot_bytes_per_slot,
+                m_status.snapshot_slots_in_use);
+            m_status.snapshot_bytes_allocated = multiply_saturated(
+                snapshot_bytes_per_slot,
+                static_cast<uint64_t>(m_store.active_capacity())
+                    + static_cast<uint64_t>(
+                        m_terminal_store.active_capacity()));
+            if (m_status.snapshot_slots_in_use
+                > m_status.snapshot_slots_peak)
+            {
+                m_status.snapshot_slots_peak =
+                    m_status.snapshot_slots_in_use;
+            }
+            if (m_status.snapshot_bytes_in_use
+                > m_status.snapshot_bytes_peak)
+            {
+                m_status.snapshot_bytes_peak =
+                    m_status.snapshot_bytes_in_use;
+            }
             return true;
         }
 
@@ -21180,9 +21497,15 @@ namespace Horse
                 ++m_status.native_input_callback_snapshot_restores;
             m_status.restore_nanoseconds += restored.restore_nanoseconds;
             ++m_status.restore_calls;
+            m_status.performance.observe_duration(
+                m_status.performance.restore,
+                restored.restore_nanoseconds);
             m_status.verification_nanoseconds +=
                 restored.verification_nanoseconds;
             ++m_status.verification_calls;
+            m_status.performance.observe_duration(
+                m_status.performance.verification,
+                restored.verification_nanoseconds);
             const bool verification_matches =
                 restored.verification_ok
                 && restored.verification_canonical_hash
@@ -21343,6 +21666,14 @@ namespace Horse
             {
                 return reject_after_native_restore(
                     "gekko-load-after-confirmed-summary");
+            }
+            for (auto& evidence : m_frame_evidence)
+            {
+                if (evidence.valid
+                    && evidence.lifecycle_epoch == handle.epoch
+                    && RollbackFrameIsAfter(
+                        evidence.logical_frame, handle.frame))
+                    evidence = {};
             }
             if (!invalidate_terminal_candidates_after(handle.frame))
                 return reject_after_native_restore(
@@ -21605,6 +21936,16 @@ namespace Horse
                 PackRollbackNativeEngineInput(
                     compact_input[1], previous_input[1]),
             };
+            RollbackHash injected_fencepost;
+            injected_fencepost.add_scalar(frame);
+            injected_fencepost.add_scalar(compact_input[0]);
+            injected_fencepost.add_scalar(compact_input[1]);
+            emit_determinism_fencepost(
+                "input-injected", frame,
+                event.data.adv.rolling_back,
+                event.data.adv.running_ahead,
+                injected_fencepost.value,
+                injected_fencepost.value);
             using CameraHistory = RollbackHistoricalCameraArgs<128>;
             CameraHistory::Bytes intercepted_camera {};
             const CameraHistory::Bytes* intercepted = nullptr;
@@ -21735,6 +22076,16 @@ namespace Horse
                 rng_trace.begin_window();
             }
             bool native_iteration_ok = false;
+            RollbackHash pre_native_fencepost;
+            pre_native_fencepost.add_scalar(frame);
+            pre_native_fencepost.add_scalar(native_input[0]);
+            pre_native_fencepost.add_scalar(native_input[1]);
+            emit_determinism_fencepost(
+                "pre-native-simulation", frame,
+                event.data.adv.rolling_back,
+                event.data.adv.running_ahead,
+                pre_native_fencepost.value,
+                pre_native_fencepost.value);
             {
                 RollbackNanosecondCounterScope native_tick_timing(
                     m_status.native_tick_nanoseconds,
@@ -21794,6 +22145,17 @@ namespace Horse
                 m_effect_frame.clear();
                 return false;
             }
+            RollbackHash post_native_fencepost;
+            post_native_fencepost.add_scalar(frame);
+            post_native_fencepost.add_scalar(m_owned_native_per_frame_calls);
+            post_native_fencepost.add_scalar(
+                m_owned_native_chara_per_tick_calls);
+            emit_determinism_fencepost(
+                "post-native-per-frame-tick", frame,
+                event.data.adv.rolling_back,
+                event.data.adv.running_ahead,
+                post_native_fencepost.value,
+                post_native_fencepost.value);
             if (!event.data.adv.rolling_back
                 && (frame == 0 || trace_frame_rng))
             {
@@ -21848,6 +22210,20 @@ namespace Horse
                 return false;
             }
             m_owned_input_call_mask = 0x3;
+            RollbackHash consumed_fencepost;
+            consumed_fencepost.add_scalar(frame);
+            consumed_fencepost.add_scalar(m_owned_consumed_input[0]);
+            consumed_fencepost.add_scalar(m_owned_consumed_input[1]);
+            consumed_fencepost.add_scalar(
+                m_owned_consumed_secondary_input[0]);
+            consumed_fencepost.add_scalar(
+                m_owned_consumed_secondary_input[1]);
+            emit_determinism_fencepost(
+                "input-consumed-post-filter", frame,
+                event.data.adv.rolling_back,
+                event.data.adv.running_ahead,
+                consumed_fencepost.value,
+                consumed_fencepost.value);
             if (m_status.state != RollbackProductionState::Active
                 && m_status.state != RollbackProductionState::WaitingForGekko)
             {
@@ -22017,15 +22393,20 @@ namespace Horse
             }
             if (m_post_advance_frame.valid)
             {
-                m_effect_frame.clear();
-                fail_closed("gekko-advance-before-prior-save");
-                return false;
+                // Confirmed/speculative policy intentionally does not emit a
+                // Save after every Advance. The lightweight evidence ring has
+                // already retained the prior frame, so release its temporary
+                // full capture before capturing this live frame.
+                m_post_advance_state.recycle_for_capture();
+                m_post_advance_frame.clear();
+                m_post_advance_epoch = 0;
             }
             RollbackStepStateReport captured {};
             {
                 RollbackNanosecondCounterScope capture_timing(
                     m_status.state_capture_nanoseconds,
-                    m_status.state_capture_calls);
+                    m_status.state_capture_calls,
+                    &m_status.performance.full_capture);
                 captured = CaptureRollbackStepState(
                     m_image_base,
                     m_manifest,
@@ -22074,6 +22455,31 @@ namespace Horse
                 fail_closed(captured.failure);
                 return false;
             }
+            const auto emit_final_fencepost = [&](
+                    const char* checkpoint, uint64_t component) noexcept {
+                emit_determinism_fencepost(
+                    checkpoint, frame,
+                    event.data.adv.rolling_back,
+                    event.data.adv.running_ahead,
+                    m_post_advance_state.canonical_hash,
+                    component);
+            };
+            // No owned hook exists at these native subsystem boundaries.
+            // Label the post-iteration component projections truthfully;
+            // they are useful for grouping a mismatch but not for claiming
+            // the first divergent instruction within the native tick.
+            emit_final_fencepost("final-projection-movevm",
+                m_post_advance_state.explicit_snapshot.canonical_hash);
+            emit_final_fencepost("final-projection-hgcpu",
+                m_post_advance_state.hgcpu.canonical_hash);
+            emit_final_fencepost("final-projection-wind",
+                m_post_advance_state.stage_wind.canonical_hash);
+            emit_final_fencepost("final-projection-camera",
+                m_post_advance_state.explicit_snapshot.canonical_hash);
+            emit_final_fencepost("post-terminal-capture",
+                m_post_advance_state.combined_hash);
+            emit_final_fencepost("post-canonical-summary",
+                m_post_advance_state.canonical_hash);
             mark_snapshot_capture_coverage();
             if (!event.data.adv.rolling_back
                 && (frame == 0 || trace_frame_rng))
@@ -22286,6 +22692,67 @@ namespace Horse
                 compact_input,
                 true,
             };
+            const auto evidence_capture_started =
+                std::chrono::steady_clock::now();
+            RollbackHash input_provenance;
+            input_provenance.add_scalar(summary.input[0]);
+            input_provenance.add_scalar(summary.input[1]);
+            input_provenance.add_scalar(previous_input[0]);
+            input_provenance.add_scalar(previous_input[1]);
+            RollbackHash summary_digest;
+            summary_digest.add_bytes(&summary, sizeof(summary));
+            RollbackHash lifecycle_digest;
+            lifecycle_digest.add_scalar(m_manifest.epoch.generation);
+            lifecycle_digest.add_scalar(
+                m_manifest.epoch.round_start_digest);
+            lifecycle_digest.add_scalar(
+                m_manifest.epoch.stage_layout_digest);
+            lifecycle_digest.add_scalar(
+                m_manifest.epoch.actor_set_digest);
+            const auto ledger_report = m_ledger.report();
+            RollbackHash presentation_digest;
+            presentation_digest.add_scalar(ledger_report.queued);
+            presentation_digest.add_scalar(ledger_report.discarded);
+            presentation_digest.add_scalar(ledger_report.committed);
+            auto& evidence = m_frame_evidence[summary_slot];
+            evidence = {};
+            evidence.valid = true;
+            evidence.pass_kind = event.data.adv.rolling_back ? 1u
+                : event.data.adv.running_ahead ? 2u : 0u;
+            evidence.lifecycle_epoch = m_manifest.epoch.generation;
+            evidence.pair_epoch = m_pair_epoch;
+            evidence.logical_frame = frame;
+            evidence.integrity_hash = m_post_advance_state.combined_hash;
+            evidence.canonical_hash = summary.canonical_hash;
+            std::copy(std::begin(summary.component_hash),
+                std::end(summary.component_hash),
+                std::begin(evidence.component_hash));
+            evidence.fencepost_hash[0] = injected_fencepost.value;
+            evidence.fencepost_hash[1] = consumed_fencepost.value;
+            evidence.fencepost_hash[2] = pre_native_fencepost.value;
+            evidence.fencepost_hash[3] = post_native_fencepost.value;
+            evidence.fencepost_hash[4] =
+                m_post_advance_state.explicit_snapshot.canonical_hash;
+            evidence.fencepost_hash[5] =
+                m_post_advance_state.hgcpu.canonical_hash;
+            evidence.fencepost_hash[6] =
+                m_post_advance_state.stage_wind.canonical_hash;
+            evidence.fencepost_hash[7] =
+                m_post_advance_state.explicit_snapshot.canonical_hash;
+            evidence.fencepost_hash[8] =
+                m_post_advance_state.combined_hash;
+            evidence.fencepost_hash[9] =
+                m_post_advance_state.canonical_hash;
+            evidence.input_provenance_hash = input_provenance.value;
+            evidence.lifecycle_digest = lifecycle_digest.value;
+            evidence.presentation_digest = presentation_digest.value;
+            evidence.summary_digest = summary_digest.value;
+            m_status.performance.observe_duration(
+                m_status.performance.evidence_capture,
+                static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now()
+                            - evidence_capture_started).count()));
             m_post_advance_frame = frame;
             m_post_advance_epoch = m_manifest.epoch.generation;
             m_status.corrected_frame = frame;
@@ -23904,35 +24371,52 @@ namespace Horse
         bool publish_confirmed_summary(uint32_t current_frame) noexcept
         {
             if (!m_first_advance_frame.valid) return true;
-            uint32_t confirmed_frame = 0;
-            if (!RollbackTryGetConfirmedFrame(
-                    current_frame,
-                    m_first_advance_frame.value,
-                    m_config.rollback_window,
-                    confirmed_frame))
+            const int32_t exact = m_gekko.confirmed_input_frame();
+            m_status.exact_confirmed_input_frame = exact;
+            if (exact < 0)
                 return true;
-
-            // Gekko's health-check horizon is
-            // (current - input_prediction_window) - 1. Frames newer than this
-            // may still contain a predicted remote input and must not be
-            // compared or used to commit presentation effects.
-            uint32_t frame_to_publish = 0;
-            bool publish_new = false;
-            if (!m_last_summary_published.valid)
+            const uint32_t raw_confirmed = static_cast<uint32_t>(exact);
+            if (m_status.exact_confirmed_input_valid
+                && RollbackFrameIsAfter(
+                    m_status.exact_confirmed_input_high_water,
+                    raw_confirmed))
             {
-                frame_to_publish = m_first_advance_frame.value;
-                publish_new = !RollbackFrameIsAfter(
-                    frame_to_publish, confirmed_frame);
+                fail_closed("gekko-confirmed-frontier-regressed");
+                return false;
             }
-            else if (RollbackFrameIsAfter(
-                         confirmed_frame,
-                         m_last_summary_published.value))
+            if (m_status.exact_confirmed_input_valid
+                && raw_confirmed
+                    == m_status.exact_confirmed_input_high_water)
             {
-                frame_to_publish = m_last_summary_published.value + 1u;
-                publish_new = true;
+                ++m_status.exact_confirmed_plateaus;
             }
+            m_status.exact_confirmed_input_valid = true;
+            m_status.exact_confirmed_input_high_water = raw_confirmed;
+            const uint32_t confirmed_frame = RollbackFrameIsAfter(
+                    raw_confirmed, current_frame)
+                ? current_frame : raw_confirmed;
+            if (RollbackFrameIsAfter(
+                    m_first_advance_frame.value, confirmed_frame))
+                return true;
+            m_status.performance.observe_lag(
+                RollbackFrameDistance(current_frame, confirmed_frame),
+                false);
 
-            if (publish_new)
+            // Only exact all-input confirmation makes a frame eligible for
+            // bilateral state comparison. Presentation still waits for the
+            // stronger contiguous pair-match/ACK frontier below.
+            uint32_t frame_to_publish = m_last_summary_published.valid
+                ? m_last_summary_published.value + 1u
+                : m_first_advance_frame.value;
+            // Publish faster than the one-frame input arrival rate, but keep
+            // each service call within the fixed transport queue budget.
+            // Summary backpressure repeatedly services this path until any
+            // packet-delivery jump is drained.
+            static constexpr uint32_t kConfirmedSummaryCatchUpBudget = 8;
+            uint32_t published = 0;
+            while (!RollbackFrameIsAfter(
+                    frame_to_publish, confirmed_frame)
+                && published < kConfirmedSummaryCatchUpBudget)
             {
                 const size_t slot =
                     frame_to_publish & kRollbackProductionFrameHistoryMask;
@@ -23945,6 +24429,8 @@ namespace Horse
                 }
                 m_local_summaries[slot].flags =
                     kRollbackProductionSummaryConfirmed;
+                m_exact_eligibility_frames[slot] = frame_to_publish;
+                m_exact_eligibility_observed_at[slot] = current_frame;
                 stamp_summary_ack_window(m_local_summaries[slot]);
                 m_last_summary_published = frame_to_publish;
                 m_summary_consensus.start(frame_to_publish);
@@ -23964,6 +24450,9 @@ namespace Horse
                 match_summary(frame_to_publish);
                 if (m_status.state == RollbackProductionState::Fatal)
                     return false;
+                ++published;
+                if (frame_to_publish == confirmed_frame) break;
+                ++frame_to_publish;
             }
 
             if (!send_oldest_unacknowledged_summary())
@@ -26570,6 +27059,22 @@ namespace Horse
                     "presentation-commit-off-simulation-thread");
                 return false;
             }
+            const size_t eligibility_slot = event.frame
+                & kRollbackProductionFrameHistoryMask;
+            const RollbackFrameStamp& eligible_frame =
+                runtime->m_exact_eligibility_frames[eligibility_slot];
+            const uint32_t eligible_at =
+                runtime->m_exact_eligibility_observed_at[eligibility_slot];
+            if (!eligible_frame.valid || eligible_frame.value != event.frame
+                || RollbackFrameIsBefore(eligible_at, event.frame)
+                || !runtime->m_current_frame.valid
+                || RollbackFrameIsBefore(
+                    runtime->m_current_frame.value, eligible_at))
+            {
+                runtime->fail_closed(
+                    "confirmed-effect-exact-eligibility-missing");
+                return false;
+            }
             runtime->m_committing_effect = true;
             bool committed = false;
             if (event.type == RollbackSideEffectType::Audio
@@ -27269,6 +27774,15 @@ namespace Horse
                     "confirmed-presentation-payload-invalid");
             }
             runtime->m_committing_effect = false;
+            if (committed)
+            {
+                runtime->m_status.performance.observe_effect_lag(
+                    static_cast<size_t>(event.type),
+                    RollbackFrameDistance(
+                        eligible_at, event.frame),
+                    RollbackFrameDistance(
+                        runtime->m_current_frame.value, eligible_at));
+            }
             return committed;
         }
 
@@ -30465,6 +30979,12 @@ namespace Horse
         RollbackHash m_local_confirmed_input_hash {};
         RollbackHash m_remote_confirmed_input_hash {};
         RollbackFrameStamp m_pending_effect_confirmation {};
+        std::array<RollbackFrameStamp,
+            kRollbackProductionSummaryWindowCapacity>
+            m_exact_eligibility_frames {};
+        std::array<uint32_t,
+            kRollbackProductionSummaryWindowCapacity>
+            m_exact_eligibility_observed_at {};
         RollbackProductionPresentationCheckpoint
             m_pending_presentation_checkpoint {};
         RollbackProductionPresentationRoundBaseline
@@ -30716,6 +31236,8 @@ namespace Horse
         std::array<
             RollbackProductionFrameSummary,
             kRollbackProductionSummaryWindowCapacity> m_local_summaries {};
+        std::array<RollbackFrameEvidence,
+            kRollbackProductionSummaryWindowCapacity> m_frame_evidence {};
         std::array<
             RollbackProductionFrameSummary,
             kRollbackProductionSummaryWindowCapacity> m_remote_summaries {};
@@ -30919,6 +31441,7 @@ namespace Horse
         bool m_stage_break_commit_active {false};
         bool m_stage_break_listener_source_active {false};
 
+        RollbackLeadPacingController m_lead_pacing {};
         RollbackGekkoRuntimeCore m_gekko {};
         inline static std::atomic<RollbackProductionRuntime*>
             s_callback_runtime {nullptr};

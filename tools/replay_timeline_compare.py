@@ -38,7 +38,7 @@ POINTER_FIELD_RE = re.compile(
     r"|_ai_palette_(?:active_motion_bank|key_buffer)_rva$"
 )
 DIAGNOSTIC_FIELD_RE = re.compile(r"_hit_cue_pose_pack_hash$")
-ORACLE_SCHEMA_VERSION = 12
+ORACLE_SCHEMA_VERSION = 13
 PRESENTATION_FIELDS = {
     "oracle_presentation_hash",
     "breakable_presentation_digest",
