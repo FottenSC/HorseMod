@@ -54,6 +54,15 @@ struct NativeSubVmImage
     friend bool operator==(const NativeSubVmImage&, const NativeSubVmImage&) = default;
 };
 
+struct NativeSchedulerImage
+{
+    std::array<std::byte, 4> published_input{};
+    std::array<std::byte, 0x20> command_state{};
+    std::array<std::byte, 4> active_slot{};
+
+    friend bool operator==(const NativeSchedulerImage&, const NativeSchedulerImage&) = default;
+};
+
 inline constexpr std::size_t native_move_command_semantic_bytes = 0x2F2C;
 
 struct NativeCandidateImage
@@ -62,6 +71,7 @@ struct NativeCandidateImage
     std::uint64_t round_generation{};
     std::array<std::uint64_t, 2> move_dispatch_masks{};
     NativePumpImage pump{};
+    std::array<NativeSchedulerImage, 2> schedulers{};
     std::array<NativeSubVmImage, 2> sub_vms{};
     std::array<std::array<std::byte, native_move_command_semantic_bytes>, 2>
         move_commands{};
@@ -91,6 +101,8 @@ private:
     struct SubVmIdentity
     {
         std::uintptr_t scheduler{};
+        std::uintptr_t scheduler_vtable{};
+        std::uintptr_t scheduler_fighter{};
         std::uintptr_t object{};
         std::uintptr_t vtable{};
         std::uintptr_t fighter{};

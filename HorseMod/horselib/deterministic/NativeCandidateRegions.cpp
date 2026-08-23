@@ -133,7 +133,10 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
     {
         auto& identity = output.sub_vms[lane];
         identity.scheduler = addresses_.scheduler_base + lane * 0x60;
-        if (!read_value(memory_, identity.scheduler + 0x50, identity.object)
+        if (!read_value(memory_, identity.scheduler, identity.scheduler_vtable)
+            || !read_value(memory_, identity.scheduler + 0x10, identity.scheduler_fighter)
+            || !read_value(memory_, identity.scheduler + 0x50, identity.object)
+            || identity.scheduler_vtable == 0 || identity.scheduler_fighter == 0
             || identity.object == 0
             || !read_value(memory_, identity.object, identity.vtable)
             || identity.vtable < addresses_.image_base
@@ -148,7 +151,8 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
         identity.extent = extent_for_rva(
             static_cast<std::uint32_t>(identity.vtable - addresses_.image_base));
         if (identity.extent == 0 || identity.fighter == 0 || identity.opponent == 0
-            || identity.owner_scheduler != identity.scheduler)
+            || identity.owner_scheduler != identity.scheduler
+            || identity.scheduler_fighter != identity.fighter)
         {
             return false;
         }
@@ -183,6 +187,8 @@ bool NativeCandidateRegions::identities_match() noexcept
             current.sub_vms.begin(), current.sub_vms.end(), identities_.sub_vms.begin(),
             [](const SubVmIdentity& a, const SubVmIdentity& b) {
                 return a.scheduler == b.scheduler && a.object == b.object
+                    && a.scheduler_vtable == b.scheduler_vtable
+                    && a.scheduler_fighter == b.scheduler_fighter
                     && a.vtable == b.vtable && a.fighter == b.fighter
                     && a.opponent == b.opponent
                     && a.owner_scheduler == b.owner_scheduler && a.extent == b.extent;
@@ -252,6 +258,20 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
     std::memcpy(&state, output.pump.controls.data(), sizeof(state));
     std::memcpy(&enabled, output.pump.controls.data() + 0x0C, sizeof(enabled));
     if (state < 0 || state > 4 || enabled > 1) return false;
+    for (std::size_t lane = 0; lane < output.schedulers.size(); ++lane)
+    {
+        const auto scheduler = addresses_.scheduler_base + lane * 0x60;
+        auto& image = output.schedulers[lane];
+        if (!read_bytes(scheduler + 0x08, image.published_input)
+            || !read_bytes(scheduler + 0x30, image.command_state)
+            || !read_bytes(scheduler + 0x58, image.active_slot))
+        {
+            return false;
+        }
+        std::uint32_t active_slot{};
+        std::memcpy(&active_slot, image.active_slot.data(), sizeof(active_slot));
+        if (active_slot > 1) return false;
+    }
     for (std::size_t lane = 0; lane < output.sub_vms.size(); ++lane)
     {
         auto& image = output.sub_vms[lane];
@@ -342,6 +362,13 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
     if (!write_bytes(addresses_.pump_state + 0x20, image.pump.lane_a)
         || !write_bytes(addresses_.pump_state + 0x50, image.pump.lane_b)
         || !write_bytes(addresses_.pump_state + 0x70, image.pump.controls)) return false;
+    for (std::size_t lane = 0; lane < image.schedulers.size(); ++lane)
+    {
+        const auto scheduler = addresses_.scheduler_base + lane * 0x60;
+        if (!write_bytes(scheduler + 0x08, image.schedulers[lane].published_input)
+            || !write_bytes(scheduler + 0x30, image.schedulers[lane].command_state)
+            || !write_bytes(scheduler + 0x58, image.schedulers[lane].active_slot)) return false;
+    }
     for (std::size_t lane = 0; lane < image.sub_vms.size(); ++lane)
     {
         const auto object = identities_.sub_vms[lane].object;
@@ -401,6 +428,13 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
         ok = write_bytes(object + 0x20, image.sub_vms[lane].common) && ok;
         ok = write_bytes(object + 0x08, image.sub_vms[lane].input_command) && ok;
     }
+    for (std::size_t lane = image.schedulers.size(); lane-- > 0;)
+    {
+        const auto scheduler = addresses_.scheduler_base + lane * 0x60;
+        ok = write_bytes(scheduler + 0x58, image.schedulers[lane].active_slot) && ok;
+        ok = write_bytes(scheduler + 0x30, image.schedulers[lane].command_state) && ok;
+        ok = write_bytes(scheduler + 0x08, image.schedulers[lane].published_input) && ok;
+    }
     ok = write_bytes(addresses_.pump_state + 0x70, image.pump.controls) && ok;
     ok = write_bytes(addresses_.pump_state + 0x50, image.pump.lane_b) && ok;
     ok = write_bytes(addresses_.pump_state + 0x20, image.pump.lane_a) && ok;
@@ -441,6 +475,12 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
     append_bytes(output, image.pump.lane_a.data(), image.pump.lane_a.size());
     append_bytes(output, image.pump.lane_b.data(), image.pump.lane_b.size());
     append_bytes(output, image.pump.controls.data(), image.pump.controls.size());
+    for (const auto& scheduler : image.schedulers)
+    {
+        append_bytes(output, scheduler.published_input.data(), scheduler.published_input.size());
+        append_bytes(output, scheduler.command_state.data(), scheduler.command_state.size());
+        append_bytes(output, scheduler.active_slot.data(), scheduler.active_slot.size());
+    }
     for (const auto& subvm : image.sub_vms)
     {
         append_bytes(output, &subvm.vtable_rva, sizeof(subvm.vtable_rva));

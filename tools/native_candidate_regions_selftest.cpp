@@ -145,9 +145,15 @@ struct Fixture
         {
             const auto scheduler = addresses.scheduler_base + lane * 0x60;
             const auto subvm = memory_base + 0x5000 + lane * 0x1000;
+            const auto fighter = memory_base + 0x12000 + lane * 0x1000;
+            memory.Set(scheduler, image_base + std::uintptr_t{0x3E80000});
+            memory.Set(scheduler + 0x10, fighter);
             memory.Set(scheduler + 0x50, subvm);
+            memory.Fill(scheduler + 0x08, 4, std::byte{static_cast<unsigned char>(0x20 + lane)});
+            memory.Fill(scheduler + 0x30, 0x20, std::byte{static_cast<unsigned char>(0x24 + lane)});
+            memory.Set(scheduler + 0x58, std::uint32_t{static_cast<std::uint32_t>(lane)});
             memory.Set(subvm, image_base + std::uintptr_t{0x3E863D0});
-            memory.Set(subvm + 0x10, memory_base + 0x12000 + lane * 0x1000);
+            memory.Set(subvm + 0x10, fighter);
             memory.Set(subvm + 0x18, memory_base + 0x14000 - lane * 0x1000);
             memory.Set(subvm + 0x60, scheduler);
             memory.Fill(subvm + 0x08, 4, std::byte{static_cast<unsigned char>(0x30 + lane)});
@@ -275,11 +281,17 @@ void test_capture_restore_preserves_exclusions()
 
     fixture.memory.Fill(fixture.event_masks, 0x10, std::byte{0xE1});
     fixture.memory.Fill(fixture.addresses.pump_state + 0x20, 1, std::byte{0xE2});
+    fixture.memory.Fill(fixture.addresses.scheduler_base + 0x08, 1, std::byte{0xE6});
+    fixture.memory.Fill(fixture.addresses.scheduler_base + 0x30, 1, std::byte{0xE7});
+    fixture.memory.Set(fixture.addresses.scheduler_base + 0x58, std::uint32_t{1});
     fixture.memory.Fill(Fixture::memory_base + 0x5008, 1, std::byte{0xE3});
     fixture.memory.Fill(fixture.addresses.move_command_base, 1, std::byte{0xE4});
     fixture.memory.Fill(fixture.addresses.slot_param_base, 1, std::byte{0xE5});
 
     fixture.memory.Fill(fixture.addresses.pump_state + 0x3C, 1, std::byte{0xA1});
+    fixture.memory.Fill(fixture.addresses.scheduler_base + 0x0C, 1, std::byte{0xA6});
+    fixture.memory.Fill(fixture.addresses.scheduler_base + 0x18, 1, std::byte{0xA7});
+    fixture.memory.Fill(fixture.addresses.scheduler_base + 0x5C, 1, std::byte{0xA8});
     fixture.memory.Fill(Fixture::memory_base + 0x500C, 1, std::byte{0xA2});
     fixture.memory.Fill(fixture.addresses.move_command_base + 0x2A28, 1, std::byte{0xA3});
     fixture.memory.Fill(fixture.addresses.move_command_base + 0x3034, 1, std::byte{0xA4});
@@ -289,6 +301,9 @@ void test_capture_restore_preserves_exclusions()
     NativeCandidateImage restored{};
     expect(fixture.regions.Capture(restored).ok() && restored == baseline, "recapture exact semantic image");
     expect(fixture.memory.Get(fixture.addresses.pump_state + 0x3C) == std::byte{0xA1}, "preserve pump tail");
+    expect(fixture.memory.Get(fixture.addresses.scheduler_base + 0x0C) == std::byte{0xA6}, "preserve scheduler constructor residue");
+    expect(fixture.memory.Get(fixture.addresses.scheduler_base + 0x18) == std::byte{0xA7}, "preserve scheduler reserved bytes");
+    expect(fixture.memory.Get(fixture.addresses.scheduler_base + 0x5C) == std::byte{0xA8}, "preserve scheduler allocator residue");
     expect(fixture.memory.Get(Fixture::memory_base + 0x500C) == std::byte{0xA2}, "preserve SubVM gap");
     expect(fixture.memory.Get(fixture.addresses.move_command_base + 0x2A28) == std::byte{0xA3}, "preserve diagnostic text");
     expect(fixture.memory.Get(fixture.addresses.move_command_base + 0x3034) == std::byte{0xA4}, "preserve uninitialized tail");
