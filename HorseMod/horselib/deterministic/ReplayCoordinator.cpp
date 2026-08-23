@@ -20,7 +20,8 @@ Status ReplayCoordinator::Begin(
     {
         return Fail(status.code);
     }
-    latest_ = baseline;
+    playhead_ = baseline;
+    captured_end_ = baseline;
     state_ = ReplayState::Capturing;
     return Status::success();
 }
@@ -29,11 +30,11 @@ Status ReplayCoordinator::RecordAndAdvance(
     FrameCoordinate coordinate,
     const InputPair& inputs) noexcept
 {
-    if (state_ != ReplayState::Capturing || coordinate.generation != latest_.generation)
+    if (state_ != ReplayState::Capturing || coordinate.generation != playhead_.generation)
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
-    if (coordinate.frame != latest_.frame)
+    if (coordinate != playhead_)
     {
         return Fail(FailureCode::MissingInput);
     }
@@ -56,13 +57,17 @@ Status ReplayCoordinator::RecordAndAdvance(
     {
         return Fail(advanced.code);
     }
-    ++latest_.frame;
+    ++playhead_.frame;
+    if (playhead_ > captured_end_)
+    {
+        captured_end_ = playhead_;
+    }
     return Status::success();
 }
 
 Status ReplayCoordinator::MarkGenerationBoundary(FrameCoordinate coordinate) noexcept
 {
-    if (state_ != ReplayState::Capturing || coordinate != latest_)
+    if (state_ != ReplayState::Capturing || coordinate != playhead_)
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
@@ -83,8 +88,8 @@ Status ReplayCoordinator::FinishCapture() noexcept
 Status ReplayCoordinator::Seek(FrameCoordinate target) noexcept
 {
     if ((state_ != ReplayState::Ready && state_ != ReplayState::Capturing)
-        || target.generation != latest_.generation
-        || target.frame > latest_.frame)
+        || target.generation != captured_end_.generation
+        || target.frame > captured_end_.frame)
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
@@ -94,7 +99,7 @@ Status ReplayCoordinator::Seek(FrameCoordinate target) noexcept
     {
         return Fail(status.code);
     }
-    latest_ = target;
+    playhead_ = target;
     state_ = ReplayState::Resuming;
     return Status::success();
 }
@@ -121,7 +126,8 @@ void ReplayCoordinator::Reset() noexcept
     simulation_.Reset();
     state_ = ReplayState::Idle;
     failure_ = FailureCode::None;
-    latest_ = {};
+    playhead_ = {};
+    captured_end_ = {};
     partial_timeline_ = false;
 }
 }

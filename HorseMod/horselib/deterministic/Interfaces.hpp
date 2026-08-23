@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Types.hpp"
+#include "Schema.hpp"
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -38,6 +40,7 @@ public:
         FrameCoordinate coordinate) const noexcept = 0;
     virtual Status ReplacePredicted(
         FrameCoordinate coordinate,
+        std::size_t player_index,
         const PlayerInput& confirmed_remote) noexcept = 0;
     virtual void InvalidateGeneration(std::uint64_t generation) noexcept = 0;
 };
@@ -75,12 +78,24 @@ public:
 };
 
 enum class TransportReliability : std::uint8_t { Reliable, Unreliable };
+enum class TransportMessageKind : std::uint8_t
+{
+    Hello,
+    HelloAck,
+    Baseline,
+    BaselineAck,
+    Input,
+    StateHash,
+    RoundBarrier,
+    Disconnect,
+};
 
 struct TransportMessage
 {
-    std::uint32_t kind{};
+    TransportMessageKind kind{};
     std::uint64_t session_id{};
-    std::vector<std::byte> payload;
+    std::uint16_t payload_size{};
+    std::array<std::byte, Schema::maximum_transport_payload> payload{};
 };
 
 class IRollbackTransport

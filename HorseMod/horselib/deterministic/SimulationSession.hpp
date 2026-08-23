@@ -28,6 +28,7 @@ public:
 
     [[nodiscard]] SimulationState state() const noexcept { return state_; }
     [[nodiscard]] FailureCode terminal_failure() const noexcept { return failure_; }
+    [[nodiscard]] FrameCoordinate current_coordinate() const noexcept { return current_; }
 
 private:
     [[nodiscard]] Status require_owner_thread() const noexcept;
@@ -41,6 +42,7 @@ private:
     IPresentationJournal& presentation_;
     std::thread::id owner_thread_{};
     NativeContext context_{};
+    FrameCoordinate current_{};
     SimulationState state_{SimulationState::Idle};
     FailureCode failure_{FailureCode::None};
 };

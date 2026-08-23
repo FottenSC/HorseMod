@@ -1,5 +1,33 @@
 set(TARGET HorseMod)
 
+if(DEFINED HORSEMOD_ENABLE_GEKKONET)
+    message(WARNING
+        "HORSEMOD_ENABLE_GEKKONET is a retired rollback option and is ignored")
+    unset(HORSEMOD_ENABLE_GEKKONET CACHE)
+endif()
+option(HORSEMOD_BUILD_PINNED_GEKKONET
+    "Build the pinned GekkoNet integration after offline qualification" OFF)
+set(HORSEMOD_GEKKONET_GIT_COMMIT
+    "f21698d85367c8d97585cf7610897316c873681c"
+    CACHE STRING "Immutable FottenSC/GekkoNet commit")
+if(HORSEMOD_BUILD_PINNED_GEKKONET)
+    include(FetchContent)
+    set(NO_ASIO_BUILD ON)
+    set(BUILD_DOCS OFF)
+    set(BUILD_SHARED_LIBS OFF)
+    FetchContent_Declare(
+        GekkoNet
+        GIT_REPOSITORY https://github.com/FottenSC/GekkoNet.git
+        GIT_TAG ${HORSEMOD_GEKKONET_GIT_COMMIT}
+        GIT_SHALLOW FALSE
+    )
+    FetchContent_MakeAvailable(GekkoNet)
+    if(TARGET GekkoNet AND MSVC)
+        set_property(TARGET GekkoNet PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    endif()
+endif()
+
 file(GLOB_RECURSE SCVI_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/SoulCaliburVI/*.h"
 )
@@ -106,8 +134,28 @@ set_tests_properties(DeterministicCoreSelfTest PROPERTIES
     TIMEOUT 60
 )
 
+add_executable(DeterministicSchemaExporter
+    ${CMAKE_SOURCE_DIR}/tools/deterministic_schema_exporter.cpp
+)
+target_link_libraries(DeterministicSchemaExporter PRIVATE HorseDeterministicCore)
+target_compile_features(DeterministicSchemaExporter PRIVATE cxx_std_20)
+if(MSVC)
+    set_property(TARGET DeterministicSchemaExporter PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+set(HORSEMOD_GENERATED_SCHEMA
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/deterministic_contract.json")
+add_custom_command(
+    OUTPUT "${HORSEMOD_GENERATED_SCHEMA}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    COMMAND $<TARGET_FILE:DeterministicSchemaExporter> "${HORSEMOD_GENERATED_SCHEMA}"
+    DEPENDS DeterministicSchemaExporter
+    VERBATIM
+)
+add_custom_target(DeterministicSchema ALL DEPENDS "${HORSEMOD_GENERATED_SCHEMA}")
+
 target_compile_definitions(${TARGET} PRIVATE
-    HORSE_ENABLE_GEKKONET=0
+    HORSE_ENABLE_GEKKONET=$<BOOL:${HORSEMOD_BUILD_PINNED_GEKKONET}>
     HORSEMOD_VERSION="${HORSEMOD_VERSION}"
 )
 
@@ -122,6 +170,9 @@ target_link_libraries(${TARGET} PUBLIC UE4SS)
 target_link_libraries(${TARGET} PRIVATE
     HorseDeterministicCore dxgi d3d11 delayimp ws2_32 bcrypt
 )
+if(HORSEMOD_BUILD_PINNED_GEKKONET AND TARGET GekkoNet)
+    target_link_libraries(${TARGET} PRIVATE GekkoNet)
+endif()
 
 target_link_options(${TARGET} PRIVATE
     /DELAYLOAD:d3d11.dll

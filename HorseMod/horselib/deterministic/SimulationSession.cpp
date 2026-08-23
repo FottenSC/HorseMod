@@ -38,6 +38,7 @@ Status SimulationSession::BindAndCaptureBaseline(
     }
     owner_thread_ = std::this_thread::get_id();
     context_ = context;
+    current_ = baseline;
     state_ = SimulationState::Binding;
     Status status = adapter_.BindContext(context);
     if (!status.ok())
@@ -69,6 +70,10 @@ Status SimulationSession::CaptureCheckpoint(FrameCoordinate coordinate) noexcept
     if (coordinate.generation != context_.generation)
     {
         return Status::failure(FailureCode::GenerationMismatch);
+    }
+    if (coordinate != current_)
+    {
+        return Status::failure(FailureCode::IllegalTransition);
     }
     Status status = adapter_.PreflightCapture(coordinate);
     if (!status.ok())
@@ -102,13 +107,22 @@ Status SimulationSession::Advance(
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
+    if (coordinate != current_)
+    {
+        return Status::failure(FailureCode::IllegalTransition);
+    }
     Status status = inputs_.AppendAuthoritative(coordinate, inputs);
     if (!status.ok())
     {
         return status;
     }
     status = adapter_.AdvanceFrame(coordinate, inputs, false);
-    return status.ok() ? status : fail(FailureCode::AdvanceFailed);
+    if (!status.ok())
+    {
+        return fail(FailureCode::AdvanceFailed);
+    }
+    ++current_.frame;
+    return Status::success();
 }
 
 Status SimulationSession::undo_restore(const Snapshot& undo) noexcept
@@ -135,10 +149,18 @@ Status SimulationSession::transactional_restore(const Snapshot& target) noexcept
     }
 
     Snapshot undo;
-    if (!adapter_.PreflightCapture(target.coordinate).ok()
-        || !adapter_.Capture(target.coordinate, undo).ok())
+    if (!adapter_.PreflightCapture(current_).ok())
+    {
+        return Status::failure(FailureCode::CapturePreflightFailed);
+    }
+    if (!adapter_.Capture(current_, undo).ok())
     {
         return Status::failure(FailureCode::CaptureFailed);
+    }
+    if (undo.coordinate != current_
+        || undo.context_identity != context_.battle_identity)
+    {
+        return Status::failure(FailureCode::IdentityMismatch);
     }
     if (!adapter_.Restore(target).ok())
     {
@@ -158,6 +180,7 @@ Status SimulationSession::transactional_restore(const Snapshot& target) noexcept
             ? Status::failure(FailureCode::RestoreVerificationFailed)
             : Status::failure(FailureCode::UndoFailed);
     }
+    current_ = target.coordinate;
     return Status::success();
 }
 
@@ -204,6 +227,7 @@ Status SimulationSession::RestoreAndResimulate(
         {
             return fail(FailureCode::AdvanceFailed);
         }
+        current_ = {resume_at.generation, frame + 1};
     }
     status = adapter_.ReconcilePresentation(resume_at);
     if (!status.ok())
@@ -243,6 +267,7 @@ void SimulationSession::Reset() noexcept
         presentation_.InvalidateGeneration(context_.generation);
     }
     context_ = {};
+    current_ = {};
     owner_thread_ = {};
     state_ = SimulationState::Idle;
     failure_ = FailureCode::None;

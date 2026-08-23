@@ -3,7 +3,6 @@
 #include "Interfaces.hpp"
 
 #include <map>
-#include <set>
 #include <compare>
 
 namespace Horse::Deterministic
@@ -38,6 +37,6 @@ private:
     std::size_t maximum_payload_bytes_{};
     std::size_t payload_bytes_{};
     std::map<EventKey, PresentationEvent> pending_;
-    std::set<EventKey> committed_;
+    std::map<std::uint64_t, std::uint64_t> committed_through_;
 };
 }

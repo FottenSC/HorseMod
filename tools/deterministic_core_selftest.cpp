@@ -71,6 +71,11 @@ public:
 
     Status Restore(const Snapshot& snapshot) noexcept override
     {
+        ++restore_calls;
+        if (fail_undo_restore && restore_calls >= 2)
+        {
+            return Status::failure(FailureCode::RestoreWriteFailed);
+        }
         std::memcpy(&value, snapshot.bytes.data(), sizeof(value));
         return consume(AdapterFailure::RestoreWrite, FailureCode::RestoreWriteFailed);
     }
@@ -117,6 +122,8 @@ public:
     std::uint64_t identity{};
     std::uint64_t generation{};
     AdapterFailure failure{AdapterFailure::None};
+    int restore_calls{};
+    bool fail_undo_restore{};
 };
 
 class CountingSink final : public IPresentationSink
@@ -158,8 +165,12 @@ void test_input_replacement_and_invalidation()
     expect(timeline.AppendAuthoritative({1, 0}, one_input(false)).ok(), "append predicted input");
     PlayerInput remote;
     remote.buttons = 7;
-    expect(timeline.ReplacePredicted({1, 0}, remote).ok(), "replace predicted input");
+    expect(timeline.ReplacePredicted({1, 0}, 1, remote).ok(), "replace predicted input");
     expect(timeline.GetExact({1, 0})->players[1].buttons == 7, "confirmed input stored");
+    remote.buttons = 8;
+    expect(
+        timeline.ReplacePredicted({1, 0}, 1, remote).code == FailureCode::IdentityMismatch,
+        "confirmed input cannot be rewritten");
     timeline.InvalidateGeneration(1);
     expect(!timeline.GetExact({1, 0}).has_value(), "input generation invalidated");
 }
@@ -187,6 +198,17 @@ void test_presentation_exactly_once()
     expect(journal.Record(event).ok(), "deduplicate committed presentation event");
     expect(journal.CommitThrough({1, 4}, sink).ok(), "repeat presentation commit");
     expect(sink.count == 1, "presentation published exactly once");
+
+    PresentationJournal bounded{1, 64};
+    CountingSink bounded_sink;
+    for (std::uint64_t frame = 0; frame < 100; ++frame)
+    {
+        event.coordinate.frame = frame;
+        event.identity = frame;
+        expect(bounded.Record(event).ok(), "record after prior event committed");
+        expect(bounded.CommitThrough(event.coordinate, bounded_sink).ok(), "commit bounded event");
+    }
+    expect(bounded_sink.count == 100, "committed-event dedup metadata stays bounded");
 }
 
 void test_replay_checkpoint_seek_and_resume()
@@ -206,18 +228,27 @@ void test_replay_checkpoint_seek_and_resume()
     expect(replay.Resume().ok(), "resume after seek");
     expect(replay.RecordAndAdvance({1, 32}, one_input()).ok(), "advance after seek");
     expect(fixture.adapter.value == 33, "resumed replay advances normally");
+    expect(replay.captured_end() == FrameCoordinate{1, 35}, "seek does not truncate capture extent");
+    expect(replay.Seek({1, 35}).ok(), "seek forward within preserved capture extent");
+    expect(fixture.adapter.value == 35, "forward seek lands at preserved capture end");
 }
 
 void test_transactional_restore_failures_undo()
 {
     for (const AdapterFailure phase : {
+             AdapterFailure::RestorePreflight,
+             AdapterFailure::CapturePreflight,
+             AdapterFailure::Capture,
              AdapterFailure::RestoreWrite,
              AdapterFailure::Repair,
              AdapterFailure::Verify})
     {
         Fixture fixture;
         expect(fixture.simulation.BindAndCaptureBaseline(context(), {1, 0}).ok(), "bind restore fixture");
-        fixture.adapter.value = 10;
+        for (std::uint64_t frame = 0; frame < 10; ++frame)
+        {
+            expect(fixture.simulation.Advance({1, frame}, one_input()).ok(), "advance restore fixture");
+        }
         expect(fixture.simulation.CaptureCheckpoint({1, 10}).ok(), "capture restore target");
         fixture.adapter.value = 20;
         fixture.adapter.failure = phase;
@@ -225,6 +256,20 @@ void test_transactional_restore_failures_undo()
         expect(!restored.ok(), "injected restore phase fails");
         expect(fixture.adapter.value == 20, "failed restore returns exact undo image");
     }
+
+    Fixture fixture;
+    expect(fixture.simulation.BindAndCaptureBaseline(context(), {1, 0}).ok(), "bind undo-failure fixture");
+    for (std::uint64_t frame = 0; frame < 2; ++frame)
+    {
+        expect(fixture.simulation.Advance({1, frame}, one_input()).ok(), "advance undo-failure fixture");
+    }
+    expect(fixture.simulation.CaptureCheckpoint({1, 2}).ok(), "capture undo-failure target");
+    fixture.adapter.value = 8;
+    fixture.adapter.failure = AdapterFailure::Repair;
+    fixture.adapter.fail_undo_restore = true;
+    expect(
+        fixture.simulation.RestoreAndResimulate({1, 2}, {1, 2}).code == FailureCode::UndoFailed,
+        "failed undo is terminal and typed");
 }
 }
 

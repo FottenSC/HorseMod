@@ -1,7 +1,7 @@
 #include "PresentationJournal.hpp"
 
+#include <algorithm>
 #include <utility>
-#include <iterator>
 
 namespace Horse::Deterministic
 {
@@ -16,7 +16,10 @@ PresentationJournal::PresentationJournal(
 Status PresentationJournal::Record(PresentationEvent event) noexcept
 {
     const EventKey key{event.coordinate, event.kind, event.identity};
-    if (committed_.contains(key) || pending_.contains(key))
+    const auto watermark = committed_through_.find(event.coordinate.generation);
+    if ((watermark != committed_through_.end()
+            && event.coordinate.frame <= watermark->second)
+        || pending_.contains(key))
     {
         return Status::success();
     }
@@ -60,7 +63,8 @@ Status PresentationJournal::CommitThrough(
                 return published;
             }
             payload_bytes_ -= it->second.payload.size();
-            committed_.insert(it->first);
+            auto& watermark = committed_through_[it->first.coordinate.generation];
+            watermark = std::max(watermark, it->first.coordinate.frame);
             it = pending_.erase(it);
             continue;
         }
@@ -83,12 +87,7 @@ void PresentationJournal::InvalidateGeneration(std::uint64_t generation) noexcep
             ++it;
         }
     }
-    for (auto it = committed_.begin(); it != committed_.end();)
-    {
-        it = it->coordinate.generation == generation
-            ? committed_.erase(it)
-            : std::next(it);
-    }
+    committed_through_.erase(generation);
 }
 
 std::size_t PresentationJournal::pending_count() const noexcept

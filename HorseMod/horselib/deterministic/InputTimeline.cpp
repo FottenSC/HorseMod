@@ -39,14 +39,25 @@ std::optional<InputPair> InputTimeline::GetExact(
 
 Status InputTimeline::ReplacePredicted(
     FrameCoordinate coordinate,
+    std::size_t player_index,
     const PlayerInput& confirmed_remote) noexcept
 {
+    if (player_index >= 2)
+    {
+        return Status::failure(FailureCode::InvalidConfiguration);
+    }
     const auto found = entries_.find(coordinate);
     if (found == entries_.end())
     {
         return Status::failure(FailureCode::MissingInput);
     }
-    found->second.players[1] = confirmed_remote;
+    if (found->second.remote_confirmed)
+    {
+        return found->second.players[player_index] == confirmed_remote
+            ? Status::success()
+            : Status::failure(FailureCode::IdentityMismatch);
+    }
+    found->second.players[player_index] = confirmed_remote;
     found->second.remote_confirmed = true;
     return Status::success();
 }

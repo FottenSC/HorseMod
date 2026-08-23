@@ -18,6 +18,7 @@ public:
         FrameCoordinate coordinate) const noexcept override;
     Status ReplacePredicted(
         FrameCoordinate coordinate,
+        std::size_t player_index,
         const PlayerInput& confirmed_remote) noexcept override;
     void InvalidateGeneration(std::uint64_t generation) noexcept override;
 
