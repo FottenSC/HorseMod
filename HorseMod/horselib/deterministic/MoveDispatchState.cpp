@@ -1,0 +1,323 @@
+#include "MoveDispatchState.hpp"
+
+#include <cstring>
+#include <span>
+
+namespace Horse::Deterministic
+{
+namespace
+{
+template <typename T>
+bool read_value(INativeMemory& memory, std::uintptr_t address, T& value) noexcept
+{
+    return memory.Read(address, std::as_writable_bytes(std::span{&value, 1}));
+}
+
+template <typename T>
+bool write_value(INativeMemory& memory, std::uintptr_t address, const T& value) noexcept
+{
+    return memory.Write(address, std::as_bytes(std::span{&value, 1}));
+}
+
+void append(std::vector<std::byte>& out, const void* value, std::size_t size)
+{
+    const auto* first = static_cast<const std::byte*>(value);
+    out.insert(out.end(), first, first + size);
+}
+}
+
+MoveDispatchState::MoveDispatchState(INativeMemory& memory) noexcept : memory_(memory) {}
+
+bool MoveDispatchState::capture_identity(Identity& output) noexcept
+{
+    output = {};
+    std::uint8_t dirty{};
+    if (!read_value(memory_, object_ + 0x470, output.frame_slot_table)
+        || !read_value(memory_, object_ + 0x490, dirty)
+        || !read_value(memory_, object_ + 0x498, output.sub_elements)
+        || !read_value(memory_, object_ + 0x4A0, output.sub_element_count)
+        || !read_value(memory_, object_ + 0x4A4, output.sub_element_capacity)
+        || output.frame_slot_table == 0
+        || (output.sub_element_count > 0 && output.sub_elements == 0)
+        || output.sub_element_count < 0
+        || output.sub_element_count > maximum_sub_elements
+        || output.sub_element_capacity < 0
+        || output.sub_element_capacity < output.sub_element_count)
+    {
+        return false;
+    }
+    output.pending_phase = dirty != 0;
+    if (!output.pending_phase) return true;
+    std::int32_t count{};
+    if (!read_value(memory_, object_ + 0x480, output.pending_windows)
+        || !read_value(memory_, object_ + 0x488, count)
+        || !read_value(memory_, object_ + 0x48C, output.pending_capacity)
+        || output.pending_windows == 0 || count < 0
+        || count > maximum_pending_windows
+        || output.pending_capacity < count)
+    {
+        return false;
+    }
+    return true;
+}
+
+bool MoveDispatchState::identity_matches(const Identity& expected) noexcept
+{
+    Identity current{};
+    if (!capture_identity(current)) return false;
+    if (current.frame_slot_table != expected.frame_slot_table
+        || current.sub_elements != expected.sub_elements
+        || current.sub_element_count != expected.sub_element_count
+        || current.sub_element_capacity != expected.sub_element_capacity
+        || current.pending_phase != expected.pending_phase)
+    {
+        return false;
+    }
+    return !current.pending_phase
+        || (current.pending_windows == expected.pending_windows
+            && current.pending_capacity == expected.pending_capacity);
+}
+
+Status MoveDispatchState::Bind(
+    std::uintptr_t object, std::uint64_t generation) noexcept
+{
+    Invalidate();
+    if (object == 0 || generation == 0)
+        return Status::failure(FailureCode::ContextUnavailable);
+    object_ = object;
+    generation_ = generation;
+    if (!capture_identity(identity_))
+    {
+        Invalidate();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    bound_ = true;
+    MoveDispatchImage ignored{};
+    if (!capture_unchecked(ignored))
+    {
+        Invalidate();
+        return Status::failure(FailureCode::CapturePreflightFailed);
+    }
+    return Status::success();
+}
+
+void MoveDispatchState::Invalidate() noexcept
+{
+    object_ = 0;
+    generation_ = 0;
+    identity_ = {};
+    bound_ = false;
+}
+
+bool MoveDispatchState::capture_unchecked(MoveDispatchImage& output) noexcept
+{
+    output = {};
+    output.generation = generation_;
+    if (!read_value(memory_, object_ + 0x478, output.frame_slot_index)
+        || !read_value(memory_, object_ + 0x47C, output.sub_frame_index)
+        || !read_value(memory_, object_ + 0x490, output.saved_input_and_gates)
+        || !read_value(memory_, object_ + 0x494, output.completion_delay))
+    {
+        return false;
+    }
+    if (identity_.pending_phase)
+    {
+        std::int32_t count{};
+        if (!read_value(memory_, object_ + 0x488, count)
+            || count < 0 || count > maximum_pending_windows)
+        {
+            return false;
+        }
+        MoveDispatchPendingState pending{};
+        pending.windows.resize(static_cast<std::size_t>(count));
+        if (count != 0
+            && !memory_.Read(identity_.pending_windows,
+                std::as_writable_bytes(std::span{pending.windows})))
+        {
+            return false;
+        }
+        output.phase = std::move(pending);
+    }
+    else
+    {
+        MoveDispatchActionModeState state{};
+        if (!read_value(memory_, object_ + 0x480, state.action_mode)
+            || !read_value(memory_, object_ + 0x484, state.frame_counter)
+            || !read_value(memory_, object_ + 0x488, state.pending_window_gate)
+            || state.action_mode > 9 || state.pending_window_gate > 4)
+        {
+            return false;
+        }
+        output.phase = state;
+    }
+    output.sub_elements.resize(
+        static_cast<std::size_t>(identity_.sub_element_count));
+    for (std::size_t i = 0; i < output.sub_elements.size(); ++i)
+    {
+        const auto address = identity_.sub_elements + i * 0x20;
+        if (!read_value(memory_, address, output.sub_elements[i].tick_count)
+            || !read_value(memory_, address + 4, output.sub_elements[i].complete)
+            || output.sub_elements[i].complete > 1)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+Status MoveDispatchState::Capture(MoveDispatchImage& output) noexcept
+{
+    if (!bound_) return Status::failure(FailureCode::AdapterUnqualified);
+    if (!identity_matches(identity_))
+        return Status::failure(FailureCode::IdentityMismatch);
+    return capture_unchecked(output)
+        ? Status::success()
+        : Status::failure(FailureCode::CaptureFailed);
+}
+
+Status MoveDispatchState::PreflightRestore(
+    const MoveDispatchImage& image) noexcept
+{
+    if (!bound_) return Status::failure(FailureCode::AdapterUnqualified);
+    if (image.generation != generation_)
+        return Status::failure(FailureCode::GenerationMismatch);
+    if (image.sub_elements.size()
+        != static_cast<std::size_t>(identity_.sub_element_count))
+    {
+        return Status::failure(FailureCode::IdentityMismatch);
+    }
+    const bool target_pending =
+        std::holds_alternative<MoveDispatchPendingState>(image.phase);
+    if (target_pending != identity_.pending_phase)
+        return Status::failure(FailureCode::GenerationMismatch);
+    const bool encoded_pending = (image.saved_input_and_gates & 0xFFU) != 0;
+    if (encoded_pending != target_pending)
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    if (target_pending
+        && std::get<MoveDispatchPendingState>(image.phase).windows.size()
+            > static_cast<std::size_t>(identity_.pending_capacity))
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    return identity_matches(identity_)
+        ? Status::success()
+        : Status::failure(FailureCode::IdentityMismatch);
+}
+
+bool MoveDispatchState::write_image(
+    const MoveDispatchImage& image, bool reverse) noexcept
+{
+    const auto write_sub_elements = [&]() noexcept {
+        bool ok = true;
+        for (std::size_t n = image.sub_elements.size(); n-- > 0;)
+        {
+            const auto i = reverse ? n : image.sub_elements.size() - 1 - n;
+            const auto address = identity_.sub_elements + i * 0x20;
+            ok = write_value(memory_, address, image.sub_elements[i].tick_count) && ok;
+            ok = write_value(memory_, address + 4, image.sub_elements[i].complete) && ok;
+        }
+        return ok;
+    };
+    if (reverse && !write_sub_elements()) return false;
+    if (!write_value(memory_, object_ + 0x478, image.frame_slot_index)
+        || !write_value(memory_, object_ + 0x47C, image.sub_frame_index))
+    {
+        return false;
+    }
+    if (const auto* pending = std::get_if<MoveDispatchPendingState>(&image.phase))
+    {
+        if (!pending->windows.empty()
+            && !memory_.Write(identity_.pending_windows,
+                std::as_bytes(std::span{pending->windows})))
+        {
+            return false;
+        }
+        const auto count = static_cast<std::int32_t>(pending->windows.size());
+        if (!write_value(memory_, object_ + 0x488, count)) return false;
+    }
+    else
+    {
+        const auto& state = std::get<MoveDispatchActionModeState>(image.phase);
+        if (!write_value(memory_, object_ + 0x480, state.action_mode)
+            || !write_value(memory_, object_ + 0x484, state.frame_counter)
+            || !write_value(memory_, object_ + 0x488, state.pending_window_gate))
+        {
+            return false;
+        }
+    }
+    if (!write_value(memory_, object_ + 0x490, image.saved_input_and_gates)
+        || !write_value(memory_, object_ + 0x494, image.completion_delay))
+    {
+        return false;
+    }
+    return reverse || write_sub_elements();
+}
+
+Status MoveDispatchState::RestoreTransactional(
+    const MoveDispatchImage& image) noexcept
+{
+    const auto preflight = PreflightRestore(image);
+    if (!preflight.ok()) return preflight;
+    MoveDispatchImage undo{};
+    if (!capture_unchecked(undo))
+        return Status::failure(FailureCode::CaptureFailed);
+    const bool wrote = write_image(image, false);
+    MoveDispatchImage verification{};
+    if (wrote && capture_unchecked(verification) && verification == image)
+        return Status::success();
+    if (!identity_matches(identity_) || !write_image(undo, true))
+        return Status::failure(FailureCode::UndoFailed);
+    MoveDispatchImage undo_verification{};
+    if (!capture_unchecked(undo_verification) || undo_verification != undo)
+        return Status::failure(FailureCode::UndoFailed);
+    return Status::failure(
+        wrote ? FailureCode::RestoreVerificationFailed
+              : FailureCode::RestoreWriteFailed);
+}
+
+std::vector<std::byte> MoveDispatchState::CanonicalBytes(
+    const MoveDispatchImage& image)
+{
+    std::vector<std::byte> output;
+    append(output, &image.generation, sizeof(image.generation));
+    append(output, &image.frame_slot_index, sizeof(image.frame_slot_index));
+    append(output, &image.sub_frame_index, sizeof(image.sub_frame_index));
+    const std::uint8_t phase = std::holds_alternative<MoveDispatchPendingState>(
+        image.phase) ? 1 : 0;
+    append(output, &phase, sizeof(phase));
+    if (const auto* pending = std::get_if<MoveDispatchPendingState>(&image.phase))
+    {
+        const auto count = static_cast<std::uint32_t>(pending->windows.size());
+        append(output, &count, sizeof(count));
+        for (const auto& window : pending->windows)
+        {
+            append(output, &window.owner_slot_tag, sizeof(window.owner_slot_tag));
+            append(output, &window.payload_flags, sizeof(window.payload_flags));
+            append(output, &window.payload_xy, sizeof(window.payload_xy));
+            append(output, &window.payload_tail, sizeof(window.payload_tail));
+            append(output, &window.start_frame, sizeof(window.start_frame));
+            append(output, &window.end_frame, sizeof(window.end_frame));
+        }
+    }
+    else
+    {
+        const auto& state = std::get<MoveDispatchActionModeState>(image.phase);
+        append(output, &state.action_mode, sizeof(state.action_mode));
+        append(output, &state.frame_counter, sizeof(state.frame_counter));
+        append(output, &state.pending_window_gate,
+            sizeof(state.pending_window_gate));
+    }
+    append(output, &image.saved_input_and_gates,
+        sizeof(image.saved_input_and_gates));
+    append(output, &image.completion_delay, sizeof(image.completion_delay));
+    const auto element_count =
+        static_cast<std::uint32_t>(image.sub_elements.size());
+    append(output, &element_count, sizeof(element_count));
+    for (const auto& element : image.sub_elements)
+    {
+        append(output, &element.tick_count, sizeof(element.tick_count));
+        append(output, &element.complete, sizeof(element.complete));
+    }
+    return output;
+}
+}

@@ -1,6 +1,7 @@
 #include "deterministic/NativeCandidateRegions.hpp"
 #include "deterministic/HgCpuStream.hpp"
 #include "deterministic/HgCpuCoverageProbe.hpp"
+#include "deterministic/MoveDispatchState.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -425,6 +426,145 @@ void test_partial_write_undoes_exactly()
         "partial write reports typed failure");
     expect(fixture.memory.bytes() == before, "partial write restores exact undo image");
 }
+
+struct MoveDispatchFixture
+{
+    static constexpr std::uintptr_t memory_base = Fixture::memory_base;
+    static constexpr std::uintptr_t object = memory_base + 0x16000;
+    static constexpr std::uintptr_t frame_slots = memory_base + 0x17000;
+    static constexpr std::uintptr_t sub_elements = memory_base + 0x18000;
+
+    MoveDispatchFixture() : memory(memory_base, 0x20000), state(memory)
+    {
+        memory.Set(object + 0x470, frame_slots);
+        memory.Set(object + 0x478, std::int32_t{3});
+        memory.Set(object + 0x47C, std::int32_t{2});
+        memory.Set(object + 0x480, std::uint8_t{5});
+        memory.Set(object + 0x484, std::int32_t{10});
+        memory.Set(object + 0x488, std::uint8_t{1});
+        memory.Set(object + 0x490, std::uint32_t{0});
+        memory.Set(object + 0x494, std::int32_t{4});
+        memory.Set(object + 0x498, sub_elements);
+        memory.Set(object + 0x4A0, std::int32_t{2});
+        memory.Set(object + 0x4A4, std::int32_t{2});
+        memory.Set(sub_elements, std::int32_t{20});
+        memory.Set(sub_elements + 4, std::uint8_t{0});
+        memory.Fill(sub_elements + 8, 24, std::byte{0x31});
+        memory.Set(sub_elements + 0x20, std::int32_t{21});
+        memory.Set(sub_elements + 0x24, std::uint8_t{1});
+        memory.Fill(sub_elements + 0x28, 24, std::byte{0x32});
+    }
+
+    FakeNativeMemory memory;
+    MoveDispatchState state;
+};
+
+void test_move_dispatch_action_phase_restore()
+{
+    MoveDispatchFixture fixture;
+    expect(fixture.state.Bind(MoveDispatchFixture::object, 19).ok(),
+        "bind MoveDispatch action phase");
+    MoveDispatchImage baseline{};
+    expect(fixture.state.Capture(baseline).ok(),
+        "capture MoveDispatch action phase");
+
+    fixture.memory.Set(MoveDispatchFixture::object + 0x484, std::int32_t{44});
+    fixture.memory.Set(MoveDispatchFixture::sub_elements, std::int32_t{99});
+    fixture.memory.Fill(
+        MoveDispatchFixture::sub_elements + 8, 24, std::byte{0x7A});
+    expect(fixture.state.RestoreTransactional(baseline).ok(),
+        "restore MoveDispatch semantic state");
+    MoveDispatchImage restored{};
+    expect(fixture.state.Capture(restored).ok() && restored == baseline,
+        "recapture exact MoveDispatch semantic state");
+    expect(fixture.memory.Get(MoveDispatchFixture::sub_elements + 8)
+        == std::byte{0x7A}, "preserve MoveDispatch derived scratch bytes");
+
+    const auto canonical = MoveDispatchState::CanonicalBytes(baseline);
+    expect(!contains_qword(canonical, MoveDispatchFixture::frame_slots),
+        "MoveDispatch canonical bytes exclude authored table pointer");
+    expect(!contains_qword(canonical, MoveDispatchFixture::sub_elements),
+        "MoveDispatch canonical bytes exclude subelement owner pointer");
+}
+
+void test_move_dispatch_phase_drift_is_atomic()
+{
+    MoveDispatchFixture fixture;
+    expect(fixture.state.Bind(MoveDispatchFixture::object, 19).ok(),
+        "bind MoveDispatch phase-drift fixture");
+    MoveDispatchImage baseline{};
+    expect(fixture.state.Capture(baseline).ok(),
+        "capture MoveDispatch phase-drift baseline");
+    fixture.memory.Set(MoveDispatchFixture::object + 0x490, std::uint32_t{1});
+    fixture.memory.Set(MoveDispatchFixture::object + 0x480,
+        MoveDispatchFixture::memory_base + 0x19000);
+    fixture.memory.Set(MoveDispatchFixture::object + 0x488, std::int32_t{0});
+    fixture.memory.Set(MoveDispatchFixture::object + 0x48C, std::int32_t{2});
+    const auto before = fixture.memory.bytes();
+    expect(fixture.state.RestoreTransactional(baseline).code
+            == FailureCode::IdentityMismatch,
+        "MoveDispatch phase drift rejects restore");
+    expect(fixture.memory.bytes() == before,
+        "MoveDispatch phase drift performs zero mutation");
+}
+
+void test_move_dispatch_pending_phase_restore()
+{
+    MoveDispatchFixture fixture;
+    constexpr auto pending_windows = MoveDispatchFixture::memory_base + 0x19000;
+    fixture.memory.Set(MoveDispatchFixture::object + 0x490, std::uint32_t{1});
+    fixture.memory.Set(MoveDispatchFixture::object + 0x480, pending_windows);
+    fixture.memory.Set(MoveDispatchFixture::object + 0x488, std::int32_t{2});
+    fixture.memory.Set(MoveDispatchFixture::object + 0x48C, std::int32_t{3});
+    const MoveDispatchPendingWindow first{1, 2, 3, 4, 5, 6};
+    const MoveDispatchPendingWindow second{7, 8, 9, 10, 11, 12};
+    fixture.memory.Set(pending_windows, first);
+    fixture.memory.Set(pending_windows + 0x20, second);
+
+    expect(fixture.state.Bind(MoveDispatchFixture::object, 20).ok(),
+        "bind MoveDispatch pending phase");
+    MoveDispatchImage baseline{};
+    expect(fixture.state.Capture(baseline).ok(),
+        "capture MoveDispatch pending phase");
+    fixture.memory.Set(pending_windows + 0x18, std::int32_t{77});
+    fixture.memory.Set(MoveDispatchFixture::object + 0x488, std::int32_t{1});
+    expect(fixture.state.RestoreTransactional(baseline).ok(),
+        "restore MoveDispatch pending-window values and count");
+    MoveDispatchImage restored{};
+    expect(fixture.state.Capture(restored).ok() && restored == baseline,
+        "recapture exact MoveDispatch pending phase");
+
+    auto malformed = baseline;
+    malformed.saved_input_and_gates = 0;
+    const auto before = fixture.memory.bytes();
+    expect(fixture.state.RestoreTransactional(malformed).code
+            == FailureCode::RestorePreflightFailed,
+        "reject inconsistent MoveDispatch phase tag");
+    expect(fixture.memory.bytes() == before,
+        "inconsistent MoveDispatch phase tag performs zero mutation");
+    const auto canonical = MoveDispatchState::CanonicalBytes(baseline);
+    expect(!contains_qword(canonical, pending_windows),
+        "MoveDispatch canonical bytes exclude pending-window owner pointer");
+}
+
+void test_move_dispatch_partial_write_undoes_exactly()
+{
+    MoveDispatchFixture fixture;
+    expect(fixture.state.Bind(MoveDispatchFixture::object, 19).ok(),
+        "bind MoveDispatch undo fixture");
+    MoveDispatchImage baseline{};
+    expect(fixture.state.Capture(baseline).ok(),
+        "capture MoveDispatch undo target");
+    fixture.memory.Set(MoveDispatchFixture::object + 0x484, std::int32_t{80});
+    fixture.memory.Set(MoveDispatchFixture::sub_elements, std::int32_t{81});
+    const auto before = fixture.memory.bytes();
+    fixture.memory.FailWrite(4);
+    expect(fixture.state.RestoreTransactional(baseline).code
+            == FailureCode::RestoreWriteFailed,
+        "MoveDispatch partial write reports typed failure");
+    expect(fixture.memory.bytes() == before,
+        "MoveDispatch partial write restores exact undo image");
+}
 }
 
 int main()
@@ -435,6 +575,10 @@ int main()
     test_preflight_is_atomic();
     test_unknown_class_and_invalid_header_fail_closed();
     test_partial_write_undoes_exactly();
+    test_move_dispatch_action_phase_restore();
+    test_move_dispatch_phase_drift_is_atomic();
+    test_move_dispatch_pending_phase_restore();
+    test_move_dispatch_partial_write_undoes_exactly();
     if (failures == 0)
         std::cout << "NativeCandidateRegionsSelfTest passed\n";
     return failures == 0 ? 0 : 1;
