@@ -91,6 +91,17 @@ tmp/
 test_runs/
 reports/
 
+# Runtime evidence is generated, potentially large, and belongs in bounded
+# qualification bundles rather than the production source tree.
+/artifacts/
+/traces/
+/audit_exports/
+/tools/moveset_parser/audit-native-export/
+/tools/deterministic_qualification/output/
+*.trace.json
+*.trace.jsonl
+*.audit.json
+
 # Large local replay-corpus partitions are bound by content hash in beta
 # manifests; they are not duplicated into source history.
 /ReplayExampleRemainingAfter109/

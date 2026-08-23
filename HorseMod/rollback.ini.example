@@ -1,0 +1,5 @@
+config_version=1
+enabled=false
+rollback_window=12
+input_delay=1
+trace=false

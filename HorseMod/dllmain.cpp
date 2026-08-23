@@ -101,20 +101,15 @@
 #include "horselib/StageBoundaryOverlay.hpp"
 #include "horselib/StageVisualSuppressor.hpp"
 #include "horselib/NativeBinding.hpp"
-#include "horselib/VitalTraceHook.hpp"
 #include "horselib/CamLock.hpp"
 #include "horselib/FreeCamera.hpp"
 #include "horselib/VFXOff.hpp"
 #include "horselib/CharaInvis.hpp"
 #include "horselib/SpeedControl.hpp"
 #include "horselib/WorldTickGate.hpp"
-#include "horselib/ReplayClockGate.hpp"
-#include "horselib/ReplayDebugTrace.hpp"
 #include "horselib/ActorTickGate.hpp"
 #include "horselib/TimeDilationGate.hpp"
 #include "horselib/WindRngGate.hpp"
-#include "horselib/RollbackLab.hpp"
-#include "horselib/RollbackLiveBoundaryHook.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
 // swap detour on IDXGISwapChain::Present.  This keeps Steam overlay
@@ -175,7 +170,6 @@
 // per-match rule set.  Works for every rule regardless of whether the
 // lobby Blueprint itself called the corresponding Set*Mode UFunction.
 #include "horselib/LuxBattleLauncherStartHook.hpp"
-#include "horselib/NativeReplayTraceHook.hpp"
 
 // PolyHook x64Detour on LuxBattleChara_HasSubProviderEntryOfType0x3e
 // (image+0x3F2990).  This is the SlipOut runtime gate that BOTH the
@@ -186,18 +180,6 @@
 // the full rationale (this hook supersedes the data-table-write
 // approach for the SlipOut policy specifically).
 #include "horselib/HasSubProviderEntryHook.hpp"
-#include "horselib/EBTracer.hpp"
-
-#ifndef HORSE_ENABLE_EBTRACER
-#define HORSE_ENABLE_EBTRACER 0
-#endif
-
-// Replay scrubbing - per-frame full-state snapshot ring + ExecFinalize-
-// AndPost-driven seek.  Captures snapshots only during Replay presence;
-// otherwise idle.  See horselib/ReplayScrub.hpp's file-header doc for
-// the IBuffer contract and Strategy C rationale (~49 MB resident at the
-// default 5-second / 300-frame ring size).
-#include "horselib/ReplayScrub.hpp"
 
 // horselib/GamePause.hpp REMOVED - was a 5-site trampoline patching the
 // chara+0x394 audio-state bit instead of the world-tick pause we
@@ -302,35 +284,24 @@ static bool horsemod_command_line_option_value(
     return found;
 }
 
-static void horsemod_consume_replay_command_line_once() noexcept
+static void horsemod_report_unsupported_legacy_options_once() noexcept
 {
-    static std::atomic<bool> consumed{false};
-    if (consumed.exchange(true, std::memory_order_acq_rel)) return;
+    static std::atomic<bool> reported{false};
+    if (reported.exchange(true, std::memory_order_acq_rel)) return;
 
-    std::wstring replay_path;
-    if (!horsemod_command_line_option_value(
-            L"--horsemod-replay-file", replay_path))
+    const wchar_t* command_line = GetCommandLineW();
+    if (!command_line) return;
+    const bool has_legacy_option =
+        wcsstr(command_line, L"--horsemod-replay-") != nullptr
+        || wcsstr(command_line, L"--horsemod-rollback") != nullptr
+        || wcsstr(command_line, L"--rollback-") != nullptr;
+    if (has_legacy_option)
     {
-        return;
+        Output::send<LogLevel::Warning>(STR(
+            "[HorseMod] legacy rollback/replay command-line options are "
+            "unsupported and were ignored; use rollback.ini after the "
+            "deterministic adapter is qualified\n"));
     }
-
-    std::wstring mode_wide;
-    (void)horsemod_command_line_option_value(
-        L"--horsemod-replay-generate-mode", mode_wide);
-
-    const std::string replay_path_utf8 =
-        horsemod_wide_to_utf8(replay_path);
-    std::string mode_utf8 = horsemod_wide_to_utf8(mode_wide);
-    if (mode_utf8.empty()) mode_utf8 = "lux-no-render-force";
-
-    auto& scrub = Horse::ReplayScrub::instance();
-    const bool ok = scrub.request_start_replay_file(
-        replay_path_utf8.c_str(), mode_utf8.c_str());
-    Output::send<LogLevel::Default>(STR(
-        "[ReplayLink] command-line replay {} path='{}' mode='{}'\n"),
-        ok ? STR("accepted") : STR("rejected"),
-        RC::to_generic_string(replay_path_utf8),
-        RC::to_generic_string(mode_utf8));
 }
 
 static bool horsemod_show_file_in_explorer(
@@ -1304,7 +1275,6 @@ private:
     // round state machine advances, and on unfreeze Stage 3 fast-forwards
     // through the buffered inputs in one tick.  See
     // horselib/ReplayClockGate.hpp for the full plate.
-    Horse::ReplayClockGate m_replay_clock_gate{};
     // Sibling gate for the surrounding Actor::Tick prologues that
     // WorldTickGate's single Site-9 hook misses:
     //   * ALuxBattleChara::TickActor (UE4 anim, hair, weapon mesh, SC
@@ -1410,7 +1380,6 @@ private:
     // and reapplies at a low cadence instead of scanning every tick.
     Horse::StageVisualSuppressor m_stage_visuals{};
     std::atomic<bool> m_hide_stage_visuals{false};
-    std::atomic<bool> m_replay_trace_files_enabled{false};
     std::atomic<bool> m_replay_link_handler_registered{false};
     std::atomic<bool> m_replay_link_status_server_started{false};
 
@@ -1501,7 +1470,6 @@ private:
     std::atomic<uint8_t> m_last_seen_presence{
         static_cast<uint8_t>(Horse::GamePresence::Unknown)};
 
-    bool m_replay_scrub_time_suspended_logged {false};
 
     // Frame-stepped slow-motion accumulator.
     //
@@ -3661,10 +3629,6 @@ private:
         m_show_stage_boundary    .store(S.get_bool ("show_stage_boundary",   false));
         m_hide_stage_visuals     .store(S.get_bool ("hide_stage_visuals",    false));
         m_show_retrack_events    .store(S.get_bool ("show_retrack_events",   false));
-        m_replay_trace_files_enabled.store(
-            S.get_bool("replay_trace_files_enabled", false));
-        Horse::ReplayDebugTrace::instance().set_enabled(
-            m_replay_trace_files_enabled.load());
 
         // --- Reset override -----------------------------------------
         // Captured pose persists across reboots so the user can resume
@@ -3750,8 +3714,6 @@ private:
         S.set("show_stage_boundary",   m_show_stage_boundary.load());
         S.set("hide_stage_visuals",    m_hide_stage_visuals.load());
         S.set("show_retrack_events",   m_show_retrack_events.load());
-        S.set("replay_trace_files_enabled",
-              m_replay_trace_files_enabled.load());
 
         // --- Reset override ----------------------------------------
         // The toggle is deliberately NOT persisted - see the matching
@@ -3866,7 +3828,6 @@ private:
 
     RC::Unreal::Hook::GlobalCallbackId m_engine_tick_callback_id{
         RC::Unreal::Hook::ERROR_ID};
-    PVOID m_exception_handler = nullptr;
 
     // Nav-bootstrap flag: set to true when the overlay transitions from
     // hidden?shown, consumed by render_hitboxes_tab which then calls
@@ -3877,13 +3838,9 @@ private:
     // D-pad appears to do nothing until a "menu" key press kicks nav
     // into gear by side effect.
     bool m_nav_bootstrap_pending = false;
-    static constexpr int kHorseModTabCount = 6;
+    static constexpr int kHorseModTabCount = 5;
     int m_current_tab = 0;
     std::atomic<int> m_requested_tab{-1};
-    std::atomic<bool> m_replay_timeline_only_overlay{false};
-    std::string m_replay_file_last_toast_status;
-    bool m_replay_file_toast_active = false;
-    bool m_timeline_generation_toast_active = false;
 
     // One-shot log flags so UE4SS.log doesn't fill with repeats.
     bool m_logged_native_missing = false;
@@ -3894,243 +3851,6 @@ private:
     // unlikely but survivable).
     bool m_logged_pcm_resolve  = false;
     bool m_logged_pcm_fallback = false;
-    static LONG CALLBACK vectored_exception_handler(
-        EXCEPTION_POINTERS* ep) noexcept
-    {
-        if (!ep || !ep->ExceptionRecord)
-            return EXCEPTION_CONTINUE_SEARCH;
-
-        const auto* rec = ep->ExceptionRecord;
-        const DWORD code = rec->ExceptionCode;
-        if (code == EXCEPTION_BREAKPOINT || code == EXCEPTION_SINGLE_STEP)
-            return EXCEPTION_CONTINUE_SEARCH;
-
-        const uintptr_t rip = reinterpret_cast<uintptr_t>(
-            rec->ExceptionAddress);
-        const uintptr_t base = Horse::NativeBinding::imageBase();
-        constexpr uintptr_t kSc6ImageTraceSpan = 0x20000000;
-        const bool in_sc6_image = base && rip >= base
-            && rip < base + kSc6ImageTraceSpan;
-        if (!in_sc6_image
-            || !Horse::ReplayScrub::instance()
-                    .has_pending_sc6_native_step_drain())
-        {
-            return EXCEPTION_CONTINUE_SEARCH;
-        }
-
-        uint32_t frame_counter = 0;
-        constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
-        const bool frame_counter_ok = base != 0 && Horse::SafeReadUInt32(
-            reinterpret_cast<const void*>(base + kFrameCounterRVA),
-            &frame_counter);
-
-        HorseMod* self = s_instance.load(std::memory_order_acquire);
-        Horse::ReplayTraceFields f;
-        f.hex("exception_code", code)
-         .hex("exception_rip", rip)
-         .hex("exception_rva", rip - base)
-         .uinteger("thread_id", ::GetCurrentThreadId())
-         .boolean("pending_native_step_drain", true)
-         .boolean("frame_counter_ok", frame_counter_ok)
-         .uinteger("frame_counter", frame_counter)
-         .uinteger("exception_flags", rec->ExceptionFlags)
-         .uinteger("exception_parameters", rec->NumberParameters);
-        if (rec->NumberParameters > 0)
-            f.hex("exception_info0", rec->ExceptionInformation[0]);
-        if (rec->NumberParameters > 1)
-            f.hex("exception_info1", rec->ExceptionInformation[1]);
-        if (rec->NumberParameters > 2)
-            f.hex("exception_info2", rec->ExceptionInformation[2]);
-        if (rec->NumberParameters > 3)
-            f.hex("exception_info3", rec->ExceptionInformation[3]);
-        if (self)
-        {
-            f.boolean("world_gate_enabled",
-                     self->m_world_tick_gate.is_enabled())
-             .integer("world_gate_policy", self->m_world_tick_gate.policy())
-             .uinteger("world_gate_entry_counter",
-                       self->m_world_tick_gate.entry_counter())
-             .boolean("replay_gate_enabled",
-                      self->m_replay_clock_gate.is_enabled())
-             .boolean("actor_gate_enabled",
-                      self->m_actor_tick_gate.is_enabled())
-             .boolean("time_gate_enabled",
-                      self->m_time_dilation_gate.is_enabled())
-             .boolean("wind_gate_enabled",
-                      self->m_wind_rng_gate.is_enabled());
-        }
-#if defined(_M_X64)
-        if (ep->ContextRecord)
-        {
-            f.hex("context_rip", ep->ContextRecord->Rip)
-             .hex("context_rsp", ep->ContextRecord->Rsp)
-             .hex("context_rcx", ep->ContextRecord->Rcx)
-             .hex("context_rdx", ep->ContextRecord->Rdx)
-             .hex("context_r8", ep->ContextRecord->R8)
-             .hex("context_r9", ep->ContextRecord->R9);
-        }
-#endif
-        const std::string fn =
-            Horse::ReplayDebugTrace::instance().format_absolute_rip(rip);
-        if (!fn.empty())
-            f.string("exception_function", fn);
-        Horse::ReplayDebugTrace::instance().event(
-            "horsemod_vectored_exception", f);
-        Output::send<LogLevel::Error>(
-            STR("[HorseMod] pending native-step exception code=0x{:X} "
-                "rip=0x{:X} rva=0x{:X}\n"),
-            static_cast<unsigned>(code), rip, rip - base);
-        return EXCEPTION_CONTINUE_SEARCH;
-    }
-
-    static void release_replay_scrub_gates_callback(
-        const char* reason) noexcept
-    {
-        if (HorseMod* self = s_instance.load(std::memory_order_acquire))
-            self->release_replay_scrub_gates_now(reason);
-    }
-
-    static bool step_replay_fork_gates_callback(bool open) noexcept
-    {
-        if (HorseMod* self = s_instance.load(std::memory_order_acquire))
-            return self->step_replay_fork_gates_now(open);
-        return false;
-    }
-
-    bool step_replay_fork_gates_now(bool open) noexcept
-    {
-        const bool hold_active = Horse::ReplayScrub::instance()
-            .replay_fork_lab_hold_active();
-        if (!hold_active)
-        {
-            Horse::ReplayTraceFields fields;
-            fields.boolean("open", open)
-                .boolean("hold_active", false)
-                .string("failure", "hold-inactive");
-            Horse::ReplayDebugTrace::instance().event(
-                "rollback_replay_fork_gate_step", fields);
-            return false;
-        }
-        if (open)
-        {
-            const uintptr_t base = Horse::NativeBinding::imageBase();
-            const bool vm_write = base && try_write_vm_freeze_byte(
-                reinterpret_cast<volatile uint8_t*>(
-                    base + Horse::kRVA_LuxBattleVMFreezeRecord), 0u);
-            Horse::ReplayTraceFields fields;
-            fields.boolean("open", true)
-                .boolean("hold_active", true)
-                .boolean("image_base_valid", base != 0)
-                .boolean("vm_write", vm_write)
-                .boolean("world_gate_enabled", m_world_tick_gate.is_enabled())
-                .boolean("time_gate_enabled", m_time_dilation_gate.is_enabled());
-            if (!base || !vm_write)
-            {
-                fields.string("failure", !base
-                    ? "image-base-missing" : "vm-unfreeze-write-failed");
-                Horse::ReplayDebugTrace::instance().event(
-                    "rollback_replay_fork_gate_step", fields);
-                return false;
-            }
-            m_vm_freeze_byte_we_set.store(false,
-                std::memory_order_release);
-            if (m_time_dilation_gate.is_enabled())
-                m_time_dilation_gate.disable();
-            if (m_world_tick_gate.is_enabled())
-                m_world_tick_gate.add_step(1);
-            fields.boolean("time_gate_enabled_after",
-                m_time_dilation_gate.is_enabled());
-            Horse::ReplayDebugTrace::instance().event(
-                "rollback_replay_fork_gate_step", fields);
-            return true;
-        }
-        if (m_world_tick_gate.is_enabled())
-            m_world_tick_gate.set_frozen();
-        if (!m_time_dilation_gate.is_enabled()
-            && !m_time_dilation_gate.enable())
-        {
-            Horse::ReplayTraceFields fields;
-            fields.boolean("open", false)
-                .boolean("hold_active", true)
-                .string("failure", "time-gate-refreeze-failed");
-            Horse::ReplayDebugTrace::instance().event(
-                "rollback_replay_fork_gate_step", fields);
-            return false;
-        }
-        const uintptr_t base = Horse::NativeBinding::imageBase();
-        const bool vm_write = base && try_write_vm_freeze_byte(
-            reinterpret_cast<volatile uint8_t*>(
-                base + Horse::kRVA_LuxBattleVMFreezeRecord), 1u);
-        Horse::ReplayTraceFields fields;
-        fields.boolean("open", false)
-            .boolean("hold_active", true)
-            .boolean("image_base_valid", base != 0)
-            .boolean("vm_write", vm_write)
-            .boolean("world_gate_enabled", m_world_tick_gate.is_enabled())
-            .boolean("time_gate_enabled", m_time_dilation_gate.is_enabled());
-        if (!base || !vm_write)
-        {
-            fields.string("failure", !base
-                ? "image-base-missing" : "vm-refreeze-write-failed");
-            Horse::ReplayDebugTrace::instance().event(
-                "rollback_replay_fork_gate_step", fields);
-            return false;
-        }
-        m_vm_freeze_byte_we_set.store(true, std::memory_order_release);
-        const bool frozen = !m_world_tick_gate.is_enabled()
-            || m_world_tick_gate.policy() == 0;
-        fields.boolean("frozen", frozen);
-        Horse::ReplayDebugTrace::instance().event(
-            "rollback_replay_fork_gate_step", fields);
-        return frozen;
-    }
-
-    void release_replay_scrub_gates_now(const char* reason) noexcept
-    {
-        if (m_freeze_frame.load(std::memory_order_acquire) ||
-            m_speed_enabled.load(std::memory_order_acquire) ||
-            m_step_pending.load(std::memory_order_acquire) > 0)
-        {
-            return;
-        }
-
-        const bool had_world = m_world_tick_gate.is_enabled();
-        const bool had_replay = m_replay_clock_gate.is_enabled();
-        const bool had_actor = m_actor_tick_gate.is_enabled();
-        const bool had_time = m_time_dilation_gate.is_enabled();
-        const bool had_wind = m_wind_rng_gate.is_enabled();
-        if (!had_world && !had_replay && !had_actor && !had_time && !had_wind)
-            return;
-
-        if (had_wind) m_wind_rng_gate.disable();
-        if (had_replay) m_replay_clock_gate.disable();
-        if (had_actor) m_actor_tick_gate.disable();
-        if (had_time) m_time_dilation_gate.disable();
-        if (had_world) m_world_tick_gate.disable();
-        m_last_tick_kind.store(
-            static_cast<uint8_t>(TickKind::Inactive),
-            std::memory_order_release);
-
-        Horse::ReplayTraceFields f;
-        f.string("reason", reason ? reason : "reset")
-         .boolean("world_gate_was_enabled", had_world)
-         .boolean("replay_gate_was_enabled", had_replay)
-         .boolean("actor_gate_was_enabled", had_actor)
-         .boolean("time_gate_was_enabled", had_time)
-         .boolean("wind_gate_was_enabled", had_wind);
-        Horse::ReplayDebugTrace::instance().event(
-            "replay_scrub_gates_released_for_reset", f);
-        Output::send<LogLevel::Default>(
-            STR("[ReplayScrub.gates] released for reset reason={} "
-                "world={} replay={} actor={} time={} wind={}\n"),
-            RC::to_generic_string(reason ? reason : "reset"),
-            had_world ? 1 : 0,
-            had_replay ? 1 : 0,
-            had_actor ? 1 : 0,
-            had_time ? 1 : 0,
-            had_wind ? 1 : 0);
-    }
-
 public:
     HorseMod() : CppUserModBase()
     {
@@ -4138,6 +3858,8 @@ public:
         ModVersion     = STR("0.10.0");
         ModDescription = STR("SC6 KHit hitbox / hurtbox / body visualiser.");
         ModAuthors     = STR("horse");
+
+        horsemod_report_unsupported_legacy_options_once();
 
         // The overlay Present hook still waits for Steam's first frames, but
         // SC6 may decide whether to poll XInput during title/menu bootstrap.
@@ -4287,14 +4009,6 @@ public:
             }
 
             bool v = !Horse::GameImGui::visible();
-            if (m_replay_timeline_only_overlay.exchange(
-                    false, std::memory_order_relaxed))
-            {
-                // Timeline-only overlay is an automatic replay affordance.
-                // F2 should promote it to the full HorseMod panel instead
-                // of making the user hide/reopen the overlay first.
-                v = true;
-            }
             Horse::GameImGui::set_visible(v);
             Output::send<LogLevel::Default>(
                 STR("[HorseMod] F2 pressed - overlay {}\n"),
@@ -4302,18 +4016,6 @@ public:
         });
 
         s_instance.store(this);
-        Horse::ReplayScrub::instance().set_gate_release_callback(
-            &HorseMod::release_replay_scrub_gates_callback);
-        Horse::ReplayScrub::instance().set_gate_step_callback(
-            &HorseMod::step_replay_fork_gates_callback);
-        Horse::RollbackLab::instance().configure_from_command_line_once();
-        m_exception_handler = ::AddVectoredExceptionHandler(
-            1, &HorseMod::vectored_exception_handler);
-        if (!m_exception_handler)
-        {
-            Output::send<LogLevel::Warning>(STR(
-                "[HorseMod] AddVectoredExceptionHandler failed\n"));
-        }
         Output::send<LogLevel::Default>(
             STR("[HorseMod] ctor v{} (deploy marker: replay-context-retry)\n"),
             RC::to_generic_string(HORSEMOD_VERSION));
@@ -4332,15 +4034,6 @@ public:
         // Restore visual-only stage hiding before the UObject hook is
         // removed so a graceful unload cannot leave stage actors hidden.
         m_stage_visuals.restoreNow();
-
-        if (m_exception_handler)
-        {
-            ::RemoveVectoredExceptionHandler(m_exception_handler);
-            m_exception_handler = nullptr;
-        }
-
-        Horse::ReplayScrub::instance().set_gate_release_callback(nullptr);
-        Horse::ReplayScrub::instance().set_gate_step_callback(nullptr);
 
         // Zero instance pointer early so any in-flight hook sees null.
         s_instance.store(nullptr);
@@ -4375,12 +4068,6 @@ public:
         }
         Horse::GameImGui::shutdown();
 
-        // Ordinary rollback shutdown leaves reusable native detours in
-        // pass-through mode, joins the UDP worker, destroys Gekko, closes
-        // sockets, and releases snapshot storage. The exported uninstall
-        // preflight performs final detachment before this destructor can run.
-        Horse::RollbackLab::instance().shutdown();
-
         if (m_hook_registered && !m_hook_path.empty())
         {
             UObjectGlobals::UnregisterHook(m_hook_path, m_hook_ids);
@@ -4403,23 +4090,6 @@ public:
         // next install.  Idempotent if install never succeeded.
         Horse::SetStartPositionHook::instance().uninstall();
 
-        // Tear down native diagnostic detours installed after image-base
-        // resolution.  Idempotent if install never succeeded.
-        Horse::VitalTraceHook::instance().uninstall();
-
-        // RngTraceHook owns native Lux RNG detours plus process-UCRT
-        // rand/srand detours. They must not survive unloading this DLL.
-        Horse::RngTraceHook::instance().uninstall();
-
-        // Tear down stock replay-launch trace probes.  Observability only.
-        Horse::NativeReplayTraceHook::instance().uninstall();
-
-        // Tear down rollback live-boundary observability detours.
-        Horse::RollbackLiveBoundaryHook::instance().uninstall();
-
-        // Tear down rollback stock transport observe-only detours.
-        Horse::RollbackStockTransportObserveHook::instance().uninstall();
-
         // Tear down all online-rules UFunction hooks (SlipOut + any
         // future implemented rules).  Idempotent.
         Horse::OnlineRules::instance().uninstall_hooks();
@@ -4432,12 +4102,6 @@ public:
         // Tear down the SlipOut runtime-gate PolyHook detour.
         // Idempotent if install never succeeded.
         Horse::HasSubProviderEntryHook::instance().uninstall();
-        Horse::EBTracer::instance().uninstall();
-
-        // Tear down the replay scrubber's snapshot ring.  Frees the
-        // ~49 MB / ~98 MB / ~590 MB (depending on ring size) of
-        // backing memory.  Idempotent if ensure_initialized never ran.
-        Horse::ReplayScrub::instance().shutdown();
 
         // Tear down the SetPresence post-hook so the lambda doesn't
         // fire on a freed cached path-string after dllmain unload.
@@ -4484,10 +4148,10 @@ public:
                 return Horse::GameImGui::ToastManager::instance().draw();
             });
 
-        RC::Unreal::Hook::FCallbackOptions replay_start_tick_opts{};
-        replay_start_tick_opts.bReadonly = true;
-        replay_start_tick_opts.OwnerModName = STR("HorseMod");
-        replay_start_tick_opts.HookName = STR("ReplayFileStartService");
+        RC::Unreal::Hook::FCallbackOptions engine_tick_opts{};
+        engine_tick_opts.bReadonly = true;
+        engine_tick_opts.OwnerModName = STR("HorseMod");
+        engine_tick_opts.HookName = STR("OverlayService");
         m_engine_tick_callback_id =
             RC::Unreal::Hook::RegisterEngineTickPostCallback(
                 [](RC::Unreal::Hook::TCallbackIterationData<void>&,
@@ -4496,38 +4160,17 @@ public:
                     if (!self) return;
                     self->service_gameimgui_toggle_key_release();
                     self->service_gameimgui_deferred_install();
-                    auto& scrub = Horse::ReplayScrub::instance();
-                    scrub.service_state_snapshot_request();
-                    scrub.service_replay_file_start_request();
-                    Horse::RollbackLab::instance().service_game_thread();
-                    self->tick_replay_file_start_toast(scrub);
-                    self->sync_timeline_generation_toast_state(
-                        scrub, scrub.timeline_gen_state());
                     self->draw_line_overlays_after_battle_tick();
-                }, replay_start_tick_opts);
+                }, engine_tick_opts);
         Output::send<LogLevel::Default>(STR(
-            "[HorseMod] engine tick replay-start service registered id={}\n"),
+            "[HorseMod] engine tick overlay service registered id={}\n"),
             m_engine_tick_callback_id);
-        horsemod_consume_replay_command_line_once();
 
         // Resolve SC6 native RVAs now that the game image is loaded.  KHit
         // rendering reads native world buffers directly; the remaining
         // pointers cover reset/start-position, online rules, presence
         // tracking, line-batcher refresh, and throw-height prediction.
         Horse::NativeBinding::resolve();
-
-        // Stock native replay-launch trace probes.  These are the
-        // in-process equivalent of x64dbg breakpoints on the replay save,
-        // battle-setting, asset-request, readiness, and manual-launch path.
-        Horse::NativeReplayTraceHook::instance().install();
-
-        // Rollback live-boundary observability. The detours are inert unless
-        // the developer rollback lab enables the online-boundary case.
-        Horse::RollbackLiveBoundaryHook::instance().install();
-
-        // VitalTraceHook is replay-oracle observability only.  Keep it lazy
-        // (ReplayScrub installs it when needed) so normal startup does not
-        // patch native damage routines before gameplay exists.
 
         // Install the C++-level chara-teleport hook.  This is the
         // workhorse for the "Override reset position" feature: every
@@ -4562,24 +4205,6 @@ public:
         // rationale and the link to the previous failed-test
         // investigation.
         Horse::HasSubProviderEntryHook::instance().install();
-
-#if HORSE_ENABLE_EBTRACER
-        // High-volume diagnostic tracer for chara+0x16EB transitions.
-        // It hooks several hot simulation functions and logs from them,
-        // so it must stay opt-in for normal replay/timeline testing.
-        Horse::EBTracer::instance().install();
-#else
-        Output::send<LogLevel::Verbose>(
-            STR("[EBTracer] disabled in normal build "
-                "(set HORSE_ENABLE_EBTRACER=1 to install)\n"));
-#endif
-
-        // Replay scrubbing: allocation is DEFERRED to first Replay-
-        // presence entry (see on_cockpit_update_pre below) so users who
-        // never watch replays don't pay the ~590 MB memory cost.  The
-        // engine entry-point pointers and frame-counter address ARE
-        // resolved at startup via NativeBinding, so the lazy alloc is
-        // just the ring backing memory plus its tag vector.
 
         // Push the default hit-flash duration into the walker so it's
         // correct on frame 0 without the user having to touch the
@@ -4631,11 +4256,6 @@ public:
             && m_engine_tick_callback_id == RC::Unreal::Hook::ERROR_ID)
         {
             service_gameimgui_deferred_install();
-            auto& scrub = Horse::ReplayScrub::instance();
-            scrub.service_state_snapshot_request();
-            scrub.service_replay_file_start_request();
-            Horse::RollbackLab::instance().service_game_thread();
-            service_replay_scrub_update_fallback();
         }
 
         const bool all_reset_registered = std::all_of(
@@ -4986,8 +4606,6 @@ private:
         // Disable the sibling gates first (they READ the WorldTickGate
         // policy slot, so leaving them enabled past the gate's disable
         // would be harmless but pointless).
-        if (m_replay_clock_gate.is_enabled())
-            m_replay_clock_gate.disable();
         if (m_actor_tick_gate.is_enabled())
             m_actor_tick_gate.disable();
         if (m_time_dilation_gate.is_enabled())
@@ -4998,66 +4616,6 @@ private:
             m_world_tick_gate.disable();
     }
 
-    void suspend_manual_time_controls_for_replay_scrub(const char* reason)
-    {
-        const bool had_manual =
-            m_freeze_frame.load() || m_step_pending.load() > 0
-            || m_step_expecting.load() || m_speed_enabled.load()
-            || m_speed_control.is_enabled()
-            || m_vm_freeze_byte_we_set.load();
-
-        if (!had_manual) return;
-
-        m_freeze_frame.store(false);
-        m_step_pending.store(0);
-        m_step_expecting.store(false);
-        m_step_witness.valid = false;
-        m_step_dwell = 0;
-        m_speed_enabled.store(false);
-        if (m_speed_control.is_enabled())
-            m_speed_control.disable();
-
-        if (m_vm_freeze_byte_we_set.load())
-        {
-            const uintptr_t base = Horse::NativeBinding::imageBase();
-            if (base
-                && try_write_vm_freeze_byte(
-                    reinterpret_cast<volatile uint8_t*>(
-                        base + Horse::kRVA_LuxBattleVMFreezeRecord),
-                    0))
-            {
-                m_vm_freeze_byte_we_set.store(false);
-            }
-        }
-
-        if (!m_replay_scrub_time_suspended_logged)
-        {
-            m_replay_scrub_time_suspended_logged = true;
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayScrub.gates] suspended manual Freeze/F6/slow-mo "
-                "for replay timeline review (reason={})\n"),
-                RC::to_generic_string(reason ? reason : "?"));
-        }
-    }
-
-    // Per-tick enforcement of all four gated features while the
-    // online safety gate is engaged.
-    //
-    // All four (Lock camera, Free-fly, Freeze, Slow-motion) follow
-    // the same pattern:
-    //   1. Set to OFF the first time the gate fires this match
-    //      (the per-tick clamp is idempotent - once off, the inner
-    //      `if` short-circuits on subsequent ticks).
-    //   2. LOCKED OFF for the duration of the gate's engagement
-    //      (UI shows them struck-through + BeginDisabled; if any
-    //      back-door write somehow flips the atom, the next tick
-    //      clamps it back).
-    //   3. Stay off after the gate disengages - nothing re-stores
-    //      them automatically.  The user manually re-engages.
-    //
-    // This matches the user's mental model: "auto-disable means
-    // these are unavailable in online matches, and I'll re-enable
-    // them myself if I want them after the match ends".
     void apply_online_forced_disable()
     {
         // ---- Lock camera position --------------------------------
@@ -5107,8 +4665,6 @@ private:
             m_step_witness.valid = false;
             m_step_dwell = 0;
         }
-        if (m_replay_clock_gate.is_enabled())
-            m_replay_clock_gate.disable();
         if (m_actor_tick_gate.is_enabled())
             m_actor_tick_gate.disable();
         if (m_time_dilation_gate.is_enabled())
@@ -5259,620 +4815,65 @@ private:
 
     void frame_step_apply()
     {
-        // Drain step credits off PerFrameTick's own end-of-function counter,
-        // not off cockpit hook timing.  g_LuxBattle_FrameCounter @
-        // imageBase+0x470D0C4 is incremented at the very end of
-        // LuxBattle_PerFrameTick - so by the time the NEXT cockpit pre-tick
-        // fires we know unambiguously whether PerFrameTick ran on the
-        // previous UE4 frame, regardless of where in the tick scheduler
-        // each actor's tick landed.  Tying credit drain to this counter
-        // makes step counts exact: an add_step(N) advances exactly N
-        // forward replay frames.  Driving it off the cockpit pre/post
-        // hook had a subtle bug - cockpit Update can fire BEFORE
-        // PerFrameTick in the same frame, so a pre-/post-hook decrement
-        // landed before Site 9 saw the new policy and we'd miss the
-        // last credit of a burst (visible to the user as 10-step
-        // requesting 10 forward frames but advancing only 9).
+        const bool freeze = m_freeze_frame.load();
+        const bool slow_mo = m_speed_enabled.load();
+        const int pending = m_step_pending.exchange(0);
+
+        if (freeze || pending > 0)
         {
-            constexpr uintptr_t kFrameCounterRVA = 0x470D0C4;
-            const uintptr_t base = Horse::NativeBinding::imageBase();
-            uint32_t cur_frame = 0;
-            const bool ok = base != 0 && Horse::SafeReadUInt32(
-                reinterpret_cast<const void*>(base + kFrameCounterRVA),
-                &cur_frame);
-            const uint32_t world_entry_counter =
-                m_world_tick_gate.entry_counter();
-            if (ok && m_prev_frame_counter_seen)
-            {
-                // PerFrameTick ran (counter advanced) ? drain one credit.
-                // Wraparound at uint32 max takes years at 60Hz; ignore it.
-                if (cur_frame != m_prev_frame_counter_value)
-                {
-                    const bool validation_gate_active =
-                        Horse::ReplayScrub::instance()
-                            .has_active_validation_step();
-                    const int32_t policy_before = m_world_tick_gate.policy();
-                    m_world_tick_gate.consume_one_credit();
-                    const int32_t policy_after = m_world_tick_gate.policy();
-                    const int32_t drained_credits =
-                        policy_before > policy_after
-                            ? policy_before - policy_after
-                            : 0;
-                    if (validation_gate_active && drained_credits > 0)
-                    {
-                        Horse::ReplayScrub::instance()
-                            .notify_sc6_seek_native_step_drained(
-                                drained_credits,
-                                world_entry_counter,
-                                m_prev_frame_counter_value,
-                                cur_frame,
-                                policy_before,
-                                policy_after,
-                                m_world_tick_gate.is_enabled(),
-                                m_replay_clock_gate.is_enabled(),
-                                m_actor_tick_gate.is_enabled(),
-                                m_time_dilation_gate.is_enabled(),
-                                m_wind_rng_gate.is_enabled());
-                    }
-                    if (validation_gate_active)
-                    {
-                        Horse::ReplayTraceFields f;
-                        f.string("stage", "frame-counter-advanced")
-                          .uinteger("frame_counter_before",
-                                    m_prev_frame_counter_value)
-                          .uinteger("frame_counter_after", cur_frame)
-                          .uinteger("world_gate_entry_counter",
-                                    world_entry_counter)
-                          .integer("gate_policy_before", policy_before)
-                          .integer("gate_policy_after", policy_after)
-                         .integer("drained_credits", drained_credits)
-                         .boolean("world_gate_enabled",
-                                  m_world_tick_gate.is_enabled())
-                         .boolean("replay_gate_enabled",
-                                  m_replay_clock_gate.is_enabled())
-                         .boolean("actor_gate_enabled",
-                                  m_actor_tick_gate.is_enabled())
-                         .boolean("time_gate_enabled",
-                                  m_time_dilation_gate.is_enabled())
-                         .boolean("wind_gate_enabled",
-                                  m_wind_rng_gate.is_enabled());
-                        Horse::ReplayDebugTrace::instance().event(
-                            "sc6_validation_gate_state", f);
-                    }
-                }
-            }
-            if (ok)
-            {
-                m_prev_frame_counter_value = cur_frame;
-                m_prev_frame_counter_seen  = true;
-            }
-        }
-
-        const auto scrub_policy =
-            Horse::ReplayScrub::instance().replay_gate_policy();
-        const bool scrub_gate_requested =
-            scrub_policy.world_tick_gate
-            || scrub_policy.replay_clock_gate
-            || scrub_policy.actor_tick_gate
-            || scrub_policy.time_dilation_gate
-            || scrub_policy.vm_freeze_byte
-            || scrub_policy.wind_rng_gate;
-
-        const bool freeze     = m_freeze_frame.load();
-        const bool slow_mo    = m_speed_enabled.load();
-        const int  pending    = m_step_pending.load();
-        // (m_step_expecting / m_step_witness / m_step_dwell are dormant -
-        // the 2-tick state machine they belonged to is replaced by the
-        // WorldTickGate-driven path.  Field removal is proposal step 4-5.)
-
-        // -------------------------------------------------------------------
-        // Compute gate policy for this cockpit tick.
-        //
-        // Priority chain (highest first):
-        //   1. Frame-step in flight        - alternate 1.0 / base over 2 ticks
-        //   2. Freeze                       - gate policy = frozen
-        //   3. Frame-stepped slow-motion    - gate policy = run/stop cadence
-        //                                     (controlled by m_slow_mo_accumulator;
-        //                                      see member's plate for rationale)
-        //   4. Otherwise                    - gates disabled (native speed)
-        //
-        // The frame-stepped slow-mo replaces the old dt-scale slow-mo
-        // (which used to write fractional speedvals like 0.5).  Every
-        // tick is now a CLEAN 0.0 or 1.0 - no fractional dt, so
-        // multi-hit move cells resolve at integer frame boundaries
-        // exactly like they would at native speed.  See the member's
-        // plate for the trade-off discussion.
-        // -------------------------------------------------------------------
-        bool  gate_drives_this_tick = false;
-        bool  desired_world_gate = false;
-        bool  desired_replay_clock_gate = false;
-        bool  desired_actor_tick_gate = false;
-        bool  desired_time_dilation_gate = false;
-        bool  desired_wind_rng_gate = false;
-
-        if (pending > 0 || freeze || scrub_gate_requested)
-        {
-            // ---- WORLD-TICK-GATE-DRIVEN PATH (2026-05-05) ---------------
-            // Freeze + frame-step are now driven by Horse::WorldTickGate
-            // (single PerFrameTick gate).  speedval stays at 1.0 (the
-            // dt-multiply sites at 1/3/4/5/6/8 become no-ops, eliminating
-            // the dt=0 contamination that was breaking multi-hit moves
-            // under frame-step), and the gate's int32_t step-credit slot
-            // is the sole "skip this frame" mechanism.
-            //
-            // F6 press cadence:
-            //   * Each F6 press bumps m_step_pending (existing hotkey
-            //     handler is unchanged).
-            //   * Here we DRAIN m_step_pending into the gate as step
-            //     credits - each PerFrameTick call atomically decrements
-            //     the slot and runs the displaced prologue.
-            //
-            // After credits are exhausted the slot is 0 = frozen again,
-            // PerFrameTick bails until the next F6 press.  No 2-tick
-            // state machine, no witness/dwell counter, no VMFreezeByte
-            // engagement, no try_clear_multi_hit_lockout_for_step hack.
-            //
-            // SpeedControl stays DISABLED in this path: dt-multiply sites
-            // (1/3/4/5/6/8) and replay-side sites (10/11/12/13+) only
-            // fire when SpeedControl is enabled, and we don't want any
-            // of them touching state during freeze/step.
-            //
-            // KHitWalker's hit-flash drain is now keyed on
-            // g_LuxBattle_FrameCounter (incremented at the end of
-            // PerFrameTick), so it tracks the gate exactly: counter
-            // halts under freeze, advances by 1 per step credit
-            // consumed.  No SpeedControl coupling.
-            const bool manual_gate_request = pending > 0 || freeze;
-            desired_world_gate =
-                manual_gate_request || scrub_policy.world_tick_gate
-                || scrub_policy.replay_clock_gate
-                || scrub_policy.actor_tick_gate
-                || scrub_policy.time_dilation_gate;
-            desired_replay_clock_gate =
-                manual_gate_request || scrub_policy.replay_clock_gate;
-            desired_actor_tick_gate =
-                manual_gate_request || scrub_policy.actor_tick_gate;
-            desired_time_dilation_gate =
-                manual_gate_request || scrub_policy.time_dilation_gate;
-            desired_wind_rng_gate = scrub_policy.wind_rng_gate;
-
-            if (desired_world_gate && !m_world_tick_gate.is_resolved())
+            if (!m_world_tick_gate.is_resolved())
                 m_world_tick_gate.resolve();
-            if (desired_world_gate && m_world_tick_gate.is_resolved() &&
-                !m_world_tick_gate.is_enabled())
+            if (m_world_tick_gate.is_resolved()
+                && !m_world_tick_gate.is_enabled())
                 m_world_tick_gate.enable();
-
-            // Sibling: replay master-clock gate.  Resolves once on first
-            // use (sig-scans both INC sites).  Enables in lockstep with
-            // WorldTickGate so during match-replay viewing the master
-            // clock is pinned while frozen - without it, SimulationLoop's
-            // catch-up loop keeps walking the replay timeline forward
-            // and fast-forwards on unfreeze.  Resolution failure is
-            // non-fatal: WorldTickGate alone still works for live and
-            // training, so we just log and proceed.
-            if (desired_replay_clock_gate
-                && !m_replay_clock_gate.is_resolved())
-                m_replay_clock_gate.resolve(
-                    m_world_tick_gate.policy_slot_address());
-            if (desired_replay_clock_gate
-                && m_replay_clock_gate.is_resolved() &&
-                !m_replay_clock_gate.is_enabled())
-                m_replay_clock_gate.enable();
-
-            if (desired_actor_tick_gate
-                && !m_actor_tick_gate.is_resolved())
+            if (!m_actor_tick_gate.is_resolved())
                 m_actor_tick_gate.resolve(
                     m_world_tick_gate.policy_slot_address());
-            if (desired_actor_tick_gate
-                && m_actor_tick_gate.is_resolved() &&
-                !m_actor_tick_gate.is_enabled())
+            if (m_actor_tick_gate.is_resolved()
+                && !m_actor_tick_gate.is_enabled())
                 m_actor_tick_gate.enable();
-
-            if (desired_time_dilation_gate
-                && !m_time_dilation_gate.is_resolved())
+            if (!m_time_dilation_gate.is_resolved())
                 m_time_dilation_gate.resolve(
                     m_world_tick_gate.policy_slot_address());
-            if (desired_time_dilation_gate
-                && m_time_dilation_gate.is_resolved() &&
-                !m_time_dilation_gate.is_enabled())
+            if (m_time_dilation_gate.is_resolved()
+                && !m_time_dilation_gate.is_enabled())
                 m_time_dilation_gate.enable();
-
-            if (desired_wind_rng_gate && !m_wind_rng_gate.is_resolved())
-                m_wind_rng_gate.resolve();
-            if (desired_wind_rng_gate
-                && m_wind_rng_gate.is_resolved()
-                && !m_wind_rng_gate.is_enabled())
-                m_wind_rng_gate.enable();
-
             if (pending > 0)
-            {
-                // Move ALL pending presses into the gate at once.  add_step
-                // is atomic (fetch_add on the int32_t slot via atomic_ref),
-                // so we won't race the trampoline's lock-dec on the same
-                // memory.  exchange clears m_step_pending to 0 - F6 hotkey
-                // presses that arrive between this and the next cockpit
-                // tick land in m_step_pending and get committed next time.
-                const int n = m_step_pending.exchange(0);
-                if (n > 0) m_world_tick_gate.add_step(n);
-            }
-            const int sc6_step_credits =
-                Horse::ReplayScrub::instance()
-                    .consume_sc6_seek_native_step_request();
-            if (sc6_step_credits > 0)
-            {
-                const int32_t policy_before = m_world_tick_gate.policy();
-                m_world_tick_gate.add_step(sc6_step_credits);
-                const int32_t policy_after = m_world_tick_gate.policy();
-                Horse::ReplayScrub::instance()
-                    .notify_sc6_seek_native_step_granted(
-                        sc6_step_credits,
-                        m_world_tick_gate.entry_counter(),
-                        policy_before,
-                        policy_after,
-                        m_world_tick_gate.is_enabled(),
-                        m_replay_clock_gate.is_enabled(),
-                        m_actor_tick_gate.is_enabled(),
-                        m_time_dilation_gate.is_enabled(),
-                        m_wind_rng_gate.is_enabled());
-            }
-            // else: pure freeze with no NEW presses this tick.  Do NOT write
-            // 0 to the slot - the slot is the LIVE step-credit counter (the
-            // trampoline lock-decs it each world tick), so a Step N command
-            // from a previous cockpit tick may still have credits draining.
-            // Writing 0 here would clobber e.g. "9 credits remaining" and
-            // collapse a Step-10 into a Step-1.  Steady-state behaviour:
-            //   * Just-enabled gate: WorldTickGate::enable() already wrote
-            //     policy=0, so we start frozen with no extra work.
-            //   * After the trampoline drains all credits: slot lands at 0
-            //     naturally; subsequent ticks bail without anyone touching
-            //     it from C++.
-
-            // Stale 2-tick state machine fields - reset so a future
-            // path that reads them doesn't pick up garbage from the old
-            // mode.  The full removal of expecting/witness/dwell is
-            // proposal step 4-5 (cleanup phase).
-            m_step_expecting.store(false);
-            m_step_witness.valid = false;
-            m_step_dwell         = 0;
-            m_slow_mo_accumulator = 0.0f;
-
-            // SpeedControl stays out of the picture while the gate drives.
-            gate_drives_this_tick = true;
-        }
-        else if (slow_mo)
-        {
-            // ---- SLOW-MO ROUTED THROUGH THE GATE (2026-05-05) ----------
-            // The accumulator-driven cadence (each cockpit tick decides
-            // "go" or "stop") used to write speedval = 1.0 / 0.0 and rely
-            // on Site 9 to bail PerFrameTick on the 0 ticks.  With Site 9
-            // moved out of SpeedControl, that fall-through stops working
-            // - speedval = 0 lets PerFrameTick run, but the dt-multiply
-            // sites at 1/3/4/5/6/8 produce dt=0 inside it, re-introducing
-            // the same contamination that broke multi-hit moves under
-            // frame-step.  Instead, drive the cadence through the
-            // WorldTickGate exactly like F6 step does: "go" tick =
-            // add_step(1), "stop" tick = set_frozen().
-            //
-            // Net effect: at S=0.5, half the cockpit ticks each produce
-            // ONE PerFrameTick at native dt (= half-rate world advance),
-            // the other half bail at the gate (= world frozen).  Every
-            // game frame the engine sees is integer-dt - multi-hit moves
-            // resolve correctly even in slow-mo.  Trade-off (per the
-            // proposal's slow-mo plate): visuals are choppier than the
-            // old fractional-dt slow-mo at very low slider values; for
-            // hitbox analysis this is the better trade.
-            const float S = m_speed_value.load();
-            if (S >= 1.0f)
-            {
-                // Slider at or past native speed - no slowdown to apply.
-                // Run at full speed, gate stays disabled so the engine's
-                // PerFrameTick prologue runs unconditionally (= no per-
-                // tick patch flipping in the steady state).
-                m_slow_mo_accumulator   = 0.0f;
-            }
-            else
-            {
-                // S in [0.0, 1.0): use the gate.  Ensure it's resolved +
-                // enabled, then publish the tick decision (add_step on
-                // "go", set_frozen on "stop") via the same atomics the
-                // freeze/step path uses.
-                if (!m_world_tick_gate.is_resolved())
-                    m_world_tick_gate.resolve();
-                if (m_world_tick_gate.is_resolved() &&
-                    !m_world_tick_gate.is_enabled())
-                    m_world_tick_gate.enable();
-
-                if (!m_replay_clock_gate.is_resolved())
-                    m_replay_clock_gate.resolve(
-                        m_world_tick_gate.policy_slot_address());
-                if (m_replay_clock_gate.is_resolved() &&
-                    !m_replay_clock_gate.is_enabled())
-                    m_replay_clock_gate.enable();
-
-                if (!m_actor_tick_gate.is_resolved())
-                    m_actor_tick_gate.resolve(
-                        m_world_tick_gate.policy_slot_address());
-                if (m_actor_tick_gate.is_resolved() &&
-                    !m_actor_tick_gate.is_enabled())
-                    m_actor_tick_gate.enable();
-
-                if (!m_time_dilation_gate.is_resolved())
-                    m_time_dilation_gate.resolve(
-                        m_world_tick_gate.policy_slot_address());
-                if (m_time_dilation_gate.is_resolved() &&
-                    !m_time_dilation_gate.is_enabled())
-                    m_time_dilation_gate.enable();
-
-                bool go_this_tick;
-                if (S <= 0.0f)
-                {
-                    // Slider at zero - collapse to freeze for this tick.
-                    // Same end-state as the dedicated freeze toggle, kept
-                    // here so the slider's edges have no discontinuity.
-                    go_this_tick          = false;
-                    m_slow_mo_accumulator = 0.0f;
-                }
-                else
-                {
-                    // Step-based cadence.  Accumulate slider value;
-                    // emit a "go" tick whenever the accumulator crosses
-                    // 1.0, otherwise emit a "stop" tick.
-                    const float new_accum = m_slow_mo_accumulator + S;
-                    if (new_accum >= 1.0f)
-                    {
-                        go_this_tick          = true;
-                        m_slow_mo_accumulator = new_accum - 1.0f;
-                    }
-                    else
-                    {
-                        go_this_tick          = false;
-                        m_slow_mo_accumulator = new_accum;
-                    }
-                }
-
-                if (go_this_tick)
-                    m_world_tick_gate.add_step(1);
-                else
-                    m_world_tick_gate.set_frozen();
-
-                gate_drives_this_tick = true;
-                desired_world_gate = true;
-                desired_replay_clock_gate = true;
-                desired_actor_tick_gate = true;
-            desired_time_dilation_gate = true;
-        }
-        }
-        else
-        {
-            // No freeze, no slow-mo, no step queued - native speed.
-            m_slow_mo_accumulator   = 0.0f;
+                m_world_tick_gate.add_step(pending);
+            if (m_speed_control.is_enabled())
+                m_speed_control.disable();
+            m_last_tick_kind.store(
+                static_cast<uint8_t>(pending > 0
+                    ? TickKind::Go
+                    : TickKind::Stop),
+                std::memory_order_release);
+            return;
         }
 
-        // ---- World-tick gate disengage --------------------------------
-        // When this tick is NOT gate-driven (native or pure slow-mo), the
-        // gate must be disabled so the engine's PerFrameTick prologue runs
-        // unconditionally.  Idempotent - disable() is a no-op when already
-        // disabled, no per-tick patch flipping in the steady state.
-        // The sibling gates are disabled FIRST so they can't observe a
-        // stale policy slot value during the brief window between
-        // disable() calls.
-        const bool manual_gate_active =
-            desired_world_gate
-            && (freeze || pending > 0 || slow_mo)
-            && !scrub_gate_requested;
-        const char* gate_log_reason = manual_gate_active
-            ? "manual-freeze"
-            : (scrub_policy.reason ? scrub_policy.reason : "None");
-        Horse::ReplayScrub::instance().check_ui_park_gate_state(
-            desired_world_gate,
-            desired_replay_clock_gate,
-            desired_actor_tick_gate,
-            desired_time_dilation_gate,
-            gate_drives_this_tick
-                && m_world_tick_gate.policy() == 0
-                && (freeze || pending > 0 || slow_mo
-                    || scrub_policy.vm_freeze_byte));
-        {
-            static bool s_gate_diag_valid = false;
-            static bool s_last_world = false;
-            static bool s_last_replay = false;
-            static bool s_last_actor = false;
-            static bool s_last_time = false;
-            static bool s_last_wind = false;
-            static const char* s_last_reason = "";
-            if (!s_gate_diag_valid
-                || s_last_world != desired_world_gate
-                || s_last_replay != desired_replay_clock_gate
-                || s_last_actor != desired_actor_tick_gate
-                || s_last_time != desired_time_dilation_gate
-                || s_last_wind != desired_wind_rng_gate
-                || s_last_reason != gate_log_reason)
-            {
-                s_gate_diag_valid = true;
-                s_last_world = desired_world_gate;
-                s_last_replay = desired_replay_clock_gate;
-                s_last_actor = desired_actor_tick_gate;
-                s_last_time = desired_time_dilation_gate;
-                s_last_wind = desired_wind_rng_gate;
-                s_last_reason = gate_log_reason;
-                if (scrub_gate_requested
-                    || desired_world_gate || desired_replay_clock_gate
-                    || desired_actor_tick_gate || desired_time_dilation_gate
-                    || desired_wind_rng_gate
-                    || (gate_log_reason && gate_log_reason[0] != 'N'))
-                {
-                    RC::Output::send<RC::LogLevel::Default>(STR(
-                        "[ReplayScrub.gates] reason={} world={} replay={} "
-                        "actor={} time={} vm={} wind={}\n"),
-                        RC::to_generic_string(gate_log_reason
-                            ? gate_log_reason : "?"),
-                        desired_world_gate ? 1 : 0,
-                        desired_replay_clock_gate ? 1 : 0,
-                        desired_actor_tick_gate ? 1 : 0,
-                        desired_time_dilation_gate ? 1 : 0,
-                        scrub_policy.vm_freeze_byte ? 1 : 0,
-                        desired_wind_rng_gate ? 1 : 0);
-                }
-            }
-        }
-
-        if (!desired_wind_rng_gate && m_wind_rng_gate.is_enabled())
-            m_wind_rng_gate.disable();
-        if (!desired_replay_clock_gate && m_replay_clock_gate.is_enabled())
-            m_replay_clock_gate.disable();
-        if (!desired_actor_tick_gate && m_actor_tick_gate.is_enabled())
-            m_actor_tick_gate.disable();
-        if (!desired_time_dilation_gate && m_time_dilation_gate.is_enabled())
-            m_time_dilation_gate.disable();
-        if (!desired_world_gate && m_world_tick_gate.is_enabled())
+        if (m_world_tick_gate.is_enabled())
             m_world_tick_gate.disable();
+        if (m_actor_tick_gate.is_enabled())
+            m_actor_tick_gate.disable();
+        if (m_time_dilation_gate.is_enabled())
+            m_time_dilation_gate.disable();
 
-        // Publish the tick kind for the render-thread UI cadence
-        // indicator.  Only meaningful while slow-mo is on; other
-        // states map to Inactive so the UI shows a neutral state
-        // (no flickering during freeze, native, or step-only).
+        if (slow_mo)
         {
-            TickKind kind = TickKind::Inactive;
-            if (slow_mo && !freeze && pending == 0 && gate_drives_this_tick
-                && !scrub_gate_requested)
-            {
-                const float S = m_speed_value.load();
-                if (S > 0.0f && S < 1.0f)
-                {
-                    // gate.policy() > 0 means we just published a step
-                    // credit (this tick will run); == 0 means we set
-                    // frozen (this tick will bail).  This mirrors the
-                    // old `target >= 0.5` key but reads the actual
-                    // decision we just committed to the gate.
-                    kind = (m_world_tick_gate.policy() > 0)
-                               ? TickKind::Go
-                               : TickKind::Stop;
-                }
-            }
-            m_last_tick_kind.store(static_cast<uint8_t>(kind),
-                                   std::memory_order_release);
+            if (!m_speed_control.is_resolved())
+                m_speed_control.resolve();
+            if (!m_speed_control.is_enabled())
+                m_speed_control.enable();
+            m_speed_control.set_value(m_speed_value.load());
         }
-
-        if (m_speed_control.is_enabled())
+        else if (m_speed_control.is_enabled())
+        {
             m_speed_control.disable();
-        m_last_speed_target = std::numeric_limits<float>::quiet_NaN();
-
-        // ---- SC6 NATIVE VM-FREEZE BYTE driver (2026-04 / 2026-05) -----
-        // Engages SC6's INTERNAL VM freeze (the same mechanism hit-stop
-        // and round-end cinematics use).  See Ghidra plate on
-        // LuxBattle_TickHitStopSchedulerAndInputMirror for the full
-        // architecture: setting g_LuxBattle_VMFreezeRecord.bVMFreezeByte
-        // (at imageBase + kRVA_LuxBattleVMFreezeRecord) to non-zero makes
-        // LuxMoveVM_GetTimeDilationScalar return 0 for ALL callers,
-        // halting every per-frame integrator (VM, opcodes, physics,
-        // ANIMS, FX dispatchers).  CRUCIALLY this includes UE4-side
-        // anim instance ticks driven by USkeletalMeshComponent::Tick-
-        // Component, which run independently of LuxBattle_PerFrameTick
-        // and aren't catchable via WorldTickGate's Site-9 RET alone.
-        //
-        // 2026-05 update: re-engage VMFreezeByte during pure-freeze
-        // (WorldTickGate policy == 0).  The earlier blanket disable
-        // (gate_drives_this_tick -> want_freeze=false) was too aggressive
-        // - without it, holding HorseMod freeze in match-replay watching
-        // for longer than a round duration let UE4 anim play out the
-        // current chara montage and the BM round timer wallclock down to
-        // zero, transitioning into the next round.  The user-visible
-        // symptom: charas finish their current action then settle to
-        // standing-still until next-round auto-start.  Engaging
-        // VMFreezeByte during true-freeze halts those independent paths
-        // at the SC6-native source.
-        //
-        // We only re-engage it when WorldTickGate is in pure-freeze
-        // (policy slot == 0); when the gate is armed with step credits
-        // (policy > 0) we still leave VMFreezeByte clear so the gated
-        // PerFrameTick run advances at native dt instead of dt=0 (the
-        // "dt=0 contamination" the gate-only model was built to avoid).
-        // The cadence:
-        //   * F6 press -> add_step on gate -> policy=N (>0)
-        //                 -> next cockpit tick reads policy>0 -> VMFreezeByte=0
-        //                 -> PerFrameTick at native dt advances 1 frame
-        //   * After all credits drain, policy lands at 0
-        //                 -> next cockpit tick reads policy==0 -> VMFreezeByte=1
-        //                 -> UE4 anim, BM tick, round timer all halt
-        //
-        // SAFETY (post crash-on-load fix):
-        //   1. Only TOUCH the byte when our state implies we WANT to
-        //      change SC6's native freeze.  Steady-state "no freeze
-        //      ever requested" path skips entirely.  Avoids stomping
-        //      on SC6's own hit-stop/cinematic freeze writes during
-        //      load/transitions.
-        //   2. State-change-only - only emit a write when the desired
-        //      state DIFFERS from our last write.
-        //   3. SEH-wrapped via the static helper (try_write_vm_freeze_byte);
-        //      __try/__except can't live in this function because of
-        //      C++ destructors in scope.
-        {
-            // Gate-driven freeze: engage VMFreezeByte iff policy slot is
-            // currently 0 (no step credits pending).  Step-credit-armed
-            // ticks leave the byte clear so PerFrameTick can advance at
-            // native dt.  Non-gate-driven paths no longer use legacy
-            // SpeedControl speedval, so they never request this byte here.
-            // ReplayScrub uses the same world/replay gate policy to hold a
-            // restored frame, but using SC6's global VMFreezeByte here made
-            // post-generation replay review crawl at about one cockpit tick
-            // per second.  Keep VMFreezeByte for the explicit Freeze/step UI
-            // path, not for timeline review.
-            const bool want_freeze =
-                gate_drives_this_tick
-                    ? (m_world_tick_gate.policy() == 0
-                       && ((freeze || pending > 0 || slow_mo)
-                               && !scrub_gate_requested
-                           || scrub_policy.vm_freeze_byte))
-                    : false;
-            const bool currently_owned = m_vm_freeze_byte_we_set.load();
-            if ((want_freeze || currently_owned) &&
-                want_freeze != currently_owned)
-            {
-                const uintptr_t base = Horse::NativeBinding::imageBase();
-                if (base)
-                {
-                    if (try_write_vm_freeze_byte(
-                            reinterpret_cast<volatile uint8_t*>(
-                                base + Horse::kRVA_LuxBattleVMFreezeRecord),
-                            want_freeze ? 1u : 0u))
-                    {
-                        m_vm_freeze_byte_we_set.store(want_freeze);
-                    }
-                    else
-                    {
-                        // Fault on access - disable our ownership flag
-                        // and fall back to the per-function bare-RET
-                        // sites (1..16).  Don't keep retrying.
-                        m_vm_freeze_byte_we_set.store(false);
-                    }
-                }
-            }
         }
-
-        // BattleAdvanceFlag override: REMOVED 2026-05-02.
-        //   Earlier hypothesis: PerFrameTick's BattleAdvanceFlag gate
-        //   (step 3 of 10, AND-of-three on flOutBlendW0=0,
-        //   nOutModeTag=2, MasterModeFlag=3) was flipping to 0 during
-        //   step Tick A from stale VMFreezeRecord state and skipping
-        //   LuxBattle_TickCharaInput.  Override force-wrote flOutBlendW0=1
-        //   and nOutModeTag=0 at every cockpit tick where target==1.0.
-        //
-        //   Empirically didn't fix the multi-hit-miss bug, AND has the
-        //   side effect of overriding the engine's hit-stop blend output
-        //   during NORMAL gameplay (target=1.0 in native play too), which
-        //   can disrupt hit-stop visuals and the move-VM's hit-stop-aware
-        //   logic.  Reverted.  The actual root cause of multi-hit miss
-        //   is deeper in the hit-classifier path; investigation pending.
-
-        // BattlePauseRequest call removed 2026-04-27 - the underlying
-        // ULuxBattleFunctionLibrary::SetBattlePause UFunction merely sets
-        // an audio-state bit at chara+0x394 (per the Ghidra plate on
-        // LuxBattleChara_SyncAudioActiveState_FromBattleFlags), it doesn't
-        // actually halt the world tick.  Empirically observed to break
-        // Soul Charge mid-move because SC's audio-cue-driven phase
-        // transitions stall when audio is force-muted.  Sites 1-16 +
-        // VMFreezeByte (above) remain the actual freeze mechanism - see
-        // the BattlePauseRequest removal comment in the member list.
+        m_last_tick_kind.store(
+            static_cast<uint8_t>(slow_mo
+                ? TickKind::Go
+                : TickKind::Inactive),
+            std::memory_order_release);
     }
 
     // SEH-wrapped single-byte write to g_LuxBattle_VMFreezeRecord.bVMFreezeByte.
@@ -6334,19 +5335,6 @@ private:
 
         clear_time_features_on_transition();
 
-        // Replay scrubber: drop captured snapshots and cancel any
-        // pending seek.  If we are entering Replay, initialise now so
-        // an armed timeline generation can catch the earliest clean
-        // replay-start frames instead of waiting for the cockpit hook.
-        Horse::ReplayScrub::instance().on_presence_change();
-        // Chara/MoveVM lifecycle detours are diagnostic-only and are too
-        // invasive during Replay menu/setup transitions, where transient
-        // character objects can exist before the battle runtime is stable.
-        Horse::NativeReplayTraceHook::instance()
-            .set_replay_lifecycle_trace_active(false);
-        if (to == GMP::Replay)
-            (void)Horse::ReplayScrub::instance().ensure_initialized();
-
         // Drop the cached battle-level globals.  LuxBattleManager /
         // CockpitBase / PlayerController are torn down across this
         // transition; invalidating forces the next GlobalPtr::get() to
@@ -6360,47 +5348,6 @@ private:
         m_backend_stage.invalidate();
         m_stage_boundary.invalidate();
         m_stage_visuals.invalidate();
-    }
-
-    void service_replay_scrub_update_fallback()
-    {
-        auto& scrub = Horse::ReplayScrub::instance();
-        const int cockpit_calls = m_update_calls;
-        if (cockpit_calls != m_engine_fallback_last_cockpit_calls)
-        {
-            m_engine_fallback_last_cockpit_calls = cockpit_calls;
-            m_engine_fallback_missed_ticks = 0;
-            m_engine_fallback_logged = false;
-            return;
-        }
-
-        if (++m_engine_fallback_missed_ticks < 2)
-            return;
-
-        const auto presence = Horse::GameMode::instance().current_presence();
-        const bool relevant = presence == Horse::GamePresence::Replay
-            || scrub.timeline_gen_state()
-                == Horse::ReplayScrub::TimelineGenState::Generating
-            || scrub.has_active_validation_step();
-        if (!relevant)
-            return;
-
-        if (presence == Horse::GamePresence::Replay
-            && !scrub.is_initialized())
-        {
-            (void)scrub.ensure_initialized();
-        }
-
-        if (!m_engine_fallback_logged)
-        {
-            Output::send<LogLevel::Default>(STR(
-                "[HorseMod] replay scrub update fallback active "
-                "(presence={} cockpit_calls={})\n"),
-                Horse::presence_name(presence), cockpit_calls);
-            m_engine_fallback_logged = true;
-        }
-
-        scrub.service_engine_tick_replay_fallback();
     }
 
     // ------------------------------------------------------------------
@@ -6443,12 +5390,6 @@ private:
 
     void draw_line_overlays_after_battle_tick()
     {
-        if (Horse::ReplayScrub::instance()
-                .should_suppress_timeline_presentation())
-        {
-            return;
-        }
-
         if (!can_draw_battle_overlays_for_presence(
                 Horse::GameMode::instance().current_presence()))
         {
@@ -6842,162 +5783,6 @@ private:
         m_backend_hurt_once.endFrame();
     }
 
-    void request_replay_timeline_window_visible() noexcept
-    {
-        if (!Horse::GameImGui::visible())
-        {
-            m_replay_timeline_only_overlay.store(
-                true, std::memory_order_relaxed);
-        }
-        Horse::GameImGui::set_visible(true);
-    }
-
-    static bool replay_toast_status_contains(
-        const std::string& status,
-        const char* needle) noexcept
-    {
-        return needle && *needle
-            && status.find(needle) != std::string::npos;
-    }
-
-    void tick_replay_file_start_toast(
-        Horse::ReplayScrub& replay_scrub) noexcept
-    {
-        try
-        {
-            const bool pending =
-                replay_scrub.has_pending_replay_file_start();
-            const std::string status =
-                replay_scrub.replay_file_status_text();
-            const bool status_changed =
-                status != m_replay_file_last_toast_status;
-
-            auto& toasts = Horse::GameImGui::ToastManager::instance();
-            if (pending)
-            {
-                if (!m_replay_file_toast_active || status_changed)
-                {
-                    toasts.show_working(
-                        "replay-file-start",
-                        status.empty()
-                            ? "Starting replay..."
-                            : status);
-                }
-                m_replay_file_toast_active = true;
-            }
-            else if (m_replay_file_toast_active)
-            {
-                const std::string message =
-                    status.empty() ? "Replay start finished" : status;
-                if (replay_toast_status_contains(status, "failed"))
-                {
-                    toasts.show_failure("replay-file-start", message);
-                }
-                else if (replay_toast_status_contains(status, "success"))
-                {
-                    toasts.show_success("replay-file-start", message);
-                }
-                else
-                {
-                    toasts.show_info("replay-file-start", message);
-                }
-                m_replay_file_toast_active = false;
-            }
-
-            m_replay_file_last_toast_status = status;
-        }
-        catch (...)
-        {
-            // Toasts are user feedback only; replay automation must continue.
-        }
-    }
-
-    void sync_timeline_generation_toast_state(
-        Horse::ReplayScrub& replay_scrub,
-        Horse::ReplayScrub::TimelineGenState after) noexcept
-    {
-        using GS = Horse::ReplayScrub::TimelineGenState;
-
-        try
-        {
-            auto& toasts = Horse::GameImGui::ToastManager::instance();
-            if (after == GS::Generating)
-            {
-                if (!m_timeline_generation_toast_active)
-                {
-                    toasts.show_working("timeline-generation",
-                                        "Generating replay timeline...");
-                    Output::send<LogLevel::Verbose>(STR(
-                        "[HorseMod.Toast] timeline generation toast "
-                        "working\n"));
-                }
-                m_timeline_generation_toast_active = true;
-                return;
-            }
-
-            if (m_timeline_generation_toast_active)
-            {
-                if (after == GS::Done)
-                {
-                    toasts.show_success("timeline-generation",
-                                        "Timeline ready");
-                    const bool suppress_window =
-                        replay_scrub
-                            .consume_replay_file_start_seek_test_auto_open_suppression();
-                    if (!suppress_window)
-                    {
-                        request_replay_timeline_window_visible();
-                    }
-                    Output::send<LogLevel::Verbose>(STR(
-                        "[HorseMod.Toast] timeline generation toast "
-                        "success\n"));
-                    if (suppress_window)
-                    {
-                        Output::send<LogLevel::Default>(STR(
-                            "[HorseMod] replay timeline overlay auto-open "
-                            "suppressed for seek-test automation\n"));
-                    }
-                    else
-                    {
-                        Output::send<LogLevel::Default>(STR(
-                            "[HorseMod] replay timeline overlay shown after "
-                            "generation completed\n"));
-                    }
-                }
-                else
-                {
-                    toasts.show_failure(
-                        "timeline-generation",
-                        "Timeline generation stopped before completion");
-                    Output::send<LogLevel::Verbose>(STR(
-                        "[HorseMod.Toast] timeline generation toast "
-                        "failure\n"));
-                }
-                m_timeline_generation_toast_active = false;
-            }
-            else
-            {
-                toasts.clear_if_kind("timeline-generation",
-                                     Horse::GameImGui::ToastKind::Working);
-            }
-        }
-        catch (...)
-        {
-            // Toasts are user feedback only; generation state is authoritative.
-        }
-    }
-
-    void tick_generate_timeline_with_replay_window(
-        Horse::ReplayScrub& replay_scrub) noexcept
-    {
-        using GS = Horse::ReplayScrub::TimelineGenState;
-        const GS before = replay_scrub.timeline_gen_state();
-        replay_scrub.tick_generate_timeline();
-        const GS after = replay_scrub.timeline_gen_state();
-        static_cast<void>(before);
-        sync_timeline_generation_toast_state(replay_scrub, after);
-    }
-
     // ------------------------------------------------------------------
     // CockpitBase_C::Update pre-hook.  Game thread, one call per frame.
     // ------------------------------------------------------------------
@@ -7005,29 +5790,7 @@ private:
     {
         ++m_update_calls;
 
-        Horse::ReplayScrub& replay_scrub = Horse::ReplayScrub::instance();
-        {
-            const auto rs_presence =
-                Horse::GameMode::instance().current_presence();
-            if (rs_presence == Horse::GamePresence::Replay
-                && !replay_scrub.is_initialized())
-            {
-                replay_scrub.ensure_initialized();
-            }
-        }
-
         service_presence_transition_safety("cockpit");
-
-        if (replay_scrub.should_suppress_timeline_presentation())
-        {
-            replay_scrub.tick_capture(false);
-            tick_generate_timeline_with_replay_window(replay_scrub);
-            if (replay_scrub.should_suppress_timeline_presentation())
-                replay_scrub.note_timeline_cockpit_overlay_suppressed();
-            m_have_prev_yaw[0] = false;
-            m_have_prev_yaw[1] = false;
-            return;
-        }
 
         // Drain the ResetOverride deferred-apply queue.  Cheap no-op
         // when no reset is pending.  Must run BEFORE any other tick
@@ -7088,22 +5851,6 @@ private:
         // toggle is a process-state property, not a per-frame action.
         // No call needed here.
 
-        const bool timeline_presentation_suppressed =
-            replay_scrub.should_suppress_timeline_presentation();
-
-        if (replay_scrub.wants_time_controls_suspended())
-        {
-            suspend_manual_time_controls_for_replay_scrub(
-                "replay-scrub-critical-path");
-        }
-        else
-        {
-            m_replay_scrub_time_suspended_logged = false;
-        }
-
-        if (!timeline_presentation_suppressed)
-            replay_scrub.service_pre_frame_gate();
-
         // Frame-step + freeze-frame driver.  Computes the desired
         // speedval from the (Freeze, Slow-mo, step-counter) tuple and
         // pushes it into Horse::SpeedControl.  Must run here (not from
@@ -7112,8 +5859,6 @@ private:
         // world tick), while the ImGui tab callback only runs when the
         // user has the menu open.
         frame_step_apply();
-        if (!timeline_presentation_suppressed)
-            replay_scrub.service_post_frame_gate();
 
         // Free-camera driver.  Resolves ALuxBattleCamera* from the current
         // LuxBattleManager.BattleCamera property (null outside battle)
@@ -7121,60 +5866,11 @@ private:
         // writes the pose fields directly on the camera actor.  Running
         // this unconditionally (not gated by m_enabled) matches the other
         // "always on while toggled" features above.
-        if (!timeline_presentation_suppressed)
-            free_camera_apply();
-
-        // Replay scrubber driver.  Two operations per cockpit tick:
-        //   1. tick_capture() - read g_LuxBattle_FrameCounter; if it
-        //      advanced AND we're in Replay presence AND capture is
-        //      enabled AND we aren't currently scrubbing, snapshot the
-        //      live state into the next ring slot via the engine's
-        //      ExecMoveChangeAndPost (against our HgCpuBufferShim).
-        //   2. service_seek_request() - if the UI posted a target
-        //      frame, ExecFinalizeAndPost the matching ring slot and
-        //      engage WorldTickGate freeze so the engine doesn't
-        //      immediately re-derive divergent state on top.
-        // Both no-op when ReplayScrub is uninitialised or idle, so
-        // calling them every cockpit tick costs ~2 atomic loads
-        // outside Replay presence.
-        //
-        // Lazy-init: create the dedup snapshot store on the first tick
-        // we observe Replay presence so users who never open the Replay
-        // viewer don't pay any memory cost.  Subsequent ticks find
-        // is_initialized()=true and skip.  Capture is unbounded (2 GB
-        // ceiling); there is no capture-window setting.
-        const bool refresh_replay_ui_runtime =
-            Horse::GameImGui::visible();
-        replay_scrub.tick_capture(refresh_replay_ui_runtime);
-        // 2026-05-16: "Generate timeline" driver.  Services the UI
-        // start/stop request and, while generating, watches for the
-        // end of the recording.  The fast-forward itself is done by
-        // FrameCapOverride removing the engine frame cap (plus, for the
-        // experimental variant, RenderSkipOverride skipping the scene
-        // redraw) - this call just starts/stops it and auto-detects
-        // completion.
-        tick_generate_timeline_with_replay_window(replay_scrub);
+        free_camera_apply();
 
         if (!raw_cockpit) return;
 
-        // Keep visual stage hiding serviced even while replay timeline
-        // generation skips rendering-oriented overlay work below.
         m_stage_visuals.tick(m_hide_stage_visuals.load());
-
-        // Lux-only timeline generation keeps gameplay simulation
-        // authoritative and suppresses presentation-only mod work.
-        if (replay_scrub.should_suppress_timeline_presentation())
-        {
-            // This early return skips the per-chara retrack-event
-            // detection that maintains m_prev_yaw.  Invalidate the yaw
-            // baseline so the first tick after generation ends re-seeds
-            // it, instead of firing a spurious "retrack event" banner
-            // off a stale pre-generation yaw.
-            replay_scrub.note_timeline_cockpit_overlay_suppressed();
-            m_have_prev_yaw[0] = false;
-            m_have_prev_yaw[1] = false;
-            return;
-        }
 
         // KHit/stage line-overlay drawing runs from the engine tick post
         // callback, after the native battle tick has refreshed KHit world
@@ -7767,16 +6463,6 @@ private:
     // ------------------------------------------------------------------
     void render_tab_impl()
     {
-        {
-            Horse::ReplayScrub& replay_scrub =
-                Horse::ReplayScrub::instance();
-            if (replay_scrub.should_suppress_timeline_presentation())
-            {
-                replay_scrub.note_timeline_imgui_overlay_suppressed();
-                return;
-            }
-        }
-
         // ----------------------------------------------------------------
         // Always-on overlays first - these draw to GetForegroundDrawList
         // unconditionally so they show up regardless of whether the
@@ -7834,41 +6520,11 @@ private:
             m_nav_bootstrap_pending = true;
         }
 
-        if (m_replay_timeline_only_overlay.load(std::memory_order_relaxed))
-        {
-            if (render_replay_timeline_window())
-                return;
-
-            {
-                Horse::ReplayScrub& replay_scrub =
-                    Horse::ReplayScrub::instance();
-                const auto runtime =
-                    replay_scrub.replay_ui_runtime_status();
-                Output::send<LogLevel::Warning>(STR(
-                    "[HorseMod] replay timeline-only overlay closed: "
-                    "presence={} initialized={} stale={} complete={} "
-                    "generation={} battle_active={} ring_count={}\n"),
-                    Horse::presence_name(
-                        Horse::GameMode::instance().current_presence()),
-                    runtime.initialized ? 1 : 0,
-                    runtime.timeline_stale ? 1 : 0,
-                    runtime.timeline_complete ? 1 : 0,
-                    runtime.generation_running ? 1 : 0,
-                    runtime.battle_active ? 1 : 0,
-                    replay_scrub.ring_count());
-            }
-            m_replay_timeline_only_overlay.store(
-                false, std::memory_order_relaxed);
-            Horse::GameImGui::set_visible(false);
-            return;
-        }
-
         // Window title carries the package version so users can tell which
         // build is loaded when triaging bug reports.
         if (!ImGui::Begin(horsemod_window_title()))
         {
             ImGui::End();
-            (void)render_replay_timeline_window();
             return;
         }
 
@@ -7953,8 +6609,7 @@ private:
             tab_item("Camera",   1, [this] { render_camera_tab(); });
             tab_item("Time",     2, [this] { render_time_tab(); });
             tab_item("Labbing",  3, [this] { render_labbing_tab(); });
-            tab_item("Replay",   4, [this] { render_replay_tab(); });
-            tab_item("General",  5, [this] { render_general_tab(); });
+            tab_item("General",  4, [this] { render_general_tab(); });
 
             ImGui::EndTabBar();
         }
@@ -7972,7 +6627,6 @@ private:
         m_nav_bootstrap_pending = false;
 
         ImGui::End();
-        (void)render_replay_timeline_window();
     }
 
     void reset_khit_audit_cadence() noexcept
@@ -9192,624 +7846,6 @@ private:
     //      the world freezes while paused.
     //   4. Releasing the playhead resumes playback after the seek lands.
     // ==================================================================
-    static const char* replay_scrub_block_reason_text(
-        Horse::ReplayScrub::NativeSeekFailure reason) noexcept
-    {
-        using Reason = Horse::ReplayScrub::NativeSeekFailure;
-        switch (reason)
-        {
-        case Reason::FunctionUnresolved:
-            return "native function unresolved";
-        case Reason::DriverUnresolved:
-            return "driver unresolved";
-        case Reason::DriverBusy:
-            return "driver busy";
-        case Reason::CallFaulted:
-            return "native call faulted";
-        case Reason::TaskNotObserved:
-            return "task not observed";
-        case Reason::SettleTimedOut:
-            return "settle timed out";
-        case Reason::InvalidTarget:
-            return "invalid target";
-        case Reason::TimelineMissingDemoTime:
-            return "no timeline demo time";
-        case Reason::NativeTimeSourceUnresolved:
-            return "native time unresolved";
-        case Reason::LegacyVerifyFailed:
-            return "SC6 replay-state verify failed";
-        case Reason::InteractiveReplayContextUnresolved:
-            return "SC6 replay context unresolved";
-        case Reason::InteractiveReplayResetFaulted:
-            return "SC6 legacy reset faulted";
-        case Reason::InteractiveReplayRoundSelectFailed:
-            return "SC6 round select failed";
-        case Reason::InteractiveReplayFastForwardStalled:
-            return "SC6 fast-forward stalled";
-        case Reason::InteractiveReplayVerifyFailed:
-            return "selected frame input check failed";
-        case Reason::InteractiveReplayTargetPastMatchEnd:
-            return "SC6 target past match end";
-        case Reason::RoundResetDataUnavailable:
-            return "SC6 reset data unavailable";
-        case Reason::Sc6ResetSnapshotReadFailed:
-            return "SC6 reset snapshot read failed";
-        case Reason::Sc6ResetSnapshotWriteFailed:
-            return "SC6 reset snapshot write failed";
-        case Reason::Sc6InputLogRestoreFailed:
-            return "SC6 input log restore failed";
-        case Reason::Sc6ReplayDataBlockRestoreFailed:
-            return "SC6 replay data restore failed";
-        case Reason::Sc6ReplayCursorWriteFailed:
-            return "SC6 replay cursor write failed";
-        case Reason::Sc6ReplayPlayerCursorWriteFailed:
-            return "SC6 replay player cursor write failed";
-        case Reason::Sc6SetMoveStateFaulted:
-            return "SC6 round reset dispatch failed";
-        case Reason::Sc6InteractiveReplayResetFaultedDiagnostic:
-            return "SC6 diagnostic reset faulted";
-        case Reason::Sc6ResetDispatchFailed:
-            return "SC6 reset dispatch failed";
-        case Reason::CapturedSnapshotRestoreFailed:
-            return "selected frame restore failed";
-        case Reason::CapturedSnapshotCompareFailed:
-            return "selected frame could not be verified";
-        case Reason::CapturedSnapshotValidationStepFailed:
-            return "selected frame validation step failed";
-        case Reason::CapturedSnapshotSemanticRepairFailed:
-            return "selected frame repair failed";
-        case Reason::CapturedRestoreProbeMismatch:
-            return "selected frame restore probe mismatch";
-        case Reason::CapturedGameplayStepFailed:
-            return "selected frame gameplay check failed";
-        case Reason::SemanticMismatch:
-            return "Play blocked: replay advanced differently from the generated timeline";
-        case Reason::CrossRoundResetContextUnavailable:
-            return "round reset context unavailable";
-        case Reason::CrossRoundResetDispatchFailed:
-            return "round reset dispatch failed";
-        case Reason::OracleFieldOffsetUnproven:
-            return "selected frame field unproven";
-        case Reason::TimelineIncomplete:
-            return "timeline incomplete - wait for generation";
-        case Reason::NotLanded:
-            return "selected frame not verified";
-        case Reason::BattleManagerStatusNotActive:
-            return "SC6 battle state not active yet";
-        case Reason::None:
-        default:
-            return "selected frame not verified";
-        }
-    }
-
-    void render_replay_timeline_controls()
-    {
-        auto& scrub = Horse::ReplayScrub::instance();
-        const auto runtime = scrub.replay_ui_runtime_status();
-        const size_t  cnt   = scrub.ring_count();
-        const int32_t earl  = scrub.earliest_seq();
-        const int32_t latst = scrub.latest_seq();
-
-        if (!runtime.initialized || runtime.timeline_stale || cnt == 0)
-            return;
-
-        auto timeline_view = scrub.timeline_view();
-        bool paused = timeline_view.paused;
-        const char* play_block_reason =
-            replay_scrub_block_reason_text(timeline_view.block_reason);
-
-        if (timeline_view.block_reason
-            != Horse::ReplayScrub::NativeSeekFailure::None)
-        {
-            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
-                               "%s", play_block_reason);
-        }
-
-        const bool timeline_controls_enabled =
-            runtime.timeline_complete && runtime.battle_active;
-        if (!timeline_controls_enabled)
-            ImGui::BeginDisabled(true);
-
-        // -----------------------------------------------------------------
-        // Time display row
-        // -----------------------------------------------------------------
-        timeline_view = scrub.timeline_view();
-        paused = timeline_view.paused;
-        play_block_reason =
-            replay_scrub_block_reason_text(timeline_view.block_reason);
-        int playhead = timeline_view.displayed_seq;
-        if (playhead < earl)  playhead = earl;
-        if (playhead > latst) playhead = latst;
-
-        auto fmt_time = [](float seconds, char* out, size_t n) {
-            const int mm = static_cast<int>(seconds) / 60;
-            const float ss = seconds - mm * 60.0f;
-            std::snprintf(out, n, "%02d:%05.2f", mm, ss);
-        };
-        // playhead is a timeline-sequence coordinate (monotonic across
-        // the whole match, including round boundaries). Resolve it to
-        // (round, within-round frame) for a round-aware read-out; the
-        // "frame N / total" still gives the overall timeline position.
-        int32_t ph_round = -1, ph_wall = -1;
-        scrub.seq_tag_info(playhead, ph_round, ph_wall);
-        char cur_buf[16];
-        fmt_time(ph_wall >= 0 ? static_cast<float>(ph_wall) / 60.0f : 0.0f,
-                 cur_buf, sizeof(cur_buf));
-        if (ph_round >= 0)
-            ImGui::Text("Round %d  -  %s  -  frame %d / %d",
-                        ph_round + 1, cur_buf,
-                        playhead - earl + 1, latst - earl + 1);
-        else
-            ImGui::Text("frame %d / %d",
-                        playhead - earl + 1, latst - earl + 1);
-        ImGui::SameLine(0.0f, 30.0f);
-        const char* playback_label = paused ? "PAUSED" : "LIVE";
-        ImVec4 playback_color = paused
-            ? ImVec4(0.95f, 0.85f, 0.35f, 1.0f)
-            : ImVec4(0.55f, 0.85f, 0.55f, 1.0f);
-        if (runtime.generation_running)
-        {
-            playback_label = "GENERATING";
-            playback_color = ImVec4(0.95f, 0.85f, 0.35f, 1.0f);
-        }
-        else if (!runtime.timeline_complete)
-        {
-            playback_label = "INCOMPLETE";
-            playback_color = ImVec4(0.80f, 0.80f, 0.80f, 1.0f);
-        }
-        else if (!runtime.battle_active)
-        {
-            playback_label = "INACTIVE";
-            playback_color = ImVec4(0.95f, 0.55f, 0.35f, 1.0f);
-        }
-        ImGui::TextColored(playback_color, "%s", playback_label);
-        if (timeline_view.native_pending)
-        {
-            ImGui::SameLine(0.0f, 12.0f);
-            ImGui::TextDisabled("%s",
-                                timeline_view.block_reason
-                                    == Horse::ReplayScrub::NativeSeekFailure::None
-                                      ? "Checking selected frame..."
-                                      : play_block_reason);
-        }
-        else if (paused && !timeline_view.can_play)
-        {
-            ImGui::SameLine(0.0f, 12.0f);
-            ImGui::TextDisabled("%s", play_block_reason);
-        }
-
-        // -----------------------------------------------------------------
-        // Custom-drawn timeline (the "playhead" UI).
-        // -----------------------------------------------------------------
-        const float bar_h = 28.0f;
-        const float bar_w = ImGui::GetContentRegionAvail().x;
-        const ImVec2 bar_pos = ImGui::GetCursorScreenPos();
-        const ImVec2 bar_max = ImVec2(bar_pos.x + bar_w, bar_pos.y + bar_h);
-        ImGui::InvisibleButton("##rs_timeline", ImVec2(bar_w, bar_h));
-
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(bar_pos, bar_max,
-                          IM_COL32( 35,  35,  40, 255), 4.0f);
-        dl->AddRectFilled(bar_pos, bar_max,
-                          IM_COL32( 80, 130, 180, 110), 4.0f);
-
-        if (latst > earl)
-        {
-            const auto markers = scrub.collect_round_markers();
-            for (const auto& mk : markers)
-            {
-                const float mf = static_cast<float>(mk.seq - earl)
-                               / static_cast<float>(latst - earl);
-                if (mf < 0.0f || mf > 1.0f) continue;
-                const float mxr = bar_pos.x + mf * bar_w;
-                dl->AddLine(ImVec2(mxr, bar_pos.y),
-                            ImVec2(mxr, bar_pos.y + bar_h),
-                            IM_COL32(235, 205, 120, 200), 1.5f);
-                char rlbl[8];
-                std::snprintf(rlbl, sizeof(rlbl), "R%d", mk.round + 1);
-                dl->AddText(ImVec2(mxr + 3.0f, bar_pos.y + 1.0f),
-                            IM_COL32(235, 205, 120, 255), rlbl);
-            }
-        }
-
-        const bool active  = ImGui::IsItemActive();
-        const bool hovered = ImGui::IsItemHovered();
-        const bool drag_start = ImGui::IsItemActivated();
-        const bool drag_end   = ImGui::IsItemDeactivated();
-        auto timeline_target_from_mouse = [&]() {
-            const float mx = ImGui::GetIO().MousePos.x;
-            const float frac = (bar_w > 0.0f)
-                ? (mx - bar_pos.x) / bar_w : 0.0f;
-            const float clmp = (frac < 0.0f) ? 0.0f
-                : (frac > 1.0f) ? 1.0f : frac;
-            return earl
-                 + static_cast<int>(clmp * (latst - earl) + 0.5f);
-        };
-
-        if (drag_start)
-        {
-            scrub.ui_begin_drag();
-        }
-        if (active || drag_start || drag_end)
-        {
-            const int target = timeline_target_from_mouse();
-            if (target != playhead || drag_start || drag_end)
-            {
-                playhead = target;
-                scrub.ui_drag_to_seq(target);
-            }
-        }
-        if (drag_end)
-        {
-            scrub.ui_end_drag();
-        }
-
-        const float playhead_frac = (latst > earl)
-            ? static_cast<float>(playhead - earl)
-              / static_cast<float>(latst - earl)
-            : 0.0f;
-        const float px = bar_pos.x + playhead_frac * bar_w;
-        const float py_mid = bar_pos.y + bar_h * 0.5f;
-        dl->AddLine(ImVec2(px, bar_pos.y),
-                    ImVec2(px, bar_pos.y + bar_h),
-                    IM_COL32(255, 255, 255, 230), 2.0f);
-        dl->AddCircleFilled(ImVec2(px, py_mid), 6.5f,
-                            IM_COL32(255, 255, 255, 255));
-        dl->AddCircle(ImVec2(px, py_mid), 6.5f,
-                      IM_COL32( 30,  30,  40, 255), 12, 1.5f);
-
-        if (hovered)
-        {
-            const float mx = ImGui::GetIO().MousePos.x;
-            const float frac = (bar_w > 0.0f)
-                ? (mx - bar_pos.x) / bar_w : 0.0f;
-            const float clmp = (frac < 0.0f) ? 0.0f
-                : (frac > 1.0f) ? 1.0f : frac;
-            const int hf = earl
-                + static_cast<int>(clmp * (latst - earl) + 0.5f);
-            const float hsec = static_cast<float>(hf - earl) / 60.0f;
-            char hbuf[32];
-            std::snprintf(hbuf, sizeof(hbuf),
-                          "frame %d  (%.2f s)", hf, hsec);
-            ImGui::SetTooltip("%s", hbuf);
-        }
-
-        ImGui::Spacing();
-
-        auto step_seek = [&](int target) {
-            if (target < earl)  target = earl;
-            if (target > latst) target = latst;
-            playhead = target;
-            scrub.ui_step_to_seq(target);
-        };
-        auto step_relative = [&](int delta) {
-            const int target = scrub.ui_step_by_frames(delta);
-            if (target >= 0) playhead = target;
-        };
-        if (ImGui::Button("|<<##rs_first")) step_seek(earl);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Jump to oldest timeline frame (pauses)");
-        ImGui::SameLine();
-        if (ImGui::Button("<<-10##rs_b10")) step_relative(-10);
-        ImGui::SameLine();
-        if (ImGui::Button("<-1##rs_b1")) step_relative(-1);
-        ImGui::SameLine();
-
-        timeline_view = scrub.timeline_view();
-        paused = timeline_view.paused;
-        play_block_reason =
-            replay_scrub_block_reason_text(timeline_view.block_reason);
-
-        if (paused)
-        {
-            if (!timeline_view.can_play)
-                ImGui::BeginDisabled(true);
-            if (ImGui::Button(" Play ##rs_play"))
-                scrub.ui_request_play();
-            if (!timeline_view.can_play)
-                ImGui::EndDisabled();
-        }
-        else
-        {
-            if (ImGui::Button("Pause ##rs_play"))
-                scrub.ui_pause_at_live();
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-            paused && !timeline_view.can_play
-              ? play_block_reason
-              : (paused
-                    ? "Resume forward replay playback from the current playhead."
-                    : "Pause replay playback at the current live edge."));
-        ImGui::SameLine();
-        if (ImGui::Button("+1>##rs_f1")) step_relative(1);
-        ImGui::SameLine();
-        if (ImGui::Button("+10>>##rs_f10")) step_relative(10);
-        ImGui::SameLine();
-        if (ImGui::Button(">>|##rs_last")) step_seek(latst);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Jump to latest timeline frame (pauses at live edge)");
-
-        if (!timeline_controls_enabled)
-            ImGui::EndDisabled();
-    }
-
-    bool render_replay_timeline_window()
-    {
-        auto& scrub = Horse::ReplayScrub::instance();
-        const auto presence = Horse::GameMode::instance().current_presence();
-        if (presence != Horse::GamePresence::Replay)
-            return false;
-
-        const auto runtime = scrub.replay_ui_runtime_status();
-        const bool initialized =
-            runtime.initialized || scrub.is_initialized();
-        const bool timeline_stale =
-            runtime.timeline_stale || scrub.has_stale_preserved_timeline();
-        const bool timeline_complete =
-            runtime.timeline_complete
-            || scrub.has_context_valid_completed_timeline();
-        if (!initialized || timeline_stale || scrub.ring_count() == 0)
-            return false;
-        if (!runtime.battle_active && !runtime.generation_running
-            && !timeline_complete)
-            return false;
-
-        const ImVec2 display = ImGui::GetIO().DisplaySize;
-        float width = 880.0f;
-        if (display.x > 80.0f && display.x - 40.0f < width)
-            width = display.x - 40.0f;
-        if (width < 360.0f)
-            width = 360.0f;
-        float height = 180.0f;
-        if (display.y > 80.0f && display.y - 40.0f < height)
-            height = display.y - 40.0f;
-        if (height < 140.0f)
-            height = 140.0f;
-        float max_width =
-            display.x > 80.0f ? display.x - 20.0f : width;
-        if (max_width < 360.0f)
-            max_width = 360.0f;
-        float max_height =
-            display.y > 80.0f ? display.y - 20.0f : height;
-        if (max_height < 140.0f)
-            max_height = 140.0f;
-        const float y = (display.y > 220.0f) ? display.y - 150.0f : 20.0f;
-
-        ImGui::SetNextWindowSizeConstraints(
-            ImVec2(360.0f, 140.0f),
-            ImVec2(max_width, max_height));
-        ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Appearing);
-        ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, y),
-                                ImGuiCond_Appearing,
-                                ImVec2(0.5f, 0.0f));
-        if (ImGui::Begin("Replay Timeline##horsemod_replay_timeline",
-                         nullptr, ImGuiWindowFlags_NoCollapse))
-        {
-            render_replay_timeline_controls();
-        }
-        ImGui::End();
-        return true;
-    }
-
-    void render_replay_tab()
-    {
-        auto& scrub = Horse::ReplayScrub::instance();
-        const auto presence = Horse::GameMode::instance().current_presence();
-        const bool in_replay = (presence == Horse::GamePresence::Replay);
-        const auto runtime = scrub.replay_ui_runtime_status();
-
-        auto render_replay_file_controls = [&]() {
-            // -------------------------------------------------------------
-            // Replay file export/load.  These are explicit user actions
-            // only: no file I/O runs on the timeline snapshot path.
-            // Kept above the ReplayScrub init gate so Browse is visible
-            // from the main menu while the user is choosing a file.
-            // -------------------------------------------------------------
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextDisabled("Replay files");
-            if (!in_replay || !scrub.is_initialized())
-                ImGui::BeginDisabled(true);
-            if (ImGui::Button("Export Replay##rs_file_export"))
-                scrub.export_current_replay_file();
-            if (!in_replay || !scrub.is_initialized())
-                ImGui::EndDisabled();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Write the currently loaded native replay input payload to\n"
-                "HorseMod's Saved\\ReplayFiles folder. Metadata is logged\n"
-                "when available; unknown fields are written as -1.");
-
-            ImGui::SameLine();
-            const bool load_busy = scrub.has_pending_replay_file_load();
-            const bool start_busy = scrub.has_pending_replay_file_start();
-            const bool file_busy = load_busy || start_busy;
-            if (file_busy) ImGui::BeginDisabled(true);
-            if (ImGui::Button("Open Replay##rs_file_open"))
-            {
-                IGFD::FileDialogConfig config;
-                config.countSelectionMax = 1;
-                config.path = horsemod_wide_to_utf8(
-                    scrub.replay_files_directory_path());
-                config.flags =
-                    ImGuiFileDialogFlags_Modal |
-                    ImGuiFileDialogFlags_CaseInsensitiveExtentionFiltering |
-                    ImGuiFileDialogFlags_DisableCreateDirectoryButton |
-                    ImGuiFileDialogFlags_DisableThumbnailMode |
-                    ImGuiFileDialogFlags_ShowDevicesButton;
-
-                ImGuiFileDialog::Instance()->OpenDialog(
-                    "HorseReplayOpenDialog",
-                    "Open Replay",
-                    "Replay files (*.hmreplay *.bin){.hmreplay,.bin},"
-                    "HorseMod replay wrapper (*.hmreplay){.hmreplay},"
-                    "Native replay payload (*.bin){.bin}",
-                    config);
-            }
-            if (file_busy) ImGui::EndDisabled();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Open an in-game file picker and immediately start the\n"
-                "selected .hmreplay or raw .bin replay file, then force\n"
-                "a fresh lux-no-render timeline generation.");
-
-            const ImVec2 dialog_display = ImGui::GetIO().DisplaySize;
-            auto clamp_dialog_size = [](float value,
-                                        float low,
-                                        float high) noexcept {
-                if (value < low) return low;
-                if (value > high) return high;
-                return value;
-            };
-            float dialog_max_w =
-                (dialog_display.x > 160.0f) ? dialog_display.x - 80.0f
-                                             : 960.0f;
-            float dialog_max_h =
-                (dialog_display.y > 160.0f) ? dialog_display.y - 80.0f
-                                             : 640.0f;
-            if (dialog_max_w < 360.0f) dialog_max_w = 360.0f;
-            if (dialog_max_h < 260.0f) dialog_max_h = 260.0f;
-            const ImVec2 dialog_max_size(dialog_max_w, dialog_max_h);
-            ImVec2 dialog_size(
-                clamp_dialog_size(dialog_display.x * 0.56f, 720.0f, 1100.0f),
-                clamp_dialog_size(dialog_display.y * 0.58f, 460.0f, 700.0f));
-            if (dialog_size.x > dialog_max_size.x)
-                dialog_size.x = dialog_max_size.x;
-            if (dialog_size.y > dialog_max_size.y)
-                dialog_size.y = dialog_max_size.y;
-            const ImVec2 dialog_min_size(
-                dialog_size.x < 520.0f ? dialog_size.x : 520.0f,
-                dialog_size.y < 320.0f ? dialog_size.y : 320.0f);
-            ImGui::SetNextWindowSize(dialog_size, ImGuiCond_Appearing);
-            if (ImGuiFileDialog::Instance()->Display(
-                    "HorseReplayOpenDialog",
-                    ImGuiWindowFlags_NoCollapse,
-                    dialog_min_size,
-                    dialog_max_size))
-            {
-                const bool ok = ImGuiFileDialog::Instance()->IsOk();
-                std::string selected;
-                if (ok)
-                {
-                    selected = ImGuiFileDialog::Instance()->GetFilePathName(
-                        IGFD_ResultMode_KeepInputFile);
-                }
-
-                ImGuiFileDialog::Instance()->Close();
-
-                if (ok && scrub.request_start_replay_file(
-                        selected.c_str(), "lux-no-render-force"))
-                {
-                    Horse::GameImGui::set_visible(false);
-                    Output::send<LogLevel::Default>(STR(
-                        "[ReplayFile] hiding HorseMod overlay after "
-                        "replay start queued\n"));
-                }
-            }
-
-            const std::string replay_file_status =
-                scrub.replay_file_status_text();
-            if (!replay_file_status.empty())
-                ImGui::TextWrapped("%s", replay_file_status.c_str());
-            const std::wstring last_export_path =
-                scrub.last_replay_export_path();
-            if (!last_export_path.empty())
-            {
-                const std::string last_export_text =
-                    horsemod_wide_to_utf8(last_export_path);
-                if (!last_export_text.empty())
-                    ImGui::TextWrapped("Last exported: %s",
-                                       last_export_text.c_str());
-                if (ImGui::Button(
-                        "Show in File Explorer##rs_file_export_explorer"))
-                {
-                    if (!horsemod_show_file_in_explorer(last_export_path))
-                    {
-                        Output::send<LogLevel::Warning>(STR(
-                            "[ReplayFile] failed to open export in Explorer "
-                            "path='{}'\n"),
-                            RC::to_generic_string(last_export_text));
-                    }
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Open the exported replay location.");
-            }
-        };
-
-        render_replay_file_controls();
-
-        const size_t cnt = scrub.ring_count();
-        auto timeline_view = scrub.timeline_view();
-        const char* play_block_reason =
-            replay_scrub_block_reason_text(timeline_view.block_reason);
-
-        if (!runtime.initialized)
-        {
-            if (in_replay)
-                ImGui::TextDisabled("Replay viewer loading.");
-            return;
-        }
-
-        if (!in_replay)
-        {
-            ImGui::Spacing();
-        }
-        else if (runtime.timeline_stale)
-        {
-            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
-                               "Timeline belongs to a previous replay.");
-            ImGui::Spacing();
-        }
-        else if (cnt == 0)
-        {
-            ImGui::TextDisabled("Timeline is not ready yet.");
-            ImGui::Spacing();
-        }
-        if (timeline_view.block_reason
-            != Horse::ReplayScrub::NativeSeekFailure::None)
-        {
-            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
-                               "%s", play_block_reason);
-        }
-
-        // Timeline controls render in their own replay-only window.
-
-        // Timeline readout - frame count, duration, and dedup-store
-        // memory.  Generation is unbounded: the deduplicating snapshot store
-        // spans the whole replay, and the only limit is a 2 GB resident-
-        // memory ceiling, so there is no window setting to tune.
-        ImGui::Spacing();
-        ImGui::TextDisabled("Timeline: %zu frames  (%.1f s,  ~%zu MB)",
-                            cnt, static_cast<float>(cnt) / 60.0f,
-                            scrub.store_bytes() / (1024ull * 1024ull));
-        {
-            const auto prof = scrub.timeline_gen_profile();
-            if (!prof.active && prof.frames > 0)
-            {
-                ImGui::TextDisabled(
-                    "Last generation: %.1f ticks/s over %.2f s  |  "
-                    "snapshot %.1f us/frame",
-                    prof.ticks_per_second, prof.wall_seconds,
-                    prof.avg_total_us);
-            }
-        }
-        if (scrub.capture_ceiling_hit())
-        {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f),
-                               "[2 GB limit reached]");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                "Timeline generation stopped at the 2 GB memory ceiling.\n"
-                "The timeline keeps everything generated so far.");
-        }
-    }
-
-    // ==================================================================
-    // General tab - catch-all for visibility overrides and other
-    // toggles that don't fit the Hitboxes / Camera / Time split.
-    // Hide weapons (per-frame
-    // SetWeaponVisibility call), Hide characters (bytepatch on
-    // SyncMoveStateVisibility), Suppress VFX (per-slot VFX writer
-    // bytepatch).  All runtime-independent of the F5 overlay toggle.
-    // ==================================================================
     void render_general_tab()
     {
             // ---- Online safety gate (TOP of General - primary control) ----
@@ -9993,111 +8029,10 @@ private:
 
             if (ImGui::CollapsingHeader("Developer##general_developer"))
             {
-                auto& scrub = Horse::ReplayScrub::instance();
-
-                bool trace_files = m_replay_trace_files_enabled.load();
-                if (ImGui::Checkbox("Replay trace files##dev_trace_files",
-                                    &trace_files))
-                {
-                    m_replay_trace_files_enabled.store(trace_files);
-                    Horse::ReplayDebugTrace::instance().set_enabled(
-                        trace_files);
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Gate JSONL replay trace file creation. Leave this off\n"
-                    "for normal play. Enable it for replay automation,\n"
-                    "seek tests, crash triage, or debugging sessions.");
-
-                if (trace_files)
-                {
-                    const bool trace_active =
-                        Horse::ReplayDebugTrace::instance().enabled();
-                    ImGui::SameLine(0.0f, 20.0f);
-                    if (!trace_active) ImGui::BeginDisabled(true);
-                    if (ImGui::Button("New trace file##dev_trace_new"))
-                        Horse::ReplayDebugTrace::instance()
-                            .open_new_session(L"ui");
-                    if (!trace_active) ImGui::EndDisabled();
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                        trace_active
-                            ? "Start a fresh JSONL trace file."
-                            : "Available only while a replay is playing back.");
-
-                    ImGui::TextDisabled(
-                        trace_active
-                            ? "Trace output active during replay playback"
-                            : "Armed - waiting for replay playback");
-
-                    const std::string trace_path =
-                        Horse::ReplayDebugTrace::instance()
-                            .current_path_utf8();
-                    if (!trace_path.empty())
-                        ImGui::TextWrapped(
-                            trace_active ? "Trace: %s" : "Last trace: %s",
-                            trace_path.c_str());
-                }
-                else
-                {
-                    ImGui::SameLine(0.0f, 20.0f);
-                    ImGui::TextDisabled("Trace files off");
-                }
-
-                ImGui::Spacing();
+                ImGui::TextDisabled(
+                    "Rollback and deterministic replay seeking are unavailable "
+                    "while the replacement native adapter is being qualified.");
                 render_khit_audit_log_options();
-
-                ImGui::Spacing();
-                const bool link_handler =
-                    m_replay_link_handler_registered.load(
-                        std::memory_order_acquire);
-                ImGui::Text("Replay link handler: %s",
-                            link_handler ? "registered" : "missing");
-                ImGui::SameLine(0.0f, 20.0f);
-                if (ImGui::Button("Repair replay link handler##dev_link_repair"))
-                {
-                    m_replay_link_handler_registered.store(
-                        horsemod_register_replay_link_handler(),
-                        std::memory_order_release);
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Register sc6replay:// links for the current Windows\n"
-                    "user. This uses HKCU and does not require admin.");
-
-                const bool link_status_server =
-                    m_replay_link_status_server_started.load(
-                        std::memory_order_acquire);
-                ImGui::Text("Replay link companion: %s",
-                            link_status_server ? "started" : "not started");
-                ImGui::SameLine(0.0f, 20.0f);
-                if (ImGui::Button("Start replay link companion##dev_link_status_start"))
-                {
-                    m_replay_link_status_server_started.store(
-                        horsemod_start_replay_link_status_server(),
-                        std::memory_order_release);
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Start the local readiness endpoint used by the archive:\n"
-                    "http://127.0.0.1:54475/status");
-
-                bool verbose = scrub.verbose_diag();
-                if (ImGui::Checkbox("Verbose replay log##dev_verbose",
-                                    &verbose))
-                {
-                    scrub.set_verbose_diag(verbose);
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Verbose replay diagnostics for investigating native\n"
-                    "replay or MoveVM stalls after seeking. This is noisy\n"
-                    "and normally should stay off.");
-
-                ImGui::SameLine(0.0f, 20.0f);
-                if (ImGui::Button("Force diag dump##dev_force_diag"))
-                    scrub.request_force_diag();
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                    "Emit a one-shot replay diagnostic dump on the next\n"
-                    "cockpit tick, even when verbose logging is off.");
-
-                ImGui::Spacing();
-                Horse::RollbackLab::instance().render_imgui_developer_panel();
             }
 
     }
@@ -10105,53 +8040,15 @@ private:
 
 // ----------------------------------------------------------------------------
 #define HORSE_MOD_API __declspec(dllexport)
-namespace
-{
-    std::atomic<bool> g_horsemod_hot_reload_blocked {false};
-}
-
 extern "C"
 {
     HORSE_MOD_API CppUserModBase* start_mod()
     {
-        if (g_horsemod_hot_reload_blocked.load(
-                std::memory_order_acquire))
-        {
-            RC::Output::send<RC::LogLevel::Error>(STR(
-                "[HorseMod] reload refused after an unsafe unload attempt; "
-                "restart the process before loading HorseMod again\n"));
-            return nullptr;
-        }
         return new HorseMod();
     }
 
     HORSE_MOD_API void uninstall_mod(CppUserModBase* mod)
     {
-        const Horse::RollbackModuleUnloadResult unload =
-            Horse::RollbackLab::instance().prepare_for_module_unload();
-        if (unload != Horse::RollbackModuleUnloadResult::Ready)
-        {
-            g_horsemod_hot_reload_blocked.store(
-                true, std::memory_order_release);
-            // UE4SS's C++ mod ABI has no cancellable pre-unload callback:
-            // uninstall_mod returns void and CppMod immediately calls
-            // FreeLibrary. Pinning is the only safe fail-closed response once
-            // rollback still owns a callback/transition or hook detachment
-            // failed. The process must be restarted before loading HorseMod
-            // again.
-            HMODULE pinned_module = nullptr;
-            const bool pinned = GetModuleHandleExW(
-                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
-                    | GET_MODULE_HANDLE_EX_FLAG_PIN,
-                reinterpret_cast<LPCWSTR>(&uninstall_mod),
-                &pinned_module) != FALSE;
-            RC::Output::send<RC::LogLevel::Error>(STR(
-                "[HorseMod] hot unload refused result_code={} pinned={}; "
-                "restart the process before reloading HorseMod\n"),
-                static_cast<uint32_t>(unload),
-                pinned);
-            return;
-        }
         delete mod;
     }
 }
