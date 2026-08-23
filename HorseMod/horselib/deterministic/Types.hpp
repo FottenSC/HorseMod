@@ -34,6 +34,7 @@ enum class FailureCode : std::uint16_t
     PresentationFailed,
     TransportFailed,
     AuthenticationFailed,
+    StaleSession,
     ProtocolMismatch,
     StateHashMismatch,
     PeerDisconnected,
@@ -67,6 +68,7 @@ constexpr std::string_view failure_code_name(FailureCode code) noexcept
     case FailureCode::PresentationFailed: return "presentation_failed";
     case FailureCode::TransportFailed: return "transport_failed";
     case FailureCode::AuthenticationFailed: return "authentication_failed";
+    case FailureCode::StaleSession: return "stale_session";
     case FailureCode::ProtocolMismatch: return "protocol_mismatch";
     case FailureCode::StateHashMismatch: return "state_hash_mismatch";
     case FailureCode::PeerDisconnected: return "peer_disconnected";

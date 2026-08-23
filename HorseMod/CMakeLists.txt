@@ -40,6 +40,7 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/MoveDispatchState.cpp
     horselib/deterministic/InputTimeline.cpp
     horselib/deterministic/NativeCandidateRegions.cpp
+    horselib/deterministic/OnlineCoordinator.cpp
     horselib/deterministic/PresentationJournal.cpp
     horselib/deterministic/ReplayCoordinator.cpp
     horselib/deterministic/SimulationSession.cpp
@@ -131,6 +132,24 @@ endif()
 add_test(
     NAME NativeCandidateRegionsSelfTest
     COMMAND $<TARGET_FILE:NativeCandidateRegionsSelfTest>
+)
+
+add_executable(OnlineCoordinatorSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/online_coordinator_selftest.cpp
+)
+target_link_libraries(OnlineCoordinatorSelfTest PRIVATE HorseDeterministicCore)
+target_compile_features(OnlineCoordinatorSelfTest PRIVATE cxx_std_20)
+if(MSVC)
+    set_property(TARGET OnlineCoordinatorSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+add_test(
+    NAME OnlineCoordinatorSelfTest
+    COMMAND $<TARGET_FILE:OnlineCoordinatorSelfTest>
+)
+set_tests_properties(OnlineCoordinatorSelfTest PROPERTIES
+    LABELS "deterministic;online;fast"
+    TIMEOUT 60
 )
 set_tests_properties(NativeCandidateRegionsSelfTest PROPERTIES
     LABELS "deterministic;fast"
