@@ -414,7 +414,7 @@ function MoveSlotDetail() {
             <thead>
               <tr>
                 <th>Predicate</th>
-                <th>Class</th>
+                <th>Guard profile</th>
                 <th>Dmg</th>
                 <th>Startup</th>
                 <th>Active</th>
@@ -467,7 +467,7 @@ function MoveSlotDetail() {
             <thead>
               <tr>
                 <th>Variant</th>
-                <th>Class</th>
+                <th>Guard profile</th>
                 <th>Damage</th>
                 <th>Startup</th>
                 <th>On-hit</th>

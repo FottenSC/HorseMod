@@ -1,0 +1,119 @@
+[
+  {
+    "Type": "LuxCreationImportedPart",
+    "Name": "r_009_nude",
+    "Flags": "RF_Public | RF_Standalone | RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'LuxCreationImportedPart'",
+    "Package": "Content/DLC/13/Chara/009/Parts/r_009_nude",
+    "Properties": {
+      "DefaultMeshes": [
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Neck",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_009_m_H_Neck",
+            "SubPathString": "nude_009_m_H_Neck"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Neck.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Tanima",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_Tanima",
+            "SubPathString": "nude_r009_m_H_Tanima"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Tanima.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Chest",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_Chest",
+            "SubPathString": "nude_r009_m_H_Chest"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Chest.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_UpperArm",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_UpperArm",
+            "SubPathString": "nude_r009_m_H_UpperArm"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_UpperArm.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Elbow",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_Elbow",
+            "SubPathString": "nude_r009_m_H_Elbow"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Elbow.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_ForeArm",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_ForeArm",
+            "SubPathString": "nude_r009_m_H_ForeArm"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_ForeArm.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Hand",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_Hand",
+            "SubPathString": "nude_r009_m_H_Hand"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Hand.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Stomach",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_Stomach",
+            "SubPathString": "nude_r009_m_H_Stomach"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Stomach.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Hip",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_Hip",
+            "SubPathString": "nude_r009_m_H_Hip"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Hip.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Thigh",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_Thigh",
+            "SubPathString": "nude_r009_m_H_Thigh"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Thigh.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Knee",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_Knee",
+            "SubPathString": "nude_r009_m_H_Knee"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Knee.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Shin",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_Shin",
+            "SubPathString": "nude_r009_m_H_Shin"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Shin.nmd"
+        },
+        {
+          "Slot": "ELuxPartSlot::EPS_Mandatory_Ankle",
+          "MeshRef": {
+            "AssetPathName": "/Game/DLC/13/Chara/009/nude_r009_m_H_Ankle",
+            "SubPathString": "nude_r009_m_H_Ankle"
+          },
+          "NMDPath": "Battle/nmd/Creation/19_Regular/009/nude_r009_m_H_Ankle.nmd"
+        }
+      ],
+      "bIsUnique": true,
+      "Identifier": "r_009_nude"
+    }
+  }
+]

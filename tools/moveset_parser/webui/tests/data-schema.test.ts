@@ -44,12 +44,18 @@ describe("Exported JSON schema", () => {
   );
 
   it.skipIf(!existsSync(resolve(DATA, "chars/001.json")))(
-    "Mitsurugi slot 401 has full input chain (regression)",
+    "current Mitsurugi slot 401 is preserved without a fabricated input",
     () => {
       const khd = loadChar("001")!.khd!;
       const m = khd.flatMoves.find((m) => m.slot === 401);
       expect(m).toBeDefined();
-      expect(m!.inputs.length).toBeGreaterThan(0);
+      // The checked-in older KHD uses slot 401 for animation 367 and reaches
+      // it through a K,B orphan chain. The current production KHD reuses the
+      // numeric slot for animation 159; its only incoming edge is the frame
+      // transition from orphan slot 400, so no player input is proven.
+      expect(m!.anim).toBe(159);
+      expect(m!.inputs).toEqual([]);
+      expect(m!.kinds).toEqual(["unknown"]);
     },
   );
 

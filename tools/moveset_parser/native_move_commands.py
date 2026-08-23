@@ -18,6 +18,8 @@ import struct
 
 
 CPUAI_DEFINITION_SIZE = 0x10
+CPUAI_REACTION_WEIGHT_SIZE = 0x08
+CPUAI_REACTION_WEIGHT_BANK_SIZE = 800
 CONTROL_BRANCH_OPCODES = frozenset((0x00050003, 0x00050006, 0x00050008))
 
 
@@ -54,6 +56,52 @@ class MovePlayCommandTable:
         if not 0 <= index < len(self.definitions):
             return None
         return self.definitions[index]
+
+
+@dataclass(frozen=True)
+class ReactionWeightEntry:
+    normal_weight: int
+    alternate_weight: int
+    flags_or_filter_word: int
+
+
+@dataclass(frozen=True)
+class CpuAiCommandData:
+    """Native sections needed by reaction-command selection.
+
+    Section four is bound as an array of 8-byte reaction-weight entries by
+    ``LuxMoveVM_BuildReactionCandidateList``.  Native indexes it as
+    ``bank * 800 + definition``; retaining every bank avoids baking one
+    scenario-specific candidate route into the parser.
+    """
+
+    command_table: MovePlayCommandTable
+    section_offsets: tuple[int, ...]
+    reaction_weight_banks: tuple[tuple[ReactionWeightEntry, ...], ...]
+
+
+def parse_cpuai_command_data(data: bytes) -> CpuAiCommandData:
+    command_table = parse_move_play_command_table(data)
+    section_count = struct.unpack_from("<I", data, 0)[0]
+    offsets = struct.unpack_from(f"<{section_count + 1}I", data, 4)
+    if section_count < 5:
+        raise ValueError("CPUAI reaction selection requires section four")
+    start, end = offsets[4], offsets[5]
+    byte_count = end - start
+    bank_bytes = CPUAI_REACTION_WEIGHT_BANK_SIZE * CPUAI_REACTION_WEIGHT_SIZE
+    if byte_count % bank_bytes:
+        raise ValueError(
+            "CPUAI section four is not an integral array of 800-entry reaction banks"
+        )
+    banks: list[tuple[ReactionWeightEntry, ...]] = []
+    for bank_index in range(byte_count // bank_bytes):
+        bank_start = start + bank_index * bank_bytes
+        entries = tuple(
+            ReactionWeightEntry(*struct.unpack_from("<HHI", data, bank_start + i * 8))
+            for i in range(CPUAI_REACTION_WEIGHT_BANK_SIZE)
+        )
+        banks.append(entries)
+    return CpuAiCommandData(command_table, tuple(offsets), tuple(banks))
 
 
 def parse_move_play_command_table(data: bytes) -> MovePlayCommandTable:

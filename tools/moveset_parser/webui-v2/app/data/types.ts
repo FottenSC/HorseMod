@@ -133,8 +133,12 @@ export interface NativeLink {
   cells: number[];
   attackSlots?: number[];
   attackCells?: number[];
+  combatContextStatus?: "resolved" | "unresolved";
   startupTimingStatus?: "resolved" | "unresolved";
   frameEndpointStatus?: "resolved" | "unresolved";
+  frameEndpointStatuses?: Partial<
+    Record<"block" | "hit" | "counterHit", "resolved" | "unresolved">
+  >;
   hitSequenceStatus?: "resolved" | "unresolved";
 }
 

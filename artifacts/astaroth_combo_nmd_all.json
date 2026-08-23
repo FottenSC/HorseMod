@@ -1,0 +1,4234 @@
+{
+  "complete": false,
+  "results": [
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.8775484972063107
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "001",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\001\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_001.json (upper=1, lower=1)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.4939154967049592
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.8775484972063107
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.845676046675921,
+            "clearance": 1.4906760425035959,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.3769027729862714
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2255114215912548,
+            "clearance": 0.8705114174189297,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.16051257225508636
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6082070769400783,
+            "clearance": 0.2532070727677531,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.25463096198686214
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5789098790413907,
+            "clearance": 0.22390987486906555,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5789098790413907,
+        "clearance": 0.22390987486906555,
+        "hurt_bone": 17,
+        "hurt_slot": 6,
+        "overlaps": false,
+        "radius_sum": 0.35500000417232513
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x13DB",
+      "reactionMoveSlot": 1155,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.9131496243228524
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "005",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\005\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_005.json (upper=1.05, lower=1.05)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.49108111723917575
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.9131496243228524
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.8605671181773957,
+            "clearance": 1.5155671193694886,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.412503900102813
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.208746205934397,
+            "clearance": 0.8637462071264899,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.1249114451385448
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6000968200516276,
+            "clearance": 0.25509682124372046,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.21902983487032057
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5922533509321883,
+            "clearance": 0.24725335212428123,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5922533509321883,
+        "clearance": 0.24725335212428123,
+        "hurt_bone": 17,
+        "hurt_slot": 6,
+        "overlaps": false,
+        "radius_sum": 0.3449999988079071
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x13DB",
+      "reactionMoveSlot": 1312,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.9213637608046371
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "007",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\007\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_007.json (upper=1, lower=1)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.46249082096711913
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.9213637608046371
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.92925823551404,
+            "clearance": 1.55425823551404,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.375
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.4207180365845977
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.271943206107428,
+            "clearance": 0.8969432061074281,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.375
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.11669730865675998
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6712031035945428,
+            "clearance": 0.2962031035945428,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.375
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.21081569838853575
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6486028248463748,
+            "clearance": 0.27360282484637477,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.375
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.6486028248463748,
+        "clearance": 0.27360282484637477,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.375
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x13DB",
+      "reactionMoveSlot": 1214,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.9116949402871223
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "00f",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\00F\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_00F.json (upper=1, lower=1)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.44869031372115714
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.9116949402871223
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.8883371970246274,
+            "clearance": 1.5333371928523023,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.4110492160670829
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2874693879401655,
+            "clearance": 0.9324693837678404,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.12636612917427487
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6662781501000627,
+            "clearance": 0.3112781459277376,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.22048451890605064
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6119115457217326,
+            "clearance": 0.25691154154940743,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.6119115457217326,
+        "clearance": 0.25691154154940743,
+        "hurt_bone": 17,
+        "hurt_slot": 6,
+        "overlaps": false,
+        "radius_sum": 0.35500000417232513
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x13DB",
+      "reactionMoveSlot": 1323,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.9249022081561856
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "011",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\011\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_011.json (upper=1.04, lower=1.04)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.49344837018128135
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.9249022081561856
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.9031847479022252,
+            "clearance": 1.5281847479022252,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.375
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.42425648393614623
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.241028431331764,
+            "clearance": 0.8660284313317641,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.375
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.11315886130521147
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6399831539241795,
+            "clearance": 0.2649831539241795,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.375
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.20727725103698724
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6284603114311885,
+            "clearance": 0.2534603114311885,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.375
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.6284603114311885,
+        "clearance": 0.2534603114311885,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.375
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x13DB",
+      "reactionMoveSlot": 1219,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.9723512864535745
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": true,
+      "character": "012",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          1.1133903680824098
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.9723512864535745
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.4963590490303182,
+            "clearance": 1.1263590442619467,
+            "hurt_bone": 5,
+            "hurt_slot": 0,
+            "overlaps": false,
+            "radius_sum": 0.3700000047683716
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.4779466609697073
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.012482197472344343,
+            "pairSlots": [
+              9,
+              6
+            ]
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.7081190157449452,
+            "clearance": 0.28811901395680584,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.42000000178813934
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.0347570750892196
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.04942321836486204,
+            "pairSlots": [
+              9,
+              6
+            ]
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.39759096378765296,
+            "clearance": -0.02240903800048638,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": true,
+            "radius_sum": 0.42000000178813934
+          },
+          "overlap": true
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.09723990645754273
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.06327111672690514,
+            "pairSlots": [
+              8,
+              7
+            ]
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.29620392478969415,
+            "clearance": -0.07379607997867743,
+            "hurt_bone": 20,
+            "hurt_slot": 17,
+            "overlaps": true,
+            "radius_sum": 0.3700000047683716
+          },
+          "overlap": true
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.29620392478969415,
+        "clearance": -0.07379607997867743,
+        "hurt_bone": 20,
+        "hurt_slot": 17,
+        "overlaps": true,
+        "radius_sum": 0.3700000047683716
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x1477",
+      "reactionMoveSlot": 1275,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x1597"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.9145377710410668
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "014",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\014\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_014.json (upper=1.03, lower=1.03)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.45570843960253765
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.9145377710410668
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.888699251771311,
+            "clearance": 1.543699252963404,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.41389204682102754
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2444559377249265,
+            "clearance": 0.8994559389170194,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.12352329842033022
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6370239016172714,
+            "clearance": 0.2920239028093643,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.217641688152106
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6182300558433801,
+            "clearance": 0.273230057035473,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.6182300558433801,
+        "clearance": 0.273230057035473,
+        "hurt_bone": 17,
+        "hurt_slot": 6,
+        "overlaps": false,
+        "radius_sum": 0.3449999988079071
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x13DB",
+      "reactionMoveSlot": 1227,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.9269525158839121
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "016",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\016\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_016.json (upper=0.846, lower=0.9212)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.39732452055386847
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.9269525158839121
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.9538479120699321,
+            "clearance": 1.6168479145733272,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.42630679166387275
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.3642929736633271,
+            "clearance": 1.0272929761667222,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.11110855357748495
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.7425988576170166,
+            "clearance": 0.4055988601204117,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.20522694330926072
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6798123082783208,
+            "clearance": 0.3428123107817159,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.6798123082783208,
+        "clearance": 0.3428123107817159,
+        "hurt_bone": 17,
+        "hurt_slot": 6,
+        "overlaps": false,
+        "radius_sum": 0.3369999974966049
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x13DB",
+      "reactionMoveSlot": 1193,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.8493422699973218
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": true,
+      "character": "028",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\028\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_028.json (upper=0.9312, lower=0.96)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          1.1257718520873663
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.8493422699973218
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.4277542838859887,
+            "clearance": 1.0627542743492455,
+            "hurt_bone": 5,
+            "hurt_slot": 0,
+            "overlaps": false,
+            "radius_sum": 0.36500000953674316
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.354535842915157
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.011678594275748985,
+            "pairSlots": [
+              9,
+              6
+            ]
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.7151381822155982,
+            "clearance": 0.37513817863931953,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3400000035762787
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.15918147242069353
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.04739605981101447,
+            "pairSlots": [
+              9,
+              6
+            ]
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.37129109032811625,
+            "clearance": 0.006291080791373083,
+            "hurt_bone": 16,
+            "hurt_slot": 16,
+            "overlaps": false,
+            "radius_sum": 0.36500000953674316
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.2306469605509679
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.04530580320300279,
+            "pairSlots": [
+              8,
+              7
+            ]
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.2467470029589954,
+            "clearance": -0.1282529970410046,
+            "hurt_bone": 20,
+            "hurt_slot": 17,
+            "overlaps": true,
+            "radius_sum": 0.375
+          },
+          "overlap": true
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.2467470029589954,
+        "clearance": -0.1282529970410046,
+        "hurt_bone": 20,
+        "hurt_slot": 17,
+        "overlaps": true,
+        "radius_sum": 0.375
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x1477",
+      "reactionMoveSlot": 1146,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x1597"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.8681467841716285
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "002",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\002\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_002.json (upper=0.9409, lower=0.97)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.46147534667503015
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.8681467841716285
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.8036347579386218,
+            "clearance": 1.453634748997925,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.3675010599515891
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2310191238855508,
+            "clearance": 0.8810191149448541,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.16991428528976865
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6402891098950584,
+            "clearance": 0.29028910095436167,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.2640326750215444
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5828041522835735,
+            "clearance": 0.2328041433428768,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5828041522835735,
+        "clearance": 0.2328041433428768,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.3500000089406967
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1130,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x02A0"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.8844482769877137
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "003",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\003\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_003.json (upper=0.97, lower=1)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.5222624722557604
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.8844482769877137
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.8077602419076635,
+            "clearance": 1.4627602430997564,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.3838025527676743
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2528370340161958,
+            "clearance": 0.9078370352082887,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.15361279247368348
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6229788628465308,
+            "clearance": 0.2779788640386237,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.24773118220545925
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5554988940934613,
+            "clearance": 0.2104988952855542,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5554988940934613,
+        "clearance": 0.2104988952855542,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.3449999988079071
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1252,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.8743175836732259
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "006",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\006\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_006.json (upper=0.9312, lower=0.96)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.4630723116608917
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.8743175836732259
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.8449893125037613,
+            "clearance": 1.5079893150071564,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.37367185945318654
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.275706081522283,
+            "clearance": 0.938706084025678,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.16374348578817122
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6525905777599366,
+            "clearance": 0.31559058026333164,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.257861875519947
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5879164604932164,
+            "clearance": 0.2509164629966115,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5879164604932164,
+        "clearance": 0.2509164629966115,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.3369999974966049
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1155,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.7709469193886987
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": true,
+      "character": "009",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\009\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_009.json (upper=1.01, lower=1.01)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          1.4512638025962585
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.7709469193886987
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2446296918640394,
+            "clearance": 0.8796296823272962,
+            "hurt_bone": 5,
+            "hurt_slot": 0,
+            "overlaps": false,
+            "radius_sum": 0.36500000953674316
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.2795811064078481
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.018559822478377317,
+            "pairSlots": [
+              9,
+              6
+            ]
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6032361104262765,
+            "clearance": 0.24823610625395132,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.24315036368214432
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.02936775030273069,
+            "pairSlots": [
+              9,
+              16
+            ]
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.29241830883167164,
+            "clearance": -0.08258169116832836,
+            "hurt_bone": 16,
+            "hurt_slot": 16,
+            "overlaps": true,
+            "radius_sum": 0.375
+          },
+          "overlap": true
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.31928565914595475
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.03596618853593065,
+            "pairSlots": [
+              2,
+              16
+            ]
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.1803582208015346,
+            "clearance": -0.23464178575497632,
+            "hurt_bone": 19,
+            "hurt_slot": 13,
+            "overlaps": true,
+            "radius_sum": 0.4150000065565109
+          },
+          "overlap": true
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.1803582208015346,
+        "clearance": -0.23464178575497632,
+        "hurt_bone": 19,
+        "hurt_slot": 13,
+        "overlaps": true,
+        "radius_sum": 0.4150000065565109
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x1478",
+      "reactionMoveSlot": 1217,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.8662158452184198
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "00b",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\00B\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_00B.json (upper=0.9991, lower=1.03)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.5161454956021704
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.8662158452184198
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.7629167947170195,
+            "clearance": 1.429916790425485,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3330000042915344
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.36557012099838043
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.1884417749324139,
+            "clearance": 0.8554417706408795,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3330000042915344
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.17184522424297732
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5625681552148623,
+            "clearance": 0.22956815092332783,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3330000042915344
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.2659636139747531
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5179522767484133,
+            "clearance": 0.18495227245687884,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3330000042915344
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5179522767484133,
+        "clearance": 0.18495227245687884,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.3330000042915344
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1244,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.8165618343487268
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "00c",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\00C\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_00C.json (upper=1, lower=1)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.5174642393354243
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.8165618343487268
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.756639474591726,
+            "clearance": 1.4066394656510293,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.3159161101286875
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.196011956464568,
+            "clearance": 0.8460119475238712,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.22149923511267028
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6218832128146027,
+            "clearance": 0.27188320387390597,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.31561762484444605
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5384679747877956,
+            "clearance": 0.1884679658470989,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5384679747877956,
+        "clearance": 0.1884679658470989,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.3500000089406967
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1187,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x1597"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.8485295081136538
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "00d",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\00D\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_00D.json (upper=0.8742, lower=0.9306)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.45105403376542524
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.8485295081136538
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.8308546979565727,
+            "clearance": 1.4938547004599678,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.3478837838936144
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2642781084117023,
+            "clearance": 0.9272781109150974,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.18953156134774335
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6398109239916941,
+            "clearance": 0.3028109264950892,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.2836499510795191
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5735988618804496,
+            "clearance": 0.2365988643838447,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5735988618804496,
+        "clearance": 0.2365988643838447,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.3369999974966049
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1242,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.8211717907240651
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "015",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\015\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_015.json (upper=1.01, lower=1.01)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.5576155406986685
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.8211717907240651
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.7535456167570471,
+            "clearance": 1.40854561794914,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.3205260665040257
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.16051780262028,
+            "clearance": 0.8155178038123729,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.21688927873733205
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5446684707667157,
+            "clearance": 0.19966847195880855,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.3110076684691078
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5137555488643755,
+            "clearance": 0.16875555005646836,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3449999988079071
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5137555488643755,
+        "clearance": 0.16875555005646836,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.3449999988079071
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1151,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.7673058798601374
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": true,
+      "character": "017",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\017\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_017.json (upper=0.9215, lower=0.95)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          1.3795362984399482
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.7673058798601374
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2127735649238915,
+            "clearance": 0.8507735614668221,
+            "hurt_bone": 5,
+            "hurt_slot": 0,
+            "overlaps": false,
+            "radius_sum": 0.3620000034570694
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.2714940138169776
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.009667716353759083,
+            "pairSlots": [
+              9,
+              6
+            ]
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6237416287368625,
+            "clearance": 0.28674163124025753,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3369999974966049
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.24887460523915406
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.03409345237045223,
+            "pairSlots": [
+              2,
+              16
+            ]
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.3122843684190988,
+            "clearance": -0.04771563098485476,
+            "hurt_bone": 16,
+            "hurt_slot": 16,
+            "overlaps": true,
+            "radius_sum": 0.35999999940395355
+          },
+          "overlap": true
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.3199040144762633
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.04617796098933299,
+            "pairSlots": [
+              2,
+              16
+            ]
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.17451203095805842,
+            "clearance": -0.18548796844589513,
+            "hurt_bone": 20,
+            "hurt_slot": 17,
+            "overlaps": true,
+            "radius_sum": 0.35999999940395355
+          },
+          "overlap": true
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.17451203095805842,
+        "clearance": -0.18548796844589513,
+        "hurt_bone": 20,
+        "hurt_slot": 17,
+        "overlaps": true,
+        "radius_sum": 0.35999999940395355
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x1478",
+      "reactionMoveSlot": 1219,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.87557103822916
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "023",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\023\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_023.json (upper=0.9312, lower=0.96)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.5113996637753988
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.87557103822916
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.8207445892140102,
+            "clearance": 1.4707445802733135,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.37492531400912066
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2585901623592537,
+            "clearance": 0.908590153418557,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.1624900312322371
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6311601720944474,
+            "clearance": 0.2811601631537507,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.2566084209640129
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.556927558494647,
+            "clearance": 0.20692754955395032,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.556927558494647,
+        "clearance": 0.20692754955395032,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.3500000089406967
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1219,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.03293318596736111,
+          0.5932092644053304,
+          -0.8741543756963238
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "024",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\024\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_024.json (upper=1.05, lower=1.05)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.5805946388505424
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03293318596736111,
+              0.5932092644053304,
+              -0.8741543756963238
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.7609842386839651,
+            "clearance": 1.3409842368958258,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.42000000178813934
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.031640283520193366,
+              0.6740580973939613,
+              -0.3735086514762845
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.1789253563410957,
+            "clearance": 0.7589253545529564,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.42000000178813934
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.037917335926600036,
+              0.33682217676490683,
+              0.16390669376507327
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6006797541728576,
+            "clearance": 0.18067975238471823,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.42000000178813934
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.034225601128673774,
+              -0.08289975803944107,
+              0.25802508349684905
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5515616819451749,
+            "clearance": 0.1315616801570355,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.42000000178813934
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5515616819451749,
+        "clearance": 0.1315616801570355,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.42000000178813934
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1126,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x1597"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.8158093063793911
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "030",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\030\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_030.json (upper=0.8235, lower=0.8967)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.5332656690713365
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.8158093063793911
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.83638401606986,
+            "clearance": 1.4713840065331167,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.36500000953674316
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.3151635821593517
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2504597470506675,
+            "clearance": 0.8854597375139244,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.36500000953674316
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.22225176308200606
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6340308532826262,
+            "clearance": 0.26903084374588304,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.36500000953674316
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.31637015281378184
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5752101639518992,
+            "clearance": 0.210210154415156,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.36500000953674316
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5752101639518992,
+        "clearance": 0.210210154415156,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.36500000953674316
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1222,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.81430136883744
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "060",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\060\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_060.json (upper=0.9595, lower=1.01)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.3909941291551849
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.81430136883744
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.7064177991195093,
+            "clearance": 1.381417796139277,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.32500000298023224
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.3136556446174007
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.1767741105428562,
+            "clearance": 0.851774107562624,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.32500000298023224
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.22375970062395706
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5890878367446013,
+            "clearance": 0.26408783376436906,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.32500000298023224
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.31787809035573283
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.49625389108342144,
+            "clearance": 0.1712538881031892,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.32500000298023224
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.49625389108342144,
+        "clearance": 0.1712538881031892,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.32500000298023224
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1341,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x1597"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.7902787593568282
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": true,
+      "character": "061",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\061\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_061.json (upper=1.05, lower=1)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          1.4071706032818874
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.7902787593568282
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.173711816016464,
+            "clearance": 0.7887118106520459,
+            "hurt_bone": 5,
+            "hurt_slot": 0,
+            "overlaps": false,
+            "radius_sum": 0.38500000536441803
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.30019286578378346
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.021119661293989064,
+            "pairSlots": [
+              9,
+              6
+            ]
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6112202836652173,
+            "clearance": 0.25622027949289217,
+            "hurt_bone": 17,
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.22542266279193818
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.02359963333127221,
+            "pairSlots": [
+              2,
+              6
+            ]
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.2939256046482763,
+            "clearance": -0.08107439535172373,
+            "hurt_bone": 16,
+            "hurt_slot": 14,
+            "overlaps": true,
+            "radius_sum": 0.375
+          },
+          "overlap": true
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.3051237600437763
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.02883458495987535,
+            "pairSlots": [
+              0,
+              13
+            ]
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.20253817579975505,
+            "clearance": -0.21246183075675587,
+            "hurt_bone": 19,
+            "hurt_slot": 13,
+            "overlaps": true,
+            "radius_sum": 0.4150000065565109
+          },
+          "overlap": true
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.20253817579975505,
+        "clearance": -0.21246183075675587,
+        "hurt_bone": 19,
+        "hurt_slot": 13,
+        "overlaps": true,
+        "radius_sum": 0.4150000065565109
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x1478",
+      "reactionMoveSlot": 1220,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.8257654461655882
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "062",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\062\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_062.json (upper=1, lower=1)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.5264480234820117
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.8257654461655882
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.7738014928100907,
+            "clearance": 1.4138014934061371,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35999999940395355
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.32511972194554883
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2119840188861373,
+            "clearance": 0.8519840194821837,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35999999940395355
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.21229562329580892
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.6371539508134894,
+            "clearance": 0.2771539514095358,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35999999940395355
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.3064140130275847
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5540236315735568,
+            "clearance": 0.19402363216960328,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35999999940395355
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5540236315735568,
+        "clearance": 0.19402363216960328,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.35999999940395355
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1105,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x1597"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.8161825512590882
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "064",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\064\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_064.json (upper=1.04, lower=1.04)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.47745191113882063
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.8161825512590882
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.7244201548931584,
+            "clearance": 1.3694201507208332,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.3155368270390489
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.138801179099875,
+            "clearance": 0.78380117492755,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.22187851820230886
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5766849955027861,
+            "clearance": 0.22168499133046093,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.31599690793408464
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5223293156696889,
+            "clearance": 0.16732931149736374,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5223293156696889,
+        "clearance": 0.16732931149736374,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.35500000417232513
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1211,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x1597"
+    },
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.8230156380717221
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": false,
+      "character": "065",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\065\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_065.json (upper=1.1424, lower=1.02)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.4625059042852383
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.8230156380717221
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 51,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.7480418148585548,
+            "clearance": 1.3930418106862297,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.3223699138516826
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 0,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.161809949811758,
+            "clearance": 0.8068099456394329,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.21504543138967513
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.59495197143174,
+            "clearance": 0.2399519672594148,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.3091638211214509
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.5365467160712111,
+            "clearance": 0.18154671189888594,
+            "hurt_bone": 21,
+            "hurt_slot": 7,
+            "overlaps": false,
+            "radius_sum": 0.35500000417232513
+          },
+          "overlap": false
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.5365467160712111,
+        "clearance": 0.18154671189888594,
+        "hurt_bone": 21,
+        "hurt_slot": 7,
+        "overlaps": false,
+        "radius_sum": 0.35500000417232513
+      },
+      "reactionFrameAtFirstActive": 51,
+      "reactionMotion": "0x149A",
+      "reactionMoveSlot": 1096,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x1597"
+    }
+  ],
+  "scenario": {
+    "attacker_id": "012",
+    "defender_action_slot": 142,
+    "defender_local_direction": "left",
+    "followup_entry_slot": 341,
+    "followup_held_target_slot": 342,
+    "forced_contact_classification": "lethal_hit",
+    "observed_escapes": [
+      "002",
+      "003",
+      "006",
+      "009",
+      "00b",
+      "00c",
+      "00d",
+      "015",
+      "017",
+      "023",
+      "024",
+      "030",
+      "060",
+      "061",
+      "062",
+      "064",
+      "065"
+    ],
+    "observed_hits": [
+      "001",
+      "005",
+      "007",
+      "00f",
+      "011",
+      "012",
+      "014",
+      "016",
+      "028"
+    ],
+    "opener_slot": 372,
+    "spacing": {
+      "maximum": 2.0,
+      "minimum": 0.0,
+      "require_contiguous_agreement": true,
+      "step": 0.0025
+    },
+    "style_id": "012"
+  },
+  "schemaVersion": 1,
+  "unresolved": [
+    "spacing sweep and remaining native pose/controller boundaries"
+  ]
+}

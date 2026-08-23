@@ -22,7 +22,16 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from stackvm import walk_stackvm
-from stackvm_emulate import emulate, decode_predicate, DecodedInput, Concrete, EffectEvent
+from stackvm_emulate import (
+    FACING_EFFECT_OPCODES,
+    Concrete,
+    DecodedInput,
+    EffectEvent,
+    Unknown,
+    decode_predicate,
+    emulate,
+)
+from trace_movevm_calltree import trace_call_tree
 from luxformats import KhdFile
 
 
@@ -73,7 +82,7 @@ def build_slot_graph(bank: KhdFile, file_bytes: bytes) -> SlotGraph:
                                   max_bytes=0x10000)
         except Exception:
             continue
-        result = emulate(script, slot.slot_index)
+        result = emulate(script, slot.slot_index, bank=bank)
         g.effects_by_src[slot.slot_index] = result.effects
         edges: list[SlotEdge] = []
         for t in result.transitions:
@@ -87,10 +96,10 @@ def build_slot_graph(bank: KhdFile, file_bytes: bytes) -> SlotGraph:
             if resolved_slot is None:
                 continue
             pred = decode_predicate(t.predicate)
-            sub = t.predicate.sub_opcode if t.predicate else None
+            sub = t.predicate.effective_sub_opcode if t.predicate else None
             arg_concretes: list[Optional[int]] = []
             if t.predicate:
-                for a in t.predicate.args:
+                for a in t.predicate.effective_args:
                     if isinstance(a, Concrete):
                         arg_concretes.append(a.value)
                     else:
@@ -231,6 +240,63 @@ def serialize_effect(e: EffectEvent) -> dict:
         "targetWeight": e.target_weight,
         "rampSelector": e.ramp_selector,
     }
+
+
+def trace_facing_effects(bank: KhdFile, root_slots: list[int] | tuple[int, ...]) -> list[dict]:
+    """Collect direct and concrete-local nested facing effects for a move route.
+
+    Move slots commonly delegate setup to shared CALLCOND 0x0D helpers.  A
+    direct ``effects_by_src`` lookup therefore misses the actual retrack
+    authoring.  The call-tree tracer models the native zeroed 16-short helper
+    frame and recursively resolves only concrete helper targets.  Branches
+    whose runtime predicates remain unknown are conservatively reported as
+    may-reachable; callers must not present these events as frame-exact proof.
+    """
+
+    output: list[dict] = []
+    seen: set[tuple] = set()
+    for route_order, root_slot in enumerate(root_slots):
+        if not (0 <= int(root_slot) < len(bank.slots)):
+            continue
+        for traced in trace_call_tree(bank, int(root_slot)):
+            call = traced.call
+            if call.function_index not in (0x02, 0x03) or not call.args:
+                continue
+            opcode = call.args[0].value
+            if opcode not in FACING_EFFECT_OPCODES:
+                continue
+            args = [
+                Concrete(value.value, source_pc=call.pc)
+                if value.value is not None
+                else Unknown(source_pc=call.pc)
+                for value in call.args
+            ]
+            effect = EffectEvent(call.function_index, args, call.pc)
+            key = (
+                route_order,
+                int(root_slot),
+                traced.path,
+                call.slot,
+                call.pc,
+                tuple(effect.concrete_args),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            item = serialize_effect(effect)
+            item.update({
+                "routeOrder": route_order,
+                "rootSlot": int(root_slot),
+                "sourceSlot": int(call.slot),
+                "utilityPath": list(traced.path),
+                "depth": int(traced.depth),
+                "reachability": "may",
+                "timingStatus": "unresolved",
+                "frame": None,
+                "hitRelation": "unresolved",
+            })
+            output.append(item)
+    return output
 
 
 def serialize_root(r: StanceRoot) -> dict:

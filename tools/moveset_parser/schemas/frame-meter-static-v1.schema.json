@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "frame-meter-static-v1",
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9A-F]{64}$"},
+    "counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}
+    }
+  },
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "certification", "clock", "sources", "coverage", "records"],
+  "properties": {
+    "schema": {"const": "frame-meter-static-v1"},
+    "certification": {"const": "StaticOnlyRuntimeUnvalidated"},
+    "clock": {
+      "type": "object", "additionalProperties": false,
+      "required": ["domain", "contactTickZero", "advantageFormula", "sharedFullFreeze"],
+      "properties": {
+        "domain": {"type": "string", "minLength": 1}, "contactTickZero": {"type": "string", "minLength": 1},
+        "advantageFormula": {"type": "string", "minLength": 1}, "sharedFullFreeze": {"type": "string", "minLength": 1}
+      }
+    },
+    "sources": {
+      "type": "object", "additionalProperties": false, "required": ["executable", "reactionTable", "khd"],
+      "properties": {
+        "executable": {"$ref": "#/$defs/source"}, "reactionTable": {"$ref": "#/$defs/source"},
+        "khd": {"type": "array", "minItems": 1, "items": {
+          "type": "object", "additionalProperties": false, "required": ["style", "path", "sha256"],
+          "properties": {"style": {"type": "string", "pattern": "^[0-9a-f]{3}$"}, "path": {"type": "string", "minLength": 1}, "sha256": {"$ref": "#/$defs/sha256"}}
+        }}
+      }
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["recordCount", "candidateCellReferenceCount", "emittedCellReferenceCount", "excludedCellReferenceCount", "exclusionReasonCounts", "statusCounts", "unresolvedReasonCounts", "silentFallbackCount", "genericUnknownCount"],
+      "properties": {
+        "recordCount": {"type": "integer", "minimum": 0}, "candidateCellReferenceCount": {"type": "integer", "minimum": 0},
+        "emittedCellReferenceCount": {"type": "integer", "minimum": 0}, "excludedCellReferenceCount": {"type": "integer", "minimum": 0},
+        "exclusionReasonCounts": {"$ref": "#/$defs/counts"}, "statusCounts": {"$ref": "#/$defs/counts"},
+        "unresolvedReasonCounts": {"$ref": "#/$defs/counts"}, "silentFallbackCount": {"const": 0}, "genericUnknownCount": {"const": 0}
+      }
+    },
+    "records": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "activeIntervals", "authoredContactCoordinates", "lastLockedAttackerCoordinate", "authoredDefenderCounter", "attackerFirstActionableTick", "defenderFirstActionableTick", "advantage", "status", "reasonCode", "reason", "hitstop", "evidence"],
+      "properties": {
+        "key": {"type": "object", "additionalProperties": false,
+          "required": ["style", "bank_kind", "packed_move", "attack_cell_index", "contact_mode", "reaction_context", "reaction_row_id", "contact_coordinate"],
+          "properties": {
+            "style": {"type": "string", "pattern": "^[0-9a-f]{3}$"}, "bank_kind": {"type": "integer", "minimum": 0, "maximum": 15},
+            "packed_move": {"type": "integer", "minimum": 0, "maximum": 65535}, "attack_cell_index": {"type": "integer", "minimum": 0},
+            "contact_mode": {"enum": ["Block", "Hit", "CounterHit", "ThrowBreak", "ThrowSuccess"]},
+            "reaction_context": {"enum": ["GuardConditionRuntime", "StandardGrounded", "StandardAirOrCinematic", "PromotedGrounded", "PromotedAirOrCinematic", "RuntimeClassifierRoute", "RuntimeThrowBreak", "RuntimeThrowSuccess"]},
+            "reaction_row_id": {"type": "integer"}, "contact_coordinate": {"type": "integer"}
+          }
+        },
+        "activeIntervals": {"type": "array", "minItems": 1, "items": {"type": "array", "prefixItems": [{"type": "integer"}, {"type": "integer"}], "items": false, "minItems": 2, "maxItems": 2}},
+        "authoredContactCoordinates": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "integer"}},
+        "lastLockedAttackerCoordinate": {"type": ["integer", "null"]}, "authoredDefenderCounter": {"type": ["integer", "null"]},
+        "status": {"enum": ["Numeric", "CategoricalKnockdown", "CategoricalCinematic", "CategoricalThrowSuccess", "ContextDependent", "UnsupportedStatic"]},
+        "reasonCode": {"enum": [null, "route-ambiguity", "transition-predicate", "attacker-endpoint", "reaction-endpoint", "clock-alignment", "posture-column", "dynamic-context"]}, "reason": {"type": "string", "minLength": 1},
+        "attackerFirstActionableTick": {"type": ["integer", "null"]}, "defenderFirstActionableTick": {"type": ["integer", "null"]}, "advantage": {"type": ["integer", "null"]},
+        "hitstop": {"type": "object", "additionalProperties": false, "required": ["classification", "sharedFullFreezeTicks", "asymmetricTicks", "reason"],
+          "properties": {"classification": {"enum": ["SharedFullFreezeExcluded", "FiniteStatic", "ContextDependent"]}, "sharedFullFreezeTicks": {"type": ["integer", "null"]}, "asymmetricTicks": {"type": ["integer", "null"]}, "reason": {"type": "string", "minLength": 1}}},
+        "evidence": {"type": "object", "additionalProperties": false, "required": ["status", "sourceKhdSha256", "runtimeValidated"],
+          "properties": {"status": {"enum": ["Numeric", "CategoricalKnockdown", "CategoricalCinematic", "CategoricalThrowSuccess", "ContextDependent", "UnsupportedStatic"]}, "sourceKhdSha256": {"$ref": "#/$defs/sha256"}, "runtimeValidated": {"const": false}}}
+      }
+    }}
+  }
+}

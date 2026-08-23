@@ -460,35 +460,35 @@ def khd_section(cid: str, sec: int):
             f'<th title="From u64SlotMask high/mid/low encoding">anim kind</th>'
             f'<th title="wI16BaseDamage @ cell+0x3A">dmg</th>'
             f'<th title="wI16MasterWindowStart..End (60ths)">active</th>'
-            f'<th title="wI16BlockstunFrames @ cell+0x44 (defender disadvantage)">on-block</th>'
-            f'<th title="wI16HitstunBaseContact @ cell+0x46">on-hit (base)</th>'
-            f'<th title="wI16HitstunAlternatePostureBaseContact @ cell+0x4C">on-hit (alternate posture)</th>'
+            f'<th title="Raw defender counter; not frame advantage">blockstun</th>'
+            f'<th title="Raw defender counter; not frame advantage">hitstun (base)</th>'
+            f'<th title="Raw defender counter; not frame advantage">hitstun (alternate posture)</th>'
             f'<th title="wI16ReactionIdBaseContact @ cell+0x50, index into chara+0x43DD8">reactID</th>'
             f'<th title="cI8RangeStandMin..Max @ cell+0x62..63 (-127=∞)">range</th>'
             f'<th title="wU16AttackFlags @ cell+0x32 (raw hex)">flags</th>'
             f'</tr>'
             + "".join(rows) + "</table>"
         )
-    elif s.throw_cells:
-        # Section B — throw damage/scaling cells (6-byte stride). The older
-        # non_attack_descriptors alias is still populated for compatibility.
+    elif s.non_attack_descriptors:
+        # Section B: native non-attack short[3] descriptors (6-byte stride).
+        # throw_cells remains only as a compatibility view for older reports.
         rows = []
-        for i, d in enumerate(s.throw_cells):
+        for i, d in enumerate(s.non_attack_descriptors):
             tag_str = (
                 "<span class=\"tag tag-bootstrap\">default 0xFFFD</span>"
-                if d.nAux == -3
-                else f"0x{d.nAux & 0xFFFF:04X}"
+                if d.nSPassthroughTag == -3
+                else f"0x{d.nSPassthroughTag & 0xFFFF:04X}"
             )
             rows.append(
                 f'<tr><td>{i}</td>'
-                f'<td class="num">{d.wDamage}</td>'
+                f'<td class="num">{d.nSDamageMultiplier}</td>'
                 f'<td>{tag_str}</td>'
-                f'<td class="num">{d.nScaling}</td></tr>'
+                f'<td class="num">{d.nSDuration60ths}</td></tr>'
             )
         body_parts.append(
-            f"<h2>LuxBattleThrowCell array ({len(s.throw_cells)} entries)</h2>"
+            f"<h2>LuxBattleNonAttackMoveDescr array ({len(s.non_attack_descriptors)} entries)</h2>"
             f"<table><tr><th>idx</th>"
-            f'<th>damage</th><th>aux</th><th>scaling</th></tr>'
+            f'<th>damage multiplier</th><th>passthrough tag</th><th>duration / 60</th></tr>'
             + "".join(rows) + "</table>"
         )
     elif s.event_records:
@@ -634,7 +634,7 @@ def khd_entry(cid: str, sec: int, idx: int):
     <td>u64SlotMask high/mid/low bit pattern (see hitbox-system.md)</td></tr>
 <tr><td>active frames</td><td><b>{e.active_frames}</b> ({e.active_frame_count}f)</td>
     <td>wI16MasterWindowStart..End (60ths-of-a-second)</td></tr>
-<tr><td>on block / on hit</td><td><b>{e.on_block:+d}f</b> / <b>{e.on_hit_standing:+d}f</b></td>
+<tr><td>raw blockstun / base hitstun</td><td><b>{e.blockstun_frames:d}</b> / <b>{e.hitstun_base_contact_frames:d}</b></td>
     <td>wI16BlockstunFrames / wI16HitstunBaseContact</td></tr>
 <tr><td>range (stand)</td><td>{e.range_stand}</td>
     <td>cI8RangeStandMin..Max (-127 / 0x81 = no constraint)</td></tr>
@@ -671,7 +671,7 @@ def khd_entry(cid: str, sec: int, idx: int):
 <tr><td>wU16ExtraStateFlags</td><td>+0x3E</td><td>0x{e.wU16ExtraStateFlags:04X}</td>
     <td>Extra state flags (BA / soul-charge / etc. — bit map TBD)</td></tr>
 <tr><td>wI16BlockstunFrames</td><td>+0x44</td><td>{e.wI16BlockstunFrames}</td>
-    <td>Frames of blockstun (defender disadvantage on block)</td></tr>
+    <td>Raw defender blockstun counter; frame advantage also requires attacker recovery</td></tr>
 <tr><td>wI16HitstunBaseContact</td><td>+0x46</td><td>{e.wI16HitstunBaseContact}</td>
     <td>Base-posture stun for normal contact mode 1</td></tr>
 <tr><td>wI16HitstunSpecialContact</td><td>+0x48</td><td>{e.wI16HitstunSpecialContact}</td>

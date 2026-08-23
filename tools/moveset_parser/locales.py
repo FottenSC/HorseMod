@@ -175,7 +175,9 @@ def clean_markup(text: str) -> str:
 
 _CONDITION_KEYWORDS = (
     "During ", "While ", "After ", "Facing ", "8-way ", "Jumping ",
-    "When hit", "With Red", "With White",
+    "Against ", "With ", "Without ",
+    "When hit", "When Dark Legacy ", "When at low health ",
+    "When opponent is ", "Behind opponent ", "Angel Step ",
 )
 # An "input character" is anything a button/direction sequence can start
 # with: A/B/K/G, digit, [ (held), ( (group). The negative lookahead is
@@ -211,6 +213,11 @@ def split_condition_and_input(markup_text: str) -> tuple[str, str]:
         # The split is valid only if the char IMMEDIATELY before is a
         # space. Otherwise we're inside a word (e.g. "Jolly").
         if s[pos - 1] != " ":
+            continue
+        # "8-way run" is an authored state phrase, not a direction token.
+        # Inputs such as "During Relic 8B" do not contain this phrase and
+        # continue to split at their leading 8 normally.
+        if s[pos:].lower().startswith("8-way run "):
             continue
         condition = s[: pos - 1].strip()
         button_input = s[pos:].strip()

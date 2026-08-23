@@ -14,6 +14,7 @@ from move_graph import (
     build_flat_moves,
     build_slot_graph,
     identify_stance_roots,
+    trace_facing_effects,
 )
 
 pytestmark = pytest.mark.needs_dump
@@ -28,6 +29,30 @@ def test_mitsurugi_slot_graph_has_edges(mitsurugi_graph, mitsurugi_bank):
     # We expect ~1200+ extracted edges across Mitsurugi's 2899 slots.
     total = sum(len(es) for es in g.edges_by_src.values())
     assert total > 1000, f"only {total} edges extracted — emulator regression?"
+
+
+def test_nested_facing_trace_uses_native_retrack_opcodes_and_percent_scale(
+    astaroth_bank,
+):
+    # This stock attack route reaches shared facing helpers through CALLCOND
+    # 0x0D.  The direct-slot-only exporter used to miss these.
+    events = trace_facing_effects(astaroth_bank, [215])
+
+    assert any(
+        event["opcode"] == 0x0B
+        and event["targetWeight"] == pytest.approx(1.0)
+        and event["depth"] > 0
+        for event in events
+    )
+    assert any(
+        event["opcode"] == 0x3C
+        and event["targetWeight"] == pytest.approx(0.05)
+        and event["depth"] > 0
+        for event in events
+    )
+    assert all(event["opcode"] != 0x3B for event in events)
+    assert all(event["reachability"] == "may" for event in events)
+    assert all(event["timingStatus"] == "unresolved" for event in events)
 
 
 def test_packed_bucket_edges_resolve_before_user_in_count(mitsurugi_graph):
@@ -129,13 +154,18 @@ def test_astaroth_coverage_floor(astaroth_bank, astaroth_bytes):
 
 
 def test_known_input_rate(mitsurugi_bank, mitsurugi_graph):
-    """At least 30% of moves should have a BFS-derived input. Was 14% at
-    one point; should now be ~40%."""
+    """Retain the honest post-wrapper BFS baseline.
+
+    CALLCOND 0x25 prepends IF 0x0008, so its raw timing operands must not be
+    counted as button/direction/command predicates merely when their numeric
+    value equals an input subopcode. Removing those false user-input edges
+    lowers Mitsurugi's native-only coverage to about 22%.
+    """
     roots = identify_stance_roots(mitsurugi_bank, mitsurugi_graph)
     moves = build_flat_moves(mitsurugi_bank, mitsurugi_graph, roots)
     known = sum(1 for m in moves if m.kind_path[0] != "unknown")
     rate = known / len(moves)
-    assert rate >= 0.30, (
+    assert rate >= 0.20, (
         f"known-input rate dropped to {rate*100:.0f}% — BFS coverage "
         f"regression?"
     )

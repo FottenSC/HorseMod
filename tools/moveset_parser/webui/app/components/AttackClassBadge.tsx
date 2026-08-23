@@ -11,7 +11,14 @@ const CLASS_TO_BADGE: Record<string, string> = {
 
 export function AttackClassBadge({ value }: { value: AttackClass }) {
   const cls = CLASS_TO_BADGE[value] ?? "badge-other";
-  return <span className={`badge ${cls}`}>{value}</span>;
+  return (
+    <span
+      className={`badge ${cls}`}
+      title="KHD guard/contact profile; not authoritative High/Mid/Low movelist evidence"
+    >
+      {value}
+    </span>
+  );
 }
 
 // Authoritative move-class badge sourced from DA_MoveListTable's

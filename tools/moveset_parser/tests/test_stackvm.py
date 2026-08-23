@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from stackvm import (
+    CALLCOND_NAMES,
     TERMINATOR_OPCODES,
     walk_stackvm,
 )
@@ -104,6 +105,12 @@ def test_callcond_summary():
     s = walk_stackvm(buf, 0)
     summary = s.callcond_summary
     assert summary == {0x00: 1, 0x05: 2}
+
+
+def test_other_lane_callcond_names_match_native_handlers():
+    assert CALLCOND_NAMES[0x11] == "CommitOrScheduleOtherLaneEnd"
+    assert CALLCOND_NAMES[0x1E] == "WriteOtherLaneShort"
+    assert CALLCOND_NAMES[0x22] == "WriteOtherLaneShort"
 
 
 def test_terminator_opcodes_constant():

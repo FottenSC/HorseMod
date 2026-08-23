@@ -1,0 +1,1154 @@
+{
+  "complete": false,
+  "reactionPartition": {
+    "acceptedAsFinalClassifier": false,
+    "allObservedCatchesInCatchMotions": true,
+    "allObservedEscapesInEscapeMotions": true,
+    "catchReactionMotions": [
+      "0x13DB",
+      "0x1477"
+    ],
+    "escapeReactionMotions": [
+      "0x1478",
+      "0x149A"
+    ],
+    "reason": "reaction selection is the first causal boundary; native KHit overlap is not yet reproduced"
+  },
+  "results": [
+    {
+      "agreement": null,
+      "attackCellRoute": [
+        {
+          "attackSlots": [
+            0
+          ],
+          "cell": 112,
+          "coordinate": 13,
+          "slotMask": 1
+        },
+        {
+          "attackSlots": [
+            0
+          ],
+          "cell": 112,
+          "coordinate": 14,
+          "slotMask": 1
+        },
+        {
+          "attackSlots": [
+            0,
+            6
+          ],
+          "cell": 113,
+          "coordinate": 15,
+          "slotMask": 65
+        },
+        {
+          "attackSlots": [
+            0,
+            6
+          ],
+          "cell": 113,
+          "coordinate": 16,
+          "slotMask": 65
+        }
+      ],
+      "attackSlotMask": 1,
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.040903181013855025,
+          1.73450937897366,
+          -0.27589561658444717
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108/0.999999885, lower=1.13/1)",
+      "attackerHeldTimeline": {
+        "b_hold_start_tick": 0,
+        "entry_tick": 40,
+        "final_active_tick": 57,
+        "first_active_tick": 54,
+        "minimum_b_hold_start_tick": 19,
+        "source_slot": 341,
+        "target_slot": 342,
+        "target_start_coordinate": 10.0,
+        "ticks": [
+          {
+            "coordinate_after_advance": 1.0,
+            "crossed_checkpoint": null,
+            "global_tick": 40,
+            "history_passed": null,
+            "local_tick": 0,
+            "previous_coordinate": -1.0,
+            "required_b_samples": null,
+            "script_coordinate": 0.0,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 0,
+            "speed_phase_before": 0,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 2.0,
+            "crossed_checkpoint": null,
+            "global_tick": 41,
+            "history_passed": null,
+            "local_tick": 1,
+            "previous_coordinate": 0.0,
+            "required_b_samples": null,
+            "script_coordinate": 1.0,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 0,
+            "speed_phase_before": 0,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 3.0,
+            "crossed_checkpoint": null,
+            "global_tick": 42,
+            "history_passed": null,
+            "local_tick": 2,
+            "previous_coordinate": 1.0,
+            "required_b_samples": null,
+            "script_coordinate": 2.0,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 0,
+            "speed_phase_before": 0,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 4.0,
+            "crossed_checkpoint": null,
+            "global_tick": 43,
+            "history_passed": null,
+            "local_tick": 3,
+            "previous_coordinate": 2.0,
+            "required_b_samples": null,
+            "script_coordinate": 3.0,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 0,
+            "speed_phase_before": 0,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 5.0,
+            "crossed_checkpoint": null,
+            "global_tick": 44,
+            "history_passed": null,
+            "local_tick": 4,
+            "previous_coordinate": 3.0,
+            "required_b_samples": null,
+            "script_coordinate": 4.0,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 0,
+            "speed_phase_before": 0,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 6.0,
+            "crossed_checkpoint": null,
+            "global_tick": 45,
+            "history_passed": null,
+            "local_tick": 5,
+            "previous_coordinate": 4.0,
+            "required_b_samples": null,
+            "script_coordinate": 5.0,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 0,
+            "speed_phase_before": 0,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 6.5,
+            "crossed_checkpoint": 6.0,
+            "global_tick": 46,
+            "history_passed": true,
+            "local_tick": 6,
+            "previous_coordinate": 5.0,
+            "required_b_samples": 6,
+            "script_coordinate": 6.0,
+            "speed_after_script": 0.5,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 2,
+            "speed_phase_before": 0,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 7.5,
+            "crossed_checkpoint": null,
+            "global_tick": 47,
+            "history_passed": null,
+            "local_tick": 7,
+            "previous_coordinate": 6.0,
+            "required_b_samples": null,
+            "script_coordinate": 6.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 0.5,
+            "speed_phase_after": 3,
+            "speed_phase_before": 2,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 8.5,
+            "crossed_checkpoint": null,
+            "global_tick": 48,
+            "history_passed": null,
+            "local_tick": 8,
+            "previous_coordinate": 6.5,
+            "required_b_samples": null,
+            "script_coordinate": 7.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 3,
+            "speed_phase_before": 3,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 9.5,
+            "crossed_checkpoint": null,
+            "global_tick": 49,
+            "history_passed": null,
+            "local_tick": 9,
+            "previous_coordinate": 7.5,
+            "required_b_samples": null,
+            "script_coordinate": 8.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 3,
+            "speed_phase_before": 3,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 10.5,
+            "crossed_checkpoint": null,
+            "global_tick": 50,
+            "history_passed": null,
+            "local_tick": 10,
+            "previous_coordinate": 8.5,
+            "required_b_samples": null,
+            "script_coordinate": 9.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 3,
+            "speed_phase_before": 3,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 11.5,
+            "crossed_checkpoint": null,
+            "global_tick": 51,
+            "history_passed": null,
+            "local_tick": 11,
+            "previous_coordinate": 9.5,
+            "required_b_samples": null,
+            "script_coordinate": 10.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 3,
+            "speed_phase_before": 3,
+            "transition_authored": true
+          },
+          {
+            "coordinate_after_advance": 12.5,
+            "crossed_checkpoint": null,
+            "global_tick": 52,
+            "history_passed": null,
+            "local_tick": 12,
+            "previous_coordinate": 10.5,
+            "required_b_samples": null,
+            "script_coordinate": 11.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 3,
+            "speed_phase_before": 3,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 13.5,
+            "crossed_checkpoint": null,
+            "global_tick": 53,
+            "history_passed": null,
+            "local_tick": 13,
+            "previous_coordinate": 11.5,
+            "required_b_samples": null,
+            "script_coordinate": 12.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 3,
+            "speed_phase_before": 3,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 14.5,
+            "crossed_checkpoint": null,
+            "global_tick": 54,
+            "history_passed": null,
+            "local_tick": 14,
+            "previous_coordinate": 12.5,
+            "required_b_samples": null,
+            "script_coordinate": 13.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 3,
+            "speed_phase_before": 3,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 15.5,
+            "crossed_checkpoint": null,
+            "global_tick": 55,
+            "history_passed": null,
+            "local_tick": 15,
+            "previous_coordinate": 13.5,
+            "required_b_samples": null,
+            "script_coordinate": 14.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 3,
+            "speed_phase_before": 3,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 16.5,
+            "crossed_checkpoint": null,
+            "global_tick": 56,
+            "history_passed": null,
+            "local_tick": 16,
+            "previous_coordinate": 14.5,
+            "required_b_samples": null,
+            "script_coordinate": 15.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 3,
+            "speed_phase_before": 3,
+            "transition_authored": false
+          },
+          {
+            "coordinate_after_advance": 17.5,
+            "crossed_checkpoint": null,
+            "global_tick": 57,
+            "history_passed": null,
+            "local_tick": 17,
+            "previous_coordinate": 15.5,
+            "required_b_samples": null,
+            "script_coordinate": 16.5,
+            "speed_after_script": 1.0,
+            "speed_before_script": 1.0,
+            "speed_phase_after": 3,
+            "speed_phase_before": 3,
+            "transition_authored": false
+          }
+        ],
+        "transition_tick": 51
+      },
+      "authoredGeometryOverlap": true,
+      "character": "002",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\002\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_002.json (upper=0.9409/0.999999885, lower=0.97/1)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.9525
+        ]
+      ],
+      "diagnosticReactionPoseReleaseTick": null,
+      "firstActiveTick": 54,
+      "frames": [
+        {
+          "attackCell": 112,
+          "attackPoseFrame": 13.0,
+          "attackSlotMask": 1,
+          "attackSpheres": [
+            {
+              "bone": 5,
+              "center": [
+                -0.040903181013855025,
+                1.73450937897366,
+                -0.27589561658444717
+              ],
+              "radius": 0.1850000023841858,
+              "slot": 0
+            }
+          ],
+          "attackerPoseLanes": [
+            {
+              "active": true,
+              "descriptor_index": 0,
+              "owner_lane": 0,
+              "packed_motion_id": 512,
+              "sample_coordinate": 13.5,
+              "solver_slot": 0,
+              "track": 0,
+              "weight": 1.0
+            },
+            {
+              "active": false,
+              "descriptor_index": 1,
+              "owner_lane": 0,
+              "packed_motion_id": null,
+              "sample_coordinate": null,
+              "solver_slot": 1,
+              "track": 0,
+              "weight": 0.0
+            },
+            {
+              "active": true,
+              "descriptor_index": 0,
+              "owner_lane": 1,
+              "packed_motion_id": 512,
+              "sample_coordinate": 13.0,
+              "solver_slot": 2,
+              "track": 0,
+              "weight": 1.0
+            },
+            {
+              "active": false,
+              "descriptor_index": 1,
+              "owner_lane": 1,
+              "packed_motion_id": null,
+              "sample_coordinate": null,
+              "solver_slot": 3,
+              "track": 0,
+              "weight": 0.0
+            }
+          ],
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "p1ImpactWeight": 0.6956521739130435,
+            "p2BodyType": 0,
+            "p2ImpactWeight": 1.3043478260869565,
+            "p2SeparationScale": 0.625,
+            "pairForce": 0.0,
+            "pairSlots": null,
+            "verticalOverlap": true
+          },
+          "defenderFrame": 1,
+          "defenderState": "left_ukemi",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_center": [
+              -0.040903181013855025,
+              1.73450937897366,
+              -0.27589561658444717
+            ],
+            "attack_slot": 0,
+            "center_distance": 1.9540158426650718,
+            "clearance": 1.604015833724375,
+            "hurt_bone": 17,
+            "hurt_center": [
+              0.24177992661754874,
+              0.40609905337099506,
+              1.1289510586360783
+            ],
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false,
+          "poseSolver": {
+            "complete": false,
+            "controller_active": null,
+            "lanes": [
+              {
+                "active": true,
+                "descriptor_index": 0,
+                "owner_lane": 0,
+                "packed_motion_id": 672,
+                "sample_coordinate": 1.0,
+                "solver_slot": 0,
+                "track": 0,
+                "weight": 1.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 1,
+                "owner_lane": 0,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 1,
+                "track": 0,
+                "weight": 0.0
+              },
+              {
+                "active": true,
+                "descriptor_index": 0,
+                "owner_lane": 1,
+                "packed_motion_id": 5274,
+                "sample_coordinate": 54.0,
+                "solver_slot": 2,
+                "track": 0,
+                "weight": 1.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 1,
+                "owner_lane": 1,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 3,
+                "track": 0,
+                "weight": 0.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 0,
+                "owner_lane": 2,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 4,
+                "track": 0,
+                "weight": 0.0
+              }
+            ],
+            "main_analytic_ik_active": true,
+            "post_physics_foot_ik_active": null,
+            "spine_ik_active": null,
+            "unresolved": [
+              "controller, spine-IK, and post-physics gate producers are not fully proven",
+              "main analytic IK calculation for motion-flag 0x80"
+            ]
+          }
+        },
+        {
+          "attackCell": 112,
+          "attackPoseFrame": 14.0,
+          "attackSlotMask": 1,
+          "attackSpheres": [
+            {
+              "bone": 5,
+              "center": [
+                -0.03961027954303553,
+                1.7170482106415381,
+                0.23502014932240264
+              ],
+              "radius": 0.1850000023841858,
+              "slot": 0
+            }
+          ],
+          "attackerPoseLanes": [
+            {
+              "active": true,
+              "descriptor_index": 0,
+              "owner_lane": 0,
+              "packed_motion_id": 512,
+              "sample_coordinate": 14.5,
+              "solver_slot": 0,
+              "track": 0,
+              "weight": 1.0
+            },
+            {
+              "active": false,
+              "descriptor_index": 1,
+              "owner_lane": 0,
+              "packed_motion_id": null,
+              "sample_coordinate": null,
+              "solver_slot": 1,
+              "track": 0,
+              "weight": 0.0
+            },
+            {
+              "active": true,
+              "descriptor_index": 0,
+              "owner_lane": 1,
+              "packed_motion_id": 512,
+              "sample_coordinate": 14.0,
+              "solver_slot": 2,
+              "track": 0,
+              "weight": 1.0
+            },
+            {
+              "active": false,
+              "descriptor_index": 1,
+              "owner_lane": 1,
+              "packed_motion_id": null,
+              "sample_coordinate": null,
+              "solver_slot": 3,
+              "track": 0,
+              "weight": 0.0
+            }
+          ],
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "p1ImpactWeight": 0.6956521739130435,
+            "p2BodyType": 0,
+            "p2ImpactWeight": 1.3043478260869565,
+            "p2SeparationScale": 0.75,
+            "pairForce": 0.0,
+            "pairSlots": null,
+            "verticalOverlap": true
+          },
+          "defenderFrame": 2,
+          "defenderState": "left_ukemi",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_center": [
+              -0.03961027954303553,
+              1.7170482106415381,
+              0.23502014932240264
+            ],
+            "attack_slot": 0,
+            "center_distance": 1.5474517275753994,
+            "clearance": 1.1974517186347027,
+            "hurt_bone": 17,
+            "hurt_center": [
+              0.20282504592014894,
+              0.49839750991022963,
+              1.1573663054648449
+            ],
+            "hurt_slot": 6,
+            "overlaps": false,
+            "radius_sum": 0.3500000089406967
+          },
+          "overlap": false,
+          "poseSolver": {
+            "complete": false,
+            "controller_active": null,
+            "lanes": [
+              {
+                "active": true,
+                "descriptor_index": 0,
+                "owner_lane": 0,
+                "packed_motion_id": 672,
+                "sample_coordinate": 2.0,
+                "solver_slot": 0,
+                "track": 0,
+                "weight": 1.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 1,
+                "owner_lane": 0,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 1,
+                "track": 0,
+                "weight": 0.0
+              },
+              {
+                "active": true,
+                "descriptor_index": 0,
+                "owner_lane": 1,
+                "packed_motion_id": 5274,
+                "sample_coordinate": 55.0,
+                "solver_slot": 2,
+                "track": 0,
+                "weight": 1.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 1,
+                "owner_lane": 1,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 3,
+                "track": 0,
+                "weight": 0.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 0,
+                "owner_lane": 2,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 4,
+                "track": 0,
+                "weight": 0.0
+              }
+            ],
+            "main_analytic_ik_active": true,
+            "post_physics_foot_ik_active": null,
+            "spine_ik_active": null,
+            "unresolved": [
+              "controller, spine-IK, and post-physics gate producers are not fully proven",
+              "main analytic IK calculation for motion-flag 0x80"
+            ]
+          }
+        },
+        {
+          "attackCell": 113,
+          "attackPoseFrame": 15.0,
+          "attackSlotMask": 65,
+          "attackSpheres": [
+            {
+              "bone": 5,
+              "center": [
+                -0.04588733293944965,
+                1.3199222508198019,
+                0.777115537971455
+              ],
+              "radius": 0.1850000023841858,
+              "slot": 0
+            },
+            {
+              "bone": 17,
+              "center": [
+                -0.08502616785516642,
+                0.44303627905391424,
+                0.9747831063830146
+              ],
+              "radius": 0.23499999940395355,
+              "slot": 6
+            }
+          ],
+          "attackerPoseLanes": [
+            {
+              "active": true,
+              "descriptor_index": 0,
+              "owner_lane": 0,
+              "packed_motion_id": 512,
+              "sample_coordinate": 15.5,
+              "solver_slot": 0,
+              "track": 0,
+              "weight": 1.0
+            },
+            {
+              "active": false,
+              "descriptor_index": 1,
+              "owner_lane": 0,
+              "packed_motion_id": null,
+              "sample_coordinate": null,
+              "solver_slot": 1,
+              "track": 0,
+              "weight": 0.0
+            },
+            {
+              "active": true,
+              "descriptor_index": 0,
+              "owner_lane": 1,
+              "packed_motion_id": 512,
+              "sample_coordinate": 15.0,
+              "solver_slot": 2,
+              "track": 0,
+              "weight": 1.0
+            },
+            {
+              "active": false,
+              "descriptor_index": 1,
+              "owner_lane": 1,
+              "packed_motion_id": null,
+              "sample_coordinate": null,
+              "solver_slot": 3,
+              "track": 0,
+              "weight": 0.0
+            }
+          ],
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "p1ImpactWeight": 0.6956521739130435,
+            "p2BodyType": 0,
+            "p2ImpactWeight": 1.3043478260869565,
+            "p2SeparationScale": 0.875,
+            "pairForce": 0.0,
+            "pairSlots": null,
+            "verticalOverlap": true
+          },
+          "defenderFrame": 3,
+          "defenderState": "left_ukemi",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_center": [
+              -0.08502616785516642,
+              0.44303627905391424,
+              0.9747831063830146
+            ],
+            "attack_slot": 6,
+            "center_distance": 0.29222387636467845,
+            "clearance": -0.10777612959578603,
+            "hurt_bone": 17,
+            "hurt_center": [
+              0.11727242121513584,
+              0.5455980528618872,
+              1.159041504647859
+            ],
+            "hurt_slot": 6,
+            "overlaps": true,
+            "radius_sum": 0.4000000059604645
+          },
+          "overlap": true,
+          "poseSolver": {
+            "complete": false,
+            "controller_active": null,
+            "lanes": [
+              {
+                "active": true,
+                "descriptor_index": 0,
+                "owner_lane": 0,
+                "packed_motion_id": 672,
+                "sample_coordinate": 3.0,
+                "solver_slot": 0,
+                "track": 0,
+                "weight": 1.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 1,
+                "owner_lane": 0,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 1,
+                "track": 0,
+                "weight": 0.0
+              },
+              {
+                "active": true,
+                "descriptor_index": 0,
+                "owner_lane": 1,
+                "packed_motion_id": 5274,
+                "sample_coordinate": 56.0,
+                "solver_slot": 2,
+                "track": 0,
+                "weight": 1.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 1,
+                "owner_lane": 1,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 3,
+                "track": 0,
+                "weight": 0.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 0,
+                "owner_lane": 2,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 4,
+                "track": 0,
+                "weight": 0.0
+              }
+            ],
+            "main_analytic_ik_active": true,
+            "post_physics_foot_ik_active": null,
+            "spine_ik_active": null,
+            "unresolved": [
+              "controller, spine-IK, and post-physics gate producers are not fully proven",
+              "main analytic IK calculation for motion-flag 0x80"
+            ]
+          }
+        },
+        {
+          "attackCell": 113,
+          "attackPoseFrame": 16.0,
+          "attackSlotMask": 65,
+          "attackSpheres": [
+            {
+              "bone": 5,
+              "center": [
+                -0.04219559829758144,
+                0.8956802831608337,
+                0.872533932708919
+              ],
+              "radius": 0.1850000023841858,
+              "slot": 0
+            },
+            {
+              "bone": 17,
+              "center": [
+                -0.08312724703349908,
+                0.4368007617756615,
+                0.9708431184709927
+              ],
+              "radius": 0.23499999940395355,
+              "slot": 6
+            }
+          ],
+          "attackerPoseLanes": [
+            {
+              "active": true,
+              "descriptor_index": 0,
+              "owner_lane": 0,
+              "packed_motion_id": 512,
+              "sample_coordinate": 16.5,
+              "solver_slot": 0,
+              "track": 0,
+              "weight": 1.0
+            },
+            {
+              "active": false,
+              "descriptor_index": 1,
+              "owner_lane": 0,
+              "packed_motion_id": null,
+              "sample_coordinate": null,
+              "solver_slot": 1,
+              "track": 0,
+              "weight": 0.0
+            },
+            {
+              "active": true,
+              "descriptor_index": 0,
+              "owner_lane": 1,
+              "packed_motion_id": 512,
+              "sample_coordinate": 16.0,
+              "solver_slot": 2,
+              "track": 0,
+              "weight": 1.0
+            },
+            {
+              "active": false,
+              "descriptor_index": 1,
+              "owner_lane": 1,
+              "packed_motion_id": null,
+              "sample_coordinate": null,
+              "solver_slot": 3,
+              "track": 0,
+              "weight": 0.0
+            }
+          ],
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "p1ImpactWeight": 0.6956521739130435,
+            "p2BodyType": 0,
+            "p2ImpactWeight": 1.3043478260869565,
+            "p2SeparationScale": 1.0,
+            "pairForce": 0.0,
+            "pairSlots": null,
+            "verticalOverlap": true
+          },
+          "defenderFrame": 4,
+          "defenderState": "left_ukemi",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_center": [
+              -0.08312724703349908,
+              0.4368007617756615,
+              0.9708431184709927
+            ],
+            "attack_slot": 6,
+            "center_distance": 0.21994660761379636,
+            "clearance": -0.18005339834666811,
+            "hurt_bone": 17,
+            "hurt_center": [
+              0.021536356504885668,
+              0.5211666448587718,
+              1.1449248178732678
+            ],
+            "hurt_slot": 6,
+            "overlaps": true,
+            "radius_sum": 0.4000000059604645
+          },
+          "overlap": true,
+          "poseSolver": {
+            "complete": false,
+            "controller_active": null,
+            "lanes": [
+              {
+                "active": true,
+                "descriptor_index": 0,
+                "owner_lane": 0,
+                "packed_motion_id": 672,
+                "sample_coordinate": 4.0,
+                "solver_slot": 0,
+                "track": 0,
+                "weight": 1.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 1,
+                "owner_lane": 0,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 1,
+                "track": 0,
+                "weight": 0.0
+              },
+              {
+                "active": true,
+                "descriptor_index": 0,
+                "owner_lane": 1,
+                "packed_motion_id": 5274,
+                "sample_coordinate": 57.0,
+                "solver_slot": 2,
+                "track": 0,
+                "weight": 1.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 1,
+                "owner_lane": 1,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 3,
+                "track": 0,
+                "weight": 0.0
+              },
+              {
+                "active": false,
+                "descriptor_index": 0,
+                "owner_lane": 2,
+                "packed_motion_id": null,
+                "sample_coordinate": null,
+                "solver_slot": 4,
+                "track": 0,
+                "weight": 0.0
+              }
+            ],
+            "main_analytic_ik_active": true,
+            "post_physics_foot_ik_active": null,
+            "spine_ik_active": null,
+            "unresolved": [
+              "controller, spine-IK, and post-physics gate producers are not fully proven",
+              "main analytic IK calculation for motion-flag 0x80"
+            ]
+          }
+        }
+      ],
+      "heldTransitionTick": 51,
+      "nearestHurtSphere": {
+        "attack_center": [
+          -0.08312724703349908,
+          0.4368007617756615,
+          0.9708431184709927
+        ],
+        "attack_slot": 6,
+        "center_distance": 0.21994660761379636,
+        "clearance": -0.18005339834666811,
+        "hurt_bone": 17,
+        "hurt_center": [
+          0.021536356504885668,
+          0.5211666448587718,
+          1.1449248178732678
+        ],
+        "hurt_slot": 6,
+        "overlaps": true,
+        "radius_sum": 0.4000000059604645
+      },
+      "observedOutcome": "escape",
+      "openerContinuation": {
+        "author_tick": 3,
+        "author_window_end": 21,
+        "author_window_start": 20,
+        "commit_tick": 5,
+        "final_sample_coordinate": 65,
+        "final_sample_tick": 48,
+        "packed_motion_id": 407,
+        "target_slot": 373,
+        "target_start_coordinate": 22,
+        "transition_threshold": 22
+      },
+      "openerRecovery": {
+        "contactCoordinate": 17,
+        "followEntryTick": 40,
+        "lastOutgoingCoordinate": 56,
+        "nativeFollowEntryTick": 40,
+        "recoveryLead": 4,
+        "recoveryOpenCoordinate": 57
+      },
+      "poseSolverComplete": false,
+      "predictedOutcome": null,
+      "reactionFrameBeforeUkemi": 60,
+      "reactionMotion": "0x149A",
+      "reactionMoveOffset": {
+        "angleADegrees": 0,
+        "angleBDegrees": 0,
+        "opponentFacingTurns": 0.0,
+        "rangeRaw": 10,
+        "reactionPhase": 0,
+        "velocity": [
+          0.0,
+          0.0,
+          0.01
+        ]
+      },
+      "reactionMoveSlot": 1130,
+      "reactionRowId": 1037,
+      "reactionTimeline": {
+        "first_input_recognition_tick": 53,
+        "grounded_dispatch_tick": 53,
+        "initial_counter": 52,
+        "reaction_initial_coordinate": 1,
+        "reaction_terminal_coordinate": 60,
+        "reaction_terminal_tick": null,
+        "ukemi_blend_duration": 0.0,
+        "ukemi_commit_tick": 53,
+        "ukemi_initial_coordinate": 0.0,
+        "ukemi_queue_tick": 53
+      },
+      "spacing": 0.75,
+      "spacingSweep": {
+        "kind": "native-order-nonlinear-sampled",
+        "maximum": 2.0,
+        "minimum": 0.0,
+        "overlapSampleCount": 382,
+        "sampleCount": 801,
+        "step": 0.0025
+      },
+      "status": "static-native-subset-probe",
+      "ukemiAdmissionTick": 53,
+      "ukemiMotion": "0x02A0",
+      "ukemiTickSource": "native-counter-and-same-tick-transition-order",
+      "ukemiTotalFrames": 65534
+    }
+  ],
+  "scenario": {
+    "attacker_id": "012",
+    "defender_action_slot": 142,
+    "defender_local_direction": "left",
+    "followup_entry_slot": 341,
+    "followup_held_target_slot": 342,
+    "forced_contact_classification": "lethal_hit",
+    "observed_escapes": [
+      "002",
+      "003",
+      "006",
+      "009",
+      "00b",
+      "00c",
+      "00d",
+      "015",
+      "017",
+      "023",
+      "024",
+      "030",
+      "060",
+      "061",
+      "062",
+      "064",
+      "065"
+    ],
+    "observed_hits": [
+      "001",
+      "005",
+      "007",
+      "00f",
+      "011",
+      "012",
+      "014",
+      "016",
+      "028"
+    ],
+    "opener_slot": 372,
+    "spacing": {
+      "maximum": 2.0,
+      "minimum": 0.0,
+      "require_contiguous_agreement": true,
+      "step": 0.0025
+    },
+    "style_id": "012"
+  },
+  "schemaVersion": 2,
+  "trainingRouteEvidence": {
+    "attackCellsEquivalent": true,
+    "authoredEquivalent": true,
+    "moveBankEventsEquivalent": true,
+    "ordinaryCell": 145,
+    "ordinarySlot": 372,
+    "trainingCell": 147,
+    "trainingRouteUsedAsInput": false,
+    "trainingSlot": 374
+  },
+  "unresolved": [
+    "exact playback-cache and lane-end state through the overlapping lane-1 reaction and lane-0 ukemi root writers",
+    "main analytic IK for Seong Mi-na's motion-flag-0x80 left-ukemi descriptor",
+    "remaining controller/IK gate producers needed to prove every other final KHit matrix branch inactive",
+    "the displayed contact-spacing intervals linearize spacing after one BODY solve and are diagnostic, not a certified nonlinear close-contact sweep"
+  ]
+}

@@ -77,9 +77,9 @@ VERIFIED bit layouts (from Ghidra labelling pass on 2026-05-14):
 
 from __future__ import annotations
 
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
-from typing import Callable, Mapping, Optional, Union
+from typing import Any, Callable, Mapping, Optional, Union
 import struct
 
 from luxformats import decode_packed_slot_id
@@ -160,8 +160,13 @@ CALLCOND_EXEC_BANK_SLOT = {0x0D}
 CALLCOND_EFFECT_DISPATCH = {0x02, 0x03}
 
 FACING_EFFECT_OPCODES = {
-    0x1A: "facing_commit",
-    0x3B: "retrack_ramp_mode0",
+    # DispatchEffectOp 0x001A stages a pending hit transition, snaps the
+    # attacker to its authored position/facing, and latches the in-move
+    # retrack lock.  It is not the ordinary facing-ramp authoring opcode.
+    0x1A: "hit_transition_facing_snap",
+    # LuxMoveVM_DispatchEffectOp routes 0x000B and 0x003C to
+    # LuxMoveVM_SetFacingRetrackRamp with modes 0 and 1 respectively.
+    0x0B: "retrack_ramp_mode0",
     0x3C: "retrack_ramp_mode1",
 }
 
@@ -221,11 +226,37 @@ class PredicateEvent:
 
     @property
     def sub_opcode(self) -> Optional[int]:
-        """First arg is the predicate sub-op kind (case label)."""
+        """Raw first argument at the CALLCOND site.
+
+        For CALLCOND 0x25 this is an animation-timing operand, not the native
+        IF subopcode. Consumers classifying predicate families must use
+        :attr:`effective_sub_opcode`.
+        """
         if not self.args:
             return None
         v = self.args[0]
         return v.value if isinstance(v, Concrete) else None
+
+    @property
+    def effective_args(self) -> list[StackVal]:
+        """Operand stream received by ``LuxMoveVM_EvaluateIfOpcode``.
+
+        ``LuxMoveVM_EvaluateIfOpcodeWithHeader`` (CALLCOND 0x25) prepends
+        subopcode 0x0008 to its raw timing operands before delegating. Keeping
+        this normalization on the event prevents frame values 0x2B, 0x2C, or
+        0x84 from being misclassified as command-table predicates.
+        """
+        if self.callcond_idx == 0x25:
+            return [Concrete(0x0008, source_pc=self.source_pc), *self.args]
+        return self.args
+
+    @property
+    def effective_sub_opcode(self) -> Optional[int]:
+        args = self.effective_args
+        if not args:
+            return None
+        value = args[0]
+        return value.value if isinstance(value, Concrete) else None
 
 
 @dataclass
@@ -310,14 +341,14 @@ class EffectEvent:
 
     @property
     def target_weight(self) -> Optional[float]:
-        """Decoded retrack target for opcodes 0x3B/0x3C, after engine /60."""
+        """Decoded retrack target for opcodes 0x0B/0x3C, after native /100."""
         op = self.opcode
-        if op not in (0x3B, 0x3C) or len(self.args) < 2:
+        if op not in (0x0B, 0x3C) or len(self.args) < 2:
             return None
         v = self.args[1]
         if not isinstance(v, Concrete):
             return None
-        return decode_lux_fp16_literal(v.value) / 60.0
+        return decode_lux_fp16_literal(v.value) / 100.0
 
     @property
     def ramp_selector(self) -> Optional[int]:
@@ -341,6 +372,12 @@ class BankScriptEvent:
     callcond_idx: int
     args: list[StackVal]
     source_pc: int
+    # Exact abstract VM-variable snapshot at the call site.  CALLCOND 0x0D
+    # executes synchronously and its callee sees the same persistent global
+    # bank, while receiving a fresh 16-word local frame.  Keeping this
+    # snapshot lets recursive consumers evaluate helpers from the state that
+    # actually reached the call instead of incorrectly restarting globals.
+    variables: dict[int, StackVal] = field(default_factory=dict, repr=False)
 
     @property
     def packed_move_id(self) -> Optional[int]:
@@ -355,6 +392,24 @@ class BankScriptEvent:
 
 
 @dataclass
+class CharaStateWriteEvent:
+    """A captured CALLCOND 0x14 character-state-bank write.
+
+    Native ``LuxMoveVM_CallCond_WriteCharaStateShort_14`` consumes exactly
+    ``[state index, signed-short value]`` and stores it at character
+    ``+0x197C + index*2``.  Keeping this separate from predicates prevents a
+    gameplay state mutation from being mistaken for a boolean query.
+    """
+
+    args: list[StackVal]
+    source_pc: int
+
+    @property
+    def concrete_args(self) -> list[Optional[int]]:
+        return [arg.value if isinstance(arg, Concrete) else None for arg in self.args]
+
+
+@dataclass
 class SlotTransitions:
     """All transition events extracted from one slot's bytecode."""
     slot_idx: int
@@ -362,9 +417,32 @@ class SlotTransitions:
     transitions: list[TransitionEvent] = field(default_factory=list)
     effects: list[EffectEvent] = field(default_factory=list)
     bank_scripts: list[BankScriptEvent] = field(default_factory=list)
+    chara_state_writes: list[CharaStateWriteEvent] = field(default_factory=list)
     predicates: list[PredicateEvent] = field(default_factory=list)
     # Counts of CALLCOND sub-opcode kinds used (a coarse fingerprint).
     callcond_summary: dict[int, int] = field(default_factory=dict)
+    # Exact instruction addresses reached by the branch-aware fixed-point
+    # walk. This is more reliable for reachability queries than event
+    # retention at reconverging call sites.
+    visited_pcs: frozenset[int] = frozenset()
+    # Motion-input flags whose CALLCOND 0x09 latch executes on every
+    # reachable terminating path. This is execution evidence, so a later
+    # CALLCOND 0x0A clear does not erase it.
+    must_latched_motion_flags: frozenset[int] = frozenset()
+    # Motion-input flags whose latch is reachable on at least one path.  The
+    # The must/may pair lets reaction analysis distinguish an unconditional
+    # state latch from a conditional latch.  Individual flag semantics are
+    # established by native consumers; this aggregate is not a fall test.
+    may_latched_motion_flags: frozenset[int] = frozenset()
+    # Concrete VM variables that have the same value at every reachable
+    # terminating path. This models persistent global-bank writes across
+    # repeated executions without inventing values for path-dependent state.
+    must_final_variables: dict[int, int] = field(default_factory=dict)
+    # Native checks g_nMoveVM_BreakFlag immediately after every CALLCOND.
+    # These summaries include direct RETBRK/BRK terminals and concrete nested
+    # CALLCOND 0x0D/0x15 children when ``emulate(..., bank=...)`` is used.
+    must_break_execution: bool = False
+    may_break_execution: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +621,10 @@ def _emulate_linear(script: StackVMScript, slot_idx: int) -> SlotTransitions:
                         callcond_idx=fn_idx,
                         args=args,
                         source_pc=inst.pc,
+                        variables={
+                            varid: Concrete(value, source_pc=inst.pc)
+                            for varid, value in var_concretes.items()
+                        },
                     )
                 )
                 state.acc = Unknown(source_pc=inst.pc)
@@ -578,6 +660,7 @@ class _EmulationState:
     stack: tuple[StackVal, ...]
     variables: tuple[tuple[int, StackVal], ...] = ()
     last_predicate: PredicateState | None = None
+    executed_latches: frozenset[int] = frozenset()
 
 
 def _pop_value(stack: list[StackVal], pc: int) -> StackVal:
@@ -648,12 +731,31 @@ def _merge_states(left: _EmulationState, right: _EmulationState) -> _EmulationSt
     else:
         # A path-dependent stack depth cannot be aligned safely.
         stack = tuple(Unknown(source_pc=left.pc) for _ in range(min(len(left.stack), len(right.stack))))
-    left_vars = dict(left.variables)
-    right_vars = dict(right.variables)
-    variables = tuple(
-        (varid, _merge_value(left_vars[varid], right_vars[varid], left.pc))
-        for varid in sorted(left_vars.keys() & right_vars.keys())
-    )
+    # Variable tuples are maintained in ascending varid order at every state
+    # construction site.  The former dict -> key-intersection -> sorted path
+    # repeated that ordering work on every CFG join; route analysis can perform
+    # tens of thousands of joins over the 0xF0-word global bank.  Merge the two
+    # ordered streams directly.  This is exactly the same intersection and
+    # value lattice operation without rebuilding and sorting two dictionaries.
+    merged_variables: list[tuple[int, StackVal]] = []
+    left_index = 0
+    right_index = 0
+    while left_index < len(left.variables) and right_index < len(right.variables):
+        left_varid, left_value = left.variables[left_index]
+        right_varid, right_value = right.variables[right_index]
+        if left_varid < right_varid:
+            left_index += 1
+            continue
+        if right_varid < left_varid:
+            right_index += 1
+            continue
+        merged_variables.append((
+            left_varid,
+            _merge_value(left_value, right_value, left.pc),
+        ))
+        left_index += 1
+        right_index += 1
+    variables = tuple(merged_variables)
     return _EmulationState(
         pc=left.pc,
         acc=_merge_value(left.acc, right.acc, left.pc),
@@ -662,6 +764,7 @@ def _merge_states(left: _EmulationState, right: _EmulationState) -> _EmulationSt
         last_predicate=(
             left.last_predicate if left.last_predicate == right.last_predicate else None
         ),
+        executed_latches=left.executed_latches & right.executed_latches,
     )
 
 
@@ -673,6 +776,34 @@ def _event_value_key(value: StackVal) -> tuple[str, int | None]:
     return "unknown", None
 
 
+_STATIC_EMULATION_CACHE: dict[
+    tuple[int, int], tuple[StackVMScript, SlotTransitions]
+] = {}
+
+# Nested execution needs only the child's break outcome to cut the caller CFG.
+# Keep a bounded LRU for the active immutable bank. Roster export can produce
+# millions of distinct abstract local frames; an unbounded cross-bank cache
+# retained gigabytes without improving later-character hits.
+_BANK_BREAK_CACHE_MAX = 20_000
+_BANK_BREAK_CACHE_OWNER: Any | None = None
+_BANK_BREAK_CACHE: OrderedDict[
+    tuple[int, tuple[tuple[str, int | None], ...]],
+    tuple[bool, bool],
+] = OrderedDict()
+_BANK_BREAK_IN_PROGRESS: set[
+    tuple[int, tuple[tuple[str, int | None], ...]]
+] = set()
+
+
+def _activate_bank_break_cache(bank: Any) -> None:
+    global _BANK_BREAK_CACHE_OWNER
+    if _BANK_BREAK_CACHE_OWNER is bank:
+        return
+    _BANK_BREAK_CACHE_OWNER = bank
+    _BANK_BREAK_CACHE.clear()
+    _BANK_BREAK_IN_PROGRESS.clear()
+
+
 def emulate(
     script: StackVMScript,
     slot_idx: int,
@@ -680,6 +811,9 @@ def emulate(
     *,
     initial_variables: Mapping[int, int | StackVal] | None = None,
     callcond_evaluator: Callable[[int, tuple[StackVal, ...]], int | None] | None = None,
+    bank: Any | None = None,
+    _nested_path: tuple[int, ...] = (),
+    _forced_break_pcs: frozenset[int] = frozenset(),
 ) -> SlotTransitions:
     """Extract reachable events with branch-aware abstract interpretation.
 
@@ -689,6 +823,18 @@ def emulate(
     ``LuxMoveVM_ExecuteBankSlotScript``.  A root script leaves the frame
     unknown by passing ``None`` (the compatibility/default behavior).
     """
+    cacheable = (
+        local_args is None
+        and initial_variables is None
+        and callcond_evaluator is None
+        and bank is None
+    )
+    cache_key = (id(script), slot_idx)
+    if cacheable:
+        cached = _STATIC_EMULATION_CACHE.get(cache_key)
+        if cached is not None and cached[0] is script:
+            return cached[1]
+
     out = SlotTransitions(slot_idx=slot_idx, bytecode_offset=script.bytecode_offset)
     by_pc = {inst.pc: inst for inst in script.instructions}
     seeded_variables: dict[int, StackVal] = {}
@@ -716,10 +862,74 @@ def emulate(
     transition_keys: set[tuple] = set()
     effect_keys: set[tuple] = set()
     bank_script_keys: set[tuple] = set()
+    chara_state_write_keys: set[tuple] = set()
     call_sites: set[tuple[int, int]] = set()
+    terminal_latch_sets: list[frozenset[int]] = []
+    terminal_variable_maps: list[dict[int, int]] = []
+    terminal_break_flags: list[bool] = []
+    reachable_latches: set[int] = set()
+    nested_path = _nested_path or (slot_idx,)
+    if bank is not None:
+        _activate_bank_break_cache(bank)
+
+    def nested_break_summary(
+        function_index: int,
+        arguments: list[StackVal],
+    ) -> tuple[bool, bool]:
+        if (
+            bank is None
+            or function_index not in CALLCOND_EXEC_BANK_SLOT | CALLCOND_SCHEDULE_TRANSITION
+            or not arguments
+            or not isinstance(arguments[0], Concrete)
+        ):
+            return False, False
+        child_slot = bank.resolve_packed_slot(arguments[0].value)
+        if (
+            child_slot is None
+            or child_slot in nested_path
+            or not (0 <= child_slot < len(bank.slots))
+            or bank.slots[child_slot].bytecode is None
+        ):
+            return False, False
+        child_script = bank.slots[child_slot].bytecode
+        child_args = tuple(arguments[1:17])
+        cache_key = (
+            child_slot,
+            tuple(_event_value_key(value) for value in child_args),
+        )
+        cached = _BANK_BREAK_CACHE.get(cache_key)
+        if cached is not None:
+            _BANK_BREAK_CACHE.move_to_end(cache_key)
+            return cached
+        if cache_key in _BANK_BREAK_IN_PROGRESS:
+            # Recursive utility cycles are conservatively allowed to return;
+            # they cannot establish an unconditional break on their own.
+            return False, False
+        _BANK_BREAK_IN_PROGRESS.add(cache_key)
+        try:
+            child_result = emulate(
+                child_script,
+                child_slot,
+                local_args=child_args,
+                bank=bank,
+                _nested_path=nested_path + (child_slot,),
+            )
+        finally:
+            _BANK_BREAK_IN_PROGRESS.discard(cache_key)
+        summary = (
+            child_result.must_break_execution,
+            child_result.may_break_execution,
+        )
+        _BANK_BREAK_CACHE[cache_key] = summary
+        _BANK_BREAK_CACHE.move_to_end(cache_key)
+        if len(_BANK_BREAK_CACHE) > _BANK_BREAK_CACHE_MAX:
+            _BANK_BREAK_CACHE.popitem(last=False)
+        return summary
 
     def enqueue(incoming: _EmulationState) -> None:
         current = states.get(incoming.pc)
+        if current == incoming:
+            return
         merged = incoming if current is None else _merge_states(current, incoming)
         if current != merged:
             states[incoming.pc] = merged
@@ -729,13 +939,28 @@ def emulate(
         state = states[queue.popleft()]
         inst = by_pc.get(state.pc)
         if inst is None:
+            # A decoded path that leaves the known instruction map is not a
+            # proven BRK path.  Omitting it from the terminal set made a
+            # sibling conditional BRK look unconditional and incorrectly cut
+            # callers after their nested helper returned.
+            terminal_latch_sets.append(state.executed_latches)
+            terminal_variable_maps.append({
+                varid: value.value & 0xFFFF
+                for varid, value in state.variables
+                if isinstance(value, Concrete)
+            })
+            terminal_break_flags.append(False)
             continue
         op = inst.opcode
         acc = state.acc
         stack = list(state.stack)
         variables = dict(state.variables)
+        variables_changed = False
         last_predicate = state.last_predicate
+        executed_latches = set(state.executed_latches)
         branch_value: StackVal = Unknown(source_pc=inst.pc)
+        call_must_break = False
+        call_may_break = False
 
         if op == 0x01:
             count = inst.imm_u16 or 0
@@ -755,14 +980,17 @@ def emulate(
                 variables[varid] = Concrete((old.value + delta) & 0xFFFF, inst.pc)
             else:
                 variables.pop(varid, None)
+            variables_changed = True
         elif op == 0x19:
             acc = _pop_value(stack, inst.pc)
             variables[inst.imm_u16 or 0] = acc
+            variables_changed = True
         elif op in (0x1A, 0x1B, 0x1C, 0x1D, 0x1E):
             varid = inst.imm_u16 or 0
             rhs = _pop_value(stack, inst.pc)
             lhs = variables.get(varid, VarRef(varid, source_pc=inst.pc))
             variables[varid] = _fold_binary(op - 0x0E, lhs, rhs, inst.pc)
+            variables_changed = True
             acc = Unknown(source_pc=inst.pc)
         elif op == 0x26:
             stack.append(acc)
@@ -784,6 +1012,10 @@ def emulate(
             args = list(reversed([_pop_value(stack, inst.pc) for _ in range(argc)]))
             args_key = tuple(_event_value_key(value) for value in args)
             call_sites.add((inst.pc, fn_idx))
+            if fn_idx == 0x09 and args and isinstance(args[0], Concrete):
+                latched_flag = args[0].value & 0xFFFF
+                executed_latches.add(latched_flag)
+                reachable_latches.add(latched_flag)
             # State at a PC only becomes less specific as branches join. Replace
             # an earlier event from this call site so a transient path value
             # cannot survive after the fixed-point state becomes unknown.
@@ -791,10 +1023,17 @@ def emulate(
             out.transitions[:] = [event for event in out.transitions if event.source_pc != inst.pc]
             out.effects[:] = [event for event in out.effects if event.source_pc != inst.pc]
             out.bank_scripts[:] = [event for event in out.bank_scripts if event.source_pc != inst.pc]
+            out.chara_state_writes[:] = [
+                event for event in out.chara_state_writes
+                if event.source_pc != inst.pc
+            ]
             predicate_keys = {key for key in predicate_keys if key[0] != inst.pc}
             transition_keys = {key for key in transition_keys if key[0] != inst.pc}
             effect_keys = {key for key in effect_keys if key[0] != inst.pc}
             bank_script_keys = {key for key in bank_script_keys if key[0] != inst.pc}
+            chara_state_write_keys = {
+                key for key in chara_state_write_keys if key[0] != inst.pc
+            }
             if fn_idx in CALLCOND_EVAL_IF:
                 last_predicate = (fn_idx, tuple(args), inst.pc)
                 key = (inst.pc, fn_idx, args_key)
@@ -822,11 +1061,29 @@ def emulate(
                 key = (inst.pc, args_key)
                 if key not in bank_script_keys:
                     bank_script_keys.add(key)
-                    out.bank_scripts.append(BankScriptEvent(fn_idx, args, inst.pc))
+                    out.bank_scripts.append(
+                        BankScriptEvent(
+                            fn_idx,
+                            args,
+                            inst.pc,
+                            variables=dict(variables),
+                        )
+                    )
+            elif fn_idx == 0x14:
+                key = (inst.pc, args_key)
+                if key not in chara_state_write_keys:
+                    chara_state_write_keys.add(key)
+                    out.chara_state_writes.append(
+                        CharaStateWriteEvent(args, inst.pc)
+                    )
             resolved_result = (
                 callcond_evaluator(fn_idx, tuple(args))
                 if callcond_evaluator is not None else None
             )
+            call_must_break, call_may_break = nested_break_summary(fn_idx, args)
+            if inst.pc in _forced_break_pcs:
+                call_must_break = True
+                call_may_break = True
             acc = (
                 Concrete(resolved_result & 0xFFFF, source_pc=inst.pc)
                 if resolved_result is not None else Unknown(source_pc=inst.pc)
@@ -837,9 +1094,23 @@ def emulate(
         if inst.push_flag and op not in (0x02, 0x05, 0x06, 0x07, 0x08):
             stack.append(acc)
 
-        variables_tuple = tuple(sorted(variables.items()))
+        variables_tuple = (
+            tuple(sorted(variables.items()))
+            if variables_changed else state.variables
+        )
         fallthrough = inst.pc + inst.length
-        if op in (0x03, 0x04, 0x2A):
+        if op == 0x25 and call_may_break:
+            terminal_latch_sets.append(frozenset(executed_latches))
+            terminal_variable_maps.append({
+                varid: value.value & 0xFFFF
+                for varid, value in variables.items()
+                if isinstance(value, Concrete)
+            })
+            terminal_break_flags.append(True)
+
+        if op == 0x25 and call_must_break:
+            successors = ()
+        elif op in (0x03, 0x04, 0x2A):
             successors = (script.bytecode_offset + (inst.imm_u16 or 0),)
         elif op in (0x28, 0x29):
             target = script.bytecode_offset + (inst.imm_u16 or 0)
@@ -850,6 +1121,13 @@ def emulate(
             else:
                 successors = (fallthrough, target)
         elif op in (0x02, 0x05, 0x06, 0x07, 0x08):
+            terminal_latch_sets.append(frozenset(executed_latches))
+            terminal_variable_maps.append({
+                varid: value.value & 0xFFFF
+                for varid, value in variables.items()
+                if isinstance(value, Concrete)
+            })
+            terminal_break_flags.append(op in (0x07, 0x08))
             successors = ()
         else:
             successors = (fallthrough,)
@@ -866,10 +1144,51 @@ def emulate(
                 tuple(stack),
                 variables_tuple,
                 successor_predicate,
+                frozenset(executed_latches),
             ))
 
     for _, fn_idx in call_sites:
         out.callcond_summary[fn_idx] = out.callcond_summary.get(fn_idx, 0) + 1
+    out.visited_pcs = frozenset(states)
+    if terminal_latch_sets:
+        out.must_latched_motion_flags = frozenset.intersection(
+            *terminal_latch_sets
+        )
+    out.may_latched_motion_flags = frozenset(reachable_latches)
+    if terminal_variable_maps:
+        common_varids = set(terminal_variable_maps[0])
+        for variable_map in terminal_variable_maps[1:]:
+            common_varids.intersection_update(variable_map)
+        out.must_final_variables = {
+            varid: terminal_variable_maps[0][varid]
+            for varid in sorted(common_varids)
+            if all(
+                variable_map[varid] == terminal_variable_maps[0][varid]
+                for variable_map in terminal_variable_maps[1:]
+            )
+        }
+    out.must_break_execution = bool(terminal_break_flags) and all(terminal_break_flags)
+    out.may_break_execution = any(terminal_break_flags)
+
+    # A call target may become concrete only after states at its PC converge.
+    # If an earlier unknown state already enqueued fallthrough, rebuild once
+    # with every finally-concrete always-BRK call site treated as a CFG cut.
+    resolved_break_pcs = set(_forced_break_pcs)
+    for event in out.bank_scripts:
+        must_break, _may_break = nested_break_summary(event.callcond_idx, event.args)
+        if must_break:
+            resolved_break_pcs.add(event.source_pc)
+    if resolved_break_pcs != set(_forced_break_pcs):
+        return emulate(
+            script,
+            slot_idx,
+            local_args,
+            initial_variables=initial_variables,
+            callcond_evaluator=callcond_evaluator,
+            bank=bank,
+            _nested_path=nested_path,
+            _forced_break_pcs=frozenset(resolved_break_pcs),
+        )
     # Predicate attribution remains the established source-order heuristic.
     # It is deliberately separate from CFG stack evaluation so a conservative
     # state join cannot erase labels used by graph/UI consumers.
@@ -881,6 +1200,10 @@ def emulate(
     for event in out.transitions:
         if event.predicate is None:
             event.predicate = legacy_predicates.get(event.source_pc)
+    if cacheable:
+        # Retain the script beside the result so a recycled Python object id
+        # cannot alias a later parsed bank during a roster-wide export.
+        _STATIC_EMULATION_CACHE[cache_key] = (script, out)
     return out
 
 
@@ -1013,11 +1336,11 @@ def decode_predicate(pred: Optional[PredicateEvent]) -> DecodedInput:
     if pred is None:
         return DecodedInput("(unconditional)", "always")
 
-    sub = pred.sub_opcode
+    sub = pred.effective_sub_opcode
     if sub is None:
         return DecodedInput("(predicate is indirect)", "indirect")
 
-    args = pred.args
+    args = pred.effective_args
     # All args after the sub-op kind:
     rest = [a.value if isinstance(a, Concrete) else None for a in args[1:]]
 

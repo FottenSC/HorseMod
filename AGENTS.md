@@ -98,6 +98,9 @@ Phantoms (`extraout_*`, `in_*` with undefined types) are decompiler artifacts. N
 
 ## Gotchas
 
+- When a fix fails once, stop stacking local patches. Reconstruct the surrounding state machine/data pipeline, identify the authoritative boundary, and redesign the fix around that boundary.
+- For every stateful feature, explicitly validate enter, active use, failure, exit, re-entry, scene change, and process cleanup. A happy-path pass is insufficient when state or hooks survive across modes.
+- Prefer the smallest design that preserves the verified invariant and fits existing ownership. Before adding a subsystem, prove why the current abstraction cannot support the requirement. Remove superseded experimental paths and reuse bounded build/test artifacts.
 - **Plate-comment newlines**: passing `\n` literally produces the text `\n` in the comment. Use actual multi-line strings.
 - **Register-only variables**: when `set_local_variable_type` fails for a register var, document via `set_decompiler_comment` PRE_COMMENT (`"nIterator: int - loop counter (register-only)"`). The completeness scorer excludes these.
 - **Struct access without a struct**: for raw `*(ptr+0x10)` access where no matching struct exists, add EOL comments at each access (`/* +0x10: flags */`) — satisfies the scorer without forcing struct creation.

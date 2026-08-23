@@ -141,6 +141,26 @@ def test_split_condition_and_input():
     # After reversal edge / facing
     assert sp("After reversal edge hits A.A.A") == ("After reversal edge hits", "A.A.A")
     assert sp("Facing away 2B") == ("Facing away", "2B")
+    # Opponent/state requirements are context, never part of the input key.
+    assert sp("Against crouching opponent 2A+G") == (
+        "Against crouching opponent", "2A+G")
+    assert sp("Against crouching opponent while soul charged 2A+G") == (
+        "Against crouching opponent while soul charged", "2A+G")
+    assert sp("Against downed opponent (head side) 3A+G") == (
+        "Against downed opponent (head side)", "3A+G")
+    assert sp("With Max Rage 623B") == ("With Max Rage", "623B")
+    assert sp("With Sword Regalia [A] (release) 6.A+B") == (
+        "With Sword Regalia", "[A] (release) 6.A+B")
+    assert sp("Without weapons formed B+K") == (
+        "Without weapons formed", "B+K")
+    assert sp("When at low health 6A+B+K") == (
+        "When at low health", "6A+B+K")
+    assert sp("Behind opponent 2A+K (Training mode only)") == (
+        "Behind opponent", "2A+K (Training mode only)")
+    assert sp("Angel Step B during hit 4 (exact timing)") == (
+        "Angel Step", "B during hit 4 (exact timing)")
+    assert sp("Facing away & during 8-way run A") == (
+        "Facing away & during 8-way run", "A")
     # No condition — pure button/direction inputs pass through
     assert sp("3B") == ("", "3B")
     assert sp("A+B+K") == ("", "A+B+K")

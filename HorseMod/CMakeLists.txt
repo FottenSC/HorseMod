@@ -912,6 +912,13 @@ target_include_directories(ReplayTraceWriteBufferSelfTest PRIVATE
     ${CMAKE_SOURCE_DIR}/HorseMod/horselib
 )
 
+add_executable(ReplayTracePlaybackGateSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/replay_trace_playback_gate_selftest.cpp
+)
+target_include_directories(ReplayTracePlaybackGateSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/HorseMod/horselib
+)
+
 add_executable(RollbackVtableSlotPatchSelfTest
     ${CMAKE_SOURCE_DIR}/tools/rollback_vtable_slot_patch_selftest.cpp
 )
@@ -1118,6 +1125,7 @@ endfunction()
 set(_horsemod_rollback_selftests
     LuxBattleCharaClipFrameLayoutSelfTest
     ReplayAnimationPresentationSelfTest
+    ReplayTracePlaybackGateSelfTest
     ReplayTraceWriteBufferSelfTest
     RollbackCharaAnimationStateSelfTest
     RollbackPoseProducerTraceContractSelfTest

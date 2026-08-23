@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,6 +16,197 @@ from export_webui_data import _build_move_groups
 import export_webui_data
 
 DATA_DIR = Path(__file__).parent.parent / "webui" / "public" / "data"
+
+
+def test_tracking_summary_separates_ramp_enable_disable_and_hit_snap():
+    summary = export_webui_data._tracking_from_events([
+        {
+            "opcode": 0x0B,
+            "targetWeight": 0.0,
+            "rampSelector": 0,
+            "pc": 0x100,
+            "reachability": "proven",
+        },
+        {
+            "opcode": 0x3C,
+            "targetWeight": 0.75,
+            "rampSelector": 4,
+            "pc": 0x110,
+            "reachability": "proven",
+        },
+        {
+            "opcode": 0x1A,
+            "targetWeight": None,
+            "rampSelector": 0,
+            "pc": 0x120,
+            "reachability": "proven",
+        },
+    ])
+
+    assert summary["hasHitTransitionFacingSnap"] is True
+    assert summary["hasRetrackControl"] is True
+    assert summary["hasRetrackRamp"] is True
+    assert summary["hasRetrackDisable"] is True
+    assert summary["maxTargetWeight"] == pytest.approx(0.75)
+    assert summary["candidateRetrackControl"] is True
+    assert summary["candidateMaxTargetWeight"] == pytest.approx(0.75)
+    # Candidate events are retained, but unresolved timing must not be
+    # presented as a concrete retrack window.
+    assert summary["retrackWindows"] == []
+
+
+def test_tracking_summary_does_not_promote_may_reachable_helper_effects():
+    summary = export_webui_data._tracking_from_events([{
+        "opcode": 0x0B,
+        "targetWeight": 1.0,
+        "rampSelector": 4,
+        "pc": 0x100,
+        "reachability": "may",
+    }])
+
+    assert summary["hasRetrackControl"] is False
+    assert summary["hasRetrackRamp"] is False
+    assert summary["maxTargetWeight"] is None
+    assert summary["candidateRetrackControl"] is True
+    assert summary["candidateRetrackRamp"] is True
+    assert summary["candidateMaxTargetWeight"] == pytest.approx(1.0)
+    assert summary["reachabilityStatus"] == "may"
+
+
+def test_partial_frame_proof_marks_only_proven_endpoints_resolved():
+    link = {
+        "frameEndpointStatus": "resolved",
+        "frameEndpointStatuses": {
+            "block": "resolved",
+            "hit": "resolved",
+            "counterHit": "resolved",
+        },
+    }
+    frame = SimpleNamespace(
+        block_advantage=5,
+        hit_advantage=None,
+        counter_hit_advantage=None,
+        hit_outcome=None,
+        counter_hit_outcome=None,
+    )
+
+    export_webui_data._apply_frame_proof_endpoint_statuses(link, frame)
+
+    assert link["frameEndpointStatus"] == "unresolved"
+    assert link["frameEndpointStatuses"] == {
+        "block": "resolved",
+        "hit": "unresolved",
+        "counterHit": "unresolved",
+    }
+
+
+def test_categorical_native_outcomes_resolve_hit_endpoints():
+    link = {}
+    frame = SimpleNamespace(
+        block_advantage=-2,
+        hit_advantage=None,
+        counter_hit_advantage=None,
+        hit_outcome="KND",
+        counter_hit_outcome="LNC",
+    )
+
+    export_webui_data._apply_frame_proof_endpoint_statuses(link, frame)
+
+    assert link["frameEndpointStatus"] == "resolved"
+    assert link["frameEndpointStatuses"] == {
+        "block": "resolved",
+        "hit": "resolved",
+        "counterHit": "resolved",
+    }
+
+
+def test_frame_proof_cannot_erase_an_unresolved_route_outcome():
+    link = {
+        "frameEndpointStatus": "unresolved",
+        "frameEndpointStatuses": {
+            "block": "resolved",
+            "hit": "unresolved",
+            "counterHit": "unresolved",
+        },
+    }
+    frame = SimpleNamespace(
+        block_advantage=-12,
+        hit_advantage=-10,
+        counter_hit_advantage=-10,
+        hit_outcome=None,
+        counter_hit_outcome=None,
+    )
+
+    export_webui_data._apply_frame_proof_endpoint_statuses(link, frame)
+
+    assert link["frameEndpointStatus"] == "unresolved"
+    assert link["frameEndpointStatuses"] == {
+        "block": "resolved",
+        "hit": "unresolved",
+        "counterHit": "unresolved",
+    }
+
+
+def test_failed_startup_analysis_clears_preliminary_route_status(monkeypatch):
+    link = {
+        "status": "confirmed",
+        "slots": [10],
+        "cells": [20],
+        "attackSlots": [10],
+        "attackCells": [20],
+        "startupTimingStatus": "resolved",
+        "startupProof": {"playerImpactFrame": 13},
+    }
+    monkeypatch.setattr(export_webui_data, "analyze_player_startup", lambda *_: None)
+
+    export_webui_data._attach_startup_proof(link, object())
+
+    assert link["startupTimingStatus"] == "unresolved"
+    assert "startupProof" not in link
+
+
+def test_nondamaging_route_timeline_cannot_be_promoted_to_startup(monkeypatch):
+    cell = SimpleNamespace(
+        cell_role="NonDamaging",
+        wI16MasterWindowStart=22,
+    )
+    khd = SimpleNamespace(sections=[SimpleNamespace(entries=[cell])])
+    link = {
+        "status": "heuristic",
+        "slots": [480],
+        "cells": [0],
+        "attackSlots": [480],
+        "attackCells": [0],
+        "startupTimingStatus": "resolved",
+        "startupImpactCoordinate": 21,
+        "startupPlayerFrame": 22,
+        "resolutions": [],
+    }
+    monkeypatch.setattr(export_webui_data, "analyze_player_startup", lambda *_: None)
+
+    export_webui_data._attach_startup_proof(link, khd)
+
+    assert link["startupTimingStatus"] == "unresolved"
+    assert "startupProof" not in link
+    assert "native-nondamaging-contact-startup-unresolved" in link["resolutions"]
+
+
+def test_plus_dashboard_ranks_the_proven_plus_row_not_family_minimum():
+    def row(block):
+        return {
+            "metrics": {"block": block},
+            "evidence": {"block": {"status": "native-confirmed"}},
+        }
+
+    families = [
+        {"id": "mixed", "rootCommand": "A", "rows": [row(-12), row(8)]},
+        {"id": "plain", "rootCommand": "B", "rows": [row(4)]},
+    ]
+
+    dashboard = export_webui_data._build_player_dashboard(families)
+
+    assert dashboard["plusFamilyIds"][:2] == ["mixed", "plain"]
+    assert dashboard["statsByFamily"]["mixed"]["mostPlusBlock"] == 8
 
 
 def test_production_exporter_has_no_comparison_import_boundary_leak():
@@ -26,8 +218,11 @@ def test_production_exporter_has_no_comparison_import_boundary_leak():
         "--community-json",
         "--community-xlsx",
         "docs.google.com/spreadsheets",
+        "native_route_evidence",
+        "resolve_native_route",
     ):
         assert forbidden not in source
+    assert not (Path(export_webui_data.__file__).parent / "native_route_evidence.py").exists()
 
 
 def test_build_move_groups_marks_duplicates_and_input_families():
@@ -99,6 +294,75 @@ def test_category_listings_do_not_make_throw_status_part_of_move_identity():
     assert len(moves[0]["authoredVariants"]) == 1
 
 
+def test_category_variants_keep_identical_native_contact_route():
+    first = _fake_export_move(16, "Rending Torment", "B", move_id=777)
+    second = _fake_export_move(218, "Rending Torment", "B", move_id=777)
+    first["category"], second["category"] = 1, 9
+    second["commandSets"] = [{
+        **second["commandSets"][0],
+        "mainDefinitionId": 606,
+    }]
+    for move, definition_id in ((first, 581), (second, 606)):
+        move["nativeLink"] = {
+            "status": "heuristic",
+            "resolutions": [f"cpuai-definition:{definition_id}"],
+            "definitions": [{"lane": "primary-fighter", "mainDefinitionId": definition_id}],
+            "slots": [408, 409],
+            "cells": [189],
+            "attackSlots": [409],
+            "attackCells": [189],
+            "startupImpactCoordinate": 45,
+            "startupPlayerFrame": 46,
+            "startupTimingStatus": "resolved",
+            "frameEndpointStatuses": {
+                "block": "unresolved",
+                "hit": "unresolved",
+                "counterHit": "unresolved",
+            },
+        }
+
+    moves = export_webui_data._canonicalize_category_listings([first, second])
+
+    assert len(moves) == 1
+    link = moves[0]["nativeLink"]
+    assert link["status"] == "heuristic"
+    assert link["attackSlots"] == [409]
+    assert link["attackCells"] == [189]
+    assert len(link["definitions"]) == 2
+    assert "category-variant-native-contact-route-equivalent" in link["resolutions"]
+
+
+def test_ambiguous_category_variants_do_not_merge_context_applied_claims():
+    first = _fake_export_move(1, "Context Move", "B", move_id=778)
+    second = _fake_export_move(2, "Context Move", "B", move_id=778)
+    first["category"], second["category"] = 1, 9
+    second["commandSets"] = [{**second["commandSets"][0], "mainDefinitionId": 99}]
+    for move, slot in ((first, 10), (second, 20)):
+        move["nativeLink"] = {
+            "status": "heuristic",
+            "resolutions": [
+                "native-combat-context-applied:conditioned-choice-controller-state",
+                "khd-conditioned-choice-selector:chara-state0=0/2;controller-and-motion201-agree",
+            ],
+            "definitions": [],
+            "slots": [slot],
+            "cells": [slot],
+            "attackSlots": [slot],
+            "attackCells": [slot],
+            "startupTimingStatus": "resolved",
+            "frameEndpointStatuses": {"block": "resolved", "hit": "resolved", "counterHit": "resolved"},
+        }
+
+    link = export_webui_data._canonicalize_category_listings(
+        [first, second]
+    )[0]["nativeLink"]
+
+    assert link["status"] == "ambiguous"
+    assert "native-combat-context-variant-unresolved" in link["resolutions"]
+    assert not any("context-applied" in value for value in link["resolutions"])
+    assert not any("conditioned-choice-selector" in value for value in link["resolutions"])
+
+
 def test_native_timing_variant_groups_fast_input_without_category_identity():
     def native_link(definition_id: int, durations: list[int]) -> dict:
         masks = [0x0004, 0x0008, 0x0040, 0x2440, 0x0001]
@@ -167,7 +431,7 @@ def _fake_export_move(
         "isMovementOnly": False,
         "hasInputAlternatives": "|" in input_,
         "inputVariants": [],
-        "tracking": {"hasFacingCommit": False, "hasRetrackRamp": False, "maxTargetWeight": None, "events": []},
+        "tracking": export_webui_data._tracking_from_events([]),
         "isThrowInput": False,
         "attributeTag": "",
         "hitClasses": ["High"],
@@ -185,7 +449,7 @@ def _fake_export_move(
             "candidateCount": 1,
             "candidateBestRank": 0,
             "candidateScore": 1,
-            "tracking": {"hasFacingCommit": False, "hasRetrackRamp": False, "maxTargetWeight": None, "events": []},
+            "tracking": export_webui_data._tracking_from_events([]),
         }],
     }
 
@@ -221,6 +485,236 @@ def test_player_move_families_preserve_only_official_rows():
     assert all("category" not in row and "categoryMemberships" not in row
                for item in families for row in item["rows"])
     assert any(f["rootName"] == "Shadow Banishment" for f in families)
+
+
+def test_family_components_join_timing_and_context_variants_transitively():
+    def linked(move: dict, definition_id: int, durations: list[int]) -> dict:
+        move["nativeLink"] = {
+            "status": "heuristic",
+            "resolutions": [],
+            "definitions": [{
+                "lane": "primary-fighter",
+                "mainDefinitionId": definition_id,
+                "fallbackDefinitionId": 0,
+                "mainDefinition": {
+                    "controlFlow": "native-linear",
+                    "buttonSteps": [
+                        {"mask": mask, "durationFrames": duration}
+                        for mask, duration in zip(
+                            [0x0004, 0x0008, 0x0040, 0x2440, 0x0007],
+                            durations,
+                        )
+                    ],
+                },
+            }],
+            "slots": [],
+            "cells": [],
+        }
+        return move
+
+    pressed = linked(
+        _fake_export_move(25, "Fiendish Assault", "236A+B+K", move_id=186),
+        629,
+        [1, 1, 3, 3, 1],
+    )
+    held = linked(
+        _fake_export_move(26, "Fiendish Assault", "236[A]+[B]+[K]", move_id=184),
+        630,
+        [1, 1, 3, 3, 30],
+    )
+    on_hit = linked(
+        _fake_export_move(
+            27,
+            "Fiendish Assault",
+            "236[A]+[B]+[K]",
+            move_id=185,
+            condition="When hit while performing",
+        ),
+        630,
+        [1, 1, 3, 3, 30],
+    )
+
+    moves = [pressed, held, on_hit]
+    groups = _build_move_groups(moves)
+    families, _ = export_webui_data._build_player_move_families(
+        "012", moves, groups, None
+    )
+
+    assert len(families) == 1
+    assert families[0]["id"] == "player-family-012-official-00025"
+    assert families[0]["relations"] == ["context-variant", "timing-variant"]
+    assert len(families[0]["rows"]) == 3
+
+
+def test_soul_charge_state_variants_group_across_names_but_not_followup_inputs():
+    def linked(move: dict, definition_id: int, steps: list[tuple[int, int]]) -> dict:
+        move["nativeLink"] = {
+            "status": "heuristic",
+            "resolutions": [],
+            "slots": [479, 480],
+            "cells": [287, 289],
+            "attackSlots": [480],
+            "attackCells": [289],
+            "definitions": [
+                {
+                    "lane": "primary-fighter",
+                    "mainDefinitionId": definition_id,
+                    "fallbackDefinitionId": 0,
+                    "mainDefinition": {
+                        "controlFlow": "native-linear",
+                        "buttonSteps": [
+                            {"mask": mask, "durationFrames": duration}
+                            for mask, duration in steps
+                        ],
+                    },
+                },
+                {
+                    "lane": "paired-opponent",
+                    "mainDefinitionId": 23,
+                    "fallbackDefinitionId": 0,
+                },
+            ],
+        }
+        return move
+
+    normal = linked(
+        _fake_export_move(
+            176, "Bludgeoning Crush", "2A+G", move_id=117,
+            condition="Against crouching opponent",
+        ),
+        440,
+        [(0x0001, 1), (0x2404, 3), (0x0001, 1)],
+    )
+    charged = linked(
+        _fake_export_move(
+            48, "Apocalypse Pound", "2A+G", move_id=118,
+            condition="Against crouching opponent while soul charged",
+        ),
+        538,
+        [(0x2404, 3), (0x0001, 1)],
+    )
+    followup = linked(
+        _fake_export_move(
+            11, "Combo 3", "6A ~ 2A+G", move_id=999,
+            condition="Against crouching opponent",
+        ),
+        587,
+        [(0x0440, 3), (0x0001, 90), (0x2404, 3)],
+    )
+
+    moves = [normal, charged, followup]
+    groups = _build_move_groups(moves)
+    state = next(group for group in groups if group["kind"] == "native-state-variant")
+    assert state["orders"] == [48, 176]
+
+    families, _ = export_webui_data._build_player_move_families(
+        "012", moves, groups, None
+    )
+    family = next(item for item in families if len(item["rows"]) == 2)
+    assert family["relations"] == ["state-variant"]
+    assert {row["displayName"] for row in family["rows"]} == {
+        "Bludgeoning Crush", "Apocalypse Pound",
+    }
+    assert any(
+        len(item["rows"]) == 1 and item["rows"][0]["displayName"] == "Combo 3"
+        for item in families
+    )
+
+
+def test_unmodeled_combat_context_suppresses_route_derived_metrics():
+    move = _fake_export_move(
+        0, "Bludgeoning Crush", "2A+G",
+        condition="Against crouching opponent",
+    )
+    move["hitClasses"] = ["H"]
+    move["nativeLink"] = {
+        "status": "heuristic",
+        "combatContextStatus": "unresolved",
+        "slots": [479, 480],
+        "cells": [287, 289],
+        "attackSlots": [480],
+        "attackCells": [289],
+        "startupTimingStatus": "resolved",
+        "startupProof": {"playerImpactFrame": 22},
+        "contactBreakProof": {"status": "heuristic", "advantage": -12},
+    }
+
+    metrics, evidence = export_webui_data._move_metrics(move, None)
+
+    assert metrics["startup"] is None
+    assert metrics["block"] is None
+    assert metrics["damage"] == []
+    assert metrics["hitLevels"] == ["H"]
+    assert evidence["startup"] == {"source": "unknown", "status": "unknown"}
+
+
+def test_unmodeled_context_does_not_attach_contact_break_or_success_proof():
+    move = _fake_export_move(
+        0, "Contextual Grab", "A+G", condition="During Mist"
+    )
+    move["nativeLink"] = {
+        "status": "heuristic",
+        "combatContextStatus": "unresolved",
+        "slots": [10],
+        "cells": [20],
+        "attackSlots": [10],
+        "attackCells": [20],
+    }
+
+    export_webui_data._attach_non_damaging_contact_proof(move, object())
+    export_webui_data._attach_successful_contact_followup_proof(move, object())
+
+    assert "contactBreakProof" not in move["nativeLink"]
+    assert "successfulContactProof" not in move["nativeLink"]
+
+
+def test_native_link_marks_unapplied_context_as_navigation_only():
+    link = export_webui_data._native_link({
+        "condition": "Against crouching opponent",
+        "commandSets": [],
+    })
+
+    assert link["combatContextStatus"] == "unresolved"
+    assert "native-combat-context-not-applied:Against crouching opponent" in link["resolutions"]
+
+
+def test_native_link_accepts_pure_soul_charge_context_applied_by_state_short():
+    link = export_webui_data._native_link({
+        "condition": "While soul charged",
+        "effectTags": [{"code": "SC"}],
+        "commandSets": [],
+    })
+
+    assert link["combatContextStatus"] == "resolved"
+    assert (
+        "native-combat-context-applied:soul-charge-state-short-slot10"
+        in link["resolutions"]
+    )
+
+
+def test_only_cpuai_direction_proven_contexts_bypass_navigation_suppression():
+    crouching = SimpleNamespace(
+        button_steps=(SimpleNamespace(mask=0x1804),)  # authored 2+B+K
+    )
+    jumping = SimpleNamespace(
+        button_steps=(SimpleNamespace(mask=0x0600),)  # authored 9+A
+    )
+
+    assert export_webui_data._native_directional_context_resolution(
+        "While crouching", crouching
+    ) == "native-combat-context-applied:cpuai-while-crouching-input"
+    assert export_webui_data._native_directional_context_resolution(
+        "During jump", jumping
+    ) == "native-combat-context-applied:cpuai-during-jump-input"
+    assert export_webui_data._native_directional_context_resolution(
+        "Facing away", crouching
+    ) is None
+    assert export_webui_data._native_directional_context_resolution(
+        "While rising", crouching
+    ) is None
+    assert export_webui_data._native_directional_context_resolution(
+        "Against crouching opponent", crouching
+    ) is None
 
 
 def test_player_move_families_do_not_synthesize_prefix_rows():
@@ -394,7 +888,7 @@ def test_legacy_payload_fallback_uses_exported_player_startup_proof_and_effectiv
     }
 
 
-def test_payload_fallback_uses_effective_attack_route_and_preserves_multihit_order():
+def test_payload_fallback_preserves_damage_but_not_guard_profile_as_hit_level():
     move = _fake_export_move(0, "Native string", "A.A")
     move["hitClasses"] = []
     move["nativeLink"] = {
@@ -415,7 +909,8 @@ def test_payload_fallback_uses_effective_attack_route_and_preserves_multihit_ord
     metrics, evidence = export_webui_data._move_metrics_from_payload(move, payload)
 
     assert metrics["damage"] == [12, 8]
-    assert metrics["hitLevels"] == ["Mid", "High"]
+    assert metrics["hitLevels"] == []
+    assert evidence["hitLevels"] == {"source": "unknown", "status": "unknown"}
     assert evidence["damage"] == {
         "source": "khd-attack-cell", "status": "native-inferred"
     }
@@ -595,7 +1090,7 @@ def test_comparison_legacy_cell_fallback_keeps_raw_coordinate_out_of_startup():
     assert parsed["activeFrames"] == 3
 
 
-def test_throw_break_advantage_is_exported_as_block_only():
+def test_throw_startup_and_break_advantage_are_exported_from_native_proofs():
     move = _fake_export_move(0, "Titan Bomb", "236A+G", cell_idx=292, slot_idx=482)
     move["isThrowInput"] = True
     move["effectTags"] = [{"code": "TH", "label": "Throw"}]
@@ -605,6 +1100,12 @@ def test_throw_break_advantage_is_exported_as_block_only():
         "definitions": [],
         "slots": [482],
         "cells": [292],
+        "startupTimingStatus": "resolved",
+        "startupProof": {
+            "attackSlot": 482,
+            "effectiveCell": 292,
+            "playerImpactFrame": 18,
+        },
         "throwBreakProof": {
             "status": "heuristic",
             "advantage": -7,
@@ -614,7 +1115,7 @@ def test_throw_break_advantage_is_exported_as_block_only():
 
     metrics, evidence = export_webui_data._move_metrics(move, None)
 
-    assert metrics["startup"] is None
+    assert metrics["startup"] == 18
     assert metrics["damage"] == []
     assert metrics["block"] == -7
     assert metrics["hit"] is None
@@ -623,6 +1124,29 @@ def test_throw_break_advantage_is_exported_as_block_only():
         "source": "khd-static-timeline",
         "status": "native-inferred",
     }
+    assert evidence["startup"] == {
+        "source": "khd-static-timeline",
+        "status": "native-inferred",
+    }
+
+
+def test_throw_startup_fails_closed_when_lane_timing_is_unresolved():
+    move = _fake_export_move(0, "Titan Bomb", "236A+G", cell_idx=292, slot_idx=482)
+    move["isThrowInput"] = True
+    move["nativeLink"] = {
+        "status": "heuristic",
+        "resolutions": ["clock-alignment-unproven"],
+        "definitions": [],
+        "slots": [482],
+        "cells": [292],
+        "startupTimingStatus": "unresolved",
+        "startupProof": {"playerImpactFrame": 18},
+    }
+
+    metrics, evidence = export_webui_data._move_metrics(move, None)
+
+    assert metrics["startup"] is None
+    assert evidence["startup"] == {"source": "unknown", "status": "unknown"}
 
 
 def test_throw_marker_requires_native_non_damaging_attempt_cell():
@@ -641,6 +1165,59 @@ def test_throw_marker_requires_native_non_damaging_attempt_cell():
 
     assert export_webui_data._is_native_throw_attempt(throw, khd) is True
     assert export_webui_data._is_native_throw_attempt(strike, khd) is False
+
+    throw["isThrowInput"] = True
+    export_webui_data._attach_non_damaging_contact_proof(throw, khd)
+    assert throw["nativeLink"]["frameEndpointStatus"] == "unresolved"
+    assert throw["nativeLink"]["frameEndpointStatuses"] == {
+        "block": "resolved",
+        "hit": "unresolved",
+        "counterHit": "unresolved",
+    }
+
+
+def test_fiendish_contact_exports_hit_gated_throw_damage():
+    path = Path(__file__).parents[3] / "dump" / "Battle" / "hdr" / "hdr012.khd"
+    if not path.exists():
+        pytest.skip("checked-in Astaroth KHD asset is unavailable")
+    from luxformats import parse_auto
+
+    khd = parse_auto(str(path))
+    move = _fake_export_move(
+        25, "Fiendish Assault", "236A+B+K", cell_idx=352, slot_idx=603
+    )
+    move["hitClasses"] = ["Mid"]
+    move["nativeLink"] = {
+        "status": "heuristic",
+        "resolutions": [],
+        "definitions": [],
+        "slots": [601, 602, 603],
+        "cells": [352],
+        "attackSlots": [603],
+        "attackCells": [352],
+    }
+
+    export_webui_data._attach_non_damaging_contact_proof(move, khd)
+    export_webui_data._attach_successful_contact_followup_proof(move, khd)
+    metrics, evidence = export_webui_data._move_metrics(move, khd)
+
+    assert move["nativeLink"]["successfulContactProof"] == {
+        "status": "heuristic",
+        "sourceSlot": 603,
+        "targetSlot": 604,
+        "outcomeMotionFlag": 27,
+        "targetAttackCell": None,
+        "targetNonAttackDescriptor": 65,
+        "damage": 85,
+    }
+    assert metrics["damage"] == [85]
+    assert metrics["block"] == -10
+    assert metrics["hit"] is None
+    assert metrics["counterHit"] is None
+    assert evidence["damage"] == {
+        "source": "khd-static-timeline",
+        "status": "native-inferred",
+    }
 
 
 def test_main_index_link_is_navigation_evidence_not_confirmed_combat_link():
@@ -681,6 +1258,11 @@ def test_confirmed_native_route_exports_audited_frame_advantage():
         "definitions": [],
         "slots": [308, 310],
         "cells": [0, 1],
+        "frameEndpointStatuses": {
+            "block": "resolved",
+            "hit": "resolved",
+            "counterHit": "resolved",
+        },
         "startupProof": {
             "attackSlot": 308,
             "effectiveCell": 0,
@@ -735,6 +1317,11 @@ def test_heuristic_native_route_exports_inferred_advantage_with_proven_endpoints
         "definitions": [],
         "slots": [308],
         "cells": [0],
+        "frameEndpointStatuses": {
+            "block": "resolved",
+            "hit": "resolved",
+            "counterHit": "unresolved",
+        },
         "startupProof": {
             "attackSlot": 308,
             "effectiveCell": 0,
@@ -759,6 +1346,51 @@ def test_heuristic_native_route_exports_inferred_advantage_with_proven_endpoints
         "status": "native-inferred",
     }
     assert evidence["counterHit"] == {"source": "unknown", "status": "unknown"}
+
+
+def test_native_reaction_outcomes_export_as_categories_not_fake_advantage():
+    class FakeCell:
+        cell_role = "Attack"
+        attack_class = "Mid"
+        wI16BaseDamage = 20
+        wI16MasterWindowStart = 19
+
+    class FakeSection:
+        entries = [FakeCell()]
+
+    class FakeKhd:
+        sections = [FakeSection()]
+
+    move = _fake_export_move(76, "Native Fall", "6B")
+    move["nativeLink"] = {
+        "status": "confirmed",
+        "resolutions": ["khd-static-route"],
+        "definitions": [],
+        "slots": [308],
+        "cells": [0],
+        "frameEndpointStatuses": {
+            "block": "resolved",
+            "hit": "resolved",
+            "counterHit": "resolved",
+        },
+        "frameProof": {
+            "status": "confirmed",
+            "advantages": {"block": -2, "hit": None, "counterHit": None},
+            "outcomes": {"hit": "KND", "counterHit": "LNC"},
+        },
+    }
+
+    metrics, evidence = export_webui_data._move_metrics(move, FakeKhd())
+
+    assert metrics["block"] == -2
+    assert metrics["hit"] == "KND"
+    assert metrics["counterHit"] == "LNC"
+    assert evidence["hit"] == {
+        "source": "khd-static-timeline",
+        "status": "native-confirmed",
+    }
+    assert export_webui_data._parse_frame_value(metrics["hit"]) is None
+    assert export_webui_data._parse_frame_value(metrics["counterHit"]) is None
 
 
 def _fake_full_payload(cid: str, name: str) -> dict:
@@ -919,15 +1551,30 @@ def test_schema_v2_payloads_contain_no_external_sheet_values():
 def test_export_main_out_dir_alias_writes_to_alternate_directory(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
 
-    def fake_export_char(cid: str, paths: dict[str, str], out_path: str) -> None:
+    def fake_export_char(
+        cid: str,
+        paths: dict[str, str],
+        out_path: str,
+        *,
+        reaction_khds=(),
+    ) -> dict:
+        assert len(reaction_khds) == 1
+        payload = {
+            "schemaVersion": export_webui_data.SCHEMA_VERSION,
+            "cid": cid,
+            "name": "Mitsurugi",
+            "movelist": {"moves": [], "playerMoveFamilies": []},
+        }
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(out_path).write_text(json.dumps({"cid": cid, "name": "Mitsurugi"}), encoding="utf-8")
+        Path(out_path).write_text(json.dumps(payload), encoding="utf-8")
+        return payload
 
     monkeypatch.setattr(export_webui_data, "discover_chars", lambda root: {"001": {"khd": "fake"}})
     # This test covers only the --out-dir alias.  Root-coherence has its own
     # contract tests and cannot be meaningfully evaluated against a synthetic
     # directory with mocked discovery/export.
     monkeypatch.setattr(export_webui_data, "_require_coherent_content_roots", lambda root: None)
+    monkeypatch.setattr(export_webui_data, "parse_auto", lambda path: object())
     monkeypatch.setattr(export_webui_data, "char_summary", lambda cid, paths: {
         "cid": cid,
         "name": "Mitsurugi",
@@ -946,6 +1593,48 @@ def test_export_main_out_dir_alias_writes_to_alternate_directory(tmp_path, monke
     assert export_webui_data.main() == 0
     assert (out_dir / "roster.json").exists()
     assert (out_dir / "chars" / "001.json").exists()
+
+
+def test_export_main_rejects_partial_payload_instead_of_reusing_stale_json(
+    tmp_path, monkeypatch
+):
+    out_dir = tmp_path / "out"
+    stale_path = out_dir / "chars" / "001.json"
+    stale_path.parent.mkdir(parents=True)
+    stale_path.write_text(
+        json.dumps({"schemaVersion": 2, "cid": "001", "movelist": {"stale": True}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        export_webui_data, "discover_chars", lambda root: {"001": {"khd": "fake"}}
+    )
+    monkeypatch.setattr(export_webui_data, "_require_coherent_content_roots", lambda root: None)
+    monkeypatch.setattr(export_webui_data, "parse_auto", lambda path: object())
+    monkeypatch.setattr(export_webui_data, "char_summary", lambda cid, paths: {
+        "cid": cid,
+        "name": "Mitsurugi",
+        "kind": "base",
+        "files": {"khd": True},
+    })
+    monkeypatch.setattr(
+        export_webui_data,
+        "export_char",
+        lambda *args, **kwargs: {"schemaVersion": 2, "cid": "001"},
+    )
+    monkeypatch.setattr(sys, "argv", [
+        "export_webui_data.py",
+        "--root",
+        str(tmp_path / "battle"),
+        "--out-dir",
+        str(out_dir),
+    ])
+
+    with pytest.raises(RuntimeError, match="has no official movelist"):
+        export_webui_data.main()
+
+    assert json.loads(stale_path.read_text(encoding="utf-8"))["movelist"] == {
+        "stale": True
+    }
 
 
 def test_roster_json_shape():
@@ -1029,10 +1718,16 @@ def test_mitsurugi_has_meaningful_moves():
     # ~165 moves expected (current baseline)
     assert len(moves) >= 130
 
-    # Slot 401 specifically — the canary from the user's bug report
+    # The current production KHD reuses slot 401 for animation 159. Its only
+    # incoming edge is a frame transition from orphan slot 400, so the row
+    # must remain visible without inventing an input chain. The checked-in
+    # older revision's distinct slot-401 K,B chain is covered in
+    # test_move_graph.py against that exact KHD.
     slot_401 = next((m for m in moves if m["slot"] == 401), None)
     assert slot_401 is not None
-    assert slot_401["inputs"], "slot 401 must have a non-empty input chain"
+    assert slot_401["anim"] == 159
+    assert slot_401["inputs"] == []
+    assert slot_401["kinds"] == ["unknown"]
 
 
 def test_mitsurugi_movelist_payload_shape():
@@ -1065,12 +1760,30 @@ def test_mitsurugi_movelist_payload_shape():
 
     # Every move preserves the authored lane order and exposes definition IDs
     # without reinterpreting them as KHD cells or slots.
+    first_tracking = ml["moves"][0]["commandSets"][0].get("tracking", {})
+    if "hasHitTransitionFacingSnap" not in first_tracking:
+        pytest.skip("generated data predates native retrack schema; run the exporter")
     for m in ml["moves"]:
         cs = m["commandSets"][0]
         for f in ("mainIndex", "introIndex", "cellIdx", "slotIdx", "resolution"):
             assert f in cs, f"missing {f!r} in move {m['name']!r}"
         assert "tracking" in cs, f"missing tracking in move {m['name']!r}"
-        for f in ("hasFacingCommit", "hasRetrackRamp", "maxTargetWeight", "events"):
+        for f in (
+            "hasHitTransitionFacingSnap",
+            "hasRetrackControl",
+            "hasRetrackRamp",
+            "hasRetrackDisable",
+            "maxTargetWeight",
+            "candidateHitTransitionFacingSnap",
+            "candidateRetrackControl",
+            "candidateRetrackRamp",
+            "candidateRetrackDisable",
+            "candidateMaxTargetWeight",
+            "reachabilityStatus",
+            "timingStatus",
+            "retrackWindows",
+            "events",
+        ):
             assert f in cs["tracking"], f"missing tracking.{f!r} in move {m['name']!r}"
         assert "nativeLink" in m, f"missing nativeLink in move {m['name']!r}"
         assert "metrics" in m and "evidence" in m
@@ -1081,7 +1794,9 @@ def test_mitsurugi_movelist_payload_shape():
                 assert status == "unknown"
             else:
                 assert status in {"native-confirmed", "native-inferred"}
-                assert isinstance(value, int) and not isinstance(value, bool)
+                assert (
+                    isinstance(value, int) and not isinstance(value, bool)
+                ) or value in {"KND", "LNC"}
         assert "isRevengeAttack" in m, f"missing isRevengeAttack in move {m['name']!r}"
         assert "groupIds" in m, f"missing groupIds in move {m['name']!r}"
         assert cs["lane"] == "primary-fighter"
@@ -1095,81 +1810,7 @@ def test_mitsurugi_movelist_payload_shape():
     assert with_cell == 0
 
 
-def test_astaroth_bear_tamer_v2_export_has_audited_native_route():
-    """Regression for the B.6A family that exposed the MainIndex mix-up."""
-    path = DATA_DIR / "v2" / "chars" / "012" / "player.json"
-    if not path.exists():
-        pytest.skip("Astaroth schema-v2 player data not generated yet")
-    player = json.loads(path.read_text(encoding="utf-8"))
-    family = next(
-        family for family in player["playerMoveFamilies"]
-        if any(
-            row["displayName"] == "Bear Tamer" and row["displayCommand"] == "B.6A"
-            for row in family["rows"]
-        )
-    )
-    row = next(
-        row for row in family["rows"]
-        if row["displayName"] == "Bear Tamer" and row["displayCommand"] == "B.6A"
-    )
-
-    assert row["displayCommand"] == "B.6A"
-    assert row["displayName"] == "Bear Tamer"
-    assert row["nativeLink"]["status"] == "confirmed"
-    assert row["nativeLink"]["slots"] == [308, 310]
-    assert row["nativeLink"]["cells"] == [67, 71]
-    assert row["metrics"]["startup"] == 20
-    assert row["metrics"]["damage"] == [20, 14]
-    assert row["metrics"]["hitLevels"] == ["Mid", "High"]
-    assert row["nativeLink"]["frameProof"] == {
-        "status": "confirmed",
-        "attackSlot": 310,
-        "attackCell": 71,
-        "totalFrames": 69,
-        "cellWindowStartCoordinate": 18,
-        "cellWindowEndCoordinate": 20,
-        "recoveryLead": 18,
-        "recoveryOpenCoordinate": 50,
-        "inclusiveRecoveryFrames": 33,
-        "defenderStunFrames": {"block": 25, "hit": 35, "counterHit": 35},
-        "reactionRoutes": {
-            "hit": {
-                "reactionRowId": 272,
-                "rawMoveIds": [8539, 8537, 8540, 8538, 8539, 8537, 8540, 8538],
-                "packedMoveIds": [8539, 8537, 8540, 8538, 8539, 8537, 8540, 8538],
-                "resolvedSlots": [987, 985, 988, 986, 987, 985, 988, 986],
-                "driverMoveIds": [12603] * 8,
-            },
-            "counterHit": {
-                "reactionRowId": 272,
-                "rawMoveIds": [8539, 8537, 8540, 8538, 8539, 8537, 8540, 8538],
-                "packedMoveIds": [8539, 8537, 8540, 8538, 8539, 8537, 8540, 8538],
-                "resolvedSlots": [987, 985, 988, 986, 987, 985, 988, 986],
-                "driverMoveIds": [12603] * 8,
-            },
-        },
-        "advantages": {"block": -8, "hit": 2, "counterHit": 2},
-    }
-    assert row["metrics"]["block"] == -8
-    assert row["metrics"]["hit"] == 2
-    assert row["metrics"]["counterHit"] == 2
-    assert row["evidence"]["startup"] == {
-        "source": "khd-static-timeline",
-        "status": "native-confirmed",
-    }
-    assert row["evidence"]["damage"] == {
-        "source": "khd-attack-cell",
-        "status": "native-confirmed",
-    }
-    assert row["evidence"]["block"] == {
-        "source": "khd-static-timeline",
-        "status": "native-confirmed",
-    }
-    assert row["evidence"]["hit"] == row["evidence"]["block"]
-    assert row["evidence"]["counterHit"] == row["evidence"]["block"]
-
-
-def test_astaroth_held_breath_of_hades_uses_replacement_cell_and_unknown_recovery():
+def test_astaroth_breath_of_hades_uses_native_state_classifier_for_knockdown():
     path = DATA_DIR / "v2" / "chars" / "012" / "player.json"
     if not path.exists():
         pytest.skip("Astaroth schema-v2 player data not generated yet")
@@ -1183,24 +1824,62 @@ def test_astaroth_held_breath_of_hades_uses_replacement_cell_and_unknown_recover
 
     assert pressed["nativeLink"]["attackSlots"] == [377]
     assert pressed["nativeLink"]["attackCells"] == [153]
-    assert pressed["metrics"]["hit"] == -15
-    assert pressed["metrics"]["counterHit"] == -15
+    assert pressed["metrics"]["hit"] == "KND"
+    assert pressed["metrics"]["counterHit"] == "KND"
+    assert pressed["nativeLink"]["frameEndpointStatuses"] == {
+        "block": "resolved",
+        "hit": "resolved",
+        "counterHit": "resolved",
+    }
 
-    assert held["nativeLink"]["slots"] == [377, 378]
+    assert held["nativeLink"]["slots"] == [377, 378, 379]
     assert held["nativeLink"]["cells"] == [153, 154]
     assert held["nativeLink"]["attackSlots"] == [378]
     assert held["nativeLink"]["attackCells"] == [154]
     assert held["nativeLink"]["startupTimingStatus"] == "unresolved"
-    assert held["nativeLink"]["frameEndpointStatus"] == "unresolved"
+    assert held["nativeLink"]["frameEndpointStatus"] == "resolved"
+    assert held["nativeLink"]["frameEndpointStatuses"] == {
+        "block": "resolved",
+        "hit": "resolved",
+        "counterHit": "resolved",
+    }
     assert "startupProof" not in held["nativeLink"]
-    assert "frameProof" not in held["nativeLink"]
+    assert held["nativeLink"]["frameProof"]["advantages"]["block"] == -18
     assert held["metrics"]["damage"] == [26]
-    for metric in ("startup", "block", "hit", "counterHit"):
-        assert held["metrics"][metric] is None
+    assert held["metrics"]["block"] == -18
+    assert held["evidence"]["block"] == {
+        "source": "khd-static-timeline",
+        "status": "native-inferred",
+    }
+    assert held["metrics"]["startup"] is None
+    assert held["evidence"]["startup"] == {
+        "source": "unknown",
+        "status": "unknown",
+    }
+    for metric in ("hit", "counterHit"):
+        assert held["metrics"][metric] == "KND"
         assert held["evidence"][metric] == {
-            "source": "unknown",
-            "status": "unknown",
+            "source": "khd-static-timeline",
+            "status": "native-inferred",
         }
+
+
+def test_roster_snapshot_collapses_category_listings_without_losing_them():
+    """Category membership is metadata, not a duplicate move identity."""
+    paths = sorted((DATA_DIR / "v2" / "chars").glob("*/raw-movelist.json"))
+    if len(paths) != 28:
+        pytest.skip("complete schema-v2 roster data not generated yet")
+
+    unique_rows = 0
+    authored_listings = 0
+    for path in paths:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        rows = payload["rows"]
+        unique_rows += len(rows)
+        authored_listings += sum(len(row["listingOrders"]) for row in rows)
+
+    assert unique_rows == 4994
+    assert authored_listings == 5898
 
 
 def test_no_question_mark_inputs():

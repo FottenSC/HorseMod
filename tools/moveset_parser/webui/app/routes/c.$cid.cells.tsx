@@ -80,7 +80,7 @@ function MovesTab() {
   return (
     <>
       <div className="filters">
-        <span className="filter-label">Class:</span>
+        <span className="filter-label">Guard profile:</span>
         <button
           className={`chip ${classFilter === null ? "active" : ""}`}
           onClick={() => setClassFilter(null)}
@@ -137,7 +137,7 @@ function MovesTab() {
         <thead>
           <tr>
             <th className={sortClass("idx")} onClick={() => setSort("idx")}>#</th>
-            <th className={sortClass("class")} onClick={() => setSort("class")}>Class</th>
+            <th className={sortClass("class")} onClick={() => setSort("class")}>Guard profile</th>
             <th className={sortClass("damage")} onClick={() => setSort("damage")}>Damage</th>
             <th className={sortClass("activeStartCoordinate")} onClick={() => setSort("activeStartCoordinate")}>Window start</th>
             <th>Active</th>

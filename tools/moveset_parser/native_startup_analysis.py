@@ -37,7 +37,7 @@ class NativeStartupEvidence:
 def _is_ordinary_standing_contact_cell(cell: object) -> bool:
     """Whether native normal-grounded fallback can accept this cell.
 
-    ``LuxMoveVM_EvaluateMoveTransition`` first allows special reactions.  When
+    ``LuxBattle_ClassifyAttackContact`` first allows special reactions.  When
     none applies, an ordinary standing defender requires attack-flag bit zero
     (Ghidra ``HighBlockable``) to return the normal hit type.  Damage and an
     active window alone are insufficient.
@@ -91,6 +91,70 @@ def _nearest_timing_point(instructions: list[object], variant_call_index: int) -
     return None
 
 
+def _timed_variant_guard_resolution(
+    instructions: list[object], variant_call_index: int
+) -> str | None:
+    """Validate the local control block between timing and cell selection.
+
+    Shipped ordinary-contact selectors are either direct, or compile ANDs of
+    IF 0x0C/0x1D motion-state-byte-is-zero predicates.  Those predicates are
+    the explicit ordinary current/opponent state baseline.  Reject stored
+    variables, comparisons, and every other CALLCOND rather than treating a
+    nearby selection write as unconditional.
+    """
+
+    timing_index = None
+    for index in range(variant_call_index - 1, -1, -1):
+        instruction = instructions[index]
+        if (
+            getattr(instruction, "mnemonic", None) == "CALLCOND"
+            and getattr(instruction, "imm_b0", None) == CALLCOND_EVALUATE_TIMING
+        ):
+            timing_index = index
+            break
+        if (
+            getattr(instruction, "mnemonic", None) == "CALLCOND"
+            and getattr(instruction, "imm_b0", None) == CALLCOND_SET_ACTIVE_CELL_VARIANT
+        ):
+            return None
+    if timing_index is None:
+        return None
+
+    allowed_mnemonics = {"JZ", "JNZ", "JMP_ABS", "SET_ACC_U16", "CALLCOND"}
+    baseline_guarded = False
+    for index in range(timing_index + 1, variant_call_index):
+        instruction = instructions[index]
+        mnemonic = getattr(instruction, "mnemonic", None)
+        if mnemonic not in allowed_mnemonics:
+            return None
+        if mnemonic != "CALLCOND":
+            continue
+        if getattr(instruction, "imm_b0", None) != 0x01:
+            return None
+        argc = int(getattr(instruction, "imm_b1", 0) or 0)
+        if argc != 2 or index < 2:
+            return None
+        arg_instructions = instructions[index - 2:index]
+        if any(
+            not bool(getattr(arg, "push_flag", False))
+            or getattr(arg, "imm_u16", None) is None
+            or int(getattr(arg, "opcode", -1)) not in (0x09, 0x0B)
+            for arg in arg_instructions
+        ):
+            return None
+        args = tuple(int(arg.imm_u16) & 0xFFFF for arg in arg_instructions)
+        if args[0] not in (0x000C, 0x001D):
+            return None
+        baseline_guarded = True
+
+    return (
+        "native-timed-cell-variant+ordinary-motion-state-zero-baseline"
+        "+zero-based-window"
+        if baseline_guarded
+        else "native-timed-cell-variant+zero-based-window"
+    )
+
+
 def analyze_player_startup(
     khd: object,
     attack_slot: int,
@@ -121,8 +185,8 @@ def analyze_player_startup(
         return None
 
     route_start = int(route.wI16MasterWindowStart)
-    if _is_ordinary_standing_contact_cell(route):
-        return NativeStartupEvidence(
+    route_evidence = (
+        NativeStartupEvidence(
             attack_slot=attack_slot,
             route_cell=route_cell,
             effective_cell=route_cell,
@@ -136,10 +200,13 @@ def analyze_player_startup(
             player_impact_frame=route_start + 1,
             resolution="native-master-window-zero-based",
         )
+        if _is_ordinary_standing_contact_cell(route)
+        else None
+    )
 
     script = getattr(slot, "bytecode", None)
     if script is None:
-        return None
+        return route_evidence
     references = list(getattr(slot, "nCellBoneIndexPerVariant", ()))
     candidates: list[NativeStartupEvidence] = []
     instructions = list(getattr(script, "instructions", ()))
@@ -152,9 +219,11 @@ def analyze_player_startup(
             continue
         variant = _literal_push_before(instructions, index)
         selection = _nearest_timing_point(instructions, index)
+        resolution = _timed_variant_guard_resolution(instructions, index)
         if (
             variant is None
             or selection is None
+            or resolution is None
             or not 0 <= variant < len(references)
         ):
             continue
@@ -166,6 +235,8 @@ def analyze_player_startup(
             continue
         master_start = int(cell.wI16MasterWindowStart)
         impact_coordinate = max(selection, master_start)
+        if impact_coordinate > int(cell.wI16MasterWindowEnd):
+            continue
         candidates.append(NativeStartupEvidence(
             attack_slot=attack_slot,
             route_cell=route_cell,
@@ -175,19 +246,36 @@ def analyze_player_startup(
             selection_coordinate=selection,
             impact_coordinate=impact_coordinate,
             player_impact_frame=impact_coordinate + 1,
-            resolution="native-timed-cell-variant+zero-based-window",
+            resolution=resolution,
         ))
 
-    if not candidates:
+    if route_evidence is not None:
+        # A timed write after the supplied cell's first active coordinate
+        # cannot change first-contact startup.  A write at or before that
+        # coordinate replaces the active cell before collision evaluation and
+        # therefore must be considered even when the supplied cell is already
+        # contact-capable.  Multiple distinct pre-impact writes remain
+        # unresolved: choosing one would invent branch/state ordering.
+        preimpact = {
+            candidate
+            for candidate in candidates
+            if candidate.selection_coordinate <= route_start
+        }
+        if not preimpact:
+            return route_evidence
+        if len(preimpact) != 1:
+            return None
+        return next(iter(preimpact))
+
+    # Multiple statically reachable writes can be controlled by VM state that
+    # the official input row does not establish.  Picking the earliest write
+    # would silently choose a branch and can also substitute the wrong damage
+    # cell.  Exact duplicate evidence is harmless; any distinct candidate is
+    # unresolved until its predicate is proven.
+    unique_candidates = set(candidates)
+    if len(unique_candidates) != 1:
         return None
-    return min(
-        candidates,
-        key=lambda evidence: (
-            evidence.impact_coordinate,
-            evidence.effective_variant,
-            evidence.effective_cell,
-        ),
-    )
+    return next(iter(unique_candidates))
 
 
 def serialize_startup_evidence(evidence: NativeStartupEvidence) -> dict[str, int | str]:

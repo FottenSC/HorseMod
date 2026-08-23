@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from lux_motion_input_flags import (
-    FALL_MASTER_FLAG,
-    FALL_SOURCE_FLAGS,
+    REACTION_AGGREGATE_FLAG,
+    REACTION_AGGREGATE_SOURCE_FLAGS,
     LuxMotionInputState,
     set_motion_input_flag,
 )
@@ -18,36 +18,36 @@ def test_motion_input_bank_has_verified_native_extent() -> None:
         LuxMotionInputState(flags=bytearray(0x71))
 
 
-@pytest.mark.parametrize("source_index", sorted(FALL_SOURCE_FLAGS))
-def test_each_native_fall_source_recomputes_master(source_index: int) -> None:
+@pytest.mark.parametrize("source_index", sorted(REACTION_AGGREGATE_SOURCE_FLAGS))
+def test_each_native_reaction_source_recomputes_aggregate(source_index: int) -> None:
     state = LuxMotionInputState()
     assert set_motion_input_flag(state, source_index, 1, 8)
     assert state.flags[source_index] == 1
-    assert state.flags[FALL_MASTER_FLAG] == 1
+    assert state.flags[REACTION_AGGREGATE_FLAG] == 1
 
     assert set_motion_input_flag(state, source_index, 0, 8)
-    assert state.flags[FALL_MASTER_FLAG] == 0
+    assert state.flags[REACTION_AGGREGATE_FLAG] == 0
 
 
-def test_flag_29_is_not_part_of_fall_source_mask() -> None:
+def test_flag_29_is_not_part_of_reaction_source_mask() -> None:
     state = LuxMotionInputState()
-    state.flags[FALL_MASTER_FLAG] = 0x7A
+    state.flags[REACTION_AGGREGATE_FLAG] = 0x7A
     state.flags[0x21] = 1
     state.flags[0x30] = 1
 
     set_motion_input_flag(state, 0x29, 0, state.active_lane_mask)
 
-    assert state.flags[FALL_MASTER_FLAG] == 0x7A
+    assert state.flags[REACTION_AGGREGATE_FLAG] == 0x7A
     assert state.flags[0x21] == 0
     assert state.flags[0x30] == 0
 
 
-def test_fall_master_is_bytewise_or_not_booleanized() -> None:
+def test_reaction_aggregate_is_bytewise_or_not_booleanized() -> None:
     state = LuxMotionInputState()
     state.flags[0x0C] = 0x20
     state.flags[0x25] = 0x04
     set_motion_input_flag(state, 0x35, 0x80, 8)
-    assert state.flags[FALL_MASTER_FLAG] == 0xA4
+    assert state.flags[REACTION_AGGREGATE_FLAG] == 0xA4
 
 
 def test_flag_12_clear_snaps_nearby_vertical_position_and_consumes_anchor() -> None:

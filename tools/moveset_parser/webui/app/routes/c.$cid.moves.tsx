@@ -19,7 +19,7 @@ type PresetFilter = "punishable" | "fast" | "plus" | "launch" | "gi" | "revenge"
 function parseFrameValue(value: string | number | null | undefined): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (!value) return null;
-  const match = String(value).match(/[+-]?\d+/);
+  const match = String(value).trim().match(/^[+-]?\d+$/);
   return match ? Number(match[0]) : null;
 }
 

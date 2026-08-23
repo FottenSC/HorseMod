@@ -49,7 +49,7 @@ index 8db4cb84..73057ea5 100644
 @@ -89,0 +96,2 @@ namespace Gekko {
 +        void HandleForcedRollback();
 +
-@@ -91,0 +95,4 @@ namespace Gekko {
+@@ -91,0 +100,4 @@ namespace Gekko {
 +        void PromoteConfirmedAnchor();
 +
 +        bool ConfirmedSpeculativeSaving() const;
@@ -57,10 +57,10 @@ index 8db4cb84..73057ea5 100644
 @@ -116,0 +129,2 @@ namespace Gekko {
 +        u8 _forced_rollback_depth;
 +
-@@ -153,0 +161,2 @@ namespace Gekko {
+@@ -153,0 +168,2 @@ namespace Gekko {
 +        Frame ConfirmedFrame() override { return -1; }
 +
-@@ -206,0 +216,2 @@ namespace Gekko {
+@@ -206,0 +223,2 @@ namespace Gekko {
 +        Frame ConfirmedFrame() override { return -1; }
 +
 diff --git a/GekkoLib/include/private/storage.h b/GekkoLib/include/private/storage.h
@@ -91,24 +91,24 @@ index c7e6daed..3064c6b1 100644
 +++ b/GekkoLib/src/game_session.cpp
 @@ -13,0 +14 @@ Gekko::GameSession::GameSession()
 +    _forced_rollback_depth = 0;
-@@ -24,0 +25,5 @@ void Gekko::GameSession::Init(GekkoConfig* config)
+@@ -24,0 +26,5 @@ void Gekko::GameSession::Init(GekkoConfig* config)
 +    if (_config.limited_saving) {
 +        _config.save_policy = GekkoSaveConfirmedSpeculative;
 +    }
 +    _config.limited_saving =
 +        _config.save_policy == GekkoSaveConfirmedSpeculative;
-@@ -187,0 +194,5 @@ GekkoGameEvent** Gekko::GameSession::UpdateSessionInternal(i32* count, bool adva
+@@ -189,0 +196,5 @@ GekkoGameEvent** Gekko::GameSession::UpdateSessionInternal(i32* count, bool adva
 +        // Correction-only flushes may poll/restore real corrections but must
 +        // not manufacture diagnostic work. Forced rollback is attached only
 +        // to the owned ordinary-update path that RuntimeCore counts.
 +        if (advance) HandleForcedRollback();
 +
-@@ -200 +208,3 @@ GekkoGameEvent** Gekko::GameSession::UpdateSessionInternal(i32* count, bool adva
+@@ -200 +211,3 @@ GekkoGameEvent** Gekko::GameSession::UpdateSessionInternal(i32* count, bool adva
 -                _game_events.AddSaveEvent(_sync, _storage, &_last_saved_frame);
 +                _game_events.AddSaveEvent(
 +                    _sync, _storage, GekkoSaveConfirmed,
 +                    &_last_saved_frame);
-@@ -235,0 +246,16 @@ f32 Gekko::GameSession::FramesAhead()
+@@ -234,0 +248,16 @@ f32 Gekko::GameSession::FramesAhead()
 +Frame Gekko::GameSession::ConfirmedFrame()
 +{
 +    return _started ? _sync.GetMinReceivedFrame() : GameInput::NULL_FRAME;
@@ -125,20 +125,20 @@ index c7e6daed..3064c6b1 100644
 +    return true;
 +}
 +
-@@ -270,0 +283,4 @@ void Gekko::GameSession::HandleSavingConfirmedFrame()
+@@ -270,0 +300,4 @@ void Gekko::GameSession::HandleSavingConfirmedFrame()
 +    PromoteConfirmedAnchor();
 +    if (_last_saved_frame >= _sync.GetMinReceivedFrame()) {
 +        return;
 +    }
-@@ -280 +293,2 @@ void Gekko::GameSession::HandleSavingConfirmedFrame()
+@@ -280 +313,2 @@ void Gekko::GameSession::HandleSavingConfirmedFrame()
 -    const Frame sync_frame = _last_saved_frame;
 +    StateEntry* anchor = _storage.FindLatestAtOrBefore(confirmed_frame);
 +    const Frame sync_frame = anchor ? anchor->frame : _last_saved_frame;
-@@ -281,0 +296,3 @@ void Gekko::GameSession::HandleSavingConfirmedFrame()
+@@ -281,0 +316,3 @@ void Gekko::GameSession::HandleSavingConfirmedFrame()
 +    const Frame last_resimulated = current - 1;
 +    const Frame midpoint = sync_frame
 +        + ((last_resimulated - sync_frame + 1) / 2);
-@@ -290 +307,12 @@ void Gekko::GameSession::HandleSavingConfirmedFrame()
+@@ -290 +327,12 @@ void Gekko::GameSession::HandleSavingConfirmedFrame()
 -            _game_events.AddSaveEvent(_sync, _storage, &_last_saved_frame);
 +            _game_events.AddSaveEvent(
 +                _sync, _storage, GekkoSaveConfirmed,
@@ -152,7 +152,7 @@ index c7e6daed..3064c6b1 100644
 +            && frame == last_resimulated) {
 +            _game_events.AddSaveEvent(
 +                _sync, _storage, GekkoSaveSpeculativeEnd);
-@@ -298,0 +327,15 @@ void Gekko::GameSession::HandleSavingConfirmedFrame()
+@@ -298,0 +347,15 @@ void Gekko::GameSession::HandleSavingConfirmedFrame()
 +void Gekko::GameSession::PromoteConfirmedAnchor()
 +{
 +    if (!ConfirmedSpeculativeSaving() || !_started) return;
@@ -168,11 +168,11 @@ index c7e6daed..3064c6b1 100644
 +    return _config.save_policy == GekkoSaveConfirmedSpeculative;
 +}
 +
-@@ -401 +444,2 @@ void Gekko::GameSession::HandleRollback()
+@@ -401 +464,2 @@ void Gekko::GameSession::HandleRollback()
 -        _game_events.AddSaveEvent(_sync, _storage, &_last_saved_frame);
 +        _game_events.AddSaveEvent(
 +            _sync, _storage, GekkoSaveBaseline, &_last_saved_frame);
-@@ -412,2 +456,10 @@ void Gekko::GameSession::HandleRollback()
+@@ -412,2 +476,10 @@ void Gekko::GameSession::HandleRollback()
 -    const Frame sync_frame = _config.limited_saving ? _last_saved_frame : min - 1;
 -    const Frame frame_to_save = std::min(current - 1, min);
 +    Frame sync_frame = min - 1;
@@ -185,7 +185,7 @@ index c7e6daed..3064c6b1 100644
 +        midpoint = sync_frame
 +            + ((last_resimulated - sync_frame + 1) / 2);
 +    }
-@@ -422,2 +474,12 @@ void Gekko::GameSession::HandleRollback()
+@@ -422,2 +494,12 @@ void Gekko::GameSession::HandleRollback()
 -        if (!_config.limited_saving || frame == frame_to_save) {
 -            _game_events.AddSaveEvent(_sync, _storage, &_last_saved_frame);
 +        if (!ConfirmedSpeculativeSaving()) {
@@ -200,10 +200,10 @@ index c7e6daed..3064c6b1 100644
 +        else if (frame == last_resimulated) {
 +            _game_events.AddSaveEvent(
 +                _sync, _storage, GekkoSaveSpeculativeEnd);
-@@ -430,0 +493,2 @@ void Gekko::GameSession::HandleRollback()
+@@ -430,0 +513,2 @@ void Gekko::GameSession::HandleRollback()
 +    PromoteConfirmedAnchor();
 +
-@@ -434,0 +513,27 @@ void Gekko::GameSession::HandleRollback()
+@@ -434,0 +519,27 @@ void Gekko::GameSession::HandleRollback()
 +void Gekko::GameSession::HandleForcedRollback()
 +{
 +    if (_forced_rollback_depth == 0 || !_started) return;
@@ -231,7 +231,7 @@ index c7e6daed..3064c6b1 100644
 +    }
 +}
 +
-@@ -571 +635,2 @@ bool Gekko::GameSession::ConfirmedSaveDue()
+@@ -571 +682,2 @@ bool Gekko::GameSession::ConfirmedSaveDue()
 -    if (IsLockstepActive() || !_config.limited_saving || IsPlayingLocally()) {
 +    if (IsLockstepActive() || !ConfirmedSpeculativeSaving()
 +        || IsPlayingLocally()) {

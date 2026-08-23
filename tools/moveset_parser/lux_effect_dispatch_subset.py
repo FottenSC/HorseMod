@@ -1,8 +1,8 @@
-"""Native-equivalent effect subset authored through MoveVM CALLCOND 0x02.
+"""Native-equivalent effect subsets authored through MoveVM CALLCOND 0x02/0x03.
 
 The complete 28-character corpus reaches CALLCOND 0x02 only with effect
-opcodes 0x04, 0x06, and 0x0E.  CALLCOND 0x03 remains the general effect
-dispatcher and is deliberately not certified by this bounded lift.
+opcodes 0x04, 0x06, and 0x0E.  CALLCOND 0x03 is the general dispatcher; this
+module lifts only individually verified operations needed by static clients.
 """
 
 from __future__ import annotations
@@ -41,6 +41,9 @@ class LuxEffectDispatch02State:
     body_scale_tween_rate: float = 0.0
     previous_root_matrix_identity: object | None = None
     cached_previous_root_matrix_identity: object | None = None
+    # Effect 0x13AC publishes a 23-bit *disable* mask.  KHit tests the
+    # complementary active mask when selecting defender yarare spheres.
+    hurt_sphere_disable_mask: int = 0
 
     def __post_init__(self) -> None:
         if len(self.body_part_scales) != 32:
@@ -51,6 +54,7 @@ class LuxEffectDispatch02State:
         self.effect_velocity_z = float32(self.effect_velocity_z)
         self.body_part_scales[:] = [float32(value) for value in self.body_part_scales]
         self.body_scale_tween_rate = float32(self.body_scale_tween_rate)
+        self.hurt_sphere_disable_mask &= 0x7FFFFF
 
 
 def _require_argument_count(opcode: int, arguments: tuple[int, ...], count: int) -> None:
@@ -133,4 +137,47 @@ def dispatch_effect_02(
             f"CALLCOND 0x02 reached unreviewed effect opcode 0x{opcode:04X}"
         )
     context.coverage.resolved_functions.update(resolved)
+    return CallCondResult(0)
+
+
+def _decode_hurt_sphere_disable_mask(arguments: tuple[int, ...]) -> int:
+    """Decode effect 0x13AC exactly as ``LuxMoveVM_DispatchEffectOp``.
+
+    Native argc includes the opcode word.  The two payload words are signed
+    before assembly; narrowing to the 23 authored KHit slots preserves the
+    native result for negative words as well as ordinary positive masks.
+    """
+
+    if len(arguments) == 1:
+        return 0
+    if len(arguments) == 2:
+        return signed_low_i16(arguments[1]) & 0x7FFFFF
+    low = signed_low_i16(arguments[1])
+    high = signed_low_i16(arguments[2])
+    return ((high << 15) | low) & 0x7FFFFF
+
+
+def dispatch_effect_03_hurt_mask(
+    state: LuxEffectDispatch02State,
+    context: MoveVMContext,
+    arguments: tuple[int, ...],
+) -> CallCondResult:
+    """Bounded CALLCOND 0x03 lift for KHit hurt-mask effect 0x13AC."""
+
+    if not arguments:
+        raise StaticResolutionError("native CALLCOND 0x03 dereferences effect opcode word zero")
+    opcode = arguments[0] & 0xFFFF
+    if opcode != 0x13AC:
+        raise StaticResolutionError(
+            f"hurt-mask execution reached unrelated effect 0x{opcode:04X}"
+        )
+    if len(arguments) > 3:
+        raise StaticResolutionError("effect 0x13AC accepts at most two payload words")
+    state.hurt_sphere_disable_mask = _decode_hurt_sphere_disable_mask(arguments)
+    context.coverage.resolved_functions.update(
+        {
+            "LuxMoveVM_DispatchEffectOp@0x140376B20",
+            "LuxMoveVM_SetHurtboxSlotsActiveMask@0x140308D70",
+        }
+    )
     return CallCondResult(0)

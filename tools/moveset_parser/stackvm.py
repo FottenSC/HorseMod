@@ -169,7 +169,7 @@ CALLCOND_NAMES: dict[int, str] = {
     0x0E: "OpcodeIf_0E",                # 0x1402FD3A0
     0x0F: "OpcodeIf_0F",                # 0x1402FD3C0
     0x10: "OpcodeIf_10",                # 0x1402FD3E0
-    0x11: "OpcodeIf_11",                # 0x1402FD400
+    0x11: "CommitOrScheduleOtherLaneEnd", # 0x1402FD400 — consumes pOtherMoveLane
     0x12: "NullStub",                   # 0x1402D9BF0 — no-op alias
     0x13: "NullStub",                   # 0x1402D9BF0 — no-op alias
     0x14: "WriteCharaStateShort",      # 0x1402FDA30 — *(short*)(chara+0x197C + args[0]*2) = args[1]
@@ -182,11 +182,11 @@ CALLCOND_NAMES: dict[int, str] = {
     0x1B: "OpcodeIf_1B",                # 0x1402FD420
     0x1C: "OpcodeIf_1C",                # 0x1402FD440
     0x1D: "OpcodeIf_1D",                # 0x1402FD460
-    0x1E: "OpcodeIf_1E",                # 0x1402FD480
+    0x1E: "WriteOtherLaneShort",        # 0x1402FD480 — writes pOtherMoveLane local short storage
     0x1F: "OpcodeIf_1B",                # alias
     0x20: "OpcodeIf_1C",                # alias
     0x21: "OpcodeIf_1D",                # alias
-    0x22: "OpcodeIf_1E",                # alias
+    0x22: "WriteOtherLaneShort",        # alias of 0x1E
     0x23: "GetRandWeightedIndex",      # 0x1402E58B0
     0x24: "NullStub",                   # 0x1402D9BF0 alias
     0x25: "EvaluateIfOpcodeWithHeader", # 0x1402E5830

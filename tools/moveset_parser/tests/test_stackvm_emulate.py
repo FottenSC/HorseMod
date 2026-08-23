@@ -6,6 +6,7 @@ bit layout, which we've broken twice during this project.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -25,6 +26,33 @@ from stackvm_emulate import (
     decode_predicate,
     emulate,
 )
+
+
+def test_must_latched_motion_flags_requires_every_terminal_path():
+    unconditional = StackVMScript(
+        bytecode_offset=0,
+        instructions=[
+            StackVMInstruction(0, b"\x8b\x0e\x00", 0x0B, 0x0B, True, "SET_ACC_U16", imm_u16=0x0E),
+            StackVMInstruction(3, b"\x25\x09\x01", 0x25, 0x25, False, "CALLCOND", imm_b0=0x09, imm_b1=1),
+            StackVMInstruction(6, b"\x05", 0x05, 0x05, False, "RET"),
+        ],
+    )
+    conditional = StackVMScript(
+        bytecode_offset=0,
+        instructions=[
+            StackVMInstruction(0, b"\x8a\x01\x00", 0x0A, 0x0A, True, "LOAD_VAR", imm_u16=1),
+            StackVMInstruction(3, b"\x28\x0d\x00", 0x28, 0x28, False, "JZ", imm_u16=13),
+            StackVMInstruction(6, b"\x8b\x0e\x00", 0x0B, 0x0B, True, "SET_ACC_U16", imm_u16=0x0E),
+            StackVMInstruction(9, b"\x25\x09\x01", 0x25, 0x25, False, "CALLCOND", imm_b0=0x09, imm_b1=1),
+            StackVMInstruction(12, b"\x05", 0x05, 0x05, False, "RET"),
+            StackVMInstruction(13, b"\x05", 0x05, 0x05, False, "RET"),
+        ],
+    )
+
+    assert emulate(unconditional, 0).must_latched_motion_flags == frozenset({0x0E})
+    assert emulate(unconditional, 0).may_latched_motion_flags == frozenset({0x0E})
+    assert emulate(conditional, 0).must_latched_motion_flags == frozenset()
+    assert emulate(conditional, 0).may_latched_motion_flags == frozenset({0x0E})
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +217,20 @@ class TestDecodePredicate:
         assert d.kind == "command"
         assert "cmd:0x0001" in d.text
 
+    def test_callcond_25_prepends_frame_window_subopcode(self):
+        pred = PredicateEvent(
+            callcond_idx=0x25,
+            args=[Concrete(0x002C)],
+            source_pc=0x1234,
+        )
+
+        assert pred.sub_opcode == 0x002C
+        assert pred.effective_sub_opcode == 0x0008
+        assert [value.value for value in pred.effective_args] == [0x0008, 0x002C]
+        decoded = decode_predicate(pred)
+        assert decoded.kind == "frame"
+        assert decoded.text == "(frame window)"
+
     def test_motion_check(self):
         # Sub-op 5 scans compact-input history entry +0x00. Its low nibble
         # is A/B/K/G, not direction.
@@ -284,6 +326,37 @@ def _ret(pc: int = 0) -> StackVMInstruction:
 
 
 class TestEmulator:
+    def test_must_final_variables_retains_only_path_invariant_values(self):
+        script = StackVMScript(bytecode_offset=0, instructions=[
+            _push_imm(14, pc=0),
+            StackVMInstruction(
+                3, b"\x19\x00\x19", 0x19, 0x19, False,
+                "STORE_VAR", imm_u16=25,
+            ),
+            _ret(pc=6),
+        ])
+
+        result = emulate(script, slot_idx=7)
+
+        assert result.must_final_variables == {25: 14}
+
+    def test_chara_state_write_is_captured_as_state_mutation(self):
+        # Native CALLCOND 0x14 writes args[1] to the defender character-state
+        # short bank at args[0].  It is not a boolean predicate.
+        script = StackVMScript(bytecode_offset=0, instructions=[
+            _push_imm(73, pc=0),
+            _push_imm(0xFFFF, pc=3),
+            _callcond(0x14, 2, pc=6),
+            _ret(pc=9),
+        ])
+
+        result = emulate(script, slot_idx=7)
+
+        assert result.predicates == []
+        assert len(result.chara_state_writes) == 1
+        assert result.chara_state_writes[0].source_pc == 6
+        assert result.chara_state_writes[0].concrete_args == [73, 0xFFFF]
+
     def test_simple_transition(self):
         # Build a tiny bytecode: PUSH 0x123; PUSH 5; PUSH 12; CALLCOND 0x05 (TransitionAuthor), 3
         script = StackVMScript(bytecode_offset=0, instructions=[
@@ -356,7 +429,7 @@ class TestEmulator:
         assert result.transitions[0].predicate is not None
         assert result.transitions[1].predicate is None
 
-    def test_effect_event_facing_commit(self):
+    def test_effect_event_hit_transition_facing_snap(self):
         script = StackVMScript(bytecode_offset=0, instructions=[
             _push_imm(0x001A, pc=0),
             _push_imm(0x00BB, pc=3),
@@ -368,23 +441,59 @@ class TestEmulator:
         assert len(result.effects) == 1
         e = result.effects[0]
         assert e.opcode == 0x1A
-        assert e.kind == "facing_commit"
+        assert e.kind == "hit_transition_facing_snap"
         assert e.is_facing_related
         assert e.concrete_args == [0x1A, 0xBB, 0xFFFF]
 
-    def test_effect_event_retrack_weight(self):
+    @pytest.mark.parametrize(
+        ("opcode", "expected_kind"),
+        [
+            (0x000B, "retrack_ramp_mode0"),
+            (0x003C, "retrack_ramp_mode1"),
+        ],
+    )
+    def test_effect_event_retrack_weight(self, opcode, expected_kind):
         script = StackVMScript(bytecode_offset=0, instructions=[
-            _push_imm(0x003C, pc=0),
+            _push_imm(opcode, pc=0),
             _push_imm(0x5640, pc=3),
             _callcond(0x03, 2, pc=6),
             _ret(pc=9),
         ])
         result = emulate(script, slot_idx=13)
         e = result.effects[0]
-        assert e.opcode == 0x3C
-        assert e.kind == "retrack_ramp_mode1"
+        assert e.opcode == opcode
+        assert e.kind == expected_kind
         assert e.ramp_selector == 0
-        assert e.target_weight == pytest.approx(100.0 / 60.0)
+        assert e.target_weight == pytest.approx(1.0)
+
+    def test_effect_003b_is_not_a_facing_retrack_opcode(self):
+        script = StackVMScript(bytecode_offset=0, instructions=[
+            _push_imm(0x003B, pc=0),
+            _push_imm(0x5640, pc=3),
+            _callcond(0x03, 2, pc=6),
+            _ret(pc=9),
+        ])
+
+        event = emulate(script, slot_idx=13).effects[0]
+
+        assert event.kind == "effect_0x003B"
+        assert event.is_facing_related is False
+        assert event.target_weight is None
+
+    def test_effect_001a_is_a_hit_transition_facing_snap(self):
+        script = StackVMScript(bytecode_offset=0, instructions=[
+            _push_imm(0x001A, pc=0),
+            _push_imm(0x00BB, pc=3),
+            _push_imm(0xFFFF, pc=6),
+            _callcond(0x03, 3, pc=9),
+            _ret(pc=12),
+        ])
+
+        event = emulate(script, slot_idx=13).effects[0]
+
+        assert event.kind == "hit_transition_facing_snap"
+        assert event.is_facing_related is True
+        assert event.target_weight is None
 
 
 def test_lux_fp16_literal_decode():
@@ -411,3 +520,36 @@ def test_cfg_emulator_does_not_mix_incompatible_branch_stacks():
     assert len(event.args) == 5
     assert isinstance(event.args[3], (VarRef, Unknown))
     assert not (isinstance(event.args[3], Concrete) and event.args[3].value == 2)
+
+
+def test_nested_brk_stops_parent_before_following_effect():
+    parent = StackVMScript(
+        bytecode_offset=0,
+        instructions=[
+            _push_imm(1, 0),
+            StackVMInstruction(3, b"\x25\x0d\x01", 0x25, 0x25, False, "CALLCOND", imm_b0=0x0D, imm_b1=1),
+            _push_imm(0x0E, 6),
+            _push_imm(8, 9),
+            StackVMInstruction(12, b"\x25\x03\x02", 0x25, 0x25, False, "CALLCOND", imm_b0=0x03, imm_b1=2),
+            StackVMInstruction(15, b"\x05", 0x05, 0x05, False, "RET"),
+        ],
+    )
+    child = StackVMScript(
+        bytecode_offset=100,
+        instructions=[
+            StackVMInstruction(100, b"\x08", 0x08, 0x08, False, "BRK"),
+        ],
+    )
+
+    class Bank:
+        slots = [SimpleNamespace(bytecode=parent), SimpleNamespace(bytecode=child)]
+
+        @staticmethod
+        def resolve_packed_slot(value):
+            return value if 0 <= value < 2 else None
+
+    assert emulate(parent, 0).effects
+    result = emulate(parent, 0, bank=Bank())
+
+    assert result.effects == []
+    assert result.must_break_execution is True

@@ -1321,6 +1321,9 @@ namespace Horse
         ReplayTraceFields f;
         f.boolean("enabled", cfg.enabled)
          .boolean("trace_enabled", cfg.trace_enabled)
+         .boolean("trace_output_active",
+                  ReplayDebugTrace::instance().enabled())
+         .string("trace_output_policy", "replay-playback-only")
          .string("case", rollback_case_name(cfg.test_case))
          .uinteger("rollback_window", cfg.rollback_window)
          .hex("seed", cfg.seed)
@@ -1413,13 +1416,16 @@ namespace Horse
 
         RC::Output::send<RC::LogLevel::Default>(STR(
             "[RollbackLab] configured enabled={} case={} window={} "
-            "seed=0x{:08X} source={}\n"),
+            "seed=0x{:08X} source={} trace_requested={} "
+            "trace_output_active={} trace_policy=replay-playback-only\n"),
             cfg.enabled ? 1 : 0,
             RC::to_generic_string(std::string(
                 rollback_case_name(cfg.test_case))),
             cfg.rollback_window,
             cfg.seed,
-            RC::to_generic_string(cfg.source));
+            RC::to_generic_string(cfg.source),
+            cfg.trace_enabled ? 1 : 0,
+            ReplayDebugTrace::instance().enabled() ? 1 : 0);
         }
         catch (...)
         {

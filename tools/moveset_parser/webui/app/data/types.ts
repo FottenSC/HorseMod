@@ -258,12 +258,46 @@ export interface MoveEffectEvent {
   isFacingRelated: boolean;
   targetWeight: number | null;
   rampSelector: number | null;
+  routeOrder?: number;
+  rootSlot?: number;
+  sourceSlot?: number;
+  utilityPath?: number[];
+  depth?: number;
+  reachability?: "may" | "proven";
+  timingStatus?: "resolved" | "unresolved";
+  frame?: number | null;
+  hitRelation?: "before-hit" | "between-hits" | "after-hit" | "unresolved";
+}
+
+export interface MoveRetrackWindow {
+  mode: 0 | 1;
+  targetWeight: number | null;
+  rampSelector: number | null;
+  startFrame: number | null;
+  endFrame: number | null;
+  timingStatus: "resolved" | "unresolved";
+  hitRelation: "before-hit" | "between-hits" | "after-hit" | "unresolved";
+  rootSlot?: number | null;
+  sourceSlot?: number | null;
+  pc: number;
 }
 
 export interface MoveTrackingSummary {
-  hasFacingCommit: boolean;
+  // Confirmed fields require an independently proven route. Reachable effects
+  // from unresolved branches are exposed separately as candidates below.
+  hasHitTransitionFacingSnap: boolean;
+  hasRetrackControl: boolean;
   hasRetrackRamp: boolean;
+  hasRetrackDisable: boolean;
   maxTargetWeight: number | null;
+  candidateHitTransitionFacingSnap: boolean;
+  candidateRetrackControl: boolean;
+  candidateRetrackRamp: boolean;
+  candidateRetrackDisable: boolean;
+  candidateMaxTargetWeight: number | null;
+  reachabilityStatus: "none" | "may" | "proven";
+  timingStatus: "none" | "unresolved" | "resolved";
+  retrackWindows: MoveRetrackWindow[];
   events: MoveEffectEvent[];
 }
 
@@ -279,8 +313,12 @@ export interface NativeLink {
   cells: number[];
   attackSlots?: number[];
   attackCells?: number[];
+  combatContextStatus?: "resolved" | "unresolved";
   startupTimingStatus?: "resolved" | "unresolved";
   frameEndpointStatus?: "resolved" | "unresolved";
+  frameEndpointStatuses?: Partial<
+    Record<"block" | "hit" | "counterHit", "resolved" | "unresolved">
+  >;
   hitSequenceStatus?: "resolved" | "unresolved";
 }
 
@@ -389,7 +427,7 @@ export interface MovelistCategory {
 
 export interface MovelistGroup {
   id: string;
-  kind: "duplicate-move-id" | "native-route-alternative" | "native-timing-variant" | "input-family";
+  kind: "duplicate-move-id" | "native-route-alternative" | "native-timing-variant" | "native-context-variant" | "native-state-variant" | "input-family";
   reason: string;
   rootOrder: number;
   orders: number[];

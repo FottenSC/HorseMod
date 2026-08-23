@@ -5,7 +5,7 @@ export type FrameTone = "empty" | "danger" | "warning" | "neutral" | "success" |
 export function parseFrameValue(value: string | number | null | undefined): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (value === null || value === undefined || value === "") return null;
-  const match = String(value).match(/[+-]?\d+/);
+  const match = String(value).trim().match(/^[+-]?\d+$/);
   return match ? Number(match[0]) : null;
 }
 
@@ -67,6 +67,9 @@ export function bestHit(rows: PlayerMoveFamilyRow[]): string | number | null {
 }
 
 export function rowLooksLikeLauncher(row: PlayerMoveFamilyRow): boolean {
-  const blob = `${row.metrics.hit ?? ""} ${row.metrics.counterHit ?? ""} ${row.notes ?? ""}`.toUpperCase();
-  return /\b(LNC|KND|STN|LAUNCH|KNOCK)/.test(blob);
+  return (["hit", "counterHit"] as const).some((metric) => {
+    if (row.evidence[metric].status !== "native-confirmed") return false;
+    const value = String(row.metrics[metric] ?? "").trim().toUpperCase();
+    return /^(LNC|KND|STN)$/.test(value);
+  });
 }

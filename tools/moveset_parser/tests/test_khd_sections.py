@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import struct
 
-from export_webui_data import event_record_to_dict, slot_to_dict, throw_to_dict
+from export_webui_data import (
+    event_record_to_dict,
+    non_attack_descriptor_to_dict,
+    slot_to_dict,
+    throw_to_dict,
+)
 from luxformats import parse_khd
 
 
@@ -55,12 +60,17 @@ def test_parse_khd_throw_and_event_records():
     # Native InitMotionPlayback divides the authored hundredths value by 100.
     assert slot.playback_speed_scalar == 1.2
     assert slot.attack_cell_indices == [1]
+    assert slot.non_attack_descriptor_indices == [0, 1]
     assert slot.throw_cell_indices == [0, 1]
     assert k.cell_to_slots == {1: [(0, 0)]}
+    assert k.non_attack_to_slots == {0: [(0, 1)], 1: [(0, 2)]}
     assert k.throw_to_slots == {0: [(0, 1)], 1: [(0, 2)]}
     assert k.resolve_packed_slot(0x0800) == 0
 
     assert [t.wDamage for t in k.sections[1].throw_cells] == [55, 70]
+    assert [
+        t.nSDamageMultiplier for t in k.sections[1].non_attack_descriptors
+    ] == [55, 70]
     assert len(k.sections[2].event_records) == 2
     assert k.sections[2].event_records_end == 0x60
     assert [r.dwKey for r in k.sections[2].event_records] == [0xD6, 0x105]
@@ -93,6 +103,15 @@ def test_export_helpers_include_throw_slot_and_event_fields():
 
     throw_payload = throw_to_dict(k.sections[1].throw_cells[0], 0)
     assert throw_payload == {"idx": 0, "damage": 55, "aux": -3, "scaling": 100}
+    descriptor_payload = non_attack_descriptor_to_dict(
+        k.sections[1].non_attack_descriptors[0], 0
+    )
+    assert descriptor_payload == {
+        "idx": 0,
+        "damageMultiplier": 55,
+        "passthroughTag": -3,
+        "duration60ths": 100,
+    }
 
     event_payload = event_record_to_dict(k.sections[2].event_records[0])
     assert event_payload["idx"] == 0

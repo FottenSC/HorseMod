@@ -517,7 +517,7 @@ def decode_button_mask(mask: int) -> str:
 # LuxBattleAttackCell.wU16AttackFlags (cell+0x32) bit definitions.
 #
 # Authoritative ELuxBattleAttackFlags enum from Ghidra (verified against
-# LuxMoveVM_EvaluateMoveTransition @ 0x14033E140 and
+# LuxBattle_ClassifyAttackContact @ 0x14033E140 and
 # LuxBattle_ResolveAttackVsHurtboxMask22 @ 0x14033C100):
 #
 #   0x001  HighBlockable          — defender can block this from STANDING
@@ -542,12 +542,10 @@ def decode_button_mask(mask: int) -> str:
 # Bits 0x020 and 0x400..0x8000 still unidentified — left as 'bN' so callers
 # don't read invented semantics into them.
 #
-# Standard SC6 community attack class is determined by which of
-# {HighBlockable, LowBlockable} are set:
-#   HighBlockable + LowBlockable -> Mid         (blockable in either stance)
-#   HighBlockable only           -> High        (must stand-block; crouch ducks)
-#   LowBlockable  only           -> Low         (must crouch-block)
-#   neither                       -> Unblockable (no stance can block)
+# The 0x001/0x002 pair is retained below as a legacy guard-profile
+# diagnostic. It is not the authoritative player-facing High/Mid/Low class:
+# the native overlap/geometry path and other flags also participate. The
+# production lookup uses DA_MoveListTable.AttributeTag for that metric.
 # `Unblockable_GIImmune` is NOT used to decide the class — its presence
 # only adds the "no-GI / stagger-on-block" modifier on top.
 ATTACK_FLAG_VERIFIED_BITS: dict[int, str] = {
@@ -601,16 +599,19 @@ class LuxBattleAttackCell:
     wI16StunRecoil: int = 0       # +0x3C — block recoil
     wU16ExtraStateFlags: int = 0  # +0x3E — extra state bits (BA / soul-charge / etc.)
     wI16BlockstunFrames: int = 0  # +0x44 — frames of blockstun on block
-    # The second member of each pair is selected when the saved native
-    # hit-contact mode is >= 2.  Native enum/stat mapping proves mode 11 is
-    # CounterHit, 12 LethalHit, and 13 PunishHit.  This is a shared
-    # base/special-contact pair, not a standing/air pair.
-    wI16HitstunBaseContact: int = 0                    # +0x46
-    wI16HitstunSpecialContact: int = 0                 # +0x48 (includes mode-11 CH)
-    wI16HitstunAlternatePostureBaseContact: int = 0    # +0x4C
-    wI16HitstunAlternatePostureSpecialContact: int = 0 # +0x4E
-    wI16ReactionIdBaseContact: int = 0                 # +0x50
-    wI16ReactionIdSpecialContact: int = 0              # +0x52
+    # Compatibility names retained for existing exports. Primary decompile of
+    # ComputeHitReactionParams proves the actual axes are:
+    #   +46/+48 standard path, grounded vs air/cinematic
+    #   +4C/+4E promoted path, grounded vs air/cinematic
+    #   +50/+52 grounded vs air/cinematic reaction row
+    # chara+0x132C contributes to the air/cinematic predicate; Counter Hit does
+    # not directly select +0x48.
+    wI16HitstunBaseContact: int = 0                    # +0x46 standard grounded
+    wI16HitstunSpecialContact: int = 0                 # +0x48 standard air/cinematic
+    wI16HitstunAlternatePostureBaseContact: int = 0    # +0x4C promoted grounded
+    wI16HitstunAlternatePostureSpecialContact: int = 0 # +0x4E promoted air/cinematic
+    wI16ReactionIdBaseContact: int = 0                 # +0x50 grounded row
+    wI16ReactionIdSpecialContact: int = 0              # +0x52 air/cinematic row
     wI16ThrowReactionRowId: int = 0     # +0x54 — classifier-7 throw reaction row
     wU16PassthroughTagA: int = 0        # +0x5A — usually 0xFFFD (default tag)
     wU16HitboxGroupBitfield: int = 0    # +0x5E — hitbox group bitmask (high byte = "type tag" 0/FF observed)
@@ -623,6 +624,30 @@ class LuxBattleAttackCell:
     wU16RuntimePropagateField: int = 0  # +0x6A
 
     MAX_REASONABLE_MASTER_WINDOW_FRAME = 499
+
+    @property
+    def wI16CounterStandardGrounded(self) -> int:
+        return self.wI16HitstunBaseContact
+
+    @property
+    def wI16CounterStandardAirOrCinematic(self) -> int:
+        return self.wI16HitstunSpecialContact
+
+    @property
+    def wI16CounterPromotedGrounded(self) -> int:
+        return self.wI16HitstunAlternatePostureBaseContact
+
+    @property
+    def wI16CounterPromotedAirOrCinematic(self) -> int:
+        return self.wI16HitstunAlternatePostureSpecialContact
+
+    @property
+    def wI16ReactionRowGrounded(self) -> int:
+        return self.wI16ReactionIdBaseContact
+
+    @property
+    def wI16ReactionRowAirOrCinematic(self) -> int:
+        return self.wI16ReactionIdSpecialContact
 
     @property
     def is_cleared_sentinel(self) -> bool:
@@ -659,15 +684,23 @@ class LuxBattleAttackCell:
         # "NonDamaging" (sensible flags, used for stance/transition).
         low9 = self.wU16AttackFlags & 0x1FF
         bit_count = bin(low9).count("1")
-        if bit_count >= 6 or (low9 & 0x080 and low9 & 0x200):
+        if bit_count >= 6 or (
+            self.wU16AttackFlags & 0x080
+            and self.wU16AttackFlags & 0x200
+        ):
             return "Header"
         return "NonDamaging"
 
     @property
     def attack_class(self) -> str:
-        """Human-readable attack class: High/Mid/Low/Throw/Unblockable.
+        """Legacy guard-profile label; not a player-facing hit level.
 
-        Logic mirrors LuxMoveVM_EvaluateMoveTransition @ 0x14033E140:
+        Production metric export does not use this diagnostic property as
+        High/Mid/Low evidence. These bits prove ordinary standing/crouching
+        contact compatibility; hitbox geometry and other flags also
+        participate in the player-facing level.
+
+        Logic mirrors LuxBattle_ClassifyAttackContact @ 0x14033E140:
         the block bits (HighBlockable=0x001, LowBlockable=0x002) gate the
         block path against standing/crouching defenders. Cells without
         either block bit can never enter the BLOCK reaction — they are
@@ -794,12 +827,13 @@ class LuxBattleAttackCell:
         return attack_flags_to_str(self.wU16AttackFlags)
 
     @property
-    def on_block(self) -> int:
-        """Plain on-block frame delta (defender disadvantage)."""
+    def blockstun_frames(self) -> int:
+        """Raw defender blockstun counter value, not frame advantage."""
         return self.wI16BlockstunFrames
 
     @property
-    def on_hit_standing(self) -> int:
+    def hitstun_base_contact_frames(self) -> int:
+        """Raw base-contact hitstun counter value, not frame advantage."""
         return self.wI16HitstunBaseContact
 
     @property
@@ -810,7 +844,8 @@ class LuxBattleAttackCell:
         return (
             f"{self.attack_class} {self.anim_kind} {self.move_type} "
             f"dmg={self.wI16BaseDamage} active={self.active_frames} "
-            f"onBlock={self.on_block} onHit={self.on_hit_standing} "
+            f"blockstun={self.blockstun_frames} "
+            f"baseHitstun={self.hitstun_base_contact_frames} "
             f"range={self.range_stand}"
         )
 
@@ -897,12 +932,13 @@ MOVE_TYPE_NAMES = {
 
 @dataclass
 class LuxBattleNonAttackMoveDescr:
-    """Legacy name for one 6-byte KHD Section B record.
+    """One native 6-byte KHD Section-B non-attack descriptor.
 
-    Earlier parser revisions called Section B `LuxBattleNonAttackMoveDescr`.
-    Scuffle's runtime movelist parser and the slot-reference high bit show the
-    same records are throw damage cells: slot attack indexes with bit 0x1000
-    reference this table after clearing that bit.
+    ``LuxMoveVM_TransitionToMove`` binds a high-bit slot reference to this
+    short[3] record. ``LuxBattle_ApplyDamageFromPendingHit`` consumes the
+    fields as damage multiplier, passthrough tag, and duration/60. Throws are
+    one user of the table, but supers, scripted damage kickers, GI/parry and
+    stance paths use it too.
     """
     nSDamageMultiplier: int   # +0x00 — i16 damage multiplier (or scaled)
     nSPassthroughTag: int     # +0x02 — i16, usually 0xFFFD (default-reaction marker)
@@ -911,12 +947,11 @@ class LuxBattleNonAttackMoveDescr:
 
 @dataclass
 class LuxBattleThrowCell:
-    """One 6-byte throw damage/scaling record from KHD Section B.
+    """Deprecated compatibility view of a Section-B non-attack descriptor.
 
     Layout matches Scuffle's `Throw` parser:
-        +0x00  ushort  damage
-        +0x02  short   auxiliary value, commonly -3 / 0xFFFD
-        +0x04  short   damage scaling percent-like value
+    New code must use :class:`LuxBattleNonAttackMoveDescr`.  These legacy
+    field names are retained only for older diagnostic JSON/readers.
     """
     wDamage: int
     nAux: int
@@ -953,7 +988,7 @@ class KhdSection:
     detected_count: int = 0
     # Section 1 ("B"): LuxBattleNonAttackMoveDescr array (6-byte stride).
     non_attack_descriptors: list[LuxBattleNonAttackMoveDescr] = field(default_factory=list)
-    # Section 1 ("B"): throw damage/scaling records (same 6-byte stride).
+    # Deprecated compatibility view of the same Section-B records.
     throw_cells: list[LuxBattleThrowCell] = field(default_factory=list)
     # Section 2 ("C") only: Ghidra-validated 0x30-byte event records.
     event_records: list["KhdEventRecord"] = field(default_factory=list)
@@ -1226,7 +1261,12 @@ class FLuxMoveBankSlotView:
 
     @property
     def throw_cell_indices(self) -> list[int]:
-        """Slot variant refs that point into the Section-B throw table."""
+        """Deprecated alias for :attr:`non_attack_descriptor_indices`."""
+        return self.non_attack_descriptor_indices
+
+    @property
+    def non_attack_descriptor_indices(self) -> list[int]:
+        """Slot variant refs that point into the Section-B descriptor table."""
         return [(i ^ 0x1000) for i in self.nCellBoneIndexPerVariant if i >= 0 and (i & 0x1000)]
 
 
@@ -1249,7 +1289,9 @@ class KhdFile:
     # Reverse index: cell_idx -> list of (slot_idx, variant_index).
     # Built by parse_khd from nCellBoneIndexPerVariant scans.
     cell_to_slots: dict[int, list] = field(default_factory=dict)
-    # Reverse index for Section-B throw refs: throw_idx -> list of (slot_idx, variant_index).
+    # Canonical reverse index for Section-B non-attack descriptor references.
+    non_attack_to_slots: dict[int, list] = field(default_factory=dict)
+    # Deprecated compatibility alias for non_attack_to_slots.
     throw_to_slots: dict[int, list] = field(default_factory=dict)
     # First per-slot bytecode/cancel-block offset found from slot+0x38.
     first_cancel_offset: int = 0
@@ -1383,8 +1425,8 @@ def parse_khd(data: bytes) -> KhdFile:
                 entries.append(parse_attack_cell(data, array_off + j * 0x70))
         stride, scount = _detect_record_stride(sec_bytes) if n == 0 else (0x70, n)
 
-        # Section index 1 ("Section B") is LuxBattleThrowCell[]. Keep the
-        # previous non_attack_descriptors alias populated for existing reports.
+        # Section index 1 is LuxBattleNonAttackMoveDescr[]. Keep the obsolete
+        # throw-cell view populated only for compatibility with older reports.
         non_attack_descs: list[LuxBattleNonAttackMoveDescr] = []
         throw_cells: list[LuxBattleThrowCell] = []
         if i == 1 and size % 6 == 0:
@@ -1527,19 +1569,24 @@ def parse_khd(data: bytes) -> KhdFile:
     # Build a reverse index: cell_idx -> list of (slot_idx, variant)
     # that reference that cell via nCellBoneIndexPerVariant.
     cell_to_slots: dict[int, list[tuple[int, int]]] = {}
-    throw_to_slots: dict[int, list[tuple[int, int]]] = {}
+    non_attack_to_slots: dict[int, list[tuple[int, int]]] = {}
     local_cell_count = len(sections[0].entries) if sections else 0
-    local_throw_count = len(sections[1].throw_cells) if len(sections) > 1 else 0
+    local_non_attack_count = (
+        len(sections[1].non_attack_descriptors) if len(sections) > 1 else 0
+    )
     for sv in slot_records:
         for variant, cell_idx in enumerate(sv.nCellBoneIndexPerVariant):
             if 0 <= cell_idx < local_cell_count:
                 cell_to_slots.setdefault(cell_idx, []).append((sv.slot_index, variant))
             elif cell_idx >= 0 and (cell_idx & 0x1000):
-                throw_idx = cell_idx ^ 0x1000
-                if 0 <= throw_idx < local_throw_count:
-                    throw_to_slots.setdefault(throw_idx, []).append((sv.slot_index, variant))
+                descriptor_idx = cell_idx ^ 0x1000
+                if 0 <= descriptor_idx < local_non_attack_count:
+                    non_attack_to_slots.setdefault(descriptor_idx, []).append(
+                        (sv.slot_index, variant)
+                    )
     khd.cell_to_slots = cell_to_slots  # type: ignore[attr-defined]
-    khd.throw_to_slots = throw_to_slots  # type: ignore[attr-defined]
+    khd.non_attack_to_slots = non_attack_to_slots  # type: ignore[attr-defined]
+    khd.throw_to_slots = non_attack_to_slots  # compatibility alias
     return khd
 
 

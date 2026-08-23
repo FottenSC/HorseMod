@@ -339,22 +339,50 @@ namespace Horse
             return s_instance;
         }
 
+        // The persisted/user-facing preference and live playback scope are
+        // intentionally separate. Arming trace files must not create output
+        // until ReplayScrub has observed a real replay playback session.
         void set_enabled(bool enabled) noexcept
         {
             if (enabled)
             {
-                m_enabled.store(true, std::memory_order_release);
+                m_configured.store(true, std::memory_order_release);
                 return;
             }
 
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_enabled.store(false, std::memory_order_release);
+            m_configured.store(false, std::memory_order_release);
             close_session_locked();
+        }
+
+        bool configured() const noexcept
+        {
+            return m_configured.load(std::memory_order_acquire);
+        }
+
+        void set_playback_session_active(bool active,
+                                         const char* reason = nullptr) noexcept
+        {
+            (void)reason;
+            if (active)
+            {
+                m_session_active.store(true, std::memory_order_release);
+                return;
+            }
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_session_active.store(false, std::memory_order_release);
+            close_session_locked();
+        }
+
+        bool session_active() const noexcept
+        {
+            return m_session_active.load(std::memory_order_acquire);
         }
 
         bool enabled() const noexcept
         {
-            return m_enabled.load(std::memory_order_acquire);
+            return configured() && session_active();
         }
 
         void set_mirror_to_log(bool enabled) noexcept
@@ -379,9 +407,10 @@ namespace Horse
 
         bool open_new_session(const wchar_t* reason) noexcept
         {
+            if (!enabled()) return false;
             std::lock_guard<std::mutex> lock(m_mutex);
+            if (!enabled()) return false;
             close_session_locked();
-            m_enabled.store(true, std::memory_order_release);
             load_function_map_locked();
 
             const std::wstring root = mod_root_dir();
@@ -621,7 +650,7 @@ namespace Horse
 
         bool disable_open_failed_locked(const wchar_t* reason) noexcept
         {
-            m_enabled.store(false, std::memory_order_release);
+            m_configured.store(false, std::memory_order_release);
             RC::Output::send<RC::LogLevel::Warning>(STR(
                 "[ReplayTrace] disabled - {}\n"),
                 RC::to_generic_string(narrow(reason ? reason : L"open failed")));
@@ -746,7 +775,7 @@ namespace Horse
                         frequency.QuadPart)
                     && !flush_write_buffer_locked())
                 {
-                    m_enabled.store(false, std::memory_order_release);
+                    m_configured.store(false, std::memory_order_release);
                     CloseHandle(m_file);
                     m_file = INVALID_HANDLE_VALUE;
                     m_write_buffer.clear();
@@ -811,7 +840,8 @@ namespace Horse
             return value.QuadPart;
         }
 
-        std::atomic<bool> m_enabled {false};
+        std::atomic<bool> m_configured {false};
+        std::atomic<bool> m_session_active {false};
         std::atomic<bool> m_mirror_to_log {false};
         std::atomic<bool> m_verbose_slices {false};
         mutable std::mutex m_mutex;

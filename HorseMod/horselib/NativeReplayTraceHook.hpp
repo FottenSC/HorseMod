@@ -739,7 +739,7 @@ namespace Horse
             UpdateStanceCategory,
             TickHitStateStateMachine,
             IntegratePhysicsPerTick,
-            EvaluateDefenseMode,
+            EvaluateHitContactMode,
             UpdateBlockStateStochastic,
             TickDamageAndBehaviorLock,
             TickCharaTerrainContactBlend,
@@ -835,7 +835,7 @@ namespace Horse
         static constexpr uintptr_t kUpdateStanceCategoryRVA = 0x308CA0;
         static constexpr uintptr_t kTickHitStateStateMachineRVA = 0x308EC0;
         static constexpr uintptr_t kIntegratePhysicsPerTickRVA = 0x306BB0;
-        static constexpr uintptr_t kEvaluateDefenseModeRVA = 0x34EA60;
+        static constexpr uintptr_t kEvaluateHitContactModeRVA = 0x34EA60;
         static constexpr uintptr_t kUpdateBlockStateStochasticRVA = 0x34E820;
         static constexpr uintptr_t kTickDamageAndBehaviorLockRVA = 0x34E900;
         static constexpr uintptr_t kTickCharaTerrainContactBlendRVA = 0x308620;
@@ -1335,9 +1335,9 @@ namespace Horse
                 base + kIntegratePhysicsPerTickRVA,
                 &NativeReplayTraceHook::detour_integrate_physics_per_tick);
             lifecycle_trace_ok &= hook(
-                Slot::EvaluateDefenseMode,
-                base + kEvaluateDefenseModeRVA,
-                &NativeReplayTraceHook::detour_evaluate_defense_mode);
+                Slot::EvaluateHitContactMode,
+                base + kEvaluateHitContactModeRVA,
+                &NativeReplayTraceHook::detour_evaluate_hit_contact_mode);
             lifecycle_trace_ok &= hook(
                 Slot::UpdateBlockStateStochastic,
                 base + kUpdateBlockStateStochasticRVA,
@@ -1473,6 +1473,7 @@ namespace Horse
 
         static void log0(const char* name)
         {
+            if (!ReplayDebugTrace::instance().enabled()) return;
             ReplayTraceFields f;
             emit(name, f);
             RC::Output::send<RC::LogLevel::Default>(STR(
@@ -1484,6 +1485,7 @@ namespace Horse
                              uintptr_t b = 0,
                              uintptr_t c = 0)
         {
+            if (!ReplayDebugTrace::instance().enabled()) return;
             ReplayTraceFields f;
             f.hex("arg0", a).hex("arg1", b).hex("arg2", c);
             emit(name, f);
@@ -1496,6 +1498,7 @@ namespace Horse
                                     uintptr_t self,
                                     bool result)
         {
+            if (!ReplayDebugTrace::instance().enabled()) return;
             ReplayTraceFields f;
             f.hex("self", self).boolean("result", result);
             emit(name, f);
@@ -2734,6 +2737,24 @@ namespace Horse
 
         struct NativeTickRootTraceSample
         {
+            struct CombatChara
+            {
+                uint16_t chara_id {0xFFFF};
+                uint64_t current_input_semantic_hash {0};
+                uint64_t movevm_state_semantic_hash {0};
+                uint64_t khit_semantic_hash {0};
+                uint32_t khit_node_count {0};
+                uint32_t facing_bits {0};
+                uint32_t position_bits[3] {};
+                uint32_t velocity_bits[3] {};
+                uint32_t root_step_bits[3] {};
+                uint32_t damage_state_bits[12] {};
+                uint32_t vital_candidate_bits {0};
+                uint32_t vital_displayed_bits {0};
+                bool readable {false};
+                bool khit_readable {false};
+            };
+
             struct CpuSubVM
             {
                 uintptr_t sched_state {0};
@@ -2757,6 +2778,7 @@ namespace Horse
 
             PreMainCharaMotionTraceSample p1 {};
             PreMainCharaMotionTraceSample p2 {};
+            CombatChara combat[2] {};
             CpuSubVM cpu_subvm[2] {};
             RngTraceHook::HistogramSnapshot lfsr {};
             RngTraceHook::HistogramSnapshot xorshift96 {};
@@ -2767,6 +2789,47 @@ namespace Horse
             int32_t replay_master {-1};
             bool stage_wind_readable {false};
         };
+
+        static NativeTickRootTraceSample::CombatChara
+        capture_native_tick_root_combat_chara(void* chara) noexcept
+        {
+            NativeTickRootTraceSample::CombatChara out {};
+            if (!chara) return out;
+            const auto* bytes = static_cast<const uint8_t*>(chara);
+            bool ok = true;
+            ok &= safe_read_bytes(bytes + 0x24C, &out.chara_id,
+                                  sizeof(out.chara_id));
+            out.current_input_semantic_hash =
+                hash_live_bytes(bytes + 0x2150, 0x40, &ok);
+            bool state_readable = false;
+            out.movevm_state_semantic_hash =
+                hash_live_bytes(bytes + 0x197C, 0x120, &state_readable);
+            ok &= state_readable;
+            ok &= safe_read_bytes(bytes + 0x94, &out.facing_bits,
+                                  sizeof(out.facing_bits));
+            ok &= safe_read_bytes(bytes + 0xA0, out.position_bits,
+                                  sizeof(out.position_bits));
+            ok &= safe_read_bytes(bytes + 0x130, out.velocity_bits,
+                                  sizeof(out.velocity_bits));
+            ok &= safe_read_bytes(bytes + 0xC0, out.root_step_bits,
+                                  sizeof(out.root_step_bits));
+            ok &= safe_read_bytes(bytes + 0x3D4, out.damage_state_bits,
+                                  sizeof(out.damage_state_bits));
+            ok &= safe_read_bytes(bytes + 0x43E08,
+                                  &out.vital_candidate_bits,
+                                  sizeof(out.vital_candidate_bits));
+            ok &= safe_read_bytes(bytes + 0x43E14,
+                                  &out.vital_displayed_bits,
+                                  sizeof(out.vital_displayed_bits));
+            const CollisionBodyTraceSample khit =
+                capture_collision_body_sample(bytes + 0x44078);
+            out.khit_readable = khit.runtime_readable && khit.list_readable
+                && khit.list_complete && !khit.list_cycle;
+            out.khit_semantic_hash = khit.list_semantic_hash;
+            out.khit_node_count = khit.node_hash_count;
+            out.readable = ok;
+            return out;
+        }
 
         struct FrameInputLogTickTraceSample
         {
@@ -2995,10 +3058,12 @@ namespace Horse
         capture_native_tick_root_trace_sample() noexcept
         {
             NativeTickRootTraceSample out {};
-            out.p1 = capture_pre_main_chara_motion_sample(
-                chara_slot_from_global(0));
-            out.p2 = capture_pre_main_chara_motion_sample(
-                chara_slot_from_global(1));
+            void* const p1_chara = chara_slot_from_global(0);
+            void* const p2_chara = chara_slot_from_global(1);
+            out.p1 = capture_pre_main_chara_motion_sample(p1_chara);
+            out.p2 = capture_pre_main_chara_motion_sample(p2_chara);
+            out.combat[0] = capture_native_tick_root_combat_chara(p1_chara);
+            out.combat[1] = capture_native_tick_root_combat_chara(p2_chara);
             out.lfsr = RngTraceHook::instance().snapshot_histogram();
             out.xorshift96 =
                 RngTraceHook::instance().snapshot_xorshift_histogram();
@@ -3175,6 +3240,69 @@ namespace Horse
             add_hex("rng_xorshift96_histogram_hash",
                     hash_rng_histogram_snapshot(sample.xorshift96));
 
+            for (size_t player_index = 0; player_index < 2;
+                 ++player_index)
+            {
+                const auto& combat = sample.combat[player_index];
+                char combat_prefix[96] {};
+                std::snprintf(
+                    combat_prefix, sizeof(combat_prefix), "%s_combat_p%zu",
+                    prefix, player_index + 1);
+                const auto add_combat_bool = [&fields, &key, &combat_prefix](
+                    const char* suffix, bool value) noexcept {
+                    std::snprintf(key, sizeof(key), "%s_%s",
+                                  combat_prefix, suffix);
+                    fields.boolean(key, value);
+                };
+                const auto add_combat_uint = [&fields, &key, &combat_prefix](
+                    const char* suffix, uint64_t value) noexcept {
+                    std::snprintf(key, sizeof(key), "%s_%s",
+                                  combat_prefix, suffix);
+                    fields.uinteger(key, value);
+                };
+                const auto add_combat_hex = [&fields, &key, &combat_prefix](
+                    const char* suffix, uint64_t value) noexcept {
+                    std::snprintf(key, sizeof(key), "%s_%s",
+                                  combat_prefix, suffix);
+                    fields.hex(key, static_cast<uintptr_t>(value));
+                };
+                add_combat_bool("readable", combat.readable);
+                add_combat_uint("chara_id", combat.chara_id);
+                add_combat_hex("current_input_semantic_hash",
+                               combat.current_input_semantic_hash);
+                add_combat_hex("movevm_state_semantic_hash",
+                               combat.movevm_state_semantic_hash);
+                add_combat_bool("khit_readable", combat.khit_readable);
+                add_combat_hex("khit_semantic_hash",
+                               combat.khit_semantic_hash);
+                add_combat_uint("khit_node_count", combat.khit_node_count);
+                add_combat_hex("facing_bits", combat.facing_bits);
+                for (size_t axis = 0; axis < 3; ++axis)
+                {
+                    char suffix[48] {};
+                    std::snprintf(suffix, sizeof(suffix),
+                                  "position_%zu_bits", axis);
+                    add_combat_hex(suffix, combat.position_bits[axis]);
+                    std::snprintf(suffix, sizeof(suffix),
+                                  "velocity_%zu_bits", axis);
+                    add_combat_hex(suffix, combat.velocity_bits[axis]);
+                    std::snprintf(suffix, sizeof(suffix),
+                                  "root_step_%zu_bits", axis);
+                    add_combat_hex(suffix, combat.root_step_bits[axis]);
+                }
+                add_combat_hex("vital_candidate_bits",
+                               combat.vital_candidate_bits);
+                add_combat_hex("vital_displayed_bits",
+                               combat.vital_displayed_bits);
+                for (size_t index = 0; index < 12; ++index)
+                {
+                    char suffix[48] {};
+                    std::snprintf(suffix, sizeof(suffix),
+                                  "damage_state_%zu_bits", index);
+                    add_combat_hex(suffix, combat.damage_state_bits[index]);
+                }
+            }
+
             char nested[96] {};
             std::snprintf(nested, sizeof(nested), "%s_p1", prefix);
             add_compact_chara_motion_fields(
@@ -3208,6 +3336,19 @@ namespace Horse
                 g_rollback_native_simulation_scope;
             ReplayTraceFields fields;
             fields.string("tick_root", root ? root : "?")
+                .string("oracle_schema", "sc6-native-combat-oracle-v1")
+                .string("oracle_executable_sha256",
+                    "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553")
+                .string("oracle_p1_asset_sha256",
+                    "1e48305304199ff9fb7cc97b154263b521e6f0763f5be3471e04c97ac7d096d3")
+                .string("oracle_p2_asset_sha256",
+                    "965480c6d0290c40a502ee40814a39c36e3bcd9f2e02d354844112607ffc046d")
+                .uinteger("oracle_p1_character_id", before.combat[0].chara_id)
+                .uinteger("oracle_p2_character_id", before.combat[1].chara_id)
+                .boolean("oracle_scope_admitted",
+                    before.combat[0].readable && before.combat[1].readable
+                    && before.combat[0].chara_id == 14
+                    && before.combat[1].chara_id == 3)
                 .uinteger("entry_sequence", entry_sequence)
                 .uinteger("entry_depth", entry_depth)
                 .uinteger("thread_id", GetCurrentThreadId())
@@ -4343,7 +4484,8 @@ namespace Horse
              .uinteger("lane_at_end", l ? safe_read_uint16(l + 0x1A) : 0)
              .uinteger("lane_frame_step_finished",
                        l ? safe_read_uint16(l + 0x24) : 0)
-             .uinteger("lane_in_transition", l ? safe_read_uint16(l + 0x26) : 0)
+             .uinteger("lane_primary_entry_script_bracket",
+                       l ? safe_read_uint16(l + 0x26) : 0)
              .uinteger("lane_transition_fired_marker",
                        l ? safe_read_uint16(l + 0x2C) : 0)
              .real("lane_playback_speed", l ? safe_read_float(l + 0x30) : -1.0f)
@@ -5333,9 +5475,12 @@ namespace Horse
             f.boolean("writable", writable)
              .hex("result", reinterpret_cast<uintptr_t>(result));
             emit("native_replay_get_save_manager", f);
-            RC::Output::send<RC::LogLevel::Default>(STR(
-                "[NativeReplayTrace] get_save_manager writable={} result=0x{:X}\n"),
-                writable ? 1 : 0, reinterpret_cast<uintptr_t>(result));
+            if (ReplayDebugTrace::instance().enabled())
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[NativeReplayTrace] get_save_manager writable={} result=0x{:X}\n"),
+                    writable ? 1 : 0, reinterpret_cast<uintptr_t>(result));
+            }
             return result;
         }
 
@@ -5508,11 +5653,14 @@ namespace Horse
              .integer("arg3", stage_or_left);
             add_battle_request_queue_fields(f, gi);
             emit("native_replay_set_active_stage_map_path_enter", f);
-            RC::Output::send<RC::LogLevel::Default>(STR(
-                "[NativeReplayTrace] set_active_stage_map_path gi=0x{:X} "
-                "arg1={} arg2={} arg3={}\n"),
-                reinterpret_cast<uintptr_t>(gi), left_or_stage,
-                right_or_chara, stage_or_left);
+            if (ReplayDebugTrace::instance().enabled())
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[NativeReplayTrace] set_active_stage_map_path gi=0x{:X} "
+                    "arg1={} arg2={} arg3={}\n"),
+                    reinterpret_cast<uintptr_t>(gi), left_or_stage,
+                    right_or_chara, stage_or_left);
+            }
             if (auto fn = orig<SetActiveStageMapPathFn>(Slot::SetActiveStageMapPath))
                 fn(gi, left_or_stage, right_or_chara, stage_or_left);
             ReplayTraceFields out;
@@ -5540,11 +5688,14 @@ namespace Horse
                .string("map_path", map_path)
                .integer("result", static_cast<int64_t>(result));
             emit("native_replay_deferred_stage_map_path_callback_exit", out);
-            RC::Output::send<RC::LogLevel::Default>(STR(
-                "[NativeReplayTrace] deferred_stage_map_path_callback "
-                "callback=0x{:X} result={} map='{}'\n"),
-                reinterpret_cast<uintptr_t>(callback), result,
-                RC::to_generic_string(map_path));
+            if (ReplayDebugTrace::instance().enabled())
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[NativeReplayTrace] deferred_stage_map_path_callback "
+                    "callback=0x{:X} result={} map='{}'\n"),
+                    reinterpret_cast<uintptr_t>(callback), result,
+                    RC::to_generic_string(map_path));
+            }
             return result;
         }
 
@@ -6449,13 +6600,13 @@ namespace Horse
             emit_chara_state_probe("IntegratePhysicsPerTick", "exit", chara);
         }
 
-        static int __fastcall detour_evaluate_defense_mode(void* chara)
+        static int __fastcall detour_evaluate_hit_contact_mode(void* chara)
         {
-            emit_chara_state_probe("EvaluateDefenseMode", "enter", chara);
+            emit_chara_state_probe("EvaluateHitContactMode", "enter", chara);
             int result = 0;
-            if (auto fn = orig<IntPtrFn>(Slot::EvaluateDefenseMode))
+            if (auto fn = orig<IntPtrFn>(Slot::EvaluateHitContactMode))
                 result = fn(chara);
-            emit_chara_state_probe("EvaluateDefenseMode", "exit", chara);
+            emit_chara_state_probe("EvaluateHitContactMode", "exit", chara);
             return result;
         }
 
@@ -7046,10 +7197,13 @@ namespace Horse
                .integer("current_replay_version_after",
                         replay_container_current_version(self));
             emit("native_replay_list_apply_temporary_data_exec_exit", out);
-            RC::Output::send<RC::LogLevel::Default>(STR(
-                "[NativeReplayTrace] apply_temporary_data container=0x{:X} "
-                "version={}\n"), reinterpret_cast<uintptr_t>(self),
-                replay_container_current_version(self));
+            if (ReplayDebugTrace::instance().enabled())
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[NativeReplayTrace] apply_temporary_data container=0x{:X} "
+                    "version={}\n"), reinterpret_cast<uintptr_t>(self),
+                    replay_container_current_version(self));
+            }
         }
 
         static bool __fastcall detour_handle_replay_file_request(
@@ -7075,11 +7229,14 @@ namespace Horse
                .integer("current_replay_version_after",
                         replay_container_current_version(container));
             emit("native_replay_handle_file_request_exit", out);
-            RC::Output::send<RC::LogLevel::Default>(STR(
-                "[NativeReplayTrace] handle_file_request board='{}' index={} "
-                "result={} version={}\n"), RC::to_generic_string(board),
-                entry_index, result ? 1 : 0,
-                replay_container_current_version(container));
+            if (ReplayDebugTrace::instance().enabled())
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[NativeReplayTrace] handle_file_request board='{}' index={} "
+                    "result={} version={}\n"), RC::to_generic_string(board),
+                    entry_index, result ? 1 : 0,
+                    replay_container_current_version(container));
+            }
             return result;
         }
 
@@ -7118,12 +7275,15 @@ namespace Horse
                         replay_container_current_version(container));
             add_tarray_fields(out, "payload", payload);
             emit("native_replay_handle_file_request_complete_exit", out);
-            RC::Output::send<RC::LogLevel::Default>(STR(
-                "[NativeReplayTrace] handle_file_request_complete id={} "
-                "succeeded={} captured={} payload_num={} version={}\n"),
-                request_id, succeeded ? 1 : 0,
-                captured ? 1 : 0, payload_header.num,
-                replay_container_current_version(container));
+            if (ReplayDebugTrace::instance().enabled())
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[NativeReplayTrace] handle_file_request_complete id={} "
+                    "succeeded={} captured={} payload_num={} version={}\n"),
+                    request_id, succeeded ? 1 : 0,
+                    captured ? 1 : 0, payload_header.num,
+                    replay_container_current_version(container));
+            }
         }
 
         static bool __fastcall detour_decompress_ulx1_entry_blob(
@@ -7161,11 +7321,14 @@ namespace Horse
                .boolean("result", result)
                .integer("version_after", replay_list_item_version(out_item));
             emit("native_replay_deserialize_entry_payload_exit", out);
-            RC::Output::send<RC::LogLevel::Default>(STR(
-                "[NativeReplayTrace] deserialize_entry_payload result={} "
-                "payload_num={} version={}\n"), result ? 1 : 0,
-                safe_read_tarray_header(payload).num,
-                replay_list_item_version(out_item));
+            if (ReplayDebugTrace::instance().enabled())
+            {
+                RC::Output::send<RC::LogLevel::Default>(STR(
+                    "[NativeReplayTrace] deserialize_entry_payload result={} "
+                    "payload_num={} version={}\n"), result ? 1 : 0,
+                    safe_read_tarray_header(payload).num,
+                    replay_list_item_version(out_item));
+            }
             return result;
         }
 

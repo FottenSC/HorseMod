@@ -103,21 +103,31 @@ def validate_khd(path: str, data: bytes) -> tuple[bool, list[str], dict]:
     else:
         n_b = sec_b.size // 6
         stats["section_B_records"] = n_b
-        stats["section_B_throw_records"] = len(sec_b.throw_cells)
+        stats["section_B_non_attack_records"] = len(sec_b.non_attack_descriptors)
         if n_b > 0:
             field2 = Counter(
                 struct.unpack_from("<H", sec_b.raw, i * 6 + 2)[0] for i in range(n_b)
             )
             stats["section_B_field2_distribution"] = dict(field2.most_common(3))
-            max_throw_damage = max((t.wDamage for t in sec_b.throw_cells), default=0)
-            stats["section_B_throw_damage_max"] = max_throw_damage
-            if max_throw_damage > 500:
-                issues.append(f"section B: max throw damage {max_throw_damage} is implausible")
+            max_damage_multiplier = max(
+                (t.nSDamageMultiplier for t in sec_b.non_attack_descriptors), default=0
+            )
+            stats["section_B_damage_multiplier_max"] = max_damage_multiplier
+            if max_damage_multiplier > 500:
+                issues.append(
+                    f"section B: max non-attack damage multiplier {max_damage_multiplier} "
+                    "is implausible"
+                )
 
-    if k.throw_to_slots:
-        max_throw_ref = max(k.throw_to_slots)
-        if len(k.sections) > 1 and max_throw_ref >= len(k.sections[1].throw_cells):
-            issues.append(f"throw refs exceed Section B count: {max_throw_ref}")
+    if k.non_attack_to_slots:
+        max_non_attack_ref = max(k.non_attack_to_slots)
+        if (
+            len(k.sections) > 1
+            and max_non_attack_ref >= len(k.sections[1].non_attack_descriptors)
+        ):
+            issues.append(
+                f"non-attack refs exceed Section B count: {max_non_attack_ref}"
+            )
 
     sec_c = k.sections[2]
     stats["section_C_size"] = sec_c.size

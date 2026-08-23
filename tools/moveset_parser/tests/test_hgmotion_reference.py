@@ -8,12 +8,17 @@ import pytest
 from hgmotion_reference import (
     HuffmanBitReader,
     MotionPlaybackState,
+    PoseMotionLane,
     build_huffman_table,
     decode_huffman_keyframe_data,
     decode_root_movement_frames,
+    decode_collision_pose,
+    decode_four_lane_collision_pose,
+    compose_transform,
     frame_group_index,
     frame_in_group,
     parse_motion_clip,
+    load_compact_collision_skeleton_from_nmd_manifest,
 )
 from luxformats import parse_mot
 
@@ -37,6 +42,87 @@ def test_frame_group_helpers_match_8_frame_groups():
     assert frame_in_group(0) == 0
     assert frame_in_group(7) == 7
     assert frame_in_group(8) == 0
+
+
+def test_full_core_pose_decode_composes_the_native_nmd_hierarchy():
+    root = Path("E:/myMods/dump/Battle")
+    mot = parse_mot((root / "mot" / "chr012.mot").read_bytes())
+    skeleton = load_compact_collision_skeleton_from_nmd_manifest(
+        root / "nmd" / "profile_overlays" / "012" / "manifest.json",
+        root / "profile" / "RP_012.json",
+    )
+    clip_index = 0x0200
+    pose = decode_collision_pose(
+        mot.section(clip_index), skeleton, 13.0, range(23),
+        clip_index=clip_index, offset=mot.offsets[clip_index],
+    )
+    assert set(pose.requested_world) == set(range(23))
+    for index in range(1, 23):
+        expected = compose_transform(pose.world[skeleton.parents[index]], pose.local[index])
+        assert pose.world[index].translation == pytest.approx(expected.translation, abs=1e-7)
+        assert pose.world[index].rotation == pytest.approx(expected.rotation, abs=1e-7)
+
+
+def test_nmd_overlay_uses_converted_native_core_parents_not_raw_source_links():
+    root = Path("E:/myMods/dump/Battle")
+    skeleton = load_compact_collision_skeleton_from_nmd_manifest(
+        root / "nmd" / "profile_overlays" / "012" / "manifest.json",
+        root / "profile" / "RP_012.json",
+    )
+    # Upper-arm and thigh chains are independent evidence that raw NMD +0x60
+    # was not already in the final collision-reference parent domain.
+    assert skeleton.parents[8:10] == (7, 8)       # UDE_L -> KATA_L -> TE_L
+    assert skeleton.parents[15:19] == (14, 15, 16, 17)
+
+
+def test_selector06_consumes_words_without_publishing_a_joint_rotation():
+    root = Path("E:/myMods/dump/Battle")
+    mot = parse_mot((root / "mot" / "chr012.mot").read_bytes())
+    skeleton = load_compact_collision_skeleton_from_nmd_manifest(
+        root / "nmd" / "profile_overlays" / "012" / "manifest.json",
+        root / "profile" / "RP_012.json",
+    )
+    clip_index = 0x0200
+    pose = decode_collision_pose(
+        mot.section(clip_index), skeleton, 16.0, (8,),
+        clip_index=clip_index, offset=mot.offsets[clip_index],
+    )
+
+    # Default-stream logical transform 8 is selector 0x06. The executable
+    # consumes its i16 but performs no FTransform48 write or dirty publication.
+    assert pose.local[8] == skeleton.reference_local[8]
+
+
+def test_four_lane_pose_single_full_weight_lane_matches_direct_decode():
+    root = Path("E:/myMods/dump/Battle")
+    mot = parse_mot((root / "mot" / "chr012.mot").read_bytes())
+    skeleton = load_compact_collision_skeleton_from_nmd_manifest(
+        root / "nmd" / "profile_overlays" / "012" / "manifest.json",
+        root / "profile" / "RP_012.json",
+    )
+    clip_index = 0x0200
+    raw = mot.section(clip_index)
+    direct = decode_collision_pose(
+        raw, skeleton, 13.0, range(23),
+        clip_index=clip_index, offset=mot.offsets[clip_index],
+    )
+    blended = decode_four_lane_collision_pose(
+        (
+            PoseMotionLane(raw, 13.0, 1.0, True, clip_index, mot.offsets[clip_index]),
+            PoseMotionLane(None, 0.0, 0.0, False),
+            PoseMotionLane(None, 0.0, 0.0, False),
+            PoseMotionLane(None, 0.0, 0.0, False),
+        ),
+        skeleton,
+        range(23),
+    )
+    for index in range(23):
+        assert blended.world[index].translation == pytest.approx(
+            direct.world[index].translation, abs=1e-7
+        )
+        assert blended.world[index].rotation == pytest.approx(
+            direct.world[index].rotation, abs=1e-7
+        )
 
 
 def test_huffman_table_builder_accepts_real_clip_stream():
@@ -124,6 +210,19 @@ def test_selector16_applies_clip_authored_quarter_turn():
     assert frames[0].local_x == pytest.approx(0.024, abs=1e-6)
     assert frames[0].local_y == pytest.approx(0.956, abs=1e-6)
     assert frames[0].local_z == pytest.approx(0.903, abs=1e-6)
+
+
+def test_left_ukemi_exposes_selector16_yaw_side_channel_separately():
+    mot = parse_mot(Path("E:/myMods/dump/Battle/mot/chr000.mot").read_bytes())
+    clip_index = 0x0B5  # Packed motion ID 0x10B5.
+    _, frames, _ = decode_root_movement_frames(
+        mot.section(clip_index), clip_index, mot.offsets[clip_index]
+    )
+
+    assert frames[0].root_yaw_turns == 0.0
+    assert max(frame.root_yaw_turns for frame in frames) == pytest.approx(
+        32767.0 / 65536.0
+    )
 
 
 def test_decode_frame_words_for_representative_backsteps():

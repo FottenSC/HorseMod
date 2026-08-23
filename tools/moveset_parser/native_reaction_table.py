@@ -24,6 +24,46 @@ class LuxHitReactionMoveIdRow:
     def all_move_ids(self) -> tuple[int, ...]:
         return self.base_move_ids_by_facing + self.alternate_move_ids_by_facing
 
+    @staticmethod
+    def _path_status(move_ids: tuple[int, ...]) -> str:
+        promoted = tuple(bool(move_id & 0x8000) for move_id in move_ids)
+        if all(promoted):
+            return "promoted"
+        if any(promoted):
+            return "mixed"
+        return "ordinary"
+
+    @property
+    def base_move_path_status(self) -> str:
+        """Bit-15 path for the native standing/base reaction column."""
+
+        return self._path_status(self.base_move_ids_by_facing)
+
+    @property
+    def alternate_move_path_status(self) -> str:
+        """Bit-15 path for the crouched/alternate reaction column."""
+
+        return self._path_status(self.alternate_move_ids_by_facing)
+
+    @property
+    def move_path_status(self) -> str:
+        """Classify the native bit-15 reaction-control path across facings.
+
+        ``LuxBattle_ComputeHitReactionParams @ 0x140343B90`` tests bit 15
+        before clearing it from the MoveVM id.  Clear ids use the ordinary
+        reaction setup; set ids use the promoted classifier-5 path and the
+        alternate-posture stun columns.  Mixed rows are kept explicit rather
+        than assuming a facing sector during an offline export.
+        """
+
+        statuses = {
+            self.base_move_path_status,
+            self.alternate_move_path_status,
+        }
+        if len(statuses) != 1:
+            return "mixed"
+        return next(iter(statuses))
+
 
 @dataclass(frozen=True)
 class LuxHitReactionMoveIdTable:

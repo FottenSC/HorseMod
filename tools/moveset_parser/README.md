@@ -66,25 +66,11 @@ Cross-character consistency checks confirm:
   chara**, `yararehit` at 18-19 sphere + 1 area, `atkhit` varies by
   character (30-72 records, sphere + area, no fix-area found).
 
-### Caveat about section-A tag bytes
-
-Section A `+0x5F` bytes are **all 0x00 or 0xFF** in every shipped file
-(6881 x 0x00, 90 x 0xFF, no other values). This is a flag finding:
-the `FLuxMoveDataEntry` typeTag enum that `LuxMoveVM_UpdateMoveDataTable`
-dispatches on (0x04..0x1E) does NOT appear on-disk in section A.
-
-Likely interpretation: section A is an **index / lookup record** array
-(one slot per move; engine rewrites the type-tag byte after asset-loader
-pre-processing). The actual typed move-record payload lives in
-section C, which has variable record sizes and was not auto-decoded
-by the parser (the engine walks it via in-memory pointer fixups
-done by the UE4 asset loader before the C++ loader sees it).
-
 ## What it parses
 
 | Extension | Source folder | Format | Coverage |
 |-----------|--------------|--------|----------|
-| `.khd` | `Battle/hdr/` | KH11 moveset header — 3 sub-sections | header + section-shape ✓; section C variant records TBD |
+| `.khd` | `Battle/hdr/` | KH11 moveset bank — slots, attack/non-attack cells, event records | decoded core tables ✓; section-C opaque payload remains partial |
 | `.mot` | `Battle/mot/` | Motion / animation offset table | header ✓ (section internals = raw frame data, not parsed) |
 | `.dtp` | `Battle/cpu/` | CPU AI personality table | header ✓ (sections 3 / 6 / 8 documented) |
 | `.dat` | `Battle/hit/` | KHit i16-tagged stream | record-walk ✓ (sphere/area/fixarea variant tags) |
@@ -110,6 +96,11 @@ python parse.py path\to\hdr001.khd --raw
 python validate.py
 python validate.py --verbose      # per-file detail
 python validate.py --root <path>  # use a different dump root
+
+# Regenerate one or more character payloads without racing shared indexes,
+# then rebuild the roster and v2 lookup index after every batch completes.
+python export_webui_data.py --cids 001,012
+python export_webui_data.py --rebuild-index-only
 ```
 
 Community frame-data spreadsheet handling is comparison-only. Keep local
@@ -178,10 +169,15 @@ UIs.
 
 Schema-v2 export decodes each unique official move's `MainIndex` through section
 1 of the matching `cpuaiNNN.dtp`; it is a MoveVM command-definition ID, never a
-KHD cell or slot index. The offline dispatcher observes the first and last
-publication of each attack-button span, evaluates the native standing selector
-(`packed 0x304E`) with the verified character-state predicates, and then follows
-only game-authored unconditional KHD transitions. A single route is tagged
+KHD cell or slot index. The offline dispatcher evaluates the native standing
+selector (`packed 0x304E`) until its first target commits to combat lane zero.
+Later CPUAI button steps are input publications owned by that active lane's
+transition graph; they are never replayed as independent standing moves or
+treated as contacts. For proofs that need the actual lane target rather than an
+observation, the full-timeline resolver executes move 0's native order:
+observation coordinator `0x3048`, live
+transition coordinator `0x3049`, then the `0x300B` author of globals
+`0x44/0x46/0x47`. It then follows only game-authored KHD transitions. A single route is tagged
 `heuristic`, multiple viable slots are `ambiguous`, and malformed or unsupported
 paths fail closed. Category memberships never create rows or families.
 
@@ -210,11 +206,11 @@ contact modes), not a CH-exclusive or airborne column.
 +0x30..section_A   FLuxMoveBankSlotView table, then opaque/unused bytes
 ```
 
-**Section A** is a 0x70-stride array of lookup records (150-452 entries
-per chara). Type-tag byte at `+0x5F` is always `0x00` (slot in use) or
-`0xFF` (sentinel / cleared). The full FLuxMoveDataEntry layout
-documented in Ghidra applies AFTER the UE4 asset loader's in-memory
-preprocessing; the on-disk variant is a related-but-different shape.
+**Section A** is a 0x70-stride array of `LuxBattleAttackCell` records
+(150-452 entries per character). Byte `+0x5F` is the high byte of the
+`wU16HitboxGroupBitfield` at `+0x5E`, not an independent type tag; its
+observed `0x00`/`0xFF` values distinguish ordinary group masks from cleared
+sentinels.
 
 **Section B** is a 6-byte stride table (small, 9-61 records). Each
 record is three u16: `(value, marker, flags)` where `marker` is usually
@@ -373,7 +369,7 @@ several at FIXED sizes across all characters (strong invariants):
 | 1     | 4400-10064 (varies)    | Personality custom table — u16 slot count at +0x08, per-slot 18-byte rows |
 | 2     | **always 2320**        | Fixed weight slot block (1 entry) |
 | 3     | 560-1264 (varies)      | (additional weight block) |
-| 4     | 83200 or 89600         | Big lookup table (only 2 distinct sizes) |
+| 4     | 83200 or 89600         | 8-byte reaction-weight entries, indexed as bank × 800 + move definition |
 | 5     | **always 34880**       | Array of 15 × 2320-byte weight blocks (`u32 count=15 @ +0x00`, then offset table, then 15 entries) |
 | 6     | **always 0**           | Personality alternate data (empty — patched in at runtime via `LuxBattle_SetCpuPersonalityAlternateData`) |
 | 7     | **always 1488**        | Always starts with `"PSNL"` magic — custom personality vtable trigger |
@@ -441,9 +437,85 @@ Inner LPB:
 +0x40  bytes     packed sub-section data
 ```
 
+## Static combo analyzer
+
+`static_combo_analyzer.py` is the asset-only entry point for combo science.
+Its scenario JSON identifies the attacker/style, opener and forced contact
+class, held follow-up route, defender action/direction, spacing policy, and
+optional observed labels. It consumes KHD, MOT, KHit streams, NMD/profile
+references, `yarare.dat`, and MoveBank event records. The
+first scenario is Astaroth lethal slot 372 into held slots 341→342 against
+defender-left ukemi slot `0x8E`; Maxi and Setsuka are intentionally absent.
+
+The recovered native sequence for that case is:
+
+1. Opener contact is coordinate 17. The real lethal classifier selects the
+   special-contact reaction row 1037; training slot 374 is evidence for the
+   equivalent authored cell/event route, not the simulated input.
+2. Opener coordinate 56 admits slot 341, 39 ticks after contact. A continuous
+   B hold satisfies its 32-tick input-history predicate while the unit-speed
+   lane independently reaches coordinate 32.
+3. Slot 342 starts at coordinate 10. Cell 112 is active at coordinates
+   13..16 (contact ticks 74..77 in this route). Its authored `u64SlotMask` is
+   `0x1`, so KHit attack slot 0 is selected from the cell instead of being
+   hardcoded by the analyzer.
+4. Every tick publishes MOT root/effect movement, composes the compact NMD
+   collision hierarchy, refreshes KHit world centres, and applies strict sphere
+   overlap (`distance² < (r1+r2)²`). Both the row-1037 reaction entry and slot
+   `0x8E` execute effect `0x0027`, which disables all BODY nodes; no later
+   re-enable occurs before held slot 342's active frames, so BODY separation is
+   inactive throughout this scenario window. Hurt rows above 21 are excluded
+   by the damaging classifier even if geometry exists.
+
+The row-1037 admission boundary is now static-native rather than a terminal-
+coordinate probe. Lethal cell 145 publishes a 52-step counter. Input selection
+runs before the post-lane counter decrement, so tick 52 still observes a
+nonzero counter and the first legal grounded selection is tick 53. Slot `0x78`
+then executes its one-argument `TransitionAuthor_06(0x008E)` call. The shared
+author initializes start/threshold to zero and raises the threshold-now flag;
+`LuxMoveVM_ExecuteOpStream` rechecks and commits `0x8E` in that same lane-0
+invocation. The first ukemi sampler coordinate is therefore zero on tick 53.
+
+Lane ownership matters independently of that timeline. Defender reaction
+playback is lane 1 (solver slots 2/3), while grounded/ukemi playback is lane 0
+(slots 0/1). Direct root motion processes slots 0..3 in order and attenuates
+an earlier slot by `(1 - laterWeight)` for every later active slot. A full-
+weight lane-1 reaction can therefore suppress lane-0 ukemi root without
+stopping lane 0's sample cache from advancing. On the attacker, slot 341's
+three-argument `CALLCOND 0x07` authors slot 342 on lane 1 at start/threshold
+coordinate 10; it does not replace lane 0 in place.
+
+The analyzer still emits `complete: false`. Its pose-state output separates the
+four ordered main blend lanes from the fifth physical auxiliary playback
+record. The authored-pose API rejects active controller/IK gates instead of
+substituting identities, and
+Seong Mi-na's `0x8E` descriptor is a concrete motion-flag-`0x80` main-analytic-
+IK case. Exact playback-cache/lane-end behavior, facing retrack, and the
+remaining controller/IK gates are still open. BODY is proven inactive in this
+window and is no longer an unresolved spacing input. Current KHit geometry does
+not reproduce the 26 labels, so
+the report contains no prediction. Observed hit/escape labels are never used
+to choose timing or geometry.
+
+The shipped reaction selection itself gives a strong label-free partition:
+all nine reported catches select common reaction motion `0x13DB` or `0x1477`;
+all seventeen reported escapes select `0x149A` or `0x1478`. This identifies
+reaction selection as the first causal difference, but it is not accepted as
+the final explanation until KHit overlap reproduces the observations.
+
+Example:
+
+```powershell
+python tools/moveset_parser/static_combo_analyzer.py `
+  --battle-root dump/Battle `
+  --output astaroth-left-ukemi.json `
+  --markdown-output astaroth-left-ukemi.md
+```
+
 ## What's not implemented
 
-- Motion frame data inside `.mot` sections (HgMotion's internal animation format).
+- Remaining HgMotion runtime controller/IK branches beyond the authored core
+  channel decoder and compact collision-pose composition.
 - AI personality custom-table row decoding (`.dtp` section 3, 18-byte rows).
 - VTB per-entry semantics (0x84 bytes — opcode + params).
 - LPB sub-section internals.

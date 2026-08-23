@@ -6,9 +6,25 @@ from pathlib import Path
 import pytest
 
 from native_move_commands import (
+    parse_cpuai_command_data,
     parse_move_play_command_table,
     parse_transition_command_table,
 )
+
+
+def _cpuai_reaction_fixture() -> bytes:
+    command = struct.pack("<2I", 0x00050001, 0x00050005)
+    definitions = struct.pack("<I8H", 1, 0, 0, 0, 0, 0, 0, 0, 0)
+    sections = [command, definitions, b"", b"", bytearray(800 * 8)]
+    struct.pack_into("<HHI", sections[4], 7 * 8, 25, 40, 0x12345678)
+    header_size = 4 + (len(sections) + 1) * 4
+    offsets = [header_size]
+    for section in sections:
+        offsets.append(offsets[-1] + len(section))
+    return (
+        struct.pack(f"<{len(offsets) + 1}I", len(sections), *offsets)
+        + b"".join(bytes(section) for section in sections)
+    )
 
 
 def _cpuai_fixture(script: list[int]) -> bytes:
@@ -84,6 +100,14 @@ def test_move_play_table_validates_every_section_offset_and_final_sentinel():
     malformed = struct.pack("<5I", 3, 0x14, 0x14, 0x30, 0x20) + bytes(0x1C)
     with pytest.raises(ValueError, match="not monotonic"):
         parse_move_play_command_table(malformed)
+
+
+def test_parse_cpuai_reaction_weight_banks():
+    parsed = parse_cpuai_command_data(_cpuai_reaction_fixture())
+    assert len(parsed.reaction_weight_banks) == 1
+    assert parsed.reaction_weight_banks[0][7].normal_weight == 25
+    assert parsed.reaction_weight_banks[0][7].alternate_weight == 40
+    assert parsed.reaction_weight_banks[0][7].flags_or_filter_word == 0x12345678
 
 
 def test_parse_transition_command_rows():

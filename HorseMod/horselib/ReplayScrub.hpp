@@ -78,6 +78,7 @@
 #include "NativeBinding.hpp"
 #include "NativeReplayTraceHook.hpp"
 #include "ReplayDebugTrace.hpp"
+#include "ReplayTracePlaybackGate.hpp"
 #include "ReplayAnimationPresentation.hpp"
 #include "ReplayInputPairAuthority.hpp"
 #include "ReplayMatrixBankRing.hpp"
@@ -3406,10 +3407,10 @@ namespace Horse
 
     // ------------------------------------------------------------------
     // EngineLoopPreStubArraySkipOverride - skips pre-game temporary array
-    // setup for a stubbed KHitArea_UpdateFromAnimCell call.
+    // setup for the shared ret-only HandleLuxNoOpVirtual call.
     //
     // FEngineLoop zeros R12, builds a one-item stack/small-array wrapper,
-    // calls KHitArea_UpdateFromAnimCell_Stub, then tears the array down.
+    // calls HandleLuxNoOpVirtual, then tears the array down.
     // Ghidra shows the target as a ret-only stub in this build, so the
     // wrapper work is pure overhead for no-render generation.
     // ------------------------------------------------------------------
@@ -9923,6 +9924,7 @@ namespace Horse
         // Tear down at module shutdown.
         void shutdown()
         {
+            stop_replay_trace_playback_session("shutdown");
             trace_pending_native_step_event(
                 "sc6_validation_step_abandoned", "shutdown");
             release_replay_file_profile_container();
@@ -9966,6 +9968,7 @@ namespace Horse
         //   * Frame counter advanced since last observation
         void tick_capture(bool refresh_ui_runtime_cache = false)
         {
+            service_replay_trace_playback_gate();
             if (!is_initialized())
             {
                 if (refresh_ui_runtime_cache)
@@ -14671,6 +14674,8 @@ namespace Horse
         //     never fires for a replay->replay swap.
         void reset_for_new_replay(const char* reason) noexcept
         {
+            stop_replay_trace_playback_session(
+                reason ? reason : "new-replay-reset");
             const size_t  cnt_before = m_tags.count();
             const int32_t last_seek  =
                 m_last_seek_target.load(std::memory_order_relaxed);
@@ -15238,6 +15243,52 @@ namespace Horse
         }
 
     private:
+        void service_replay_trace_playback_gate() noexcept
+        {
+            ReplayDebugTrace& trace = ReplayDebugTrace::instance();
+            const bool in_replay =
+                GameMode::instance().current_presence()
+                    == GamePresence::Replay;
+
+            RC::Unreal::UObject* replay_player = nullptr;
+            int32_t is_playing_back = -1;
+            if (trace.configured() && in_replay)
+            {
+                replay_player = ReplayScrubDiag::replay_player_ptr().get(
+                    L"LuxBattleReplayPlayer");
+                if (replay_player)
+                {
+                    uint8_t value = 0;
+                    if (SafeReadUInt8(
+                            reinterpret_cast<const uint8_t*>(replay_player)
+                                + kRP_IsPlayingBack_Off,
+                            &value))
+                    {
+                        is_playing_back = value ? 1 : 0;
+                    }
+                }
+            }
+
+            const ReplayTracePlaybackGate::Transition transition =
+                m_replay_trace_playback_gate.update(
+                    trace.configured(), in_replay,
+                    reinterpret_cast<uintptr_t>(replay_player),
+                    is_playing_back);
+            if (transition.deactivate)
+                trace.set_playback_session_active(
+                    false, "playback-session-ended");
+            if (transition.activate)
+                trace.set_playback_session_active(
+                    true, "playback-session-started");
+        }
+
+        void stop_replay_trace_playback_session(const char* reason) noexcept
+        {
+            (void)m_replay_trace_playback_gate.reset();
+            ReplayDebugTrace::instance().set_playback_session_active(
+                false, reason);
+        }
+
         ReplayScrub() = default;
         // shutdown() (not just free_ring()) so a hot-unload mid-
         // generation can't leave the engine frame cap removed / the
@@ -17176,6 +17227,7 @@ namespace Horse
         // is harmless.  Cockpit thread only.
         RC::Unreal::UObject* m_last_bm_obj            {nullptr};
         RC::Unreal::UObject* m_last_replay_player_obj {nullptr};
+        ReplayTracePlaybackGate m_replay_trace_playback_gate {};
 
         // Toggles + flags.
         std::atomic<bool> m_initialized              {false};

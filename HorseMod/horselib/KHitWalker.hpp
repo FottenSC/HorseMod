@@ -489,10 +489,10 @@ namespace Horse
         // Lane 2's AnimVariantIndex (u32) — Lane2Base + 0x460.
         constexpr uintptr_t Lane2_AnimVariantIndex = 0x45220;
 
-        // MoveStartCounter bumped once each time TransitionToMove fires
-        // for any lane — useful for detecting move changes without
-        // diffing PackedMoveAddr.  Written at 0x1402fe... in transition.
-        constexpr uintptr_t MoveStartCounter       = 0x1350;   // u32
+        // Cell/descriptor sequence counter. TransitionToMove increments it
+        // when binding a non-sentinel attack-cell or non-attack descriptor
+        // reference, and resets it to zero for the authored 0xFFFF sentinel.
+        constexpr uintptr_t CellDescriptorSequence = 0x1350;   // u32
         // Live anim-frame float mirror written by ProcessHit from the
         // active lane's cursor+0x08 (so HUD code can read it without
         // chasing the cursor pointer).  Kept per-chara.
@@ -668,7 +668,7 @@ namespace Horse
 
         // u16 AttackFlags (+0x32) — high/mid/low/throw + blockability
         // bits; THE per-cell attack-attribute byte.  Consumed by
-        // LuxMoveVM_EvaluateMoveTransition @ 0x14033E140 to decide
+        // LuxBattle_ClassifyAttackContact @ 0x14033E140 to decide
         // whether an overlap fires hit/block/whiff:
         //
         //   bit 0x001  HighBlockable   — standing block can block this
@@ -704,7 +704,7 @@ namespace Horse
     // ------------------------------------------------------------------
     // ELuxBattleAttackFlags — bit set on LuxBattleAttackCell+0x32.
     //
-    // Source of truth: LuxMoveVM_EvaluateMoveTransition @ 0x14033E140
+    // Source of truth: LuxBattle_ClassifyAttackContact @ 0x14033E140
     // (see Ghidra plate).  Used during hit classification to decide
     // block vs hit vs whiff vs unblockable.  HorseMod stamps the active
     // cell's flags onto every attack KHitDraw so the renderer can
@@ -818,7 +818,7 @@ namespace Horse
     // ------------------------------------------------------------------
     // LuxMoveLaneState — 0x468 bytes per lane, 3 lanes per chara.
     // Decoded 2026-04 via Ghidra pass on
-    //   LuxMoveVM_TransitionToMove        (0x1402FEC50)
+    //   LuxMoveVM_TransitionToMove        (0x1402FE350)
     //   LuxMoveVM_AdvanceLaneFrameStep    (0x1402FFEB0)
     //   LuxMoveVM_CommitMoveEnd           (0x1402FCFB0)
     //   LuxBattleChara_ProcessHit         (0x140342780)
@@ -844,7 +844,9 @@ namespace Horse
         constexpr uintptr_t AtEndFlag              = 0x1A;  // u16 (1 at final frame)
         constexpr uintptr_t FrameDeltaThisTick     = 0x1C;  // i16 (frames advanced this tick)
         constexpr uintptr_t FrameStepFinished      = 0x24;  // u16 (1 once end reached)
-        constexpr uintptr_t InTransitionFlag       = 0x26;  // u16 (1 during TransitionToMove)
+        // Set around primary target-entry setup and optional bytecode execution;
+        // an inactive packed move can skip the script while this bracket is set.
+        constexpr uintptr_t PrimaryEntryScriptBracket = 0x26;  // u16
         constexpr uintptr_t PlaybackSpeedCurrent   = 0x30;  // float (ramps to target)
         constexpr uintptr_t PlaybackSpeedTarget    = 0x34;  // float
         constexpr uintptr_t TotalTickCounter       = 0x458; // i32 (monotonic across advances)
@@ -1058,7 +1060,7 @@ namespace Horse
         //     center.  The overlay reads +0x50/+0x70, so it includes
         //     these modifiers.
         //   * Area and FixArea vtable+0x28 both point to
-        //     KHitArea_UpdateFromAnimCell_Stub @ 0x1402D2BC0, a literal
+        //     HandleLuxNoOpVirtual @ 0x1402D2BC0, a literal
         //     RET.  Their local reference points are stream-authored and
         //     not modified by anim-cell data.
         //
@@ -1501,7 +1503,7 @@ namespace Horse
         // The hurt's +0x14 starts at whatever the move's hurtbox
         // stream deserializer wrote at load time, and is REWRITTEN
         // by the move-script VM via opcode 0x13AC dispatched in
-        // LuxMoveVM_DispatchEffectOp (0x14037A160), which calls
+        // LuxMoveVM_DispatchEffectOp (0x140376B20), which calls
         // LuxMoveVM_SetHurtboxSlotsActiveMask (0x140308D70) with a
         // 23-bit mask:
         //     for slot 0..22:
@@ -1728,7 +1730,7 @@ namespace Horse
         // The currently-active LuxBattleAttackCell on THIS chara — the
         // same cell pointer that LuxBattle_ResolveAttackVsHurtboxMask22
         // (0x14033C100) reads (via the opponent's +0x44048 copy) and
-        // hands to LuxMoveVM_EvaluateMoveTransition (0x14033E140) to
+        // hands to LuxBattle_ClassifyAttackContact (0x14033E140) to
         // decide block/hit/whiff per slot.
         //
         // Both fields are stamped on EVERY KHitDraw produced for this
@@ -2059,7 +2061,7 @@ namespace Horse
             int32_t  tick_counter   = 0;      // +0x04 (ticks since move start)
             bool     at_end         = false;  // +0x1A
             bool     finished       = false;  // +0x24
-            bool     in_transition  = false;  // +0x26
+            bool     primary_entry_script_bracket = false;  // +0x26
 
             // ---- Attack-phase / frame-window state (chara-side, not lane) ----
             // Sourced from chara+0x1980 (FrameWindowPhaseTag) + cell+0x36/+0x38
@@ -2135,13 +2137,14 @@ namespace Horse
                           &s.playback_speed);
             SafeReadInt32(L + LuxMoveLaneOffsets::TickCounter,
                           &s.tick_counter);
-            uint16_t atEnd = 0, fin = 0, inTr = 0;
+            uint16_t atEnd = 0, fin = 0, entryBracket = 0;
             SafeReadUInt16(L + LuxMoveLaneOffsets::AtEndFlag,         &atEnd);
             SafeReadUInt16(L + LuxMoveLaneOffsets::FrameStepFinished, &fin);
-            SafeReadUInt16(L + LuxMoveLaneOffsets::InTransitionFlag,  &inTr);
+            SafeReadUInt16(L + LuxMoveLaneOffsets::PrimaryEntryScriptBracket,
+                           &entryBracket);
             s.at_end        = (atEnd != 0);
             s.finished      = (fin   != 0);
-            s.in_transition = (inTr  != 0);
+            s.primary_entry_script_bracket = (entryBracket != 0);
 
             // --- Attack-phase / frame-window snapshot ----------------
             // Read the engine's per-tick phase classifier output at
@@ -2453,7 +2456,7 @@ namespace Horse
 
         // ----------------------------------------------------------------
         // Snapshot of defender-side stance/state bytes consumed by
-        // LuxMoveVM_EvaluateMoveTransition @ 0x14033E140 when classifying
+        // LuxBattle_ClassifyAttackContact @ 0x14033E140 when classifying
         // an incoming hit.  Read once per chara per tick; same value
         // stamped onto every KHitDraw produced for the chara.
         //

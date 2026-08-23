@@ -12,6 +12,7 @@ TanStack Router loaders (no Python at runtime).
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import os
 import re
@@ -28,11 +29,11 @@ from move_graph import (
     build_slot_graph, identify_stance_roots,
     build_flat_moves,
     serialize_edge, serialize_effect, serialize_root, serialize_flat_move,
+    trace_facing_effects,
     USER_INPUT_KINDS,
 )
 import uassetparse
 import locales
-from native_route_evidence import resolve_native_route
 from native_frame_analysis import analyze_confirmed_slot_frames, analyze_throw_break_frames
 from native_startup_analysis import analyze_player_startup, serialize_startup_evidence
 from native_reaction_table import (
@@ -41,8 +42,12 @@ from native_reaction_table import (
 )
 from native_input_routes import (
     NativeDispatcherResolver,
+    cpuai_button_mask_to_compact,
+    resolve_publication_entry_route,
+    resolve_native_contact_followups,
     resolve_unconditional_attack_route,
 )
+from locomotion_movement import MOVE_TABLE_INDEX_BY_CID
 from native_move_commands import (
     MovePlayCommandTable,
     parse_move_play_command_table,
@@ -117,6 +122,7 @@ def load_movelist_for_chara(
     move_play_commands: MovePlayCommandTable | None = None,
     native_dispatcher: NativeDispatcherResolver | None = None,
     reaction_table: LuxHitReactionMoveIdTable | None = None,
+    reaction_khds: tuple[object, ...] | None = None,
 ) -> dict[str, Any] | None:
     """Parse a character's UE4 DataAsset + localization. Returns a dict
     with `categories` (the in-game movelist ordering) and `moves` (an
@@ -163,6 +169,7 @@ def load_movelist_for_chara(
         move_play_commands,
         native_dispatcher,
         reaction_table,
+        reaction_khds,
     )
 
 
@@ -657,8 +664,86 @@ def _find_dispatcher_variants(
     return variants
 
 
+def _tracking_from_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Separate reachable facing candidates from independently proven effects."""
+
+    retrack_events = [
+        event for event in events if event.get("opcode") in (0x0B, 0x3C)
+    ]
+    proven_events = [
+        event for event in events if event.get("reachability") == "proven"
+    ]
+    proven_retrack_events = [
+        event for event in proven_events if event.get("opcode") in (0x0B, 0x3C)
+    ]
+    candidate_weights = [
+        event["targetWeight"]
+        for event in retrack_events
+        if event.get("targetWeight") is not None
+    ]
+    proven_weights = [
+        event["targetWeight"]
+        for event in proven_retrack_events
+        if event.get("targetWeight") is not None
+    ]
+    windows = [
+        {
+            "mode": 0 if event.get("opcode") == 0x0B else 1,
+            "targetWeight": event.get("targetWeight"),
+            "rampSelector": event.get("rampSelector"),
+            "startFrame": event.get("frame"),
+            "endFrame": None,
+            "timingStatus": event.get("timingStatus", "unresolved"),
+            "hitRelation": event.get("hitRelation", "unresolved"),
+            "rootSlot": event.get("rootSlot"),
+            "sourceSlot": event.get("sourceSlot"),
+            "pc": event.get("pc"),
+        }
+        for event in proven_retrack_events
+        if event.get("timingStatus") == "resolved"
+    ]
+    return {
+        "hasHitTransitionFacingSnap": any(
+            event.get("opcode") == 0x1A for event in proven_events
+        ),
+        "hasRetrackControl": bool(proven_retrack_events),
+        "hasRetrackRamp": any(
+            event.get("targetWeight") is None
+            or float(event["targetWeight"]) > 0.0
+            for event in proven_retrack_events
+        ),
+        "hasRetrackDisable": any(
+            event.get("targetWeight") == 0.0 for event in proven_retrack_events
+        ),
+        "maxTargetWeight": max(proven_weights) if proven_weights else None,
+        "candidateHitTransitionFacingSnap": any(
+            event.get("opcode") == 0x1A for event in events
+        ),
+        "candidateRetrackControl": bool(retrack_events),
+        "candidateRetrackRamp": any(
+            event.get("targetWeight") is None
+            or float(event["targetWeight"]) > 0.0
+            for event in retrack_events
+        ),
+        "candidateRetrackDisable": any(
+            event.get("targetWeight") == 0.0 for event in retrack_events
+        ),
+        "candidateMaxTargetWeight": (
+            max(candidate_weights) if candidate_weights else None
+        ),
+        "reachabilityStatus": (
+            "none" if not events
+            else "proven" if len(proven_events) == len(events)
+            else "may"
+        ),
+        "timingStatus": "unresolved" if events else "none",
+        "retrackWindows": windows,
+        "events": events,
+    }
+
+
 def _tracking_for_slot(slot_idx: int, slot_graph: Any = None) -> dict[str, Any]:
-    """Facing/tracking MoveVM effect events authored on one slot's bytecode."""
+    """Direct facing effects on one debug slot (official moves use route tracing)."""
     if slot_idx < 0 or slot_graph is None:
         events = []
     else:
@@ -667,26 +752,47 @@ def _tracking_for_slot(slot_idx: int, slot_graph: Any = None) -> dict[str, Any]:
             for e in slot_graph.effects_by_src.get(slot_idx, [])
             if e.is_facing_related
         ]
-    weights = [e["targetWeight"] for e in events if e.get("targetWeight") is not None]
-    return {
-        "hasFacingCommit": any(e.get("opcode") == 0x1A for e in events),
-        "hasRetrackRamp": any(e.get("opcode") in (0x3B, 0x3C) for e in events),
-        "maxTargetWeight": max(weights) if weights else None,
-        "events": events,
-    }
+    return _tracking_from_events(events)
 
 
 def _merge_tracking(command_sets: list[dict[str, Any]]) -> dict[str, Any]:
     events: list[dict[str, Any]] = []
     for cs in command_sets:
         events.extend(cs.get("tracking", {}).get("events", []))
-    weights = [e["targetWeight"] for e in events if e.get("targetWeight") is not None]
-    return {
-        "hasFacingCommit": any(e.get("opcode") == 0x1A for e in events),
-        "hasRetrackRamp": any(e.get("opcode") in (0x3B, 0x3C) for e in events),
-        "maxTargetWeight": max(weights) if weights else None,
-        "events": events,
-    }
+    return _tracking_from_events(events)
+
+
+def _tracking_for_native_route(
+    native_link: dict[str, Any],
+    khd: KhdFile | None,
+    cache: dict[tuple[int, ...], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Trace facing effects through every proven slot in an official route."""
+
+    if khd is None or native_link.get("status") not in {"confirmed", "heuristic"}:
+        return _tracking_from_events([])
+    route_slots = [int(slot) for slot in native_link.get("slots", [])]
+    if not route_slots:
+        return _tracking_from_events([])
+    key = tuple(route_slots)
+    if cache is not None and key in cache:
+        return deepcopy(cache[key])
+    result = _tracking_from_events(trace_facing_effects(khd, route_slots))
+    if cache is not None:
+        cache[key] = deepcopy(result)
+    return result
+
+
+def _set_move_tracking(
+    move: dict[str, Any],
+    khd: KhdFile | None,
+    cache: dict[tuple[int, ...], dict[str, Any]] | None = None,
+) -> None:
+    tracking = _tracking_for_native_route(move.get("nativeLink", {}) or {}, khd, cache)
+    move["tracking"] = tracking
+    for command_set in move.get("commandSets", []) or []:
+        if command_set.get("lane") == "primary-fighter":
+            command_set["tracking"] = deepcopy(tracking)
 
 
 def _is_input_family_extension(long_input: str, short_input: str) -> bool:
@@ -725,6 +831,125 @@ def _native_input_timing_signature(
             tuple(int(step.get("durationFrames", 0)) for step in steps),
         ))
     return next(iter(signatures)) if len(signatures) == 1 else None
+
+
+def _native_action_signature(move: dict[str, Any]) -> tuple[int, ...] | None:
+    """Return the exact non-neutral CPUAI input publications for one row.
+
+    MovePlay definitions may contain leading/trailing ``_W`` ticks used to
+    stage the demonstration.  They are not player actions and can differ
+    between state variants of the same command.  Preserve every actual
+    direction/button publication and fail closed when authored category
+    variants disagree.
+    """
+
+    signatures: set[tuple[int, ...]] = set()
+    variants = move.get("authoredVariants", []) or [
+        {"nativeLink": move.get("nativeLink", {})}
+    ]
+    for variant in variants:
+        definitions = (variant.get("nativeLink", {}) or {}).get("definitions", []) or []
+        primary = [item for item in definitions if item.get("lane") == "primary-fighter"]
+        if len(primary) != 1:
+            return None
+        definition = primary[0].get("mainDefinition") or primary[0].get("fallbackDefinition")
+        if not isinstance(definition, dict) or definition.get("controlFlow") != "native-linear":
+            return None
+        actions = tuple(
+            compact
+            for step in definition.get("buttonSteps", []) or []
+            if (compact := cpuai_button_mask_to_compact(int(step.get("mask", 0)))) != 0
+        )
+        if not actions:
+            return None
+        signatures.add(actions)
+    return next(iter(signatures)) if len(signatures) == 1 else None
+
+
+def _state_variant_base(condition: str) -> tuple[str, bool]:
+    """Remove only the explicit Soul Charge clause from a context string."""
+
+    charged = bool(re.search(r"\bwhile soul charged\b", condition, re.IGNORECASE))
+    base = re.sub(
+        r"(?:^|\s+)while soul charged\b", "", condition, flags=re.IGNORECASE
+    )
+    return re.sub(r"\s+", " ", base).strip(), charged
+
+
+def _native_directional_context_resolution(
+    condition: str,
+    definition: Any,
+) -> str | None:
+    """Return the context proven directly by the CPUAI input publication.
+
+    A unique contact publication does not by itself establish a localized
+    stance/opponent condition.  Only accept contexts whose required physical
+    direction is authored on the same CPUAI step as an attack button.  Other
+    contexts need their own native state proof and deliberately remain
+    unresolved.
+    """
+
+    base_condition, _charged = _state_variant_base(condition)
+    normalized = base_condition.casefold()
+    required_direction_masks = {
+        "while crouching": 0x000E,  # 1, 2, or 3
+        "during jump": 0x0380,      # 7, 8, or 9
+    }
+    required = required_direction_masks.get(normalized)
+    if required is None:
+        return None
+    for step in getattr(definition, "button_steps", ()) or ():
+        mask = int(getattr(step, "mask", 0) or 0)
+        if mask & required and mask & 0x3C00:  # A/B/K/G publication
+            context_slug = normalized.replace(" ", "-")
+            return f"native-combat-context-applied:cpuai-{context_slug}-input"
+    return None
+
+
+def _effective_attack_route_signature(
+    move: dict[str, Any],
+) -> tuple[tuple[int, ...], tuple[int, ...]] | None:
+    """Require every authored category variant to resolve the same contact."""
+
+    signatures: set[tuple[tuple[int, ...], tuple[int, ...]]] = set()
+    variants = move.get("authoredVariants", []) or [
+        {"nativeLink": move.get("nativeLink", {})}
+    ]
+    for variant in variants:
+        link = variant.get("nativeLink", {}) or {}
+        if link.get("status") not in {"confirmed", "heuristic"}:
+            return None
+        slots, cells = _native_attack_refs(link)
+        if not slots or not cells:
+            return None
+        signatures.add((tuple(slots), tuple(cells)))
+    return next(iter(signatures)) if len(signatures) == 1 else None
+
+
+def _paired_opponent_definition_signature(move: dict[str, Any]) -> tuple[int, ...] | None:
+    """Return the effective opponent Main definition across all listings.
+
+    Some category listings redundantly repeat Main as Intro while another
+    listing leaves Intro zero. Native playback starts the same nonzero Main
+    definition in both cases, so fallback storage is not identity evidence.
+    """
+
+    effective: set[int] = set()
+    variants = move.get("authoredVariants", []) or [
+        {"nativeLink": move.get("nativeLink", {})}
+    ]
+    for variant in variants:
+        definitions = (variant.get("nativeLink", {}) or {}).get("definitions", []) or []
+        opponent = [item for item in definitions if item.get("lane") == "paired-opponent"]
+        if len(opponent) != 1:
+            return None
+        main = int(opponent[0].get("mainDefinitionId", 0) or 0)
+        fallback = int(opponent[0].get("fallbackDefinitionId", 0) or 0)
+        selected = main if main > 0 else fallback
+        if selected <= 0:
+            return None
+        effective.add(selected)
+    return tuple(effective) if len(effective) == 1 else None
 
 
 def _build_move_groups(moves: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -842,6 +1067,76 @@ def _build_move_groups(moves: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "same native CPUAI input masks with different authored durations",
         )
 
+    # Normal/Soul-Charge rows can have different localized names and demo
+    # wrapper timing while still being one player-facing move.  Join them
+    # only when the normalized input/context, paired-opponent setup, actual
+    # CPUAI action publications, and effective KHD contact route all agree.
+    # This deliberately excludes longer follow-up sequences such as
+    # ``6A ~ 2A+G`` even when their final throw reuses the same contact slot.
+    by_native_state: dict[tuple[Any, ...], list[tuple[dict[str, Any], bool]]] = {}
+    for move in moves:
+        route_signature = _effective_attack_route_signature(move)
+        action_signature = _native_action_signature(move)
+        opponent_signature = _paired_opponent_definition_signature(move)
+        if (
+            not move.get("input")
+            or route_signature is None
+            or action_signature is None
+            or opponent_signature is None
+        ):
+            continue
+        attack_slots, attack_cells = route_signature
+        base_condition, charged = _state_variant_base(str(move.get("condition", "")))
+        key = (
+            base_condition.casefold(),
+            str(move.get("input", "")),
+            tuple(attack_slots),
+            tuple(attack_cells),
+            action_signature,
+            opponent_signature,
+        )
+        by_native_state.setdefault(key, []).append((move, charged))
+    for candidates in by_native_state.values():
+        if len({charged for _, charged in candidates}) < 2:
+            continue
+        attach_group(
+            "native-state-variant",
+            [move for move, _ in candidates],
+            "same normalized command/context, paired-opponent setup, native action sequence, and effective contact route across Soul Charge state",
+        )
+
+    # Context rows such as "when hit while performing ..." are authored as
+    # separate movelist rows but can still describe the same move.  Require
+    # exact name/input identity and the same primary native CPUAI definition;
+    # localized context text alone is never used as a join key.
+    by_native_context: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+    for move in moves:
+        definitions = [
+            definition
+            for definition in (move.get("nativeLink", {}) or {}).get("definitions", []) or []
+            if definition.get("lane") == "primary-fighter"
+            and int(definition.get("mainDefinitionId", 0) or 0) > 0
+        ]
+        definition_ids = {
+            int(definition.get("mainDefinitionId", 0)) for definition in definitions
+        }
+        if len(definition_ids) != 1 or not move.get("name") or not move.get("input"):
+            continue
+        key = (
+            str(move.get("name", "")),
+            str(move.get("input", "")),
+            next(iter(definition_ids)),
+        )
+        by_native_context.setdefault(key, []).append(move)
+    for members in by_native_context.values():
+        if len({str(move.get("condition", "")) for move in members}) < 2:
+            continue
+        attach_group(
+            "native-context-variant",
+            members,
+            "same official name/input and primary native CPUAI definition across contexts",
+        )
+
     # Connected components over same-condition inputs. Exact duplicates and
     # input extensions at "."/"~" boundaries belong to the same string family.
     parent = list(range(len(moves)))
@@ -951,24 +1246,73 @@ def _canonicalize_category_listings(
                     if key not in seen_definitions:
                         seen_definitions.add(key)
                         definitions.append(definition)
-            move["nativeLink"] = {
-                "status": "ambiguous",
-                "resolutions": sorted({
-                    "multiple-authored-moveplay-variants",
+            def contact_signature(link: dict[str, Any]) -> tuple[Any, ...] | None:
+                if link.get("status") not in {"confirmed", "heuristic"}:
+                    return None
+                attack_slots, attack_cells = _native_attack_refs(link)
+                if not attack_slots or not attack_cells:
+                    return None
+                return (
+                    attack_slots,
+                    attack_cells,
+                    link.get("startupImpactCoordinate"),
+                    link.get("startupPlayerFrame"),
+                    link.get("startupTimingStatus"),
+                    tuple(sorted(
+                        (link.get("frameEndpointStatuses") or {}).items()
+                    )),
+                    link.get("hitSequenceStatus"),
+                )
+
+            signatures = [contact_signature(link) for link in links]
+            variants_summary = [
+                {
+                    "variantIndex": variant["variantIndex"],
+                    "listingOrders": variant["listingOrders"],
+                    "categoryMemberships": variant["categoryMemberships"],
+                }
+                for variant in authored_variants
+            ]
+            if signatures[0] is not None and all(
+                signature == signatures[0] for signature in signatures[1:]
+            ):
+                merged_link = dict(links[0])
+                merged_link["status"] = (
+                    "confirmed"
+                    if all(link.get("status") == "confirmed" for link in links)
+                    else "heuristic"
+                )
+                merged_link["definitions"] = definitions
+                merged_link["resolutions"] = sorted({
+                    "category-variant-native-contact-route-equivalent",
                     *(str(resolution) for link in links for resolution in link.get("resolutions", [])),
-                }),
-                "definitions": definitions,
-                "slots": [],
-                "cells": [],
-                "authoredVariants": [
-                    {
-                        "variantIndex": variant["variantIndex"],
-                        "listingOrders": variant["listingOrders"],
-                        "categoryMemberships": variant["categoryMemberships"],
-                    }
-                    for variant in authored_variants
-                ],
-            }
+                })
+                merged_link["authoredVariants"] = variants_summary
+                move["nativeLink"] = merged_link
+            else:
+                ambiguous_resolutions = {
+                    str(resolution)
+                    for link in links
+                    for resolution in link.get("resolutions", [])
+                    if not str(resolution).startswith(
+                        "native-combat-context-applied:"
+                    )
+                    and not str(resolution).startswith(
+                        "khd-conditioned-choice-selector:"
+                    )
+                }
+                move["nativeLink"] = {
+                    "status": "ambiguous",
+                    "resolutions": sorted({
+                        "multiple-authored-moveplay-variants",
+                        "native-combat-context-variant-unresolved",
+                        *ambiguous_resolutions,
+                    }),
+                    "definitions": definitions,
+                    "slots": [],
+                    "cells": [],
+                    "authoredVariants": variants_summary,
+                }
         canonical.append(move)
     return canonical
 
@@ -1152,6 +1496,37 @@ def _native_link(
         "slots": [],
         "cells": [],
     }
+    condition = str(move.get("condition", "") or "").strip()
+    base_condition, soul_charged = _state_variant_base(condition)
+    effect_codes = {
+        str(tag.get("code", "")).upper()
+        for tag in move.get("effectTags", []) or []
+        if isinstance(tag, dict)
+    }
+    # Pure Soul-Charge context is not unresolved: the native route evaluator
+    # explicitly supplies MoveVM state-short slot 10 from the game-authored SC
+    # tag.  The previous blanket `if condition` gate discarded every stance,
+    # crouch, RE, and SC row alike, including contexts we had actually proven.
+    context_resolved = (
+        not condition
+        or (soul_charged and not base_condition and "SC" in effect_codes)
+    )
+    if not context_resolved:
+        # The resolver currently establishes only the native standing/default
+        # combat baseline plus the explicit SC state above. Other stance,
+        # opponent, and post-contact contexts remain navigation evidence until
+        # their state transitions are sequenced through command.dat and KHD.
+        link["combatContextStatus"] = "unresolved"
+        link["resolutions"] = sorted({
+            *link["resolutions"],
+            f"native-combat-context-not-applied:{condition}",
+        })
+    elif condition:
+        link["combatContextStatus"] = "resolved"
+        link["resolutions"] = sorted({
+            *link["resolutions"],
+            "native-combat-context-applied:soul-charge-state-short-slot10",
+        })
     if native_dispatcher is None or move_play_commands is None:
         return link
 
@@ -1192,11 +1567,26 @@ def _native_link(
     start_slot = next(iter(candidates))
     if len(candidate_definitions) == 1:
         definition, initial_route = candidate_definitions[0]
+        meter_state, meter_resolution = _native_meter_state_for_move(move)
         route = native_dispatcher.resolve_attack_route(
             definition,
             start_slot,
             selected_move_play_frame=initial_route.selected_move_play_frame,
+            meter_state_shorts=meter_state,
         )
+        authored_hit_count = len(move.get("hitClasses", []) or [])
+        if authored_hit_count > 0:
+            publication_route = resolve_publication_entry_route(
+                native_dispatcher,
+                definition,
+                initial_route,
+                authored_hit_count,
+                meter_state_shorts=meter_state,
+            )
+            if publication_route is not None:
+                route = publication_route
+        if meter_resolution is not None:
+            route_resolutions.add(meter_resolution)
     else:
         route = resolve_unconditional_attack_route(native_dispatcher.bank, start_slot)
     link.update({
@@ -1208,9 +1598,17 @@ def _native_link(
         "startupTimingStatus": (
             "resolved" if route.startup_timing_resolved else "unresolved"
         ),
+        "startupImpactCoordinate": route.startup_impact_coordinate,
+        "startupPlayerFrame": route.startup_player_frame,
         "frameEndpointStatus": (
             "resolved" if route.frame_endpoints_resolved else "unresolved"
         ),
+        "frameEndpointStatuses": {
+            metric: (
+                "resolved" if route.frame_endpoint_resolved(metric) else "unresolved"
+            )
+            for metric in ("block", "hit", "counterHit")
+        },
         "resolutions": sorted({
             *link["resolutions"],
             *route_resolutions,
@@ -1218,6 +1616,48 @@ def _native_link(
             "native-route-link:statically-inferred",
         }),
     })
+    directional_context_resolution = _native_directional_context_resolution(
+        condition, definition
+    )
+    if (
+        condition
+        and link.get("combatContextStatus") != "resolved"
+        and directional_context_resolution is not None
+        and not route.ambiguous
+        and authored_hit_count > 0
+        and len(route.attack_cells) == authored_hit_count
+        and any(
+            resolution.startswith("khd-route-entry-publication:")
+            for resolution in route.resolutions
+        )
+    ):
+        # The native MovePlay row's CPUAI program authors the physical
+        # crouch/jump direction on its attack publication, and the resulting
+        # route accounts for the official per-hit sequence.
+        link["combatContextStatus"] = "resolved"
+        link["resolutions"] = sorted({
+            *(
+                resolution
+                for resolution in link["resolutions"]
+                if not resolution.startswith("native-combat-context-not-applied:")
+            ),
+            directional_context_resolution,
+        })
+    elif link.get("combatContextStatus") == "unresolved":
+        # The resolved endpoints belong to the neutral/navigation candidate,
+        # not to this conditioned official row. Retain its slots/cells as
+        # diagnostic navigation evidence, but do not label its timing proof as
+        # row-resolved or run the expensive defender-population analyzer.
+        link["startupTimingStatus"] = "unresolved"
+        link["frameEndpointStatus"] = "unresolved"
+        link["frameEndpointStatuses"] = {
+            metric: "unresolved"
+            for metric in ("block", "hit", "counterHit")
+        }
+        link["resolutions"] = sorted({
+            *link["resolutions"],
+            "native-context-navigation-only:timing-not-row-resolved",
+        })
     return link
 
 
@@ -1230,6 +1670,36 @@ def _has_game_authored_throw_tag(move: dict[str, Any]) -> bool:
         isinstance(tag, dict) and str(tag.get("code", "")).upper() == "TH"
         for tag in move.get("effectTags", []) or []
     )
+
+
+def _native_meter_state_for_move(move: dict[str, Any]) -> tuple[dict[int, int], str | None]:
+    """Map official Soul Gauge requirements to native meter-bank slot zero."""
+
+    codes = {
+        str(tag.get("code", "")).upper()
+        for tag in move.get("effectTags", []) or []
+        if isinstance(tag, dict)
+    }
+    # EvaluateIfOpcode case 0x138A reads signed shorts at chara+0x1B38;
+    # native gauge gates use 120 as the full-scale endpoint.  These official
+    # table codes supply the row's static route precondition only.
+    # Slot ten is the bounded Soul Charge state/timer used throughout the
+    # native predicates.  Ordinary movelist rows are evaluated outside that
+    # state; SC-tagged rows require its positive branch.
+    state = {10: 1 if "SC" in codes else 0}
+    state_resolution = (
+        "native-soul-charge-route-precondition:SC;slot10=positive"
+        if "SC" in codes else
+        "native-standard-route-precondition:slot10=0"
+    )
+    for code, value in (("SGF", 120), ("SGH", 60), ("SGQ", 30)):
+        if code in codes:
+            state[0] = value
+            return state, (
+                f"{state_resolution};"
+                f"native-meter-route-precondition:{code};slot0={value}"
+            )
+    return state, state_resolution
 
 
 def _is_native_throw_attempt(move: dict[str, Any], khd: KhdFile | None) -> bool:
@@ -1269,32 +1739,117 @@ def _throw_break_proof_payload(frame: Any, status: str) -> dict[str, Any]:
     }
 
 
-def _attach_throw_break_proof(move: dict[str, Any], khd: KhdFile | None) -> None:
-    """Attach break recovery only to native non-damaging TH attempt cells."""
+def _attach_non_damaging_contact_proof(
+    move: dict[str, Any], khd: KhdFile | None
+) -> None:
+    """Attach the proven guard/break endpoint of a native zero-damage contact.
 
-    if not _has_game_authored_throw_tag(move) or khd is None:
+    This is deliberately based on the bound KHD collision cell, not the
+    movelist's presentation tags.  Throws, revenge contacts, and scripted
+    attack starters can all use the same native non-damaging attempt shape.
+    Only the block/break endpoint is published; successful-hit scripting
+    remains unknown unless separately reconstructed.
+    """
+
+    if khd is None:
         return
     native_link = move.get("nativeLink", {}) or {}
+    if native_link.get("combatContextStatus", "resolved") != "resolved":
+        return
     status = native_link.get("status")
     slots, cells = _native_attack_refs(native_link)
     if status not in {"confirmed", "heuristic"} or not slots or not cells:
         return
+    attack_cells = khd.sections[0].entries if khd.sections else []
+    cell_index = int(cells[-1])
+    if not 0 <= cell_index < len(attack_cells):
+        return
+    cell = attack_cells[cell_index]
+    if (
+        cell.cell_role != "NonDamaging"
+        or not cell.has_valid_active_window
+        or int(cell.wI16BlockstunFrames) <= 0
+        or int(cell.wU16HitboxGroupBitfield) == 0xFFFF
+    ):
+        return
     frame = analyze_throw_break_frames(
         khd,
         attack_slot=int(slots[-1]),
-        attack_cell=int(cells[-1]),
+        attack_cell=cell_index,
     )
     if frame is None:
         return
     proof_status = "confirmed" if status == "confirmed" else "heuristic"
-    native_link["throwBreakProof"] = _throw_break_proof_payload(frame, proof_status)
+    proof_payload = _throw_break_proof_payload(frame, proof_status)
+    native_link["contactBreakProof"] = proof_payload
+    if move.get("isThrowInput"):
+        native_link["throwBreakProof"] = proof_payload
+    # A throw-break route proves only the break recovery that the UI presents
+    # in the Block column.  Generic attack-route reachability does not prove a
+    # throw's successful-hit or counter-hit endpoint.
+    native_link["frameEndpointStatuses"] = {
+        "block": "resolved",
+        "hit": "unresolved",
+        "counterHit": "unresolved",
+    }
+    native_link["frameEndpointStatus"] = "unresolved"
     native_link["resolutions"] = sorted({
         *native_link.get("resolutions", []),
         *frame.resolutions,
         (
-            "native-throw-break-endpoints:confirmed"
+            "native-nondamaging-contact-block-endpoint:confirmed"
             if proof_status == "confirmed"
-            else "native-throw-break-endpoints:confirmed;route-link=inferred"
+            else "native-nondamaging-contact-block-endpoint:confirmed;route-link=inferred"
+        ),
+    })
+
+
+def _attach_successful_contact_followup_proof(
+    move: dict[str, Any], khd: KhdFile | None
+) -> None:
+    """Attach a unique hit-gated native damage state to a contact starter."""
+
+    if khd is None:
+        return
+    native_link = move.get("nativeLink", {}) or {}
+    if native_link.get("combatContextStatus", "resolved") != "resolved":
+        return
+    if native_link.get("status") not in {"confirmed", "heuristic"}:
+        return
+    slots, cells = _native_attack_refs(native_link)
+    if not slots or not cells or not khd.sections:
+        return
+    contact_cell = int(cells[-1])
+    if not 0 <= contact_cell < len(khd.sections[0].entries):
+        return
+    if khd.sections[0].entries[contact_cell].cell_role != "NonDamaging":
+        return
+    followups = resolve_native_contact_followups(khd, int(slots[-1]))
+    damaging = [followup for followup in followups if followup.damage is not None]
+    if len(damaging) != 1:
+        return
+    followup = damaging[0]
+    proof_status = (
+        "confirmed" if native_link.get("status") == "confirmed" else "heuristic"
+    )
+    native_link["successfulContactProof"] = {
+        "status": proof_status,
+        "sourceSlot": followup.source_slot,
+        "targetSlot": followup.target_slot,
+        "outcomeMotionFlag": followup.outcome_flag,
+        "targetAttackCell": followup.target_attack_cell,
+        "targetNonAttackDescriptor": followup.target_non_attack_cell,
+        "damage": followup.damage,
+    }
+    native_link["resolutions"] = sorted({
+        *native_link.get("resolutions", []),
+        *followup.resolutions,
+        (
+            f"khd-hit-gated-nonattack-damage:descriptor{followup.target_non_attack_cell}="
+            f"{followup.damage}"
+            if followup.target_non_attack_cell is not None else
+            f"khd-hit-gated-attack-damage:cell{followup.target_attack_cell}="
+            f"{followup.damage}"
         ),
     })
 
@@ -1333,12 +1888,72 @@ def _move_metrics(move: dict[str, Any], khd: KhdFile | None) -> tuple[dict[str, 
     if move.get("isMovementOnly"):
         return metrics, evidence
 
+    native_link = move.get("nativeLink", {}) or {}
+    link_status = native_link.get("status")
+    if native_link.get("combatContextStatus", "resolved") != "resolved":
+        return metrics, evidence
+    # Startup belongs to the proven first contact regardless of whether that
+    # contact is a damaging strike or a zero-damage throw attempt. Throws
+    # return early below because their success/CH endpoints are cinematic and
+    # unresolved, so consume the common startup proof before that branch.
+    if (
+        link_status in {"confirmed", "heuristic"}
+        and khd is not None
+        and not isinstance(native_link.get("startupProof"), dict)
+    ):
+        _attach_startup_proof(native_link, khd)
+    startup_proof = native_link.get("startupProof")
+    startup_slots, startup_cells = _native_attack_refs(native_link)
+    player_impact = (
+        startup_proof.get("playerImpactFrame")
+        if (
+            link_status in {"confirmed", "heuristic"}
+            and native_link.get("startupTimingStatus") != "unresolved"
+            and isinstance(startup_proof, dict)
+            and bool(startup_slots)
+            and bool(startup_cells)
+        )
+        else None
+    )
+    if isinstance(player_impact, int) and not isinstance(player_impact, bool):
+        metrics["startup"] = player_impact
+        evidence["startup"] = _metric_evidence(
+            "khd-static-timeline",
+            "native-confirmed" if link_status == "confirmed" else "native-inferred",
+        )
+
+    contact_proof = native_link.get("contactBreakProof")
+    if isinstance(contact_proof, dict) and contact_proof.get("status") in {
+        "confirmed", "heuristic"
+    }:
+        value = contact_proof.get("advantage")
+        if isinstance(value, int) and not isinstance(value, bool):
+            metrics["block"] = value
+            evidence["block"] = _metric_evidence(
+                "khd-static-timeline",
+                "native-confirmed"
+                if contact_proof.get("status") == "confirmed"
+                else "native-inferred",
+            )
+    successful_contact = native_link.get("successfulContactProof")
+    if isinstance(successful_contact, dict) and successful_contact.get("status") in {
+        "confirmed", "heuristic"
+    }:
+        damage = successful_contact.get("damage")
+        if isinstance(damage, int) and not isinstance(damage, bool):
+            metrics["damage"] = [damage]
+            evidence["damage"] = _metric_evidence(
+                "khd-static-timeline",
+                "native-confirmed"
+                if successful_contact.get("status") == "confirmed"
+                else "native-inferred",
+            )
+
     # Throw success follows authored cinematic/damage paths that are not
     # reconstructed here.  The break path is narrower: a TH-tagged official
     # row plus a non-damaging grab-attempt cell and a proven recovery timeline.
     # Publish that one value in the familiar Block column as requested.
     if move.get("isThrowInput"):
-        native_link = move.get("nativeLink", {}) or {}
         proof = native_link.get("throwBreakProof")
         if isinstance(proof, dict) and proof.get("status") in {"confirmed", "heuristic"}:
             value = proof.get("advantage")
@@ -1352,12 +1967,8 @@ def _move_metrics(move: dict[str, Any], khd: KhdFile | None) -> tuple[dict[str, 
 
     # Explicit cell order is exported only by an audited static route.  Do
     # not infer this from MainIndex or from arbitrary slot/cell coincidences.
-    native_link = move.get("nativeLink", {}) or {}
     route_slots, route_cells = _native_attack_refs(native_link)
-    link_status = native_link.get("status")
     if link_status in {"confirmed", "heuristic"} and route_cells and khd is not None:
-        if not isinstance(native_link.get("startupProof"), dict):
-            _attach_startup_proof(native_link, khd)
         metric_status = "native-confirmed" if link_status == "confirmed" else "native-inferred"
         attack_cells = khd.sections[0].entries if khd.sections else []
         metric_cell_indices = list(route_cells)
@@ -1377,12 +1988,6 @@ def _move_metrics(move: dict[str, Any], khd: KhdFile | None) -> tuple[dict[str, 
             if cell.cell_role != "Attack":
                 return metrics, evidence
             resolved.append(cell)
-        if (
-            isinstance(startup_proof, dict)
-            and isinstance(startup_proof.get("playerImpactFrame"), int)
-        ):
-            metrics["startup"] = int(startup_proof["playerImpactFrame"])
-            evidence["startup"] = _metric_evidence("khd-static-timeline", metric_status)
         # A route whose contact count contradicts the game's authored
         # per-hit list is still usable for independently proven startup, but
         # not as a complete damage sequence or final-contact recovery proof.
@@ -1390,9 +1995,10 @@ def _move_metrics(move: dict[str, Any], khd: KhdFile | None) -> tuple[dict[str, 
             return metrics, evidence
         metrics["damage"] = [cell.wI16BaseDamage for cell in resolved]
         evidence["damage"] = _metric_evidence("khd-attack-cell", metric_status)
-        if not metrics["hitLevels"]:
-            metrics["hitLevels"] = [cell.attack_class for cell in resolved]
-            evidence["hitLevels"] = _metric_evidence("khd-attack-cell", metric_status)
+        # KHD's two ordinary-contact bits prove guard-stance compatibility,
+        # not the complete player-facing High/Mid/Low label. High-vs-mid can
+        # also be expressed by hitbox geometry. Publish only the movelist
+        # table's authored level until that native classifier is complete.
 
         # Advantage is intentionally opt-in.  A confirmed cell route alone is
         # insufficient: the native proof must include both defender stun and
@@ -1401,10 +2007,21 @@ def _move_metrics(move: dict[str, Any], khd: KhdFile | None) -> tuple[dict[str, 
         frame_proof = native_link.get("frameProof")
         if isinstance(frame_proof, dict) and frame_proof.get("status") in {"confirmed", "heuristic"}:
             advantages = frame_proof.get("advantages", {}) or {}
+            outcomes = frame_proof.get("outcomes", {}) or {}
+            endpoint_statuses = native_link.get("frameEndpointStatuses", {}) or {}
             for metric in ("block", "hit", "counterHit"):
+                # Missing per-metric status is not proof.  Every production
+                # frame proof is required to publish this map explicitly.
+                if endpoint_statuses.get(metric, "unresolved") != "resolved":
+                    continue
                 value = advantages.get(metric)
                 if isinstance(value, int) and not isinstance(value, bool):
                     metrics[metric] = value
+                    evidence[metric] = _metric_evidence(
+                        "khd-static-timeline", metric_status
+                    )
+                elif metric in {"hit", "counterHit"} and outcomes.get(metric) in {"LNC", "KND"}:
+                    metrics[metric] = outcomes[metric]
                     evidence[metric] = _metric_evidence(
                         "khd-static-timeline", metric_status
                     )
@@ -1478,6 +2095,8 @@ def _family_metric_summary(family: dict[str, Any]) -> dict[str, Any]:
     ]
     unsafe_count = sum(1 for _, parsed in blocks if parsed <= -10)
     plus_count = sum(1 for _, parsed in blocks if parsed > 0)
+    unsafe_values = [parsed for _, parsed in blocks if parsed <= -10]
+    plus_values = [parsed for _, parsed in blocks if parsed > 0]
     blocks.sort(key=lambda item: item[1])
     hits.sort(key=lambda item: item[1], reverse=True)
     return {
@@ -1488,6 +2107,8 @@ def _family_metric_summary(family: dict[str, Any]) -> dict[str, Any]:
         "rowCount": len(rows),
         "unsafeCount": unsafe_count,
         "plusCount": plus_count,
+        "mostUnsafeBlock": min(unsafe_values) if unsafe_values else None,
+        "mostPlusBlock": max(plus_values) if plus_values else None,
         "launcherCount": sum(1 for row in rows if _row_has_confirmed_reaction(row)),
     }
 
@@ -1557,11 +2178,17 @@ def _build_player_dashboard(families: list[dict[str, Any]]) -> dict[str, Any]:
     )[:8]
     unsafe = sorted(
         (family for family in families if family_stats(family).get("unsafeCount", 0) > 0),
-        key=lambda family: (_parse_frame_value(family_stats(family).get("block")) or 9999, family.get("rootCommand", "")),
+        key=lambda family: (
+            family_stats(family).get("mostUnsafeBlock"),
+            family.get("rootCommand", ""),
+        ),
     )[:8]
     plus = sorted(
         (family for family in families if family_stats(family).get("plusCount", 0) > 0),
-        key=lambda family: (_parse_frame_value(family_stats(family).get("block")) or -9999, family.get("rootCommand", "")),
+        key=lambda family: (
+            family_stats(family).get("mostPlusBlock"),
+            family.get("rootCommand", ""),
+        ),
         reverse=True,
     )[:8]
     launchers = [
@@ -1679,11 +2306,6 @@ def _move_metrics_from_payload(
     ]
     if metrics["damage"]:
         evidence["damage"] = _metric_evidence("khd-attack-cell", "native-inferred")
-    if not metrics["hitLevels"]:
-        hit_levels = [cell.get("class") for cell in resolved_cells if cell.get("class")]
-        if hit_levels:
-            metrics["hitLevels"] = hit_levels
-            evidence["hitLevels"] = _metric_evidence("khd-attack-cell", "native-inferred")
     return metrics, evidence
 
 
@@ -1838,53 +2460,71 @@ def _build_official_families(
     khd: KhdFile | None,
 ) -> list[dict[str, Any]]:
     moves_by_order = {int(move["order"]): move for move in moves}
-    assigned: set[int] = set()
     families: list[dict[str, Any]] = []
+    orders = sorted(moves_by_order)
+    parent = {order: order for order in orders}
 
-    def add_group(group: dict[str, Any], relation: str, reason: str) -> None:
-        orders = [int(order) for order in group.get("orders", [])]
-        orders = [order for order in orders if order not in assigned and order in moves_by_order]
-        if len(orders) < 2:
-            return
-        members = [moves_by_order[order] for order in orders]
-        families.append(_official_family(cid, members, khd, relation, reason))
-        assigned.update(orders)
+    def find(order: int) -> int:
+        while parent[order] != order:
+            parent[order] = parent[parent[order]]
+            order = parent[order]
+        return order
 
-    # Category duplicates are canonicalized before this layer. Relationship
-    # groups now describe distinct move identities only.
-    for group in move_groups:
-        if group.get("kind") == "duplicate-move-id":
-            add_group(group, "duplicate-listing", "same game-authored MoveListID")
-    for group in move_groups:
-        if group.get("kind") == "native-route-alternative":
-            add_group(
-                group,
-                "native-route-alternative",
-                "same official name, context, and statically resolved native slot/cell route",
-            )
-    for group in move_groups:
-        if group.get("kind") == "native-timing-variant":
-            add_group(
-                group,
-                "timing-variant",
-                "same native input masks with different authored durations",
-            )
-    for group in move_groups:
-        if group.get("kind") == "input-family":
-            add_group(group, "prefix", "inferred command continuation boundary")
+    def union(left: int, right: int) -> None:
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
 
-    for move in moves:
-        order = int(move["order"])
-        if order in assigned:
+    relation_by_kind = {
+        "duplicate-move-id": "duplicate-listing",
+        "native-route-alternative": "native-route-alternative",
+        "native-timing-variant": "timing-variant",
+        "native-context-variant": "context-variant",
+        "native-state-variant": "state-variant",
+        "input-family": "prefix",
+    }
+    accepted_groups: list[dict[str, Any]] = []
+    for group in move_groups:
+        if group.get("kind") not in relation_by_kind:
             continue
-        families.append(_official_family(
+        group_orders = [
+            int(order) for order in group.get("orders", [])
+            if int(order) in moves_by_order
+        ]
+        if len(group_orders) < 2:
+            continue
+        accepted_groups.append(group)
+        for other in group_orders[1:]:
+            union(group_orders[0], other)
+
+    components: dict[int, list[int]] = {}
+    for order in orders:
+        components.setdefault(find(order), []).append(order)
+    for component_orders in components.values():
+        members = [moves_by_order[order] for order in sorted(component_orders)]
+        related = [
+            group for group in accepted_groups
+            if len(set(component_orders) & {int(x) for x in group.get("orders", [])}) >= 2
+        ]
+        relations = sorted({
+            relation_by_kind[str(group.get("kind"))] for group in related
+        })
+        reasons = sorted({str(group.get("reason", "")) for group in related if group.get("reason")})
+        relation = (
+            "single-row" if len(members) == 1 else
+            relations[0] if len(relations) == 1 else
+            "native-composite"
+        )
+        family = _official_family(
             cid,
-            [move],
+            members,
             khd,
-            "single-row",
-            "one authored movelist row",
-        ))
-        assigned.add(order)
+            relation,
+            "; ".join(reasons) if reasons else "one authored movelist row",
+        )
+        if relations:
+            family["relations"] = relations
+        families.append(family)
     return families
 
 
@@ -1934,6 +2574,17 @@ def _serialize_reaction_route(route: Any | None) -> dict[str, Any] | None:
         "packedMoveIds": list(route.packed_move_ids),
         "resolvedSlots": list(route.resolved_slots),
         "driverMoveIds": list(route.driver_move_ids),
+        "movePathStatus": route.move_path_status,
+        "outcome": route.outcome,
+        "numericEndpoint": route.numeric_endpoint,
+        "mustLatchedMotionFlags": list(route.must_latched_motion_flags),
+        "mayLatchedMotionFlags": list(route.may_latched_motion_flags),
+        "terminalMotionFlags": list(route.terminal_motion_flags),
+        "motionStateCodes": list(route.motion_state_codes),
+        "positiveVerticalEffect": route.positive_vertical_effect,
+        "defenderProfileCount": route.defender_profile_count,
+        "defenderProfilesConfirmed": route.defender_profiles_confirmed,
+        "defenderStaticProfileCount": route.defender_static_profile_count,
     }
 
 
@@ -1962,7 +2613,64 @@ def _serialize_frame_proof(frame: Any, status: str) -> dict[str, Any]:
             "hit": frame.hit_advantage,
             "counterHit": frame.counter_hit_advantage,
         },
+        "outcomes": {
+            "hit": frame.hit_outcome,
+            "counterHit": frame.counter_hit_outcome,
+        },
     }
+
+
+def _apply_frame_proof_endpoint_statuses(
+    native_link: dict[str, Any], frame: Any
+) -> None:
+    """Publish endpoint status per metric after native reaction validation.
+
+    Route reachability and attacker recovery can be proven while a promoted
+    defender reaction remains unresolved. Treating that partial proof as one
+    all-or-nothing `resolved` flag made null Hit/CH values look like an export
+    omission instead of the deliberate fail-closed result.
+    """
+
+    proven_statuses = {
+        "block": "resolved",
+        "hit": (
+            "resolved"
+            if frame.hit_advantage is not None or frame.hit_outcome is not None
+            else "unresolved"
+        ),
+        "counterHit": (
+            "resolved"
+            if (
+                frame.counter_hit_advantage is not None
+                or frame.counter_hit_outcome is not None
+            )
+            else "unresolved"
+        ),
+    }
+    # Endpoint proof is cumulative.  A later recovery calculation may prove
+    # the ordinary slot's arithmetic, but it cannot make an outcome resolved
+    # when the route walker already proved that outcome leaves the slot via a
+    # separate post-contact branch.  Intersect the two proof layers instead
+    # of allowing the later layer to erase an earlier uncertainty.
+    route_statuses = native_link.get("frameEndpointStatuses")
+    statuses = {
+        metric: (
+            "resolved"
+            if proven_statuses[metric] == "resolved"
+            and (
+                not isinstance(route_statuses, dict)
+                or route_statuses.get(metric, "unresolved") == "resolved"
+            )
+            else "unresolved"
+        )
+        for metric in ("block", "hit", "counterHit")
+    }
+    native_link["frameEndpointStatuses"] = statuses
+    native_link["frameEndpointStatus"] = (
+        "resolved"
+        if all(value == "resolved" for value in statuses.values())
+        else "unresolved"
+    )
 
 
 def _attach_startup_proof(native_link: dict[str, Any], khd: KhdFile | None) -> None:
@@ -1974,10 +2682,59 @@ def _attach_startup_proof(native_link: dict[str, Any], khd: KhdFile | None) -> N
         return
     slots, cells = _native_attack_refs(native_link)
     if not slots or not cells:
+        native_link["startupTimingStatus"] = "unresolved"
+        native_link.pop("startupProof", None)
         return
     startup = analyze_player_startup(khd, slots[0], cells[0])
     if startup is None:
+        route_impact = native_link.get("startupImpactCoordinate")
+        route_frame = native_link.get("startupPlayerFrame")
+        if (
+            isinstance(route_impact, int)
+            and not isinstance(route_impact, bool)
+            and isinstance(route_frame, int)
+            and not isinstance(route_frame, bool)
+            and khd.sections
+            and 0 <= int(cells[0]) < len(khd.sections[0].entries)
+        ):
+            cell = khd.sections[0].entries[int(cells[0])]
+            # A generic route timeline does not prove when a zero-damage
+            # throw/scripted-contact cell performs its player-facing contact.
+            # Keep the route as navigation evidence and fail closed on impact.
+            if cell.cell_role != "Attack":
+                native_link["startupTimingStatus"] = "unresolved"
+                native_link.pop("startupProof", None)
+                native_link["resolutions"] = sorted({
+                    *native_link.get("resolutions", []),
+                    "native-nondamaging-contact-startup-unresolved",
+                })
+                return
+            native_link["startupTimingStatus"] = "resolved"
+            native_link["startupProof"] = {
+                "attackSlot": int(slots[0]),
+                "routeCell": int(cells[0]),
+                "effectiveCell": int(cells[0]),
+                "effectiveVariant": 0,
+                "masterWindowStartCoordinate": int(cell.wI16MasterWindowStart),
+                "selectionCoordinate": max(
+                    0, route_impact - int(cell.wI16MasterWindowStart)
+                ),
+                "impactCoordinate": route_impact,
+                "playerImpactFrame": route_frame,
+                "resolution": "native-nested-route-timeline+zero-based-window",
+            }
+            native_link["resolutions"] = sorted({
+                *native_link.get("resolutions", []),
+                "native-nested-route-timeline+zero-based-window",
+            })
+            return
+        # Route reachability is not startup proof.  In particular, multiple
+        # timing-gated cell variants can share one route while having no
+        # statically selected ordinary-state branch.
+        native_link["startupTimingStatus"] = "unresolved"
+        native_link.pop("startupProof", None)
         return
+    native_link["startupTimingStatus"] = "resolved"
     native_link["startupProof"] = serialize_startup_evidence(startup)
     native_link["resolutions"] = sorted({
         *native_link.get("resolutions", []),
@@ -2013,6 +2770,9 @@ def _annotate_native_hit_sequence(move: dict[str, Any]) -> None:
 
     native_link["hitSequenceStatus"] = "unresolved"
     native_link["frameEndpointStatus"] = "unresolved"
+    native_link["frameEndpointStatuses"] = {
+        metric: "unresolved" for metric in ("block", "hit", "counterHit")
+    }
     native_link.pop("frameProof", None)
     native_link["resolutions"] = sorted({
         *native_link.get("resolutions", []),
@@ -2051,10 +2811,19 @@ def _build_movelist_payload(
     move_play_commands: MovePlayCommandTable | None = None,
     native_dispatcher: NativeDispatcherResolver | None = None,
     reaction_table: LuxHitReactionMoveIdTable | None = None,
+    reaction_khds: tuple[object, ...] | None = None,
 ) -> dict[str, Any]:
     move_meta = move_meta or {}
     categories: list[dict[str, Any]] = []
     moves: list[dict[str, Any]] = []
+    # The in-game category tabs repeat identical MoveListID/command-set rows.
+    # Canonicalization happens after category membership is collected, but
+    # native route and reaction analysis is far too expensive to repeat for
+    # those byte-identical listings.  Cache only the derived fields; category
+    # and authored ordering remain unique on every listing.
+    derived_move_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+    frame_analysis_cache: dict[tuple[int, int], Any] = {}
+    tracking_cache: dict[tuple[int, ...], dict[str, Any]] = {}
     item_order = 0
     for cat_idx, cat in enumerate(data.get("CategoryPlayList", [])):
         cat_items: list[int] = []
@@ -2136,92 +2905,89 @@ def _build_movelist_payload(
                 "lethalHitCondition": _meta.get("lethalHitCondition", ""),
                 "commandSets": command_sets,
             })
+            derived_key = (
+                int(move_id),
+                full_cmd,
+                json.dumps(command_sets, sort_keys=True, separators=(",", ":")),
+                json.dumps(_meta, sort_keys=True, separators=(",", ":")),
+            )
+            cached_derived = derived_move_cache.get(derived_key)
+            if cached_derived is not None:
+                moves[-1].update(deepcopy(cached_derived))
+                for command_set in moves[-1].get("commandSets", []) or []:
+                    if command_set.get("lane") == "primary-fighter":
+                        command_set["tracking"] = deepcopy(moves[-1]["tracking"])
+                cat_items.append(item_order)
+                item_order += 1
+                continue
             moves[-1]["nativeLink"] = _native_link(
                 moves[-1], move_play_commands, native_dispatcher
             )
+            _set_move_tracking(moves[-1], khd, tracking_cache)
             inferred_link = moves[-1]["nativeLink"]
             _attach_startup_proof(inferred_link, khd)
             moves[-1]["isThrowInput"] = _is_native_throw_attempt(moves[-1], khd)
             _annotate_native_hit_sequence(moves[-1])
             if (
                 inferred_link.get("status") == "heuristic"
-                and inferred_link.get("frameEndpointStatus") != "unresolved"
+                and any(
+                    endpoint_status == "resolved"
+                    for endpoint_status in (
+                        inferred_link.get("frameEndpointStatuses")
+                        or {"all": inferred_link.get("frameEndpointStatus")}
+                    ).values()
+                )
                 and all(_native_attack_refs(inferred_link))
                 and khd is not None
             ):
                 attack_slots, _ = _native_attack_refs(inferred_link)
                 attack_slot = int(attack_slots[-1])
                 attack_cell = _frame_proof_cell(inferred_link)
-                frame = analyze_confirmed_slot_frames(
-                    khd,
-                    attack_slot=attack_slot,
-                    attack_cell=int(attack_cell),
-                    reaction_table=reaction_table,
-                )
+                frame_key = (attack_slot, int(attack_cell))
+                if frame_key not in frame_analysis_cache:
+                    frame_analysis_cache[frame_key] = analyze_confirmed_slot_frames(
+                        khd,
+                        attack_slot=attack_slot,
+                        attack_cell=int(attack_cell),
+                        reaction_table=reaction_table,
+                        reaction_khds=reaction_khds,
+                    )
+                frame = frame_analysis_cache[frame_key]
                 if frame is not None:
                     inferred_link["frameProof"] = _serialize_frame_proof(
                         frame, "heuristic"
                     )
+                    _apply_frame_proof_endpoint_statuses(inferred_link, frame)
                     inferred_link["resolutions"] = sorted({
                         *inferred_link.get("resolutions", []),
                         *frame.resolutions,
                         "native-frame-endpoints:confirmed;route-link=inferred",
                     })
-            native_route = resolve_native_route(
-                cid, moves[-1], khd, reaction_table=reaction_table
-            )
-            if native_route is not None:
-                frame = native_route.frame_advantage
-                moves[-1]["nativeLink"] = {
-                    "status": "confirmed",
-                    "resolutions": sorted({
-                        *moves[-1]["nativeLink"]["resolutions"],
-                        *native_route.resolutions,
-                    }),
-                    "definitions": moves[-1]["nativeLink"]["definitions"],
-                    # These retain path order.  Unlike the definition ID,
-                    # each value is backed by the audited MoveVM route.
-                    "slots": list(native_route.slots),
-                    "cells": list(native_route.cells),
-                    "attackSlots": list(native_route.slots),
-                    "attackCells": list(native_route.cells),
-                    "startupTimingStatus": "resolved",
-                    "frameEndpointStatus": "resolved",
-                }
-                _attach_startup_proof(moves[-1]["nativeLink"], khd)
-                moves[-1]["isThrowInput"] = _is_native_throw_attempt(moves[-1], khd)
-                _annotate_native_hit_sequence(moves[-1])
-                proof_cell = _frame_proof_cell(moves[-1]["nativeLink"])
-                if (
-                    proof_cell is not None
-                    and len(native_route.slots) == 1
-                    and len(native_route.cells) == 1
-                    and proof_cell != native_route.cells[-1]
-                ):
-                    frame = analyze_confirmed_slot_frames(
-                        khd,
-                        attack_slot=int(native_route.slots[-1]),
-                        attack_cell=int(proof_cell),
-                        reaction_table=reaction_table,
-                    )
-                if (
-                    frame is not None
-                    and moves[-1]["nativeLink"].get("hitSequenceStatus") != "unresolved"
-                ):
-                    moves[-1]["nativeLink"]["frameProof"] = _serialize_frame_proof(
-                        frame, "confirmed"
-                    )
-                    moves[-1]["nativeLink"]["resolutions"] = sorted({
-                        *moves[-1]["nativeLink"].get("resolutions", []),
-                        *frame.resolutions,
-                        "native-frame-endpoints:confirmed",
-                    })
+                else:
+                    # Preliminary route analysis is only an admission gate for
+                    # the full endpoint proof above.  It must not survive as a
+                    # player-facing claim when attacker/defender analysis
+                    # cannot establish the native endpoints.
+                    inferred_link["frameEndpointStatus"] = "unresolved"
+                    inferred_link["frameEndpointStatuses"] = {
+                        metric: "unresolved"
+                        for metric in ("block", "hit", "counterHit")
+                    }
+                    inferred_link.pop("frameProof", None)
             moves[-1]["isThrowInput"] = _is_native_throw_attempt(moves[-1], khd)
             _annotate_native_hit_sequence(moves[-1])
-            _attach_throw_break_proof(moves[-1], khd)
+            _attach_non_damaging_contact_proof(moves[-1], khd)
+            _attach_successful_contact_followup_proof(moves[-1], khd)
             metrics, evidence = _move_metrics(moves[-1], khd)
             moves[-1]["metrics"] = metrics
             moves[-1]["evidence"] = evidence
+            derived_move_cache[derived_key] = deepcopy({
+                "nativeLink": moves[-1]["nativeLink"],
+                "isThrowInput": moves[-1]["isThrowInput"],
+                "tracking": moves[-1]["tracking"],
+                "metrics": moves[-1]["metrics"],
+                "evidence": moves[-1]["evidence"],
+            })
             cat_items.append(item_order)
             item_order += 1
         categories.append({
@@ -2240,11 +3006,15 @@ def _build_movelist_payload(
     # can carry different MovePlay navigation; when canonicalization marks
     # those links ambiguous we intentionally publish no break frame.
     for move in moves:
+        _set_move_tracking(move, khd, tracking_cache)
         move["isThrowInput"] = _is_native_throw_attempt(move, khd)
         native_link = move.get("nativeLink", {}) or {}
         native_link.pop("throwBreakProof", None)
+        native_link.pop("contactBreakProof", None)
+        native_link.pop("successfulContactProof", None)
         _annotate_native_hit_sequence(move)
-        _attach_throw_break_proof(move, khd)
+        _attach_non_damaging_contact_proof(move, khd)
+        _attach_successful_contact_followup_proof(move, khd)
         metrics, evidence = _move_metrics(move, khd)
         move["metrics"] = metrics
         move["evidence"] = evidence
@@ -2389,7 +3159,7 @@ def cell_to_dict(c: LuxBattleAttackCell, idx: int) -> dict[str, Any]:
 
 
 def throw_to_dict(t, idx: int) -> dict[str, Any]:
-    """Compact JSON record for one Section-B throw damage cell."""
+    """Deprecated JSON view of one Section-B non-attack descriptor."""
     return {
         "idx": idx,
         "damage": t.wDamage,
@@ -2487,7 +3257,23 @@ def char_summary(cid: str, paths: dict[str, str]) -> dict[str, Any]:
     return out
 
 
-def export_char(cid: str, paths: dict[str, str], out_path: str) -> dict[str, Any]:
+def non_attack_descriptor_to_dict(t, idx: int) -> dict[str, Any]:
+    """Native JSON view of one Section-B short[3] descriptor."""
+    return {
+        "idx": idx,
+        "damageMultiplier": t.nSDamageMultiplier,
+        "passthroughTag": t.nSPassthroughTag,
+        "duration60ths": t.nSDuration60ths,
+    }
+
+
+def export_char(
+    cid: str,
+    paths: dict[str, str],
+    out_path: str,
+    *,
+    reaction_khds: tuple[object, ...] | None = None,
+) -> dict[str, Any]:
     """Write the full per-character JSON."""
     payload: dict[str, Any] = {
         "schemaVersion": SCHEMA_VERSION,
@@ -2524,9 +3310,20 @@ def export_char(cid: str, paths: dict[str, str], out_path: str) -> dict[str, Any
                     command_path.read_bytes()
                 )
                 native_dispatcher = NativeDispatcherResolver(
-                    k, transition_commands, codec_tables
+                    k,
+                    transition_commands,
+                    codec_tables,
+                    # IF 0x006B/0x13C5 consume native fight-style/table
+                    # identities, not the hexadecimal-looking asset suffix.
+                    # Gaps in the roster make int(cid, 16) wrong for most DLC.
+                    character_profile_id=MOVE_TABLE_INDEX_BY_CID.get(cid),
                 )
             cells = [cell_to_dict(c, i) for i, c in enumerate(k.sections[0].entries)]
+            non_attack_descriptors = [
+                non_attack_descriptor_to_dict(t, i)
+                for i, t in enumerate(k.sections[1].non_attack_descriptors)
+            ] if len(k.sections) > 1 else []
+            # Legacy diagnostic alias retained for the old internals view.
             throws = [throw_to_dict(t, i) for i, t in enumerate(k.sections[1].throw_cells)] if len(k.sections) > 1 else []
             event_records = [
                 event_record_to_dict(r, k.resolve_packed_slot(r.dwPackedMoveId))
@@ -2560,6 +3357,12 @@ def export_char(cid: str, paths: dict[str, str], out_path: str) -> dict[str, Any
                 "miscBlockOffset": k.section_offsets[2],
                 "firstCancelOffset": k.first_cancel_offset,
                 "totalCells": len(cells),
+                "nonAttackDescriptorCount": len(non_attack_descriptors),
+                "nonAttackDescriptors": non_attack_descriptors,
+                "nonAttackToSlots": {
+                    str(descriptor_idx): refs
+                    for descriptor_idx, refs in k.non_attack_to_slots.items()
+                },
                 "throwCount": len(throws),
                 "attackCount": sum(1 for c in cells if c["role"] == "Attack"),
                 "headerCount": sum(1 for c in cells if c["role"] == "Header"),
@@ -2592,6 +3395,7 @@ def export_char(cid: str, paths: dict[str, str], out_path: str) -> dict[str, Any
                 move_play_commands=move_play_commands,
                 native_dispatcher=native_dispatcher,
                 reaction_table=reaction_table,
+                reaction_khds=reaction_khds,
             )
             if ml is not None:
                 payload["movelist"] = ml
@@ -2681,6 +3485,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Export SC6 moveset data to JSON for the webui")
     ap.add_argument("--root", default=BATTLE_ROOT_DEFAULT, help="Battle data root")
     ap.add_argument("--out-dir", "--out", dest="out_dir", default=OUT_DIR_DEFAULT, help="Output directory")
+    ap.add_argument(
+        "--cids",
+        help="Comma-separated playable character IDs to export; shared indexes are left untouched",
+    )
+    ap.add_argument(
+        "--rebuild-index-only",
+        action="store_true",
+        help="Rebuild roster/v2 indexes from assets and already-exported player shards",
+    )
     args = ap.parse_args()
 
     _require_coherent_content_roots(args.root)
@@ -2693,28 +3506,84 @@ def main() -> int:
         if CHARA_NAMES.get(cid, {}).get("kind") in {"base", "dlc"}
     }
     print(f"Discovered {len(chars)} characters under {args.root}")
+    if args.rebuild_index_only:
+        if args.cids:
+            raise SystemExit("--rebuild-index-only cannot be combined with --cids")
+        roster = [char_summary(cid, chars[cid]) for cid in sorted(chars)]
+        player_payloads = []
+        for cid in sorted(chars):
+            player_path = os.path.join(
+                args.out_dir, "v2", "chars", cid, "player.json"
+            )
+            try:
+                with open(player_path, encoding="utf-8") as f:
+                    player_payloads.append(json.load(f))
+            except (OSError, ValueError) as exc:
+                raise SystemExit(f"Cannot rebuild index from {player_path}: {exc}") from exc
+        os.makedirs(os.path.join(args.out_dir, "v2"), exist_ok=True)
+        with open(os.path.join(args.out_dir, "roster.json"), "w", encoding="utf-8") as f:
+            json.dump({"chars": roster}, f, indent=2)
+        with open(os.path.join(args.out_dir, "v2", "lookup-index.json"), "w", encoding="utf-8") as f:
+            json.dump(build_v2_lookup_index(player_payloads), f, separators=(",", ":"))
+        print(f"Rebuilt roster + v2 lookup index for {len(roster)} characters")
+        return 0
+
+    selected_chars = chars
+    if args.cids:
+        requested = {cid.strip().lower() for cid in args.cids.split(",") if cid.strip()}
+        missing = sorted(requested - chars.keys())
+        if missing:
+            raise SystemExit("Unknown or non-playable character IDs: " + ", ".join(missing))
+        selected_chars = {cid: chars[cid] for cid in sorted(requested)}
+    try:
+        reaction_khds = tuple(
+            parse_auto(chars[cid]["khd"])
+            for cid in sorted(chars)
+        )
+    except (KeyError, OSError, ValueError) as exc:
+        raise SystemExit(
+            "Native reaction export requires every playable defender KHD: "
+            f"{exc}"
+        ) from exc
+    if len(reaction_khds) != len(chars):
+        raise SystemExit("Playable defender KHD population is incomplete")
     os.makedirs(args.out_dir, exist_ok=True)
     os.makedirs(os.path.join(args.out_dir, "chars"), exist_ok=True)
 
     roster = []
     v2_player_payloads: list[dict[str, Any]] = []
-    for cid in sorted(chars):
+    for cid in sorted(selected_chars):
         summary = char_summary(cid, chars[cid])
         roster.append(summary)
         char_path = os.path.join(args.out_dir, "chars", f"{cid}.json")
-        payload = export_char(cid, chars[cid], char_path)
-        if payload is None:
-            try:
-                with open(char_path, "r", encoding="utf-8") as f:
-                    payload = json.load(f)
-            except Exception:
-                payload = None
-        if payload is not None:
-            player_payload = write_v2_char_shards(payload, args.out_dir)
-            v2_player_payloads.append(player_payload)
+        payload = export_char(
+            cid,
+            chars[cid],
+            char_path,
+            reaction_khds=reaction_khds,
+        )
+        # Never recover from an incomplete export by loading an older JSON
+        # file from the destination. That made exporter regressions appear to
+        # succeed while the site continued serving stale native links.
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"character {cid} export returned no payload")
+        if payload.get("schemaVersion") != SCHEMA_VERSION:
+            raise RuntimeError(f"character {cid} export has the wrong schema")
+        if payload.get("khdError"):
+            raise RuntimeError(
+                f"character {cid} KHD export failed: {payload['khdError']}"
+            )
+        if not isinstance(payload.get("movelist"), dict):
+            raise RuntimeError(f"character {cid} export has no official movelist")
+        player_payload = write_v2_char_shards(payload, args.out_dir)
+        v2_player_payloads.append(player_payload)
         ac = summary.get("attackCount", "-")
         td = summary.get("topDamage", "-")
         print(f"  {cid}  {summary['name']:<18}  attacks={ac:>4}  topDmg={td}")
+
+    if args.cids:
+        print(f"\nWrote {len(roster)} character files + v2 shards to {args.out_dir}")
+        return 0
 
     with open(os.path.join(args.out_dir, "roster.json"), "w", encoding="utf-8") as f:
         json.dump({"chars": roster}, f, indent=2)

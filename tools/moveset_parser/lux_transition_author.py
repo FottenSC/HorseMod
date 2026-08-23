@@ -27,6 +27,10 @@ class MoveVMLaneSchedulerState:
     timing_frame_10: float = 0.0
     timing_frame_14: float = 0.0
     playback_speed_current: float = 0.0
+    playback_speed_target: float = 0.0
+    playback_speed_delta: float = 0.0
+    playback_speed_exponential_rate: float = 0.0
+    playback_speed_countdown: float = 0.0
     motion_playback_frame_20: float | None = None
     motion_playback_frame_24: float | None = None
 
@@ -85,6 +89,12 @@ class MoveVMLaneSchedulerState:
         self.timing_frame_10 = float32(self.timing_frame_10)
         self.timing_frame_14 = float32(self.timing_frame_14)
         self.playback_speed_current = float32(self.playback_speed_current)
+        self.playback_speed_target = float32(self.playback_speed_target)
+        self.playback_speed_delta = float32(self.playback_speed_delta)
+        self.playback_speed_exponential_rate = float32(
+            self.playback_speed_exponential_rate
+        )
+        self.playback_speed_countdown = float32(self.playback_speed_countdown)
         if self.motion_playback_frame_20 is not None:
             self.motion_playback_frame_20 = float32(self.motion_playback_frame_20)
         if self.motion_playback_frame_24 is not None:

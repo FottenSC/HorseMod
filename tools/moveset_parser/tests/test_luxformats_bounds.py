@@ -5,6 +5,7 @@ import struct
 import pytest
 
 from luxformats import (
+    LuxBattleAttackCell,
     parse_hit_dat,
     parse_khd,
     parse_lpb,
@@ -12,6 +13,17 @@ from luxformats import (
     parse_offset_table,
     parse_vtb,
 )
+
+
+def test_zero_damage_high_unblockable_cell_is_header():
+    cell = LuxBattleAttackCell(
+        raw=b"",
+        wU16AttackFlags=0x080 | 0x200,
+        wI16BaseDamage=0,
+        wU16HitboxGroupBitfield=0,
+    )
+
+    assert cell.cell_role == "Header"
 
 
 def _lpb(*, total_len: int = 0x3C, sub_lens: tuple[int, ...] = (0,) * 7) -> bytes:

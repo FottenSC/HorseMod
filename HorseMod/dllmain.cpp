@@ -8615,7 +8615,7 @@ private:
                             static_cast<uint16_t>(s.packed_move),
                             static_cast<int>(s.lane_index),
                             s.playback_speed,
-                            s.in_transition ? "  [T]" : "",
+                            s.primary_entry_script_bracket ? "  [entry]" : "",
                             s.finished      ? "  [done]" :
                             s.at_end        ? "  [end]"  : "");
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(
@@ -8624,7 +8624,7 @@ private:
                     "  move ID (internal hex value)\n"
                     "  lane (which attack slot is active)\n"
                     "  speed (playback multiplier - 1.00x = normal)\n"
-                    "  [T] = mid-transition between moves\n"
+                    "  [entry] = primary move-entry setup/script bracket\n"
                     "  [done] / [end] = move has finished playing\n"
                     "\n"
                     "Useful alongside Freeze frame and Slow-motion:\n"
@@ -10010,18 +10010,31 @@ private:
 
                 if (trace_files)
                 {
+                    const bool trace_active =
+                        Horse::ReplayDebugTrace::instance().enabled();
                     ImGui::SameLine(0.0f, 20.0f);
+                    if (!trace_active) ImGui::BeginDisabled(true);
                     if (ImGui::Button("New trace file##dev_trace_new"))
                         Horse::ReplayDebugTrace::instance()
                             .open_new_session(L"ui");
+                    if (!trace_active) ImGui::EndDisabled();
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip(
-                        "Start a fresh JSONL trace file.");
+                        trace_active
+                            ? "Start a fresh JSONL trace file."
+                            : "Available only while a replay is playing back.");
+
+                    ImGui::TextDisabled(
+                        trace_active
+                            ? "Trace output active during replay playback"
+                            : "Armed - waiting for replay playback");
 
                     const std::string trace_path =
                         Horse::ReplayDebugTrace::instance()
                             .current_path_utf8();
                     if (!trace_path.empty())
-                        ImGui::TextWrapped("Trace: %s", trace_path.c_str());
+                        ImGui::TextWrapped(
+                            trace_active ? "Trace: %s" : "Last trace: %s",
+                            trace_path.c_str());
                 }
                 else
                 {

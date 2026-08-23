@@ -2,8 +2,9 @@
 
 This is a conservative static tracer for ``FLuxMoveBankSlotView`` bytecode.
 It follows bytecode control flow, propagates concrete 16-bit values and the
-sixteen CALLCOND local arguments, and recursively resolves CALLCOND 0x0D bank
-slot calls.  Unknown values stay unknown; the tool never guesses them.
+sixteen CALLCOND local arguments, and recursively resolves synchronous bank
+slot calls through CALLCOND 0x0D and the scheduling wrapper 0x15. Unknown
+values stay unknown; the tool never guesses them.
 
 The tracer is intentionally separate from ``stackvm_emulate``: that module
 builds transition graphs, while this one preserves every CALLCOND so gameplay
@@ -20,7 +21,7 @@ from typing import Iterable
 
 from luxformats import KhdFile, parse_khd
 from stackvm import CALLCOND_NAMES, StackVMInstruction, StackVMScript
-from stackvm_emulate import emulate
+from stackvm_emulate import Concrete, Unknown, emulate
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,45 @@ class VMState:
 
     def stored_map(self) -> dict[int, Value]:
         return dict(self.stored)
+
+
+def _merge_value(left: Value, right: Value, pc: int) -> Value:
+    """Join two path values without inventing a concrete result."""
+    if left.value == right.value and left.source == right.source:
+        return left
+    if left.value is not None and left.value == right.value:
+        return left
+    return Value(source=f"join@{pc:X}")
+
+
+def _merge_states(left: VMState, right: VMState) -> VMState:
+    """Monotone per-PC join used to reach a fixed point across VM loops."""
+    if len(left.stack) == len(right.stack):
+        stack = tuple(
+            _merge_value(a, b, left.pc) for a, b in zip(left.stack, right.stack)
+        )
+    else:
+        # Path-dependent stack depths cannot be aligned safely.
+        stack = tuple(
+            Value(source=f"join@{left.pc:X}")
+            for _ in range(min(len(left.stack), len(right.stack)))
+        )
+    locals_ = tuple(
+        _merge_value(a, b, left.pc) for a, b in zip(left.locals, right.locals)
+    )
+    left_stored = dict(left.stored)
+    right_stored = dict(right.stored)
+    stored = tuple(
+        (var_id, _merge_value(left_stored[var_id], right_stored[var_id], left.pc))
+        for var_id in sorted(left_stored.keys() & right_stored.keys())
+    )
+    return VMState(
+        pc=left.pc,
+        acc=_merge_value(left.acc, right.acc, left.pc),
+        stack=stack,
+        locals=locals_,
+        stored=stored,
+    )
 
 
 @dataclass(frozen=True)
@@ -150,22 +190,36 @@ def _successors(
     return (next_pc,)
 
 
-def trace_slot(script: StackVMScript, slot: int, local_args: Iterable[Value] = (),
-               max_states: int = 20000) -> list[CallEvent]:
+def trace_slot(
+    script: StackVMScript,
+    slot: int,
+    local_args: Iterable[Value] = (),
+    max_states: int = 20000,
+    *,
+    bank: KhdFile | None = None,
+    nested_path: tuple[int, ...] = (),
+    _forced_break_pcs: frozenset[int] = frozenset(),
+) -> list[CallEvent]:
     """Return deduplicated CALLCOND events reachable in one slot."""
     by_pc = {inst.pc: inst for inst in script.instructions}
     local_values = list(local_args)[:16]
     local_values.extend(Value(source=f"local[{i}]") for i in range(len(local_values), 16))
     initial = VMState(script.bytecode_offset, UNKNOWN, (), tuple(local_values))
-    queue = deque([initial])
-    seen: set[VMState] = set()
+    states: dict[int, VMState] = {initial.pc: initial}
+    queue = deque([initial.pc])
+    processed_states = 0
     events: dict[tuple, CallEvent] = {}
 
-    while queue and len(seen) < max_states:
-        state = queue.popleft()
-        if state in seen:
-            continue
-        seen.add(state)
+    def enqueue(incoming: VMState) -> None:
+        current = states.get(incoming.pc)
+        merged = incoming if current is None else _merge_states(current, incoming)
+        if current != merged:
+            states[incoming.pc] = merged
+            queue.append(incoming.pc)
+
+    while queue and processed_states < max_states:
+        state = states[queue.popleft()]
+        processed_states += 1
         inst = by_pc.get(state.pc)
         if inst is None:
             continue
@@ -175,6 +229,7 @@ def trace_slot(script: StackVMScript, slot: int, local_args: Iterable[Value] = (
         locals_ = list(state.locals)
         stored = state.stored_map()
         op = inst.opcode
+        call_must_break = False
 
         if op == 0x01:
             count = inst.imm_u16 or 0
@@ -240,6 +295,35 @@ def trace_slot(script: StackVMScript, slot: int, local_args: Iterable[Value] = (
             key = (event.slot, event.pc, event.function_index, event.args)
             events[key] = event
             acc = Value(source=f"call@{inst.pc:X}")
+            if (
+                bank is not None
+                and event.function_index in (0x0D, 0x15)
+                and event.args
+                and event.args[0].value is not None
+            ):
+                child_slot = bank.resolve_packed_slot(event.args[0].value)
+                active_path = nested_path or (slot,)
+                if (
+                    child_slot is not None
+                    and child_slot not in active_path
+                    and bank.slots[child_slot].bytecode is not None
+                ):
+                    child_args = tuple(
+                        Concrete(value.value, source_pc=inst.pc)
+                        if value.value is not None
+                        else Unknown(source_pc=inst.pc)
+                        for value in event.args[1:17]
+                    )
+                    child_result = emulate(
+                        bank.slots[child_slot].bytecode,
+                        child_slot,
+                        local_args=child_args,
+                        bank=bank,
+                        _nested_path=active_path + (child_slot,),
+                    )
+                    call_must_break = child_result.must_break_execution
+            if inst.pc in _forced_break_pcs:
+                call_must_break = True
         branch_value = UNKNOWN
         if op in (0x28, 0x29):
             branch_value = _pop(stack)
@@ -251,16 +335,69 @@ def trace_slot(script: StackVMScript, slot: int, local_args: Iterable[Value] = (
             0, acc, tuple(stack), tuple(locals_),
             tuple(sorted(stored.items(), key=lambda item: item[0])),
         )
-        for next_pc in _successors(script, inst, branch_value):
-            queue.append(VMState(
+        successors = () if op == 0x25 and call_must_break else _successors(
+            script, inst, branch_value
+        )
+        for next_pc in successors:
+            enqueue(VMState(
                 next_pc, successor_state.acc, successor_state.stack,
                 successor_state.locals, successor_state.stored,
             ))
 
-    if any(state not in seen for state in queue):
+    if queue:
         raise TraceLimitExceeded(
             f"slot {slot} reached max_states={max_states}; refusing to return a partial trace"
         )
+
+    if bank is not None:
+        events_by_pc: dict[int, list[CallEvent]] = {}
+        for event in events.values():
+            if event.function_index in (0x0D, 0x15):
+                events_by_pc.setdefault(event.pc, []).append(event)
+        resolved_break_pcs = set(_forced_break_pcs)
+        active_path = nested_path or (slot,)
+        for pc, call_events in events_by_pc.items():
+            all_must_break = bool(call_events)
+            for event in call_events:
+                if not event.args or event.args[0].value is None:
+                    all_must_break = False
+                    break
+                child_slot = bank.resolve_packed_slot(event.args[0].value)
+                if (
+                    child_slot is None
+                    or child_slot in active_path
+                    or bank.slots[child_slot].bytecode is None
+                ):
+                    all_must_break = False
+                    break
+                child_args = tuple(
+                    Concrete(value.value, source_pc=pc)
+                    if value.value is not None
+                    else Unknown(source_pc=pc)
+                    for value in event.args[1:17]
+                )
+                child_result = emulate(
+                    bank.slots[child_slot].bytecode,
+                    child_slot,
+                    local_args=child_args,
+                    bank=bank,
+                    _nested_path=active_path + (child_slot,),
+                )
+                if not child_result.must_break_execution:
+                    all_must_break = False
+                    break
+            if all_must_break:
+                resolved_break_pcs.add(pc)
+        if resolved_break_pcs != set(_forced_break_pcs):
+            return trace_slot(
+                script,
+                slot,
+                local_args,
+                max_states,
+                bank=bank,
+                nested_path=active_path,
+                _forced_break_pcs=frozenset(resolved_break_pcs),
+            )
 
     return sorted(
         events.values(),
@@ -273,7 +410,7 @@ def trace_slot(script: StackVMScript, slot: int, local_args: Iterable[Value] = (
 
 
 def _nested_local_frame(call_args: tuple[Value, ...]) -> tuple[Value, ...]:
-    """Model the 16-short local frame created by CALLCOND 0x0D.
+    """Model the 16-short local frame created by CALLCOND 0x0D/0x15.
 
     ``LuxMoveVM_ExecuteBankSlotScript @ 0x1402FCC30`` passes arguments after
     the packed slot ID to ``LuxMoveVM_RunBytecodeScript @ 0x1402E67B0``.
@@ -295,7 +432,7 @@ def trace_call_tree(
     max_depth: int = 16,
     max_states: int = 20000,
 ) -> list[TraceEvent]:
-    """Trace a slot and recursively expand concrete CALLCOND 0x0D calls."""
+    """Trace a slot and recursively expand concrete CALLCOND 0x0D/0x15 calls."""
     output: list[TraceEvent] = []
     work = deque([(root_slot, tuple(), (root_slot,), 0)])
     visited: set[tuple[int, tuple[Value, ...]]] = set()
@@ -308,9 +445,16 @@ def trace_call_tree(
         script = bank.slots[slot].bytecode
         if script is None:
             continue
-        for call in trace_slot(script, slot, locals_, max_states=max_states):
+        for call in trace_slot(
+            script,
+            slot,
+            locals_,
+            max_states=max_states,
+            bank=bank,
+            nested_path=path,
+        ):
             output.append(TraceEvent(depth, path, call))
-            if call.function_index != 0x0D or not call.args or call.args[0].value is None:
+            if call.function_index not in (0x0D, 0x15) or not call.args or call.args[0].value is None:
                 continue
             child = bank.resolve_packed_slot(call.args[0].value)
             if child is not None and child not in path:
@@ -322,8 +466,8 @@ def transition_paths(bank: KhdFile, root_slot: int, max_depth: int) -> dict[int,
     """Return one shortest authored-transition path to each reachable slot.
 
     Utility-script expansion and authored move transitions are distinct edges in
-    the native VM.  Keeping the paths separate prevents a shared CALLCOND 0x0D
-    helper from being mistaken for an active move-state transition.
+    the native VM.  Keeping the paths separate prevents a shared CALLCOND
+    0x0D/0x15 helper from being mistaken for an active move-state transition.
     """
     paths = {root_slot: (root_slot,)}
     queue = deque([(root_slot, 0)])
@@ -337,7 +481,7 @@ def transition_paths(bank: KhdFile, root_slot: int, max_depth: int) -> dict[int,
         if script is None:
             continue
         try:
-            transitions = emulate(script, slot).transitions
+            transitions = emulate(script, slot, bank=bank).transitions
         except Exception:
             continue
         for transition in transitions:
@@ -402,7 +546,7 @@ def main() -> int:
         default=0,
         help=(
             "Also trace slots reachable through up to this many authored "
-            "move-state transitions. Utility CALLCOND 0x0D depth remains "
+            "move-state transitions. Utility CALLCOND 0x0D/0x15 depth remains "
             "controlled independently by --max-depth."
         ),
     )
@@ -435,7 +579,7 @@ def main() -> int:
             inherited_slots: set[int] = set()
             for _authored_path, event in traced:
                 call = event.call
-                if call.function_index != 0x0D or not call.args or call.args[0].value is None:
+                if call.function_index not in (0x0D, 0x15) or not call.args or call.args[0].value is None:
                     continue
                 target = bank.resolve_packed_slot(call.args[0].value)
                 if target is None:
@@ -484,7 +628,7 @@ def main() -> int:
                 if state_index is not None and state_index != args.state_index:
                     continue
             if args.calls_to_slot is not None:
-                if call.function_index != 0x0D or not call.args or call.args[0].value is None:
+                if call.function_index not in (0x0D, 0x15) or not call.args or call.args[0].value is None:
                     continue
                 if bank.resolve_packed_slot(call.args[0].value) != args.calls_to_slot:
                     continue

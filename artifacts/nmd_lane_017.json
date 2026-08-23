@@ -1,0 +1,220 @@
+{
+  "complete": false,
+  "results": [
+    {
+      "attackSphere": {
+        "bone": 5,
+        "center": [
+          -0.0329331859673611,
+          0.5932092644053304,
+          -0.7644394472043322
+        ],
+        "radius": 0.1850000023841858,
+        "slot": 0
+      },
+      "attackerCollisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\012\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_012.json (upper=1.3108, lower=1.13)",
+      "authoredGeometryOverlap": true,
+      "character": "017",
+      "collisionSkeletonSource": "E:\\myMods\\dump\\Battle\\nmd\\profile_overlays\\017\\manifest.json + E:\\myMods\\dump\\Battle\\profile\\RP_017.json (upper=0.9215, lower=0.95)",
+      "contactSpacingIntervals": [
+        [
+          0.0,
+          0.93943828697243
+        ]
+      ],
+      "frames": [
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.0329331859673611,
+              0.5932092644053304,
+              -0.7644394472043322
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 53,
+          "defenderState": "reaction",
+          "followupFrame": 13,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 1.2284658957820984,
+            "clearance": 0.866465892325029,
+            "hurt_bone": 5,
+            "hurt_slot": 0,
+            "overlaps": false,
+            "radius_sum": 0.3620000034570694
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03164028352019335,
+              0.6740580973939613,
+              -0.2637937229842929
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.0,
+            "pairSlots": null
+          },
+          "defenderFrame": 54,
+          "defenderState": "left_ukemi_admitted_reaction_lane_dominant",
+          "followupFrame": 14,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.8737718470305882,
+            "clearance": 0.5117718435735188,
+            "hurt_bone": 5,
+            "hurt_slot": 0,
+            "overlaps": false,
+            "radius_sum": 0.3620000034570694
+          },
+          "overlap": false
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03791733592660002,
+              0.33682217676490683,
+              0.24647050641477358
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.054302231684582536,
+            "pairSlots": [
+              0,
+              0
+            ]
+          },
+          "defenderFrame": 55,
+          "defenderState": "left_ukemi_admitted_reaction_lane_dominant",
+          "followupFrame": 15,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.3194772760487778,
+            "clearance": -0.042522727408291605,
+            "hurt_bone": 5,
+            "hurt_slot": 0,
+            "overlaps": true,
+            "radius_sum": 0.3620000034570694
+          },
+          "overlap": true
+        },
+        {
+          "attackSphere": {
+            "bone": 5,
+            "center": [
+              -0.03422560112867376,
+              -0.08289975803944107,
+              0.2819061375493576
+            ],
+            "radius": 0.1850000023841858,
+            "slot": 0
+          },
+          "bodySeparation": {
+            "broadForce": 0.0,
+            "pairForce": 0.11736551719438351,
+            "pairSlots": [
+              0,
+              0
+            ]
+          },
+          "defenderFrame": 56,
+          "defenderState": "left_ukemi_admitted_reaction_lane_dominant",
+          "followupFrame": 16,
+          "nearestHurtSphere": {
+            "attack_slot": 0,
+            "center_distance": 0.24273649315002888,
+            "clearance": -0.11926351030704052,
+            "hurt_bone": 5,
+            "hurt_slot": 0,
+            "overlaps": true,
+            "radius_sum": 0.3620000034570694
+          },
+          "overlap": true
+        }
+      ],
+      "nearestHurtSphere": {
+        "attack_slot": 0,
+        "center_distance": 0.24273649315002888,
+        "clearance": -0.11926351030704052,
+        "hurt_bone": 5,
+        "hurt_slot": 0,
+        "overlaps": true,
+        "radius_sum": 0.3620000034570694
+      },
+      "reactionFrameAtFirstActive": 53,
+      "reactionMotion": "0x1478",
+      "reactionMoveSlot": 1219,
+      "spacing": 0.8,
+      "status": "static-native-subset-probe",
+      "ukemiMotion": "0x10B5"
+    }
+  ],
+  "scenario": {
+    "attacker_id": "012",
+    "defender_action_slot": 142,
+    "defender_local_direction": "left",
+    "followup_entry_slot": 341,
+    "followup_held_target_slot": 342,
+    "forced_contact_classification": "lethal_hit",
+    "observed_escapes": [
+      "002",
+      "003",
+      "006",
+      "009",
+      "00b",
+      "00c",
+      "00d",
+      "015",
+      "017",
+      "023",
+      "024",
+      "030",
+      "060",
+      "061",
+      "062",
+      "064",
+      "065"
+    ],
+    "observed_hits": [
+      "001",
+      "005",
+      "007",
+      "00f",
+      "011",
+      "012",
+      "014",
+      "016",
+      "028"
+    ],
+    "opener_slot": 372,
+    "spacing": {
+      "maximum": 2.0,
+      "minimum": 0.0,
+      "require_contiguous_agreement": true,
+      "step": 0.0025
+    },
+    "style_id": "012"
+  },
+  "schemaVersion": 1,
+  "unresolved": [
+    "spacing sweep and remaining native pose/controller boundaries"
+  ]
+}
