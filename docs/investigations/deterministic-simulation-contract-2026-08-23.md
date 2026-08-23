@@ -37,7 +37,7 @@ Important behavior: `GetCachedInputForFrameInputLogSlot` selects `frame & 0x1FF`
 
 `LuxBattleManager_Tick_ProcessRoundStateSequence` (`0x1403FCE80`) owns the byte sequence at manager `+0x1470`, count/capacity at `+0x1478/+0x147C`, and current state at `+0x1480`. It commits a new state byte before executing its entry branch. State ID 1 synchronously broadcasts the callback collection at `+0xB80`; registered consumers reset trace/hit dispatch and activate linked actors. Other branches mutate pause, stage, world-mode, score, track, and game-flow state and can disconnect the online session.
 
-Queue index/state, the manager frame-advance counter, pause grace state, track selection, and gameplay callback mutations are canonical. Downstream audio/UI/cinematic terminals are presentation and must eventually be journaled at their irreversible boundary, not by skipping the state transition. The producer of the separate callback collection at `+0x8E0` is unresolved, so the round subsystem is not admitted.
+Queue index/state, the manager frame-advance counter, pause grace state, track selection, and gameplay callback mutations are canonical. Downstream audio/UI/cinematic terminals are presentation and must eventually be journaled at their irreversible boundary, not by skipping the state transition. Static registration/removal is now closed for the later callback collections at `+0x8E0`, simulation `+0xA30`, round `+0xB80`, and unpause `+0xF70`; their weak-owner storage is generation identity and must be runtime-signed rather than serialized. The round subsystem remains blocked by the state graphs those callbacks mutate, not by unknown collection membership.
 
 ## Audited region: MoveVM pump generation boundary
 
