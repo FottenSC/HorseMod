@@ -64,6 +64,7 @@ ConfigLoadResult LoadConfig(const std::filesystem::path& path)
         const auto separator = text.find('=');
         if (separator == std::string_view::npos)
         {
+            result.diagnostics.emplace_back("invalid configuration line");
             result.status = Status::failure(FailureCode::InvalidConfiguration);
             return result;
         }
@@ -77,11 +78,16 @@ ConfigLoadResult LoadConfig(const std::filesystem::path& path)
         else if (key == "trace") valid = parse_bool(value, result.config.trace);
         else
         {
-            result.diagnostics.emplace_back("unsupported legacy or unknown option ignored: " + std::string(key));
+            if (result.diagnostics.empty())
+            {
+                result.diagnostics.emplace_back(
+                    "unsupported legacy or unknown options were ignored");
+            }
             continue;
         }
         if (!valid)
         {
+            result.diagnostics.emplace_back("invalid value for option: " + std::string(key));
             result.status = Status::failure(FailureCode::InvalidConfiguration);
             return result;
         }
@@ -93,6 +99,7 @@ ConfigLoadResult LoadConfig(const std::filesystem::path& path)
         || result.config.input_delay > 8)
     {
         result.status = Status::failure(FailureCode::InvalidConfiguration);
+        result.diagnostics.emplace_back("configuration values are outside the supported contract");
     }
     return result;
 }

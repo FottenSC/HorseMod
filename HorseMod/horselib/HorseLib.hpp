@@ -127,16 +127,7 @@ namespace Horse
     // Calling get() once per frame therefore costs multiple milliseconds
     // per frame, every frame.
     //
-    // That was the cause of the ~43fps match-replay slowdown: ReplayScrub's
-    // tick_capture() resolves LuxBattleManager + LuxBattleReplayPlayer
-    // every cockpit tick, i.e. 3 full array scans/frame.  Training mode
-    // never builds the ReplayScrub ring, so those per-frame get() callers
-    // never run there — which is exactly why training stayed smooth while
-    // replay viewing did not.  (It also starved "Generate timeline": at a
-    // sub-60fps loop the engine frame cap is never the limiter, so
-    // removing it had no headroom to convert into speed.)
-    //
-    // Fix: throttle the scan.  A resolved global (LuxBattleManager,
+    // Throttle the scan. A resolved global (LuxBattleManager,
     // LuxBattleReplayPlayer, CockpitBase_C, …) is a long-lived level
     // actor — its identity only changes on a level load, seconds apart.
     // So get() runs the O(N) scan at most once per kRevalidateInterval and
@@ -159,8 +150,7 @@ namespace Horse
     //     ticking.  That actor (LuxBattleManager / PlayerController) is
     //     torn down on a scene-presence transition, and HorseMod calls
     //     invalidate() on exactly that transition (the dllmain presence
-    //     block + ReplayScrub::reset_for_new_replay), forcing an
-    //     immediate re-resolve.  A stale BM surviving into a cockpit
+    //     block), forcing an immediate re-resolve. A stale BM surviving into a cockpit
     //     tick is additionally a pre-existing, codebase-known race (see
     //     the forEachChara note in dllmain.cpp) — this fix widens it
     //     quantitatively, it does not introduce it.

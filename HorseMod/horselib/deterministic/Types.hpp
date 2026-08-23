@@ -15,6 +15,7 @@ enum class FailureCode : std::uint16_t
     IllegalTransition,
     WrongThread,
     InvalidConfiguration,
+    AdapterUnqualified,
     UnsupportedContent,
     ContextUnavailable,
     GenerationMismatch,
@@ -47,6 +48,7 @@ constexpr std::string_view failure_code_name(FailureCode code) noexcept
     case FailureCode::IllegalTransition: return "illegal_transition";
     case FailureCode::WrongThread: return "wrong_thread";
     case FailureCode::InvalidConfiguration: return "invalid_configuration";
+    case FailureCode::AdapterUnqualified: return "adapter_unqualified";
     case FailureCode::UnsupportedContent: return "unsupported_content";
     case FailureCode::ContextUnavailable: return "context_unavailable";
     case FailureCode::GenerationMismatch: return "generation_mismatch";

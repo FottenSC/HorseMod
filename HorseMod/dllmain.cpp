@@ -110,6 +110,8 @@
 #include "horselib/ActorTickGate.hpp"
 #include "horselib/TimeDilationGate.hpp"
 #include "horselib/WindRngGate.hpp"
+#include "horselib/deterministic/Config.hpp"
+#include "horselib/deterministic/Schema.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
 // swap detour on IDXGISwapChain::Present.  This keeps Steam overlay
@@ -216,6 +218,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <string>
 #include <vector>
@@ -3851,6 +3854,10 @@ private:
     // unlikely but survivable).
     bool m_logged_pcm_resolve  = false;
     bool m_logged_pcm_fallback = false;
+    Horse::Deterministic::Config m_deterministic_config{};
+    Horse::Deterministic::FailureCode m_deterministic_failure{
+        Horse::Deterministic::FailureCode::None};
+    bool m_deterministic_config_present = false;
 public:
     HorseMod() : CppUserModBase()
     {
@@ -3860,6 +3867,40 @@ public:
         ModAuthors     = STR("horse");
 
         horsemod_report_unsupported_legacy_options_once();
+
+        const std::filesystem::path deterministic_config_path =
+            std::filesystem::path(horsemod_current_module_path()).parent_path()
+            / L"rollback.ini";
+        m_deterministic_config_present =
+            std::filesystem::exists(deterministic_config_path);
+        auto deterministic_load =
+            Horse::Deterministic::LoadConfig(deterministic_config_path);
+        m_deterministic_config = deterministic_load.config;
+        if (!deterministic_load.status.ok())
+        {
+            m_deterministic_config.enabled = false;
+            m_deterministic_failure = deterministic_load.status.code;
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] rollback.ini is invalid; deterministic simulation "
+                "remains disabled\n"));
+        }
+        else if (m_deterministic_config.enabled
+                 && Horse::Deterministic::Schema::production_regions.empty())
+        {
+            m_deterministic_failure =
+                Horse::Deterministic::FailureCode::AdapterUnqualified;
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] rollback.ini requested activation, but no native "
+                "state regions are qualified; stock behavior is unchanged\n"));
+        }
+        if (deterministic_load.status.ok()
+            && !deterministic_load.diagnostics.empty()
+            && m_deterministic_config_present)
+        {
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] rollback.ini contained unsupported or invalid "
+                "configuration; see the deterministic status panel\n"));
+        }
 
         // The overlay Present hook still waits for Steam's first frames, but
         // SC6 may decide whether to poll XInput during title/menu bootstrap.
@@ -7828,24 +7869,6 @@ private:
 
     }
 
-    // ==================================================================
-    // Replay tab - video-style scrubbing for SC6 match replays.
-    //
-    // SC6's .replay file format only stores deterministic inputs +
-    // round-start checkpoints, so per-frame backward seek requires us
-    // to capture full simulation snapshots ourselves while the replay
-    // plays forward.  Horse::ReplayScrub does that via the engine's
-    // own LuxBattle_HgCpuDirect snapshot framework (the same one the
-    // post-KO cinematic uses for its 5-entry ring), backed by a
-    // HorseMod-allocated ring of N x 0x28018-byte slots.
-    //
-    // UI flow:
-    //   1. User opens a replay file from this tab.
-    //   2. HorseMod generates the Lux timeline automatically.
-    //   3. User drags the timeline / uses the transport buttons to seek;
-    //      the world freezes while paused.
-    //   4. Releasing the playhead resumes playback after the seek lands.
-    // ==================================================================
     void render_general_tab()
     {
             // ---- Online safety gate (TOP of General - primary control) ----
@@ -8029,9 +8052,29 @@ private:
 
             if (ImGui::CollapsingHeader("Developer##general_developer"))
             {
+                ImGui::TextUnformatted("Deterministic simulation");
+                ImGui::TextDisabled("Lifecycle: Disabled");
                 ImGui::TextDisabled(
-                    "Rollback and deterministic replay seeking are unavailable "
-                    "while the replacement native adapter is being qualified.");
+                    "Native manifest: %zu qualified regions",
+                    Horse::Deterministic::Schema::production_regions.size());
+                ImGui::TextDisabled(
+                    "Config: %s (window=%u, delay=%u, trace=%s)",
+                    m_deterministic_config_present ? "loaded" : "missing",
+                    m_deterministic_config.rollback_window,
+                    m_deterministic_config.input_delay,
+                    m_deterministic_config.trace ? "true" : "false");
+                if (m_deterministic_failure
+                    != Horse::Deterministic::FailureCode::None)
+                {
+                    const auto failure = Horse::Deterministic::failure_code_name(
+                        m_deterministic_failure);
+                    ImGui::TextDisabled(
+                        "Terminal gate: %.*s",
+                        static_cast<int>(failure.size()), failure.data());
+                }
+                ImGui::TextDisabled(
+                    "Replay seek and online ownership remain fail-closed until "
+                    "the native adapter is qualified.");
                 render_khit_audit_log_options();
             }
 

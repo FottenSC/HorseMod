@@ -1,9 +1,12 @@
 #include "deterministic/InputTimeline.hpp"
+#include "deterministic/Config.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/ReplayCoordinator.hpp"
 #include "deterministic/SnapshotStore.hpp"
 
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
@@ -159,6 +162,28 @@ InputPair one_input(bool confirmed = true)
     return input;
 }
 
+void test_public_config_contract()
+{
+    const auto path = std::filesystem::temp_directory_path()
+        / "horsemod_deterministic_config_selftest.ini";
+    {
+        std::ofstream output(path, std::ios::trunc);
+        output << "config_version=1\n"
+               << "enabled=true\n"
+               << "rollback_window=12\n"
+               << "input_delay=1\n"
+               << "trace=false\n"
+               << "legacy_transport=udp\n"
+               << "legacy_mode=lab\n";
+    }
+    const ConfigLoadResult loaded = LoadConfig(path);
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+    expect(loaded.status.ok(), "load public deterministic config");
+    expect(loaded.config.enabled, "parse deterministic enabled flag");
+    expect(loaded.diagnostics.size() == 1, "legacy config emits one diagnostic");
+}
+
 void test_input_replacement_and_invalidation()
 {
     InputTimeline timeline{2};
@@ -275,6 +300,7 @@ void test_transactional_restore_failures_undo()
 
 int main()
 {
+    test_public_config_contract();
     test_input_replacement_and_invalidation();
     test_snapshot_capacity_is_atomic();
     test_presentation_exactly_once();
