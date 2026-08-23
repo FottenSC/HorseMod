@@ -140,6 +140,64 @@ public:
     int count{};
 };
 
+class FakeGenerationMaterializer final : public IReplayGenerationMaterializer
+{
+public:
+    Status Preflight(const ReplayGenerationTarget& target) noexcept override
+    {
+        return target.expected_context.generation != 0
+            && target.baseline.generation == target.expected_context.generation
+            && target.round_image_identity != 0
+            ? Status::success()
+            : Status::failure(FailureCode::NativeGenerationMaterializationFailed);
+    }
+
+    Status Request(const ReplayGenerationTarget& target) noexcept override
+    {
+        if (requested.has_value())
+        {
+            return Status::failure(FailureCode::IllegalTransition);
+        }
+        requested = target;
+        ++request_count;
+        return Status::success();
+    }
+
+    std::optional<ReplayGenerationMaterialized> Poll() noexcept override
+    {
+        if (!ready || !requested.has_value())
+        {
+            return std::nullopt;
+        }
+        ReplayGenerationMaterialized result{
+            requested->expected_context,
+            requested->baseline,
+            requested->native_round_index,
+            requested->round_image_identity};
+        if (corrupt_identity)
+        {
+            ++result.context.battle_identity;
+        }
+        requested.reset();
+        ready = false;
+        return result;
+    }
+
+    FailureCode TerminalFailure() const noexcept override { return terminal; }
+
+    void Cancel() noexcept override
+    {
+        requested.reset();
+        ready = false;
+    }
+
+    std::optional<ReplayGenerationTarget> requested;
+    FailureCode terminal{FailureCode::None};
+    int request_count{};
+    bool ready{};
+    bool corrupt_identity{};
+};
+
 struct Fixture
 {
     FakeAdapter adapter;
@@ -152,6 +210,11 @@ struct Fixture
 NativeContext context()
 {
     return NativeContext{1, 99, {101, 102}, 201};
+}
+
+NativeContext second_context()
+{
+    return NativeContext{2, 199, {301, 302}, 401};
 }
 
 InputPair one_input(bool confirmed = true)
@@ -240,7 +303,7 @@ void test_replay_checkpoint_seek_and_resume()
 {
     Fixture fixture;
     ReplayCoordinator replay{fixture.simulation};
-    expect(replay.Begin(context(), {1, 0}).ok(), "begin replay capture");
+    expect(replay.Begin(context(), {1, 0}, 0, 7001).ok(), "begin replay capture");
     for (std::uint64_t frame = 0; frame < 35; ++frame)
     {
         expect(replay.RecordAndAdvance({1, frame}, one_input()).ok(), "record replay frame");
@@ -256,6 +319,69 @@ void test_replay_checkpoint_seek_and_resume()
     expect(replay.captured_end() == FrameCoordinate{1, 35}, "seek does not truncate capture extent");
     expect(replay.Seek({1, 35}).ok(), "seek forward within preserved capture extent");
     expect(fixture.adapter.value == 35, "forward seek lands at preserved capture end");
+}
+
+void test_cross_generation_seek_materializes_before_restore()
+{
+    Fixture fixture;
+    FakeGenerationMaterializer materializer;
+    ReplayCoordinator replay{fixture.simulation, &materializer};
+    expect(replay.Begin(context(), {1, 0}, 0, 7001).ok(), "begin generation one");
+    for (std::uint64_t frame = 0; frame < 5; ++frame)
+    {
+        expect(replay.RecordAndAdvance({1, frame}, one_input()).ok(), "record generation one");
+    }
+    expect(
+        replay.BeginGeneration(second_context(), {2, 0}, 1, 7002).ok(),
+        "capture generation two baseline after native round transition");
+    for (std::uint64_t frame = 0; frame < 3; ++frame)
+    {
+        expect(replay.RecordAndAdvance({2, frame}, one_input()).ok(), "record generation two");
+    }
+    expect(replay.FinishCapture().ok(), "finish multi-generation capture");
+
+    expect(replay.Seek({1, 4}).ok(), "request cross-generation seek");
+    expect(replay.state() == ReplayState::Seeking, "seek waits for native materialization");
+    expect(materializer.request_count == 1, "native round image requested once");
+    expect(replay.PollSeek().ok(), "poll pending materialization");
+    expect(replay.state() == ReplayState::Seeking, "pending poll cannot restore early");
+    expect(fixture.adapter.value == 8, "pending materialization cannot mutate gameplay state");
+    materializer.ready = true;
+    expect(replay.PollSeek().ok(), "consume completed native materialization");
+    expect(replay.state() == ReplayState::Resuming, "completed materialization reaches resume");
+    expect(fixture.adapter.generation == 1, "adapter rebound to target native generation");
+    expect(fixture.adapter.value == 4, "target generation restored and resimulated exactly");
+    expect(replay.Resume().ok(), "resume cross-generation seek");
+
+    expect(replay.Seek({2, 2}).ok(), "request forward cross-generation seek");
+    materializer.ready = true;
+    expect(replay.PollSeek().ok(), "complete forward native materialization");
+    expect(fixture.adapter.generation == 2, "adapter rebound to second generation");
+    expect(fixture.adapter.value == 7, "second generation baseline and inputs retained");
+}
+
+void test_cross_generation_identity_mismatch_fails_before_restore()
+{
+    Fixture fixture;
+    FakeGenerationMaterializer materializer;
+    ReplayCoordinator replay{fixture.simulation, &materializer};
+    expect(replay.Begin(context(), {1, 0}, 0, 7001).ok(), "begin mismatch generation one");
+    expect(replay.RecordAndAdvance({1, 0}, one_input()).ok(), "record mismatch generation one");
+    expect(
+        replay.BeginGeneration(second_context(), {2, 0}, 1, 7002).ok(),
+        "begin mismatch generation two");
+    expect(replay.RecordAndAdvance({2, 0}, one_input()).ok(), "record mismatch generation two");
+    expect(replay.FinishCapture().ok(), "finish mismatch capture");
+    const int value_before_seek = fixture.adapter.value;
+    expect(replay.Seek({1, 1}).ok(), "request mismatch cross-generation seek");
+    materializer.corrupt_identity = true;
+    materializer.ready = true;
+    expect(
+        replay.PollSeek().code == FailureCode::IdentityMismatch,
+        "reject mismatched materialized identities");
+    expect(replay.state() == ReplayState::Failed, "identity mismatch is terminal");
+    expect(fixture.adapter.value == value_before_seek, "identity mismatch performs no restore write");
+    expect(!materializer.requested.has_value(), "failed seek cancels native materializer");
 }
 
 void test_transactional_restore_failures_undo()
@@ -305,6 +431,8 @@ int main()
     test_snapshot_capacity_is_atomic();
     test_presentation_exactly_once();
     test_replay_checkpoint_seek_and_resume();
+    test_cross_generation_seek_materializes_before_restore();
+    test_cross_generation_identity_mismatch_fails_before_restore();
     test_transactional_restore_failures_undo();
     if (failures == 0)
     {

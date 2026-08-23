@@ -39,6 +39,7 @@ enum class FailureCode : std::uint16_t
     StateHashMismatch,
     PeerDisconnected,
     NativeLifecycleEnded,
+    NativeGenerationMaterializationFailed,
 };
 
 constexpr std::string_view failure_code_name(FailureCode code) noexcept
@@ -73,6 +74,7 @@ constexpr std::string_view failure_code_name(FailureCode code) noexcept
     case FailureCode::StateHashMismatch: return "state_hash_mismatch";
     case FailureCode::PeerDisconnected: return "peer_disconnected";
     case FailureCode::NativeLifecycleEnded: return "native_lifecycle_ended";
+    case FailureCode::NativeGenerationMaterializationFailed: return "native_generation_materialization_failed";
     }
     return "unknown_failure";
 }
@@ -140,6 +142,24 @@ struct NativeContext
     std::uint64_t battle_identity{};
     std::uint64_t fighter_identities[2]{};
     std::uint64_t stage_identity{};
+
+    friend constexpr bool operator==(const NativeContext&, const NativeContext&) = default;
+};
+
+struct ReplayGenerationTarget
+{
+    NativeContext expected_context{};
+    FrameCoordinate baseline{};
+    std::uint32_t native_round_index{};
+    std::uint64_t round_image_identity{};
+};
+
+struct ReplayGenerationMaterialized
+{
+    NativeContext context{};
+    FrameCoordinate baseline{};
+    std::uint32_t native_round_index{};
+    std::uint64_t round_image_identity{};
 };
 
 enum class SimulationState : std::uint8_t

@@ -77,6 +77,17 @@ public:
     virtual void InvalidateGeneration(std::uint64_t generation) noexcept = 0;
 };
 
+class IReplayGenerationMaterializer
+{
+public:
+    virtual ~IReplayGenerationMaterializer() = default;
+    virtual Status Preflight(const ReplayGenerationTarget& target) noexcept = 0;
+    virtual Status Request(const ReplayGenerationTarget& target) noexcept = 0;
+    [[nodiscard]] virtual std::optional<ReplayGenerationMaterialized> Poll() noexcept = 0;
+    [[nodiscard]] virtual FailureCode TerminalFailure() const noexcept = 0;
+    virtual void Cancel() noexcept = 0;
+};
+
 enum class TransportReliability : std::uint8_t { Reliable, Unreliable };
 enum class TransportMessageKind : std::uint8_t
 {

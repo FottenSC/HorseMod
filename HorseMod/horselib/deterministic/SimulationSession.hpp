@@ -18,12 +18,16 @@ public:
     Status BindAndCaptureBaseline(
         const NativeContext& context,
         FrameCoordinate baseline) noexcept;
+    Status BindMaterializedGeneration(
+        const NativeContext& context,
+        FrameCoordinate baseline) noexcept;
     Status CaptureCheckpoint(FrameCoordinate coordinate) noexcept;
     Status Advance(FrameCoordinate coordinate, const InputPair& inputs) noexcept;
     Status RestoreAndResimulate(
         FrameCoordinate target,
         FrameCoordinate resume_at) noexcept;
     Status Quiesce() noexcept;
+    Status ReleaseBindingPreserveHistory() noexcept;
     void Reset() noexcept;
 
     [[nodiscard]] SimulationState state() const noexcept { return state_; }

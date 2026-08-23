@@ -55,6 +55,27 @@ Status SimulationSession::BindAndCaptureBaseline(
     return Status::success();
 }
 
+Status SimulationSession::BindMaterializedGeneration(
+    const NativeContext& context,
+    FrameCoordinate baseline) noexcept
+{
+    if (state_ != SimulationState::Idle || context.generation != baseline.generation)
+    {
+        return Status::failure(FailureCode::IllegalTransition);
+    }
+    owner_thread_ = std::this_thread::get_id();
+    context_ = context;
+    current_ = baseline;
+    state_ = SimulationState::Binding;
+    const Status status = adapter_.BindContext(context);
+    if (!status.ok())
+    {
+        return fail(status.code);
+    }
+    state_ = SimulationState::Running;
+    return Status::success();
+}
+
 Status SimulationSession::CaptureCheckpoint(FrameCoordinate coordinate) noexcept
 {
     const Status thread = require_owner_thread();
@@ -250,6 +271,25 @@ Status SimulationSession::Quiesce() noexcept
         return Status::failure(FailureCode::IllegalTransition);
     }
     state_ = SimulationState::Quiescing;
+    return Status::success();
+}
+
+Status SimulationSession::ReleaseBindingPreserveHistory() noexcept
+{
+    const Status thread = require_owner_thread();
+    if (!thread.ok())
+    {
+        return thread;
+    }
+    if (state_ != SimulationState::Quiescing)
+    {
+        return Status::failure(FailureCode::IllegalTransition);
+    }
+    context_ = {};
+    current_ = {};
+    owner_thread_ = {};
+    state_ = SimulationState::Idle;
+    failure_ = FailureCode::None;
     return Status::success();
 }
 
