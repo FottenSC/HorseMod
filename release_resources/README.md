@@ -53,10 +53,8 @@ game at launch — no manual file copying required.
    ```
   <game>/Binaries/Win64/ue4ss/Mods/HorseMod/
     |-- enabled.txt
-    |-- dlls/
-    |   `-- main.dll
-    `-- tools/
-        `-- HorseReplayLauncher.exe
+    `-- dlls/
+        `-- main.dll
   ```
 
    The Thunderstore zip uses a `mod/` folder for mod-manager routing. For a
@@ -69,17 +67,6 @@ game at launch — no manual file copying required.
 3. Launch SoulCalibur VI.  The mod loads automatically when UE4SS starts.
 4. Press **F2** (keyboard) or **Back / Select** (gamepad) to open the
    overlay.
-
-## Replay website links
-
-Launch the game through the Thunderstore/r2modman/Gale profile once after
-installing or updating HorseMod.  On load, HorseMod registers the
-`sc6replay://` replay-link handler for that exact profile and starts the local
-status companion used by the replay archive website.
-
-If the game is not running, replay links opened from the website are queued
-inside the same shimloader profile.  Start SoulCalibur VI through that mod
-manager profile and HorseMod will pick up the queued replay when it loads.
 
 ## Quick start
 

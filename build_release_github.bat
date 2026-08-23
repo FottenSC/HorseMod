@@ -29,7 +29,6 @@ if not "%REPO_ROOT:~-1%"=="\" set REPO_ROOT=%REPO_ROOT%\
 
 set BUILD_DIR=build_cmake_LessEqual421__Shipping__Win64
 set BUILT_DLL=%REPO_ROOT%%BUILD_DIR%\HorseMod\HorseMod.dll
-set BUILT_LAUNCHER=%REPO_ROOT%%BUILD_DIR%\HorseMod\HorseReplayLauncher.exe
 set DIST_DIR=%REPO_ROOT%dist
 set STAGE_DIR=%DIST_DIR%\stage_github
 
@@ -62,27 +61,15 @@ if not exist "%BUILT_DLL%" (
     echo [release.github] expected DLL not found at %BUILT_DLL%
     exit /b 1
 )
-if not exist "%BUILT_LAUNCHER%" (
-    echo [release.github] expected replay launcher not found at %BUILT_LAUNCHER%
-    exit /b 1
-)
-
 rem ---- Stage release contents ----------------------------------------------
 if exist "%STAGE_DIR%" rmdir /S /Q "%STAGE_DIR%"
 mkdir "%STAGE_DIR%\HorseMod\dlls"
-mkdir "%STAGE_DIR%\HorseMod\tools"
 
 copy /Y "%BUILT_DLL%" "%STAGE_DIR%\HorseMod\dlls\main.dll" >nul
 if !ERRORLEVEL! NEQ 0 (
     echo [release.github] failed to copy DLL into stage
     exit /b 1
 )
-copy /Y "%BUILT_LAUNCHER%" "%STAGE_DIR%\HorseMod\tools\HorseReplayLauncher.exe" >nul
-if !ERRORLEVEL! NEQ 0 (
-    echo [release.github] failed to copy replay launcher into stage
-    exit /b 1
-)
-
 rem enabled.txt — UE4SS reads it to decide whether to load the mod.  Empty
 rem file is fine; the rename to "enabled.txt.DISABLED" is the documented
 rem off-switch.

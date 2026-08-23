@@ -104,26 +104,6 @@ add_library(${TARGET} SHARED
     ${HORSEMOD_IMGUIFILEDIALOG_SOURCES}
 )
 
-add_executable(HorseReplayLauncher WIN32
-    tools/HorseReplayLauncher.cpp
-    ${CMAKE_SOURCE_DIR}/release_resources/HorseReplayLauncher.rc
-)
-set_target_properties(HorseReplayLauncher PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-)
-target_include_directories(HorseReplayLauncher PRIVATE
-    ${CMAKE_SOURCE_DIR}/release_resources
-)
-target_link_libraries(HorseReplayLauncher PRIVATE
-    winhttp shell32 ws2_32 advapi32 ole32 propsys uuid
-)
-target_compile_definitions(HorseReplayLauncher PRIVATE
-    HORSEMOD_VERSION="${HORSEMOD_VERSION}"
-    HORSEMOD_VERSION_MAJOR=${HORSEMOD_VERSION_MAJOR}
-    HORSEMOD_VERSION_MINOR=${HORSEMOD_VERSION_MINOR}
-    HORSEMOD_VERSION_PATCH=${HORSEMOD_VERSION_PATCH}
-)
-
 add_executable(DeterministicCoreSelfTest
     ${CMAKE_SOURCE_DIR}/tools/deterministic_core_selftest.cpp
 )
@@ -216,5 +196,3 @@ if(EXISTS "${HORSEMOD_REPLAY_FUNCTION_MAP}")
         COMMENT "Copying replay function map next to HorseMod.dll"
     )
 endif()
-
-add_dependencies(${TARGET} HorseReplayLauncher)
