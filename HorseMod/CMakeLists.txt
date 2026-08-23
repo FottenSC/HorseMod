@@ -34,7 +34,9 @@ file(GLOB_RECURSE SCVI_HEADERS
 
 set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/Config.cpp
+    horselib/deterministic/HgCpuStream.cpp
     horselib/deterministic/InputTimeline.cpp
+    horselib/deterministic/NativeCandidateRegions.cpp
     horselib/deterministic/PresentationJournal.cpp
     horselib/deterministic/ReplayCoordinator.cpp
     horselib/deterministic/SimulationSession.cpp
@@ -130,6 +132,24 @@ if(MSVC)
 endif()
 add_test(NAME DeterministicCoreSelfTest COMMAND $<TARGET_FILE:DeterministicCoreSelfTest>)
 set_tests_properties(DeterministicCoreSelfTest PROPERTIES
+    LABELS "deterministic;fast"
+    TIMEOUT 60
+)
+
+add_executable(NativeCandidateRegionsSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/native_candidate_regions_selftest.cpp
+)
+target_link_libraries(NativeCandidateRegionsSelfTest PRIVATE HorseDeterministicCore)
+target_compile_features(NativeCandidateRegionsSelfTest PRIVATE cxx_std_20)
+if(MSVC)
+    set_property(TARGET NativeCandidateRegionsSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+add_test(
+    NAME NativeCandidateRegionsSelfTest
+    COMMAND $<TARGET_FILE:NativeCandidateRegionsSelfTest>
+)
+set_tests_properties(NativeCandidateRegionsSelfTest PROPERTIES
     LABELS "deterministic;fast"
     TIMEOUT 60
 )
