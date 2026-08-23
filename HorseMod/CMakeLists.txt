@@ -35,6 +35,8 @@ file(GLOB_RECURSE SCVI_HEADERS
 set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/Config.cpp
     horselib/deterministic/HgCpuStream.cpp
+    horselib/deterministic/HgCpuCoverageProbe.cpp
+    horselib/deterministic/HgCpuRuntimeDiagnostics.cpp
     horselib/deterministic/InputTimeline.cpp
     horselib/deterministic/NativeCandidateRegions.cpp
     horselib/deterministic/PresentationJournal.cpp

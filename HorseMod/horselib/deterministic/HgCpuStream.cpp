@@ -2,8 +2,40 @@
 
 #include <cstring>
 
+#if defined(_MSC_VER)
+#include <Windows.h>
+#endif
+
 namespace Horse::Deterministic
 {
+namespace
+{
+bool invoke_exec(HgCpuExecFn function, HgCpuStreamShim* shim, void*& result) noexcept
+{
+#if defined(_MSC_VER)
+    __try
+    {
+        result = function(shim);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+#else
+    try
+    {
+        result = function(shim);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+#endif
+}
+}
+
 const HgCpuStreamShim::VTable HgCpuStreamShim::vtable_{
     &HgCpuStreamShim::Dtor,
     &HgCpuStreamShim::Dtor,
@@ -59,27 +91,32 @@ std::uint64_t HgCpuStreamShim::Checksum(const HgCpuLocalImage& image) noexcept
 Status HgCpuStreamShim::Capture(
     HgCpuExecFn writer,
     const HgCpuGenerationContext& context,
-    HgCpuLocalImage& output) noexcept
+    HgCpuLocalImage& output,
+    HgCpuWriteTrace* trace) noexcept
 {
     output = {};
+    if (trace != nullptr)
+    {
+        trace->count = 0;
+        trace->truncated = false;
+    }
     if (writer == nullptr || !ValidContext(context))
         return Status::failure(FailureCode::ContextUnavailable);
     std::vector<std::byte> buffer(hgcpu_stream_capacity);
     Retarget(buffer.data(), buffer.size());
+    trace_ = trace;
     void* result = nullptr;
-    try
-    {
-        result = writer(this);
-    }
-    catch (...)
+    if (!invoke_exec(writer, this, result))
     {
         Retarget(nullptr, 0);
+        trace_ = nullptr;
         return Status::failure(FailureCode::CaptureFailed);
     }
     if (result != this || overflow_ || cursor_ == 0 || cursor_ > buffer.size())
     {
         const bool overflowed = overflow_;
         Retarget(nullptr, 0);
+        trace_ = nullptr;
         return Status::failure(
             overflowed ? FailureCode::CapacityExceeded : FailureCode::CaptureFailed);
     }
@@ -89,6 +126,7 @@ Status HgCpuStreamShim::Capture(
     output.bytes = std::move(buffer);
     output.checksum = Checksum(output);
     Retarget(nullptr, 0);
+    trace_ = nullptr;
     return Status::success();
 }
 
@@ -106,12 +144,9 @@ Status HgCpuStreamShim::Restore(
         return Status::failure(FailureCode::RestorePreflightFailed);
     }
     Retarget(const_cast<std::byte*>(image.bytes.data()), image.bytes.size());
+    trace_ = nullptr;
     void* result = nullptr;
-    try
-    {
-        result = reader(this);
-    }
-    catch (...)
+    if (!invoke_exec(reader, this, result))
     {
         Retarget(nullptr, 0);
         return Status::failure(FailureCode::RestoreWriteFailed);
@@ -155,6 +190,19 @@ std::int64_t __fastcall HgCpuStreamShim::Write(
         return 0;
     }
     const auto previous = self->cursor_;
+    if (self->trace_ != nullptr)
+    {
+        auto& trace = *self->trace_;
+        if (trace.count < trace.storage.size())
+        {
+            trace.storage[trace.count++] = {
+                reinterpret_cast<std::uintptr_t>(source), previous, bytes};
+        }
+        else
+        {
+            trace.truncated = true;
+        }
+    }
     std::memcpy(self->data_ + self->cursor_, source, bytes);
     self->cursor_ += bytes;
     return static_cast<std::int64_t>(previous);

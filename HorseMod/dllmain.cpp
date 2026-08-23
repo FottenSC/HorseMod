@@ -111,6 +111,7 @@
 #include "horselib/TimeDilationGate.hpp"
 #include "horselib/WindRngGate.hpp"
 #include "horselib/deterministic/Config.hpp"
+#include "horselib/deterministic/HgCpuRuntimeDiagnostics.hpp"
 #include "horselib/deterministic/Schema.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
@@ -3857,6 +3858,9 @@ private:
     Horse::Deterministic::Config m_deterministic_config{};
     Horse::Deterministic::FailureCode m_deterministic_failure{
         Horse::Deterministic::FailureCode::None};
+    std::unique_ptr<Horse::Deterministic::HgCpuRuntimeDiagnostics>
+        m_hgcpu_runtime_diagnostics;
+    bool m_hgcpu_diagnostic_failure_logged = false;
     bool m_deterministic_config_present = false;
 public:
     HorseMod() : CppUserModBase()
@@ -3876,6 +3880,17 @@ public:
         auto deterministic_load =
             Horse::Deterministic::LoadConfig(deterministic_config_path);
         m_deterministic_config = deterministic_load.config;
+        if (deterministic_load.status.ok() && m_deterministic_config.trace)
+        {
+            const auto report_path = deterministic_config_path.parent_path()
+                / L"reports" / L"deterministic"
+                / L"hgcpu_coverage_runtime.md";
+            m_hgcpu_runtime_diagnostics = std::make_unique<
+                Horse::Deterministic::HgCpuRuntimeDiagnostics>(report_path);
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] HgCpu runtime coverage diagnostic armed; "
+                "stock simulation remains active\n"));
+        }
         if (!deterministic_load.status.ok())
         {
             m_deterministic_config.enabled = false;
@@ -4065,6 +4080,9 @@ public:
     ~HorseMod() override
     {
         Output::send<LogLevel::Verbose>(STR("[HorseMod] dtor ENTER\n"));
+
+        if (m_hgcpu_runtime_diagnostics)
+            m_hgcpu_runtime_diagnostics->Finish();
 
         // Final settings save - catches anything the periodic
         // on_update save would have missed in the last sub-2s window
@@ -5900,6 +5918,27 @@ private:
         // world tick), while the ImGui tab callback only runs when the
         // user has the menu open.
         frame_step_apply();
+
+        if (m_hgcpu_runtime_diagnostics
+            && !m_hgcpu_runtime_diagnostics->complete())
+        {
+            uint32_t diagnostic_frame{};
+            if (read_lux_battle_game_frame(diagnostic_frame))
+            {
+                const auto status = m_hgcpu_runtime_diagnostics->Observe(
+                    Horse::NativeBinding::imageBase(), diagnostic_frame);
+                if (!status.ok()
+                    && status.code != Horse::Deterministic::FailureCode::ContextUnavailable
+                    && !m_hgcpu_diagnostic_failure_logged)
+                {
+                    m_hgcpu_diagnostic_failure_logged = true;
+                    const auto failure = Horse::Deterministic::failure_code_name(status.code);
+                    Output::send<LogLevel::Warning>(STR(
+                        "[HorseMod] HgCpu runtime coverage diagnostic failed: {}\n"),
+                        RC::to_generic_string(std::string(failure)));
+                }
+            }
+        }
 
         // Free-camera driver.  Resolves ALuxBattleCamera* from the current
         // LuxBattleManager.BattleCamera property (null outside battle)

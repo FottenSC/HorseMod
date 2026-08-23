@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace Horse::Deterministic
@@ -32,6 +33,20 @@ struct HgCpuLocalImage
     std::vector<std::byte> bytes;
 };
 
+struct HgCpuWriteSpan
+{
+    std::uintptr_t source_address{};
+    std::size_t stream_offset{};
+    std::size_t size{};
+};
+
+struct HgCpuWriteTrace
+{
+    std::span<HgCpuWriteSpan> storage{};
+    std::size_t count{};
+    bool truncated{};
+};
+
 class HgCpuStreamShim;
 using HgCpuExecFn = void* (__fastcall*)(HgCpuStreamShim*);
 
@@ -43,7 +58,8 @@ public:
     Status Capture(
         HgCpuExecFn writer,
         const HgCpuGenerationContext& context,
-        HgCpuLocalImage& output) noexcept;
+        HgCpuLocalImage& output,
+        HgCpuWriteTrace* trace = nullptr) noexcept;
     Status Restore(
         HgCpuExecFn reader,
         const HgCpuGenerationContext& current,
@@ -90,6 +106,7 @@ private:
     std::byte* data_{};
     std::size_t capacity_{};
     std::size_t cursor_{};
+    HgCpuWriteTrace* trace_{};
     bool overflow_{};
 };
 }

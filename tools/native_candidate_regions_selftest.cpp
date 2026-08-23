@@ -1,5 +1,6 @@
 #include "deterministic/NativeCandidateRegions.hpp"
 #include "deterministic/HgCpuStream.hpp"
+#include "deterministic/HgCpuCoverageProbe.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -229,6 +230,35 @@ void* __fastcall fake_hgcpu_short_reader(HgCpuStreamShim* shim)
     return shim;
 }
 
+std::array<std::byte, 32> coverage_source{};
+
+void* __fastcall fake_coverage_writer(HgCpuStreamShim* shim)
+{
+    using WriteFn = std::int64_t (__fastcall*)(HgCpuStreamShim*, void*, std::size_t);
+    auto** vtable = *reinterpret_cast<void***>(shim);
+    auto write = reinterpret_cast<WriteFn>(vtable[5]);
+    write(shim, coverage_source.data(), coverage_source.size());
+    return shim;
+}
+
+class DirectNativeMemory final : public INativeMemory
+{
+public:
+    bool Read(std::uintptr_t address, std::span<std::byte> destination) noexcept override
+    {
+        if (address == 0 || destination.empty()) return false;
+        std::memcpy(destination.data(), reinterpret_cast<const void*>(address), destination.size());
+        return true;
+    }
+
+    bool Write(std::uintptr_t address, std::span<const std::byte> source) noexcept override
+    {
+        if (address == 0 || source.empty()) return false;
+        std::memcpy(reinterpret_cast<void*>(address), source.data(), source.size());
+        return true;
+    }
+};
+
 HgCpuGenerationContext hgcpu_context()
 {
     return {0x231, 1, 11, 7, {101, 102}, 201};
@@ -240,11 +270,17 @@ void test_hgcpu_stream_contract()
         hgcpu_payload[i] = std::byte{static_cast<unsigned char>(i + 1)};
     HgCpuStreamShim shim;
     HgCpuLocalImage image{};
+    std::array<HgCpuWriteSpan, 4> span_storage{};
+    HgCpuWriteTrace trace{span_storage};
     const auto context = hgcpu_context();
-    expect(shim.Capture(&fake_hgcpu_writer, context, image).ok(), "capture bounded HgCpu stream");
+    expect(shim.Capture(&fake_hgcpu_writer, context, image, &trace).ok(), "capture bounded HgCpu stream");
     expect(image.cursor == hgcpu_payload.size(), "record exact HgCpu cursor");
     expect(image.bytes == std::vector<std::byte>(
         hgcpu_payload.begin(), hgcpu_payload.end()), "capture exact HgCpu bytes");
+    expect(trace.count == 1 && !trace.truncated, "record exact HgCpu write span count");
+    expect(trace.storage[0].source_address == reinterpret_cast<std::uintptr_t>(hgcpu_payload.data())
+        && trace.storage[0].stream_offset == 0
+        && trace.storage[0].size == hgcpu_payload.size(), "record local-only HgCpu source mapping");
     hgcpu_read_matched = false;
     expect(shim.Restore(&fake_hgcpu_reader, context, image).ok(), "restore bounded HgCpu stream");
     expect(hgcpu_read_matched, "HgCpu reader receives exact stream");
@@ -270,6 +306,31 @@ void test_hgcpu_stream_contract()
         shim.Capture(&fake_hgcpu_overflow_writer, context, overflow).code
             == FailureCode::CapacityExceeded,
         "HgCpu stream rejects native overflow");
+}
+
+void test_hgcpu_direct_source_coverage()
+{
+    DirectNativeMemory memory;
+    HgCpuCoverageProbe probe(memory);
+    std::array<std::byte, 16> other_target{};
+    std::array<HgCpuCoverageTarget, 2> targets{{
+        {reinterpret_cast<std::uintptr_t>(coverage_source.data()), coverage_source.size(), 101},
+        {reinterpret_cast<std::uintptr_t>(other_target.data()), other_target.size(), 102},
+    }};
+    expect(probe.Bind(targets).ok(), "bind HgCpu coverage targets");
+    HgCpuCoverageSample sample{};
+    expect(probe.Observe(&fake_coverage_writer, hgcpu_context(), 1, sample).ok(),
+        "capture HgCpu coverage baseline");
+    coverage_source[3] = std::byte{0x44};
+    other_target[5] = std::byte{0x55};
+    expect(probe.Observe(&fake_coverage_writer, hgcpu_context(), 2, sample).ok(),
+        "capture HgCpu coverage delta");
+    expect(sample.changed_bytes == 2 && sample.directly_sourced_changed_bytes == 1,
+        "classify direct and unmapped fighter mutations");
+    expect(sample.unmapped_deltas.size() == 1
+        && sample.unmapped_deltas[0].target == 1
+        && sample.unmapped_deltas[0].offset == 5,
+        "report pointer-free unmapped target offset");
 }
 
 void test_capture_restore_preserves_exclusions()
@@ -369,6 +430,7 @@ void test_partial_write_undoes_exactly()
 int main()
 {
     test_hgcpu_stream_contract();
+    test_hgcpu_direct_source_coverage();
     test_capture_restore_preserves_exclusions();
     test_preflight_is_atomic();
     test_unknown_class_and_invalid_header_fail_closed();
