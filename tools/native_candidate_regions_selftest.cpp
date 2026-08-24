@@ -1,3 +1,4 @@
+#include "deterministic/CandidateCheckpoint.hpp"
 #include "deterministic/NativeCandidateRegions.hpp"
 #include "deterministic/HgCpuStream.hpp"
 #include "deterministic/HgCpuCoverageProbe.hpp"
@@ -309,6 +310,54 @@ void test_hgcpu_stream_contract()
         "HgCpu stream rejects native overflow");
 }
 
+void test_candidate_checkpoint_codec()
+{
+    Fixture fixture;
+    expect(fixture.regions.Bind(fixture.addresses).ok(),
+        "bind checkpoint candidate regions");
+    NativeCandidateImage native{};
+    expect(fixture.regions.Capture(native).ok(),
+        "capture checkpoint candidate regions");
+
+    for (std::size_t i = 0; i < hgcpu_payload.size(); ++i)
+        hgcpu_payload[i] = std::byte{static_cast<unsigned char>(0x80 + i)};
+    HgCpuStreamShim shim;
+    HgCpuLocalImage hgcpu{};
+    expect(shim.Capture(&fake_hgcpu_writer, hgcpu_context(), hgcpu).ok(),
+        "capture checkpoint HgCpu image");
+
+    CandidateCheckpointImage image{native, hgcpu};
+    Snapshot snapshot{};
+    expect(CandidateCheckpointCodec::Encode({7, 30}, 0x9191, image, snapshot).ok(),
+        "encode pointer-free candidate checkpoint");
+    expect(!snapshot.bytes.empty()
+            && snapshot.canonical_hash != CanonicalHash{},
+        "checkpoint contains versioned payload and canonical component hash");
+
+    CandidateCheckpointImage decoded{};
+    expect(CandidateCheckpointCodec::Decode(snapshot, decoded).ok(),
+        "decode candidate checkpoint");
+    expect(decoded.native == native,
+        "candidate checkpoint round-trips typed native image");
+    expect(decoded.hgcpu.context == hgcpu.context
+            && decoded.hgcpu.cursor == hgcpu.cursor
+            && decoded.hgcpu.checksum == hgcpu.checksum
+            && decoded.hgcpu.bytes == hgcpu.bytes,
+        "candidate checkpoint round-trips local HgCpu reconstruction image");
+
+    Snapshot corrupted = snapshot;
+    corrupted.bytes.back() ^= std::byte{1};
+    expect(CandidateCheckpointCodec::Decode(corrupted, decoded).code
+            == FailureCode::RestoreVerificationFailed,
+        "checkpoint rejects corrupted local reconstruction bytes");
+
+    Snapshot wrong_generation = snapshot;
+    ++wrong_generation.coordinate.generation;
+    expect(CandidateCheckpointCodec::Decode(wrong_generation, decoded).code
+            == FailureCode::RestoreVerificationFailed,
+        "checkpoint rejects native generation drift");
+}
+
 void test_hgcpu_direct_source_coverage()
 {
     DirectNativeMemory memory;
@@ -570,6 +619,7 @@ void test_move_dispatch_partial_write_undoes_exactly()
 int main()
 {
     test_hgcpu_stream_contract();
+    test_candidate_checkpoint_codec();
     test_hgcpu_direct_source_coverage();
     test_capture_restore_preserves_exclusions();
     test_preflight_is_atomic();

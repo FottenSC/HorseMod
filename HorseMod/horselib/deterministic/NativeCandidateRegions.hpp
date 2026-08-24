@@ -96,6 +96,9 @@ public:
 
     [[nodiscard]] static std::vector<std::byte> CanonicalBytes(
         const NativeCandidateImage& image);
+    [[nodiscard]] static Status DecodeCanonicalBytes(
+        std::span<const std::byte> bytes,
+        NativeCandidateImage& output) noexcept;
 
 private:
     struct SubVmIdentity

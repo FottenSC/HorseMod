@@ -33,6 +33,7 @@ file(GLOB_RECURSE SCVI_HEADERS
 )
 
 set(HORSEMOD_DETERMINISTIC_SOURCES
+    horselib/deterministic/CandidateCheckpoint.cpp
     horselib/deterministic/Config.cpp
     horselib/deterministic/HgCpuStream.cpp
     horselib/deterministic/HgCpuCoverageProbe.cpp
@@ -56,6 +57,9 @@ target_include_directories(HorseDeterministicCore PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib
 )
 target_compile_features(HorseDeterministicCore PUBLIC cxx_std_20)
+if(WIN32)
+    target_link_libraries(HorseDeterministicCore PUBLIC bcrypt)
+endif()
 if(MSVC)
     set_property(TARGET HorseDeterministicCore PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")

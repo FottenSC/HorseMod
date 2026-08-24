@@ -64,6 +64,8 @@ public:
         HgCpuExecFn reader,
         const HgCpuGenerationContext& current,
         const HgCpuLocalImage& image) noexcept;
+    [[nodiscard]] static bool ValidateLocalImage(
+        const HgCpuLocalImage& image) noexcept;
 
 private:
     using DtorFn = void (__fastcall*)(HgCpuStreamShim*);

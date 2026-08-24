@@ -233,4 +233,12 @@ std::int32_t __fastcall HgCpuStreamShim::Validate(HgCpuStreamShim* self) noexcep
 {
     return self != nullptr && !self->overflow_ ? 1 : 0;
 }
+
+bool HgCpuStreamShim::ValidateLocalImage(const HgCpuLocalImage& image) noexcept
+{
+    return ValidContext(image.context) && image.cursor != 0
+        && image.cursor == image.bytes.size()
+        && image.cursor <= hgcpu_stream_capacity
+        && image.checksum == Checksum(image);
+}
 }

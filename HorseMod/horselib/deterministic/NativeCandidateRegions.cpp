@@ -495,4 +495,74 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
         append_bytes(output, param.data(), param.size());
     return output;
 }
+
+Status NativeCandidateRegions::DecodeCanonicalBytes(
+    std::span<const std::byte> bytes,
+    NativeCandidateImage& output) noexcept
+{
+    output = {};
+    std::size_t cursor{};
+    const auto take = [&bytes, &cursor](void* destination, std::size_t size) {
+        if (size > bytes.size() - std::min(cursor, bytes.size())) return false;
+        std::memcpy(destination, bytes.data() + cursor, size);
+        cursor += size;
+        return true;
+    };
+    if (!take(&output.session_generation, sizeof(output.session_generation))
+        || !take(&output.round_generation, sizeof(output.round_generation))
+        || output.session_generation == 0 || output.round_generation == 0
+        || !take(output.move_dispatch_masks.data(), sizeof(output.move_dispatch_masks))
+        || !take(output.pump.lane_a.data(), output.pump.lane_a.size())
+        || !take(output.pump.lane_b.data(), output.pump.lane_b.size())
+        || !take(output.pump.controls.data(), output.pump.controls.size()))
+    {
+        output = {};
+        return Status::failure(FailureCode::CaptureFailed);
+    }
+    for (auto& scheduler : output.schedulers)
+    {
+        if (!take(scheduler.published_input.data(), scheduler.published_input.size())
+            || !take(scheduler.command_state.data(), scheduler.command_state.size())
+            || !take(scheduler.active_slot.data(), scheduler.active_slot.size()))
+        {
+            output = {};
+            return Status::failure(FailureCode::CaptureFailed);
+        }
+    }
+    for (auto& subvm : output.sub_vms)
+    {
+        if (!take(&subvm.vtable_rva, sizeof(subvm.vtable_rva))
+            || !take(&subvm.extent, sizeof(subvm.extent))
+            || extent_for_rva(subvm.vtable_rva) != subvm.extent
+            || !take(subvm.input_command.data(), subvm.input_command.size())
+            || !take(subvm.common.data(), subvm.common.size())
+            || !take(subvm.derived.data(), derived_size(subvm.extent)))
+        {
+            output = {};
+            return Status::failure(FailureCode::AdapterUnqualified);
+        }
+    }
+    for (auto& command : output.move_commands)
+    {
+        if (!take(command.data(), command.size()))
+        {
+            output = {};
+            return Status::failure(FailureCode::CaptureFailed);
+        }
+    }
+    for (auto& param : output.slot_params)
+    {
+        if (!take(param.data(), param.size()))
+        {
+            output = {};
+            return Status::failure(FailureCode::CaptureFailed);
+        }
+    }
+    if (cursor != bytes.size())
+    {
+        output = {};
+        return Status::failure(FailureCode::CaptureFailed);
+    }
+    return Status::success();
+}
 }
