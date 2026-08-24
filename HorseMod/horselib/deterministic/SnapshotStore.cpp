@@ -119,4 +119,10 @@ std::size_t SnapshotStore::BytesUsed() const noexcept
 {
     return bytes_used_;
 }
+
+void SnapshotStore::Clear() noexcept
+{
+    snapshots_.clear();
+    bytes_used_ = 0;
+}
 }

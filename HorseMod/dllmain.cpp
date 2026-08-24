@@ -3202,6 +3202,8 @@ private:
     bool m_frame_fencepost_failure_logged{};
     bool m_replay_exit_first_observation_logged{};
     bool m_replay_exit_failure_logged{};
+    std::atomic<std::uint64_t> m_candidate_checkpoint_logged_count{};
+    std::atomic_bool m_candidate_checkpoint_first_failure_logged{};
 
     void observe_hgcpu_diagnostic(std::uint32_t frame) noexcept
     {
@@ -3261,6 +3263,32 @@ private:
             return;
         }
         self->observe_hgcpu_diagnostic(observation.frame_counter);
+        const auto timeline = self->m_replay_native_runtime.timeline_status();
+        const auto logged_checkpoints =
+            self->m_candidate_checkpoint_logged_count.load(std::memory_order_acquire);
+        if (self->m_deterministic_config.trace
+            && timeline.captured_checkpoints > logged_checkpoints)
+        {
+            self->m_candidate_checkpoint_logged_count.store(
+                timeline.captured_checkpoints, std::memory_order_release);
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] candidate checkpoint captured count={} generation={} "
+                "frame={} bytes={}\n"),
+                timeline.captured_checkpoints,
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame,
+                timeline.checkpoint_bytes);
+        }
+        if (timeline.checkpoint_failure != Horse::Deterministic::FailureCode::None
+            && !self->m_candidate_checkpoint_first_failure_logged.exchange(
+                true, std::memory_order_acq_rel))
+        {
+            const auto failure = Horse::Deterministic::failure_code_name(
+                timeline.checkpoint_failure);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] candidate checkpoint capture unavailable: {}\n"),
+                RC::to_generic_string(std::string(failure)));
+        }
 
         const std::uintptr_t prior_manager = self->m_frame_fencepost_manager.exchange(
             observation.battle_manager, std::memory_order_acq_rel);
@@ -7673,13 +7701,26 @@ private:
                         static_cast<unsigned long long>(
                             m_replay_exit_observations.load()));
                     ImGui::TextDisabled(
-                        "Replay timeline: frames=%llu generations=%llu "
+                        "Replay timeline: frames=%llu sessions=%llu generations=%llu "
+                        "checkpoints=%llu checkpoint_mib=%.2f "
                         "round=%d native_time=%d%s",
                         static_cast<unsigned long long>(timeline.captured_frames),
+                        static_cast<unsigned long long>(timeline.sessions),
                         static_cast<unsigned long long>(timeline.generations),
+                        static_cast<unsigned long long>(timeline.captured_checkpoints),
+                        static_cast<double>(timeline.checkpoint_bytes) / (1024.0 * 1024.0),
                         timeline.native_round,
                         timeline.native_time,
                         timeline.partial ? " (memory limit reached)" : "");
+                    if (timeline.checkpoint_failure
+                        != Horse::Deterministic::FailureCode::None)
+                    {
+                        const auto failure = Horse::Deterministic::failure_code_name(
+                            timeline.checkpoint_failure);
+                        ImGui::TextDisabled(
+                            "Candidate checkpoint unavailable: %.*s",
+                            static_cast<int>(failure.size()), failure.data());
+                    }
                     const auto probe_failure = m_frame_fencepost_failure.load(
                         std::memory_order_acquire);
                     if (probe_failure != Horse::Deterministic::FailureCode::None)

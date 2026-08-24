@@ -33,6 +33,23 @@ partial-write undo, HgCpu cursor/integrity/generation checks, and stream
 overflow. It and `DeterministicCoreSelfTest` pass under the `deterministic`
 CTest label.
 
+`CandidateCheckpointCodec` now encodes the typed candidate image and the exact
+same-generation HgCpu local reconstruction image in a versioned pointer-free
+envelope. Its SHA-256 covers only the explicitly canonical candidate fields;
+the opaque HgCpu stream is separately integrity-checked and remains excluded
+from peer-canonical hashing. `Sc6CandidateCheckpointCapture` resolves the live
+MoveDispatch owner by validating the exact callback RVA, finalized weak-callback
+vtable, serial-checked weak UObject identity, bounded `BattleManager +0x1210`
+collection count/capacity, and uniqueness. This layout is backed by
+`InitializeLuxBattleCharaFrameActionAndRegisterCallbacks @ 0x1404157D0` and
+`RegisterAdjustedWeakUObjectCallbackInCollection @ 0x142EC8D70`; no UObject
+address is persisted in a snapshot. A normal-render replay run captured
+checkpoints at generation 1 frames 1, 30, 60, and 90, growing by exactly
+134,754 bytes per checkpoint. Input and checkpoint budgets are generated from
+the C++ schema and total 512 MiB. The capture path remains inactive for restore,
+seek, production admission, and peer hashing until the enclosing blockers below
+are closed.
+
 - Closed gates: ten native regions pass the static six-gate audit and are listed in restore order below: one MoveDispatch mask bank, one VMPump semantic image, two scheduler semantic images, two same-generation allowlisted SubVM images, two `FLuxMoveCommandPlayerRollbackOverlay_Partial` semantic images, and two `FLuxMoveVMSlotParam` semantic prefixes. The paired HgCpuDirect writer/reader is additionally proven as a same-generation local reconstruction primitive, but its opaque stream is not peer-canonical and is not itself an admitted region.
 - Open blockers: SubVM generation crossing, pending dynamic hit/list generations, input callback families other than the now-closed `+0x1210` filter collection, stage/wind topology, UCRT/thread/FP ownership, full camera/presentation terminal coverage, and runtime lifecycle qualification. The fighter/HgCpu supplement coverage gap is closed for the measured replay workload only; other content still requires the same bounded proof before admission.
 - Safe implementation work now unlocked: exact MoveDispatch-mask, VMPump, allowlisted same-generation SubVM, MoveCommand, and slot-parameter capture/hash/restore; a bounded `0x28018` HgCpuDirect buffer shim behind an inactive capability; fail-closed resolver/generation scaffolding; and value-only journal interfaces. Each must remain disabled until the enclosing adapter preflights every earlier/later dependency.

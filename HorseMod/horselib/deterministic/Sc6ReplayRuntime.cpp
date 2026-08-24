@@ -28,17 +28,19 @@ Status Sc6ReplayRuntime::Initialize(std::uintptr_t image_base) noexcept
         image_base + Schema::Sc6ReplayLayout::set_move_state_rva);
     resolvers.set_move_state_signature_valid = true;
     bridge_.emplace(resolvers);
-    return Status::success();
+    return checkpoint_capture_.Initialize(image_base);
 }
 
 void Sc6ReplayRuntime::Shutdown() noexcept
 {
     bridge_.reset();
     input_timeline_.Clear();
+    checkpoint_capture_.Reset();
     timeline_status_ = {};
     timeline_manager_ = 0;
     timeline_input_log_ = 0;
     timeline_thread_id_ = 0;
+    timeline_session_generation_ = 0;
 }
 
 bool Sc6ReplayRuntime::ready() const noexcept
@@ -75,7 +77,8 @@ Status Sc6ReplayRuntime::ObserveFrame(
     }
     timeline_thread_id_ = observation.thread_id;
 
-    const bool new_generation = timeline_manager_ == 0
+    const bool new_session = timeline_manager_ == 0;
+    const bool new_generation = new_session
         || timeline_manager_ != observation.battle_manager
         || timeline_input_log_ != observation.input_log
         || timeline_status_.native_round != observation.game_round
@@ -84,6 +87,11 @@ Status Sc6ReplayRuntime::ObserveFrame(
                 <= timeline_status_.last_coordinate.frame);
     if (new_generation)
     {
+        if (new_session)
+        {
+            ++timeline_session_generation_;
+            timeline_status_.sessions = timeline_session_generation_;
+        }
         ++timeline_status_.generations;
         timeline_manager_ = observation.battle_manager;
         timeline_input_log_ = observation.input_log;
@@ -116,6 +124,18 @@ Status Sc6ReplayRuntime::ObserveFrame(
     timeline_status_.native_round = observation.game_round;
     timeline_status_.native_time = observation.game_time;
     ++timeline_status_.captured_frames;
+    if (new_generation || coordinate.frame % Schema::checkpoint_interval == 0)
+    {
+        const Status checkpoint = checkpoint_capture_.Capture(
+            observation, coordinate, timeline_session_generation_);
+        const auto checkpoint_status = checkpoint_capture_.status();
+        timeline_status_.captured_checkpoints = checkpoint_status.captured;
+        timeline_status_.checkpoint_bytes = checkpoint_status.bytes_used;
+        timeline_status_.checkpoint_failure = checkpoint.ok()
+            ? FailureCode::None : checkpoint.code;
+        if (checkpoint.code == FailureCode::CapacityExceeded)
+            timeline_status_.partial = true;
+    }
     return Status::success();
 }
 
@@ -124,6 +144,7 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     timeline_manager_ = 0;
     timeline_input_log_ = 0;
     timeline_thread_id_ = 0;
+    checkpoint_capture_.ReleaseBinding();
 }
 
 ReplayTimelineStatus Sc6ReplayRuntime::timeline_status() const noexcept

@@ -407,6 +407,9 @@ void test_snapshot_capacity_is_atomic()
     expect(store.Save(second).code == FailureCode::CapacityExceeded, "reject full snapshot store");
     expect(store.BytesUsed() == bytes_before, "capacity rejection does not mutate store");
     expect(store.Load({1, 0}).has_value(), "original snapshot survives rejection");
+    store.Clear();
+    expect(store.BytesUsed() == 0 && !store.Load({1, 0}).has_value(),
+        "snapshot store clear releases all generation history");
 }
 
 void test_presentation_exactly_once()

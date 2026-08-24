@@ -30,6 +30,7 @@ struct NativeCandidateAddresses
     std::uintptr_t scheduler_base{};
     std::uintptr_t move_command_base{};
     std::uintptr_t slot_param_base{};
+    std::array<std::uintptr_t, 2> fighter_roots{};
     std::uint64_t session_generation{};
     std::uint64_t round_generation{};
 };

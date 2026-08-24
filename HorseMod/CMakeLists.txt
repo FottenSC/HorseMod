@@ -86,6 +86,7 @@ set(HORSELIB_HEADERS
 
 set(HORSELIB_SOURCES
     horselib/deterministic/DeterministicHookSet.cpp
+    horselib/deterministic/Sc6CandidateCheckpointCapture.cpp
     horselib/deterministic/Sc6ReplayRuntime.cpp
 )
 

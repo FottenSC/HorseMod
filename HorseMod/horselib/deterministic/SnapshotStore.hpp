@@ -23,6 +23,7 @@ public:
         FrameCoordinate coordinate) const override;
     void InvalidateGeneration(std::uint64_t generation) noexcept override;
     [[nodiscard]] std::size_t BytesUsed() const noexcept override;
+    void Clear() noexcept;
 
 private:
     [[nodiscard]] std::size_t snapshot_cost(const Snapshot& snapshot) const noexcept;

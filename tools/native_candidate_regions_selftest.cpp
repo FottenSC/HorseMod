@@ -121,6 +121,8 @@ struct Fixture
         addresses.scheduler_base = memory_base + 0x4000;
         addresses.move_command_base = memory_base + 0x7000;
         addresses.slot_param_base = memory_base + 0xF000;
+        addresses.fighter_roots = {
+            memory_base + 0x12000, memory_base + 0x13000};
         addresses.session_generation = 11;
         addresses.round_generation = 7;
         initialize();

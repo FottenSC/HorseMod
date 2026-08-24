@@ -152,7 +152,8 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
             static_cast<std::uint32_t>(identity.vtable - addresses_.image_base));
         if (identity.extent == 0 || identity.fighter == 0 || identity.opponent == 0
             || identity.owner_scheduler != identity.scheduler
-            || identity.scheduler_fighter != identity.fighter)
+            || identity.scheduler_fighter != identity.fighter
+            || identity.fighter != addresses_.fighter_roots[lane])
         {
             return false;
         }
@@ -201,6 +202,8 @@ Status NativeCandidateRegions::Bind(const NativeCandidateAddresses& addresses) n
     if (addresses.image_base == 0 || addresses.move_dispatch == 0
         || addresses.pump_state == 0 || addresses.scheduler_base == 0
         || addresses.move_command_base == 0 || addresses.slot_param_base == 0
+        || addresses.fighter_roots[0] == 0 || addresses.fighter_roots[1] == 0
+        || addresses.fighter_roots[0] == addresses.fighter_roots[1]
         || addresses.session_generation == 0 || addresses.round_generation == 0)
     {
         return Status::failure(FailureCode::ContextUnavailable);
