@@ -270,6 +270,8 @@ private:
         started_ = std::chrono::steady_clock::now();
         player_profiles_requested_ = false;
         playback_context_staged_ = false;
+        setup_assets_requested_ = false;
+        replay_metadata_ = {};
         profile_attempts_ = 0;
         next_profile_attempt_ = {};
         state_ = State::Importing;
@@ -309,14 +311,7 @@ private:
             Fail(Horse::Qualification::import_failure_name(imported));
             return;
         }
-        if (!CallNoParams(instance, L"ApplyReplayToBattleSetup")
-            || !SetReplayPath(GetBattleSetup(instance), request_.replay_path)
-            || !importer_.QueueStageMap(instance, metadata)
-            || !SetReplayPath(GetBattleSetup(instance), request_.replay_path))
-        {
-            Fail("battle_setup_or_asset_request_failed");
-            return;
-        }
+        replay_metadata_ = metadata;
         state_ = State::WaitingForAssets;
         WriteResult("waiting_for_assets", "none");
     }
@@ -351,6 +346,22 @@ private:
         }
         if (navigation != Horse::Qualification::NavigationState::Ready)
             return;
+        if (!setup_assets_requested_)
+        {
+            if (!CallNoParams(instance, L"ApplyReplayToBattleSetup")
+                || !SetReplayPath(GetBattleSetup(instance), request_.replay_path)
+                || !importer_.QueueStageMap(instance, replay_metadata_)
+                || !SetReplayPath(GetBattleSetup(instance), request_.replay_path))
+            {
+                Fail("battle_setup_or_asset_request_failed");
+                return;
+            }
+            setup_assets_requested_ = true;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] replay setup and native asset "
+                "request staged\n"));
+            return;
+        }
         bool pending = true;
         if (!CallBool(instance, L"HasAnyBattleRequest", pending) || pending)
         {
@@ -439,6 +450,7 @@ private:
 
     Horse::Qualification::ReplayPayloadImporter importer_{};
     Horse::Qualification::ReplaySceneNavigator navigator_{};
+    Horse::Qualification::ReplayMetadata replay_metadata_{};
     static inline std::atomic<ReplayQualificationMod*> s_instance_{nullptr};
     Request request_{};
     std::string last_run_id_{};
@@ -454,6 +466,7 @@ private:
     bool waiting_context_logged_{};
     bool player_profiles_requested_{};
     bool playback_context_staged_{};
+    bool setup_assets_requested_{};
     std::uint8_t profile_attempts_{};
 };
 
