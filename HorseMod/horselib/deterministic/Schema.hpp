@@ -42,7 +42,12 @@ namespace Sc6FrameLayout
 {
 inline constexpr std::uintptr_t frame_counter_rva = 0x470d0c4;
 inline constexpr std::uintptr_t landing_fencepost_rva = 0x3fca60;
+inline constexpr std::ptrdiff_t manager_input_log = 0x478;
+inline constexpr std::ptrdiff_t manager_input_pair_array = 0x14a8;
+inline constexpr std::ptrdiff_t manager_active_player_count = 0x14b0;
 inline constexpr std::ptrdiff_t manager_repeat_pending = 0x1462;
+inline constexpr std::ptrdiff_t input_log_game_round = 0x3a0;
+inline constexpr std::ptrdiff_t input_log_game_time = 0x3a4;
 inline constexpr std::array<std::byte, 16> landing_fencepost_signature{
     std::byte{0x41}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83},
     std::byte{0xec}, std::byte{0x50}, std::byte{0x48}, std::byte{0x83},

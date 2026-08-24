@@ -16,11 +16,16 @@ namespace Horse::Deterministic
 struct FrameFencepostObservation
 {
     std::uintptr_t battle_manager{};
+    std::uintptr_t input_log{};
+    std::uintptr_t input_pair_array{};
     std::uint32_t frame_counter{};
     std::uint32_t thread_id{};
+    std::int32_t game_round{};
+    std::int32_t game_time{};
+    PlayerInput inputs[2]{};
     std::uint8_t round_state{};
     std::uint8_t repeat_pending{};
-    std::uint8_t read_mask{};
+    std::uint16_t read_mask{};
 };
 
 struct ReplayExitObservation

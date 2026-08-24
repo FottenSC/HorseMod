@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DeterministicHookSet.hpp"
+#include "InputTimeline.hpp"
 #include "Sc6ReplayNativeBridge.hpp"
 
 #include <optional>
@@ -10,6 +12,17 @@ class Lux;
 
 namespace Deterministic
 {
+struct ReplayTimelineStatus
+{
+    FailureCode failure{FailureCode::None};
+    FrameCoordinate last_coordinate{};
+    std::int32_t native_round{};
+    std::int32_t native_time{};
+    std::uint64_t generations{};
+    std::uint64_t captured_frames{};
+    bool partial{};
+};
+
 class Sc6ReplayRuntime final
 {
 public:
@@ -20,6 +33,10 @@ public:
 
     [[nodiscard]] bool ready() const noexcept;
     [[nodiscard]] IReplayNativeBridge* bridge() noexcept;
+    Status ObserveFrame(const FrameFencepostObservation& observation) noexcept;
+    void ObserveReplayExit() noexcept;
+    [[nodiscard]] ReplayTimelineStatus timeline_status() const noexcept;
+    [[nodiscard]] const InputTimeline& input_timeline() const noexcept;
 
 private:
     static void* ResolveReplayPlayer(void* user) noexcept;
@@ -32,6 +49,11 @@ private:
 
     Lux& lux_;
     std::optional<Sc6ReplayNativeBridge> bridge_{};
+    InputTimeline input_timeline_{512ull * 1024ull * 1024ull / 128ull};
+    ReplayTimelineStatus timeline_status_{};
+    std::uintptr_t timeline_manager_{};
+    std::uintptr_t timeline_input_log_{};
+    std::uint32_t timeline_thread_id_{};
 };
 }
 }

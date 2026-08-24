@@ -103,9 +103,9 @@ struct FrameCoordinate
 
 struct PlayerInput
 {
-    std::uint32_t buttons{};
-    std::int16_t axis_x{};
-    std::int16_t axis_y{};
+    // Exact post-filter FLuxBattleInputPair words consumed by SC6.
+    std::uint32_t held{};
+    std::uint32_t rising{};
 
     friend constexpr bool operator==(PlayerInput, PlayerInput) = default;
 };

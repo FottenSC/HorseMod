@@ -21,6 +21,7 @@ public:
         std::size_t player_index,
         const PlayerInput& confirmed_remote) noexcept override;
     void InvalidateGeneration(std::uint64_t generation) noexcept override;
+    void Clear() noexcept;
 
     [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
 

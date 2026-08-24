@@ -184,14 +184,14 @@ void test_bilateral_activation_and_round_reentry()
     expect(second.NotifyOwnedTick({1, 0}).ok(), "second peer owns native tick");
 
     PlayerInput input{};
-    input.buttons = 7;
-    input.axis_x = -2;
+    input.held = 7;
+    input.rising = 2;
     expect(first.SendInput({1, 4}, input).ok(), "send active gameplay input");
     expect(first_transport.outbound.back().second
             == TransportReliability::Unreliable,
         "gameplay input uses unreliable transport");
     first_transport.outbound.push_back(first_transport.outbound.back());
-    input.buttons = 8;
+    input.held = 8;
     expect(first.SendInput({1, 3}, input).ok(),
         "send reordered earlier gameplay input");
     expect(!first.SendConfirmedHash({1, 29}, hash(3)).ok(),
@@ -209,8 +209,8 @@ void test_bilateral_activation_and_round_reentry()
     expect(remote_input && std::holds_alternative<OnlineInputPacket>(*remote_input),
         "received gameplay input is typed");
     expect(remote_input && std::holds_alternative<OnlineInputPacket>(*remote_input)
-            && std::get<OnlineInputPacket>(*remote_input).input.axis_x == -2,
-        "signed input axes round-trip through canonical wire encoding");
+            && std::get<OnlineInputPacket>(*remote_input).input.rising == 2,
+        "rising input word round-trips through canonical wire encoding");
     expect(reordered_input
             && std::holds_alternative<OnlineInputPacket>(*reordered_input)
             && std::get<OnlineInputPacket>(*reordered_input).coordinate.frame == 3,

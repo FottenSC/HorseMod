@@ -76,4 +76,9 @@ void InputTimeline::InvalidateGeneration(std::uint64_t generation) noexcept
         }
     }
 }
+
+void InputTimeline::Clear() noexcept
+{
+    entries_.clear();
+}
 }

@@ -222,6 +222,44 @@ void DeterministicHookSet::EmitFrameFencepost(void* battle_manager) noexcept
     {
         observation.read_mask |= 0x4;
     }
+    std::int32_t player_count{};
+    if (battle_manager != nullptr
+        && SafeRead(
+            observation.battle_manager + Schema::Sc6FrameLayout::manager_input_log,
+            observation.input_log)
+        && observation.input_log != 0
+        && SafeRead(
+            observation.input_log + Schema::Sc6FrameLayout::input_log_game_round,
+            observation.game_round)
+        && SafeRead(
+            observation.input_log + Schema::Sc6FrameLayout::input_log_game_time,
+            observation.game_time))
+    {
+        observation.read_mask |= 0x8;
+    }
+    if (battle_manager != nullptr
+        && SafeRead(
+            observation.battle_manager
+                + Schema::Sc6FrameLayout::manager_input_pair_array,
+            observation.input_pair_array)
+        && SafeRead(
+            observation.battle_manager
+                + Schema::Sc6FrameLayout::manager_active_player_count,
+            player_count)
+        && observation.input_pair_array != 0 && player_count == 2)
+    {
+        observation.read_mask |= 0x10;
+        if (SafeRead(observation.input_pair_array, observation.inputs[0]))
+        {
+            observation.read_mask |= 0x20;
+        }
+        if (SafeRead(
+                observation.input_pair_array + sizeof(PlayerInput),
+                observation.inputs[1]))
+        {
+            observation.read_mask |= 0x40;
+        }
+    }
     callbacks_.frame_fencepost(callbacks_.user, observation);
 }
 

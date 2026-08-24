@@ -3191,7 +3191,7 @@ private:
     std::atomic<std::uint64_t> m_frame_fencepost_entries{};
     std::atomic<std::uint64_t> m_frame_fencepost_repeats{};
     std::atomic<std::uint64_t> m_frame_fencepost_generations{};
-    std::atomic<std::uint8_t> m_frame_fencepost_last_read_mask{};
+    std::atomic<std::uint16_t> m_frame_fencepost_last_read_mask{};
     std::atomic<Horse::Deterministic::FailureCode> m_replay_exit_failure{
         Horse::Deterministic::FailureCode::None};
     std::atomic<std::uintptr_t> m_replay_exit_state{};
@@ -3224,11 +3224,19 @@ private:
                 std::memory_order_release);
             return;
         }
-        if (observation.read_mask != 0x7)
+        if (observation.read_mask != 0x7f)
         {
             self->m_frame_fencepost_failure.store(
                 Horse::Deterministic::FailureCode::ContextUnavailable,
                 std::memory_order_release);
+            return;
+        }
+
+        const auto capture = self->m_replay_native_runtime.ObserveFrame(observation);
+        if (!capture.ok())
+        {
+            self->m_frame_fencepost_failure.store(
+                capture.code, std::memory_order_release);
             return;
         }
 
@@ -3280,6 +3288,7 @@ private:
         // or the queued world mode. Remove the observed native identity first.
         self->m_frame_fencepost_manager.store(0, std::memory_order_release);
         self->m_frame_fencepost_last_frame.store(0, std::memory_order_release);
+        self->m_replay_native_runtime.ObserveReplayExit();
         self->m_replay_exit_state.store(
             observation.replay_state, std::memory_order_release);
         self->m_replay_exit_observations.fetch_add(1, std::memory_order_acq_rel);
@@ -3293,7 +3302,7 @@ private:
             m_frame_fencepost_observations.load(std::memory_order_acquire);
         if (entries != 0 && observations == 0
             && m_frame_fencepost_last_read_mask.load(std::memory_order_acquire)
-                != 0x7
+                != 0x7f
             && !m_frame_fencepost_incomplete_logged)
         {
             m_frame_fencepost_incomplete_logged = true;
@@ -7649,6 +7658,7 @@ private:
                 }
                 if (m_deterministic_config.trace)
                 {
+                    const auto timeline = m_replay_native_runtime.timeline_status();
                     ImGui::TextDisabled(
                         "Frame fencepost: %s (observed=%llu, repeats=%llu, "
                         "generations=%llu, replay exits=%llu)",
@@ -7661,6 +7671,14 @@ private:
                             m_frame_fencepost_generations.load()),
                         static_cast<unsigned long long>(
                             m_replay_exit_observations.load()));
+                    ImGui::TextDisabled(
+                        "Replay timeline: frames=%llu generations=%llu "
+                        "round=%d native_time=%d%s",
+                        static_cast<unsigned long long>(timeline.captured_frames),
+                        static_cast<unsigned long long>(timeline.generations),
+                        timeline.native_round,
+                        timeline.native_time,
+                        timeline.partial ? " (memory limit reached)" : "");
                     const auto probe_failure = m_frame_fencepost_failure.load(
                         std::memory_order_acquire);
                     if (probe_failure != Horse::Deterministic::FailureCode::None)

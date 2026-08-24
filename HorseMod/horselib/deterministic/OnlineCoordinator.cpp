@@ -214,9 +214,8 @@ bool write_input(TransportMessage& message, FrameCoordinate coordinate,
 {
     WireWriter writer(message);
     const bool written = writer.U64(coordinate.generation)
-        && writer.U64(coordinate.frame) && writer.U32(input.buttons)
-        && writer.U16(static_cast<std::uint16_t>(input.axis_x))
-        && writer.U16(static_cast<std::uint16_t>(input.axis_y));
+        && writer.U64(coordinate.frame) && writer.U32(input.held)
+        && writer.U32(input.rising);
     writer.Finish();
     return written;
 }
@@ -224,14 +223,10 @@ bool write_input(TransportMessage& message, FrameCoordinate coordinate,
 bool read_input(const TransportMessage& message, OnlineInputPacket& packet) noexcept
 {
     WireReader reader(message);
-    std::uint16_t axis_x{};
-    std::uint16_t axis_y{};
     const bool read = reader.U64(packet.coordinate.generation)
         && reader.U64(packet.coordinate.frame)
-        && reader.U32(packet.input.buttons) && reader.U16(axis_x)
-        && reader.U16(axis_y) && reader.Finished();
-    packet.input.axis_x = std::bit_cast<std::int16_t>(axis_x);
-    packet.input.axis_y = std::bit_cast<std::int16_t>(axis_y);
+        && reader.U32(packet.input.held) && reader.U32(packet.input.rising)
+        && reader.Finished();
     return read;
 }
 

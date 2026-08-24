@@ -105,7 +105,7 @@ public:
 
     Status AdvanceFrame(FrameCoordinate, const InputPair& inputs, bool) noexcept override
     {
-        value += static_cast<int>(inputs.players[0].buttons);
+        value += static_cast<int>(inputs.players[0].held);
         return Status::success();
     }
 
@@ -354,7 +354,7 @@ NativeContext second_context()
 InputPair one_input(bool confirmed = true)
 {
     InputPair input;
-    input.players[0].buttons = 1;
+    input.players[0].held = 1;
     input.remote_confirmed = confirmed;
     return input;
 }
@@ -386,10 +386,10 @@ void test_input_replacement_and_invalidation()
     InputTimeline timeline{2};
     expect(timeline.AppendAuthoritative({1, 0}, one_input(false)).ok(), "append predicted input");
     PlayerInput remote;
-    remote.buttons = 7;
+    remote.held = 7;
     expect(timeline.ReplacePredicted({1, 0}, 1, remote).ok(), "replace predicted input");
-    expect(timeline.GetExact({1, 0})->players[1].buttons == 7, "confirmed input stored");
-    remote.buttons = 8;
+    expect(timeline.GetExact({1, 0})->players[1].held == 7, "confirmed input stored");
+    remote.held = 8;
     expect(
         timeline.ReplacePredicted({1, 0}, 1, remote).code == FailureCode::IdentityMismatch,
         "confirmed input cannot be rewritten");
