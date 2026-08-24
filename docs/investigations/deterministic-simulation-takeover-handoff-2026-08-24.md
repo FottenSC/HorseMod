@@ -1,8 +1,11 @@
 # Deterministic Simulation Rewrite Takeover Handoff
 
-Date: 2026-08-24  
-Workspace: `E:\myMods`  
-Active branch: `codex/rollback-rewrite`  
+Date: 2026-08-24
+
+Workspace: `E:\myMods`
+
+Active branch: `codex/rollback-rewrite`
+
 Takeover base: `50d0382658187f96b7d74be22d591ac08c49bb27`
 
 ## Mission and stopping rule
