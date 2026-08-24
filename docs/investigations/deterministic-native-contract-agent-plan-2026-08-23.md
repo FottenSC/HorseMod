@@ -400,8 +400,9 @@ later qualification work:
 - correction convergence in the three replay workloads;
 - seek/resume timing and cross-round behavior;
 - two-process Steam message behavior;
-- two isolated Sandboxie SC6 instances using distinct Steam identities,
-  production Steam P2P, real corrections, and multi-round matches;
+- a normal Steam SC6 host and Sandboxie-isolated Steam SC6 client using distinct
+  Steam identities, production Steam P2P, real corrections, and multi-round
+  matches;
 - disconnect recovery and one-hour soak behavior.
 
 ## Completion criteria

@@ -14,8 +14,9 @@ be proven valid.
 This work is not complete when the code compiles, a synthetic test passes, or a
 rollback-looking effect appears on screen. It is complete only when normal-render
 replay seek/resume is deterministic and real Steam P2P rollback completes
-qualified multi-round matches between two isolated Sandboxie SC6 instances with
-corrections, clean teardown, and zero canonical divergence.
+qualified multi-round matches between a normal Steam SC6 host and a
+Sandboxie-isolated Steam SC6 client with corrections, clean teardown, and zero
+canonical divergence.
 
 ## Product outcome
 
@@ -172,15 +173,16 @@ green. Old goldens may supply workloads but are never trusted expected results.
 The same real coordinator and pinned Gekko fork pass:
 
 1. An in-memory transport pair.
-2. Two isolated SC6 processes in separately named Sandboxie boxes under clean,
-   latency, jitter, loss, burst loss, reorder, duplicate, corruption, and
-   disconnect cases.
+2. A normal Steam SC6 host plus one SC6 client launched through a named Sandboxie
+   box, under clean, latency, jitter, loss, burst loss, reorder, duplicate,
+   corruption, and disconnect cases.
 3. Full-match and multi-round re-entry for every allowlisted content case.
 4. One-hour same-process lobby/match cycling and one-hour continuous-session
    soaks.
-5. A clean release run using two fresh Sandboxie boxes, distinct Steam
-   identities, isolated Steam/UE4SS writable state and logs, and identical DLL,
-   configuration, manifest, runner, schema, game executable, and source commits.
+5. A clean release run using a normal host and a fresh Sandboxie client box,
+   distinct Steam identities, isolated Steam/UE4SS writable state and logs, and
+   identical DLL, configuration, manifest, runner, schema, game executable, and
+   source commits.
 
 The runner must prove the two process IDs, box names, Steam peer identities,
 per-instance writable roots, and per-instance report/log paths are distinct. The
@@ -265,9 +267,10 @@ reviewed system:
    cross-round and repeated seeks, within the validation budget and with no
    canonical mismatch.
 2. Authenticated Steam rollback completes qualified multi-round matches between
-   two isolated Sandboxie SC6 instances using distinct Steam identities, with real
-   corrections, clean teardown/re-entry, exact confirmed canonical hashes, and no
-   fallback to stock simulation after ownership.
+   a normal Steam SC6 host and a Sandboxie-isolated Steam SC6 client using
+   distinct Steam identities, with real corrections, clean teardown/re-entry,
+   exact confirmed canonical hashes, and no fallback to stock simulation after
+   ownership.
 
 Until both outcomes exist, the goal remains active regardless of implementation
 progress, synthetic tests, or local demonstrations.

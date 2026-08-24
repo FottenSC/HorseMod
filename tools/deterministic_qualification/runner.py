@@ -53,7 +53,7 @@ def run_boot(args: argparse.Namespace) -> int:
     schema = required_file(args.schema, "generated schema")
     executable = required_file(args.game_executable, "SoulcaliburVI executable")
     identity = source_identity(ROOT)
-    if identity["dirty"]:
+    if identity["dirty"] and not args.allow_dirty:
         raise RuntimeError("source tree is dirty; boot evidence would not bind an immutable source state")
 
     existing_pid = find_game_pid()
@@ -110,7 +110,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     schema = required_file(args.schema, "generated schema")
     executable = required_file(args.game_executable, "SoulcaliburVI executable")
     identity = source_identity(ROOT)
-    if identity["dirty"]:
+    if identity["dirty"] and not args.allow_dirty:
         raise RuntimeError(
             "source tree is dirty; replay-entry evidence would not bind an immutable source state"
         )
@@ -206,6 +206,11 @@ def build_parser() -> argparse.ArgumentParser:
     boot.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     boot.add_argument("--timeout", type=float, default=60.0)
     boot.add_argument("--keep-game", action="store_true")
+    boot.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="permit explicitly non-certifying diagnostic evidence from a dirty tree",
+    )
     boot.set_defaults(handler=run_boot)
     replay = subcommands.add_parser(
         "replay-entry",
@@ -221,6 +226,11 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--report", type=Path, default=DEFAULT_REPLAY_REPORT)
     replay.add_argument("--timeout", type=float, default=120.0)
     replay.add_argument("--watch-frames", type=int, default=1)
+    replay.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="permit explicitly non-certifying diagnostic evidence from a dirty tree",
+    )
     replay.set_defaults(handler=run_replay_entry)
     return parser
 
