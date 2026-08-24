@@ -14,8 +14,8 @@ be proven valid.
 This work is not complete when the code compiles, a synthetic test passes, or a
 rollback-looking effect appears on screen. It is complete only when normal-render
 replay seek/resume is deterministic and real Steam P2P rollback completes
-qualified multi-round matches between two physical PCs with corrections, clean
-teardown, and zero canonical divergence.
+qualified multi-round matches between two isolated Sandboxie SC6 instances with
+corrections, clean teardown, and zero canonical divergence.
 
 ## Product outcome
 
@@ -46,6 +46,9 @@ In scope:
 - A qualification-driven content allowlist that is empty until evidence passes.
 - Test-only runners and temporary qualification adapters that cannot enter the
   production activation path.
+- Sandboxie-managed paired-process qualification. Sandboxie belongs only to the
+  external runner; no Sandboxie detection, path handling, or process control may
+  enter HorseMod production code.
 
 Out of scope:
 
@@ -169,17 +172,23 @@ green. Old goldens may supply workloads but are never trusted expected results.
 The same real coordinator and pinned Gekko fork pass:
 
 1. An in-memory transport pair.
-2. Two local SC6 processes under clean, latency, jitter, loss, burst loss,
-   reorder, duplicate, corruption, and disconnect cases.
+2. Two isolated SC6 processes in separately named Sandboxie boxes under clean,
+   latency, jitter, loss, burst loss, reorder, duplicate, corruption, and
+   disconnect cases.
 3. Full-match and multi-round re-entry for every allowlisted content case.
 4. One-hour same-process lobby/match cycling and one-hour continuous-session
    soaks.
-5. Two physical PCs on separate consumer connections using identical DLL,
-   configuration, manifest, runner, schema, and source commits.
+5. A clean release run using two fresh Sandboxie boxes, distinct Steam
+   identities, isolated Steam/UE4SS writable state and logs, and identical DLL,
+   configuration, manifest, runner, schema, game executable, and source commits.
 
-The physical-PC run must contain real prediction corrections, multiple rounds,
+The runner must prove the two process IDs, box names, Steam peer identities,
+per-instance writable roots, and per-instance report/log paths are distinct. The
+release run must contain real prediction corrections, multiple rounds,
 successful lobby return/re-entry, clean process/module cleanup, and zero confirmed
-canonical divergence.
+canonical divergence. Both peers must still communicate through the production
+Steam P2P transport; loopback, shared-memory, direct UDP, and runner-side gameplay
+message substitution cannot satisfy this gate.
 
 ### 8. Test and engineering quality gates pass
 
@@ -228,7 +237,7 @@ Every acceptance report binds:
 
 Expected fail-closed cases are reported separately and can never make a
 functional gate green. A content case enters the runtime allowlist only after its
-offline, local two-client, and physical qualification evidence all pass.
+offline and Sandboxie-isolated two-client qualification evidence all pass.
 
 ## Milestone gates
 
@@ -240,7 +249,7 @@ Progress is evaluated in this order:
 4. Production replay capture, seek, resume, and offline correction proof.
 5. Authenticated Steam transport and online coordinator.
 6. Local impairment, re-entry, and soak qualification.
-7. Physical two-PC qualification and evidence-bound allowlisting.
+7. Sandboxie-isolated two-instance qualification and evidence-bound allowlisting.
 
 A later milestone cannot waive a failed earlier gate. Discovery of an incomplete
 native contract sends the affected adapter back to reverse engineering rather
@@ -255,10 +264,10 @@ reviewed system:
 1. Replay seek/resume passes strict normal-render qualification, including
    cross-round and repeated seeks, within the validation budget and with no
    canonical mismatch.
-2. Authenticated Steam rollback completes qualified multi-round matches on two
-   physical PCs over separate consumer connections, with real corrections, clean
-   teardown/re-entry, exact confirmed canonical hashes, and no fallback to stock
-   simulation after ownership.
+2. Authenticated Steam rollback completes qualified multi-round matches between
+   two isolated Sandboxie SC6 instances using distinct Steam identities, with real
+   corrections, clean teardown/re-entry, exact confirmed canonical hashes, and no
+   fallback to stock simulation after ownership.
 
 Until both outcomes exist, the goal remains active regardless of implementation
 progress, synthetic tests, or local demonstrations.

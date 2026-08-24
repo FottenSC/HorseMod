@@ -57,8 +57,10 @@ required before production wiring:
 2. The pinned GekkoNet integration and confirmed-frame/save/load APIs.
 3. Admission of a complete native adapter and at least one content case after
    normal-render offline correction proof.
-4. In-memory, local-process impairment, soak, and physical two-PC
-   qualification using immutable artifacts and evidence-bound reports.
+4. In-memory plus two-instance Sandboxie impairment, re-entry, soak, and release
+   qualification using distinct Steam identities, isolated writable state/logs,
+   immutable identical artifacts, and evidence-bound reports. Sandboxie remains
+   external runner infrastructure and cannot enter production HorseMod code.
 
 Until those gates close, the coordinator remains production-inactive and the
 game continues to use stock simulation.
