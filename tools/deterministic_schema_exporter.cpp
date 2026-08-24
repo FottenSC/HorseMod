@@ -18,6 +18,16 @@ void write_schema(std::ostream& output)
            << "  \"snapshot_schema_version\": " << Schema::snapshot_schema_version << ",\n"
            << "  \"maximum_transport_payload\": " << Schema::maximum_transport_payload << ",\n"
            << "  \"checkpoint_interval\": " << ReplayCoordinator::checkpoint_interval << ",\n"
+           << "  \"native_hooks\": {\n"
+           << "    \"frame_fencepost_rva\": "
+           << Schema::Sc6FrameLayout::landing_fencepost_rva << ",\n"
+           << "    \"frame_counter_rva\": "
+           << Schema::Sc6FrameLayout::frame_counter_rva << ",\n"
+           << "    \"replay_post_tick_rva\": "
+           << Schema::Sc6ReplayLayout::post_tick_rva << ",\n"
+           << "    \"replay_exit_guard_offset\": "
+           << Schema::Sc6ReplayLayout::exit_guard << "\n"
+           << "  },\n"
            << "  \"production_regions\": [";
     for (std::size_t index = 0; index < Schema::production_regions.size(); ++index)
     {

@@ -3190,9 +3190,15 @@ private:
     std::atomic<std::uint64_t> m_frame_fencepost_observations{};
     std::atomic<std::uint64_t> m_frame_fencepost_repeats{};
     std::atomic<std::uint64_t> m_frame_fencepost_generations{};
+    std::atomic<Horse::Deterministic::FailureCode> m_replay_exit_failure{
+        Horse::Deterministic::FailureCode::None};
+    std::atomic<std::uintptr_t> m_replay_exit_state{};
+    std::atomic<std::uint64_t> m_replay_exit_observations{};
     std::uint32_t m_frame_fencepost_expected_thread{};
     bool m_frame_fencepost_first_observation_logged{};
     bool m_frame_fencepost_failure_logged{};
+    bool m_replay_exit_first_observation_logged{};
+    bool m_replay_exit_failure_logged{};
 
     static void on_frame_fencepost(
         void* user,
@@ -3236,6 +3242,32 @@ private:
         }
     }
 
+    static void on_replay_exit(
+        void* user,
+        const Horse::Deterministic::ReplayExitObservation& observation) noexcept
+    {
+        auto* self = static_cast<HorseMod*>(user);
+        if (self == nullptr)
+        {
+            return;
+        }
+        if (observation.thread_id != self->m_frame_fencepost_expected_thread)
+        {
+            self->m_replay_exit_failure.store(
+                Horse::Deterministic::FailureCode::WrongThread,
+                std::memory_order_release);
+            return;
+        }
+
+        // This callback runs before Replay PostTick mutates camera, fighters,
+        // or the queued world mode. Remove the observed native identity first.
+        self->m_frame_fencepost_manager.store(0, std::memory_order_release);
+        self->m_frame_fencepost_last_frame.store(0, std::memory_order_release);
+        self->m_replay_exit_state.store(
+            observation.replay_state, std::memory_order_release);
+        self->m_replay_exit_observations.fetch_add(1, std::memory_order_acq_rel);
+    }
+
     void service_frame_fencepost_diagnostics() noexcept
     {
         const std::uint64_t observations =
@@ -3260,6 +3292,29 @@ private:
                 "[HorseMod] frame-fencepost observation failed: {}\n"),
                 RC::to_generic_string(std::string(
                     Horse::Deterministic::failure_code_name(failure))));
+        }
+
+        const std::uint64_t replay_exits =
+            m_replay_exit_observations.load(std::memory_order_acquire);
+        if (replay_exits != 0 && !m_replay_exit_first_observation_logged)
+        {
+            m_replay_exit_first_observation_logged = true;
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] replay-exit invalidated native identity "
+                "before PostTick state=0x{:x}\n"),
+                m_replay_exit_state.load(std::memory_order_acquire));
+        }
+
+        const auto replay_failure = m_replay_exit_failure.load(
+            std::memory_order_acquire);
+        if (replay_failure != Horse::Deterministic::FailureCode::None
+            && !m_replay_exit_failure_logged)
+        {
+            m_replay_exit_failure_logged = true;
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] replay-exit observation failed: {}\n"),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(replay_failure))));
         }
     }
 public:
@@ -3485,10 +3540,11 @@ public:
                 std::memory_order_acquire);
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] frame-fencepost summary observed={} repeats={} "
-                "generations={} failure={}\n"),
+                "generations={} replay_exits={} failure={}\n"),
                 m_frame_fencepost_observations.load(std::memory_order_acquire),
                 m_frame_fencepost_repeats.load(std::memory_order_acquire),
                 m_frame_fencepost_generations.load(std::memory_order_acquire),
+                m_replay_exit_observations.load(std::memory_order_acquire),
                 RC::to_generic_string(std::string(
                     Horse::Deterministic::failure_code_name(failure))));
         }
@@ -3656,7 +3712,7 @@ public:
             m_frame_fencepost_expected_thread = ::GetCurrentThreadId();
             m_frame_fencepost_hook_status = m_deterministic_hooks.Install(
                 Horse::NativeBinding::imageBase(),
-                {this, &HorseMod::on_frame_fencepost});
+                {this, &HorseMod::on_frame_fencepost, &HorseMod::on_replay_exit});
             if (!m_frame_fencepost_hook_status.ok())
             {
                 const auto failure = Horse::Deterministic::failure_code_name(
@@ -3668,7 +3724,7 @@ public:
             else
             {
                 Output::send<LogLevel::Default>(STR(
-                    "[HorseMod] frame-fencepost runtime proof armed; "
+                    "[HorseMod] deterministic lifecycle hooks armed; "
                     "stock simulation remains authoritative\n"));
             }
         }
@@ -7558,14 +7614,16 @@ private:
                 {
                     ImGui::TextDisabled(
                         "Frame fencepost: %s (observed=%llu, repeats=%llu, "
-                        "generations=%llu)",
+                        "generations=%llu, replay exits=%llu)",
                         m_deterministic_hooks.installed() ? "armed" : "unavailable",
                         static_cast<unsigned long long>(
                             m_frame_fencepost_observations.load()),
                         static_cast<unsigned long long>(
                             m_frame_fencepost_repeats.load()),
                         static_cast<unsigned long long>(
-                            m_frame_fencepost_generations.load()));
+                            m_frame_fencepost_generations.load()),
+                        static_cast<unsigned long long>(
+                            m_replay_exit_observations.load()));
                     const auto probe_failure = m_frame_fencepost_failure.load(
                         std::memory_order_acquire);
                     if (probe_failure != Horse::Deterministic::FailureCode::None)

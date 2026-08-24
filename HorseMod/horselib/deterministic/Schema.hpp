@@ -16,6 +16,13 @@ inline constexpr std::uint32_t maximum_replay_round_images = 64;
 
 namespace Sc6ReplayLayout
 {
+inline constexpr std::uintptr_t post_tick_rva = 0x3829f0;
+inline constexpr std::ptrdiff_t exit_guard = 0x18;
+inline constexpr std::array<std::byte, 16> post_tick_signature{
+    std::byte{0x48}, std::byte{0x83}, std::byte{0xec}, std::byte{0x28},
+    std::byte{0x83}, std::byte{0x79}, std::byte{0x18}, std::byte{0x00},
+    std::byte{0x0f}, std::byte{0x85}, std::byte{0xa3}, std::byte{0x02},
+    std::byte{0x00}, std::byte{0x00}, std::byte{0x48}, std::byte{0x8b}};
 inline constexpr std::uintptr_t replay_enabled = 0x398;
 inline constexpr std::uintptr_t round_images = 0x3a8;
 inline constexpr std::uintptr_t round_count = 0x3b0;
