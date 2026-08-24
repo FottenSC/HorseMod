@@ -30,6 +30,7 @@ struct StageWindNodeLayout
     std::uint32_t vtable_rva{};
     std::size_t allocation_size{};
     std::span<const StageWindStateRange> class_ranges{};
+    std::span<const StageWindStateRange> derived_ranges{};
 };
 
 [[nodiscard]] std::span<const StageWindStateRange> StageWindCommonRanges() noexcept;
@@ -44,6 +45,7 @@ struct StageWindNodeImage
 {
     StageWindNodeKind kind{};
     std::vector<std::byte> semantic_state;
+    std::vector<std::byte> derived_state;
 
     friend bool operator==(const StageWindNodeImage&, const StageWindNodeImage&) = default;
 };

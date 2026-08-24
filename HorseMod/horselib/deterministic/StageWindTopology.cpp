@@ -34,13 +34,22 @@ constexpr std::array ring_in_ranges{
     StageWindStateRange{0xF8, 0x24},
     StageWindStateRange{0x130, 0x04},
     StageWindStateRange{0x148, 0x04},
-    StageWindStateRange{0x1D0, 0x10},
 };
+constexpr std::array ring_in_derived_ranges{
+    StageWindStateRange{0x120, 0x10},
+    StageWindStateRange{0x134, 0x10},
+    StageWindStateRange{0x150, 0x90},
+};
+constexpr std::array<StageWindStateRange, 0> no_derived_ranges{};
 constexpr std::array classes{
-    StageWindNodeLayout{StageWindNodeKind::Parallel, 0x3E88C88, 0x130, parallel_ranges},
-    StageWindNodeLayout{StageWindNodeKind::RingOut, 0x3E88CB8, 0x130, ring_out_ranges},
-    StageWindNodeLayout{StageWindNodeKind::RingIn, 0x3E88CE8, 0x1E0, ring_in_ranges},
-    StageWindNodeLayout{StageWindNodeKind::ShockWave, 0x3E88D18, 0x180, shock_wave_ranges},
+    StageWindNodeLayout{StageWindNodeKind::Parallel, 0x3E88C88, 0x130,
+        parallel_ranges, no_derived_ranges},
+    StageWindNodeLayout{StageWindNodeKind::RingOut, 0x3E88CB8, 0x130,
+        ring_out_ranges, no_derived_ranges},
+    StageWindNodeLayout{StageWindNodeKind::RingIn, 0x3E88CE8, 0x1E0,
+        ring_in_ranges, ring_in_derived_ranges},
+    StageWindNodeLayout{StageWindNodeKind::ShockWave, 0x3E88D18, 0x180,
+        shock_wave_ranges, no_derived_ranges},
 };
 
 template <typename T>
@@ -227,6 +236,12 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
             }
         for (const auto range : node_class->class_ranges)
             if (!read_append(memory_, node + range.offset, range.size, image.semantic_state))
+            {
+                output = {};
+                return Status::failure(FailureCode::CaptureFailed);
+            }
+        for (const auto range : node_class->derived_ranges)
+            if (!read_append(memory_, node + range.offset, range.size, image.derived_state))
             {
                 output = {};
                 return Status::failure(FailureCode::CaptureFailed);

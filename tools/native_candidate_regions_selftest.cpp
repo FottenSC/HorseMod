@@ -1175,15 +1175,20 @@ void test_stage_wind_graph_restore_is_transactional()
     memory.Set(root + 0x9C, std::int32_t{});
     memory.Fill(root + 0xB0, 0x10, std::byte{0x33});
     memory.Fill(root + 0xC0, 0x30, std::byte{0x44});
-    memory.Set(old_node, image_base + std::uintptr_t{0x3E88C88});
+    memory.Set(old_node, image_base + std::uintptr_t{0x3E88CE8});
     memory.Set(old_node + 0x10, std::uintptr_t{});
     memory.Set(old_node + 0x18, std::uintptr_t{});
     memory.Set(old_node + 0x28, root);
     memory.Fill(old_node + 0x20, 2, std::byte{0x21});
     memory.Fill(old_node + 0x30, 4, std::byte{0x22});
     memory.Fill(old_node + 0x40, 0x30, std::byte{0x23});
-    memory.Fill(old_node + 0x70, 0x70, std::byte{0x24});
-    memory.Fill(old_node + 0x120, 0x0C, std::byte{0x25});
+    memory.Fill(old_node + 0x70, 0x84, std::byte{0x24});
+    memory.Fill(old_node + 0xF8, 0x24, std::byte{0x25});
+    memory.Fill(old_node + 0x120, 0x10, std::byte{0x26});
+    memory.Fill(old_node + 0x130, 0x04, std::byte{0x27});
+    memory.Fill(old_node + 0x134, 0x10, std::byte{0x28});
+    memory.Fill(old_node + 0x148, 0x04, std::byte{0x29});
+    memory.Fill(old_node + 0x150, 0x90, std::byte{0x2A});
 
     const StageWindTopologyAddresses addresses{
         image_base, 0x4300000, root_pointer, 10};
@@ -1191,8 +1196,18 @@ void test_stage_wind_graph_restore_is_transactional()
     StageWindTopologyImage target{};
     expect(probe.Bind(addresses).ok() && probe.Capture(target).ok(),
         "wind transaction fixture captures a qualified source graph");
+    const auto canonical_before_derived_change =
+        StageWindTopologyProbe::CanonicalBytes(target);
     target.root_clock[0] = std::byte{0x7A};
     target.nodes[0].semantic_state[0] = std::byte{0x6A};
+    target.nodes[0].derived_state[0] = std::byte{0x5A};
+    auto canonical_without_derived = target;
+    canonical_without_derived.nodes[0].derived_state[0] = std::byte{0x4A};
+    expect(StageWindTopologyProbe::CanonicalBytes(target)
+            == StageWindTopologyProbe::CanonicalBytes(canonical_without_derived)
+            && StageWindTopologyProbe::CanonicalBytes(target)
+                != canonical_before_derived_change,
+        "wind canonical bytes exclude local ring-in matrices and travel state");
 
     FixedStageWindAllocator allocator{base + 0x10000};
     StageWindGraphTransaction transaction{memory, allocator};

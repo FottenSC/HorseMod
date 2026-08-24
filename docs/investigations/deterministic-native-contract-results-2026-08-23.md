@@ -299,6 +299,22 @@ reader is classified and persistent presentation state has a reconciliation
 routine. Production integration therefore remains disabled and the runtime
 content allowlist remains empty.
 
+The ring-in virtual-reader audit additionally closes the local derived-state
+surface. `IwWind_PrepareRingInFrame @ 0x140333130`,
+`IwWind_UpdateRingInOscillation @ 0x140333550`, and
+`IwWind_SampleRingInForce @ 0x140333C20` read or write current angles
+`+0x120..+0x12F`, travel accumulator `+0x134..+0x143`, path scale
+`+0x150..+0x15F`, orientation matrix `+0x160..+0x19F`, and path matrix
+`+0x1A0..+0x1DF`. These ranges are now captured as a distinct local-derived
+bank: the graph transaction restores them byte-exactly, while
+`StageWindTopologyProbe::CanonicalBytes` excludes them from peer authority.
+Verified gaps `+0x144..+0x147` and `+0x14C..+0x14F` remain excluded. The
+shockwave sample/prepare/update virtuals (`0x140332B60`, `0x1403322C0`,
+`0x140332400`) are already covered by the existing semantic ranges and never
+touch their documented residue gaps. Structural tests now use a ring-in graph
+and prove that changing local matrices/travel values does not change canonical
+bytes, while restore still reproduces the complete captured local image.
+
 ## RNG and FP contract
 
 ### Explicit Lux RNG families

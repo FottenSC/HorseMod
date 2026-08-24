@@ -77,6 +77,31 @@ bool scatter_semantic_state(
         && cursor == state.size();
 }
 
+bool scatter_ranges(
+    std::vector<std::byte>& bytes, std::span<const StageWindStateRange> ranges,
+    std::span<const std::byte> state) noexcept
+{
+    std::size_t expected{};
+    for (const auto range : ranges) expected += range.size;
+    if (state.size() != expected) return false;
+    std::size_t cursor{};
+    for (const auto range : ranges)
+    {
+        if (range.offset > bytes.size() || range.size > bytes.size() - range.offset)
+            return false;
+        std::memcpy(bytes.data() + range.offset, state.data() + cursor, range.size);
+        cursor += range.size;
+    }
+    return true;
+}
+
+std::size_t range_bytes(std::span<const StageWindStateRange> ranges) noexcept
+{
+    std::size_t total{};
+    for (const auto range : ranges) total += range.size;
+    return total;
+}
+
 void free_all(IStageWindAllocator& allocator, std::span<const std::uintptr_t> nodes) noexcept
 {
     for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) allocator.Free(*it);
@@ -104,7 +129,8 @@ Status StageWindGraphTransaction::Restore(
     {
         const auto* layout = FindStageWindNodeLayout(node.kind);
         if (layout == nullptr
-            || node.semantic_state.size() != StageWindSemanticStateSize(*layout))
+            || node.semantic_state.size() != StageWindSemanticStateSize(*layout)
+            || node.derived_state.size() != range_bytes(layout->derived_ranges))
             return Status::failure(FailureCode::RestorePreflightFailed);
     }
     for (const auto rva : target.pending_callback_rvas)
@@ -148,6 +174,8 @@ Status StageWindGraphTransaction::Restore(
         store(bytes, 0x18, previous);
         store(bytes, 0x28, root);
         if (!scatter_semantic_state(bytes, *layout, target.nodes[index].semantic_state)
+            || !scatter_ranges(bytes, layout->derived_ranges,
+                target.nodes[index].derived_state)
             || !memory_.Write(replacements[index], bytes))
         {
             free_all(allocator_, replacements);
