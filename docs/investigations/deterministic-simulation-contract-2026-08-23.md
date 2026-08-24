@@ -20,6 +20,12 @@ The replacement uses two complementary boundaries. The landing fencepost observe
 
 The eventual adapter must replay recorded native batches through the complete outer lifecycle while reproducing the exact per-coordinate input sequence inside each batch. Exact batch records, including `DeltaSeconds`, must be generation-scoped. Hook installation for observation is fail-closed on the verified 16-byte function signature; restore or synthetic advancement remains unauthorized until all state regions reached by the traversal are admitted.
 
+### Normal-render batch observation (2026-08-24)
+
+Commit `454610dd38d20384415e9b8172627d1a233f38be` was exercised with the normal renderer for 600 coordinates of `REPLAY_12744704008398858106.bin`. The deployed DLL SHA-256 was `ab3f92d975158f9decde6cef3c1029b81660c50e4eb0208a6e5f763002dd4508`; the generated schema SHA-256 was `987d55b8de008f6006444a177455d5007ac758e0ae8bbc2834bd9b28c1298266`. The bounded runner report is non-certifying because unrelated moveset-parser edits kept the source tree dirty; its SHA-256 is `dac6b88d48ac7da1d0abb4d6055c9f623ffdf810dc3b87a2fbbd5d48d9cff64e`.
+
+The raw UE4SS trace recorded 600 consecutive coordinates inside 597 complete native batches. There were no zero-coordinate active batches in this workload, two multi-coordinate batches, and a maximum batch width of three. Nested fencepost accounting recorded one `+0x1462` repeat-pending coordinate and three within-batch same-input-time coordinates. The input-log generation did not change, the before/after input-log time delta remained zero, and complete-batch frame accounting mismatches remained zero. This proves that before/after input-log clock subtraction is not a valid repeat detector at this envelope; repeat topology must be taken from the nested coordinate observations. No frame-fencepost or candidate-checkpoint failure was reported.
+
 ## Audited region: frame input log and produced input pairs
 
 | Property | Evidence-backed contract |
