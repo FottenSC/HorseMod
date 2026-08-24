@@ -20,6 +20,7 @@ struct FrameFencepostObservation
     std::uint32_t thread_id{};
     std::uint8_t round_state{};
     std::uint8_t repeat_pending{};
+    std::uint8_t read_mask{};
 };
 
 struct ReplayExitObservation

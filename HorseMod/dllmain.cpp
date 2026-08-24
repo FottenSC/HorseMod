@@ -3188,14 +3188,17 @@ private:
     std::atomic<std::uintptr_t> m_frame_fencepost_manager{};
     std::atomic<std::uint32_t> m_frame_fencepost_last_frame{};
     std::atomic<std::uint64_t> m_frame_fencepost_observations{};
+    std::atomic<std::uint64_t> m_frame_fencepost_entries{};
     std::atomic<std::uint64_t> m_frame_fencepost_repeats{};
     std::atomic<std::uint64_t> m_frame_fencepost_generations{};
+    std::atomic<std::uint8_t> m_frame_fencepost_last_read_mask{};
     std::atomic<Horse::Deterministic::FailureCode> m_replay_exit_failure{
         Horse::Deterministic::FailureCode::None};
     std::atomic<std::uintptr_t> m_replay_exit_state{};
     std::atomic<std::uint64_t> m_replay_exit_observations{};
     std::uint32_t m_frame_fencepost_expected_thread{};
     bool m_frame_fencepost_first_observation_logged{};
+    bool m_frame_fencepost_incomplete_logged{};
     bool m_frame_fencepost_failure_logged{};
     bool m_replay_exit_first_observation_logged{};
     bool m_replay_exit_failure_logged{};
@@ -3209,10 +3212,20 @@ private:
         {
             return;
         }
+        self->m_frame_fencepost_entries.fetch_add(1, std::memory_order_acq_rel);
+        self->m_frame_fencepost_last_read_mask.store(
+            observation.read_mask, std::memory_order_release);
         if (observation.thread_id != self->m_frame_fencepost_expected_thread)
         {
             self->m_frame_fencepost_failure.store(
                 Horse::Deterministic::FailureCode::WrongThread,
+                std::memory_order_release);
+            return;
+        }
+        if (observation.read_mask != 0x7)
+        {
+            self->m_frame_fencepost_failure.store(
+                Horse::Deterministic::FailureCode::ContextUnavailable,
                 std::memory_order_release);
             return;
         }
@@ -3270,8 +3283,19 @@ private:
 
     void service_frame_fencepost_diagnostics() noexcept
     {
+        const std::uint64_t entries =
+            m_frame_fencepost_entries.load(std::memory_order_acquire);
         const std::uint64_t observations =
             m_frame_fencepost_observations.load(std::memory_order_acquire);
+        if (entries != 0 && observations == 0
+            && !m_frame_fencepost_incomplete_logged)
+        {
+            m_frame_fencepost_incomplete_logged = true;
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] frame-fencepost invoked but native reads "
+                "were incomplete mask=0x{:x}\n"),
+                m_frame_fencepost_last_read_mask.load(std::memory_order_acquire));
+        }
         if (observations != 0 && !m_frame_fencepost_first_observation_logged)
         {
             m_frame_fencepost_first_observation_logged = true;

@@ -200,20 +200,27 @@ void DeterministicHookSet::EmitFrameFencepost(void* battle_manager) noexcept
     FrameFencepostObservation observation{};
     observation.battle_manager = reinterpret_cast<std::uintptr_t>(battle_manager);
     observation.thread_id = ::GetCurrentThreadId();
-    if (battle_manager == nullptr
-        || !SafeRead(
+    if (SafeRead(
             image_base_ + Schema::Sc6FrameLayout::frame_counter_rva,
-            observation.frame_counter)
-        || !SafeRead(
+            observation.frame_counter))
+    {
+        observation.read_mask |= 0x1;
+    }
+    if (battle_manager != nullptr
+        && SafeRead(
             observation.battle_manager
                 + Schema::Sc6ReplayLayout::manager_status,
-            observation.round_state)
-        || !SafeRead(
+            observation.round_state))
+    {
+        observation.read_mask |= 0x2;
+    }
+    if (battle_manager != nullptr
+        && SafeRead(
             observation.battle_manager
                 + Schema::Sc6FrameLayout::manager_repeat_pending,
             observation.repeat_pending))
     {
-        return;
+        observation.read_mask |= 0x4;
     }
     callbacks_.frame_fencepost(callbacks_.user, observation);
 }
