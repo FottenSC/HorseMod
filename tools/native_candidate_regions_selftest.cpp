@@ -810,6 +810,21 @@ void test_stage_break_listener_topology_is_value_only_and_bounded()
             && topology.listeners[1].callback_rva == 0x9100,
         "heap listener preserves reverse dispatch order without pointers");
 
+    const std::array repeated_actors{
+        StageBreakActorRef{StageBreakActorKind::Wall, wall},
+        StageBreakActorRef{StageBreakActorKind::Barrier, barrier},
+        StageBreakActorRef{StageBreakActorKind::Wall, wall},
+    };
+    StageBreakListenerTopology repeated_topology{};
+    expect(probe.Capture(base, image_size, repeated_actors, repeated_topology).ok()
+            && repeated_topology.actors.size() == 3
+            && repeated_topology.listeners.size() == 3
+            && repeated_topology.actors[0].repeated_reference_of
+                == no_repeated_actor_reference
+            && repeated_topology.actors[2].actor_id == 7
+            && repeated_topology.actors[2].repeated_reference_of == 0,
+        "ordered native list may repeat an actor reference without exposing its pointer");
+
     const auto first_signature = topology.signature;
     memory.Set(barrier_vtable + 0x68, base + 0x9200);
     expect(probe.Capture(base, image_size, actors, topology).ok()

@@ -17,6 +17,8 @@ enum class StageBreakActorKind : std::uint8_t
     Barrier = 2,
 };
 
+inline constexpr std::uint16_t no_repeated_actor_reference = 0xffff;
+
 struct StageBreakActorRef
 {
     StageBreakActorKind kind{};
@@ -43,6 +45,7 @@ struct StageBreakActorIdentity
     StageBreakActorKind kind{};
     std::int32_t actor_id{};
     std::uint16_t actor_order{};
+    std::uint16_t repeated_reference_of{no_repeated_actor_reference};
 
     friend bool operator==(
         const StageBreakActorIdentity&,
@@ -73,7 +76,6 @@ enum class StageBreakListenerProbeFault : std::uint8_t
     ListenerVtableOutsideImage,
     CallbackRead,
     CallbackOutsideImage,
-    DuplicateActorIdentity,
 };
 
 [[nodiscard]] std::string_view stage_break_listener_probe_fault_name(

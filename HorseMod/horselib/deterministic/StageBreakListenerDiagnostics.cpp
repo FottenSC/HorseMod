@@ -2,7 +2,6 @@
 
 #include <Windows.h>
 
-#include <algorithm>
 #include <cstring>
 #include <iomanip>
 #include <utility>
@@ -191,8 +190,6 @@ std::string_view stage_break_listener_probe_fault_name(
         return "listener_vtable_outside_image";
     case StageBreakListenerProbeFault::CallbackRead: return "callback_read";
     case StageBreakListenerProbeFault::CallbackOutsideImage: return "callback_outside_image";
-    case StageBreakListenerProbeFault::DuplicateActorIdentity:
-        return "duplicate_actor_identity";
     }
     return "unknown";
 }
@@ -234,25 +231,18 @@ Status StageBreakListenerTopologyProbe::Capture(
                 output = {};
                 return status;
             }
-            const auto duplicate = std::find_if(output.actors.begin(), output.actors.end(),
-                [&](const StageBreakActorIdentity& identity)
-                {
-                    return identity.kind == actors[index].kind
-                        && identity.actor_id == actor_id;
-                });
-            if (duplicate != output.actors.end())
+            auto repeated_reference_of = no_repeated_actor_reference;
+            for (std::size_t prior = 0; prior < index; ++prior)
             {
-                captured_failure.fault =
-                    StageBreakListenerProbeFault::DuplicateActorIdentity;
-                captured_failure.kind = actors[index].kind;
-                captured_failure.actor_order = static_cast<std::uint16_t>(index);
-                captured_failure.actor_id = actor_id;
-                if (failure != nullptr) *failure = captured_failure;
-                output = {};
-                return Status::failure(FailureCode::IdentityMismatch);
+                if (actors[prior].kind == actors[index].kind
+                    && actors[prior].address == actors[index].address)
+                {
+                    repeated_reference_of = static_cast<std::uint16_t>(prior);
+                    break;
+                }
             }
             output.actors.push_back({actors[index].kind, actor_id,
-                static_cast<std::uint16_t>(index)});
+                static_cast<std::uint16_t>(index), repeated_reference_of});
         }
         const auto actor_count = static_cast<std::uint32_t>(output.actors.size());
         std::uint64_t signature = 1469598103934665603ull;
@@ -265,6 +255,8 @@ Status StageBreakListenerTopologyProbe::Capture(
                 sizeof(identity.actor_id));
             signature = append_hash(signature, &identity.actor_order,
                 sizeof(identity.actor_order));
+            signature = append_hash(signature, &identity.repeated_reference_of,
+                sizeof(identity.repeated_reference_of));
         }
         for (const auto& record : output.listeners)
         {
@@ -367,13 +359,18 @@ void StageBreakListenerRuntimeDiagnostics::write_topology(
     report_ << "\n## Frame " << frame << " signature `0x" << std::hex
             << topology.signature << std::dec << "`\n\n"
             << "Actors: " << topology.actors.size() << ".\n\n"
-            << "| Kind | Actor ID | Actor order |\n"
-            << "|---|---:|---:|\n";
+            << "| Kind | Actor ID | Actor order | Repeated reference of |\n"
+            << "|---|---:|---:|---:|\n";
     for (const auto& actor : topology.actors)
     {
         report_ << "| "
                 << (actor.kind == StageBreakActorKind::Wall ? "wall" : "barrier")
-                << " | " << actor.actor_id << " | " << actor.actor_order << " |\n";
+                << " | " << actor.actor_id << " | " << actor.actor_order << " | ";
+        if (actor.repeated_reference_of == no_repeated_actor_reference)
+            report_ << "-";
+        else
+            report_ << actor.repeated_reference_of;
+        report_ << " |\n";
     }
     report_ << "\n"
             << "| Kind | Actor ID | Actor order | Dispatch order | Slot | Vtable RVA | Callback RVA |\n"
