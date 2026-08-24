@@ -151,6 +151,13 @@ NavigationState ReplaySceneNavigator::Tick(std::string& detail)
         detail = scene_name;
         return NavigationState::Ready;
     }
+    if (scene_name.find("InitScene") != std::string::npos
+        || scene_name.find("AdvertiseScene") != std::string::npos)
+    {
+        retry_frames_ = 0;
+        detail = scene_name;
+        return NavigationState::Waiting;
+    }
     if (scene_name != last_scene_)
     {
         last_scene_ = scene_name;
