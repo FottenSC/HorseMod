@@ -31,17 +31,41 @@ class ReplayLifecycleEvidence:
     frame_observed_line: str
 
 
-def capture_log_offset(log_path: Path) -> int:
+@dataclass(frozen=True)
+class LogCursor:
+    offset: int
+    sentinel_offset: int
+    sentinel: bytes
+    prefix: bytes
+
+
+def capture_log_offset(log_path: Path) -> LogCursor:
     try:
-        return log_path.stat().st_size
+        with log_path.open("rb") as stream:
+            size = stream.seek(0, 2)
+            stream.seek(0)
+            prefix = stream.read(min(size, 64))
+            sentinel_offset = max(0, size - 64)
+            stream.seek(sentinel_offset)
+            return LogCursor(size, sentinel_offset, stream.read(), prefix)
     except OSError:
-        return 0
+        return LogCursor(0, 0, b"", b"")
 
 
-def _read_since(log_path: Path, start_offset: int) -> str:
+def _read_since(log_path: Path, cursor: LogCursor | int) -> str:
     with log_path.open("rb") as stream:
         size = stream.seek(0, 2)
-        stream.seek(start_offset if start_offset <= size else 0)
+        if isinstance(cursor, int):
+            start_offset = cursor if cursor <= size else 0
+        elif cursor.offset <= size:
+            stream.seek(0)
+            prefix_matches = stream.read(len(cursor.prefix)) == cursor.prefix
+            stream.seek(cursor.sentinel_offset)
+            tail_matches = stream.read(len(cursor.sentinel)) == cursor.sentinel
+            start_offset = cursor.offset if prefix_matches and tail_matches else 0
+        else:
+            start_offset = 0
+        stream.seek(start_offset)
         return stream.read().decode("utf-8", errors="replace")
 
 
@@ -65,7 +89,7 @@ def wait_for_boot_evidence(
     log_path: Path,
     timeout_seconds: float,
     progress_guard: Callable[[], None] | None = None,
-    start_offset: int = 0,
+    start_offset: LogCursor | int = 0,
 ) -> BootEvidence:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -104,7 +128,7 @@ def wait_for_replay_lifecycle_evidence(
     log_path: Path,
     timeout_seconds: float,
     progress_guard: Callable[[], None] | None = None,
-    start_offset: int = 0,
+    start_offset: LogCursor | int = 0,
 ) -> ReplayLifecycleEvidence:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
