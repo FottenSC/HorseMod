@@ -25,6 +25,9 @@ public:
 struct NativeCandidateAddresses
 {
     std::uintptr_t image_base{};
+    std::uintptr_t battle_manager{};
+    std::uintptr_t input_log{};
+    std::uintptr_t frame_counter{};
     std::uintptr_t move_dispatch{};
     std::uintptr_t pump_state{};
     std::uintptr_t scheduler_base{};
@@ -37,6 +40,48 @@ struct NativeCandidateAddresses
     std::array<std::uintptr_t, 2> fighter_roots{};
     std::uint64_t session_generation{};
     std::uint64_t round_generation{};
+};
+
+struct NativeFrameBoundaryImage
+{
+    std::uint32_t frame_counter{};
+    std::int32_t input_game_round{};
+    std::int32_t input_game_time{};
+    std::int32_t manager_game_round_cursor{};
+    std::uint32_t manager_game_time_cursor{};
+    std::uint32_t round_state_frame{};
+    std::int32_t unpause_countdown{};
+    std::array<std::uint32_t, 2> previous_inputs{};
+    std::array<PlayerInput, 2> input_pairs{};
+    std::array<PlayerInput, 2> prior_input_pairs{};
+    std::uint8_t repeat_pending{};
+    std::uint8_t pending_move_state{};
+
+    friend bool operator==(
+        const NativeFrameBoundaryImage&,
+        const NativeFrameBoundaryImage&) = default;
+};
+
+struct NativeInputCacheRowImage
+{
+    std::int32_t game_round{};
+    std::uint32_t frame_index{};
+    std::uint32_t input_value{};
+    std::uint8_t filled{};
+
+    friend bool operator==(
+        const NativeInputCacheRowImage&,
+        const NativeInputCacheRowImage&) = default;
+};
+
+struct NativeFrameInputLogImage
+{
+    std::array<std::byte, 0x30> scalars{};
+    std::array<NativeInputCacheRowImage, 1024> cache_rows{};
+
+    friend bool operator==(
+        const NativeFrameInputLogImage&,
+        const NativeFrameInputLogImage&) = default;
 };
 
 struct NativeRngImage
@@ -85,6 +130,8 @@ struct NativeCandidateImage
 {
     std::uint64_t session_generation{};
     std::uint64_t round_generation{};
+    NativeFrameBoundaryImage frame{};
+    NativeFrameInputLogImage input_log{};
     std::array<std::uint64_t, 2> move_dispatch_masks{};
     NativePumpImage pump{};
     std::array<NativeSchedulerImage, 2> schedulers{};
@@ -133,6 +180,11 @@ private:
 
     struct BoundIdentities
     {
+        std::uintptr_t input_log{};
+        std::uintptr_t input_log_class{};
+        std::uintptr_t previous_input_array{};
+        std::uintptr_t input_pair_array{};
+        std::uintptr_t prior_input_pair_array{};
         std::uintptr_t event_mask_owner{};
         std::array<std::uintptr_t, 6> pump{};
         std::array<SubVmIdentity, 2> sub_vms{};

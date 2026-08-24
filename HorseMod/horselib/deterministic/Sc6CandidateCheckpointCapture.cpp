@@ -293,6 +293,9 @@ Status Sc6CandidateCheckpointCapture::bind(
         return Status::failure(FailureCode::ContextUnavailable);
     NativeCandidateAddresses addresses{
         image_base_,
+        battle_manager,
+        0,
+        image_base_ + Schema::Sc6FrameLayout::frame_counter_rva,
         move_dispatch,
         image_base_ + pump_state_rva,
         image_base_ + scheduler_base_rva,
@@ -306,6 +309,13 @@ Status Sc6CandidateCheckpointCapture::bind(
         session_generation,
         coordinate.generation,
     };
+    if (!memory_->Read(
+            battle_manager + Schema::Sc6FrameLayout::manager_input_log,
+            std::as_writable_bytes(std::span{&addresses.input_log, 1}))
+        || addresses.input_log == 0)
+    {
+        return Status::failure(FailureCode::ContextUnavailable);
+    }
     const Status bound = regions_->Bind(addresses);
     if (!bound.ok()) return bound;
     const NativeContext context{

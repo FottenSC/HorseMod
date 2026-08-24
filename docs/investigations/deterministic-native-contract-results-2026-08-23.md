@@ -21,6 +21,23 @@ the table below, recaptures exact semantic state, and applies an exact
 reverse-order undo after a partial write or verification failure. It remains
 absent from `Schema::production_regions`.
 
+Checkpoint schema v5 extends that inactive candidate with the coordinate and
+input-production boundary required before native replay resimulation can be
+wired. The value image now includes the global Lux frame counter, InputLog and
+manager round/time cursors, round-state frame, unpause/repeat/move-state
+scalars, the two previous-input words, both current/prior post-filter input
+pairs, the pointer-free `+0x390..+0x3BF` InputLog scalar bank, and all 1,024
+semantic cache rows. Each cache row serializes only `{GameRound, FrameIndex,
+InputValue, Filled}`; the three initialized-reserved bytes at `+0x0D..+0x0F`
+are preserved from the live allocation and excluded from restore/hash. Binding
+requires the same InputLog UObject/class and the same three manager-owned input
+array allocations with active-player count exactly two. Restore never writes
+their headers or pointers. Structural tests mutate every new bank, prove exact
+transactional restoration, prove reserved-row preservation, and prove that the
+InputLog and array owner addresses do not enter canonical bytes. This closes
+the value/identity mechanics only; FrameInputSync transport lifetime, the
+remaining fighter/hit/camera state, and live resimulation are still gated.
+
 The proven nine-slot HgCpu buffer ABI is implemented in
 `HorseMod/horselib/deterministic/HgCpuStream.*` with the exact `0x28018` bound,
 build/schema/session/round/fighter/camera generation metadata, exact cursor,
@@ -315,7 +332,7 @@ touch their documented residue gaps. Structural tests now use a ring-in graph
 and prove that changing local matrices/travel values does not change canonical
 bytes, while restore still reproduces the complete captured local image.
 
-Candidate checkpoint format v4 now owns this wind image instead of discarding
+Candidate checkpoint format v5 retains the v4 wind image instead of discarding
 the probe result after logging. Its canonical SHA-256 domain appends only the
 pointer-free wind canonical bytes. The local payload separately serializes the
 derived bank and protects it with a bounded FNV-1a integrity checksum; corrupt
@@ -329,7 +346,7 @@ Its SC6 allocator binding admits only the assembly-proven sizes `0x130`,
 simulation thread. This path remains inactive with the production allowlist
 empty; live normal-render capture is required before any restore exercise.
 
-The format-v4 capture path subsequently passed a source-bound, normal-render
+The historical format-v4 capture path subsequently passed a source-bound, normal-render
 replay-entry run for 600 requested frames at commit
 `fd7a7710a71c0d911a5aabda3f5e6a54f7a1c9c6`. It retained 21 landing
 checkpoints through frame 600 and 35 batch-entry checkpoints through frame 613;

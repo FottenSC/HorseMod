@@ -140,9 +140,12 @@ struct Fixture
     static constexpr std::uintptr_t image_base = 0x140000000;
 
     Fixture()
-        : memory(memory_base, 0x20000), regions(memory)
+        : memory(memory_base, 0x24000), regions(memory)
     {
         addresses.image_base = image_base;
+        addresses.battle_manager = memory_base + 0x15000;
+        addresses.input_log = memory_base + 0x17000;
+        addresses.frame_counter = memory_base + 0x1F000;
         addresses.move_dispatch = memory_base + 0x1000;
         addresses.pump_state = memory_base + 0x3000;
         addresses.scheduler_base = memory_base + 0x4000;
@@ -161,6 +164,32 @@ struct Fixture
 
     void initialize()
     {
+        const auto previous_inputs = memory_base + 0x1C000;
+        const auto input_pairs = memory_base + 0x1C100;
+        const auto prior_input_pairs = memory_base + 0x1C200;
+        memory.Set(addresses.battle_manager + 0x478, addresses.input_log);
+        memory.Set(addresses.input_log + 0x10, memory_base + 0x22000);
+        memory.Set(addresses.battle_manager + 0x1498, previous_inputs);
+        memory.Set(addresses.battle_manager + 0x14A8, input_pairs);
+        memory.Set(addresses.battle_manager + 0x14B0, std::int32_t{2});
+        memory.Set(addresses.battle_manager + 0x14B4, prior_input_pairs);
+        memory.Set(addresses.frame_counter, std::uint32_t{42});
+        memory.Set(addresses.input_log + 0x3A0, std::int32_t{3});
+        memory.Set(addresses.input_log + 0x3A4, std::int32_t{42});
+        memory.Set(addresses.input_log + 0x398, std::int32_t{2});
+        memory.Set(addresses.input_log + 0x3C0, std::int32_t{3});
+        memory.Set(addresses.input_log + 0x3C4, std::uint32_t{42});
+        memory.Set(addresses.input_log + 0x3C8, std::uint32_t{0x10});
+        memory.Set(addresses.input_log + 0x3CC, std::uint8_t{1});
+        memory.Set(addresses.battle_manager + 0x1488, std::int32_t{3});
+        memory.Set(addresses.battle_manager + 0x148C, std::uint32_t{42});
+        memory.Set(addresses.battle_manager + 0x1490, std::uint32_t{11});
+        memory.Set(addresses.battle_manager + 0x14F0, std::int32_t{0});
+        memory.Set(addresses.battle_manager + 0x1462, std::uint8_t{0});
+        memory.Set(addresses.battle_manager + 0x1463, std::uint8_t{0});
+        memory.Set(previous_inputs, std::array<std::uint32_t, 2>{0x10, 0x20});
+        memory.Set(input_pairs, std::array<PlayerInput, 2>{{{0x10, 0x10}, {0x20, 0x20}}});
+        memory.Set(prior_input_pairs, std::array<PlayerInput, 2>{{{0x08, 0x08}, {0x10, 0x10}}});
         memory.Set(addresses.lcg_rng, std::uint32_t{0x12345678});
         for (std::size_t index = 0; index < 25; ++index)
             memory.Set(addresses.lfsr_rng + index * 4,
@@ -677,6 +706,22 @@ void test_capture_restore_preserves_exclusions()
     fixture.memory.Set(fixture.addresses.lfsr_rng + 0x64, std::uint32_t{8});
     fixture.memory.Fill(fixture.addresses.xorshift_rng, 0x0C, std::byte{0xEA});
     fixture.memory.Fill(fixture.addresses.wind_rng, 0x18, std::byte{0xEB});
+    fixture.memory.Set(fixture.addresses.frame_counter, std::uint32_t{99});
+    fixture.memory.Set(fixture.addresses.input_log + 0x3A0, std::int32_t{8});
+    fixture.memory.Set(fixture.addresses.input_log + 0x3A4, std::int32_t{99});
+    fixture.memory.Set(fixture.addresses.battle_manager + 0x1488, std::int32_t{8});
+    fixture.memory.Set(fixture.addresses.battle_manager + 0x148C, std::uint32_t{99});
+    fixture.memory.Set(fixture.addresses.battle_manager + 0x1490, std::uint32_t{44});
+    fixture.memory.Set(fixture.addresses.battle_manager + 0x14F0, std::int32_t{7});
+    fixture.memory.Set(fixture.addresses.battle_manager + 0x1462, std::uint8_t{1});
+    fixture.memory.Set(fixture.addresses.battle_manager + 0x1463, std::uint8_t{3});
+    fixture.memory.Fill(Fixture::memory_base + 0x1C000, 8, std::byte{0xEC});
+    fixture.memory.Fill(Fixture::memory_base + 0x1C100, 16, std::byte{0xED});
+    fixture.memory.Fill(Fixture::memory_base + 0x1C200, 16, std::byte{0xEE});
+    fixture.memory.Set(fixture.addresses.input_log + 0x3C0, std::int32_t{8});
+    fixture.memory.Set(fixture.addresses.input_log + 0x3C4, std::uint32_t{99});
+    fixture.memory.Set(fixture.addresses.input_log + 0x3C8, std::uint32_t{0xFE});
+    fixture.memory.Set(fixture.addresses.input_log + 0x3CC, std::uint8_t{0});
 
     fixture.memory.Fill(fixture.addresses.pump_state + 0x3C, 1, std::byte{0xA1});
     fixture.memory.Fill(fixture.addresses.scheduler_base + 0x0C, 1, std::byte{0xA6});
@@ -686,6 +731,7 @@ void test_capture_restore_preserves_exclusions()
     fixture.memory.Fill(fixture.addresses.move_command_base + 0x2A28, 1, std::byte{0xA3});
     fixture.memory.Fill(fixture.addresses.move_command_base + 0x3034, 1, std::byte{0xA4});
     fixture.memory.Fill(fixture.addresses.slot_param_base + 0x28, 1, std::byte{0xA5});
+    fixture.memory.Fill(fixture.addresses.input_log + 0x3CD, 3, std::byte{0xAF});
 
     expect(fixture.regions.RestoreTransactional(baseline).ok(),
         "restore native candidate regions and explicit RNG streams");
@@ -699,12 +745,20 @@ void test_capture_restore_preserves_exclusions()
     expect(fixture.memory.Get(fixture.addresses.move_command_base + 0x2A28) == std::byte{0xA3}, "preserve diagnostic text");
     expect(fixture.memory.Get(fixture.addresses.move_command_base + 0x3034) == std::byte{0xA4}, "preserve uninitialized tail");
     expect(fixture.memory.Get(fixture.addresses.slot_param_base + 0x28) == std::byte{0xA5}, "preserve slot padding");
+    expect(fixture.memory.Get(fixture.addresses.input_log + 0x3CD) == std::byte{0xAF},
+        "preserve initialized cache-row reserved bytes");
     expect(restored.rng == baseline.rng,
         "restore all four explicit Lux RNG streams exactly");
+    expect(restored.frame == baseline.frame,
+        "restore the coordinate clocks and input-pair boundary exactly");
 
     const auto canonical = NativeCandidateRegions::CanonicalBytes(baseline);
     expect(!contains_qword(canonical, fixture.event_masks), "canonical bytes exclude event owner pointer");
     expect(!contains_qword(canonical, Fixture::memory_base + 0x5000), "canonical bytes exclude SubVM pointer");
+    expect(!contains_qword(canonical, fixture.addresses.input_log),
+        "canonical bytes exclude InputLog owner pointer");
+    expect(!contains_qword(canonical, Fixture::memory_base + 0x1C100),
+        "canonical bytes exclude input-pair backing pointer");
 }
 
 void test_preflight_is_atomic()

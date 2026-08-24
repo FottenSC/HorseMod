@@ -31,6 +31,23 @@ constexpr std::array<Range, 9> move_command_ranges{{
     {0x19A0, 0x1088},
     {0x2AA8, 0x058C},
 }};
+constexpr std::ptrdiff_t manager_input_log = 0x478;
+constexpr std::ptrdiff_t manager_repeat_pending = 0x1462;
+constexpr std::ptrdiff_t manager_pending_move_state = 0x1463;
+constexpr std::ptrdiff_t manager_game_round_cursor = 0x1488;
+constexpr std::ptrdiff_t manager_game_time_cursor = 0x148C;
+constexpr std::ptrdiff_t manager_round_state_frame = 0x1490;
+constexpr std::ptrdiff_t manager_previous_input_array = 0x1498;
+constexpr std::ptrdiff_t manager_input_pair_array = 0x14A8;
+constexpr std::ptrdiff_t manager_active_player_count = 0x14B0;
+constexpr std::ptrdiff_t manager_prior_input_pair_array = 0x14B4;
+constexpr std::ptrdiff_t manager_unpause_countdown = 0x14F0;
+constexpr std::ptrdiff_t input_log_game_round = 0x3A0;
+constexpr std::ptrdiff_t input_log_game_time = 0x3A4;
+constexpr std::ptrdiff_t input_log_class = 0x10;
+constexpr std::ptrdiff_t input_log_semantic_begin = 0x390;
+constexpr std::ptrdiff_t input_log_cache_begin = 0x3C0;
+constexpr std::size_t input_log_cache_row_stride = 0x10;
 constexpr std::array<std::pair<std::uint32_t, std::uint8_t>, 77> subvm_classes{{
     {0x3E863D0,0x68},{0x3E85608,0x78},{0x3E868F0,0x78},
     {0x3E85698,0x78},{0x3E85D10,0x68},{0x3E857B8,0x68},
@@ -91,6 +108,110 @@ void append_bytes(std::vector<std::byte>& output, const void* data, std::size_t 
     const auto* first = static_cast<const std::byte*>(data);
     output.insert(output.end(), first, first + size);
 }
+
+void append_frame_boundary(
+    std::vector<std::byte>& output,
+    const NativeFrameBoundaryImage& frame)
+{
+    append_bytes(output, &frame.frame_counter, sizeof(frame.frame_counter));
+    append_bytes(output, &frame.input_game_round, sizeof(frame.input_game_round));
+    append_bytes(output, &frame.input_game_time, sizeof(frame.input_game_time));
+    append_bytes(output, &frame.manager_game_round_cursor,
+        sizeof(frame.manager_game_round_cursor));
+    append_bytes(output, &frame.manager_game_time_cursor,
+        sizeof(frame.manager_game_time_cursor));
+    append_bytes(output, &frame.round_state_frame, sizeof(frame.round_state_frame));
+    append_bytes(output, &frame.unpause_countdown, sizeof(frame.unpause_countdown));
+    append_bytes(output, frame.previous_inputs.data(), sizeof(frame.previous_inputs));
+    append_bytes(output, frame.input_pairs.data(), sizeof(frame.input_pairs));
+    append_bytes(output, frame.prior_input_pairs.data(),
+        sizeof(frame.prior_input_pairs));
+    append_bytes(output, &frame.repeat_pending, sizeof(frame.repeat_pending));
+    append_bytes(output, &frame.pending_move_state,
+        sizeof(frame.pending_move_state));
+}
+
+void append_input_log(
+    std::vector<std::byte>& output,
+    const NativeFrameInputLogImage& input_log)
+{
+    append_bytes(output, input_log.scalars.data(), input_log.scalars.size());
+    for (const auto& row : input_log.cache_rows)
+    {
+        append_bytes(output, &row.game_round, sizeof(row.game_round));
+        append_bytes(output, &row.frame_index, sizeof(row.frame_index));
+        append_bytes(output, &row.input_value, sizeof(row.input_value));
+        append_bytes(output, &row.filled, sizeof(row.filled));
+    }
+}
+
+bool capture_input_log_cache(
+    INativeMemory& memory,
+    std::uintptr_t input_log,
+    NativeFrameInputLogImage& output) noexcept
+{
+    if (!memory.Read(input_log + input_log_semantic_begin, output.scalars))
+        return false;
+    std::array<std::byte,
+        input_log_cache_row_stride * 1024> raw{};
+    if (!memory.Read(input_log + input_log_cache_begin, raw)) return false;
+    for (std::size_t index = 0; index < output.cache_rows.size(); ++index)
+    {
+        const std::byte* source = raw.data() + index * input_log_cache_row_stride;
+        auto& row = output.cache_rows[index];
+        std::memcpy(&row.game_round, source, sizeof(row.game_round));
+        std::memcpy(&row.frame_index, source + 4, sizeof(row.frame_index));
+        std::memcpy(&row.input_value, source + 8, sizeof(row.input_value));
+        std::memcpy(&row.filled, source + 12, sizeof(row.filled));
+        if (row.filled > 1) return false;
+    }
+    return true;
+}
+
+bool validate_input_log_image(
+    const NativeFrameInputLogImage& input_log,
+    const NativeFrameBoundaryImage& frame) noexcept
+{
+    std::int32_t player_count{};
+    std::int32_t game_round{};
+    std::int32_t game_time{};
+    std::memcpy(&player_count, input_log.scalars.data() + 8,
+        sizeof(player_count));
+    std::memcpy(&game_round, input_log.scalars.data() + 0x10,
+        sizeof(game_round));
+    std::memcpy(&game_time, input_log.scalars.data() + 0x14,
+        sizeof(game_time));
+    if (player_count != 2 || game_round != frame.input_game_round
+        || game_time != frame.input_game_time)
+    {
+        return false;
+    }
+    return std::all_of(
+        input_log.cache_rows.begin(), input_log.cache_rows.end(),
+        [](const NativeInputCacheRowImage& row) { return row.filled <= 1; });
+}
+
+bool write_input_log_cache(
+    INativeMemory& memory,
+    std::uintptr_t input_log,
+    const NativeFrameInputLogImage& image) noexcept
+{
+    std::array<std::byte,
+        input_log_cache_row_stride * 1024> raw{};
+    if (!memory.Read(input_log + input_log_cache_begin, raw)) return false;
+    for (std::size_t index = 0; index < image.cache_rows.size(); ++index)
+    {
+        const auto& row = image.cache_rows[index];
+        if (row.filled > 1) return false;
+        std::byte* destination = raw.data() + index * input_log_cache_row_stride;
+        std::memcpy(destination, &row.game_round, sizeof(row.game_round));
+        std::memcpy(destination + 4, &row.frame_index, sizeof(row.frame_index));
+        std::memcpy(destination + 8, &row.input_value, sizeof(row.input_value));
+        std::memcpy(destination + 12, &row.filled, sizeof(row.filled));
+    }
+    return memory.Write(input_log + input_log_semantic_begin, image.scalars)
+        && memory.Write(input_log + input_log_cache_begin, raw);
+}
 }
 
 NativeCandidateRegions::NativeCandidateRegions(INativeMemory& memory) noexcept
@@ -112,9 +233,31 @@ bool NativeCandidateRegions::write_bytes(
 
 bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcept
 {
+    std::int32_t player_count{};
     std::int32_t mask_count{};
     std::int32_t mask_capacity{};
-    if (!read_value(memory_, addresses_.move_dispatch + 0x4A8, output.event_mask_owner)
+    if (!read_value(memory_, addresses_.battle_manager + manager_input_log,
+            output.input_log)
+        || output.input_log != addresses_.input_log
+        || !read_value(memory_, addresses_.input_log + input_log_class,
+            output.input_log_class)
+        || output.input_log_class == 0
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_previous_input_array,
+            output.previous_input_array)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_input_pair_array,
+            output.input_pair_array)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_prior_input_pair_array,
+            output.prior_input_pair_array)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_active_player_count,
+            player_count)
+        || output.previous_input_array == 0 || output.input_pair_array == 0
+        || output.prior_input_pair_array == 0 || player_count != 2
+        || !read_value(memory_, addresses_.move_dispatch + 0x4A8,
+            output.event_mask_owner)
         || !read_value(memory_, addresses_.move_dispatch + 0x4B0, mask_count)
         || !read_value(memory_, addresses_.move_dispatch + 0x4B4, mask_capacity)
         || output.event_mask_owner == 0 || mask_count != 2 || mask_capacity != 2)
@@ -182,7 +325,13 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
 bool NativeCandidateRegions::identities_match() noexcept
 {
     BoundIdentities current{};
-    return capture_identities(current) && current.event_mask_owner == identities_.event_mask_owner
+    return capture_identities(current)
+        && current.input_log == identities_.input_log
+        && current.input_log_class == identities_.input_log_class
+        && current.previous_input_array == identities_.previous_input_array
+        && current.input_pair_array == identities_.input_pair_array
+        && current.prior_input_pair_array == identities_.prior_input_pair_array
+        && current.event_mask_owner == identities_.event_mask_owner
         && current.pump == identities_.pump && current.move_commands == identities_.move_commands
         && std::equal(
             current.sub_vms.begin(), current.sub_vms.end(), identities_.sub_vms.begin(),
@@ -199,7 +348,9 @@ bool NativeCandidateRegions::identities_match() noexcept
 Status NativeCandidateRegions::Bind(const NativeCandidateAddresses& addresses) noexcept
 {
     Invalidate();
-    if (addresses.image_base == 0 || addresses.move_dispatch == 0
+    if (addresses.image_base == 0 || addresses.battle_manager == 0
+        || addresses.input_log == 0 || addresses.frame_counter == 0
+        || addresses.move_dispatch == 0
         || addresses.pump_state == 0 || addresses.scheduler_base == 0
         || addresses.move_command_base == 0 || addresses.slot_param_base == 0
         || addresses.lcg_rng == 0 || addresses.lfsr_rng == 0
@@ -246,6 +397,42 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
     output = {};
     output.session_generation = addresses_.session_generation;
     output.round_generation = addresses_.round_generation;
+    if (!capture_input_log_cache(memory_, addresses_.input_log,
+            output.input_log)
+        || !read_value(memory_, addresses_.frame_counter,
+            output.frame.frame_counter)
+        || !read_value(memory_, addresses_.input_log + input_log_game_round,
+            output.frame.input_game_round)
+        || !read_value(memory_, addresses_.input_log + input_log_game_time,
+            output.frame.input_game_time)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_game_round_cursor,
+            output.frame.manager_game_round_cursor)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_game_time_cursor,
+            output.frame.manager_game_time_cursor)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_round_state_frame,
+            output.frame.round_state_frame)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_unpause_countdown,
+            output.frame.unpause_countdown)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_repeat_pending,
+            output.frame.repeat_pending)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_pending_move_state,
+            output.frame.pending_move_state)
+        || !read_bytes(identities_.previous_input_array,
+            std::as_writable_bytes(std::span{output.frame.previous_inputs}))
+        || !read_bytes(identities_.input_pair_array,
+            std::as_writable_bytes(std::span{output.frame.input_pairs}))
+        || !read_bytes(identities_.prior_input_pair_array,
+            std::as_writable_bytes(std::span{output.frame.prior_input_pairs})))
+    {
+        return false;
+    }
+    if (!validate_input_log_image(output.input_log, output.frame)) return false;
     if (!read_bytes(
             identities_.event_mask_owner,
             std::as_writable_bytes(std::span{output.move_dispatch_masks})))
@@ -347,6 +534,7 @@ bool NativeCandidateRegions::image_matches_binding(
     {
         return false;
     }
+    if (!validate_input_log_image(image.input_log, image.frame)) return false;
     for (std::size_t lane = 0; lane < image.sub_vms.size(); ++lane)
     {
         const auto& identity = identities_.sub_vms[lane];
@@ -374,7 +562,32 @@ Status NativeCandidateRegions::PreflightRestore(
 
 bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) noexcept
 {
-    if (!write_bytes(addresses_.wind_rng,
+    if (!write_input_log_cache(memory_, addresses_.input_log, image.input_log)
+        || !write_bytes(identities_.previous_input_array,
+            std::as_bytes(std::span{image.frame.previous_inputs}))
+        || !write_bytes(identities_.input_pair_array,
+            std::as_bytes(std::span{image.frame.input_pairs}))
+        || !write_bytes(identities_.prior_input_pair_array,
+            std::as_bytes(std::span{image.frame.prior_input_pairs}))
+        || !write_bytes(addresses_.input_log + input_log_game_round,
+            std::as_bytes(std::span{&image.frame.input_game_round, 1}))
+        || !write_bytes(addresses_.input_log + input_log_game_time,
+            std::as_bytes(std::span{&image.frame.input_game_time, 1}))
+        || !write_bytes(addresses_.battle_manager + manager_game_round_cursor,
+            std::as_bytes(std::span{&image.frame.manager_game_round_cursor, 1}))
+        || !write_bytes(addresses_.battle_manager + manager_game_time_cursor,
+            std::as_bytes(std::span{&image.frame.manager_game_time_cursor, 1}))
+        || !write_bytes(addresses_.battle_manager + manager_round_state_frame,
+            std::as_bytes(std::span{&image.frame.round_state_frame, 1}))
+        || !write_bytes(addresses_.battle_manager + manager_unpause_countdown,
+            std::as_bytes(std::span{&image.frame.unpause_countdown, 1}))
+        || !write_bytes(addresses_.battle_manager + manager_repeat_pending,
+            std::as_bytes(std::span{&image.frame.repeat_pending, 1}))
+        || !write_bytes(addresses_.battle_manager + manager_pending_move_state,
+            std::as_bytes(std::span{&image.frame.pending_move_state, 1}))
+        || !write_bytes(addresses_.frame_counter,
+            std::as_bytes(std::span{&image.frame.frame_counter, 1}))
+        || !write_bytes(addresses_.wind_rng,
             std::as_bytes(std::span{image.rng.wind}))
         || !write_bytes(addresses_.xorshift_rng,
             std::as_bytes(std::span{image.rng.xorshift}))
@@ -482,6 +695,31 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
         std::as_bytes(std::span{image.rng.xorshift})) && ok;
     ok = write_bytes(addresses_.wind_rng,
         std::as_bytes(std::span{image.rng.wind})) && ok;
+    ok = write_bytes(addresses_.frame_counter,
+        std::as_bytes(std::span{&image.frame.frame_counter, 1})) && ok;
+    ok = write_bytes(addresses_.battle_manager + manager_pending_move_state,
+        std::as_bytes(std::span{&image.frame.pending_move_state, 1})) && ok;
+    ok = write_bytes(addresses_.battle_manager + manager_repeat_pending,
+        std::as_bytes(std::span{&image.frame.repeat_pending, 1})) && ok;
+    ok = write_bytes(addresses_.battle_manager + manager_unpause_countdown,
+        std::as_bytes(std::span{&image.frame.unpause_countdown, 1})) && ok;
+    ok = write_bytes(addresses_.battle_manager + manager_round_state_frame,
+        std::as_bytes(std::span{&image.frame.round_state_frame, 1})) && ok;
+    ok = write_bytes(addresses_.battle_manager + manager_game_time_cursor,
+        std::as_bytes(std::span{&image.frame.manager_game_time_cursor, 1})) && ok;
+    ok = write_bytes(addresses_.battle_manager + manager_game_round_cursor,
+        std::as_bytes(std::span{&image.frame.manager_game_round_cursor, 1})) && ok;
+    ok = write_bytes(addresses_.input_log + input_log_game_time,
+        std::as_bytes(std::span{&image.frame.input_game_time, 1})) && ok;
+    ok = write_bytes(addresses_.input_log + input_log_game_round,
+        std::as_bytes(std::span{&image.frame.input_game_round, 1})) && ok;
+    ok = write_bytes(identities_.prior_input_pair_array,
+        std::as_bytes(std::span{image.frame.prior_input_pairs})) && ok;
+    ok = write_bytes(identities_.input_pair_array,
+        std::as_bytes(std::span{image.frame.input_pairs})) && ok;
+    ok = write_bytes(identities_.previous_input_array,
+        std::as_bytes(std::span{image.frame.previous_inputs})) && ok;
+    ok = write_input_log_cache(memory_, addresses_.input_log, image.input_log) && ok;
     return ok;
 }
 
@@ -512,6 +750,8 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
     output.reserve(0x6100);
     append_bytes(output, &image.session_generation, sizeof(image.session_generation));
     append_bytes(output, &image.round_generation, sizeof(image.round_generation));
+    append_frame_boundary(output, image.frame);
+    append_input_log(output, image.input_log);
     append_bytes(output, image.move_dispatch_masks.data(), sizeof(image.move_dispatch_masks));
     append_bytes(output, image.pump.lane_a.data(), image.pump.lane_a.size());
     append_bytes(output, image.pump.lane_b.data(), image.pump.lane_b.size());
@@ -557,7 +797,47 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
     if (!take(&output.session_generation, sizeof(output.session_generation))
         || !take(&output.round_generation, sizeof(output.round_generation))
         || output.session_generation == 0 || output.round_generation == 0
-        || !take(output.move_dispatch_masks.data(), sizeof(output.move_dispatch_masks))
+        || !take(&output.frame.frame_counter, sizeof(output.frame.frame_counter))
+        || !take(&output.frame.input_game_round, sizeof(output.frame.input_game_round))
+        || !take(&output.frame.input_game_time, sizeof(output.frame.input_game_time))
+        || !take(&output.frame.manager_game_round_cursor,
+            sizeof(output.frame.manager_game_round_cursor))
+        || !take(&output.frame.manager_game_time_cursor,
+            sizeof(output.frame.manager_game_time_cursor))
+        || !take(&output.frame.round_state_frame,
+            sizeof(output.frame.round_state_frame))
+        || !take(&output.frame.unpause_countdown,
+            sizeof(output.frame.unpause_countdown))
+        || !take(output.frame.previous_inputs.data(),
+            sizeof(output.frame.previous_inputs))
+        || !take(output.frame.input_pairs.data(),
+            sizeof(output.frame.input_pairs))
+        || !take(output.frame.prior_input_pairs.data(),
+            sizeof(output.frame.prior_input_pairs))
+        || !take(&output.frame.repeat_pending,
+            sizeof(output.frame.repeat_pending))
+        || !take(&output.frame.pending_move_state,
+            sizeof(output.frame.pending_move_state))
+        || !take(output.input_log.scalars.data(),
+            output.input_log.scalars.size()))
+    {
+        output = {};
+        return Status::failure(FailureCode::CaptureFailed);
+    }
+    for (auto& row : output.input_log.cache_rows)
+    {
+        if (!take(&row.game_round, sizeof(row.game_round))
+            || !take(&row.frame_index, sizeof(row.frame_index))
+            || !take(&row.input_value, sizeof(row.input_value))
+            || !take(&row.filled, sizeof(row.filled))
+            || row.filled > 1)
+        {
+            output = {};
+            return Status::failure(FailureCode::CaptureFailed);
+        }
+    }
+    if (!take(output.move_dispatch_masks.data(),
+            sizeof(output.move_dispatch_masks))
         || !take(output.pump.lane_a.data(), output.pump.lane_a.size())
         || !take(output.pump.lane_b.data(), output.pump.lane_b.size())
         || !take(output.pump.controls.data(), output.pump.controls.size()))
