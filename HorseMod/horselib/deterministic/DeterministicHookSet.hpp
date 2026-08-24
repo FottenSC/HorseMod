@@ -18,6 +18,7 @@ struct FrameFencepostObservation
     std::uintptr_t battle_manager{};
     std::uintptr_t input_log{};
     std::uintptr_t input_pair_array{};
+    std::uint64_t outer_batch_id{};
     std::uint32_t frame_counter{};
     std::uint32_t thread_id{};
     std::int32_t game_round{};
@@ -54,6 +55,7 @@ struct OuterTickState
 struct OuterTickObservation
 {
     std::uintptr_t battle_manager{};
+    std::uint64_t batch_id{};
     std::uint32_t thread_id{};
     float delta_seconds{};
     OuterTickState before{};
@@ -140,6 +142,7 @@ private:
     std::uint64_t frame_fencepost_trampoline_{};
     std::uint64_t replay_post_tick_trampoline_{};
     std::uint64_t outer_tick_trampoline_{};
+    std::uint64_t next_outer_batch_id_{};
     std::uintptr_t image_base_{};
     DeterministicHookCallbacks callbacks_{};
     std::atomic<bool> installed_{};

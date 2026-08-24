@@ -2,6 +2,7 @@
 
 #include "DeterministicHookSet.hpp"
 #include "InputTimeline.hpp"
+#include "NativeBatchTimeline.hpp"
 #include "Sc6CandidateCheckpointCapture.hpp"
 #include "Sc6ReplayNativeBridge.hpp"
 
@@ -58,6 +59,7 @@ public:
     void ObserveReplayExit() noexcept;
     [[nodiscard]] ReplayTimelineStatus timeline_status() const noexcept;
     [[nodiscard]] const InputTimeline& input_timeline() const noexcept;
+    [[nodiscard]] const NativeBatchTimeline& batch_timeline() const noexcept;
 
 private:
     static void* ResolveReplayPlayer(void* user) noexcept;
@@ -72,12 +74,20 @@ private:
     std::optional<Sc6ReplayNativeBridge> bridge_{};
     InputTimeline input_timeline_{
         Schema::replay_input_memory_budget / Schema::replay_input_entry_budget};
+    NativeBatchTimeline batch_timeline_{
+        (Schema::replay_native_batch_memory_budget / 2)
+            / Schema::replay_native_batch_entry_budget,
+        (Schema::replay_native_batch_memory_budget / 2)
+            / Schema::replay_native_batch_coordinate_budget};
     Sc6CandidateCheckpointCapture checkpoint_capture_{};
     ReplayTimelineStatus timeline_status_{};
     std::uintptr_t timeline_manager_{};
     std::uintptr_t timeline_input_log_{};
     std::uint32_t timeline_thread_id_{};
     std::uint64_t timeline_session_generation_{};
+    std::uint64_t pending_batch_id_{};
+    FrameCoordinate pending_batch_entry_{};
+    std::vector<FrameCoordinate> pending_batch_coordinates_{};
 };
 }
 }

@@ -14,10 +14,15 @@ inline constexpr std::uint64_t checkpoint_interval = 30;
 inline constexpr std::size_t replay_timeline_memory_limit =
     512ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_input_memory_budget =
-    128ull * 1024ull * 1024ull;
+    96ull * 1024ull * 1024ull;
+inline constexpr std::size_t replay_native_batch_memory_budget =
+    32ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_checkpoint_memory_budget =
-    replay_timeline_memory_limit - replay_input_memory_budget;
+    replay_timeline_memory_limit - replay_input_memory_budget
+    - replay_native_batch_memory_budget;
 inline constexpr std::size_t replay_input_entry_budget = 128;
+inline constexpr std::size_t replay_native_batch_entry_budget = 128;
+inline constexpr std::size_t replay_native_batch_coordinate_budget = 32;
 inline constexpr std::size_t replay_round_image_size = 0xc0;
 inline constexpr std::uint32_t maximum_replay_round_images = 64;
 

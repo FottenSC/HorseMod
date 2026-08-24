@@ -1,0 +1,140 @@
+#include "NativeBatchTimeline.hpp"
+
+#include "Schema.hpp"
+
+#include <algorithm>
+
+namespace Horse::Deterministic
+{
+static_assert(
+    sizeof(NativeBatchEnvelope) <= Schema::replay_native_batch_entry_budget);
+static_assert(
+    sizeof(NativeBatchCoordinate)
+    <= Schema::replay_native_batch_coordinate_budget);
+
+NativeBatchTimeline::NativeBatchTimeline(
+    std::size_t maximum_batches,
+    std::size_t maximum_coordinates) noexcept
+    : maximum_batches_(maximum_batches),
+      maximum_coordinates_(maximum_coordinates)
+{
+    try
+    {
+        batches_.reserve(maximum_batches_);
+        coordinates_.reserve(maximum_coordinates_);
+    }
+    catch (...)
+    {
+        maximum_batches_ = 0;
+        maximum_coordinates_ = 0;
+        batches_.clear();
+        coordinates_.clear();
+    }
+}
+
+Status NativeBatchTimeline::Append(
+    const NativeBatchEnvelope& envelope,
+    std::span<const FrameCoordinate> coordinates) noexcept
+{
+    if (!Validate(envelope, coordinates))
+        return Status::failure(FailureCode::IdentityMismatch);
+    if (batches_.size() >= maximum_batches_
+        || coordinates.size() > maximum_coordinates_ - coordinates_.size())
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+
+    const std::size_t batch_index = batches_.size();
+    const std::size_t coordinate_size = coordinates_.size();
+    try
+    {
+        for (std::size_t offset = 0; offset < coordinates.size(); ++offset)
+        {
+            coordinates_.push_back(
+                {coordinates[offset], batch_index,
+                    static_cast<std::uint32_t>(offset)});
+        }
+        batches_.push_back(envelope);
+    }
+    catch (...)
+    {
+        coordinates_.resize(coordinate_size);
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    return Status::success();
+}
+
+std::optional<NativeBatchCoordinate> NativeBatchTimeline::FindCoordinate(
+    FrameCoordinate coordinate) const noexcept
+{
+    const auto found = std::lower_bound(
+        coordinates_.begin(), coordinates_.end(), coordinate,
+        [](const NativeBatchCoordinate& entry, FrameCoordinate value)
+        {
+            return entry.coordinate < value;
+        });
+    if (found == coordinates_.end() || found->coordinate != coordinate)
+        return std::nullopt;
+    return *found;
+}
+
+const NativeBatchEnvelope* NativeBatchTimeline::GetBatch(
+    std::size_t batch_index) const noexcept
+{
+    return batch_index < batches_.size() ? &batches_[batch_index] : nullptr;
+}
+
+bool NativeBatchTimeline::CanAppendBatch(
+    std::size_t coordinate_count) const noexcept
+{
+    return batches_.size() < maximum_batches_
+        && coordinate_count <= maximum_coordinates_ - coordinates_.size();
+}
+
+void NativeBatchTimeline::Clear() noexcept
+{
+    batches_.clear();
+    coordinates_.clear();
+}
+
+std::size_t NativeBatchTimeline::batch_count() const noexcept
+{
+    return batches_.size();
+}
+
+std::size_t NativeBatchTimeline::coordinate_count() const noexcept
+{
+    return coordinates_.size();
+}
+
+bool NativeBatchTimeline::Validate(
+    const NativeBatchEnvelope& envelope,
+    std::span<const FrameCoordinate> coordinates) const noexcept
+{
+    if (envelope.batch_id == 0
+        || envelope.coordinate_count != coordinates.size())
+    {
+        return false;
+    }
+    if (!batches_.empty()
+        && (envelope.batch_id <= batches_.back().batch_id
+            || envelope.entry_coordinate != batches_.back().exit_coordinate))
+    {
+        return false;
+    }
+    if (coordinates.empty())
+        return envelope.entry_coordinate == envelope.exit_coordinate;
+    if (coordinates.front() <= envelope.entry_coordinate
+        || coordinates.back() != envelope.exit_coordinate)
+    {
+        return false;
+    }
+    for (std::size_t index = 1; index < coordinates.size(); ++index)
+    {
+        if (coordinates[index] <= coordinates[index - 1])
+            return false;
+    }
+    return coordinates_.empty()
+        || coordinates.front() > coordinates_.back().coordinate;
+}
+}

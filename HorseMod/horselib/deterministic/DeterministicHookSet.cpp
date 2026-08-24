@@ -189,6 +189,7 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     const auto original = reinterpret_cast<OuterTickFn>(trampoline);
     OuterTickObservation observation{};
     observation.battle_manager = reinterpret_cast<std::uintptr_t>(battle_manager);
+    observation.batch_id = hooks != nullptr ? ++hooks->next_outer_batch_id_ : 0;
     observation.thread_id = ::GetCurrentThreadId();
     observation.delta_seconds = delta_seconds;
     if (hooks != nullptr)
@@ -375,6 +376,7 @@ void DeterministicHookSet::EmitFrameFencepost(void* battle_manager) noexcept
     if (batch != nullptr && batch->observation != nullptr
         && batch->observation->battle_manager == observation.battle_manager)
     {
+        observation.outer_batch_id = batch->observation->batch_id;
         if (batch->has_previous_coordinate
             && batch->previous_game_round == observation.game_round
             && batch->previous_game_time == observation.game_time)
@@ -459,6 +461,7 @@ void DeterministicHookSet::ClearState() noexcept
     replay_post_tick_trampoline_ = 0;
     frame_fencepost_trampoline_ = 0;
     outer_tick_trampoline_ = 0;
+    next_outer_batch_id_ = 0;
     replay_post_tick_trampoline_global_.store(0, std::memory_order_release);
     frame_fencepost_trampoline_global_.store(0, std::memory_order_release);
     outer_tick_trampoline_global_.store(0, std::memory_order_release);

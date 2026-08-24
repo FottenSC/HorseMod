@@ -42,6 +42,7 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/MoveDispatchState.cpp
     horselib/deterministic/NativeReplayMaterializer.cpp
     horselib/deterministic/InputTimeline.cpp
+    horselib/deterministic/NativeBatchTimeline.cpp
     horselib/deterministic/NativeCandidateRegions.cpp
     horselib/deterministic/OnlineCoordinator.cpp
     horselib/deterministic/PresentationJournal.cpp

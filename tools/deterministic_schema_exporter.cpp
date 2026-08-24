@@ -22,6 +22,8 @@ void write_schema(std::ostream& output)
            << Schema::replay_timeline_memory_limit << ",\n"
            << "  \"replay_input_memory_budget\": "
            << Schema::replay_input_memory_budget << ",\n"
+           << "  \"replay_native_batch_memory_budget\": "
+           << Schema::replay_native_batch_memory_budget << ",\n"
            << "  \"replay_checkpoint_memory_budget\": "
            << Schema::replay_checkpoint_memory_budget << ",\n"
            << "  \"native_hooks\": {\n"

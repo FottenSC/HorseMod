@@ -1,6 +1,7 @@
 #include "deterministic/InputTimeline.hpp"
 #include "deterministic/Config.hpp"
 #include "deterministic/NativeReplayMaterializer.hpp"
+#include "deterministic/NativeBatchTimeline.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/ReplayCoordinator.hpp"
 #include "deterministic/Sc6ReplayNativeBridge.hpp"
@@ -397,6 +398,58 @@ void test_input_replacement_and_invalidation()
     expect(!timeline.GetExact({1, 0}).has_value(), "input generation invalidated");
 }
 
+void test_native_batch_timeline_is_exact_and_bounded()
+{
+    NativeBatchTimeline timeline{2, 4};
+    NativeBatchEnvelope first{};
+    first.batch_id = 10;
+    first.entry_coordinate = {};
+    first.exit_coordinate = {1, 2};
+    first.coordinate_count = 2;
+    const std::array first_coordinates{
+        FrameCoordinate{1, 1}, FrameCoordinate{1, 2}};
+    expect(timeline.Append(first, first_coordinates).ok(),
+        "first native batch must append");
+
+    const auto membership = timeline.FindCoordinate({1, 2});
+    expect(membership.has_value() && membership->batch_index == 0
+            && membership->offset_in_batch == 1,
+        "coordinate lookup must preserve its exact batch and offset");
+    expect(timeline.GetBatch(0) != nullptr
+            && timeline.GetBatch(0)->batch_id == 10,
+        "batch lookup must return the stored envelope");
+
+    NativeBatchEnvelope second{};
+    second.batch_id = 12;
+    second.entry_coordinate = {1, 2};
+    second.exit_coordinate = {2, 1};
+    second.coordinate_count = 2;
+    const std::array second_coordinates{
+        FrameCoordinate{1, 3}, FrameCoordinate{2, 1}};
+    expect(timeline.Append(second, second_coordinates).ok(),
+        "a batch may contain an explicit generation transition");
+
+    NativeBatchEnvelope overflow{};
+    overflow.batch_id = 13;
+    overflow.entry_coordinate = {2, 1};
+    overflow.exit_coordinate = {2, 2};
+    overflow.coordinate_count = 1;
+    const std::array overflow_coordinates{FrameCoordinate{2, 2}};
+    expect(timeline.Append(overflow, overflow_coordinates).code
+            == FailureCode::CapacityExceeded,
+        "batch capacity exhaustion must fail closed");
+    expect(timeline.batch_count() == 2 && timeline.coordinate_count() == 4
+            && !timeline.FindCoordinate({2, 2}).has_value(),
+        "failed batch append must leave the timeline unchanged");
+
+    timeline.Clear();
+    NativeBatchEnvelope zero{};
+    zero.batch_id = 20;
+    expect(timeline.Append(zero, {}).ok() && timeline.batch_count() == 1
+            && timeline.coordinate_count() == 0,
+        "zero-coordinate native batches must be retained explicitly");
+}
+
 void test_snapshot_capacity_is_atomic()
 {
     SnapshotStore store{sizeof(Snapshot) + 4, 1, CapacityPolicy::RejectNew};
@@ -656,6 +709,7 @@ int main()
 {
     test_public_config_contract();
     test_input_replacement_and_invalidation();
+    test_native_batch_timeline_is_exact_and_bounded();
     test_snapshot_capacity_is_atomic();
     test_presentation_exactly_once();
     test_replay_checkpoint_seek_and_resume();
