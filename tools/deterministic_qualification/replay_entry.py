@@ -7,6 +7,7 @@ import uuid
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 
 @dataclass(frozen=True)
@@ -97,10 +98,16 @@ def _read_result(path: Path, run_id: str) -> ReplayEntryResult | None:
     return ReplayEntryResult(run_id, fields["result"], fields["reason"])
 
 
-def wait_for_replay_entry(run_id: str, timeout_seconds: float) -> ReplayEntryResult:
+def wait_for_replay_entry(
+    run_id: str,
+    timeout_seconds: float,
+    progress_guard: Callable[[], None] | None = None,
+) -> ReplayEntryResult:
     result_path = qualification_root() / "replay_result.txt"
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
+        if progress_guard is not None:
+            progress_guard()
         result = _read_result(result_path, run_id)
         if result is not None:
             if result.result == "failed":

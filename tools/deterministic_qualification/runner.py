@@ -8,7 +8,13 @@ import sys
 from pathlib import Path
 
 from .artifacts import runner_sha256, sha256_file, source_identity
-from .process_control import close_game, find_game_pid, launch_game, wait_for_game
+from .process_control import (
+    close_game,
+    find_game_pid,
+    launch_game,
+    require_game_process,
+    wait_for_game,
+)
 from .replay_entry import (
     TemporaryReplayMod,
     create_request,
@@ -52,7 +58,9 @@ def run_boot(args: argparse.Namespace) -> int:
     launch_game()
     pid = wait_for_game(args.timeout)
     try:
-        evidence = wait_for_boot_evidence(args.log, args.timeout)
+        evidence = wait_for_boot_evidence(
+            args.log, args.timeout, lambda: require_game_process(pid)
+        )
         if evidence.source_commit != identity["commit"]:
             raise RuntimeError(
                 f"deployed DLL source {evidence.source_commit} does not match HEAD {identity['commit']}"
@@ -112,9 +120,12 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             run_id = create_request(replay)
             launch_game()
             pid = wait_for_game(args.timeout)
-            boot = wait_for_boot_evidence(args.log, args.timeout)
-            entry = wait_for_replay_entry(run_id, args.timeout)
-            lifecycle = wait_for_replay_lifecycle_evidence(args.log, args.timeout)
+            guard = lambda: require_game_process(pid)
+            boot = wait_for_boot_evidence(args.log, args.timeout, guard)
+            entry = wait_for_replay_entry(run_id, args.timeout, guard)
+            lifecycle = wait_for_replay_lifecycle_evidence(
+                args.log, args.timeout, guard
+            )
             if boot.source_commit != identity["commit"]:
                 raise RuntimeError(
                     f"deployed HorseMod source {boot.source_commit} does not match HEAD {identity['commit']}"

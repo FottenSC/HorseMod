@@ -24,6 +24,26 @@ def find_game_pid() -> int | None:
     return None
 
 
+def is_game_process_alive(pid: int) -> bool:
+    result = subprocess.run(
+        ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    for row in csv.reader(StringIO(result.stdout)):
+        if len(row) >= 2 and row[0].casefold() == PROCESS_NAME.casefold():
+            return int(row[1]) == pid
+    return False
+
+
+def require_game_process(pid: int) -> None:
+    if not is_game_process_alive(pid):
+        raise RuntimeError(
+            f"SoulcaliburVI process {pid} exited before qualification evidence completed"
+        )
+
+
 def launch_game() -> None:
     subprocess.run(
         ["cmd", "/d", "/c", "start", "", "steam://rungameid/544750"],
@@ -68,4 +88,3 @@ def close_game(pid: int, timeout_seconds: float = 15.0) -> None:
             return
         time.sleep(0.25)
     raise TimeoutError("SoulcaliburVI did not exit after WM_CLOSE; refusing a forced stop")
-

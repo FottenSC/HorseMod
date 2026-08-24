@@ -4,6 +4,7 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 
 SOURCE_PATTERN = re.compile(r"\[HorseMod\] ctor v(?P<version>\S+) source=(?P<commit>[0-9a-f]{40})")
@@ -46,9 +47,15 @@ def parse_boot_evidence(text: str) -> BootEvidence | None:
     )
 
 
-def wait_for_boot_evidence(log_path: Path, timeout_seconds: float) -> BootEvidence:
+def wait_for_boot_evidence(
+    log_path: Path,
+    timeout_seconds: float,
+    progress_guard: Callable[[], None] | None = None,
+) -> BootEvidence:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
+        if progress_guard is not None:
+            progress_guard()
         try:
             evidence = parse_boot_evidence(log_path.read_text(encoding="utf-8", errors="replace"))
         except OSError:
@@ -79,10 +86,14 @@ def parse_replay_lifecycle_evidence(text: str) -> ReplayLifecycleEvidence | None
 
 
 def wait_for_replay_lifecycle_evidence(
-    log_path: Path, timeout_seconds: float
+    log_path: Path,
+    timeout_seconds: float,
+    progress_guard: Callable[[], None] | None = None,
 ) -> ReplayLifecycleEvidence:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
+        if progress_guard is not None:
+            progress_guard()
         try:
             evidence = parse_replay_lifecycle_evidence(
                 log_path.read_text(encoding="utf-8", errors="replace")
