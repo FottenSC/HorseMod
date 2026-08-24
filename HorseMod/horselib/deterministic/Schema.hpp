@@ -47,12 +47,18 @@ inline constexpr std::array<std::byte, 7> set_move_state_signature{
 
 namespace Sc6FrameLayout
 {
+inline constexpr std::uint16_t required_observation_read_mask = 0x0fff;
 inline constexpr std::uintptr_t frame_counter_rva = 0x470d0c4;
 inline constexpr std::uintptr_t landing_fencepost_rva = 0x3fca60;
 inline constexpr std::ptrdiff_t manager_input_log = 0x478;
 inline constexpr std::ptrdiff_t manager_input_pair_array = 0x14a8;
 inline constexpr std::ptrdiff_t manager_active_player_count = 0x14b0;
 inline constexpr std::ptrdiff_t manager_repeat_pending = 0x1462;
+inline constexpr std::ptrdiff_t manager_pending_move_state = 0x1463;
+inline constexpr std::ptrdiff_t manager_game_round_cursor = 0x1488;
+inline constexpr std::ptrdiff_t manager_game_time_cursor = 0x148c;
+inline constexpr std::ptrdiff_t manager_round_state_frame = 0x1490;
+inline constexpr std::ptrdiff_t manager_unpause_countdown = 0x14f0;
 inline constexpr std::ptrdiff_t input_log_game_round = 0x3a0;
 inline constexpr std::ptrdiff_t input_log_game_time = 0x3a4;
 inline constexpr std::array<std::byte, 16> landing_fencepost_signature{

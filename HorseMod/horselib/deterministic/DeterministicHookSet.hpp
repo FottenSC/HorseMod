@@ -22,9 +22,14 @@ struct FrameFencepostObservation
     std::uint32_t thread_id{};
     std::int32_t game_round{};
     std::int32_t game_time{};
+    std::int32_t manager_game_round_cursor{};
+    std::uint32_t manager_game_time_cursor{};
+    std::uint32_t round_state_frame{};
+    std::int32_t unpause_countdown{};
     PlayerInput inputs[2]{};
     std::uint8_t round_state{};
     std::uint8_t repeat_pending{};
+    std::uint8_t pending_move_state{};
     std::uint16_t read_mask{};
 };
 

@@ -3247,7 +3247,9 @@ private:
                 std::memory_order_release);
             return;
         }
-        if (observation.read_mask != 0x7f)
+        if (observation.read_mask
+            != Horse::Deterministic::Schema::Sc6FrameLayout::
+                required_observation_read_mask)
         {
             self->m_frame_fencepost_failure.store(
                 Horse::Deterministic::FailureCode::ContextUnavailable,
@@ -3278,6 +3280,22 @@ private:
                 timeline.last_coordinate.generation,
                 timeline.last_coordinate.frame,
                 timeline.checkpoint_bytes);
+        }
+        if (self->m_deterministic_config.trace
+            && timeline.captured_frames != 0
+            && timeline.captured_frames % 600 == 0)
+        {
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] native fencepost evidence frames={} repeats={} "
+                "same_time={} cursor_mismatches={} round_state_frame={} "
+                "unpause={} pending_move_state={}\n"),
+                timeline.captured_frames,
+                timeline.repeat_requests,
+                timeline.same_native_time_coordinates,
+                timeline.cursor_mismatches,
+                timeline.round_state_frame,
+                timeline.unpause_countdown,
+                static_cast<unsigned int>(timeline.pending_move_state));
         }
         if (timeline.checkpoint_failure != Horse::Deterministic::FailureCode::None
             && !self->m_candidate_checkpoint_first_failure_logged.exchange(
@@ -3352,7 +3370,8 @@ private:
             m_frame_fencepost_observations.load(std::memory_order_acquire);
         if (entries != 0 && observations == 0
             && m_frame_fencepost_last_read_mask.load(std::memory_order_acquire)
-                != 0x7f
+                != Horse::Deterministic::Schema::Sc6FrameLayout::
+                    required_observation_read_mask
             && !m_frame_fencepost_incomplete_logged)
         {
             m_frame_fencepost_incomplete_logged = true;
@@ -7712,6 +7731,17 @@ private:
                         timeline.native_round,
                         timeline.native_time,
                         timeline.partial ? " (memory limit reached)" : "");
+                    ImGui::TextDisabled(
+                        "Native fencepost: repeats=%llu same_time=%llu "
+                        "cursor_mismatch=%llu round_state_frame=%u unpause=%d "
+                        "pending_move=%u",
+                        static_cast<unsigned long long>(timeline.repeat_requests),
+                        static_cast<unsigned long long>(
+                            timeline.same_native_time_coordinates),
+                        static_cast<unsigned long long>(timeline.cursor_mismatches),
+                        timeline.round_state_frame,
+                        timeline.unpause_countdown,
+                        static_cast<unsigned int>(timeline.pending_move_state));
                     if (timeline.checkpoint_failure
                         != Horse::Deterministic::FailureCode::None)
                     {

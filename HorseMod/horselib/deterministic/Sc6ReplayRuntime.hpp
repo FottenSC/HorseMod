@@ -24,6 +24,12 @@ struct ReplayTimelineStatus
     std::uint64_t captured_frames{};
     std::uint64_t captured_checkpoints{};
     std::size_t checkpoint_bytes{};
+    std::uint64_t repeat_requests{};
+    std::uint64_t same_native_time_coordinates{};
+    std::uint64_t cursor_mismatches{};
+    std::uint32_t round_state_frame{};
+    std::int32_t unpause_countdown{};
+    std::uint8_t pending_move_state{};
     FailureCode checkpoint_failure{FailureCode::None};
     bool partial{};
 };

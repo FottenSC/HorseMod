@@ -56,8 +56,8 @@ IReplayNativeBridge* Sc6ReplayRuntime::bridge() noexcept
 Status Sc6ReplayRuntime::ObserveFrame(
     const FrameFencepostObservation& observation) noexcept
 {
-    constexpr std::uint16_t required_reads = 0x7f;
-    if (observation.read_mask != required_reads)
+    if (observation.read_mask
+        != Schema::Sc6FrameLayout::required_observation_read_mask)
     {
         timeline_status_.failure = FailureCode::ContextUnavailable;
         return Status::failure(timeline_status_.failure);
@@ -105,6 +105,16 @@ Status Sc6ReplayRuntime::ObserveFrame(
 
     const FrameCoordinate coordinate{
         timeline_status_.generations, observation.frame_counter};
+    if (!new_generation && observation.game_time == timeline_status_.native_time)
+        ++timeline_status_.same_native_time_coordinates;
+    if (observation.repeat_pending != 0)
+        ++timeline_status_.repeat_requests;
+    if (observation.manager_game_round_cursor != observation.game_round
+        || observation.manager_game_time_cursor
+            != static_cast<std::uint32_t>(observation.game_time))
+    {
+        ++timeline_status_.cursor_mismatches;
+    }
     InputPair inputs{};
     inputs.players[0] = observation.inputs[0];
     inputs.players[1] = observation.inputs[1];
@@ -123,6 +133,9 @@ Status Sc6ReplayRuntime::ObserveFrame(
     timeline_status_.last_coordinate = coordinate;
     timeline_status_.native_round = observation.game_round;
     timeline_status_.native_time = observation.game_time;
+    timeline_status_.round_state_frame = observation.round_state_frame;
+    timeline_status_.unpause_countdown = observation.unpause_countdown;
+    timeline_status_.pending_move_state = observation.pending_move_state;
     ++timeline_status_.captured_frames;
     if (new_generation || coordinate.frame % Schema::checkpoint_interval == 0)
     {
