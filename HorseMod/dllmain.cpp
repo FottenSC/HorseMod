@@ -112,6 +112,7 @@
 #include "horselib/WindRngGate.hpp"
 #include "horselib/deterministic/Config.hpp"
 #include "horselib/deterministic/HgCpuRuntimeDiagnostics.hpp"
+#include "horselib/deterministic/Sc6ReplayRuntime.hpp"
 #include "horselib/deterministic/Schema.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
@@ -3118,6 +3119,7 @@ private:
     static constexpr int         kSaveEveryNFrames = 120;
 
     Horse::Lux                 m_lux;
+    Horse::Deterministic::Sc6ReplayRuntime m_replay_native_runtime{m_lux};
 
     // Configured backends can target Persistent for active hit/hurt trails.
     // The *_once backends stay Foreground so inactive boxes in broad view
@@ -3171,6 +3173,8 @@ private:
         m_hgcpu_runtime_diagnostics;
     bool m_hgcpu_diagnostic_failure_logged = false;
     bool m_deterministic_config_present = false;
+    Horse::Deterministic::Status m_replay_native_runtime_status{
+        Horse::Deterministic::FailureCode::ContextUnavailable};
 public:
     HorseMod() : CppUserModBase()
     {
@@ -3386,6 +3390,8 @@ public:
         if (m_hgcpu_runtime_diagnostics)
             m_hgcpu_runtime_diagnostics->Finish();
 
+        m_replay_native_runtime.Shutdown();
+
         // Final settings save - catches anything the periodic
         // on_update save would have missed in the last sub-2s window
         // before shutdown.  Crashes lose at most the most-recent
@@ -3532,6 +3538,17 @@ public:
         // pointers cover reset/start-position, online rules, presence
         // tracking, line-batcher refresh, and throw-height prediction.
         Horse::NativeBinding::resolve();
+        m_replay_native_runtime_status = m_replay_native_runtime.Initialize(
+            Horse::NativeBinding::imageBase());
+        if (!m_replay_native_runtime_status.ok())
+        {
+            const auto failure = Horse::Deterministic::failure_code_name(
+                m_replay_native_runtime_status.code);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] native replay bridge unavailable: {}; "
+                "deterministic simulation remains disabled\n"),
+                RC::to_generic_string(std::string(failure)));
+        }
 
         // Install the C++-level chara-teleport hook.  This is the
         // workhorse for the "Override reset position" feature: every
@@ -7398,6 +7415,21 @@ private:
                 ImGui::TextDisabled(
                     "Native manifest: %zu qualified regions",
                     Horse::Deterministic::Schema::production_regions.size());
+                if (m_replay_native_runtime.ready())
+                {
+                    ImGui::TextDisabled(
+                        "Replay native bridge: signature verified (inactive)");
+                }
+                else
+                {
+                    const auto bridge_failure =
+                        Horse::Deterministic::failure_code_name(
+                            m_replay_native_runtime_status.code);
+                    ImGui::TextDisabled(
+                        "Replay native bridge: unavailable (%.*s)",
+                        static_cast<int>(bridge_failure.size()),
+                        bridge_failure.data());
+                }
                 ImGui::TextDisabled(
                     "Config: %s (window=%u, delay=%u, trace=%s)",
                     m_deterministic_config_present ? "loaded" : "missing",

@@ -80,6 +80,10 @@ set(HORSELIB_HEADERS
     horselib/HasSubProviderEntryHook.hpp
 )
 
+set(HORSELIB_SOURCES
+    horselib/deterministic/Sc6ReplayRuntime.cpp
+)
+
 set(HORSEMOD_IMGUIFILEDIALOG_SOURCES
     third_party/ImGuiFileDialog/ImGuiFileDialog.cpp
 )
@@ -104,6 +108,7 @@ add_library(${TARGET} SHARED
     ${SCVI_HEADERS}
     ${HORSELIB_GAMEIMGUI_HEADERS}
     ${HORSELIB_HEADERS}
+    ${HORSELIB_SOURCES}
     ${HORSEMOD_IMGUIFILEDIALOG_SOURCES}
 )
 

@@ -379,6 +379,7 @@ namespace Horse
     public:
         // Primary battle-state globals.  Revalidated each access.
         Obj battleManager() { return Obj{ m_bm.get(L"LuxBattleManager") }; }
+        Obj replayPlayer()  { return Obj{ m_replay.get(L"LuxBattleReplayPlayer") }; }
         Obj cockpit()       { return Obj{ m_cockpit.get(L"CockpitBase_C") }; }
 
         // Returns the TArray<ALuxBattleChara*> header on LuxBattleManager.
@@ -404,10 +405,16 @@ namespace Horse
             }
         }
 
-        void invalidate() { m_bm.invalidate(); m_cockpit.invalidate(); }
+        void invalidate()
+        {
+            m_bm.invalidate();
+            m_replay.invalidate();
+            m_cockpit.invalidate();
+        }
 
     private:
         GlobalPtr m_bm;
+        GlobalPtr m_replay;
         GlobalPtr m_cockpit;
     };
 
