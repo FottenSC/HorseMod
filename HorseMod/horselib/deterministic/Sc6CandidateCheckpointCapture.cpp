@@ -2,8 +2,13 @@
 
 #include "Schema.hpp"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
 #include <Unreal/FWeakObjectPtr.hpp>
+#include <Unreal/CoreUObject/UObject/Class.hpp>
+#include <Unreal/UObject.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -25,6 +30,8 @@ constexpr std::uintptr_t slot_param_base_rva = 0x470E0C0;
 constexpr std::ptrdiff_t input_filter_collection = 0x1210;
 constexpr std::size_t callback_entry_size = 0x40;
 constexpr std::size_t maximum_callback_entries = 64;
+constexpr std::array<std::ptrdiff_t, 5> callback_collection_offsets{
+    0x1210, 0x8E0, 0xA30, 0xB80, 0xF70};
 
 struct WeakCallbackPrefix
 {
@@ -42,6 +49,38 @@ RC::Unreal::UObject* resolve_weak_object(
     weak.ObjectIndex = object_index;
     weak.ObjectSerialNumber = serial_number;
     return weak.Get();
+}
+
+Status resolve_callback_owner_class(
+    void*, std::int32_t object_index, std::int32_t serial_number,
+    std::uint64_t& class_token) noexcept
+{
+    class_token = 0;
+    auto* object = resolve_weak_object(object_index, serial_number);
+    if (object == nullptr || object->GetClassPrivate() == nullptr)
+        return Status::failure(FailureCode::IdentityMismatch);
+    try
+    {
+        const auto name = object->GetClassPrivate()->GetName();
+        std::uint64_t hash = 1469598103934665603ull;
+        for (const auto character : name)
+        {
+            const auto value = static_cast<std::uint32_t>(character);
+            for (std::size_t byte = 0; byte < sizeof(value); ++byte)
+            {
+                hash ^= static_cast<std::uint8_t>(value >> (byte * 8));
+                hash *= 1099511628211ull;
+            }
+        }
+        class_token = hash;
+        return name.empty() || class_token == 0
+            ? Status::failure(FailureCode::IdentityMismatch)
+            : Status::success();
+    }
+    catch (...)
+    {
+        return Status::failure(FailureCode::CaptureFailed);
+    }
 }
 }
 
@@ -76,6 +115,7 @@ public:
 Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
     : memory_(std::make_unique<ProcessMemory>()),
       regions_(std::make_unique<NativeCandidateRegions>(*memory_)),
+      callback_probe_(std::make_unique<CallbackTopologyProbe>(*memory_)),
       adapter_(std::make_unique<CandidateGameStateAdapter>(*regions_, hgcpu_))
 {
 }
@@ -86,6 +126,23 @@ Status Sc6CandidateCheckpointCapture::Initialize(std::uintptr_t image_base) noex
 {
     Reset();
     if (image_base == 0) return Status::failure(FailureCode::ContextUnavailable);
+    __try
+    {
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image_base);
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
+            image_base + static_cast<std::uintptr_t>(dos->e_lfanew));
+        if (dos->e_magic != IMAGE_DOS_SIGNATURE
+            || nt->Signature != IMAGE_NT_SIGNATURE
+            || nt->OptionalHeader.SizeOfImage == 0)
+        {
+            return Status::failure(FailureCode::ContextUnavailable);
+        }
+        image_size_ = nt->OptionalHeader.SizeOfImage;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return Status::failure(FailureCode::ContextUnavailable);
+    }
     image_base_ = image_base;
     return Status::success();
 }
@@ -97,6 +154,21 @@ bool Sc6CandidateCheckpointCapture::read_fighter_roots(
     return memory_->Read(image_base_ + fighter_roots_rva,
                std::as_writable_bytes(std::span{output}))
         && output[0] != 0 && output[1] != 0 && output[0] != output[1];
+}
+
+Status Sc6CandidateCheckpointCapture::capture_callback_topology(
+    CallbackTopology& output) noexcept
+{
+    std::array<CallbackCollectionRef, callback_collection_offsets.size()> refs{};
+    for (std::size_t index = 0; index < refs.size(); ++index)
+    {
+        refs[index] = {
+            static_cast<CallbackCollectionRole>(index + 1),
+            bound_manager_ + callback_collection_offsets[index],
+        };
+    }
+    return callback_probe_->Capture(image_base_, image_size_, refs,
+        &resolve_callback_owner_class, nullptr, output);
 }
 
 Status Sc6CandidateCheckpointCapture::resolve_move_dispatch(
@@ -210,6 +282,14 @@ Status Sc6CandidateCheckpointCapture::bind(
     bound_move_dispatch_ = move_dispatch;
     bound_session_generation_ = session_generation;
     bound_round_generation_ = coordinate.generation;
+    CallbackTopology topology{};
+    const Status callback_status = capture_callback_topology(topology);
+    if (!callback_status.ok())
+    {
+        ReleaseBinding();
+        return callback_status;
+    }
+    bound_callback_topology_ = std::move(topology);
     return Status::success();
 }
 
@@ -241,6 +321,17 @@ Status Sc6CandidateCheckpointCapture::Capture(
         }
     }
 
+    CallbackTopology topology{};
+    const Status callback_status = capture_callback_topology(topology);
+    if (!callback_status.ok() || topology != bound_callback_topology_)
+    {
+        const auto failure = callback_status.ok()
+            ? FailureCode::IdentityMismatch : callback_status.code;
+        ReleaseBinding();
+        capture_status.failure = failure;
+        return Status::failure(failure);
+    }
+
     Snapshot snapshot{};
     Status captured = adapter_->Capture(coordinate, snapshot);
     if (captured.ok()) captured = snapshots.Save(std::move(snapshot));
@@ -264,6 +355,7 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
     bound_move_dispatch_ = 0;
     bound_session_generation_ = 0;
     bound_round_generation_ = 0;
+    bound_callback_topology_ = {};
 }
 
 void Sc6CandidateCheckpointCapture::Reset() noexcept
@@ -274,6 +366,7 @@ void Sc6CandidateCheckpointCapture::Reset() noexcept
     landing_status_ = {};
     batch_entry_status_ = {};
     image_base_ = 0;
+    image_size_ = 0;
 }
 
 CandidateCheckpointCaptureStatus Sc6CandidateCheckpointCapture::status(

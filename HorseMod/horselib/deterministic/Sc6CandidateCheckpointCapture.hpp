@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CallbackTopology.hpp"
 #include "CandidateGameStateAdapter.hpp"
 #include "Schema.hpp"
 #include "SnapshotStore.hpp"
@@ -53,6 +54,7 @@ private:
         std::uintptr_t battle_manager,
         std::uintptr_t& output) noexcept;
     bool read_fighter_roots(std::array<std::uintptr_t, 2>& output) noexcept;
+    Status capture_callback_topology(CallbackTopology& output) noexcept;
 
     static constexpr std::size_t checkpoint_memory_limit =
         Schema::replay_checkpoint_memory_budget / 2;
@@ -60,6 +62,7 @@ private:
 
     std::unique_ptr<ProcessMemory> memory_;
     std::unique_ptr<NativeCandidateRegions> regions_;
+    std::unique_ptr<CallbackTopologyProbe> callback_probe_;
     HgCpuStreamShim hgcpu_{};
     std::unique_ptr<CandidateGameStateAdapter> adapter_;
     SnapshotStore landing_snapshots_{checkpoint_memory_limit,
@@ -69,9 +72,11 @@ private:
     CandidateCheckpointCaptureStatus landing_status_{};
     CandidateCheckpointCaptureStatus batch_entry_status_{};
     std::uintptr_t image_base_{};
+    std::size_t image_size_{};
     std::uintptr_t bound_manager_{};
     std::uintptr_t bound_move_dispatch_{};
     std::uint64_t bound_session_generation_{};
     std::uint64_t bound_round_generation_{};
+    CallbackTopology bound_callback_topology_{};
 };
 }

@@ -1,4 +1,5 @@
 #include "deterministic/CandidateCheckpoint.hpp"
+#include "deterministic/CallbackTopology.hpp"
 #include "deterministic/CandidateGameStateAdapter.hpp"
 #include "deterministic/InputTimeline.hpp"
 #include "deterministic/NativeCandidateRegions.hpp"
@@ -863,6 +864,82 @@ void test_stage_break_listener_topology_is_value_only_and_bounded()
             && failure.slot_index == 1,
         "callback targets outside the executable image fail closed");
 }
+
+Status resolve_fake_callback_owner(
+    void*, std::int32_t object_index, std::int32_t serial_number,
+    std::uint64_t& class_token) noexcept
+{
+    if (object_index <= 0 || serial_number <= 0)
+        return Status::failure(FailureCode::IdentityMismatch);
+    class_token = (static_cast<std::uint64_t>(object_index) << 32)
+        | static_cast<std::uint32_t>(serial_number);
+    return Status::success();
+}
+
+void test_callback_topology_is_generation_bound_and_pointer_free()
+{
+    constexpr std::uintptr_t base = 0x20000000;
+    constexpr std::size_t image_size = 0x10000;
+    FakeNativeMemory memory{base, 0x20000};
+    constexpr auto input = base + 0x1000;
+    memory.Set(input, base + 0x5000);
+    memory.Set(input + 0x08, std::int32_t{11});
+    memory.Set(input + 0x0C, std::int32_t{21});
+    memory.Set(input + 0x10, base + 0x6000);
+    memory.Set(input + 0x20, std::uintptr_t{});
+    memory.Set(input + 0x30, std::int32_t{1});
+    memory.Set(input + 0x40, std::uintptr_t{});
+    memory.Set(input + 0x50, std::int32_t{1});
+    memory.Set(input + 0x54, std::int32_t{1});
+
+    constexpr auto round = base + 0x2000;
+    constexpr auto entries = base + 0x11000;
+    constexpr auto override_callback = base + 0x15000;
+    memory.Set(round + 0x40, entries);
+    memory.Set(round + 0x50, std::int32_t{2});
+    memory.Set(round + 0x54, std::int32_t{2});
+    memory.Set(entries, base + 0x5100);
+    memory.Set(entries + 0x08, std::int32_t{12});
+    memory.Set(entries + 0x0C, std::int32_t{22});
+    memory.Set(entries + 0x10, base + 0x6100);
+    memory.Set(entries + 0x20, std::uintptr_t{});
+    memory.Set(entries + 0x30, std::int32_t{1});
+    memory.Set(entries + 0x40 + 0x20, override_callback);
+    memory.Set(entries + 0x40 + 0x30, std::int32_t{1});
+    memory.Set(override_callback, base + 0x5200);
+    memory.Set(override_callback + 0x08, std::int32_t{13});
+    memory.Set(override_callback + 0x0C, std::int32_t{23});
+    memory.Set(override_callback + 0x10, base + 0x6200);
+
+    const std::array collections{
+        CallbackCollectionRef{CallbackCollectionRole::InputFilter, input},
+        CallbackCollectionRef{CallbackCollectionRole::Round, round},
+    };
+    CallbackTopologyProbe probe{memory};
+    CallbackTopology topology{};
+    expect(probe.Capture(base, image_size, collections,
+            &resolve_fake_callback_owner, nullptr, topology).ok()
+            && topology.records.size() == 3
+            && topology.records[0].wrapper_vtable_rva == 0x5000
+            && topology.records[0].callback_rva == 0x6000
+            && topology.records[1].dispatch_order == 1
+            && topology.records[2].dispatch_order == 0
+            && topology.records[2].owner_class_token
+                == ((std::uint64_t{13} << 32) | 23),
+        "callback topology retains only ordered weak generations, class tokens, and RVAs");
+
+    const auto signature = topology.signature;
+    memory.Set(override_callback + 0x10, base + 0x6300);
+    expect(probe.Capture(base, image_size, collections,
+            &resolve_fake_callback_owner, nullptr, topology).ok()
+            && topology.signature != signature,
+        "callback target drift changes the binding signature");
+    memory.Set(entries + 0x40 + 0x30, std::int32_t{});
+    expect(probe.Capture(base, image_size, collections,
+            &resolve_fake_callback_owner, nullptr, topology).code
+            == FailureCode::IdentityMismatch,
+        "inactive callback entries fail binding closed before capture");
+}
 }
 
 int main()
@@ -881,6 +958,7 @@ int main()
     test_move_dispatch_pending_phase_restore();
     test_move_dispatch_partial_write_undoes_exactly();
     test_stage_break_listener_topology_is_value_only_and_bounded();
+    test_callback_topology_is_generation_bound_and_pointer_free();
     if (failures == 0)
         std::cout << "NativeCandidateRegionsSelfTest passed\n";
     return failures == 0 ? 0 : 1;
