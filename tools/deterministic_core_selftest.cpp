@@ -377,6 +377,7 @@ void test_public_config_contract()
                << "rollback_window=12\n"
                << "input_delay=1\n"
                << "trace=false\n"
+               << "correction_probe=true\n"
                << "legacy_transport=udp\n"
                << "legacy_mode=lab\n";
     }
@@ -385,6 +386,8 @@ void test_public_config_contract()
     std::filesystem::remove(path, ignored);
     expect(loaded.status.ok(), "load public deterministic config");
     expect(loaded.config.enabled, "parse deterministic enabled flag");
+    expect(loaded.config.correction_probe,
+        "parse baseline-preserving owned correction probe flag");
     expect(loaded.diagnostics.size() == 1, "legacy config emits one diagnostic");
 }
 
@@ -607,6 +610,36 @@ void test_batch_aware_replay_seek_planning()
     expect(PlanReplaySeek({1, 2}, batches, entries, 1, plan).code
             == FailureCode::AdapterUnqualified,
         "seek planning fails closed beyond the reconstruction bound");
+
+    ReplayCorrectionPlan correction{};
+    expect(PlanReplayCorrection(
+            {1, 2}, {1, 4}, batches, entries, 29, correction).ok(),
+        "plan a correction through the current completed native batch");
+    expect(correction.resimulation_base == FrameCoordinate{1, 0}
+            && correction.first_batch_index == 0
+            && correction.final_batch_index == 1
+            && correction.resimulation_coordinates == 4,
+        "correction starts before the earliest changed coordinate and replays to now");
+    expect(PlanReplayCorrection(
+            {1, 4}, {1, 4}, batches, entries, 29, correction).ok(),
+        "plan a depth-one correction from an exact prior batch boundary");
+    expect(correction.resimulation_base == FrameCoordinate{1, 3}
+            && correction.first_batch_index == 1
+            && correction.final_batch_index == 1
+            && correction.resimulation_coordinates == 1,
+        "depth-one correction does not restore the already-changed landing image");
+    expect(PlanReplayCorrection(
+            {1, 2}, {1, 2}, batches, entries, 29, correction).code
+            == FailureCode::IdentityMismatch,
+        "correction rejects a current coordinate inside an unfinished native batch");
+    expect(PlanReplayCorrection(
+            {1, 2}, {1, 4}, batches, entries, 3, correction).code
+            == FailureCode::AdapterUnqualified,
+        "correction fails closed when replay-to-now exceeds its bound");
+    expect(PlanReplayCorrection(
+            {2, 1}, {1, 4}, batches, entries, 29, correction).code
+            == FailureCode::InvalidConfiguration,
+        "correction never crosses native generations");
 }
 
 void test_presentation_exactly_once()
@@ -947,6 +980,10 @@ void test_ucrt_broker_is_callsite_and_thread_bound()
         "allowlisted native seed binds the broker's simulation thread");
     expect(broker.AcquireOwnership(77).ok(),
         "UCRT broker acquires only after an allowlisted seed");
+    expect(broker.EnsureOwnership(77).ok(),
+        "UCRT ownership transition is idempotent for its owner");
+    expect(broker.EnsureOwnership(78).code == FailureCode::WrongThread,
+        "UCRT ownership transition rejects a different thread");
     for (const auto value : expected)
     {
         expect(broker.HandleRand(77,

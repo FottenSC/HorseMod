@@ -6,6 +6,7 @@
 #include "deterministic/HgCpuStream.hpp"
 #include "deterministic/HgCpuCoverageProbe.hpp"
 #include "deterministic/MoveDispatchState.hpp"
+#include "deterministic/MotionBankSnapshot.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/Schema.hpp"
 #include "deterministic/SimulationSession.hpp"
@@ -141,7 +142,7 @@ struct Fixture
     static constexpr std::uintptr_t image_base = 0x140000000;
 
     Fixture()
-        : memory(memory_base, 0x24000), regions(memory)
+        : memory(memory_base, 0x160000), regions(memory)
     {
         addresses.image_base = image_base;
         addresses.battle_manager = memory_base + 0x15000;
@@ -280,6 +281,40 @@ struct Fixture
             memory.Fill(
                 addresses.slot_param_base + lane * 0x2C,
                 0x2C, std::byte{static_cast<unsigned char>(0x70 + lane)});
+        }
+
+        constexpr std::array<std::ptrdiff_t, 2> bank_offsets{0x35A0, 0x27760};
+        constexpr std::array<std::size_t, 2> bank_bytes{
+            motion_bank_primary_bytes, motion_bank_secondary_bytes};
+        std::uintptr_t next_buffer = memory_base + 0xC0000;
+        for (std::size_t player = 0; player < 2; ++player)
+        {
+            memory.Set(addresses.fighter_roots[player] + 0x42550,
+                std::int32_t{768});
+            for (std::size_t bank_index = 0; bank_index < 2; ++bank_index)
+            {
+                const auto bank = addresses.fighter_roots[player]
+                    + bank_offsets[bank_index];
+                memory.Set(bank, image_base + std::uintptr_t{0x3E90000
+                    + player * 0x100 + bank_index * 8});
+                std::array<std::uintptr_t, 3> buffers{};
+                for (std::size_t slot = 0; slot < 3; ++slot)
+                {
+                    buffers[slot] = next_buffer;
+                    next_buffer += bank_bytes[bank_index];
+                    memory.Set(bank + 8 + slot * 8, buffers[slot]);
+                    memory.Fill(buffers[slot], bank_bytes[bank_index],
+                        std::byte{static_cast<unsigned char>(
+                            0x10 + player * 8 + bank_index * 3 + slot)});
+                }
+                memory.Set(bank + 0x20, std::uint32_t{1});
+                memory.Set(bank + 0x28, buffers[1]);
+                memory.Set(bank + 0x30, buffers[2]);
+            }
+            memory.Fill(addresses.fighter_roots[player]
+                    + motion_tail_fighter_offset,
+                motion_tail_bytes,
+                std::byte{static_cast<unsigned char>(0x90 + player)});
         }
     }
 
@@ -493,6 +528,13 @@ void test_candidate_checkpoint_codec()
     CandidateCheckpointImage image{};
     image.native = native;
     image.local_images.push_back(hgcpu);
+    MotionBankSnapshot motion{fixture.memory};
+    expect(motion.Bind(fixture.addresses.fighter_roots, hgcpu_context()).ok(),
+        "bind checkpoint matrix-bank snapshot");
+    LocalReconstructionImage motion_image{};
+    expect(motion.Capture(motion_image).ok(),
+        "capture checkpoint matrix-bank image");
+    image.local_images.push_back(motion_image);
     image.ucrt = candidate_ucrt_image();
     image.wind.generation = native.round_generation;
     const auto* ring_in_layout = FindStageWindNodeLayout(StageWindNodeKind::RingIn);
@@ -521,7 +563,7 @@ void test_candidate_checkpoint_codec()
         "decode candidate checkpoint");
     expect(decoded.native == native,
         "candidate checkpoint round-trips typed native image");
-    expect(decoded.local_images.size() == 1
+    expect(decoded.local_images.size() == 2
             && decoded.local_images.front().serializer_id
                 == LocalSerializerId::HgCpuDirect
             && decoded.local_images.front().serializer_version
@@ -529,15 +571,18 @@ void test_candidate_checkpoint_codec()
             && decoded.local_images.front().context == hgcpu.context
             && decoded.local_images.front().cursor == hgcpu.cursor
             && decoded.local_images.front().checksum == hgcpu.checksum
-            && decoded.local_images.front().bytes == hgcpu.bytes,
-        "candidate checkpoint round-trips local HgCpu reconstruction image");
+            && decoded.local_images.front().bytes == hgcpu.bytes
+            && decoded.local_images[1].serializer_id
+                == LocalSerializerId::MotionBankTriples
+            && decoded.local_images[1].bytes == motion_image.bytes,
+        "candidate checkpoint round-trips ordered local reconstruction images");
     expect(decoded.ucrt == image.ucrt,
         "candidate checkpoint round-trips value-only UCRT state");
     expect(decoded.wind == image.wind,
         "candidate checkpoint round-trips pointer-free wind state");
 
     auto duplicate_local = image;
-    duplicate_local.local_images.push_back(hgcpu);
+    duplicate_local.local_images[1] = hgcpu;
     Snapshot rejected_duplicate{};
     expect(CandidateCheckpointCodec::Encode(
             {7, 30}, 0x9191, duplicate_local, rejected_duplicate).code
@@ -577,6 +622,68 @@ void test_candidate_checkpoint_codec()
         "checkpoint rejects native generation drift");
 }
 
+void test_motion_bank_snapshot_is_bounded_and_transactional()
+{
+    Fixture fixture;
+    MotionBankSnapshot motion{fixture.memory};
+    expect(motion.Bind(fixture.addresses.fighter_roots, hgcpu_context()).ok(),
+        "bind all-three-slot motion-bank topology");
+    LocalReconstructionImage baseline{};
+    expect(motion.Capture(baseline).ok()
+            && baseline.bytes.size() == motion_bank_image_bytes
+            && MotionBankSnapshot::ValidateLocalImage(baseline),
+        "capture bounded pointer-free motion-bank image");
+    expect(!contains_qword(baseline.bytes, Fixture::memory_base + 0xC0000)
+            && std::all_of(baseline.bytes.begin(), baseline.bytes.begin() + 8,
+                [](std::byte value) {
+                    return std::to_integer<std::uint8_t>(value) < 3;
+                }),
+        "motion image stores slot identities rather than live pointers");
+
+    const auto first_primary_slot = Fixture::memory_base + 0xC0000;
+    fixture.memory.Fill(first_primary_slot, motion_bank_primary_bytes,
+        std::byte{0xE1});
+    fixture.memory.Fill(fixture.addresses.fighter_roots[0]
+            + motion_tail_fighter_offset,
+        motion_tail_bytes, std::byte{0xE2});
+    const auto first_primary_bank = fixture.addresses.fighter_roots[0] + 0x35A0;
+    fixture.memory.Set(first_primary_bank + 0x20, std::uint32_t{2});
+    fixture.memory.Set(first_primary_bank + 0x28,
+        first_primary_slot + 2 * motion_bank_primary_bytes);
+    fixture.memory.Set(first_primary_bank + 0x30, first_primary_slot);
+    expect(motion.RestoreTransactional(baseline).ok(),
+        "restore all motion slots and slot controller atomically");
+    LocalReconstructionImage restored{};
+    expect(motion.Capture(restored).ok() && restored.bytes == baseline.bytes,
+        "motion-bank restore recaptures exact local image");
+
+    fixture.memory.Set(first_primary_bank + 8,
+        Fixture::memory_base + 0x150000);
+    const auto before_topology_rejection = fixture.memory.bytes();
+    expect(motion.RestoreTransactional(baseline).code
+            == FailureCode::RestorePreflightFailed
+            && fixture.memory.bytes() == before_topology_rejection,
+        "motion allocation replacement invalidates without mutation");
+    fixture.memory.Set(first_primary_bank + 8, first_primary_slot);
+
+    auto corrupt = baseline;
+    ++corrupt.checksum;
+    expect(motion.RestoreTransactional(corrupt).code
+            == FailureCode::RestorePreflightFailed,
+        "motion checksum mismatch fails preflight");
+
+    fixture.memory.Fill(first_primary_slot, motion_bank_primary_bytes,
+        std::byte{0xA7});
+    const auto before_partial_failure = fixture.memory.bytes();
+    fixture.memory.FailWrite(4);
+    expect(motion.RestoreTransactional(baseline).code
+            == FailureCode::RestoreWriteFailed,
+        "partial motion write reports transactional failure");
+    fixture.memory.AllowWrites();
+    expect(fixture.memory.bytes() == before_partial_failure,
+        "partial motion write restores the complete undo image exactly");
+}
+
 class EmptyStageWindAllocator final : public IStageWindAllocator
 {
 public:
@@ -587,7 +694,8 @@ public:
 struct CandidateWindFixture
 {
     explicit CandidateWindFixture(Fixture& fixture)
-        : probe(fixture.memory), transaction(fixture.memory, allocator)
+        : probe(fixture.memory), transaction(fixture.memory, allocator),
+          motion(fixture.memory)
     {
         addresses = {Fixture::image_base, 0x4300000,
             Fixture::memory_base + 0x1F000, 7};
@@ -597,11 +705,14 @@ struct CandidateWindFixture
         fixture.memory.Set(root + 0x98, std::uint32_t{});
         fixture.memory.Set(root + 0x9C, std::int32_t{});
         expect(probe.Bind(addresses).ok(), "bind empty candidate wind fixture");
+        expect(motion.Bind(fixture.addresses.fighter_roots, hgcpu_context()).ok(),
+            "bind candidate matrix-bank fixture");
     }
 
     EmptyStageWindAllocator allocator;
     StageWindTopologyProbe probe;
     StageWindGraphTransaction transaction;
+    MotionBankSnapshot motion;
     StageWindTopologyAddresses addresses{};
     std::uintptr_t root{};
 };
@@ -615,6 +726,7 @@ CandidateAdapterBinding candidate_binding(
     binding.hgcpu_context = hgcpu_context();
     binding.hgcpu_writer = &fake_hgcpu_writer;
     binding.hgcpu_reader = reader;
+    binding.motion_banks = &wind.motion;
     binding.ucrt_broker = &candidate_ucrt_broker;
     binding.wind_probe = &wind.probe;
     binding.wind_transaction = &wind.transaction;
@@ -665,6 +777,13 @@ void test_candidate_adapter_restore_and_outer_undo()
         "candidate adapter restores exact typed native image");
     expect(hgcpu_payload == initial_hgcpu,
         "candidate adapter restores exact HgCpu reconstruction image");
+    const auto baseline_snapshot = restored_snapshots.Load({7, 0});
+    expect(baseline_snapshot.has_value(),
+        "retain candidate baseline for canonical recapture verification");
+    hgcpu_payload.fill(std::byte{0x7E});
+    expect(restored_adapter.VerifyRestoredState(*baseline_snapshot).ok(),
+        "opaque native recapture bytes are not canonical verification fields");
+    hgcpu_payload = initial_hgcpu;
     UcrtRandBrokerImage restored_ucrt{};
     expect(candidate_ucrt_broker.Capture(
             candidate_thread_id, restored_ucrt).ok()
@@ -1632,6 +1751,7 @@ int main()
 {
     test_hgcpu_stream_contract();
     test_candidate_checkpoint_codec();
+    test_motion_bank_snapshot_is_bounded_and_transactional();
     test_candidate_adapter_restore_and_outer_undo();
     test_candidate_adapter_native_failure_undoes_hgcpu();
     test_hgcpu_direct_source_coverage();

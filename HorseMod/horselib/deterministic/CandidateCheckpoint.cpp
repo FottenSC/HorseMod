@@ -1,5 +1,6 @@
 #include "CandidateCheckpoint.hpp"
 
+#include "MotionBankSnapshot.hpp"
 #include "Schema.hpp"
 
 #ifndef NOMINMAX
@@ -18,14 +19,14 @@ namespace
 {
 constexpr std::array<std::byte, 8> magic{
     std::byte{'H'}, std::byte{'R'}, std::byte{'S'}, std::byte{'C'},
-    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{6}};
-constexpr std::uint32_t format_version = 6;
+    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{7}};
+constexpr std::uint32_t format_version = 7;
 constexpr std::array<std::byte, 20> hash_domain{
     std::byte{'H'}, std::byte{'o'}, std::byte{'r'}, std::byte{'s'},
     std::byte{'e'}, std::byte{'C'}, std::byte{'a'}, std::byte{'n'},
     std::byte{'d'}, std::byte{'i'}, std::byte{'d'}, std::byte{'a'},
     std::byte{'t'}, std::byte{'e'}, std::byte{'S'}, std::byte{'t'},
-    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{6}};
+    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{7}};
 
 template <typename T>
 void append(std::vector<std::byte>& bytes, const T& value)
@@ -204,19 +205,34 @@ bool hash_candidate(FrameCoordinate coordinate, std::uint64_t context_identity,
 bool generations_match(FrameCoordinate coordinate,
     const CandidateCheckpointImage& image) noexcept
 {
-    if (image.local_images.size() != 1) return false;
-    const auto& local = image.local_images.front();
+    if (image.local_images.size() != 2) return false;
+    const auto& hgcpu = image.local_images[0];
+    const auto& motion = image.local_images[1];
     return coordinate.generation != 0
         && image.native.session_generation != 0
         && image.native.round_generation == coordinate.generation
-        && local.serializer_id == LocalSerializerId::HgCpuDirect
-        && local.context.schema_id == Schema::snapshot_schema_version
-        && local.context.session_generation == image.native.session_generation
-        && local.context.round_generation == image.native.round_generation
-        && local.context.stage_generation != 0
-        && local.context.allocation_generation == image.native.round_generation
+        && hgcpu.serializer_id == LocalSerializerId::HgCpuDirect
+        && motion.serializer_id == LocalSerializerId::MotionBankTriples
+        && hgcpu.context == motion.context
+        && hgcpu.context.schema_id == Schema::snapshot_schema_version
+        && hgcpu.context.session_generation == image.native.session_generation
+        && hgcpu.context.round_generation == image.native.round_generation
+        && hgcpu.context.stage_generation != 0
+        && hgcpu.context.allocation_generation == image.native.round_generation
         && image.wind.generation == image.native.round_generation
         && valid_ucrt_image(image.ucrt) && valid_wind_image(image.wind);
+}
+
+bool valid_local_images(const CandidateCheckpointImage& image,
+    bool verify_checksum) noexcept
+{
+    if (image.local_images.size() != 2) return false;
+    return verify_checksum
+        ? HgCpuStreamShim::ValidateLocalImage(image.local_images[0])
+            && MotionBankSnapshot::ValidateLocalImage(image.local_images[1])
+        : HgCpuStreamShim::ValidateLocalImageMetadata(image.local_images[0])
+            && MotionBankSnapshot::ValidateLocalImageMetadata(
+                image.local_images[1]);
 }
 }
 
@@ -242,10 +258,7 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
 {
     output = {};
     if (context_identity == 0 || !generations_match(coordinate, image)
-        || !(verify_local_checksum
-            ? HgCpuStreamShim::ValidateLocalImage(image.local_images.front())
-            : HgCpuStreamShim::ValidateLocalImageMetadata(
-                image.local_images.front())))
+        || !valid_local_images(image, verify_local_checksum))
     {
         return Status::failure(FailureCode::IdentityMismatch);
     }
@@ -352,7 +365,6 @@ Status CandidateCheckpointCodec::Decode(
         std::uint32_t serializer_id{};
         std::uint64_t local_size{};
         if (!reader.Take(serializer_id)
-            || serializer_id != static_cast<std::uint32_t>(LocalSerializerId::HgCpuDirect)
             || !reader.Take(local.serializer_version)
             || !reader.Take(local.context.build_id)
             || !reader.Take(local.context.schema_id)
@@ -364,8 +376,17 @@ Status CandidateCheckpointCodec::Decode(
             || !reader.Take(local.context.camera_generation)
             || !reader.Take(local.context.allocation_generation)
             || !reader.Take(local_size) || local_size == 0
-            || local_size > hgcpu_stream_capacity
             || !reader.Take(local.checksum))
+            return Status::failure(FailureCode::CaptureFailed);
+        const bool valid_serializer = index == 0
+            ? serializer_id
+                == static_cast<std::uint32_t>(LocalSerializerId::HgCpuDirect)
+                && local_size <= hgcpu_stream_capacity
+            : index == 1
+                && serializer_id == static_cast<std::uint32_t>(
+                    LocalSerializerId::MotionBankTriples)
+                && local_size == motion_bank_image_bytes;
+        if (!valid_serializer)
             return Status::failure(FailureCode::CaptureFailed);
         local.serializer_id = static_cast<LocalSerializerId>(serializer_id);
         local.cursor = static_cast<std::size_t>(local_size);
@@ -420,7 +441,7 @@ Status CandidateCheckpointCodec::Decode(
     }
     if (!decoded.ok() || !wind_decoded.ok()
         || !generations_match(snapshot.coordinate, output)
-        || !HgCpuStreamShim::ValidateLocalImage(output.local_images.front())
+        || !valid_local_images(output, true)
         || !hash_candidate(snapshot.coordinate, snapshot.context_identity,
             canonical, verified_hash)
         || verified_hash != snapshot.canonical_hash)

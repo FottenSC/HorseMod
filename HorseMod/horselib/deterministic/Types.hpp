@@ -110,6 +110,18 @@ struct PlayerInput
     friend constexpr bool operator==(PlayerInput, PlayerInput) = default;
 };
 
+struct NativeInputCacheRowImage
+{
+    std::int32_t game_round{};
+    std::uint32_t frame_index{};
+    std::uint32_t input_value{};
+    std::uint8_t filled{};
+
+    friend bool operator==(
+        const NativeInputCacheRowImage&,
+        const NativeInputCacheRowImage&) = default;
+};
+
 struct InputPair
 {
     // Authoritative values published before BattleManager+0x1210 callbacks.
@@ -117,8 +129,13 @@ struct InputPair
     // Values consumed by PerFrameTick after the native filter callbacks.
     // These verify replay capture/resimulation; only players[] is injected.
     PlayerInput post_filter_players[2]{};
+    // Exact InputLog cache rows consumed by the pair producer. These are
+    // local reconstruction supplements, never protocol payload bytes.
+    NativeInputCacheRowImage source_rows[2]{};
+    std::int32_t input_update_time{};
     bool remote_confirmed{};
     bool post_filter_observed{};
+    bool source_rows_observed{};
 
     friend constexpr bool operator==(const InputPair&, const InputPair&) = default;
 };

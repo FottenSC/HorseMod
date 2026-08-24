@@ -61,6 +61,20 @@ bool SafeRead(std::uintptr_t address, T& output) noexcept
     }
 }
 
+template <typename T>
+bool SafeWrite(std::uintptr_t address, const T& value) noexcept
+{
+    __try
+    {
+        std::memcpy(reinterpret_cast<void*>(address), &value, sizeof(T));
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
 bool CaptureInputPairArray(void* argument, PlayerInput (&output)[2]) noexcept
 {
     std::uintptr_t data{};
@@ -600,11 +614,72 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
                 != request.envelope->entry_coordinate.generation
             || request.coordinates[index].frame
                 != request.envelope->entry_coordinate.frame + index + 1
-            || !request.inputs[index].post_filter_observed)
+            || !request.inputs[index].post_filter_observed
+            || !request.inputs[index].source_rows_observed)
         {
             output.failure = FailureCode::IdentityMismatch;
             return Status::failure(output.failure);
         }
+    }
+
+    // The native input logger publishes the next game round/time between
+    // outer battle ticks. Owned resimulation deliberately invokes those
+    // ticks back-to-back, so reproduce that verified scalar handoff before
+    // validating and entering each recorded batch. No other boundary field
+    // is admitted here.
+    std::uint16_t pre_handoff_mask{};
+    OuterTickState pre_handoff{};
+    CaptureOuterTickState(reinterpret_cast<void*>(request.battle_manager),
+        pre_handoff, pre_handoff_mask, 0x1, 0x2, 0x4, 0x8);
+    if ((pre_handoff_mask & 0x0f) != 0x0f
+        || pre_handoff.input_log == 0
+        || pre_handoff.frame_counter != request.envelope->native_frame_before
+        || pre_handoff.manager_game_round_cursor
+            != request.envelope->manager_round_cursor_before
+        || pre_handoff.manager_game_time_cursor
+            != request.envelope->manager_time_cursor_before
+        || pre_handoff.main_state != request.envelope->main_state_before
+        || pre_handoff.round_state != request.envelope->round_state_before
+        || !SafeWrite(pre_handoff.input_log
+                + Schema::Sc6FrameLayout::input_log_game_round,
+            request.envelope->input_round_before)
+        || !SafeWrite(pre_handoff.input_log
+                + Schema::Sc6FrameLayout::input_log_game_time,
+            request.envelope->input_time_before))
+    {
+        output.before = pre_handoff;
+        output.failure = FailureCode::IdentityMismatch;
+        return Status::failure(output.failure);
+    }
+
+    for (const auto& input : request.inputs)
+    {
+        for (std::size_t slot = 0; slot < 2; ++slot)
+        {
+            const auto& source = input.source_rows[slot];
+            if (source.filled == 0) continue;
+            const auto row = pre_handoff.input_log
+                + Schema::Sc6FrameLayout::input_log_cache
+                + (slot * Schema::Sc6FrameLayout::input_log_cache_rows_per_player
+                    + (source.frame_index & 0x1ffu))
+                    * Schema::Sc6FrameLayout::input_log_cache_row_stride;
+            if (!SafeWrite(row, source.game_round)
+                || !SafeWrite(row + 4, source.frame_index)
+                || !SafeWrite(row + 8, source.input_value)
+                || !SafeWrite(row + 12, source.filled))
+            {
+                output.failure = FailureCode::RestoreWriteFailed;
+                return Status::failure(output.failure);
+            }
+        }
+    }
+    if (!request.inputs.empty()
+        && !SafeWrite(pre_handoff.input_log
+                + Schema::Sc6FrameLayout::input_log_update_time,
+            request.inputs.back().input_update_time))
+    {
+        output.failure = FailureCode::RestoreWriteFailed;
+        return Status::failure(output.failure);
     }
 
     std::uint16_t read_mask{};
@@ -1105,6 +1180,47 @@ void DeterministicHookSet::EmitFrameFencepost(void* battle_manager) noexcept
             observation.game_time))
     {
         observation.read_mask |= 0x8;
+    }
+    std::int32_t input_delay{};
+    if (observation.input_log != 0
+        && SafeRead(observation.input_log
+                + Schema::Sc6FrameLayout::input_log_input_delay,
+            input_delay)
+        && SafeRead(observation.input_log
+                + Schema::Sc6FrameLayout::input_log_update_time,
+            observation.input_update_time))
+    {
+        const std::int32_t source_frame =
+            observation.game_time - input_delay - 1;
+        if (source_frame < 0)
+        {
+            observation.source_rows_observed = true;
+            observation.read_mask |= 0x3000;
+        }
+        else
+        {
+            bool complete = true;
+            for (std::size_t slot = 0; slot < 2; ++slot)
+            {
+                const auto row = observation.input_log
+                    + Schema::Sc6FrameLayout::input_log_cache
+                    + (slot * Schema::Sc6FrameLayout::input_log_cache_rows_per_player
+                        + (static_cast<std::uint32_t>(source_frame) & 0x1ffu))
+                        * Schema::Sc6FrameLayout::input_log_cache_row_stride;
+                complete = SafeRead(row, observation.source_rows[slot])
+                    && observation.source_rows[slot].filled == 1
+                    && observation.source_rows[slot].game_round
+                        == observation.game_round
+                    && observation.source_rows[slot].frame_index
+                        == static_cast<std::uint32_t>(source_frame)
+                    && complete;
+            }
+            if (complete)
+            {
+                observation.source_rows_observed = true;
+                observation.read_mask |= 0x3000;
+            }
+        }
     }
     if (battle_manager != nullptr
         && SafeRead(

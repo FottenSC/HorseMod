@@ -15,6 +15,7 @@ inline constexpr std::size_t maximum_local_reconstruction_images = 4;
 enum class LocalSerializerId : std::uint32_t
 {
     HgCpuDirect = 1,
+    MotionBankTriples = 2,
 };
 
 // Version 2 replaces the byte-at-a-time FNV checksum with the bounded

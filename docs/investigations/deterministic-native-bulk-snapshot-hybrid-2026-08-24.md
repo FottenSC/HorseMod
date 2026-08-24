@@ -169,6 +169,46 @@ not release qualification.
 
 ## Remaining admission gate
 
+### Schema 9 owned-correction and rotating-pose findings
+
+Current-executable decompilation of `AdvanceCMatrixBankRingBuffer @
+0x14030B630` verifies the primary and auxiliary matrix-bank controller contract:
+`+0x08/+0x10/+0x18` are immutable slot pointers, `+0x20` is the current-slot
+index, `+0x28` is current, and `+0x30` is previous. The transition is
+`(current + 2) % 3`; it publishes old current as previous and never clears or
+copies the selected destination. `LuxBattle_TickCharaMainSimulation @
+0x14034DA70` consumes and produces this state synchronously around MoveVM,
+physics, terrain, stochastic block state, pose finalization, and KHit pose
+evaluation.
+
+Schema 9 therefore adds a second ordered local serializer. It captures no raw
+pointers: it stores the current/previous slot indices, all three live primary
+and auxiliary buffers for both fighters, and the bounded fighter `+0x96490`
+0x1000-byte motion tail whose extra-bone matrices are future KHit input. Restore
+validates unchanged vtables, slot pointers, authored matrix counts, generation
+context, exact size, and checksum; derives controller pointers from live
+topology; verifies exact recapture; and restores a complete undo image after a
+partial write. Unit tests cover pointer exclusion, allocation replacement,
+checksum rejection, partial failure, exact undo, ordered serializer decoding,
+and canonical exclusion.
+
+The first normal-render depth-11 runs reject this candidate rather than admit
+it. With a deliberately diagnostic checkpoint at every batch entry, all 11
+batches replay and outer undo is exact, but canonical recapture differs in LCG,
+LFSR value/index, wind RNG, wind output, and wind node state (`diff_mask=0xc800`,
+`rng_mask=0x17`, `wind_mask=0x30`). Adding the motion tail did not change that
+classification. The first matrix-image disagreement is inside the current
+primary slot and corresponds to the same native-writer source span previously
+mapped to fighter `+0x3E10`; it is evidence of another missing consumer input,
+not permission to hash or transmit opaque bytes.
+
+The diagnostic every-entry workload also fails the performance gate: observed
+capture p99 was 1.00--1.06 ms (maximum 1.14 ms), local-image capture p99 was
+0.90--0.94 ms, and depth-11 correction took 20.96--23.87 ms. These figures are
+not the sparse production policy, but the serializer is not admitted until both
+correctness and the stated normal-render limits pass. Production rollback
+remains disabled and the allowlist remains empty.
+
 Repeat native-source coverage for every required matchup and correction phase.
 For each admitted subsystem, the native stream must cover at least 90% of
 measured changing bytes and every remaining byte must be classified as typed

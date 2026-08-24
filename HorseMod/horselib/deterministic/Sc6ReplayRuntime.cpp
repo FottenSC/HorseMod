@@ -4,8 +4,62 @@
 
 #include <Windows.h>
 
+#include <chrono>
+
 namespace Horse::Deterministic
 {
+namespace
+{
+std::uint64_t CandidateDifferenceMask(
+    const CandidateCheckpointImage& expected,
+    const CandidateCheckpointImage& observed) noexcept
+{
+    std::uint64_t mask{};
+    const auto mark = [&](unsigned bit, bool different) noexcept {
+        if (different) mask |= std::uint64_t{1} << bit;
+    };
+    mark(0, expected.native.session_generation
+            != observed.native.session_generation
+        || expected.native.round_generation != observed.native.round_generation);
+    mark(1, expected.native.frame != observed.native.frame);
+    mark(2, expected.native.round_sequence != observed.native.round_sequence);
+    mark(3, expected.native.input_log != observed.native.input_log);
+    mark(4, expected.native.move_dispatch_masks
+        != observed.native.move_dispatch_masks);
+    mark(5, expected.native.pump != observed.native.pump);
+    mark(6, expected.native.schedulers != observed.native.schedulers);
+    mark(7, expected.native.sub_vms != observed.native.sub_vms);
+    mark(8, expected.native.move_commands != observed.native.move_commands);
+    mark(9, expected.native.slot_params != observed.native.slot_params);
+    mark(10, expected.native.pending_hit != observed.native.pending_hit);
+    mark(11, expected.native.rng != observed.native.rng);
+    mark(12, expected.native.camera_distance_history
+        != observed.native.camera_distance_history);
+    mark(13, expected.ucrt != observed.ucrt);
+    mark(14, expected.wind != observed.wind);
+    bool local_different = expected.local_images.size()
+        != observed.local_images.size();
+    if (!local_different)
+    {
+        for (std::size_t index = 0; index < expected.local_images.size(); ++index)
+        {
+            const auto& a = expected.local_images[index];
+            const auto& b = observed.local_images[index];
+            if (a.serializer_id != b.serializer_id
+                || a.serializer_version != b.serializer_version
+                || a.context != b.context || a.cursor != b.cursor
+                || a.checksum != b.checksum || a.bytes != b.bytes)
+            {
+                local_different = true;
+                break;
+            }
+        }
+    }
+    mark(15, local_different);
+    return mask;
+}
+}
+
 Sc6ReplayRuntime::Sc6ReplayRuntime(Lux& lux) noexcept
     : lux_(lux)
 {
@@ -188,8 +242,12 @@ Status Sc6ReplayRuntime::ObserveFrame(
     inputs.players[1] = observation.pre_filter_inputs[1];
     inputs.post_filter_players[0] = observation.inputs[0];
     inputs.post_filter_players[1] = observation.inputs[1];
+    inputs.source_rows[0] = observation.source_rows[0];
+    inputs.source_rows[1] = observation.source_rows[1];
+    inputs.input_update_time = observation.input_update_time;
     inputs.remote_confirmed = true;
     inputs.post_filter_observed = true;
+    inputs.source_rows_observed = observation.source_rows_observed;
     const Status appended = input_timeline_.AppendAuthoritative(coordinate, inputs);
     if (!appended.ok())
     {
@@ -317,10 +375,7 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         return Status::success();
     const auto previous = checkpoint_capture_.status(
         CandidateCheckpointRole::BatchEntry);
-    const std::optional<FrameCoordinate> previous_coordinate =
-        previous.captured == 0
-        ? std::nullopt
-        : std::optional<FrameCoordinate>{previous.last_coordinate};
+    const std::optional<FrameCoordinate> previous_coordinate = std::nullopt;
     const auto action = PlanResimulationBase(
         previous_coordinate,
         coordinate,
@@ -569,6 +624,13 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
 
 void Sc6ReplayRuntime::ObserveReplayExit() noexcept
 {
+    // Replay PostTick may immediately replace camera, fighter, stage, and
+    // container allocations. Invalidate every dependent local image and input
+    // envelope before that native teardown begins; no identity survives re-entry.
+    input_timeline_.Clear();
+    batch_timeline_.Clear();
+    checkpoint_capture_.InvalidateHistory();
+    timeline_status_ = {};
     timeline_manager_ = 0;
     timeline_input_log_ = 0;
     timeline_thread_id_ = 0;
@@ -621,6 +683,187 @@ Status Sc6ReplayRuntime::CaptureOwnedLanding(
         : Status::failure(FailureCode::InvalidConfiguration);
 }
 
+Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
+    std::size_t first_batch_index,
+    std::size_t final_batch_index,
+    std::uint64_t generation,
+    DeterministicHookSet& hooks,
+    std::optional<std::size_t> landing_batch_index,
+    std::uint32_t landing_offset,
+    Snapshot* landing,
+    std::uint64_t* replayed_coordinates,
+    std::uint32_t* replayed_batches,
+    std::size_t* failed_batch_index,
+    NativeBatchEnvelope* failed_envelope,
+    OwnedBatchReplayResult* failed_result,
+    std::uint64_t* first_interbatch_difference_mask,
+    std::size_t* first_interbatch_difference_batch,
+    std::uint32_t* first_interbatch_frame_difference_mask,
+    std::uint32_t* first_interbatch_local_difference,
+    std::uint32_t* interbatch_local_difference_count,
+    std::uint32_t* first_interbatch_motion_difference,
+    std::uint32_t* interbatch_motion_difference_count) noexcept
+{
+    if (first_batch_index > final_batch_index || generation == 0
+        || (landing_batch_index.has_value() && landing == nullptr))
+    {
+        return Status::failure(FailureCode::InvalidConfiguration);
+    }
+    if (replayed_coordinates != nullptr) *replayed_coordinates = 0;
+    if (replayed_batches != nullptr) *replayed_batches = 0;
+
+    for (std::size_t batch_index = first_batch_index;
+         batch_index <= final_batch_index; ++batch_index)
+    {
+        const NativeBatchEnvelope* envelope =
+            batch_timeline_.GetBatch(batch_index);
+        if (envelope == nullptr
+            || envelope->entry_coordinate.generation != generation
+            || envelope->exit_coordinate.generation != generation
+            || envelope->coordinate_count
+                > Schema::maximum_supported_native_batch_width)
+        {
+            return Status::failure(FailureCode::GenerationMismatch);
+        }
+        std::array<FrameCoordinate,
+            Schema::maximum_supported_native_batch_width> coordinates{};
+        std::array<InputPair,
+            Schema::maximum_supported_native_batch_width> inputs{};
+        for (std::uint32_t offset = 0;
+             offset < envelope->coordinate_count; ++offset)
+        {
+            const NativeBatchCoordinate* member =
+                batch_timeline_.GetBatchCoordinate(batch_index, offset);
+            if (member == nullptr)
+                return Status::failure(FailureCode::MissingInput);
+            const auto input = input_timeline_.GetExact(member->coordinate);
+            if (!input.has_value())
+                return Status::failure(FailureCode::MissingInput);
+            coordinates[offset] = member->coordinate;
+            inputs[offset] = *input;
+        }
+
+        const bool capture_landing = landing_batch_index.has_value()
+            && batch_index == *landing_batch_index;
+        OwnedLandingCapture landing_capture{&checkpoint_capture_, landing};
+        OwnedBatchReplayRequest request{};
+        request.battle_manager = timeline_manager_;
+        request.owner_thread_id = timeline_thread_id_;
+        request.envelope = envelope;
+        request.coordinates = std::span{coordinates.data(),
+            static_cast<std::size_t>(envelope->coordinate_count)};
+        request.inputs = std::span{inputs.data(),
+            static_cast<std::size_t>(envelope->coordinate_count)};
+        request.suppress_ephemeral_presentation = true;
+        if (capture_landing)
+        {
+            request.landing_offset = landing_offset;
+            request.landing_user = &landing_capture;
+            request.capture_landing = CaptureOwnedLanding;
+        }
+        OwnedBatchReplayResult result{};
+        Status status = hooks.ExecuteOwnedBatch(request, result);
+        if (!status.ok() || (capture_landing && !result.landing_captured))
+        {
+            if (failed_batch_index != nullptr) *failed_batch_index = batch_index;
+            if (failed_envelope != nullptr) *failed_envelope = *envelope;
+            if (failed_result != nullptr) *failed_result = result;
+            return status.ok()
+                ? Status::failure(FailureCode::CaptureFailed) : status;
+        }
+        if (replayed_coordinates != nullptr)
+            *replayed_coordinates += envelope->coordinate_count;
+        if (replayed_batches != nullptr) ++*replayed_batches;
+        if (batch_index < final_batch_index
+            && first_interbatch_difference_mask != nullptr
+            && *first_interbatch_difference_mask == 0)
+        {
+            const NativeBatchEnvelope* next =
+                batch_timeline_.GetBatch(batch_index + 1);
+            const auto expected = next == nullptr
+                ? std::optional<Snapshot>{}
+                : checkpoint_capture_.snapshots(
+                    CandidateCheckpointRole::BatchEntry).Load(
+                        next->entry_coordinate);
+            Snapshot observed{};
+            if (expected.has_value()
+                && checkpoint_capture_.CaptureTransient(
+                    envelope->exit_coordinate, observed).ok())
+            {
+                CandidateCheckpointImage expected_image{};
+                CandidateCheckpointImage observed_image{};
+                if (CandidateCheckpointCodec::Decode(
+                        *expected, expected_image).ok()
+                    && CandidateCheckpointCodec::Decode(
+                        observed, observed_image).ok())
+                {
+                    const auto difference =
+                        CandidateDifferenceMask(expected_image, observed_image);
+                    constexpr std::uint64_t expected_intertick_differences =
+                        (std::uint64_t{1} << 1)
+                        | (std::uint64_t{1} << 3)
+                        | (std::uint64_t{1} << 15);
+                    const auto material_difference =
+                        difference & ~expected_intertick_differences;
+                    if (material_difference != 0)
+                        *first_interbatch_difference_mask = difference;
+                    if (material_difference != 0
+                        && first_interbatch_difference_batch != nullptr)
+                        *first_interbatch_difference_batch = batch_index;
+                    if (material_difference != 0
+                        && first_interbatch_frame_difference_mask != nullptr)
+                    {
+                        const auto& a = expected_image.native.frame;
+                        const auto& b = observed_image.native.frame;
+                        if (a.frame_counter != b.frame_counter) *first_interbatch_frame_difference_mask |= 1;
+                        if (a.input_game_round != b.input_game_round || a.input_game_time != b.input_game_time) *first_interbatch_frame_difference_mask |= 2;
+                        if (a.manager_game_round_cursor != b.manager_game_round_cursor || a.manager_game_time_cursor != b.manager_game_time_cursor) *first_interbatch_frame_difference_mask |= 4;
+                        if (a.round_state_frame != b.round_state_frame || a.unpause_countdown != b.unpause_countdown) *first_interbatch_frame_difference_mask |= 8;
+                        if (a.previous_inputs != b.previous_inputs) *first_interbatch_frame_difference_mask |= 0x10;
+                        if (a.input_pairs != b.input_pairs) *first_interbatch_frame_difference_mask |= 0x20;
+                        if (a.prior_input_pairs != b.prior_input_pairs) *first_interbatch_frame_difference_mask |= 0x40;
+                        if (a.repeat_pending != b.repeat_pending || a.pending_move_state != b.pending_move_state) *first_interbatch_frame_difference_mask |= 0x80;
+                    }
+                    if (material_difference != 0
+                        && first_interbatch_local_difference != nullptr
+                        && interbatch_local_difference_count != nullptr
+                        && expected_image.local_images.size() == 2
+                        && observed_image.local_images.size() == 2)
+                    {
+                        for (std::size_t image_index = 0;
+                             image_index < 2; ++image_index)
+                        {
+                            auto* first = image_index == 0
+                                ? first_interbatch_local_difference
+                                : first_interbatch_motion_difference;
+                            auto* count = image_index == 0
+                                ? interbatch_local_difference_count
+                                : interbatch_motion_difference_count;
+                            if (first == nullptr || count == nullptr) continue;
+                            const auto& a = expected_image.local_images[
+                                image_index].bytes;
+                            const auto& b = observed_image.local_images[
+                                image_index].bytes;
+                            const auto size = a.size() < b.size()
+                                ? a.size() : b.size();
+                            for (std::size_t index = 0; index < size; ++index)
+                            {
+                                if (a[index] != b[index])
+                                {
+                                    if (*first == UINT32_MAX)
+                                        *first = static_cast<std::uint32_t>(index);
+                                    ++*count;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return Status::success();
+}
+
 Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     FrameCoordinate target, DeterministicHookSet& hooks) noexcept
 {
@@ -654,77 +897,254 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     Snapshot landing = *base;
     if (plan.landing_requires_batch_replay)
     {
-        for (std::size_t batch_index = plan.first_batch_index;
-             batch_index <= plan.landing_batch_index; ++batch_index)
-        {
-            const NativeBatchEnvelope* envelope =
-                batch_timeline_.GetBatch(batch_index);
-            if (envelope == nullptr
-                || envelope->entry_coordinate.generation != target.generation
-                || envelope->coordinate_count
-                    > Schema::maximum_supported_native_batch_width)
-            {
-                status = Status::failure(FailureCode::GenerationMismatch);
-                break;
-            }
-            std::array<FrameCoordinate,
-                Schema::maximum_supported_native_batch_width> coordinates{};
-            std::array<InputPair,
-                Schema::maximum_supported_native_batch_width> inputs{};
-            for (std::uint32_t offset = 0;
-                 offset < envelope->coordinate_count; ++offset)
-            {
-                const NativeBatchCoordinate* member =
-                    batch_timeline_.GetBatchCoordinate(batch_index, offset);
-                if (member == nullptr)
-                {
-                    status = Status::failure(FailureCode::MissingInput);
-                    break;
-                }
-                const auto input = input_timeline_.GetExact(member->coordinate);
-                if (!input.has_value())
-                {
-                    status = Status::failure(FailureCode::MissingInput);
-                    break;
-                }
-                coordinates[offset] = member->coordinate;
-                inputs[offset] = *input;
-            }
-            if (!status.ok()) break;
-
-            const bool landing_batch = batch_index == plan.landing_batch_index;
-            OwnedLandingCapture landing_capture{&checkpoint_capture_, &landing};
-            OwnedBatchReplayRequest request{};
-            request.battle_manager = timeline_manager_;
-            request.owner_thread_id = timeline_thread_id_;
-            request.envelope = envelope;
-            request.coordinates = std::span{coordinates.data(),
-                static_cast<std::size_t>(envelope->coordinate_count)};
-            request.inputs = std::span{inputs.data(),
-                static_cast<std::size_t>(envelope->coordinate_count)};
-            request.suppress_ephemeral_presentation = true;
-            if (landing_batch)
-            {
-                request.landing_offset = plan.landing_offset_in_batch;
-                request.landing_user = &landing_capture;
-                request.capture_landing = CaptureOwnedLanding;
-            }
-            OwnedBatchReplayResult result{};
-            status = hooks.ExecuteOwnedBatch(request, result);
-            if (!status.ok()
-                || (landing_batch && !result.landing_captured))
-            {
-                if (status.ok())
-                    status = Status::failure(FailureCode::CaptureFailed);
-                break;
-            }
-        }
+        status = ReplayOwnedBatchRange(plan.first_batch_index,
+            plan.landing_batch_index, target.generation, hooks,
+            plan.landing_batch_index, plan.landing_offset_in_batch, &landing);
     }
     if (status.ok()) status = checkpoint_capture_.RestoreAndVerify(landing);
     if (!status.ok())
         return restore_undo()
             ? status : Status::failure(FailureCode::UndoFailed);
     return Status::success();
+}
+
+Status Sc6ReplayRuntime::CaptureCurrentCanonical(Snapshot& output) noexcept
+{
+    output = {};
+    if (!ready() || timeline_manager_ == 0 || timeline_thread_id_ == 0
+        || timeline_thread_id_ != ::GetCurrentThreadId()
+        || pending_batch_id_ != 0
+        || timeline_status_.failure != FailureCode::None
+        || timeline_status_.last_coordinate.generation == 0)
+    {
+        return Status::failure(FailureCode::WrongThread);
+    }
+    return checkpoint_capture_.CaptureTransient(
+        timeline_status_.last_coordinate, output);
+}
+
+Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
+    FrameCoordinate earliest_changed,
+    const CanonicalHash& expected_final_hash,
+    DeterministicHookSet& hooks,
+    OwnedCorrectionResult& output) noexcept
+{
+    using Clock = std::chrono::steady_clock;
+    const auto elapsed_ns = [](Clock::time_point begin,
+                                Clock::time_point end) noexcept {
+        return static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                end - begin).count());
+    };
+
+    output = {};
+    output.earliest_changed = earliest_changed;
+    output.final_coordinate = timeline_status_.last_coordinate;
+    const auto total_begin = Clock::now();
+    const auto finish = [&](Status status) noexcept {
+        output.failure = status.code;
+        output.total_ns = elapsed_ns(total_begin, Clock::now());
+        return status;
+    };
+    if (!hooks.installed() || timeline_thread_id_ == 0
+        || timeline_thread_id_ != ::GetCurrentThreadId()
+        || timeline_manager_ == 0 || pending_batch_id_ != 0
+        || timeline_status_.failure != FailureCode::None)
+    {
+        return finish(Status::failure(FailureCode::WrongThread));
+    }
+
+    ReplayCorrectionPlan plan{};
+    Status status = PlanReplayCorrection(earliest_changed,
+        timeline_status_.last_coordinate, batch_timeline_,
+        checkpoint_capture_.snapshots(CandidateCheckpointRole::BatchEntry),
+        Schema::checkpoint_interval - 1, plan);
+    if (!status.ok()) return finish(status);
+    output.resimulation_base = plan.resimulation_base;
+
+    // Capture is valid while the UCRT broker observes the stock stream, but
+    // restore is deliberately restricted to its one-way owned mode.
+    // Correction is the authoritative transition point; later corrections
+    // remain owned by this same simulation thread.
+    status = checkpoint_capture_.EnsureRestoreOwnership(timeline_thread_id_);
+    if (!status.ok()) return finish(status);
+
+    Snapshot undo{};
+    auto phase_begin = Clock::now();
+    status = checkpoint_capture_.CaptureTransient(
+        timeline_status_.last_coordinate, undo);
+    output.undo_capture_ns = elapsed_ns(phase_begin, Clock::now());
+    if (!status.ok()) return finish(status);
+
+    const auto base = checkpoint_capture_.snapshots(
+        CandidateCheckpointRole::BatchEntry).Load(plan.resimulation_base);
+    if (!base.has_value())
+        return finish(Status::failure(FailureCode::MissingSnapshot));
+
+    bool native_state_was_written = false;
+    const auto record_primary_failure = [&](Status failure) noexcept {
+        output.primary_failure = failure.code;
+        output.primary_validation = checkpoint_capture_.restore_validation();
+        output.primary_performance = checkpoint_capture_.adapter_performance();
+    };
+    const auto restore_undo = [&]() noexcept {
+        if (!native_state_was_written) return true;
+        const Status undone = checkpoint_capture_.RestoreAndVerify(undo);
+        output.undo_failure = undone.code;
+        output.undo_validation = checkpoint_capture_.restore_validation();
+        output.undo_restored = undone.ok();
+        return output.undo_restored;
+    };
+
+    phase_begin = Clock::now();
+    native_state_was_written = true;
+    status = checkpoint_capture_.RestoreAndVerify(*base);
+    output.restore_ns = elapsed_ns(phase_begin, Clock::now());
+    if (!status.ok())
+    {
+        record_primary_failure(status);
+        if (!restore_undo()) status = Status::failure(FailureCode::UndoFailed);
+        return finish(status);
+    }
+
+    phase_begin = Clock::now();
+    status = ReplayOwnedBatchRange(plan.first_batch_index,
+        plan.final_batch_index, earliest_changed.generation, hooks,
+        std::nullopt, UINT32_MAX, nullptr, &output.replayed_coordinates,
+        &output.replayed_batches, &output.failed_batch_index,
+        &output.failed_envelope, &output.failed_batch_result,
+        &output.first_interbatch_difference_mask,
+        &output.first_interbatch_difference_batch,
+        &output.first_interbatch_frame_difference_mask,
+        &output.first_interbatch_local_difference,
+        &output.interbatch_local_difference_count,
+        &output.first_interbatch_motion_difference,
+        &output.interbatch_motion_difference_count);
+    output.resimulation_ns = elapsed_ns(phase_begin, Clock::now());
+    if (output.first_interbatch_local_difference != UINT32_MAX)
+    {
+        checkpoint_capture_.TraceLocalStreamOffset(
+            output.first_interbatch_local_difference,
+            output.first_interbatch_local_source,
+            output.diagnostic_fighter_roots,
+            output.diagnostic_image_base);
+    }
+    if (!status.ok())
+    {
+        record_primary_failure(status);
+        if (!restore_undo()) status = Status::failure(FailureCode::UndoFailed);
+        return finish(status);
+    }
+
+    Snapshot verified{};
+    phase_begin = Clock::now();
+    status = checkpoint_capture_.CaptureTransient(
+        timeline_status_.last_coordinate, verified);
+    output.verification_ns = elapsed_ns(phase_begin, Clock::now());
+    output.final_hash = verified.canonical_hash;
+    CandidateCheckpointImage expected_image{};
+    CandidateCheckpointImage verified_image{};
+    if (CandidateCheckpointCodec::Decode(undo, expected_image).ok()
+        && CandidateCheckpointCodec::Decode(verified, verified_image).ok())
+    {
+        output.undo_comparison_mask = CandidateDifferenceMask(
+            expected_image, verified_image);
+        if (expected_image.local_images.size() == 2
+            && verified_image.local_images.size() == 2)
+        {
+            for (std::size_t image_index = 0; image_index < 2; ++image_index)
+            {
+                const auto& a = expected_image.local_images[image_index].bytes;
+                const auto& b = verified_image.local_images[image_index].bytes;
+                const auto size = a.size() < b.size()
+                    ? a.size() : b.size();
+                for (std::size_t index = 0; index < size; ++index)
+                {
+                    if (a[index] != b[index])
+                    {
+                        if (output.first_final_local_difference[image_index]
+                            == UINT32_MAX)
+                            output.first_final_local_difference[image_index] =
+                                static_cast<std::uint32_t>(index);
+                        ++output.final_local_difference_count[image_index];
+                    }
+                }
+            }
+        }
+        for (std::size_t index = 0;
+             index < expected_image.native.input_log.scalars.size(); ++index)
+        {
+            if (expected_image.native.input_log.scalars[index]
+                != verified_image.native.input_log.scalars[index])
+            {
+                if (output.first_input_scalar_difference == UINT32_MAX)
+                    output.first_input_scalar_difference =
+                        static_cast<std::uint32_t>(index);
+                ++output.input_scalar_difference_count;
+            }
+        }
+        for (std::size_t index = 0;
+             index < expected_image.native.input_log.cache_rows.size(); ++index)
+        {
+            if (expected_image.native.input_log.cache_rows[index]
+                != verified_image.native.input_log.cache_rows[index])
+            {
+                if (output.first_input_cache_difference == UINT32_MAX)
+                {
+                    output.first_input_cache_difference =
+                        static_cast<std::uint32_t>(index);
+                    output.expected_input_cache_row =
+                        expected_image.native.input_log.cache_rows[index];
+                    output.observed_input_cache_row =
+                        verified_image.native.input_log.cache_rows[index];
+                }
+                ++output.input_cache_difference_count;
+            }
+        }
+        const auto& expected_rng = expected_image.native.rng;
+        const auto& observed_rng = verified_image.native.rng;
+        output.expected_rng = expected_rng;
+        output.observed_rng = observed_rng;
+        if (expected_rng.lcg != observed_rng.lcg) output.rng_difference_mask |= 1;
+        if (expected_rng.lfsr != observed_rng.lfsr)
+            output.rng_difference_mask |= 2;
+        if (expected_rng.lfsr_index != observed_rng.lfsr_index)
+            output.rng_difference_mask |= 4;
+        if (expected_rng.xorshift != observed_rng.xorshift)
+            output.rng_difference_mask |= 8;
+        if (expected_rng.wind != observed_rng.wind)
+            output.rng_difference_mask |= 16;
+        const auto& expected_wind = expected_image.wind;
+        const auto& observed_wind = verified_image.wind;
+        if (expected_wind.root_clock != observed_wind.root_clock)
+            output.wind_difference_mask |= 1;
+        if (expected_wind.pending_callback_rvas
+            != observed_wind.pending_callback_rvas)
+            output.wind_difference_mask |= 2;
+        if (expected_wind.schedule_state != observed_wind.schedule_state)
+            output.wind_difference_mask |= 4;
+        if (expected_wind.schedule_params != observed_wind.schedule_params)
+            output.wind_difference_mask |= 8;
+        if (expected_wind.output_force != observed_wind.output_force)
+            output.wind_difference_mask |= 16;
+        if (expected_wind.nodes != observed_wind.nodes)
+            output.wind_difference_mask |= 32;
+    }
+    if (status.ok()
+        && (verified.coordinate != timeline_status_.last_coordinate
+            || verified.canonical_hash != expected_final_hash))
+    {
+        status = Status::failure(FailureCode::StateHashMismatch);
+    }
+    if (!status.ok())
+    {
+        record_primary_failure(status);
+        if (!restore_undo()) status = Status::failure(FailureCode::UndoFailed);
+        return finish(status);
+    }
+
+    output.converged = true;
+    return finish(Status::success());
 }
 
 void* Sc6ReplayRuntime::ResolveReplayPlayer(void* user) noexcept

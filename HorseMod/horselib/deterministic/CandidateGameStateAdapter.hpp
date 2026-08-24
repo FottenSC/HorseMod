@@ -2,6 +2,7 @@
 
 #include "CandidateCheckpoint.hpp"
 #include "Interfaces.hpp"
+#include "MotionBankSnapshot.hpp"
 #include "NativeCandidateRegions.hpp"
 #include "StageWindGraphTransaction.hpp"
 
@@ -25,6 +26,7 @@ struct CandidateAdapterBinding
     HgCpuGenerationContext hgcpu_context{};
     HgCpuExecFn hgcpu_writer{};
     HgCpuExecFn hgcpu_reader{};
+    MotionBankSnapshot* motion_banks{};
     UcrtRandBroker* ucrt_broker{};
     StageWindTopologyProbe* wind_probe{};
     StageWindGraphTransaction* wind_transaction{};
@@ -81,6 +83,8 @@ public:
     Status ReconcilePresentation(FrameCoordinate coordinate) noexcept override;
     [[nodiscard]] CandidateAdapterPerformanceStatus performance_status()
         const noexcept;
+    Status TraceLocalStreamOffset(std::size_t stream_offset,
+        HgCpuWriteSpan& output) noexcept;
 
 private:
     struct PhaseTimingHistogram

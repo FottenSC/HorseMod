@@ -17,6 +17,9 @@ struct Config
     std::uint32_t rollback_window{12};
     std::uint32_t input_delay{1};
     bool trace{};
+    // Baseline-preserving depth 1/6/11 owned-resimulation probe. Diagnostic
+    // only; it never substitutes or mutates captured input.
+    bool correction_probe{};
 };
 
 struct ConfigLoadResult

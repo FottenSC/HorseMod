@@ -35,6 +35,7 @@ class UcrtRandBroker
 public:
     Status Start() noexcept;
     Status AcquireOwnership(std::uint32_t thread_id) noexcept;
+    Status EnsureOwnership(std::uint32_t thread_id) noexcept;
     void Stop() noexcept;
 
     int HandleRand(std::uint32_t thread_id, std::uintptr_t return_rva,

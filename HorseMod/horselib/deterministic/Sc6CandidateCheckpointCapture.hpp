@@ -2,6 +2,7 @@
 
 #include "CallbackTopology.hpp"
 #include "CandidateGameStateAdapter.hpp"
+#include "MotionBankSnapshot.hpp"
 #include "Schema.hpp"
 #include "SnapshotStore.hpp"
 #include "StageWindTopology.hpp"
@@ -52,6 +53,7 @@ public:
         std::uint32_t simulation_thread_id) noexcept;
     Status CaptureTransient(
         FrameCoordinate coordinate, Snapshot& output) noexcept;
+    Status EnsureRestoreOwnership(std::uint32_t simulation_thread_id) noexcept;
     Status RestoreAndVerify(const Snapshot& snapshot) noexcept;
     void InvalidateHistory() noexcept;
     void ReleaseBinding() noexcept;
@@ -61,6 +63,14 @@ public:
         CandidateCheckpointRole role) const noexcept;
     [[nodiscard]] const SnapshotStore& snapshots(
         CandidateCheckpointRole role) const noexcept;
+    [[nodiscard]] NativeCandidateValidationDiagnostic restore_validation()
+        const noexcept;
+    [[nodiscard]] CandidateAdapterPerformanceStatus adapter_performance()
+        const noexcept;
+    Status TraceLocalStreamOffset(
+        std::size_t stream_offset, HgCpuWriteSpan& output,
+        std::array<std::uintptr_t, 2>& fighter_roots,
+        std::uintptr_t& image_base) noexcept;
 
 private:
     class ProcessMemory;
@@ -129,6 +139,7 @@ private:
 
     std::unique_ptr<ProcessMemory> memory_;
     std::unique_ptr<NativeCandidateRegions> regions_;
+    std::unique_ptr<MotionBankSnapshot> motion_banks_;
     std::unique_ptr<CallbackTopologyProbe> callback_probe_;
     std::unique_ptr<StageWindTopologyProbe> wind_probe_;
     std::unique_ptr<ProcessStageWindAllocator> wind_allocator_;

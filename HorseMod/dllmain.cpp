@@ -3213,6 +3213,188 @@ private:
     std::atomic<std::uint64_t> m_native_batch_evidence_logged_intervals{};
     std::atomic_bool m_candidate_checkpoint_first_failure_logged{};
     std::atomic_bool m_candidate_batch_entry_first_failure_logged{};
+    std::size_t m_owned_correction_probe_index{};
+
+    void service_owned_correction_probe() noexcept
+    {
+        static constexpr std::array<std::uint64_t, 3> depths{11, 6, 11};
+        static constexpr std::array<std::uint64_t, 3> trigger_frames{
+            180, 360, 540};
+        if (!m_deterministic_config.trace
+            || !m_deterministic_config.correction_probe
+            || m_owned_correction_probe_index >= depths.size())
+        {
+            return;
+        }
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        const auto index = m_owned_correction_probe_index;
+        if (timeline.partial || timeline.failure
+                != Horse::Deterministic::FailureCode::None
+            || timeline.captured_frames < trigger_frames[index]
+            || timeline.last_coordinate.frame + 1 < depths[index])
+        {
+            return;
+        }
+
+        Horse::Deterministic::Snapshot expected{};
+        auto status = m_replay_native_runtime.CaptureCurrentCanonical(expected);
+        Horse::Deterministic::OwnedCorrectionResult result{};
+        if (status.ok())
+        {
+            const Horse::Deterministic::FrameCoordinate earliest{
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame - depths[index] + 1};
+            status = m_replay_native_runtime.ExecuteOwnedCorrection(
+                earliest, expected.canonical_hash, m_deterministic_hooks, result);
+        }
+        if (!status.ok())
+        {
+            m_owned_correction_probe_index = depths.size();
+            m_frame_fencepost_failure.store(
+                status.code, std::memory_order_release);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] owned correction probe failed depth={} status={} "
+                "primary={} undo={} detail={} index={} base={} final={} "
+                "batches={} coordinates={} total_us={} undo_restored={} "
+                "restore_samples={}/{}/{}/{} diff_mask=0x{:x} "
+                "input_diff={}@{}/{}@{} rng_mask=0x{:x} wind_mask=0x{:x}\n"),
+                depths[index],
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(status.code))),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(
+                        result.primary_failure))),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(
+                        result.undo_failure))),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::native_candidate_validation_issue_name(
+                        result.primary_validation.issue))),
+                result.primary_validation.index,
+                result.resimulation_base.frame,
+                result.final_coordinate.frame,
+                result.replayed_batches,
+                result.replayed_coordinates,
+                result.total_ns / 1000,
+                result.undo_restored,
+                result.primary_performance.local_restore.samples,
+                result.primary_performance.typed_restore.samples,
+                result.primary_performance.wind_restore.samples,
+                result.primary_performance.ucrt_restore.samples,
+                result.undo_comparison_mask,
+                result.input_scalar_difference_count,
+                result.first_input_scalar_difference,
+                result.input_cache_difference_count,
+                result.first_input_cache_difference,
+                result.rng_difference_mask,
+                result.wind_difference_mask);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] correction interbatch diff batch={} mask=0x{:x} "
+                "frame_mask=0x{:x} hgcpu={}@{} motion={}@{} "
+                "final_hgcpu={}@{} final_motion={}@{} "
+                "source=0x{:x}+{} stream={}/{}\n"),
+                result.first_interbatch_difference_batch,
+                result.first_interbatch_difference_mask,
+                result.first_interbatch_frame_difference_mask,
+                result.interbatch_local_difference_count,
+                result.first_interbatch_local_difference,
+                result.interbatch_motion_difference_count,
+                result.first_interbatch_motion_difference,
+                result.final_local_difference_count[0],
+                result.first_final_local_difference[0],
+                result.final_local_difference_count[1],
+                result.first_final_local_difference[1],
+                result.first_interbatch_local_source.source_address,
+                result.first_interbatch_local_difference
+                    - result.first_interbatch_local_source.stream_offset,
+                result.first_interbatch_local_source.stream_offset,
+                result.first_interbatch_local_source.size);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] correction local source fighters=0x{:x}/0x{:x} "
+                "offsets={}/{} source_rva=0x{:x}\n"),
+                result.diagnostic_fighter_roots[0],
+                result.diagnostic_fighter_roots[1],
+                static_cast<std::int64_t>(
+                    result.first_interbatch_local_source.source_address
+                    + (result.first_interbatch_local_difference
+                        - result.first_interbatch_local_source.stream_offset)
+                    - result.diagnostic_fighter_roots[0]),
+                static_cast<std::int64_t>(
+                    result.first_interbatch_local_source.source_address
+                    + (result.first_interbatch_local_difference
+                        - result.first_interbatch_local_source.stream_offset)
+                    - result.diagnostic_fighter_roots[1]),
+                result.first_interbatch_local_source.source_address
+                    + (result.first_interbatch_local_difference
+                        - result.first_interbatch_local_source.stream_offset)
+                    - result.diagnostic_image_base);
+            if (result.first_input_cache_difference != UINT32_MAX)
+            {
+                const auto& expected_row = result.expected_input_cache_row;
+                const auto& observed_row = result.observed_input_cache_row;
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] correction input/RNG diff row={} "
+                    "expected={}/{}/0x{:x}/{} observed={}/{}/0x{:x}/{} "
+                    "lcg=0x{:x}/0x{:x} lfsr_index={}/{} wind0=0x{:x}/0x{:x}\n"),
+                    result.first_input_cache_difference,
+                    expected_row.game_round, expected_row.frame_index,
+                    expected_row.input_value, expected_row.filled,
+                    observed_row.game_round, observed_row.frame_index,
+                    observed_row.input_value, observed_row.filled,
+                    result.expected_rng.lcg, result.observed_rng.lcg,
+                    result.expected_rng.lfsr_index,
+                    result.observed_rng.lfsr_index,
+                    result.expected_rng.wind[0], result.observed_rng.wind[0]);
+            }
+            if (result.failed_batch_index != SIZE_MAX)
+            {
+                const auto& envelope = result.failed_envelope;
+                const auto& before = result.failed_batch_result.before;
+                const auto& after = result.failed_batch_result.after;
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] correction batch mismatch batch={} failure={} "
+                    "observed_coordinates={} before(frame={}/{} input_round={}/{} "
+                    "input_time={}/{} cursor_round={}/{} cursor_time={}/{} "
+                    "main={}/{} round={}/{}) after(frame={}/{} input_round={}/{} "
+                    "input_time={}/{} cursor_round={}/{} cursor_time={}/{} "
+                    "main={}/{} round={}/{})\n"),
+                    result.failed_batch_index,
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::failure_code_name(
+                            result.failed_batch_result.failure))),
+                    result.failed_batch_result.observed_coordinates,
+                    before.frame_counter, envelope.native_frame_before,
+                    before.input_game_round, envelope.input_round_before,
+                    before.input_game_time, envelope.input_time_before,
+                    before.manager_game_round_cursor,
+                    envelope.manager_round_cursor_before,
+                    before.manager_game_time_cursor,
+                    envelope.manager_time_cursor_before, before.main_state,
+                    envelope.main_state_before, before.round_state,
+                    envelope.round_state_before,
+                    after.frame_counter, envelope.native_frame_after,
+                    after.input_game_round, envelope.input_round_after,
+                    after.input_game_time, envelope.input_time_after,
+                    after.manager_game_round_cursor,
+                    envelope.manager_round_cursor_after,
+                    after.manager_game_time_cursor,
+                    envelope.manager_time_cursor_after, after.main_state,
+                    envelope.main_state_after, after.round_state,
+                    envelope.round_state_after);
+            }
+            return;
+        }
+        ++m_owned_correction_probe_index;
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] owned correction probe passed depth={} base={} "
+            "final={} batches={} coordinates={} undo_capture_us={} "
+            "restore_us={} resim_us={} verify_us={} total_us={}\n"),
+            depths[index], result.resimulation_base.frame,
+            result.final_coordinate.frame, result.replayed_batches,
+            result.replayed_coordinates, result.undo_capture_ns / 1000,
+            result.restore_ns / 1000, result.resimulation_ns / 1000,
+            result.verification_ns / 1000, result.total_ns / 1000);
+    }
 
     void observe_hgcpu_diagnostic(std::uint32_t frame) noexcept
     {
@@ -3517,6 +3699,7 @@ private:
                 ucrt_image.draws,
                 ucrt_image.state);
         }
+        self->service_owned_correction_probe();
     }
 
     static void on_outer_tick_begin(
@@ -3615,6 +3798,7 @@ private:
         self->m_frame_fencepost_manager.store(0, std::memory_order_release);
         self->m_frame_fencepost_last_frame.store(0, std::memory_order_release);
         self->m_replay_native_runtime.ObserveReplayExit();
+        self->m_owned_correction_probe_index = 0;
         self->m_replay_exit_state.store(
             observation.replay_state, std::memory_order_release);
         self->m_replay_exit_observations.fetch_add(1, std::memory_order_acq_rel);

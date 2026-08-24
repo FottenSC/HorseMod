@@ -178,6 +178,7 @@ private:
 Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
     : memory_(std::make_unique<ProcessMemory>()),
       regions_(std::make_unique<NativeCandidateRegions>(*memory_)),
+      motion_banks_(std::make_unique<MotionBankSnapshot>(*memory_)),
       callback_probe_(std::make_unique<CallbackTopologyProbe>(*memory_)),
       wind_probe_(std::make_unique<StageWindTopologyProbe>(*memory_)),
       adapter_(std::make_unique<CandidateGameStateAdapter>(*regions_, hgcpu_))
@@ -459,12 +460,15 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + hgcpu_writer_rva);
     adapter_binding.hgcpu_reader = reinterpret_cast<HgCpuExecFn>(
         image_base_ + hgcpu_reader_rva);
+    adapter_binding.motion_banks = motion_banks_.get();
     adapter_binding.ucrt_broker = ucrt_broker_;
     adapter_binding.wind_probe = wind_probe_.get();
     adapter_binding.wind_transaction = wind_transaction_.get();
     adapter_binding.wind_addresses = wind_addresses;
     adapter_binding.simulation_thread_id = simulation_thread_id;
-    Status adapter_status = adapter_->Configure(adapter_binding);
+    Status adapter_status = motion_banks_->Bind(
+        fighter_roots, adapter_binding.hgcpu_context);
+    if (adapter_status.ok()) adapter_status = adapter_->Configure(adapter_binding);
     if (adapter_status.ok()) adapter_status = adapter_->BindContext(context);
     if (!adapter_status.ok())
     {
@@ -616,6 +620,17 @@ Status Sc6CandidateCheckpointCapture::CaptureTransient(
     return adapter_->Capture(coordinate, output);
 }
 
+Status Sc6CandidateCheckpointCapture::EnsureRestoreOwnership(
+    std::uint32_t simulation_thread_id) noexcept
+{
+    if (ucrt_broker_ == nullptr || simulation_thread_id == 0
+        || simulation_thread_id != ::GetCurrentThreadId())
+    {
+        return Status::failure(FailureCode::WrongThread);
+    }
+    return ucrt_broker_->EnsureOwnership(simulation_thread_id);
+}
+
 Status Sc6CandidateCheckpointCapture::RestoreAndVerify(
     const Snapshot& snapshot) noexcept
 {
@@ -629,6 +644,18 @@ Status Sc6CandidateCheckpointCapture::RestoreAndVerify(
     if (status.ok()) status = adapter_->RebuildDerivedState();
     if (status.ok()) status = adapter_->VerifyRestoredState(snapshot);
     return status;
+}
+
+Status Sc6CandidateCheckpointCapture::TraceLocalStreamOffset(
+    std::size_t stream_offset, HgCpuWriteSpan& output,
+    std::array<std::uintptr_t, 2>& fighter_roots,
+    std::uintptr_t& image_base) noexcept
+{
+    fighter_roots = {};
+    image_base = image_base_;
+    if (!read_fighter_roots(fighter_roots))
+        return Status::failure(FailureCode::ContextUnavailable);
+    return adapter_->TraceLocalStreamOffset(stream_offset, output);
 }
 
 void Sc6CandidateCheckpointCapture::InvalidateHistory() noexcept
@@ -647,6 +674,7 @@ void Sc6CandidateCheckpointCapture::InvalidateHistory() noexcept
 void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 {
     adapter_->Reset();
+    motion_banks_->Invalidate();
     wind_transaction_.reset();
     wind_allocator_.reset();
     regions_->Invalidate();
@@ -679,5 +707,17 @@ const SnapshotStore& Sc6CandidateCheckpointCapture::snapshots(
 {
     return role == CandidateCheckpointRole::Landing
         ? landing_snapshots_ : batch_entry_snapshots_;
+}
+
+NativeCandidateValidationDiagnostic
+Sc6CandidateCheckpointCapture::restore_validation() const noexcept
+{
+    return regions_->validation_diagnostic();
+}
+
+CandidateAdapterPerformanceStatus
+Sc6CandidateCheckpointCapture::adapter_performance() const noexcept
+{
+    return adapter_->performance_status();
 }
 }

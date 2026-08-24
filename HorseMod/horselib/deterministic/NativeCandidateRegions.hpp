@@ -78,18 +78,6 @@ struct NativeRoundSequenceImage
         const NativeRoundSequenceImage&) = default;
 };
 
-struct NativeInputCacheRowImage
-{
-    std::int32_t game_round{};
-    std::uint32_t frame_index{};
-    std::uint32_t input_value{};
-    std::uint8_t filled{};
-
-    friend bool operator==(
-        const NativeInputCacheRowImage&,
-        const NativeInputCacheRowImage&) = default;
-};
-
 struct NativeFrameInputLogImage
 {
     std::array<std::byte, 0x30> scalars{};

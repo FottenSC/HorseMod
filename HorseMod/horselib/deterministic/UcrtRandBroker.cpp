@@ -27,6 +27,17 @@ Status UcrtRandBroker::AcquireOwnership(std::uint32_t thread_id) noexcept
     return Status::success();
 }
 
+Status UcrtRandBroker::EnsureOwnership(std::uint32_t thread_id) noexcept
+{
+    if (mode_ == UcrtRandBrokerMode::Owned)
+    {
+        return owner_thread_id_ == thread_id
+            ? Status::success()
+            : Status::failure(FailureCode::WrongThread);
+    }
+    return AcquireOwnership(thread_id);
+}
+
 void UcrtRandBroker::Stop() noexcept
 {
     mode_ = UcrtRandBrokerMode::Disabled;

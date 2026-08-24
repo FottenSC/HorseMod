@@ -33,12 +33,15 @@ struct FrameFencepostObservation
     std::int32_t unpause_countdown{};
     PlayerInput inputs[2]{};
     PlayerInput pre_filter_inputs[2]{};
+    NativeInputCacheRowImage source_rows[2]{};
+    std::int32_t input_update_time{};
     std::uint8_t round_state{};
     std::uint8_t repeat_pending{};
     std::uint8_t pending_move_state{};
     std::uint16_t read_mask{};
     std::uint32_t input_filter_invocations{};
     bool input_filter_observed{};
+    bool source_rows_observed{};
 };
 
 struct ReplayExitObservation

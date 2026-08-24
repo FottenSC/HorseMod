@@ -78,6 +78,56 @@ struct ReplayTimelineStatus
     bool partial{};
 };
 
+struct OwnedCorrectionResult
+{
+    FailureCode failure{FailureCode::None};
+    FailureCode primary_failure{FailureCode::None};
+    FailureCode undo_failure{FailureCode::None};
+    FrameCoordinate earliest_changed{};
+    FrameCoordinate resimulation_base{};
+    FrameCoordinate final_coordinate{};
+    CanonicalHash final_hash{};
+    NativeCandidateValidationDiagnostic primary_validation{};
+    NativeCandidateValidationDiagnostic undo_validation{};
+    CandidateAdapterPerformanceStatus primary_performance{};
+    NativeBatchEnvelope failed_envelope{};
+    OwnedBatchReplayResult failed_batch_result{};
+    std::size_t failed_batch_index{SIZE_MAX};
+    std::uint64_t replayed_coordinates{};
+    std::uint32_t replayed_batches{};
+    std::uint64_t undo_capture_ns{};
+    std::uint64_t restore_ns{};
+    std::uint64_t resimulation_ns{};
+    std::uint64_t verification_ns{};
+    std::uint64_t total_ns{};
+    std::uint64_t undo_comparison_mask{};
+    std::uint32_t input_scalar_difference_count{};
+    std::uint32_t input_cache_difference_count{};
+    std::uint32_t first_input_cache_difference{UINT32_MAX};
+    std::uint32_t first_input_scalar_difference{UINT32_MAX};
+    NativeInputCacheRowImage expected_input_cache_row{};
+    NativeInputCacheRowImage observed_input_cache_row{};
+    std::uint32_t rng_difference_mask{};
+    std::uint32_t wind_difference_mask{};
+    std::uint64_t first_interbatch_difference_mask{};
+    std::size_t first_interbatch_difference_batch{SIZE_MAX};
+    std::uint32_t first_interbatch_frame_difference_mask{};
+    std::uint32_t first_interbatch_local_difference{UINT32_MAX};
+    std::uint32_t interbatch_local_difference_count{};
+    std::uint32_t first_interbatch_motion_difference{UINT32_MAX};
+    std::uint32_t interbatch_motion_difference_count{};
+    std::array<std::uint32_t, 2> first_final_local_difference{
+        UINT32_MAX, UINT32_MAX};
+    std::array<std::uint32_t, 2> final_local_difference_count{};
+    HgCpuWriteSpan first_interbatch_local_source{};
+    std::array<std::uintptr_t, 2> diagnostic_fighter_roots{};
+    std::uintptr_t diagnostic_image_base{};
+    NativeRngImage expected_rng{};
+    NativeRngImage observed_rng{};
+    bool converged{};
+    bool undo_restored{};
+};
+
 class Sc6ReplayRuntime final
 {
 public:
@@ -104,6 +154,12 @@ public:
     // owns the same window.
     Status ExecuteOwnedStateSeek(
         FrameCoordinate target, DeterministicHookSet& hooks) noexcept;
+    Status CaptureCurrentCanonical(Snapshot& output) noexcept;
+    Status ExecuteOwnedCorrection(
+        FrameCoordinate earliest_changed,
+        const CanonicalHash& expected_final_hash,
+        DeterministicHookSet& hooks,
+        OwnedCorrectionResult& output) noexcept;
 
 private:
     Status PrepareInitialGeneration(
@@ -116,6 +172,26 @@ private:
     static void* ResolveStage(void* user) noexcept;
     static Status CaptureOwnedLanding(
         void* user, FrameCoordinate coordinate) noexcept;
+    Status ReplayOwnedBatchRange(
+        std::size_t first_batch_index,
+        std::size_t final_batch_index,
+        std::uint64_t generation,
+        DeterministicHookSet& hooks,
+        std::optional<std::size_t> landing_batch_index,
+        std::uint32_t landing_offset,
+        Snapshot* landing,
+        std::uint64_t* replayed_coordinates = nullptr,
+        std::uint32_t* replayed_batches = nullptr,
+        std::size_t* failed_batch_index = nullptr,
+        NativeBatchEnvelope* failed_envelope = nullptr,
+        OwnedBatchReplayResult* failed_result = nullptr,
+        std::uint64_t* first_interbatch_difference_mask = nullptr,
+        std::size_t* first_interbatch_difference_batch = nullptr,
+        std::uint32_t* first_interbatch_frame_difference_mask = nullptr,
+        std::uint32_t* first_interbatch_local_difference = nullptr,
+        std::uint32_t* interbatch_local_difference_count = nullptr,
+        std::uint32_t* first_interbatch_motion_difference = nullptr,
+        std::uint32_t* interbatch_motion_difference_count = nullptr) noexcept;
 
     struct OwnedLandingCapture
     {

@@ -8,7 +8,7 @@
 namespace Horse::Deterministic::Schema
 {
 inline constexpr std::uint32_t protocol_version = 1;
-inline constexpr std::uint32_t snapshot_schema_version = 7;
+inline constexpr std::uint32_t snapshot_schema_version = 9;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::uint64_t checkpoint_interval = 30;
 inline constexpr std::uint32_t maximum_supported_native_batch_width = 12;
@@ -60,7 +60,7 @@ inline constexpr std::uintptr_t stage_break_wall_handler_rva = 0x53d4b0;
 inline constexpr std::uintptr_t stage_break_barrier_handler_rva = 0x549f40;
 inline constexpr std::uintptr_t stage_break_dispatch_rva = 0x53d130;
 inline constexpr std::uintptr_t battle_audio_dispatch_rva = 0x519480;
-inline constexpr std::uint16_t required_observation_read_mask = 0x0fff;
+inline constexpr std::uint16_t required_observation_read_mask = 0x3fff;
 inline constexpr std::uint16_t required_outer_tick_read_mask = 0x00ff;
 inline constexpr std::uintptr_t frame_counter_rva = 0x470d0c4;
 inline constexpr std::uintptr_t landing_fencepost_rva = 0x3fca60;
@@ -79,6 +79,11 @@ inline constexpr std::ptrdiff_t manager_round_state_frame = 0x1490;
 inline constexpr std::ptrdiff_t manager_unpause_countdown = 0x14f0;
 inline constexpr std::ptrdiff_t input_log_game_round = 0x3a0;
 inline constexpr std::ptrdiff_t input_log_game_time = 0x3a4;
+inline constexpr std::ptrdiff_t input_log_update_time = 0x3ac;
+inline constexpr std::ptrdiff_t input_log_input_delay = 0x390;
+inline constexpr std::ptrdiff_t input_log_cache = 0x3c0;
+inline constexpr std::size_t input_log_cache_rows_per_player = 512;
+inline constexpr std::size_t input_log_cache_row_stride = 0x10;
 inline constexpr std::array<std::byte, 16> landing_fencepost_signature{
     std::byte{0x41}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83},
     std::byte{0xec}, std::byte{0x50}, std::byte{0x48}, std::byte{0x83},
