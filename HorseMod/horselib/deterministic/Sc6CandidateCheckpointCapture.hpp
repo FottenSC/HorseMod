@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CandidateCheckpoint.hpp"
+#include "CandidateGameStateAdapter.hpp"
 #include "Schema.hpp"
 #include "SnapshotStore.hpp"
 
@@ -54,6 +54,7 @@ private:
     std::unique_ptr<ProcessMemory> memory_;
     std::unique_ptr<NativeCandidateRegions> regions_;
     HgCpuStreamShim hgcpu_{};
+    std::unique_ptr<CandidateGameStateAdapter> adapter_;
     SnapshotStore snapshots_{
         checkpoint_memory_limit, maximum_checkpoints, CapacityPolicy::RejectNew};
     CandidateCheckpointCaptureStatus status_{};

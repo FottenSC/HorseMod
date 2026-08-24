@@ -18,6 +18,7 @@ constexpr std::uintptr_t fighter_roots_rva = 0x470DE90;
 constexpr std::uintptr_t move_dispatch_filter_rva = 0x427940;
 constexpr std::uintptr_t adjusted_weak_callback_vtable_rva = 0x3285198;
 constexpr std::uintptr_t hgcpu_writer_rva = 0x3841E0;
+constexpr std::uintptr_t hgcpu_reader_rva = 0x384540;
 constexpr std::uintptr_t pump_state_rva = 0x4100C70;
 constexpr std::uintptr_t scheduler_base_rva = 0x4715400;
 constexpr std::uintptr_t move_command_base_rva = 0x470F390;
@@ -75,7 +76,8 @@ public:
 
 Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
     : memory_(std::make_unique<ProcessMemory>()),
-      regions_(std::make_unique<NativeCandidateRegions>(*memory_))
+      regions_(std::make_unique<NativeCandidateRegions>(*memory_)),
+      adapter_(std::make_unique<CandidateGameStateAdapter>(*regions_, hgcpu_))
 {
 }
 
@@ -178,6 +180,33 @@ Status Sc6CandidateCheckpointCapture::bind(
     };
     const Status bound = regions_->Bind(addresses);
     if (!bound.ok()) return bound;
+    const NativeContext context{
+        coordinate.generation,
+        session_generation,
+        {coordinate.generation * 2 - 1, coordinate.generation * 2},
+        coordinate.generation,
+    };
+    CandidateAdapterBinding adapter_binding{};
+    adapter_binding.context = context;
+    adapter_binding.hgcpu_context = {
+        0xF8904E4B04BCA3B4ull,
+        Schema::snapshot_schema_version,
+        session_generation,
+        coordinate.generation,
+        {context.fighter_identities[0], context.fighter_identities[1]},
+        context.stage_identity,
+    };
+    adapter_binding.hgcpu_writer = reinterpret_cast<HgCpuExecFn>(
+        image_base_ + hgcpu_writer_rva);
+    adapter_binding.hgcpu_reader = reinterpret_cast<HgCpuExecFn>(
+        image_base_ + hgcpu_reader_rva);
+    Status adapter_status = adapter_->Configure(adapter_binding);
+    if (adapter_status.ok()) adapter_status = adapter_->BindContext(context);
+    if (!adapter_status.ok())
+    {
+        regions_->Invalidate();
+        return adapter_status;
+    }
     bound_manager_ = observation.battle_manager;
     bound_move_dispatch_ = move_dispatch;
     bound_session_generation_ = session_generation;
@@ -207,35 +236,8 @@ Status Sc6CandidateCheckpointCapture::Capture(
         }
     }
 
-    NativeCandidateImage native{};
-    Status captured = regions_->PreflightCapture();
-    if (captured.ok()) captured = regions_->Capture(native);
-    if (!captured.ok())
-    {
-        status_.failure = captured.code;
-        return captured;
-    }
-    const HgCpuGenerationContext hgcpu_context{
-        0xF8904E4B04BCA3B4ull,
-        Schema::snapshot_schema_version,
-        session_generation,
-        coordinate.generation,
-        {coordinate.generation * 2 - 1, coordinate.generation * 2},
-        coordinate.generation,
-    };
-    HgCpuLocalImage hgcpu_image{};
-    const auto writer = reinterpret_cast<HgCpuExecFn>(
-        image_base_ + hgcpu_writer_rva);
-    captured = hgcpu_.Capture(writer, hgcpu_context, hgcpu_image);
-    if (!captured.ok())
-    {
-        status_.failure = captured.code;
-        return captured;
-    }
     Snapshot snapshot{};
-    captured = CandidateCheckpointCodec::Encode(
-        coordinate, session_generation, {std::move(native), std::move(hgcpu_image)},
-        snapshot);
+    Status captured = adapter_->Capture(coordinate, snapshot);
     if (captured.ok()) captured = snapshots_.Save(std::move(snapshot));
     if (!captured.ok())
     {
@@ -251,6 +253,7 @@ Status Sc6CandidateCheckpointCapture::Capture(
 
 void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 {
+    adapter_->Reset();
     regions_->Invalidate();
     bound_manager_ = 0;
     bound_move_dispatch_ = 0;
