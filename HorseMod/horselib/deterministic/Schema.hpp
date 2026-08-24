@@ -11,6 +11,7 @@ inline constexpr std::uint32_t protocol_version = 1;
 inline constexpr std::uint32_t snapshot_schema_version = 1;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::uint64_t checkpoint_interval = 30;
+inline constexpr std::uint32_t maximum_supported_native_batch_width = 12;
 inline constexpr std::size_t replay_timeline_memory_limit =
     512ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_input_memory_budget =

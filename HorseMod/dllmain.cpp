@@ -3203,8 +3203,10 @@ private:
     bool m_replay_exit_first_observation_logged{};
     bool m_replay_exit_failure_logged{};
     std::atomic<std::uint64_t> m_candidate_checkpoint_logged_count{};
+    std::atomic<std::uint64_t> m_candidate_batch_entry_logged_count{};
     std::atomic<std::uint64_t> m_native_batch_evidence_logged_intervals{};
     std::atomic_bool m_candidate_checkpoint_first_failure_logged{};
+    std::atomic_bool m_candidate_batch_entry_first_failure_logged{};
 
     void observe_hgcpu_diagnostic(std::uint32_t frame) noexcept
     {
@@ -3377,6 +3379,60 @@ private:
                 timeline.maximum_input_delta_per_batch,
                 timeline.batch_input_generation_changes,
                 timeline.batch_frame_accounting_mismatches);
+        }
+    }
+
+    static void on_outer_tick_begin(
+        void* user,
+        const Horse::Deterministic::OuterTickObservation& observation) noexcept
+    {
+        auto* self = static_cast<HorseMod*>(user);
+        if (self == nullptr)
+            return;
+        if (observation.thread_id
+            != self->m_frame_fencepost_expected_thread.load(
+                std::memory_order_acquire))
+        {
+            self->m_frame_fencepost_failure.store(
+                Horse::Deterministic::FailureCode::WrongThread,
+                std::memory_order_release);
+            return;
+        }
+        const auto status = self->m_replay_native_runtime.ObserveOuterTickBegin(
+            observation);
+        if (!status.ok())
+        {
+            self->m_frame_fencepost_failure.store(
+                status.code, std::memory_order_release);
+            return;
+        }
+        const auto timeline = self->m_replay_native_runtime.timeline_status();
+        const auto logged = self->m_candidate_batch_entry_logged_count.load(
+            std::memory_order_acquire);
+        if (self->m_deterministic_config.trace
+            && timeline.captured_batch_entry_checkpoints > logged)
+        {
+            self->m_candidate_batch_entry_logged_count.store(
+                timeline.captured_batch_entry_checkpoints,
+                std::memory_order_release);
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] candidate batch-entry checkpoint captured count={} "
+                "generation={} frame={} bytes={}\n"),
+                timeline.captured_batch_entry_checkpoints,
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame,
+                timeline.batch_entry_checkpoint_bytes);
+        }
+        if (timeline.batch_entry_checkpoint_failure
+                != Horse::Deterministic::FailureCode::None
+            && !self->m_candidate_batch_entry_first_failure_logged.exchange(
+                true, std::memory_order_acq_rel))
+        {
+            const auto failure = Horse::Deterministic::failure_code_name(
+                timeline.batch_entry_checkpoint_failure);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] candidate batch-entry checkpoint unavailable: {}\n"),
+                RC::to_generic_string(std::string(failure)));
         }
     }
 
@@ -3874,7 +3930,8 @@ public:
                 0, std::memory_order_release);
             m_frame_fencepost_hook_status = m_deterministic_hooks.Install(
                 Horse::NativeBinding::imageBase(),
-                {this, &HorseMod::on_frame_fencepost, &HorseMod::on_outer_tick,
+                {this, &HorseMod::on_frame_fencepost,
+                    &HorseMod::on_outer_tick_begin, &HorseMod::on_outer_tick,
                     &HorseMod::on_replay_exit});
             if (!m_frame_fencepost_hook_status.ok())
             {
@@ -7769,13 +7826,17 @@ private:
                             m_replay_exit_observations.load()));
                     ImGui::TextDisabled(
                         "Replay timeline: frames=%llu sessions=%llu generations=%llu "
-                        "checkpoints=%llu checkpoint_mib=%.2f "
+                        "landing=%llu landing_mib=%.2f entries=%llu entry_mib=%.2f "
                         "round=%d native_time=%d%s",
                         static_cast<unsigned long long>(timeline.captured_frames),
                         static_cast<unsigned long long>(timeline.sessions),
                         static_cast<unsigned long long>(timeline.generations),
                         static_cast<unsigned long long>(timeline.captured_checkpoints),
                         static_cast<double>(timeline.checkpoint_bytes) / (1024.0 * 1024.0),
+                        static_cast<unsigned long long>(
+                            timeline.captured_batch_entry_checkpoints),
+                        static_cast<double>(timeline.batch_entry_checkpoint_bytes)
+                            / (1024.0 * 1024.0),
                         timeline.native_round,
                         timeline.native_time,
                         timeline.partial ? " (memory limit reached)" : "");
@@ -7814,6 +7875,15 @@ private:
                             timeline.checkpoint_failure);
                         ImGui::TextDisabled(
                             "Candidate checkpoint unavailable: %.*s",
+                            static_cast<int>(failure.size()), failure.data());
+                    }
+                    if (timeline.batch_entry_checkpoint_failure
+                        != Horse::Deterministic::FailureCode::None)
+                    {
+                        const auto failure = Horse::Deterministic::failure_code_name(
+                            timeline.batch_entry_checkpoint_failure);
+                        ImGui::TextDisabled(
+                            "Batch-entry checkpoint unavailable: %.*s",
                             static_cast<int>(failure.size()), failure.data());
                     }
                     const auto probe_failure = m_frame_fencepost_failure.load(

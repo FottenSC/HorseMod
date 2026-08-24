@@ -45,6 +45,8 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     pending_batch_id_ = 0;
     pending_batch_entry_ = {};
     pending_batch_coordinates_.clear();
+    batch_entry_checkpoint_generation_ = 0;
+    next_batch_entry_checkpoint_target_ = 0;
 }
 
 bool Sc6ReplayRuntime::ready() const noexcept
@@ -84,12 +86,7 @@ Status Sc6ReplayRuntime::ObserveFrame(
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
     }
-    if (pending_batch_id_ == 0)
-    {
-        pending_batch_id_ = observation.outer_batch_id;
-        pending_batch_entry_ = timeline_status_.last_coordinate;
-    }
-    else if (pending_batch_id_ != observation.outer_batch_id)
+    if (pending_batch_id_ != observation.outer_batch_id)
     {
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
@@ -194,6 +191,84 @@ Status Sc6ReplayRuntime::ObserveFrame(
     return Status::success();
 }
 
+Status Sc6ReplayRuntime::ObserveOuterTickBegin(
+    const OuterTickObservation& observation) noexcept
+{
+    if (timeline_status_.failure != FailureCode::None)
+        return Status::failure(timeline_status_.failure);
+    if (timeline_status_.partial)
+        return Status::success();
+    constexpr std::uint16_t required_begin_reads = 0x0f;
+    if ((observation.read_mask & required_begin_reads) != required_begin_reads)
+    {
+        timeline_status_.failure = FailureCode::ContextUnavailable;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (observation.before.main_state != 2)
+        return Status::success();
+    if (observation.batch_id == 0 || pending_batch_id_ != 0)
+    {
+        timeline_status_.failure = FailureCode::IdentityMismatch;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (timeline_thread_id_ != 0
+        && timeline_thread_id_ != observation.thread_id)
+    {
+        timeline_status_.failure = FailureCode::WrongThread;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (timeline_manager_ != 0
+        && timeline_manager_ != observation.battle_manager)
+    {
+        timeline_status_.failure = FailureCode::IdentityMismatch;
+        return Status::failure(timeline_status_.failure);
+    }
+    pending_batch_id_ = observation.batch_id;
+    pending_batch_entry_ = timeline_status_.last_coordinate;
+
+    const FrameCoordinate coordinate = timeline_status_.last_coordinate;
+    if (coordinate.generation == 0)
+        return Status::success();
+    const bool new_generation =
+        batch_entry_checkpoint_generation_ != coordinate.generation;
+    const bool due = new_generation
+        || coordinate.frame + Schema::maximum_supported_native_batch_width
+            >= next_batch_entry_checkpoint_target_;
+    if (!due)
+        return Status::success();
+
+    const Status captured = checkpoint_capture_.Capture(
+        CandidateCheckpointRole::BatchEntry,
+        observation.battle_manager,
+        coordinate,
+        timeline_session_generation_);
+    const auto status = checkpoint_capture_.status(
+        CandidateCheckpointRole::BatchEntry);
+    timeline_status_.captured_batch_entry_checkpoints = status.captured;
+    timeline_status_.batch_entry_checkpoint_bytes = status.bytes_used;
+    timeline_status_.batch_entry_checkpoint_failure = captured.ok()
+        ? FailureCode::None : captured.code;
+    if (captured.code == FailureCode::CapacityExceeded)
+    {
+        timeline_status_.partial = true;
+        return Status::success();
+    }
+    if (!captured.ok())
+        return Status::success();
+    batch_entry_checkpoint_generation_ = coordinate.generation;
+    if (new_generation)
+    {
+        next_batch_entry_checkpoint_target_ =
+            coordinate.frame + Schema::checkpoint_interval;
+    }
+    while (next_batch_entry_checkpoint_target_
+            <= coordinate.frame + Schema::maximum_supported_native_batch_width)
+    {
+        next_batch_entry_checkpoint_target_ += Schema::checkpoint_interval;
+    }
+    return Status::success();
+}
+
 Status Sc6ReplayRuntime::ObserveOuterTick(
     const OuterTickObservation& observation) noexcept
 {
@@ -247,10 +322,14 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
 
     const std::uint32_t coordinate_count =
         observation.after.frame_counter - observation.before.frame_counter;
+    if (coordinate_count > Schema::maximum_supported_native_batch_width)
+    {
+        timeline_status_.failure = FailureCode::AdapterUnqualified;
+        return Status::failure(timeline_status_.failure);
+    }
     if (observation.batch_id == 0
         || coordinate_count != pending_batch_coordinates_.size()
-        || (coordinate_count != 0 && pending_batch_id_ != observation.batch_id)
-        || (coordinate_count == 0 && pending_batch_id_ != 0))
+        || pending_batch_id_ != observation.batch_id)
     {
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
@@ -344,6 +423,11 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     timeline_manager_ = 0;
     timeline_input_log_ = 0;
     timeline_thread_id_ = 0;
+    pending_batch_id_ = 0;
+    pending_batch_entry_ = {};
+    pending_batch_coordinates_.clear();
+    batch_entry_checkpoint_generation_ = 0;
+    next_batch_entry_checkpoint_target_ = 0;
     checkpoint_capture_.ReleaseBinding();
 }
 

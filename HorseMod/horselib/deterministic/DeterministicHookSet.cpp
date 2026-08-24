@@ -64,6 +64,7 @@ Status DeterministicHookSet::Install(
         return Status::failure(FailureCode::IllegalTransition);
     }
     if (image_base == 0 || callbacks.frame_fencepost == nullptr
+        || callbacks.outer_tick_begin == nullptr
         || callbacks.outer_tick == nullptr || callbacks.replay_exit == nullptr
         || active_.load(std::memory_order_acquire) != nullptr)
     {
@@ -197,6 +198,8 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
         hooks->CaptureOuterTickState(
             battle_manager, observation.before, observation.read_mask,
             0x1, 0x2, 0x4, 0x8);
+        hooks->callbacks_.outer_tick_begin(
+            hooks->callbacks_.user, observation);
     }
     OuterTickCaptureContext capture_context{&observation};
     OuterTickCaptureContext* previous_capture = active_outer_capture_;

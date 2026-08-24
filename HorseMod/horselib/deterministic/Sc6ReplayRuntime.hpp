@@ -24,7 +24,9 @@ struct ReplayTimelineStatus
     std::uint64_t sessions{};
     std::uint64_t captured_frames{};
     std::uint64_t captured_checkpoints{};
+    std::uint64_t captured_batch_entry_checkpoints{};
     std::size_t checkpoint_bytes{};
+    std::size_t batch_entry_checkpoint_bytes{};
     std::uint64_t repeat_requests{};
     std::uint64_t same_native_time_coordinates{};
     std::uint64_t cursor_mismatches{};
@@ -41,6 +43,7 @@ struct ReplayTimelineStatus
     std::int32_t unpause_countdown{};
     std::uint8_t pending_move_state{};
     FailureCode checkpoint_failure{FailureCode::None};
+    FailureCode batch_entry_checkpoint_failure{FailureCode::None};
     bool partial{};
 };
 
@@ -55,6 +58,8 @@ public:
     [[nodiscard]] bool ready() const noexcept;
     [[nodiscard]] IReplayNativeBridge* bridge() noexcept;
     Status ObserveFrame(const FrameFencepostObservation& observation) noexcept;
+    Status ObserveOuterTickBegin(
+        const OuterTickObservation& observation) noexcept;
     Status ObserveOuterTick(const OuterTickObservation& observation) noexcept;
     void ObserveReplayExit() noexcept;
     [[nodiscard]] ReplayTimelineStatus timeline_status() const noexcept;
@@ -88,6 +93,8 @@ private:
     std::uint64_t pending_batch_id_{};
     FrameCoordinate pending_batch_entry_{};
     std::vector<FrameCoordinate> pending_batch_coordinates_{};
+    std::uint64_t batch_entry_checkpoint_generation_{};
+    std::uint64_t next_batch_entry_checkpoint_target_{};
 };
 }
 }

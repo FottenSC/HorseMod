@@ -18,6 +18,8 @@ void write_schema(std::ostream& output)
            << "  \"snapshot_schema_version\": " << Schema::snapshot_schema_version << ",\n"
            << "  \"maximum_transport_payload\": " << Schema::maximum_transport_payload << ",\n"
            << "  \"checkpoint_interval\": " << ReplayCoordinator::checkpoint_interval << ",\n"
+           << "  \"maximum_supported_native_batch_width\": "
+           << Schema::maximum_supported_native_batch_width << ",\n"
            << "  \"replay_timeline_memory_limit\": "
            << Schema::replay_timeline_memory_limit << ",\n"
            << "  \"replay_input_memory_budget\": "

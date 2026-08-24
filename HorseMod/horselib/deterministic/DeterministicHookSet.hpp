@@ -80,6 +80,7 @@ struct DeterministicHookCallbacks
 {
     void* user{};
     FrameFencepostCallback frame_fencepost{};
+    OuterTickCallback outer_tick_begin{};
     OuterTickCallback outer_tick{};
     ReplayExitCallback replay_exit{};
 };
