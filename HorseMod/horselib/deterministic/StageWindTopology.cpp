@@ -306,6 +306,15 @@ std::vector<std::byte> StageWindTopologyProbe::CanonicalBytes(
     const StageWindTopologyImage& image)
 {
     std::vector<std::byte> output;
+    CanonicalBytes(image, output);
+    return output;
+}
+
+void StageWindTopologyProbe::CanonicalBytes(
+    const StageWindTopologyImage& image, std::vector<std::byte>& output)
+{
+    output.clear();
+    if (output.capacity() < 0x1000) output.reserve(0x1000);
     append(output, &image.generation, sizeof(image.generation));
     append(output, image.root_clock.data(), image.root_clock.size());
     append(output, image.pending_callback_rvas.data(),
@@ -323,6 +332,5 @@ std::vector<std::byte> StageWindTopologyProbe::CanonicalBytes(
         append(output, &size, sizeof(size));
         append(output, node.semantic_state.data(), node.semantic_state.size());
     }
-    return output;
 }
 }

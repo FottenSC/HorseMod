@@ -284,6 +284,8 @@ public:
 
     [[nodiscard]] static std::vector<std::byte> CanonicalBytes(
         const NativeCandidateImage& image);
+    static void CanonicalBytes(
+        const NativeCandidateImage& image, std::vector<std::byte>& output);
     [[nodiscard]] static CanonicalNativeFingerprint CanonicalFingerprint(
         const NativeCandidateImage& image);
     [[nodiscard]] static Status DecodeCanonicalBytes(

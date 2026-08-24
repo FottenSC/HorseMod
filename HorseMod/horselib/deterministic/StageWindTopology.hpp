@@ -91,6 +91,8 @@ public:
 
     [[nodiscard]] static std::vector<std::byte> CanonicalBytes(
         const StageWindTopologyImage& image);
+    static void CanonicalBytes(const StageWindTopologyImage& image,
+        std::vector<std::byte>& output);
 
 private:
     INativeMemory& memory_;

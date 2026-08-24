@@ -201,7 +201,15 @@ std::vector<std::byte> SecondaryEventState::CanonicalBytes(
     const SecondaryEventStateImage& image)
 {
     std::vector<std::byte> output;
-    output.reserve(0x800);
+    CanonicalBytes(image, output);
+    return output;
+}
+
+void SecondaryEventState::CanonicalBytes(
+    const SecondaryEventStateImage& image, std::vector<std::byte>& output)
+{
+    output.clear();
+    if (output.capacity() < 0x800) output.reserve(0x800);
     append(output, &image.round_generation, sizeof(image.round_generation));
     for (std::size_t player = 0; player < 2; ++player)
     {
@@ -216,7 +224,6 @@ std::vector<std::byte> SecondaryEventState::CanonicalBytes(
         append(output, image.header_cursors[player].data(),
             image.header_counts[player] * sizeof(std::uint16_t));
     }
-    return output;
 }
 
 Status SecondaryEventState::DecodeCanonicalBytes(

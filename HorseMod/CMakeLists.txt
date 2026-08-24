@@ -78,6 +78,17 @@ endif()
 if(MSVC)
     set_property(TARGET HorseDeterministicCore PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    # UE4SS uses named single-config shipping profiles that CMake does not
+    # classify as Release. Keep the deterministic hot path optimized in every
+    # non-Debug profile instead of silently compiling snapshot capture with
+    # MSVC's unoptimized defaults.
+    target_compile_options(HorseDeterministicCore PRIVATE
+        "$<$<NOT:$<CONFIG:Debug>>:/O2>"
+        "$<$<NOT:$<CONFIG:Debug>>:/Ob2>"
+    )
+    target_compile_definitions(HorseDeterministicCore PRIVATE
+        "$<$<NOT:$<CONFIG:Debug>>:NDEBUG>"
+    )
 endif()
 
 set(HORSELIB_GAMEIMGUI_HEADERS

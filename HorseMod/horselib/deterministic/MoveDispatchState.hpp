@@ -82,6 +82,8 @@ public:
 
     [[nodiscard]] static std::vector<std::byte> CanonicalBytes(
         const MoveDispatchImage& image);
+    static void CanonicalBytes(
+        const MoveDispatchImage& image, std::vector<std::byte>& output);
     [[nodiscard]] static Status DecodeCanonicalBytes(
         std::span<const std::byte> bytes, MoveDispatchImage& output) noexcept;
 

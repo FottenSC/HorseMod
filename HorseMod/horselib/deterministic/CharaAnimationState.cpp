@@ -491,7 +491,15 @@ std::vector<std::byte> CharaAnimationState::CanonicalBytes(
     const CharaAnimationStateImage& image)
 {
     std::vector<std::byte> output;
-    output.reserve(0x1000);
+    CanonicalBytes(image, output);
+    return output;
+}
+
+void CharaAnimationState::CanonicalBytes(
+    const CharaAnimationStateImage& image, std::vector<std::byte>& output)
+{
+    output.clear();
+    if (output.capacity() < 0x1000) output.reserve(0x1000);
     append(output, &image.round_generation, sizeof(image.round_generation));
     for (const auto& player : image.players)
     {
@@ -521,7 +529,6 @@ std::vector<std::byte> CharaAnimationState::CanonicalBytes(
         append(output, player.trigger_scalars.data(),
             player.trigger_count * sizeof(player.trigger_scalars[0]));
     }
-    return output;
 }
 
 Status CharaAnimationState::DecodeCanonicalBytes(

@@ -109,6 +109,8 @@ public:
 
     static std::vector<std::byte> CanonicalBytes(
         const CharaAnimationStateImage& image);
+    static void CanonicalBytes(const CharaAnimationStateImage& image,
+        std::vector<std::byte>& output);
     static Status DecodeCanonicalBytes(std::span<const std::byte> bytes,
         CharaAnimationStateImage& output) noexcept;
     static bool Validate(const CharaAnimationStateImage& image) noexcept;

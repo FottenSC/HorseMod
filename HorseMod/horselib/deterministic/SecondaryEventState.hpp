@@ -43,6 +43,8 @@ public:
 
     static std::vector<std::byte> CanonicalBytes(
         const SecondaryEventStateImage& image);
+    static void CanonicalBytes(const SecondaryEventStateImage& image,
+        std::vector<std::byte>& output);
     static Status DecodeCanonicalBytes(std::span<const std::byte> bytes,
         SecondaryEventStateImage& output) noexcept;
     static bool Validate(const SecondaryEventStateImage& image) noexcept;

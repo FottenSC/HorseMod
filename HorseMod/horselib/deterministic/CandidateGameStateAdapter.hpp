@@ -51,6 +51,7 @@ struct CandidatePhaseTimingStatus
 
 struct CandidateAdapterPerformanceStatus
 {
+    CandidatePhaseTimingStatus total_capture{};
     CandidatePhaseTimingStatus typed_capture{};
     CandidatePhaseTimingStatus local_capture{};
     CandidatePhaseTimingStatus hgcpu_capture{};
@@ -122,6 +123,7 @@ public:
     Status ReconcilePresentation(FrameCoordinate coordinate) noexcept override;
     [[nodiscard]] CandidateAdapterPerformanceStatus performance_status()
         const noexcept;
+    void ResetCapturePerformanceWindow() noexcept;
     [[nodiscard]] CandidateCapturePhase last_capture_phase() const noexcept
     {
         return last_capture_phase_;
@@ -177,6 +179,7 @@ private:
     NativeCandidateRegions& regions_;
     HgCpuStreamShim& hgcpu_;
     CandidateAdapterBinding binding_{};
+    PhaseTimingHistogram total_capture_timing_{};
     PhaseTimingHistogram typed_capture_timing_{};
     PhaseTimingHistogram local_capture_timing_{};
     PhaseTimingHistogram hgcpu_capture_timing_{};

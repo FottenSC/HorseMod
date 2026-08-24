@@ -16,7 +16,10 @@ SnapshotStore::SnapshotStore(
 
 std::size_t SnapshotStore::snapshot_cost(const Snapshot& snapshot) const noexcept
 {
-    return sizeof(Snapshot) + snapshot.bytes.size();
+    std::size_t cost = sizeof(Snapshot) + snapshot.bytes.size();
+    for (const auto& local : snapshot.local_images)
+        cost += sizeof(LocalReconstructionImage) + local.bytes.size();
+    return cost;
 }
 
 void SnapshotStore::erase_oldest() noexcept
@@ -118,6 +121,20 @@ void SnapshotStore::InvalidateGeneration(std::uint64_t generation) noexcept
 std::size_t SnapshotStore::BytesUsed() const noexcept
 {
     return bytes_used_;
+}
+
+bool SnapshotStore::TakeOldestIfFull(Snapshot& output) noexcept
+{
+    if (policy_ != CapacityPolicy::EvictOldest
+        || snapshots_.size() < maximum_entries_ || snapshots_.empty())
+    {
+        return false;
+    }
+    auto oldest = snapshots_.begin();
+    bytes_used_ -= snapshot_cost(oldest->second);
+    output = std::move(oldest->second);
+    snapshots_.erase(oldest);
+    return true;
 }
 
 void SnapshotStore::Clear() noexcept

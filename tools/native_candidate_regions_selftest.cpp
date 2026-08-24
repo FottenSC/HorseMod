@@ -690,11 +690,18 @@ void test_candidate_checkpoint_codec()
             && snapshot.canonical_hash != CanonicalHash{},
         "checkpoint contains versioned payload and canonical component hash");
     Snapshot captured_snapshot{};
+    auto captured_image = image;
     expect(CandidateCheckpointCodec::EncodeCaptured(
-            {7, 30}, 0x9191, image, captured_snapshot).ok()
-            && captured_snapshot.bytes == snapshot.bytes
+            {7, 30}, 0x9191, captured_image, captured_snapshot).ok()
+            && captured_snapshot.local_images.size() == 2
             && captured_snapshot.canonical_hash == snapshot.canonical_hash,
-        "fresh-capture encoding preserves the fully validated wire image");
+        "fresh-capture encoding externalizes local images without changing canonical truth");
+    CandidateCheckpointImage decoded_captured{};
+    expect(CandidateCheckpointCodec::Decode(
+            captured_snapshot, decoded_captured).ok()
+            && decoded_captured.local_images.size() == 2
+            && decoded_captured.local_images[0].bytes == hgcpu.bytes,
+        "decode validates and rejoins attached local reconstruction images");
 
     CandidateCheckpointImage decoded{};
     expect(CandidateCheckpointCodec::Decode(snapshot, decoded).ok(),

@@ -64,6 +64,7 @@ Status CandidateGameStateAdapter::Configure(
 void CandidateGameStateAdapter::Reset() noexcept
 {
     binding_ = {};
+    total_capture_timing_ = {};
     typed_capture_timing_ = {};
     local_capture_timing_ = {};
     hgcpu_capture_timing_ = {};
@@ -189,9 +190,17 @@ Status CandidateGameStateAdapter::capture_image(
 Status CandidateGameStateAdapter::Capture(
     FrameCoordinate coordinate, Snapshot& output) noexcept
 {
-    output = {};
+    const auto total_begin = std::chrono::steady_clock::now();
     const Status preflight = PreflightCapture(coordinate);
-    if (!preflight.ok()) return preflight;
+    if (!preflight.ok())
+    {
+        output = {};
+        const auto total_end = std::chrono::steady_clock::now();
+        total_capture_timing_.Record(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                total_end - total_begin).count()));
+        return preflight;
+    }
     last_capture_phase_ = CandidateCapturePhase::None;
     const Status captured = capture_image(capture_scratch_);
     if (!captured.ok()) return captured;
@@ -203,6 +212,9 @@ Status CandidateGameStateAdapter::Capture(
     encode_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             encode_end - encode_begin).count()));
+    total_capture_timing_.Record(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            encode_end - total_begin).count()));
     if (encoded.ok()) last_capture_phase_ = CandidateCapturePhase::None;
     return encoded;
 }
@@ -211,6 +223,7 @@ CandidateAdapterPerformanceStatus
 CandidateGameStateAdapter::performance_status() const noexcept
 {
     return {
+        total_capture_timing_.Status(),
         typed_capture_timing_.Status(),
         local_capture_timing_.Status(),
         hgcpu_capture_timing_.Status(),
@@ -225,6 +238,18 @@ CandidateGameStateAdapter::performance_status() const noexcept
         derived_repair_timing_.Status(),
         total_restore_timing_.Status(),
     };
+}
+
+void CandidateGameStateAdapter::ResetCapturePerformanceWindow() noexcept
+{
+    total_capture_timing_ = {};
+    typed_capture_timing_ = {};
+    local_capture_timing_ = {};
+    hgcpu_capture_timing_ = {};
+    motion_capture_timing_ = {};
+    ucrt_capture_timing_ = {};
+    wind_capture_timing_ = {};
+    encode_timing_ = {};
 }
 
 Status CandidateGameStateAdapter::TraceLocalStreamOffset(

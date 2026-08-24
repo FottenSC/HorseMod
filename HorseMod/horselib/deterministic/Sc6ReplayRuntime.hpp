@@ -224,6 +224,9 @@ public:
     [[nodiscard]] bool ready() const noexcept;
     void SetForcedDepth7QualificationEnabled(bool enabled) noexcept;
     [[nodiscard]] std::size_t forced_qualification_bytes() const noexcept;
+    void ResetCapturePerformanceWindow() noexcept;
+    [[nodiscard]] CandidateAdapterPerformanceStatus capture_performance()
+        const noexcept;
     [[nodiscard]] IReplayNativeBridge* bridge() noexcept;
     Status ObserveFrame(const FrameFencepostObservation& observation) noexcept;
     Status ObserveOuterTickBegin(
@@ -317,6 +320,8 @@ private:
     Sc6CandidateCheckpointCapture checkpoint_capture_{};
     SnapshotStore forced_qualification_snapshots_{
         16u * 1024u * 1024u, 16, CapacityPolicy::EvictOldest};
+    Snapshot correction_undo_scratch_{};
+    Snapshot correction_verified_scratch_{};
     bool forced_depth7_qualification_enabled_{};
     ReplayTimelineStatus timeline_status_{};
     std::uintptr_t timeline_manager_{};

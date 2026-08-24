@@ -156,6 +156,8 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     batch_timeline_.Clear();
     canonical_timeline_.Clear();
     forced_qualification_snapshots_.Clear();
+    correction_undo_scratch_ = {};
+    correction_verified_scratch_ = {};
     checkpoint_capture_.Reset();
     timeline_status_ = {};
     timeline_manager_ = 0;
@@ -188,11 +190,24 @@ void Sc6ReplayRuntime::SetForcedDepth7QualificationEnabled(
 {
     forced_depth7_qualification_enabled_ = enabled;
     forced_qualification_snapshots_.Clear();
+    correction_undo_scratch_ = {};
+    correction_verified_scratch_ = {};
 }
 
 std::size_t Sc6ReplayRuntime::forced_qualification_bytes() const noexcept
 {
     return forced_qualification_snapshots_.BytesUsed();
+}
+
+void Sc6ReplayRuntime::ResetCapturePerformanceWindow() noexcept
+{
+    checkpoint_capture_.ResetCapturePerformanceWindow();
+}
+
+CandidateAdapterPerformanceStatus
+Sc6ReplayRuntime::capture_performance() const noexcept
+{
+    return checkpoint_capture_.adapter_performance();
 }
 
 Status Sc6ReplayRuntime::PrepareInitialGeneration(
@@ -536,6 +551,9 @@ Status Sc6ReplayRuntime::ObserveFrame(
     if (!generation_rebaseline_pending_)
     {
         Snapshot canonical{};
+        if (forced_depth7_qualification_enabled_)
+            static_cast<void>(
+                forced_qualification_snapshots_.TakeOldestIfFull(canonical));
         const Status captured = checkpoint_capture_.CaptureTransient(
             coordinate, canonical);
         if (!captured.ok())
@@ -775,6 +793,8 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     batch_timeline_.Clear();
     canonical_timeline_.Clear();
     forced_qualification_snapshots_.Clear();
+    correction_undo_scratch_ = {};
+    correction_verified_scratch_ = {};
     checkpoint_capture_.InvalidateHistory();
     timeline_status_ = {};
     timeline_status_.sessions = sessions;
@@ -981,6 +1001,8 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     batch_timeline_.Clear();
     canonical_timeline_.Clear();
     forced_qualification_snapshots_.Clear();
+    correction_undo_scratch_ = {};
+    correction_verified_scratch_ = {};
     checkpoint_capture_.InvalidateHistory();
     timeline_status_ = {};
     timeline_manager_ = 0;
@@ -1457,13 +1479,13 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
 
 Status Sc6ReplayRuntime::CaptureCurrentCanonical(Snapshot& output) noexcept
 {
-    output = {};
     if (!ready() || timeline_manager_ == 0 || timeline_thread_id_ == 0
         || timeline_thread_id_ != ::GetCurrentThreadId()
         || pending_batch_id_ != 0
         || timeline_status_.failure != FailureCode::None
         || timeline_status_.last_coordinate.generation == 0)
     {
+        output = {};
         return Status::failure(FailureCode::WrongThread);
     }
     return checkpoint_capture_.CaptureTransient(
@@ -1534,7 +1556,7 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     status = checkpoint_capture_.EnsureRestoreOwnership(timeline_thread_id_);
     if (!status.ok()) return finish(status);
 
-    Snapshot undo{};
+    Snapshot& undo = correction_undo_scratch_;
     auto phase_begin = Clock::now();
     status = checkpoint_capture_.CaptureTransient(
         timeline_status_.last_coordinate, undo);
@@ -1623,7 +1645,7 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         return finish(status);
     }
 
-    Snapshot verified{};
+    Snapshot& verified = correction_verified_scratch_;
     phase_begin = Clock::now();
     status = checkpoint_capture_.CaptureTransient(
         timeline_status_.last_coordinate, verified);

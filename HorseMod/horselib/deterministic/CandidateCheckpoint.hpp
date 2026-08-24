@@ -37,7 +37,7 @@ public:
     [[nodiscard]] static Status EncodeCaptured(
         FrameCoordinate coordinate,
         std::uint64_t context_identity,
-        const CandidateCheckpointImage& image,
+        CandidateCheckpointImage& image,
         Snapshot& output) noexcept;
     [[nodiscard]] static Status Decode(
         const Snapshot& snapshot,
@@ -48,6 +48,7 @@ private:
         FrameCoordinate coordinate,
         std::uint64_t context_identity,
         const CandidateCheckpointImage& image,
+        CandidateCheckpointImage* movable_image,
         bool verify_local_checksum,
         Snapshot& output) noexcept;
 };

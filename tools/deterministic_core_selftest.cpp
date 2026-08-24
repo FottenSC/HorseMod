@@ -577,6 +577,32 @@ void test_snapshot_capacity_is_atomic()
         "nearest lookup selects an exact base");
     expect(!generations.NearestAtOrBefore({2, 3}).has_value(),
         "nearest lookup never crosses a generation boundary");
+
+    SnapshotStore ring{1024 * 1024, 2, CapacityPolicy::EvictOldest};
+    Snapshot ring_first{};
+    ring_first.coordinate = {3, 10};
+    ring_first.bytes.resize(64, std::byte{0x11});
+    ring_first.local_images.resize(1);
+    ring_first.local_images[0].bytes.resize(256, std::byte{0x22});
+    Snapshot ring_second{};
+    ring_second.coordinate = {3, 11};
+    ring_second.bytes.resize(64, std::byte{0x33});
+    expect(ring.Save(std::move(ring_first)).ok()
+            && ring.Save(std::move(ring_second)).ok(),
+        "warm bounded qualification snapshot ring");
+    Snapshot reusable{};
+    expect(ring.TakeOldestIfFull(reusable)
+            && reusable.coordinate == FrameCoordinate{3, 10}
+            && reusable.bytes.capacity() >= 64
+            && reusable.local_images.size() == 1
+            && reusable.local_images[0].bytes.capacity() >= 256
+            && !ring.Load({3, 10}).has_value(),
+        "full qualification ring transfers oldest owned buffers for reuse");
+    reusable.coordinate = {3, 12};
+    expect(ring.Save(std::move(reusable)).ok()
+            && ring.Load({3, 11}).has_value()
+            && ring.Load({3, 12}).has_value(),
+        "recycled qualification slot re-enters the bounded ring");
 }
 
 void test_resimulation_base_planning_respects_batch_width()

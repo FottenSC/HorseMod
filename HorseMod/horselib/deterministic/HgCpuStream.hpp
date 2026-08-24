@@ -9,46 +9,6 @@
 
 namespace Horse::Deterministic
 {
-inline constexpr std::size_t hgcpu_stream_capacity = 0x28018;
-inline constexpr std::size_t maximum_local_reconstruction_images = 4;
-
-enum class LocalSerializerId : std::uint32_t
-{
-    HgCpuDirect = 1,
-    MotionBankTriples = 2,
-};
-
-// Version 3 uses the bounded local CRC32C/portable integrity checksum. Local
-// images are deliberately same-build artifacts, but the version still makes
-// rejection explicit.
-inline constexpr std::uint32_t hgcpu_direct_serializer_version = 3;
-
-struct LocalReconstructionGenerationContext
-{
-    std::uint64_t build_id{};
-    std::uint64_t schema_id{};
-    std::uint64_t session_generation{};
-    std::uint64_t round_generation{};
-    std::uint64_t fighter_generations[2]{};
-    std::uint64_t stage_generation{};
-    std::uint64_t camera_generation{};
-    std::uint64_t allocation_generation{};
-
-    friend bool operator==(
-        const LocalReconstructionGenerationContext&,
-        const LocalReconstructionGenerationContext&) = default;
-};
-
-struct LocalReconstructionImage
-{
-    LocalSerializerId serializer_id{LocalSerializerId::HgCpuDirect};
-    std::uint32_t serializer_version{hgcpu_direct_serializer_version};
-    LocalReconstructionGenerationContext context{};
-    std::size_t cursor{};
-    std::uint64_t checksum{};
-    std::vector<std::byte> bytes;
-};
-
 using HgCpuGenerationContext = LocalReconstructionGenerationContext;
 using HgCpuLocalImage = LocalReconstructionImage;
 

@@ -178,31 +178,65 @@ Status decode_wind_local(
         ? Status::success() : Status::failure(FailureCode::CaptureFailed);
 }
 
-bool hash_candidate(FrameCoordinate coordinate, std::uint64_t context_identity,
-    std::span<const std::byte> canonical, CanonicalHash& output) noexcept
+class ReusableSha256 final
 {
-    BCRYPT_HASH_HANDLE hash{};
-    if (!BCRYPT_SUCCESS(BCryptCreateHash(
-            BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0)))
-        return false;
-    const auto add = [hash](const void* data, std::size_t size) noexcept {
+public:
+    ~ReusableSha256()
+    {
+        if (hash_ != nullptr) BCryptDestroyHash(hash_);
+    }
+
+    bool Hash(FrameCoordinate coordinate, std::uint64_t context_identity,
+        std::span<const std::span<const std::byte>> canonical_components,
+        CanonicalHash& output) noexcept
+    {
+        if (!ensure()) return false;
+        const auto add = [this](const void* data, std::size_t size) noexcept {
         return size <= std::numeric_limits<ULONG>::max()
-            && BCRYPT_SUCCESS(BCryptHashData(hash,
+            && BCRYPT_SUCCESS(BCryptHashData(hash_,
                 reinterpret_cast<PUCHAR>(const_cast<void*>(data)),
                 static_cast<ULONG>(size), 0));
-    };
-    // Hash the canonical domain in place. Building a second contiguous vector
-    // copied every typed byte solely to satisfy the one-shot BCrypt API.
-    const bool added = add(hash_domain.data(), hash_domain.size())
-        && add(&coordinate.generation, sizeof(coordinate.generation))
-        && add(&coordinate.frame, sizeof(coordinate.frame))
-        && add(&context_identity, sizeof(context_identity))
-        && add(canonical.data(), canonical.size());
-    const bool finished = added && BCRYPT_SUCCESS(BCryptFinishHash(hash,
-        reinterpret_cast<PUCHAR>(output.data()),
-        static_cast<ULONG>(output.size()), 0));
-    BCryptDestroyHash(hash);
-    return finished;
+        };
+        const bool added = add(hash_domain.data(), hash_domain.size())
+            && add(&coordinate.generation, sizeof(coordinate.generation))
+            && add(&coordinate.frame, sizeof(coordinate.frame))
+            && add(&context_identity, sizeof(context_identity));
+        bool components_added = added;
+        for (const auto component : canonical_components)
+            components_added = components_added
+                && add(component.data(), component.size());
+        const bool finished = components_added
+            && BCRYPT_SUCCESS(BCryptFinishHash(hash_,
+            reinterpret_cast<PUCHAR>(output.data()),
+            static_cast<ULONG>(output.size()), 0));
+        if (!finished) reset();
+        return finished;
+    }
+
+private:
+    bool ensure() noexcept
+    {
+        return hash_ != nullptr || BCRYPT_SUCCESS(BCryptCreateHash(
+            BCRYPT_SHA256_ALG_HANDLE, &hash_, nullptr, 0, nullptr, 0,
+            BCRYPT_HASH_REUSABLE_FLAG));
+    }
+
+    void reset() noexcept
+    {
+        if (hash_ != nullptr) BCryptDestroyHash(hash_);
+        hash_ = nullptr;
+    }
+
+    BCRYPT_HASH_HANDLE hash_{};
+};
+
+bool hash_candidate(FrameCoordinate coordinate, std::uint64_t context_identity,
+    std::span<const std::span<const std::byte>> canonical_components,
+    CanonicalHash& output) noexcept
+{
+    static thread_local ReusableSha256 hasher;
+    return hasher.Hash(
+        coordinate, context_identity, canonical_components, output);
 }
 
 bool generations_match(FrameCoordinate coordinate,
@@ -244,6 +278,16 @@ bool valid_local_images(const CandidateCheckpointImage& image,
             && MotionBankSnapshot::ValidateLocalImageMetadata(
                 image.local_images[1]);
 }
+
+bool same_local_metadata(const LocalReconstructionImage& a,
+    const LocalReconstructionImage& b) noexcept
+{
+    return a.serializer_id == b.serializer_id
+        && a.serializer_version == b.serializer_version
+        && a.context == b.context
+        && a.cursor == b.cursor
+        && a.checksum == b.checksum;
+}
 }
 
 Status CandidateCheckpointCodec::Encode(FrameCoordinate coordinate,
@@ -251,25 +295,29 @@ Status CandidateCheckpointCodec::Encode(FrameCoordinate coordinate,
     Snapshot& output) noexcept
 {
     return EncodeInternal(
-        coordinate, context_identity, image, true, output);
+        coordinate, context_identity, image, nullptr, true, output);
 }
 
 Status CandidateCheckpointCodec::EncodeCaptured(FrameCoordinate coordinate,
-    std::uint64_t context_identity, const CandidateCheckpointImage& image,
+    std::uint64_t context_identity, CandidateCheckpointImage& image,
     Snapshot& output) noexcept
 {
     return EncodeInternal(
-        coordinate, context_identity, image, false, output);
+        coordinate, context_identity, image, &image, false, output);
 }
 
 Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
     std::uint64_t context_identity, const CandidateCheckpointImage& image,
-    bool verify_local_checksum, Snapshot& output) noexcept
+    CandidateCheckpointImage* movable_image, bool verify_local_checksum,
+    Snapshot& output) noexcept
 {
     auto reusable_bytes = std::move(output.bytes);
+    auto reusable_local_images = std::move(output.local_images);
     output = {};
     output.bytes = std::move(reusable_bytes);
     output.bytes.clear();
+    if (movable_image != nullptr)
+        output.local_images = std::move(reusable_local_images);
     if (context_identity == 0 || !generations_match(coordinate, image)
         || !valid_local_images(image, verify_local_checksum))
     {
@@ -277,37 +325,44 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
     }
     try
     {
-        const auto native_canonical =
-            NativeCandidateRegions::CanonicalBytes(image.native);
+        static thread_local std::vector<std::byte> native_canonical;
+        NativeCandidateRegions::CanonicalBytes(
+            image.native, native_canonical);
         if (native_canonical.empty()
             || native_canonical.size() > std::numeric_limits<std::uint32_t>::max())
             return Status::failure(FailureCode::CapacityExceeded);
-        const auto move_dispatch_canonical =
-            MoveDispatchState::CanonicalBytes(image.move_dispatch);
+        static thread_local std::vector<std::byte> move_dispatch_canonical;
+        MoveDispatchState::CanonicalBytes(
+            image.move_dispatch, move_dispatch_canonical);
         if (move_dispatch_canonical.empty()
             || move_dispatch_canonical.size()
                 > std::numeric_limits<std::uint32_t>::max())
             return Status::failure(FailureCode::CapacityExceeded);
-        const auto secondary_canonical =
-            SecondaryEventState::CanonicalBytes(image.secondary_events);
-        const auto animation_canonical =
-            CharaAnimationState::CanonicalBytes(image.chara_animation);
-        std::vector<std::byte> ucrt_canonical;
-        ucrt_canonical.reserve(32);
+        static thread_local std::vector<std::byte> secondary_canonical;
+        SecondaryEventState::CanonicalBytes(
+            image.secondary_events, secondary_canonical);
+        static thread_local std::vector<std::byte> animation_canonical;
+        CharaAnimationState::CanonicalBytes(
+            image.chara_animation, animation_canonical);
+        static thread_local std::vector<std::byte> ucrt_canonical;
+        ucrt_canonical.clear();
+        if (ucrt_canonical.capacity() < 32) ucrt_canonical.reserve(32);
         append_ucrt_canonical(ucrt_canonical, image.ucrt);
-        const auto wind_canonical = StageWindTopologyProbe::CanonicalBytes(image.wind);
-        std::vector<std::byte> canonical;
-        canonical.reserve(native_canonical.size()
-            + move_dispatch_canonical.size() + secondary_canonical.size()
-            + animation_canonical.size() + ucrt_canonical.size()
-            + wind_canonical.size());
-        append_range(canonical, native_canonical);
-        append_range(canonical, move_dispatch_canonical);
-        append_range(canonical, secondary_canonical);
-        append_range(canonical, animation_canonical);
-        append_range(canonical, ucrt_canonical);
-        append_range(canonical, wind_canonical);
-        std::vector<std::byte> wind_local;
+        static thread_local std::vector<std::byte> wind_canonical;
+        StageWindTopologyProbe::CanonicalBytes(image.wind, wind_canonical);
+        const std::array canonical_components{
+            std::span<const std::byte>{native_canonical},
+            std::span<const std::byte>{move_dispatch_canonical},
+            std::span<const std::byte>{secondary_canonical},
+            std::span<const std::byte>{animation_canonical},
+            std::span<const std::byte>{ucrt_canonical},
+            std::span<const std::byte>{wind_canonical},
+        };
+        std::size_t canonical_size{};
+        for (const auto component : canonical_components)
+            canonical_size += component.size();
+        static thread_local std::vector<std::byte> wind_local;
+        wind_local.clear();
         encode_wind_local(image.wind, wind_local);
         output.coordinate = coordinate;
         output.context_identity = context_identity;
@@ -423,13 +478,15 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
                 copy_at(194, diagnostic.repeat_count);
             }
         }
-        if (!hash_candidate(coordinate, context_identity, canonical, output.canonical_hash))
+        if (!hash_candidate(coordinate, context_identity,
+                canonical_components, output.canonical_hash))
             return Status::failure(FailureCode::CaptureFailed);
 
         std::size_t local_bytes{};
-        for (const auto& local : image.local_images)
-            local_bytes += local.bytes.size();
-        output.bytes.reserve(192 + canonical.size() + wind_local.size()
+        if (movable_image == nullptr)
+            for (const auto& local : image.local_images)
+                local_bytes += local.bytes.size();
+        output.bytes.reserve(192 + canonical_size + wind_local.size()
             + local_bytes);
         append_range(output.bytes, magic);
         append(output.bytes, format_version);
@@ -451,6 +508,8 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         append(output.bytes, image.ucrt.state);
         append(output.bytes, image.ucrt.draws);
         append(output.bytes, static_cast<std::uint8_t>(image.ucrt.seeded));
+        append(output.bytes, static_cast<std::uint8_t>(
+            movable_image != nullptr));
         append(output.bytes, static_cast<std::uint32_t>(image.local_images.size()));
         for (const auto& local : image.local_images)
         {
@@ -467,13 +526,16 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
             append(output.bytes, local.context.allocation_generation);
             append(output.bytes, static_cast<std::uint64_t>(local.cursor));
             append(output.bytes, local.checksum);
-            append_range(output.bytes, local.bytes);
+            if (movable_image == nullptr)
+                append_range(output.bytes, local.bytes);
         }
         append_range(output.bytes, native_canonical);
         append_range(output.bytes, move_dispatch_canonical);
         append_range(output.bytes, secondary_canonical);
         append_range(output.bytes, animation_canonical);
         append_range(output.bytes, wind_local);
+        if (movable_image != nullptr)
+            output.local_images.swap(movable_image->local_images);
         return Status::success();
     }
     catch (...)
@@ -501,6 +563,7 @@ Status CandidateCheckpointCodec::Decode(
     std::uint32_t wind_local_size{};
     std::uint64_t wind_local_checksum{};
     std::uint8_t ucrt_seeded{};
+    std::uint8_t attached_local_storage{};
     std::uint32_t local_count{};
     if (snapshot.coordinate.generation == 0 || snapshot.context_identity == 0
         || !reader.TakeBytes(observed_magic) || observed_magic != magic
@@ -524,8 +587,13 @@ Status CandidateCheckpointCodec::Decode(
         || !reader.Take(output.ucrt.state)
         || !reader.Take(output.ucrt.draws)
         || !reader.Take(ucrt_seeded) || ucrt_seeded > 1
+        || !reader.Take(attached_local_storage)
+        || attached_local_storage > 1
         || !reader.Take(local_count) || local_count == 0
-        || local_count > maximum_local_reconstruction_images)
+        || local_count > maximum_local_reconstruction_images
+        || (attached_local_storage != 0
+            ? snapshot.local_images.size() != local_count
+            : !snapshot.local_images.empty()))
     {
         return Status::failure(FailureCode::CaptureFailed);
     }
@@ -563,12 +631,22 @@ Status CandidateCheckpointCodec::Decode(
             return Status::failure(FailureCode::CaptureFailed);
         local.serializer_id = static_cast<LocalSerializerId>(serializer_id);
         local.cursor = static_cast<std::size_t>(local_size);
-        const auto local_bytes = reader.TakeView(local.cursor);
-        if (local_bytes.size() != local.cursor)
-            return Status::failure(FailureCode::CaptureFailed);
         try
         {
-            local.bytes.assign(local_bytes.begin(), local_bytes.end());
+            if (attached_local_storage != 0)
+            {
+                const auto& attached = snapshot.local_images[index];
+                if (!same_local_metadata(local, attached))
+                    return Status::failure(FailureCode::RestoreVerificationFailed);
+                local = attached;
+            }
+            else
+            {
+                const auto local_bytes = reader.TakeView(local.cursor);
+                if (local_bytes.size() != local.cursor)
+                    return Status::failure(FailureCode::CaptureFailed);
+                local.bytes.assign(local_bytes.begin(), local_bytes.end());
+            }
             output.local_images.push_back(std::move(local));
         }
         catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
@@ -596,15 +674,12 @@ Status CandidateCheckpointCodec::Decode(
         reset_checkpoint_image(output);
         return Status::failure(FailureCode::CaptureFailed);
     }
-    std::vector<std::byte> canonical;
     CanonicalHash verified_hash{};
+    std::vector<std::byte> ucrt_canonical;
     try
     {
-        canonical.assign(native_canonical.begin(), native_canonical.end());
-        append_range(canonical, move_dispatch_canonical);
-        append_range(canonical, secondary_canonical);
-        append_range(canonical, animation_canonical);
-        append_ucrt_canonical(canonical, output.ucrt);
+        ucrt_canonical.reserve(32);
+        append_ucrt_canonical(ucrt_canonical, output.ucrt);
     }
     catch (...)
     {
@@ -620,13 +695,12 @@ Status CandidateCheckpointCodec::Decode(
     const Status animation_decoded = CharaAnimationState::DecodeCanonicalBytes(
         animation_canonical, output.chara_animation);
     const Status wind_decoded = decode_wind_local(wind_local, output.wind);
+    std::vector<std::byte> wind_canonical;
     if (wind_decoded.ok())
     {
         try
         {
-            const auto wind_canonical =
-                StageWindTopologyProbe::CanonicalBytes(output.wind);
-            append_range(canonical, wind_canonical);
+            wind_canonical = StageWindTopologyProbe::CanonicalBytes(output.wind);
         }
         catch (...)
         {
@@ -640,7 +714,14 @@ Status CandidateCheckpointCodec::Decode(
         || !generations_match(snapshot.coordinate, output)
         || !valid_local_images(output, true)
         || !hash_candidate(snapshot.coordinate, snapshot.context_identity,
-            canonical, verified_hash)
+            std::array{
+                native_canonical,
+                move_dispatch_canonical,
+                secondary_canonical,
+                animation_canonical,
+                std::span<const std::byte>{ucrt_canonical},
+                std::span<const std::byte>{wind_canonical}},
+            verified_hash)
         || verified_hash != snapshot.canonical_hash)
     {
         reset_checkpoint_image(output);

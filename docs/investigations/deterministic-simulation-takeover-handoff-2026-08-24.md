@@ -298,14 +298,25 @@ the authoritative fencepost state exactly seven coordinates earlier,
 resimulates seven recorded native batches with ephemeral presentation
 suppressed, normalizes the verified between-tick InputLog clock, restores the
 pre-correction MoveDispatch event masks, and recaptures canonical state
-transactionally. A normal-render replay run completed 600/600 exact corrections
-from frame 980 through 1579 with correction-cycle p99 8.800 ms and maximum
-9.079 ms. It correctly remained non-passing because capture p99 was initially
-0.790/1.030 ms (landing/batch-entry), with batch-entry maximum 1.026 ms.
-Subsequent canonical-buffer/checksum work reduced a normal-render 600-frame
-diagnostic to 0.550/0.720 ms with maxima 0.542/0.718 ms. The cycle gate is met;
-the separate capture-p99 gate remains open. The deployed qualification flag was
-returned to `false` after testing.
+transactionally. The latest measured implementation keeps opaque native images
+as checksum-validated local `Snapshot` attachments, outside canonical hashes and
+the encoded peer-visible image. Role-local, correction, and sixteen-entry
+history buffers are reused after warm-up. `HorseDeterministicCore` is explicitly
+compiled with `/O2 /Ob2` in every non-Debug configuration; UE4SS's named
+single-config shipping profile previously left this static library unoptimized.
+
+On dirty source HEAD `57734d9f`, schema 38, normal-render DLL SHA-256
+`4E9558BEC3C336B8D5E2FBADBEC9CBA7927A9D95328EA0EB6E78DFAA961BE886`,
+and generated-schema SHA-256
+`E30164C94E1DF23F7904428F91C3B42B66EE2DA33667914A41E235E798F4D78A`,
+the replay workload completed 600/600 exact depth-7 corrections from frame 980
+through 1579. The qualification window contained 2,453 aggregate capture
+samples: capture p99 was 0.200 ms, maximum capture was 0.454 ms, correction-cycle
+p99 was 4.300 ms, and maximum cycle time was 6.083 ms. The forced-history ring
+remained bounded near 7.57 MiB. This passes correctness and timing for this one
+matchup/location only; presentation-terminal leakage counters, allocator-growth
+evidence, clean re-entry, and every other required matchup/location remain open.
+The deployed qualification flag was returned to `false` after testing.
 
 The replay qualification bridge now waits for native `round_state_frame != 0`
 and `unpause_countdown == 0` before starting its normal-play watch counter, so

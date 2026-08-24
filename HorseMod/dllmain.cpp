@@ -3232,6 +3232,7 @@ private:
         std::size_t checkpoint_bytes_begin{};
         std::size_t batch_entry_bytes_begin{};
         std::size_t forced_history_bytes_begin{};
+        Horse::Deterministic::Snapshot expected_scratch{};
         Horse::Deterministic::FailureCode failure{
             Horse::Deterministic::FailureCode::None};
         bool active{};
@@ -3800,6 +3801,7 @@ private:
                 timeline.batch_entry_checkpoint_bytes;
             qualification.forced_history_bytes_begin =
                 m_replay_native_runtime.forced_qualification_bytes();
+            m_replay_native_runtime.ResetCapturePerformanceWindow();
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] forced depth-7 qualification started "
                 "generation={} frame={} target={} normal_render=true\n"),
@@ -3811,11 +3813,11 @@ private:
             qualification.failure =
                 Horse::Deterministic::FailureCode::GenerationMismatch;
         }
-        Horse::Deterministic::Snapshot expected{};
         Horse::Deterministic::OwnedCorrectionResult result{};
         auto status = qualification.failure
                 == Horse::Deterministic::FailureCode::None
-            ? m_replay_native_runtime.CaptureCurrentCanonical(expected)
+            ? m_replay_native_runtime.CaptureCurrentCanonical(
+                qualification.expected_scratch)
             : Horse::Deterministic::Status::failure(qualification.failure);
         if (status.ok())
         {
@@ -3824,7 +3826,8 @@ private:
                 timeline.last_coordinate.frame
                     - kForcedQualificationDepth + 1};
             status = m_replay_native_runtime.ExecuteOwnedCorrection(
-                earliest, expected.canonical_hash, m_deterministic_hooks, result);
+                earliest, qualification.expected_scratch.canonical_hash,
+                m_deterministic_hooks, result);
         }
         const bool exact_depth = status.ok()
             && result.replayed_coordinates == kForcedQualificationDepth
@@ -3891,13 +3894,13 @@ private:
         if (qualification.completed < kForcedQualificationCorrections) return;
 
         const auto final_timeline = m_replay_native_runtime.timeline_status();
+        const auto capture_performance =
+            m_replay_native_runtime.capture_performance();
         const auto p99 = qualification.P99();
         const bool performance_ok = p99 < 16'670'000;
-        const bool capture_ok = final_timeline.checkpoint_capture_p99_ns
+        const bool capture_ok = capture_performance.total_capture.p99_ns
                 <= 500'000
-            && final_timeline.checkpoint_capture_max_ns <= 1'000'000
-            && final_timeline.batch_entry_capture_p99_ns <= 500'000
-            && final_timeline.batch_entry_capture_max_ns <= 1'000'000;
+            && capture_performance.total_capture.maximum_ns <= 1'000'000;
         qualification.reported = true;
         if (!performance_ok || !capture_ok)
         {
@@ -3909,7 +3912,7 @@ private:
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] forced depth-7 qualification {} completed={} "
             "generation={} frames={}-{} cycle_p99_us={} cycle_max_us={} "
-            "capture_p99_us={}/{} capture_max_us={}/{} "
+            "capture_samples={} capture_p99_us={} capture_max_us={} "
             "checkpoint_bytes={}->{} batch_entry_bytes={}->{} "
             "forced_history_bytes={}->{} "
             "canonical_convergence=exact presentation_suppressed=true\n"),
@@ -3918,10 +3921,9 @@ private:
             qualification.completed, qualification.generation,
             qualification.first_frame, qualification.last_frame,
             p99 / 1000, qualification.maximum_ns / 1000,
-            final_timeline.checkpoint_capture_p99_ns / 1000,
-            final_timeline.batch_entry_capture_p99_ns / 1000,
-            final_timeline.checkpoint_capture_max_ns / 1000,
-            final_timeline.batch_entry_capture_max_ns / 1000,
+            capture_performance.total_capture.samples,
+            capture_performance.total_capture.p99_ns / 1000,
+            capture_performance.total_capture.maximum_ns / 1000,
             qualification.checkpoint_bytes_begin,
             final_timeline.checkpoint_bytes,
             qualification.batch_entry_bytes_begin,

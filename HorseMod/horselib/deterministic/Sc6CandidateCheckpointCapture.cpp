@@ -636,13 +636,13 @@ Status Sc6CandidateCheckpointCapture::Capture(
 Status Sc6CandidateCheckpointCapture::CaptureTransient(
     FrameCoordinate coordinate, Snapshot& output) noexcept
 {
-    output = {};
     transient_identity_issue_ = 0;
     transient_identity_expected_ = 0;
     transient_identity_observed_ = 0;
     if (!regions_->IsBound() || bound_manager_ == 0
         || coordinate.generation != bound_round_generation_)
     {
+        output = {};
         return Status::failure(FailureCode::GenerationMismatch);
     }
     CameraTopology camera_topology{};
@@ -675,6 +675,11 @@ CandidateCapturePhase
 Sc6CandidateCheckpointCapture::transient_capture_phase() const noexcept
 {
     return adapter_->last_capture_phase();
+}
+
+void Sc6CandidateCheckpointCapture::ResetCapturePerformanceWindow() noexcept
+{
+    if (adapter_ != nullptr) adapter_->ResetCapturePerformanceWindow();
 }
 
 CharaAnimationTopologyIssue

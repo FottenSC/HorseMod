@@ -80,6 +80,7 @@ public:
         const noexcept;
     [[nodiscard]] CandidateAdapterPerformanceStatus adapter_performance()
         const noexcept;
+    void ResetCapturePerformanceWindow() noexcept;
     [[nodiscard]] CandidateCapturePhase transient_capture_phase() const noexcept;
     [[nodiscard]] CharaAnimationTopologyIssue
     transient_animation_topology_issue() const noexcept;

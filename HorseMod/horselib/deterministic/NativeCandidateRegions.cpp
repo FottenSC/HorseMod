@@ -1,4 +1,5 @@
 #include "NativeCandidateRegions.hpp"
+#include "LocalImageChecksum.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -129,6 +130,29 @@ void append_bytes(std::vector<std::byte>& output, const void* data, std::size_t 
     output.insert(output.end(), first, first + size);
 }
 
+struct FingerprintAccumulator
+{
+    void Add(const void* data, std::size_t size) noexcept
+    {
+        checksum.Add(data, size);
+    }
+
+    std::uint64_t FinishAndReset() noexcept
+    {
+        const auto result = checksum.Finish();
+        checksum = {};
+        return result;
+    }
+
+    LocalImageChecksum checksum{};
+};
+
+void append_bytes(
+    FingerprintAccumulator& output, const void* data, std::size_t size)
+{
+    output.Add(data, size);
+}
+
 void append_frame_boundary(
     std::vector<std::byte>& output,
     const NativeFrameBoundaryImage& frame)
@@ -153,6 +177,16 @@ void append_frame_boundary(
 
 void append_round_sequence(
     std::vector<std::byte>& output,
+    const NativeRoundSequenceImage& sequence)
+{
+    append_bytes(output, &sequence.count, sizeof(sequence.count));
+    append_bytes(output, &sequence.current_state,
+        sizeof(sequence.current_state));
+    append_bytes(output, sequence.states.data(), sequence.count);
+}
+
+void append_round_sequence(
+    FingerprintAccumulator& output,
     const NativeRoundSequenceImage& sequence)
 {
     append_bytes(output, &sequence.count, sizeof(sequence.count));
@@ -1297,10 +1331,18 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
     const NativeCandidateImage& image)
 {
     std::vector<std::byte> output;
+    CanonicalBytes(image, output);
+    return output;
+}
+
+void NativeCandidateRegions::CanonicalBytes(
+    const NativeCandidateImage& image, std::vector<std::byte>& output)
+{
+    output.clear();
     // The two MoveCommand images plus the packed InputLog cache already exceed
     // the old 0x6100 guess. Reserve the measured schema-6 upper bound so normal
     // capture never reallocates while serializing canonical state.
-    output.reserve(0xB000);
+    if (output.capacity() < 0xB000) output.reserve(0xB000);
     append_bytes(output, &image.session_generation, sizeof(image.session_generation));
     append_bytes(output, &image.round_generation, sizeof(image.round_generation));
     append_frame_boundary(output, image.frame);
@@ -1364,24 +1406,15 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
         append_bytes(output, &history.sample_count, sizeof(history.sample_count));
         append_bytes(output, &history.cursor, sizeof(history.cursor));
     }
-    return output;
 }
 
 CanonicalNativeFingerprint NativeCandidateRegions::CanonicalFingerprint(
     const NativeCandidateImage& image)
 {
     CanonicalNativeFingerprint output{};
-    std::vector<std::byte> bytes;
-    bytes.reserve(0x8000);
+    FingerprintAccumulator bytes;
     const auto finish = [&bytes]() noexcept {
-        std::uint64_t hash = 1469598103934665603ull;
-        for (const auto value : bytes)
-        {
-            hash ^= std::to_integer<std::uint8_t>(value);
-            hash *= 1099511628211ull;
-        }
-        bytes.clear();
-        return hash;
+        return bytes.FinishAndReset();
     };
     append_bytes(bytes, &image.frame.frame_counter, sizeof(image.frame.frame_counter));
     output[0] = finish();

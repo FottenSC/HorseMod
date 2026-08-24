@@ -279,6 +279,15 @@ std::vector<std::byte> MoveDispatchState::CanonicalBytes(
     const MoveDispatchImage& image)
 {
     std::vector<std::byte> output;
+    CanonicalBytes(image, output);
+    return output;
+}
+
+void MoveDispatchState::CanonicalBytes(
+    const MoveDispatchImage& image, std::vector<std::byte>& output)
+{
+    output.clear();
+    if (output.capacity() < 0x10000) output.reserve(0x10000);
     append(output, &image.generation, sizeof(image.generation));
     append(output, &image.frame_slot_index, sizeof(image.frame_slot_index));
     append(output, &image.sub_frame_index, sizeof(image.sub_frame_index));
@@ -318,7 +327,6 @@ std::vector<std::byte> MoveDispatchState::CanonicalBytes(
         append(output, &element.tick_count, sizeof(element.tick_count));
         append(output, &element.complete, sizeof(element.complete));
     }
-    return output;
 }
 
 Status MoveDispatchState::DecodeCanonicalBytes(
