@@ -34,6 +34,8 @@ struct StageWindNodeLayout
 };
 
 [[nodiscard]] std::span<const StageWindStateRange> StageWindCommonRanges() noexcept;
+[[nodiscard]] std::span<const StageWindStateRange>
+StageWindCommonDerivedRanges() noexcept;
 [[nodiscard]] const StageWindNodeLayout* FindStageWindNodeLayout(
     StageWindNodeKind kind) noexcept;
 [[nodiscard]] const StageWindNodeLayout* FindStageWindNodeLayoutByVtable(

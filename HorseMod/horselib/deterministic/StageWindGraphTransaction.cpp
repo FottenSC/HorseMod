@@ -12,6 +12,7 @@ namespace
 {
 constexpr std::size_t root_size = 0xF0;
 constexpr std::size_t max_nodes = 64;
+constexpr std::size_t common_derived_state_size = 0x20;
 
 template <typename T>
 bool read_value(INativeMemory& memory, std::uintptr_t address, T& output) noexcept
@@ -168,7 +169,11 @@ Status StageWindGraphTransaction::Restore(
         store(bytes, 0x28, root);
         if (!scatter_semantic_state(bytes, *layout, target.nodes[index].semantic_state)
             || !scatter_ranges(bytes, layout->derived_ranges,
-                target.nodes[index].derived_state)
+                std::span{target.nodes[index].derived_state}.subspan(
+                    common_derived_state_size))
+            || !scatter_ranges(bytes, StageWindCommonDerivedRanges(),
+                std::span{target.nodes[index].derived_state}.first(
+                    common_derived_state_size))
             || !memory_.Write(replacements[index], bytes))
         {
             free_all(allocator_, replacements);

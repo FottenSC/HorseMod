@@ -3217,10 +3217,58 @@ private:
     std::atomic_bool m_candidate_checkpoint_first_failure_logged{};
     std::atomic_bool m_candidate_batch_entry_first_failure_logged{};
     std::size_t m_owned_correction_probe_index{};
+    static constexpr std::uint32_t kForcedQualificationCorrections = 600;
+    static constexpr std::uint64_t kForcedQualificationDepth = 7;
+    struct ForcedCorrectionQualification
+    {
+        static constexpr std::uint64_t bucket_width_ns = 50'000;
+        static constexpr std::size_t bucket_count = 336;
+        std::array<std::uint32_t, bucket_count> buckets{};
+        std::uint32_t completed{};
+        std::uint64_t generation{};
+        std::uint64_t first_frame{};
+        std::uint64_t last_frame{};
+        std::uint64_t maximum_ns{};
+        std::size_t checkpoint_bytes_begin{};
+        std::size_t batch_entry_bytes_begin{};
+        std::size_t forced_history_bytes_begin{};
+        Horse::Deterministic::FailureCode failure{
+            Horse::Deterministic::FailureCode::None};
+        bool active{};
+        bool reported{};
+
+        void Record(std::uint64_t value) noexcept
+        {
+            const auto bucket = static_cast<std::size_t>((std::min)(
+                value / bucket_width_ns,
+                static_cast<std::uint64_t>(bucket_count - 1)));
+            ++buckets[bucket];
+            maximum_ns = (std::max)(maximum_ns, value);
+        }
+        [[nodiscard]] std::uint64_t P99() const noexcept
+        {
+            if (completed == 0) return 0;
+            const auto target = (completed * 99u + 99u) / 100u;
+            std::uint32_t cumulative{};
+            for (std::size_t index = 0; index < buckets.size(); ++index)
+            {
+                cumulative += buckets[index];
+                if (cumulative >= target)
+                    return (index + 1) * bucket_width_ns;
+            }
+            return bucket_count * bucket_width_ns;
+        }
+    } m_forced_correction_qualification{};
     std::atomic<std::uint64_t> m_seek_request_frame{UINT64_MAX};
     std::atomic<std::uint64_t> m_seek_request_sequence{};
     std::uint64_t m_seek_handled_sequence{};
+    std::uint64_t m_seek_pending_sequence{};
+    std::uint32_t m_seek_defer_count{};
     bool m_seek_request_active{};
+    std::atomic_bool m_resume_divergence_logged{};
+    std::atomic<std::uint64_t> m_seek_completed_target{};
+    std::atomic<std::uint64_t> m_seek_completed_source{};
+    std::atomic<std::uint64_t> m_seek_completed_verified{};
 
     bool service_owned_seek_request() noexcept
     {
@@ -3230,11 +3278,38 @@ private:
             if (timeline.failure != Horse::Deterministic::FailureCode::None)
             {
                 m_seek_request_active = false;
+                m_seek_completed_target.store(0, std::memory_order_release);
+                const auto hash_prefix = [](const Horse::Deterministic::CanonicalHash& hash)
+                {
+                    std::uint64_t value{};
+                    std::memcpy(&value, hash.data(), sizeof(value));
+                    return value;
+                };
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] owned replay seek resume failed status={} "
+                    "coordinate={} component_mask=0x{:x} wind_mask=0x{:x} "
+                    "expected_hash_prefix=0x{:016x} "
+                    "observed_hash_prefix=0x{:016x} verified_frames={}\n"),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::failure_code_name(
+                            timeline.failure))),
+                    timeline.resume_failure_coordinate.frame,
+                    timeline.resume_component_difference_mask,
+                    timeline.resume_wind_difference_mask,
+                    hash_prefix(timeline.resume_expected_hash),
+                    hash_prefix(timeline.resume_observed_hash),
+                    timeline.resumed_frames_verified);
                 return true;
             }
             if (!timeline.resume_validation_active)
             {
                 m_seek_request_active = false;
+                m_seek_completed_source.store(
+                    timeline.resume_source_end.frame, std::memory_order_relaxed);
+                m_seek_completed_verified.store(
+                    timeline.resumed_frames_verified, std::memory_order_relaxed);
+                m_seek_completed_target.store(
+                    timeline.resume_target.frame, std::memory_order_release);
                 Output::send<LogLevel::Default>(STR(
                     "[HorseMod] owned replay seek resume verified "
                     "target={} source_end={} verified_frames={} final={}\n"),
@@ -3249,7 +3324,11 @@ private:
         const auto sequence = m_seek_request_sequence.load(
             std::memory_order_acquire);
         if (sequence == m_seek_handled_sequence) return false;
-        m_seek_handled_sequence = sequence;
+        if (sequence != m_seek_pending_sequence)
+        {
+            m_seek_pending_sequence = sequence;
+            m_seek_defer_count = 0;
+        }
         const auto requested_frame = m_seek_request_frame.load(
             std::memory_order_acquire);
         if (timeline.partial
@@ -3257,6 +3336,7 @@ private:
             || timeline.last_coordinate.generation == 0
             || requested_frame >= timeline.last_coordinate.frame)
         {
+            m_seek_handled_sequence = sequence;
             const auto failure = Horse::Deterministic::FailureCode::IllegalTransition;
             m_frame_fencepost_failure.store(failure, std::memory_order_release);
             Output::send<LogLevel::Warning>(STR(
@@ -3275,15 +3355,123 @@ private:
             target, m_deterministic_hooks);
         if (!status.ok())
         {
+            if (status.code
+                    == Horse::Deterministic::FailureCode::ContextUnavailable
+                && m_seek_defer_count < 120)
+            {
+                ++m_seek_defer_count;
+                if (m_seek_defer_count == 1)
+                {
+                    Output::send<LogLevel::Default>(STR(
+                        "[HorseMod] owned replay seek deferred target={} "
+                        "source_end={} transient_context=true\n"),
+                        target.frame, timeline.last_coordinate.frame);
+                }
+                return true;
+            }
+            m_seek_handled_sequence = sequence;
             m_frame_fencepost_failure.store(status.code, std::memory_order_release);
             Output::send<LogLevel::Warning>(STR(
                 "[HorseMod] owned replay seek request failed target={} "
-                "source_end={} status={}\n"),
+                "source_end={} status={} component_mask=0x{:x} "
+                "native_mask=0x{:x} input_scalar_mask=0x{:x} "
+                "input_cache_chunk={} game_time={}/{} update_time={}/{} "
+                "recorder_time={}/{} cache_row={} "
+                "cache_expected={}/{}/{}/{} cache_observed={}/{}/{}/{} "
+                "move_dispatch={:016x}/{:016x}->{:016x}/{:016x} "
+                "vfx_edges_p1={}/{}/{}/{}->{}/{}/{}/{} "
+                "vfx_edges_p2={}/{}/{}/{}->{}/{}/{}/{} "
+                "wind_mask=0x{:x} identity_issue={} identity={}/{}\n"),
                 target.frame, timeline.last_coordinate.frame,
                 RC::to_generic_string(std::string(
-                    Horse::Deterministic::failure_code_name(status.code))));
+                    Horse::Deterministic::failure_code_name(status.code))),
+                m_replay_native_runtime.timeline_status().
+                    resume_component_difference_mask,
+                m_replay_native_runtime.timeline_status().
+                    resume_native_difference_mask,
+                m_replay_native_runtime.timeline_status().
+                    resume_input_scalar_difference_mask,
+                m_replay_native_runtime.timeline_status().
+                    resume_first_input_cache_chunk,
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_input_scalars[5],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_input_scalars[5],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_input_scalars[7],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_input_scalars[7],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_input_scalars[8],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_input_scalars[8],
+                m_replay_native_runtime.timeline_status().
+                    resume_first_input_cache_row,
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_input_cache_row.game_round,
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_input_cache_row.frame_index,
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_input_cache_row.input_value,
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_input_cache_row.filled,
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_input_cache_row.game_round,
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_input_cache_row.frame_index,
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_input_cache_row.input_value,
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_input_cache_row.filled,
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_move_dispatch[0],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_move_dispatch[1],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_move_dispatch[0],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_move_dispatch[1],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_move_dispatch[2],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_move_dispatch[3],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_move_dispatch[4],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_move_dispatch[5],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_move_dispatch[2],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_move_dispatch[3],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_move_dispatch[4],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_move_dispatch[5],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_move_dispatch[6],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_move_dispatch[7],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_move_dispatch[8],
+                m_replay_native_runtime.timeline_status().
+                    resume_expected_move_dispatch[9],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_move_dispatch[6],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_move_dispatch[7],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_move_dispatch[8],
+                m_replay_native_runtime.timeline_status().
+                    resume_observed_move_dispatch[9],
+                m_replay_native_runtime.timeline_status().
+                    resume_wind_difference_mask,
+                m_replay_native_runtime.timeline_status().identity_issue,
+                m_replay_native_runtime.timeline_status().identity_expected,
+                m_replay_native_runtime.timeline_status().identity_observed);
             return true;
         }
+        m_seek_handled_sequence = sequence;
+        m_seek_defer_count = 0;
         m_seek_request_active = target != timeline.last_coordinate;
         // The independent hook-health cursor observes the same rewritten
         // native counter. Rebase it atomically so the first resumed frame is
@@ -3583,6 +3771,165 @@ private:
             result.primary_performance.total_restore.maximum_ns / 1000);
     }
 
+    void service_forced_depth7_qualification() noexcept
+    {
+        auto& qualification = m_forced_correction_qualification;
+        if (!m_deterministic_config.trace
+            || !m_deterministic_config.forced_depth7_qualification
+            || qualification.reported)
+        {
+            return;
+        }
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        if (timeline.partial
+            || timeline.failure != Horse::Deterministic::FailureCode::None
+            || timeline.round_state_frame <= 16
+            || timeline.unpause_countdown != 0
+            || timeline.last_coordinate.generation == 0
+            || timeline.last_coordinate.frame < kForcedQualificationDepth)
+        {
+            return;
+        }
+        if (!qualification.active)
+        {
+            qualification.active = true;
+            qualification.generation = timeline.last_coordinate.generation;
+            qualification.first_frame = timeline.last_coordinate.frame;
+            qualification.checkpoint_bytes_begin = timeline.checkpoint_bytes;
+            qualification.batch_entry_bytes_begin =
+                timeline.batch_entry_checkpoint_bytes;
+            qualification.forced_history_bytes_begin =
+                m_replay_native_runtime.forced_qualification_bytes();
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] forced depth-7 qualification started "
+                "generation={} frame={} target={} normal_render=true\n"),
+                qualification.generation, qualification.first_frame,
+                kForcedQualificationCorrections);
+        }
+        if (timeline.last_coordinate.generation != qualification.generation)
+        {
+            qualification.failure =
+                Horse::Deterministic::FailureCode::GenerationMismatch;
+        }
+        Horse::Deterministic::Snapshot expected{};
+        Horse::Deterministic::OwnedCorrectionResult result{};
+        auto status = qualification.failure
+                == Horse::Deterministic::FailureCode::None
+            ? m_replay_native_runtime.CaptureCurrentCanonical(expected)
+            : Horse::Deterministic::Status::failure(qualification.failure);
+        if (status.ok())
+        {
+            const Horse::Deterministic::FrameCoordinate earliest{
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame
+                    - kForcedQualificationDepth + 1};
+            status = m_replay_native_runtime.ExecuteOwnedCorrection(
+                earliest, expected.canonical_hash, m_deterministic_hooks, result);
+        }
+        const bool exact_depth = status.ok()
+            && result.replayed_coordinates == kForcedQualificationDepth
+            && result.final_coordinate.frame
+                == result.resimulation_base.frame + kForcedQualificationDepth;
+        if (!exact_depth && status.ok())
+            status = Horse::Deterministic::Status::failure(
+                Horse::Deterministic::FailureCode::IllegalTransition);
+        if (!status.ok())
+        {
+            qualification.failure = status.code;
+            qualification.reported = true;
+            m_frame_fencepost_failure.store(status.code,
+                std::memory_order_release);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] forced depth-7 qualification failed "
+                "completed={} frame={} status={} primary={} undo={} "
+                "coordinates={} base={} final={} total_us={} "
+                "diff_mask=0x{:x} local_diff={} local_count={} "
+                "motion_diff={} motion_count={} input_scalars={}@{}={}->{} "
+                "input_cache={} rng_mask=0x{:x} wind_mask=0x{:x} "
+                "move_dispatch={:016x}/{:016x}->{:016x}/{:016x} "
+                "wind_node={} kind={}->{} semantic={} byte={}->{} "
+                "interbatch_mask=0x{:x} interbatch_batch={}\n"),
+                qualification.completed, timeline.last_coordinate.frame,
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(status.code))),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(
+                        result.primary_failure))),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(
+                        result.undo_failure))),
+                result.replayed_coordinates, result.resimulation_base.frame,
+                result.final_coordinate.frame, result.total_ns / 1000,
+                result.undo_comparison_mask,
+                result.first_final_local_difference[0],
+                result.final_local_difference_count[0],
+                result.first_final_local_difference[1],
+                result.final_local_difference_count[1],
+                result.input_scalar_difference_count,
+                result.first_input_scalar_difference,
+                result.expected_input_scalar_word,
+                result.observed_input_scalar_word,
+                result.input_cache_difference_count,
+                result.rng_difference_mask, result.wind_difference_mask,
+                result.expected_move_dispatch[0],
+                result.expected_move_dispatch[1],
+                result.observed_move_dispatch[0],
+                result.observed_move_dispatch[1],
+                result.first_wind_node_difference,
+                result.expected_wind_node_kind,
+                result.observed_wind_node_kind,
+                result.first_wind_semantic_difference,
+                result.expected_wind_difference_byte,
+                result.observed_wind_difference_byte,
+                result.first_interbatch_difference_mask,
+                result.first_interbatch_difference_batch);
+            return;
+        }
+        qualification.Record(result.total_ns);
+        ++qualification.completed;
+        qualification.last_frame = timeline.last_coordinate.frame;
+        if (qualification.completed < kForcedQualificationCorrections) return;
+
+        const auto final_timeline = m_replay_native_runtime.timeline_status();
+        const auto p99 = qualification.P99();
+        const bool performance_ok = p99 < 16'670'000;
+        const bool capture_ok = final_timeline.checkpoint_capture_p99_ns
+                <= 500'000
+            && final_timeline.checkpoint_capture_max_ns <= 1'000'000
+            && final_timeline.batch_entry_capture_p99_ns <= 500'000
+            && final_timeline.batch_entry_capture_max_ns <= 1'000'000;
+        qualification.reported = true;
+        if (!performance_ok || !capture_ok)
+        {
+            qualification.failure =
+                Horse::Deterministic::FailureCode::PerformanceBudgetExceeded;
+            m_frame_fencepost_failure.store(qualification.failure,
+                std::memory_order_release);
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] forced depth-7 qualification {} completed={} "
+            "generation={} frames={}-{} cycle_p99_us={} cycle_max_us={} "
+            "capture_p99_us={}/{} capture_max_us={}/{} "
+            "checkpoint_bytes={}->{} batch_entry_bytes={}->{} "
+            "forced_history_bytes={}->{} "
+            "canonical_convergence=exact presentation_suppressed=true\n"),
+            qualification.failure == Horse::Deterministic::FailureCode::None
+                ? STR("passed") : STR("failed"),
+            qualification.completed, qualification.generation,
+            qualification.first_frame, qualification.last_frame,
+            p99 / 1000, qualification.maximum_ns / 1000,
+            final_timeline.checkpoint_capture_p99_ns / 1000,
+            final_timeline.batch_entry_capture_p99_ns / 1000,
+            final_timeline.checkpoint_capture_max_ns / 1000,
+            final_timeline.batch_entry_capture_max_ns / 1000,
+            qualification.checkpoint_bytes_begin,
+            final_timeline.checkpoint_bytes,
+            qualification.batch_entry_bytes_begin,
+            final_timeline.batch_entry_checkpoint_bytes,
+            qualification.forced_history_bytes_begin,
+            m_replay_native_runtime.forced_qualification_bytes());
+    }
+
     void observe_hgcpu_diagnostic(std::uint32_t frame) noexcept
     {
         if (!m_hgcpu_runtime_diagnostics
@@ -3715,6 +4062,88 @@ private:
         {
             self->m_frame_fencepost_failure.store(
                 capture.code, std::memory_order_release);
+            const auto failed = self->m_replay_native_runtime.timeline_status();
+            if (capture.code
+                    == Horse::Deterministic::FailureCode::StateHashMismatch
+                && failed.resume_failure_coordinate.generation != 0)
+            {
+                if (self->m_resume_divergence_logged.exchange(
+                        true, std::memory_order_acq_rel))
+                {
+                    return;
+                }
+                std::uint64_t expected_prefix{};
+                std::uint64_t observed_prefix{};
+                std::memcpy(&expected_prefix,
+                    failed.resume_expected_hash.data(), sizeof(expected_prefix));
+                std::memcpy(&observed_prefix,
+                    failed.resume_observed_hash.data(), sizeof(observed_prefix));
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] resumed canonical frame diverged "
+                    "coordinate={} verified_before={} component_mask=0x{:x} "
+                    "wind_mask=0x{:x} wind_semantic_chunk={} "
+                    "wind_node_expected={}/{:08x}/{}/{}/{}/{:08x}/{} "
+                    "wind_node_observed={}/{:08x}/{}/{}/{}/{:08x}/{} "
+                    "expected_hash_prefix=0x{:016x} "
+                    "observed_hash_prefix=0x{:016x}\n"),
+                    failed.resume_failure_coordinate.frame,
+                    failed.resumed_frames_verified,
+                    failed.resume_component_difference_mask,
+                    failed.resume_wind_difference_mask,
+                    failed.resume_first_wind_semantic_chunk,
+                    failed.resume_expected_wind_node.kind,
+                    failed.resume_expected_wind_node.life_bits,
+                    failed.resume_expected_wind_node.oscillator_tick,
+                    failed.resume_expected_wind_node.prepared,
+                    failed.resume_expected_wind_node.active,
+                    failed.resume_expected_wind_node.frame_step_bits,
+                    failed.resume_expected_wind_node.repeat_count,
+                    failed.resume_observed_wind_node.kind,
+                    failed.resume_observed_wind_node.life_bits,
+                    failed.resume_observed_wind_node.oscillator_tick,
+                    failed.resume_observed_wind_node.prepared,
+                    failed.resume_observed_wind_node.active,
+                    failed.resume_observed_wind_node.frame_step_bits,
+                    failed.resume_observed_wind_node.repeat_count,
+                    expected_prefix, observed_prefix);
+            }
+            else if (capture.code
+                    == Horse::Deterministic::FailureCode::CaptureFailed
+                && !self->m_resume_divergence_logged.exchange(
+                    true, std::memory_order_acq_rel))
+            {
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] canonical frame capture failed coordinate={} "
+                    "phase={} animation={} observed=0x{:x}\n"),
+                    failed.canonical_capture_failure_coordinate.frame,
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::candidate_capture_phase_name(
+                            failed.canonical_capture_phase))),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::chara_animation_topology_issue_name(
+                            failed.canonical_animation_topology_issue))),
+                    failed.canonical_animation_topology_observed);
+            }
+            else if (!self->m_resume_divergence_logged.exchange(
+                         true, std::memory_order_acq_rel))
+            {
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] canonical frame capture rejected status={} "
+                    "coordinate={} phase={} animation={} observed=0x{:x} "
+                    "identity_issue={} expected=0x{:x} actual=0x{:x}\n"),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::failure_code_name(capture.code))),
+                    failed.canonical_capture_failure_coordinate.frame,
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::candidate_capture_phase_name(
+                            failed.canonical_capture_phase))),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::chara_animation_topology_issue_name(
+                            failed.canonical_animation_topology_issue))),
+                    failed.canonical_animation_topology_observed,
+                    failed.identity_issue, failed.identity_expected,
+                    failed.identity_observed);
+            }
             return;
         }
         const auto timeline = self->m_replay_native_runtime.timeline_status();
@@ -3904,7 +4333,11 @@ private:
                 ucrt_image.state);
         }
         if (!self->service_owned_seek_request())
-            self->service_owned_correction_probe();
+        {
+            self->service_forced_depth7_qualification();
+            if (!self->m_deterministic_config.forced_depth7_qualification)
+                self->service_owned_correction_probe();
+        }
     }
 
     static void on_outer_tick_begin(
@@ -3992,6 +4425,19 @@ private:
         }
     }
 
+    static void on_outer_tick_prepare(
+        void* user,
+        const Horse::Deterministic::OuterTickObservation& observation) noexcept
+    {
+        auto* self = static_cast<HorseMod*>(user);
+        if (self == nullptr) return;
+        const auto status = self->m_replay_native_runtime.PrepareResumeOuterTick(
+            observation.battle_manager, observation.thread_id);
+        if (!status.ok())
+            self->m_frame_fencepost_failure.store(
+                status.code, std::memory_order_release);
+    }
+
     static void on_replay_exit(
         void* user,
         const Horse::Deterministic::ReplayExitObservation& observation) noexcept
@@ -4017,9 +4463,16 @@ private:
         self->m_frame_fencepost_last_frame.store(0, std::memory_order_release);
         self->m_replay_native_runtime.ObserveReplayExit();
         self->m_owned_correction_probe_index = 0;
+        self->m_forced_correction_qualification = {};
         self->m_seek_request_active = false;
+        self->m_resume_divergence_logged.store(false, std::memory_order_release);
+        self->m_seek_completed_target.store(0, std::memory_order_release);
+        self->m_seek_completed_source.store(0, std::memory_order_release);
+        self->m_seek_completed_verified.store(0, std::memory_order_release);
         self->m_seek_handled_sequence = self->m_seek_request_sequence.load(
             std::memory_order_acquire);
+        self->m_seek_pending_sequence = self->m_seek_handled_sequence;
+        self->m_seek_defer_count = 0;
         self->m_replay_exit_state.store(
             observation.replay_state, std::memory_order_release);
         self->m_replay_exit_observations.fetch_add(1, std::memory_order_acq_rel);
@@ -4093,7 +4546,34 @@ public:
     {
         if (frame == UINT64_MAX) return false;
         m_seek_request_frame.store(frame, std::memory_order_release);
+        m_seek_completed_target.store(0, std::memory_order_release);
         m_seek_request_sequence.fetch_add(1, std::memory_order_acq_rel);
+        return true;
+    }
+
+    bool GetReplaySeekableRange(
+        std::uint64_t& generation, std::uint64_t& first_frame,
+        std::uint64_t& last_frame) const noexcept
+    {
+        Horse::Deterministic::FrameCoordinate first{}, last{};
+        if (!m_replay_native_runtime.GetSeekableRange(first, last)) return false;
+        generation = first.generation;
+        first_frame = first.frame;
+        last_frame = last.frame;
+        return true;
+    }
+
+    bool GetReplaySimulationPhase(
+        std::int32_t& native_round, std::int32_t& native_time,
+        std::uint32_t& round_state_frame,
+        std::int32_t& unpause_countdown) const noexcept
+    {
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        if (timeline.canonical_frames == 0) return false;
+        native_round = timeline.native_round;
+        native_time = timeline.native_time;
+        round_state_frame = timeline.round_state_frame;
+        unpause_countdown = timeline.unpause_countdown;
         return true;
     }
 
@@ -4104,6 +4584,18 @@ public:
         std::uint16_t& failure) const noexcept
     {
         const auto timeline = m_replay_native_runtime.timeline_status();
+        const auto completed_target = m_seek_completed_target.load(
+            std::memory_order_acquire);
+        if (completed_target != 0)
+        {
+            target_frame = completed_target;
+            source_end_frame = m_seek_completed_source.load(
+                std::memory_order_relaxed);
+            verified_frames = m_seek_completed_verified.load(
+                std::memory_order_relaxed);
+            failure = 0;
+            return 1;
+        }
         target_frame = timeline.resume_target.frame;
         source_end_frame = timeline.resume_source_end.frame;
         verified_frames = timeline.resumed_frames_verified;
@@ -4137,6 +4629,8 @@ public:
         auto deterministic_load =
             Horse::Deterministic::LoadConfig(deterministic_config_path);
         m_deterministic_config = deterministic_load.config;
+        m_replay_native_runtime.SetForcedDepth7QualificationEnabled(
+            m_deterministic_config.forced_depth7_qualification);
         if (deterministic_load.status.ok() && m_deterministic_config.trace)
         {
             const auto report_path = deterministic_config_path.parent_path()
@@ -4534,6 +5028,7 @@ public:
             m_frame_fencepost_hook_status = m_deterministic_hooks.Install(
                 Horse::NativeBinding::imageBase(),
                 {this, &HorseMod::on_frame_fencepost,
+                    &HorseMod::on_outer_tick_prepare,
                     &HorseMod::on_outer_tick_begin, &HorseMod::on_outer_tick,
                     &HorseMod::on_replay_exit},
                 &m_ucrt_rand_broker);
@@ -8561,6 +9056,17 @@ extern "C"
         return mod != nullptr && mod->RequestReplaySeek(target_frame);
     }
 
+    HORSE_MOD_API bool horsemod_get_replay_seekable_range(
+        std::uint64_t* generation, std::uint64_t* first_frame,
+        std::uint64_t* last_frame)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && generation != nullptr && first_frame != nullptr
+            && last_frame != nullptr
+            && mod->GetReplaySeekableRange(
+                *generation, *first_frame, *last_frame);
+    }
+
     HORSE_MOD_API std::uint32_t horsemod_get_replay_seek_status(
         std::uint64_t* target_frame,
         std::uint64_t* source_end_frame,
@@ -8576,5 +9082,16 @@ extern "C"
         }
         return mod->GetReplaySeekStatus(*target_frame, *source_end_frame,
             *verified_frames, *failure);
+    }
+
+    HORSE_MOD_API bool horsemod_get_replay_simulation_phase(
+        std::int32_t* native_round, std::int32_t* native_time,
+        std::uint32_t* round_state_frame, std::int32_t* unpause_countdown)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && native_round != nullptr && native_time != nullptr
+            && round_state_frame != nullptr && unpause_countdown != nullptr
+            && mod->GetReplaySimulationPhase(*native_round, *native_time,
+                *round_state_frame, *unpause_countdown);
     }
 }

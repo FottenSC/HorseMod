@@ -527,6 +527,8 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     observation.fp_before_valid = true;
     if (hooks != nullptr)
     {
+        hooks->callbacks_.outer_tick_prepare(
+            hooks->callbacks_.user, observation);
         hooks->CaptureOuterTickState(
             battle_manager, observation.before, observation.read_mask,
             0x1, 0x2, 0x4, 0x8);

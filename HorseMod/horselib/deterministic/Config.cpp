@@ -78,6 +78,9 @@ ConfigLoadResult LoadConfig(const std::filesystem::path& path)
         else if (key == "trace") valid = parse_bool(value, result.config.trace);
         else if (key == "correction_probe")
             valid = parse_bool(value, result.config.correction_probe);
+        else if (key == "forced_depth7_qualification")
+            valid = parse_bool(value,
+                result.config.forced_depth7_qualification);
         else
         {
             if (result.diagnostics.empty())

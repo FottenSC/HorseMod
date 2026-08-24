@@ -37,6 +37,8 @@ constexpr std::array<Range, 9> move_command_ranges{{
     {0x19A0, 0x1088},
     {0x2AA8, 0x058C},
 }};
+constexpr std::array<std::size_t, 4> vfx_edge_diagnostic_offsets{
+    0x4E8, 0x630, 0x510, 0x658};
 constexpr std::size_t camera_action_stride = 0x3E0;
 constexpr std::size_t camera_distance_history_offset = 0x25C;
 constexpr std::uint32_t player_watch_camera_vtable_rva = 0x3E87EB0;
@@ -681,6 +683,21 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
     {
         return false;
     }
+    for (std::size_t fighter = 0;
+         fighter < output.vfx_edges.fighters.size(); ++fighter)
+    {
+        for (std::size_t field = 0;
+             field < vfx_edge_diagnostic_offsets.size(); ++field)
+        {
+            if (!read_value(memory_, addresses_.fighter_roots[fighter]
+                    + vfx_edge_diagnostic_offsets[field],
+                output.vfx_edges.fighters[fighter][field]))
+            {
+                return region_read_failed(static_cast<std::uint32_t>(50
+                    + fighter * vfx_edge_diagnostic_offsets.size() + field));
+            }
+        }
+    }
     if (!read_bytes(addresses_.pump_state + 0x20, output.pump.lane_a)
         || !read_bytes(addresses_.pump_state + 0x50, output.pump.lane_b)
         || !read_bytes(addresses_.pump_state + 0x70, output.pump.controls))
@@ -1156,6 +1173,126 @@ Status NativeCandidateRegions::RestoreTransactional(
         wrote ? FailureCode::RestoreVerificationFailed : FailureCode::RestoreWriteFailed);
 }
 
+Status NativeCandidateRegions::RestoreInputLogTransactional(
+    const NativeCandidateImage& image) noexcept
+{
+    validation_diagnostic_ = {};
+    NativeCandidateValidationDiagnostic diagnostic{};
+    if (!bound_ || !image_matches_binding(image) || !identities_match())
+        return Status::failure(FailureCode::IdentityMismatch);
+    if (!validate_input_log_image(image.input_log, image.frame, diagnostic))
+    {
+        validation_diagnostic_ = diagnostic;
+        return Status::failure(FailureCode::CapturePreflightFailed);
+    }
+    NativeFrameInputLogImage undo{};
+    if (!capture_input_log_cache(
+            memory_, addresses_.input_log, undo, validation_diagnostic_))
+        return Status::failure(FailureCode::CaptureFailed);
+    const bool wrote = write_input_log_cache(
+        memory_, addresses_.input_log, image.input_log);
+    NativeFrameInputLogImage verified{};
+    NativeCandidateValidationDiagnostic verification_diagnostic{};
+    if (wrote && capture_input_log_cache(memory_, addresses_.input_log,
+            verified, verification_diagnostic) && verified == image.input_log)
+        return Status::success();
+    const bool undone = write_input_log_cache(
+        memory_, addresses_.input_log, undo);
+    NativeFrameInputLogImage undo_verified{};
+    NativeCandidateValidationDiagnostic undo_diagnostic{};
+    if (!undone || !capture_input_log_cache(memory_, addresses_.input_log,
+            undo_verified, undo_diagnostic) || undo_verified != undo)
+        return Status::failure(FailureCode::UndoFailed);
+    return Status::failure(wrote
+        ? FailureCode::RestoreVerificationFailed
+        : FailureCode::RestoreWriteFailed);
+}
+
+Status NativeCandidateRegions::RestoreMoveDispatchMasksTransactional(
+    const NativeCandidateImage& image) noexcept
+{
+    validation_diagnostic_ = {};
+    if (!bound_ || !image_matches_binding(image) || !identities_match()
+        || identities_.event_mask_owner == 0)
+    {
+        return Status::failure(FailureCode::IdentityMismatch);
+    }
+    std::array<std::uint64_t, 2> undo{};
+    if (!read_bytes(identities_.event_mask_owner,
+            std::as_writable_bytes(std::span{undo})))
+        return Status::failure(FailureCode::CaptureFailed);
+    const bool wrote = write_bytes(identities_.event_mask_owner,
+        std::as_bytes(std::span{image.move_dispatch_masks}));
+    std::array<std::uint64_t, 2> verified{};
+    if (wrote && read_bytes(identities_.event_mask_owner,
+            std::as_writable_bytes(std::span{verified}))
+        && verified == image.move_dispatch_masks)
+    {
+        return Status::success();
+    }
+    const bool undone = write_bytes(identities_.event_mask_owner,
+        std::as_bytes(std::span{undo}));
+    std::array<std::uint64_t, 2> undo_verified{};
+    if (!undone || !read_bytes(identities_.event_mask_owner,
+            std::as_writable_bytes(std::span{undo_verified}))
+        || undo_verified != undo)
+    {
+        return Status::failure(FailureCode::UndoFailed);
+    }
+    return Status::failure(wrote
+        ? FailureCode::RestoreVerificationFailed
+        : FailureCode::RestoreWriteFailed);
+}
+
+Status NativeCandidateRegions::PrepareInputLogTransactional(
+    const CanonicalInputDiagnostic& expected,
+    const InputPair& input) noexcept
+{
+    validation_diagnostic_ = {};
+    if (!bound_ || !identities_match())
+        return Status::failure(FailureCode::IdentityMismatch);
+    NativeFrameInputLogImage undo{};
+    if (!capture_input_log_cache(
+            memory_, addresses_.input_log, undo, validation_diagnostic_))
+        return Status::failure(FailureCode::CaptureFailed);
+    NativeFrameInputLogImage desired = undo;
+    static_assert(sizeof(expected.scalars) == desired.scalars.size());
+    std::memcpy(desired.scalars.data(), expected.scalars.data(),
+        desired.scalars.size());
+    const auto block_begin = expected.scalars[5] & ~0x7fu;
+    for (std::size_t slot = 0; slot < 2; ++slot)
+        for (std::size_t index = 0; index < 128; ++index)
+        {
+            const auto frame = block_begin + static_cast<std::uint32_t>(index);
+            desired.cache_rows[slot * 512 + (frame & 0x1ffu)] =
+                expected.aligned_block_rows[slot * 128 + index];
+        }
+    for (std::size_t slot = 0; slot < 2; ++slot)
+    {
+        const auto& row = input.source_rows[slot];
+        if (row.filled == 0) continue;
+        if ((row.frame_index & ~0x7fu) == block_begin) continue;
+        desired.cache_rows[slot * 512 + (row.frame_index & 0x1ffu)] = row;
+    }
+    const bool wrote = write_input_log_cache(
+        memory_, addresses_.input_log, desired);
+    NativeFrameInputLogImage verified{};
+    NativeCandidateValidationDiagnostic verification_diagnostic{};
+    if (wrote && capture_input_log_cache(memory_, addresses_.input_log,
+            verified, verification_diagnostic) && verified == desired)
+        return Status::success();
+    const bool undone = write_input_log_cache(
+        memory_, addresses_.input_log, undo);
+    NativeFrameInputLogImage undo_verified{};
+    NativeCandidateValidationDiagnostic undo_diagnostic{};
+    if (!undone || !capture_input_log_cache(memory_, addresses_.input_log,
+            undo_verified, undo_diagnostic) || undo_verified != undo)
+        return Status::failure(FailureCode::UndoFailed);
+    return Status::failure(wrote
+        ? FailureCode::RestoreVerificationFailed
+        : FailureCode::RestoreWriteFailed);
+}
+
 std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
     const NativeCandidateImage& image)
 {
@@ -1170,6 +1307,8 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
     append_round_sequence(output, image.round_sequence);
     append_input_log(output, image.input_log);
     append_bytes(output, image.move_dispatch_masks.data(), sizeof(image.move_dispatch_masks));
+    append_bytes(output, image.vfx_edges.fighters.data(),
+        sizeof(image.vfx_edges.fighters));
     append_bytes(output, image.pump.lane_a.data(), image.pump.lane_a.size());
     append_bytes(output, image.pump.lane_b.data(), image.pump.lane_b.size());
     append_bytes(output, image.pump.controls.data(), image.pump.controls.size());
@@ -1225,6 +1364,115 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
         append_bytes(output, &history.sample_count, sizeof(history.sample_count));
         append_bytes(output, &history.cursor, sizeof(history.cursor));
     }
+    return output;
+}
+
+CanonicalNativeFingerprint NativeCandidateRegions::CanonicalFingerprint(
+    const NativeCandidateImage& image)
+{
+    CanonicalNativeFingerprint output{};
+    std::vector<std::byte> bytes;
+    bytes.reserve(0x8000);
+    const auto finish = [&bytes]() noexcept {
+        std::uint64_t hash = 1469598103934665603ull;
+        for (const auto value : bytes)
+        {
+            hash ^= std::to_integer<std::uint8_t>(value);
+            hash *= 1099511628211ull;
+        }
+        bytes.clear();
+        return hash;
+    };
+    append_bytes(bytes, &image.frame.frame_counter, sizeof(image.frame.frame_counter));
+    output[0] = finish();
+    append_bytes(bytes, &image.frame.input_game_round, sizeof(image.frame.input_game_round));
+    append_bytes(bytes, &image.frame.input_game_time, sizeof(image.frame.input_game_time));
+    output[1] = finish();
+    append_bytes(bytes, &image.frame.manager_game_round_cursor, sizeof(image.frame.manager_game_round_cursor));
+    append_bytes(bytes, &image.frame.manager_game_time_cursor, sizeof(image.frame.manager_game_time_cursor));
+    output[2] = finish();
+    append_bytes(bytes, &image.frame.round_state_frame, sizeof(image.frame.round_state_frame));
+    append_bytes(bytes, &image.frame.unpause_countdown, sizeof(image.frame.unpause_countdown));
+    output[3] = finish();
+    append_bytes(bytes, image.frame.previous_inputs.data(), sizeof(image.frame.previous_inputs));
+    output[4] = finish();
+    append_bytes(bytes, image.frame.input_pairs.data(), sizeof(image.frame.input_pairs));
+    output[5] = finish();
+    append_bytes(bytes, image.frame.prior_input_pairs.data(), sizeof(image.frame.prior_input_pairs));
+    output[6] = finish();
+    append_bytes(bytes, &image.frame.repeat_pending, sizeof(image.frame.repeat_pending));
+    append_bytes(bytes, &image.frame.pending_move_state, sizeof(image.frame.pending_move_state));
+    output[7] = finish();
+    append_round_sequence(bytes, image.round_sequence); output[8] = finish();
+    append_bytes(bytes, image.input_log.scalars.data(), image.input_log.scalars.size());
+    output[9] = finish();
+    constexpr std::size_t cache_blocks = 8;
+    constexpr std::size_t rows_per_block =
+        std::tuple_size_v<decltype(image.input_log.cache_rows)> / cache_blocks;
+    for (std::size_t block = 0; block < cache_blocks; ++block)
+    {
+        const auto rows = std::span{image.input_log.cache_rows}.subspan(
+            block * rows_per_block, rows_per_block);
+        append_bytes(bytes, rows.data(), rows.size_bytes());
+        output[10 + block] = finish();
+    }
+    append_bytes(bytes, image.move_dispatch_masks.data(), sizeof(image.move_dispatch_masks));
+    output[18] = finish();
+    append_bytes(bytes, image.vfx_edges.fighters.data(),
+        sizeof(image.vfx_edges.fighters));
+    output[29] = finish();
+    append_bytes(bytes, image.pump.lane_a.data(), image.pump.lane_a.size());
+    append_bytes(bytes, image.pump.lane_b.data(), image.pump.lane_b.size());
+    append_bytes(bytes, image.pump.controls.data(), image.pump.controls.size());
+    output[19] = finish();
+    for (const auto& scheduler : image.schedulers)
+    {
+        append_bytes(bytes, scheduler.published_input.data(), scheduler.published_input.size());
+        append_bytes(bytes, scheduler.command_state.data(), scheduler.command_state.size());
+        append_bytes(bytes, scheduler.active_slot.data(), scheduler.active_slot.size());
+    }
+    output[20] = finish();
+    for (const auto& subvm : image.sub_vms)
+    {
+        append_bytes(bytes, &subvm.vtable_rva, sizeof(subvm.vtable_rva));
+        append_bytes(bytes, &subvm.extent, sizeof(subvm.extent));
+        append_bytes(bytes, subvm.input_command.data(), subvm.input_command.size());
+        append_bytes(bytes, subvm.common.data(), subvm.common.size());
+        append_bytes(bytes, subvm.derived.data(), derived_size(subvm.extent));
+    }
+    output[21] = finish();
+    for (const auto& command : image.move_commands)
+        append_bytes(bytes, command.data(), command.size());
+    output[22] = finish();
+    for (const auto& param : image.slot_params)
+        append_bytes(bytes, param.data(), param.size());
+    output[23] = finish();
+    append_bytes(bytes, &image.pending_hit.reaction_move_id, sizeof(image.pending_hit.reaction_move_id));
+    append_bytes(bytes, &image.pending_hit.launcher_facing_delta, sizeof(image.pending_hit.launcher_facing_delta));
+    append_bytes(bytes, &image.pending_hit.transition_flags, sizeof(image.pending_hit.transition_flags));
+    append_bytes(bytes, &image.pending_hit.attacker_slot, sizeof(image.pending_hit.attacker_slot));
+    append_bytes(bytes, &image.pending_hit.launcher_sync, sizeof(image.pending_hit.launcher_sync));
+    output[24] = finish();
+    append_bytes(bytes, &image.rng.lcg, sizeof(image.rng.lcg));
+    append_bytes(bytes, image.rng.lfsr.data(), sizeof(image.rng.lfsr));
+    append_bytes(bytes, &image.rng.lfsr_index, sizeof(image.rng.lfsr_index));
+    append_bytes(bytes, image.rng.xorshift.data(), sizeof(image.rng.xorshift));
+    append_bytes(bytes, image.rng.wind.data(), sizeof(image.rng.wind));
+    output[25] = finish();
+    append_bytes(bytes, image.vm_freeze_record.data(), image.vm_freeze_record.size());
+    output[26] = finish();
+    for (const auto& state : image.stage_wind_emitters.states)
+        append_bytes(bytes, state.data(), state.size());
+    output[27] = finish();
+    for (const auto& history : image.camera_distance_history)
+    {
+        append_bytes(bytes, &history.present, sizeof(history.present));
+        if (history.present == 0) continue;
+        append_bytes(bytes, history.sample_bits.data(), sizeof(history.sample_bits));
+        append_bytes(bytes, &history.sample_count, sizeof(history.sample_count));
+        append_bytes(bytes, &history.cursor, sizeof(history.cursor));
+    }
+    output[28] = finish();
     return output;
 }
 
@@ -1290,6 +1538,8 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
     }
     if (!take(output.move_dispatch_masks.data(),
             sizeof(output.move_dispatch_masks))
+        || !take(output.vfx_edges.fighters.data(),
+            sizeof(output.vfx_edges.fighters))
         || !take(output.pump.lane_a.data(), output.pump.lane_a.size())
         || !take(output.pump.lane_b.data(), output.pump.lane_b.size())
         || !take(output.pump.controls.data(), output.pump.controls.size()))

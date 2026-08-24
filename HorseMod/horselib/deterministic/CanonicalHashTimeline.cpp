@@ -19,7 +19,14 @@ CanonicalHashTimeline::CanonicalHashTimeline(
 }
 
 Status CanonicalHashTimeline::Append(
-    FrameCoordinate coordinate, const CanonicalHash& hash) noexcept
+    FrameCoordinate coordinate, const CanonicalHash& hash,
+    const CanonicalComponentFingerprint& components,
+    const CanonicalNativeFingerprint& native,
+    const CanonicalMoveDispatchDiagnostic& move_dispatch,
+    const CanonicalInputDiagnostic& input,
+    const CanonicalWindSemanticDiagnostic& wind_semantic,
+    const CanonicalWindFingerprint& wind,
+    const CanonicalWindNodeDiagnostic& wind_node) noexcept
 {
     const auto found = std::lower_bound(entries_.begin(), entries_.end(),
         coordinate, [](const CanonicalHashEntry& entry, FrameCoordinate value)
@@ -28,7 +35,12 @@ Status CanonicalHashTimeline::Append(
         });
     if (found != entries_.end() && found->coordinate == coordinate)
     {
-        return found->hash == hash
+        return found->hash == hash && found->components == components
+                && found->native == native
+                && found->move_dispatch == move_dispatch
+                && found->input == input
+                && found->wind_semantic == wind_semantic
+                && found->wind == wind && found->wind_node == wind_node
             ? Status::success()
             : Status::failure(FailureCode::StateHashMismatch);
     }
@@ -38,7 +50,8 @@ Status CanonicalHashTimeline::Append(
         return Status::failure(FailureCode::CapacityExceeded);
     try
     {
-        entries_.push_back({coordinate, hash});
+        entries_.push_back({coordinate, hash, components, native, move_dispatch, input,
+            wind_semantic, wind, wind_node});
     }
     catch (...)
     {
@@ -47,7 +60,7 @@ Status CanonicalHashTimeline::Append(
     return Status::success();
 }
 
-std::optional<CanonicalHash> CanonicalHashTimeline::GetExact(
+std::optional<CanonicalHashEntry> CanonicalHashTimeline::GetExact(
     FrameCoordinate coordinate) const noexcept
 {
     const auto found = std::lower_bound(entries_.begin(), entries_.end(),
@@ -56,7 +69,14 @@ std::optional<CanonicalHash> CanonicalHashTimeline::GetExact(
             return entry.coordinate < value;
         });
     return found != entries_.end() && found->coordinate == coordinate
-        ? std::optional<CanonicalHash>{found->hash} : std::nullopt;
+        ? std::optional<CanonicalHashEntry>{*found} : std::nullopt;
+}
+
+std::optional<std::pair<FrameCoordinate, FrameCoordinate>>
+CanonicalHashTimeline::Range() const noexcept
+{
+    if (entries_.empty()) return std::nullopt;
+    return std::pair{entries_.front().coordinate, entries_.back().coordinate};
 }
 
 void CanonicalHashTimeline::Clear() noexcept

@@ -3,6 +3,7 @@
 #include "HgCpuStream.hpp"
 #include "CharaAnimationState.hpp"
 #include "NativeCandidateRegions.hpp"
+#include "MoveDispatchState.hpp"
 #include "SecondaryEventState.hpp"
 #include "StageWindTopology.hpp"
 #include "UcrtRandBroker.hpp"
@@ -14,6 +15,7 @@ namespace Horse::Deterministic
 struct CandidateCheckpointImage
 {
     NativeCandidateImage native{};
+    MoveDispatchImage move_dispatch{};
     std::vector<LocalReconstructionImage> local_images;
     UcrtRandBrokerImage ucrt{};
     SecondaryEventStateImage secondary_events{};

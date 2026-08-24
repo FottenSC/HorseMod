@@ -320,4 +320,89 @@ std::vector<std::byte> MoveDispatchState::CanonicalBytes(
     }
     return output;
 }
+
+Status MoveDispatchState::DecodeCanonicalBytes(
+    std::span<const std::byte> bytes, MoveDispatchImage& output) noexcept
+{
+    output = {};
+    std::size_t cursor{};
+    const auto take = [&](void* destination, std::size_t size) noexcept {
+        if (cursor > bytes.size() || size > bytes.size() - cursor) return false;
+        std::memcpy(destination, bytes.data() + cursor, size);
+        cursor += size;
+        return true;
+    };
+    std::uint8_t phase{};
+    if (!take(&output.generation, sizeof(output.generation))
+        || output.generation == 0
+        || !take(&output.frame_slot_index, sizeof(output.frame_slot_index))
+        || !take(&output.sub_frame_index, sizeof(output.sub_frame_index))
+        || !take(&phase, sizeof(phase)) || phase > 1)
+    {
+        return Status::failure(FailureCode::CaptureFailed);
+    }
+    try
+    {
+        if (phase == 0)
+        {
+            MoveDispatchActionModeState state{};
+            if (!take(&state.action_mode, sizeof(state.action_mode))
+                || !take(&state.frame_counter, sizeof(state.frame_counter))
+                || !take(&state.pending_window_gate,
+                    sizeof(state.pending_window_gate))
+                || state.action_mode > 9 || state.pending_window_gate > 4)
+            {
+                return Status::failure(FailureCode::CaptureFailed);
+            }
+            output.phase = state;
+        }
+        else
+        {
+            std::uint32_t count{};
+            if (!take(&count, sizeof(count)) || count > maximum_pending_windows)
+                return Status::failure(FailureCode::CaptureFailed);
+            MoveDispatchPendingState pending{};
+            pending.windows.resize(count);
+            for (auto& window : pending.windows)
+            {
+                if (!take(&window.owner_slot_tag, sizeof(window.owner_slot_tag))
+                    || !take(&window.payload_flags, sizeof(window.payload_flags))
+                    || !take(&window.payload_xy, sizeof(window.payload_xy))
+                    || !take(&window.payload_tail, sizeof(window.payload_tail))
+                    || !take(&window.start_frame, sizeof(window.start_frame))
+                    || !take(&window.end_frame, sizeof(window.end_frame)))
+                {
+                    return Status::failure(FailureCode::CaptureFailed);
+                }
+            }
+            output.phase = std::move(pending);
+        }
+        std::uint32_t element_count{};
+        if (!take(&output.saved_input_and_gates,
+                sizeof(output.saved_input_and_gates))
+            || !take(&output.completion_delay, sizeof(output.completion_delay))
+            || !take(&element_count, sizeof(element_count))
+            || element_count > maximum_sub_elements)
+        {
+            return Status::failure(FailureCode::CaptureFailed);
+        }
+        output.sub_elements.resize(element_count);
+        for (auto& element : output.sub_elements)
+        {
+            if (!take(&element.tick_count, sizeof(element.tick_count))
+                || !take(&element.complete, sizeof(element.complete))
+                || element.complete > 1)
+            {
+                return Status::failure(FailureCode::CaptureFailed);
+            }
+        }
+    }
+    catch (...)
+    {
+        output = {};
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    return cursor == bytes.size()
+        ? Status::success() : Status::failure(FailureCode::CaptureFailed);
+}
 }

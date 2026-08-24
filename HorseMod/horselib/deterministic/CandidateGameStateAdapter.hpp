@@ -3,6 +3,7 @@
 #include "CandidateCheckpoint.hpp"
 #include "Interfaces.hpp"
 #include "MotionBankSnapshot.hpp"
+#include "MoveDispatchState.hpp"
 #include "NativeCandidateRegions.hpp"
 #include "StageWindGraphTransaction.hpp"
 
@@ -27,6 +28,7 @@ struct CandidateAdapterBinding
     HgCpuExecFn hgcpu_writer{};
     HgCpuExecFn hgcpu_reader{};
     MotionBankSnapshot* motion_banks{};
+    MoveDispatchState* move_dispatch{};
     SecondaryEventState* secondary_events{};
     CharaAnimationState* chara_animation{};
     UcrtRandBroker* ucrt_broker{};
@@ -68,6 +70,7 @@ enum class CandidateCapturePhase : std::uint8_t
 {
     None,
     NativeTyped,
+    MoveDispatch,
     SecondaryEvents,
     CharaAnimation,
     HgCpu,
@@ -84,6 +87,7 @@ constexpr std::string_view candidate_capture_phase_name(
     {
     case CandidateCapturePhase::None: return "none";
     case CandidateCapturePhase::NativeTyped: return "native_typed";
+    case CandidateCapturePhase::MoveDispatch: return "move_dispatch";
     case CandidateCapturePhase::SecondaryEvents: return "secondary_events";
     case CandidateCapturePhase::CharaAnimation: return "chara_animation";
     case CandidateCapturePhase::HgCpu: return "hgcpu";

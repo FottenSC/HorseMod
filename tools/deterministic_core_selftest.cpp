@@ -43,21 +43,49 @@ void test_canonical_hash_timeline_is_immutable_and_bounded()
     first[0] = std::byte{0x11};
     second[0] = std::byte{0x22};
 
-    expect(timeline.Append({1, 10}, first).ok()
-            && timeline.Append({1, 11}, second).ok(),
+    CanonicalComponentFingerprint first_components{1, 2, 3, 4, 5};
+    CanonicalComponentFingerprint second_components{6, 7, 8, 9, 10};
+    CanonicalWindFingerprint first_wind{};
+    CanonicalWindFingerprint second_wind{};
+    CanonicalWindNodeDiagnostic first_node{};
+    CanonicalWindNodeDiagnostic second_node{};
+    first_node.life_bits = 33;
+    second_node.life_bits = 44;
+    first_wind[0] = 11;
+    second_wind[0] = 22;
+    CanonicalNativeFingerprint native{};
+    CanonicalInputDiagnostic input{};
+    CanonicalWindSemanticDiagnostic wind_detail{};
+    expect(timeline.Append({1, 10}, first, first_components, native, {}, input,
+                wind_detail, first_wind,
+                first_node).ok()
+            && timeline.Append({1, 11}, second, second_components,
+                native, {}, input, wind_detail, second_wind, second_node).ok(),
         "canonical timeline accepts a strictly increasing baseline");
-    expect(timeline.Append({1, 10}, first).ok(),
+    expect(timeline.Append({1, 10}, first, first_components, native, {}, input,
+                wind_detail, first_wind,
+                first_node).ok(),
         "canonical timeline treats an exact resumed frame as validation");
-    expect(timeline.Append({1, 10}, second).code
+    expect(timeline.Append({1, 10}, second, first_components, native, {}, input,
+                wind_detail, first_wind,
+                first_node).code
             == FailureCode::StateHashMismatch,
         "canonical timeline rejects divergence without replacing baseline");
-    expect(timeline.Append({1, 9}, first).code
+    expect(timeline.Append({1, 9}, first, first_components, native, {}, input,
+                wind_detail, first_wind,
+                first_node).code
             == FailureCode::IdentityMismatch,
         "canonical timeline rejects out-of-order history mutation");
-    expect(timeline.Append({1, 12}, first).code
+    expect(timeline.Append({1, 12}, first, first_components, native, {}, input,
+                wind_detail, first_wind,
+                first_node).code
             == FailureCode::CapacityExceeded,
         "canonical timeline stops cleanly at its fixed capacity");
-    expect(timeline.GetExact({1, 10}) == first
+    expect(timeline.GetExact({1, 10}).has_value()
+            && timeline.GetExact({1, 10})->hash == first
+            && timeline.GetExact({1, 10})->components == first_components
+            && timeline.GetExact({1, 10})->wind == first_wind
+            && timeline.GetExact({1, 10})->wind_node == first_node
             && timeline.GetExact({1, 12}) == std::nullopt,
         "canonical timeline retains only the immutable bounded baseline");
 }
@@ -406,6 +434,7 @@ void test_public_config_contract()
                << "input_delay=1\n"
                << "trace=false\n"
                << "correction_probe=true\n"
+               << "forced_depth7_qualification=true\n"
                << "legacy_transport=udp\n"
                << "legacy_mode=lab\n";
     }
@@ -416,6 +445,8 @@ void test_public_config_contract()
     expect(loaded.config.enabled, "parse deterministic enabled flag");
     expect(loaded.config.correction_probe,
         "parse baseline-preserving owned correction probe flag");
+    expect(loaded.config.forced_depth7_qualification,
+        "parse forced depth-7 qualification flag");
     expect(loaded.diagnostics.size() == 1, "legacy config emits one diagnostic");
 }
 
@@ -518,8 +549,8 @@ void test_native_batch_timeline_is_exact_and_bounded()
 void test_snapshot_capacity_is_atomic()
 {
     SnapshotStore store{sizeof(Snapshot) + 4, 1, CapacityPolicy::RejectNew};
-    Snapshot first{{1, 0}, 1, {}, std::vector<std::byte>(4)};
-    Snapshot second{{1, 1}, 1, {}, std::vector<std::byte>(4)};
+    Snapshot first{{1, 0}, 1, {}, {}, {}, {}, {}, {}, {}, std::vector<std::byte>(4)};
+    Snapshot second{{1, 1}, 1, {}, {}, {}, {}, {}, {}, {}, std::vector<std::byte>(4)};
     expect(store.Save(first).ok(), "save first snapshot");
     const auto bytes_before = store.BytesUsed();
     expect(store.Save(second).code == FailureCode::CapacityExceeded, "reject full snapshot store");

@@ -1,6 +1,7 @@
 #include "CandidateCheckpoint.hpp"
 
 #include "MotionBankSnapshot.hpp"
+#include "LocalImageChecksum.hpp"
 #include "Schema.hpp"
 
 #ifndef NOMINMAX
@@ -25,14 +26,14 @@ void reset_checkpoint_image(CandidateCheckpointImage& output) noexcept
 }
 constexpr std::array<std::byte, 8> magic{
     std::byte{'H'}, std::byte{'R'}, std::byte{'S'}, std::byte{'C'},
-    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{9}};
-constexpr std::uint32_t format_version = 14;
+    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{10}};
+constexpr std::uint32_t format_version = 16;
 constexpr std::array<std::byte, 20> hash_domain{
     std::byte{'H'}, std::byte{'o'}, std::byte{'r'}, std::byte{'s'},
     std::byte{'e'}, std::byte{'C'}, std::byte{'a'}, std::byte{'n'},
     std::byte{'d'}, std::byte{'i'}, std::byte{'d'}, std::byte{'a'},
     std::byte{'t'}, std::byte{'e'}, std::byte{'S'}, std::byte{'t'},
-    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{9}};
+    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{10}};
 
 template <typename T>
 void append(std::vector<std::byte>& bytes, const T& value)
@@ -48,13 +49,9 @@ void append_range(std::vector<std::byte>& output, std::span<const std::byte> byt
 
 std::uint64_t local_checksum(std::span<const std::byte> bytes) noexcept
 {
-    std::uint64_t hash = 1469598103934665603ull;
-    for (const auto value : bytes)
-    {
-        hash ^= std::to_integer<std::uint8_t>(value);
-        hash *= 1099511628211ull;
-    }
-    return hash;
+    LocalImageChecksum checksum;
+    checksum.Add(bytes.data(), bytes.size());
+    return checksum.Finish();
 }
 
 void append_ucrt_canonical(
@@ -225,6 +222,7 @@ bool generations_match(FrameCoordinate coordinate,
         && hgcpu.context.round_generation == image.native.round_generation
         && hgcpu.context.stage_generation != 0
         && hgcpu.context.allocation_generation == image.native.round_generation
+        && image.move_dispatch.generation == image.native.round_generation
         && image.secondary_events.round_generation
             == image.native.round_generation
         && SecondaryEventState::Validate(image.secondary_events)
@@ -268,7 +266,10 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
     std::uint64_t context_identity, const CandidateCheckpointImage& image,
     bool verify_local_checksum, Snapshot& output) noexcept
 {
+    auto reusable_bytes = std::move(output.bytes);
     output = {};
+    output.bytes = std::move(reusable_bytes);
+    output.bytes.clear();
     if (context_identity == 0 || !generations_match(coordinate, image)
         || !valid_local_images(image, verify_local_checksum))
     {
@@ -281,20 +282,147 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         if (native_canonical.empty()
             || native_canonical.size() > std::numeric_limits<std::uint32_t>::max())
             return Status::failure(FailureCode::CapacityExceeded);
-        std::vector<std::byte> canonical = native_canonical;
+        const auto move_dispatch_canonical =
+            MoveDispatchState::CanonicalBytes(image.move_dispatch);
+        if (move_dispatch_canonical.empty()
+            || move_dispatch_canonical.size()
+                > std::numeric_limits<std::uint32_t>::max())
+            return Status::failure(FailureCode::CapacityExceeded);
         const auto secondary_canonical =
             SecondaryEventState::CanonicalBytes(image.secondary_events);
-        append_range(canonical, secondary_canonical);
         const auto animation_canonical =
             CharaAnimationState::CanonicalBytes(image.chara_animation);
-        append_range(canonical, animation_canonical);
-        append_ucrt_canonical(canonical, image.ucrt);
+        std::vector<std::byte> ucrt_canonical;
+        ucrt_canonical.reserve(32);
+        append_ucrt_canonical(ucrt_canonical, image.ucrt);
         const auto wind_canonical = StageWindTopologyProbe::CanonicalBytes(image.wind);
+        std::vector<std::byte> canonical;
+        canonical.reserve(native_canonical.size()
+            + move_dispatch_canonical.size() + secondary_canonical.size()
+            + animation_canonical.size() + ucrt_canonical.size()
+            + wind_canonical.size());
+        append_range(canonical, native_canonical);
+        append_range(canonical, move_dispatch_canonical);
+        append_range(canonical, secondary_canonical);
+        append_range(canonical, animation_canonical);
+        append_range(canonical, ucrt_canonical);
         append_range(canonical, wind_canonical);
         std::vector<std::byte> wind_local;
         encode_wind_local(image.wind, wind_local);
         output.coordinate = coordinate;
         output.context_identity = context_identity;
+        LocalImageChecksum native_component_hasher;
+        native_component_hasher.Add(
+            native_canonical.data(), native_canonical.size());
+        native_component_hasher.Add(move_dispatch_canonical.data(),
+            move_dispatch_canonical.size());
+        const auto native_component_checksum =
+            native_component_hasher.Finish();
+        output.canonical_components = {
+            native_component_checksum,
+            local_checksum(secondary_canonical),
+            local_checksum(animation_canonical),
+            local_checksum(ucrt_canonical),
+            local_checksum(wind_canonical),
+        };
+        output.canonical_native =
+            NativeCandidateRegions::CanonicalFingerprint(image.native);
+        output.canonical_move_dispatch[0] = image.native.move_dispatch_masks[0];
+        output.canonical_move_dispatch[1] = image.native.move_dispatch_masks[1];
+        std::size_t edge_diagnostic = 2;
+        for (const auto& fighter : image.native.vfx_edges.fighters)
+            for (const auto value : fighter)
+                output.canonical_move_dispatch[edge_diagnostic++] = value;
+        static_assert(sizeof(output.canonical_input.scalars)
+            == image.native.input_log.scalars.size());
+        std::memcpy(output.canonical_input.scalars.data(),
+            image.native.input_log.scalars.data(),
+            image.native.input_log.scalars.size());
+        constexpr std::size_t rows_per_chunk = 16;
+        for (std::size_t chunk = 0;
+             chunk < output.canonical_input.cache_chunks.size(); ++chunk)
+        {
+            std::array<std::byte, rows_per_chunk * 13> packed{};
+            auto* destination = packed.data();
+            for (std::size_t row = 0; row < rows_per_chunk; ++row)
+            {
+                const auto& value = image.native.input_log.cache_rows[
+                    chunk * rows_per_chunk + row];
+                std::memcpy(destination, &value.game_round,
+                    sizeof(value.game_round));
+                destination += sizeof(value.game_round);
+                std::memcpy(destination, &value.frame_index,
+                    sizeof(value.frame_index));
+                destination += sizeof(value.frame_index);
+                std::memcpy(destination, &value.input_value,
+                    sizeof(value.input_value));
+                destination += sizeof(value.input_value);
+                std::memcpy(destination, &value.filled, sizeof(value.filled));
+                destination += sizeof(value.filled);
+            }
+            output.canonical_input.cache_chunks[chunk] = local_checksum(packed);
+        }
+        const auto block_begin = output.canonical_input.scalars[5] & ~0x7fu;
+        for (std::size_t slot = 0; slot < 2; ++slot)
+            for (std::size_t index = 0; index < 128; ++index)
+            {
+                const auto frame = block_begin + static_cast<std::uint32_t>(index);
+                output.canonical_input.aligned_block_rows[slot * 128 + index] =
+                    image.native.input_log.cache_rows[
+                        slot * 512 + (frame & 0x1ffu)];
+            }
+        output.canonical_wind[0] = local_checksum(image.wind.schedule_state);
+        output.canonical_wind[1] = local_checksum(std::as_bytes(std::span{
+            image.wind.pending_callback_rvas}));
+        output.canonical_wind[1] ^= static_cast<std::uint64_t>(
+            image.wind.nodes.size()) << 32;
+        const auto wind_node_count = (std::min)(
+            std::size_t{8}, image.wind.nodes.size());
+        for (std::size_t index = 0; index < wind_node_count; ++index)
+        {
+            const auto kind = static_cast<std::uint64_t>(
+                image.wind.nodes[index].kind) << 56;
+            output.canonical_wind[2 + index] = kind
+                ^ local_checksum(image.wind.nodes[index].semantic_state);
+            output.canonical_wind[10 + index] = kind
+                ^ local_checksum(image.wind.nodes[index].derived_state);
+        }
+        if (!image.wind.nodes.empty())
+        {
+            const auto& semantic = image.wind.nodes.front().semantic_state;
+            constexpr std::size_t chunk_size = 16;
+            for (std::size_t chunk = 0;
+                 chunk < output.canonical_wind_semantic.size(); ++chunk)
+            {
+                const std::size_t begin = chunk * chunk_size;
+                if (begin >= semantic.size()) break;
+                output.canonical_wind_semantic[chunk] = local_checksum(
+                    std::span{semantic}.subspan(begin,
+                        (std::min)(chunk_size, semantic.size() - begin)));
+            }
+        }
+        if (!image.wind.nodes.empty())
+        {
+            const auto& node = image.wind.nodes.front();
+            auto& diagnostic = output.canonical_wind_node;
+            diagnostic.present = true;
+            diagnostic.kind = static_cast<std::uint8_t>(node.kind);
+            const auto& semantic = node.semantic_state;
+            auto copy_at = [&semantic](std::size_t offset, auto& value)
+            {
+                if (offset + sizeof(value) <= semantic.size())
+                    std::memcpy(&value, semantic.data() + offset, sizeof(value));
+            };
+            copy_at(2, diagnostic.life_bits);
+            copy_at(6, diagnostic.oscillator_tick);
+            copy_at(14, diagnostic.prepared);
+            copy_at(18, diagnostic.active);
+            if (semantic.size() >= 198)
+            {
+                copy_at(190, diagnostic.frame_step_bits);
+                copy_at(194, diagnostic.repeat_count);
+            }
+        }
         if (!hash_candidate(coordinate, context_identity, canonical, output.canonical_hash))
             return Status::failure(FailureCode::CaptureFailed);
 
@@ -307,6 +435,9 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         append(output.bytes, format_version);
         append(output.bytes, Schema::snapshot_schema_version);
         append(output.bytes, static_cast<std::uint32_t>(native_canonical.size()));
+        append(output.bytes,
+            static_cast<std::uint32_t>(move_dispatch_canonical.size()));
+        append(output.bytes, local_checksum(move_dispatch_canonical));
         append(output.bytes,
             static_cast<std::uint32_t>(secondary_canonical.size()));
         append(output.bytes, local_checksum(secondary_canonical));
@@ -339,6 +470,7 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
             append_range(output.bytes, local.bytes);
         }
         append_range(output.bytes, native_canonical);
+        append_range(output.bytes, move_dispatch_canonical);
         append_range(output.bytes, secondary_canonical);
         append_range(output.bytes, animation_canonical);
         append_range(output.bytes, wind_local);
@@ -360,6 +492,8 @@ Status CandidateCheckpointCodec::Decode(
     std::uint32_t observed_format{};
     std::uint32_t observed_schema{};
     std::uint32_t native_canonical_size{};
+    std::uint32_t move_dispatch_canonical_size{};
+    std::uint64_t move_dispatch_canonical_checksum{};
     std::uint32_t secondary_canonical_size{};
     std::uint64_t secondary_canonical_checksum{};
     std::uint32_t animation_canonical_size{};
@@ -374,6 +508,9 @@ Status CandidateCheckpointCodec::Decode(
         || !reader.Take(observed_schema)
         || observed_schema != Schema::snapshot_schema_version
         || !reader.Take(native_canonical_size)
+        || !reader.Take(move_dispatch_canonical_size)
+        || move_dispatch_canonical_size > 0x10000
+        || !reader.Take(move_dispatch_canonical_checksum)
         || !reader.Take(secondary_canonical_size)
         || secondary_canonical_size > 0x1000
         || !reader.Take(secondary_canonical_checksum)
@@ -437,10 +574,15 @@ Status CandidateCheckpointCodec::Decode(
         catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     }
     const auto native_canonical = reader.TakeView(native_canonical_size);
+    const auto move_dispatch_canonical =
+        reader.TakeView(move_dispatch_canonical_size);
     const auto secondary_canonical = reader.TakeView(secondary_canonical_size);
     const auto animation_canonical = reader.TakeView(animation_canonical_size);
     const auto wind_local = reader.TakeView(wind_local_size);
     if (native_canonical.size() != native_canonical_size
+        || move_dispatch_canonical.size() != move_dispatch_canonical_size
+        || local_checksum(move_dispatch_canonical)
+            != move_dispatch_canonical_checksum
         || secondary_canonical.size() != secondary_canonical_size
         || local_checksum(secondary_canonical)
             != secondary_canonical_checksum
@@ -459,6 +601,7 @@ Status CandidateCheckpointCodec::Decode(
     try
     {
         canonical.assign(native_canonical.begin(), native_canonical.end());
+        append_range(canonical, move_dispatch_canonical);
         append_range(canonical, secondary_canonical);
         append_range(canonical, animation_canonical);
         append_ucrt_canonical(canonical, output.ucrt);
@@ -470,6 +613,8 @@ Status CandidateCheckpointCodec::Decode(
     }
     const Status decoded = NativeCandidateRegions::DecodeCanonicalBytes(
         native_canonical, output.native);
+    const Status move_dispatch_decoded = MoveDispatchState::DecodeCanonicalBytes(
+        move_dispatch_canonical, output.move_dispatch);
     const Status secondary_decoded = SecondaryEventState::DecodeCanonicalBytes(
         secondary_canonical, output.secondary_events);
     const Status animation_decoded = CharaAnimationState::DecodeCanonicalBytes(
@@ -489,7 +634,8 @@ Status CandidateCheckpointCodec::Decode(
             return Status::failure(FailureCode::CapacityExceeded);
         }
     }
-    if (!decoded.ok() || !secondary_decoded.ok() || !animation_decoded.ok()
+    if (!decoded.ok() || !move_dispatch_decoded.ok()
+        || !secondary_decoded.ok() || !animation_decoded.ok()
         || !wind_decoded.ok()
         || !generations_match(snapshot.coordinate, output)
         || !valid_local_images(output, true)

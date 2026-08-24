@@ -279,6 +279,38 @@ confirmed canonical frame must equal the new baseline; final persistent state
 must match; ephemeral events must commit once; no stale identity/allocation may
 survive; and the replay qualification from Phase 2 must pass on the same DLL.
 
+Also run a qualification-only forced depth-7 mode through the production
+correction pipeline. On every normal-render gameplay tick, restore the exact
+authoritative state from seven frames earlier, resimulate those seven historical
+frames with ephemeral presentation suppressed, reconcile exactly-once
+presentation, and execute the next authoritative tick normally. Sustain at least
+600 consecutive corrections in every required matchup and correction location.
+Require exact canonical convergence after every correction; no duplicated or
+missing presentation events; no audio, camera, particle, or journal leakage;
+bounded preallocated memory; no allocation or lifecycle growth; clean exit and
+re-entry; and correction-cycle p99 below 16.67 ms. Continue enforcing capture
+p99 at most 0.5 ms and a maximum capture time of 1 ms independently.
+
+Implementation evidence on 2026-08-24: the production correction path now has
+an explicit `forced_depth7_qualification` diagnostic flag. After sixteen active
+gameplay warm-up frames it retains a bounded sixteen-image local ring, restores
+the authoritative fencepost state exactly seven coordinates earlier,
+resimulates seven recorded native batches with ephemeral presentation
+suppressed, normalizes the verified between-tick InputLog clock, restores the
+pre-correction MoveDispatch event masks, and recaptures canonical state
+transactionally. A normal-render replay run completed 600/600 exact corrections
+from frame 980 through 1579 with correction-cycle p99 8.800 ms and maximum
+9.079 ms. It correctly remained non-passing because capture p99 was initially
+0.790/1.030 ms (landing/batch-entry), with batch-entry maximum 1.026 ms.
+Subsequent canonical-buffer/checksum work reduced a normal-render 600-frame
+diagnostic to 0.550/0.720 ms with maxima 0.542/0.718 ms. The cycle gate is met;
+the separate capture-p99 gate remains open. The deployed qualification flag was
+returned to `false` after testing.
+
+The replay qualification bridge now waits for native `round_state_frame != 0`
+and `unpause_countdown == 0` before starting its normal-play watch counter, so
+character intros cannot satisfy gameplay qualification.
+
 ### Phase 4: Implement authenticated Steam rollback
 
 1. Pin a reviewed immutable `FottenSC/GekkoNet` fork commit containing the required

@@ -181,6 +181,7 @@ Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
     : memory_(std::make_unique<ProcessMemory>()),
       regions_(std::make_unique<NativeCandidateRegions>(*memory_)),
       motion_banks_(std::make_unique<MotionBankSnapshot>(*memory_)),
+      move_dispatch_(std::make_unique<MoveDispatchState>(*memory_)),
       secondary_events_(std::make_unique<SecondaryEventState>(*memory_)),
       chara_animation_(std::make_unique<CharaAnimationState>(*memory_)),
       callback_probe_(std::make_unique<CallbackTopologyProbe>(*memory_)),
@@ -467,6 +468,7 @@ Status Sc6CandidateCheckpointCapture::bind(
     adapter_binding.hgcpu_reader = reinterpret_cast<HgCpuExecFn>(
         image_base_ + hgcpu_reader_rva);
     adapter_binding.motion_banks = motion_banks_.get();
+    adapter_binding.move_dispatch = move_dispatch_.get();
     adapter_binding.secondary_events = secondary_events_.get();
     adapter_binding.chara_animation = chara_animation_.get();
     adapter_binding.ucrt_broker = ucrt_broker_;
@@ -476,6 +478,8 @@ Status Sc6CandidateCheckpointCapture::bind(
     adapter_binding.simulation_thread_id = simulation_thread_id;
     Status adapter_status = motion_banks_->Bind(
         fighter_roots, adapter_binding.hgcpu_context);
+    if (adapter_status.ok()) adapter_status = move_dispatch_->Bind(
+        move_dispatch, coordinate.generation);
     if (adapter_status.ok()) adapter_status = secondary_events_->Bind(
         fighter_roots, coordinate.generation);
     if (adapter_status.ok()) adapter_status = chara_animation_->Bind(
@@ -574,7 +578,8 @@ Status Sc6CandidateCheckpointCapture::Capture(
         return wind_status;
     }
 
-    Snapshot snapshot{};
+    Snapshot& snapshot = role == CandidateCheckpointRole::Landing
+        ? landing_capture_scratch_ : batch_entry_capture_scratch_;
     TimingHistogram& capture_timing = role == CandidateCheckpointRole::Landing
         ? landing_capture_timing_ : batch_entry_capture_timing_;
     TimingHistogram& store_timing = role == CandidateCheckpointRole::Landing
@@ -588,7 +593,9 @@ Status Sc6CandidateCheckpointCapture::Capture(
     if (captured.ok())
     {
         const auto store_begin = std::chrono::steady_clock::now();
-        captured = snapshots.Save(std::move(snapshot));
+        // Keep the role-local encode capacity warm; SnapshotStore owns its
+        // bounded copy and reports that cost separately from native capture.
+        captured = snapshots.Save(snapshot);
         const auto store_end = std::chrono::steady_clock::now();
         store_timing.Record(static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -630,6 +637,9 @@ Status Sc6CandidateCheckpointCapture::CaptureTransient(
     FrameCoordinate coordinate, Snapshot& output) noexcept
 {
     output = {};
+    transient_identity_issue_ = 0;
+    transient_identity_expected_ = 0;
+    transient_identity_observed_ = 0;
     if (!regions_->IsBound() || bound_manager_ == 0
         || coordinate.generation != bound_round_generation_)
     {
@@ -638,14 +648,60 @@ Status Sc6CandidateCheckpointCapture::CaptureTransient(
     CameraTopology camera_topology{};
     const Status camera = capture_camera_topology(camera_topology);
     if (!camera.ok() || camera_topology != bound_camera_topology_)
+    {
+        transient_identity_issue_ = 1;
+        transient_identity_expected_ = bound_camera_topology_.camera_root;
+        transient_identity_observed_ = camera_topology.camera_root;
         return Status::failure(camera.ok()
             ? FailureCode::IdentityMismatch : camera.code);
+    }
     CallbackTopology callback_topology{};
     const Status callbacks = capture_callback_topology(callback_topology);
     if (!callbacks.ok() || callback_topology != bound_callback_topology_)
+    {
+        transient_identity_issue_ = 2;
+        transient_identity_expected_ = bound_callback_topology_.signature;
+        transient_identity_observed_ = callback_topology.signature;
         return Status::failure(callbacks.ok()
             ? FailureCode::IdentityMismatch : callbacks.code);
-    return adapter_->Capture(coordinate, output);
+    }
+    const Status captured = adapter_->Capture(coordinate, output);
+    if (captured.code == FailureCode::IdentityMismatch)
+        transient_identity_issue_ = 3;
+    return captured;
+}
+
+CandidateCapturePhase
+Sc6CandidateCheckpointCapture::transient_capture_phase() const noexcept
+{
+    return adapter_->last_capture_phase();
+}
+
+CharaAnimationTopologyIssue
+Sc6CandidateCheckpointCapture::transient_animation_topology_issue() const noexcept
+{
+    return chara_animation_->topology_issue();
+}
+
+std::uintptr_t
+Sc6CandidateCheckpointCapture::transient_animation_topology_observed() const noexcept
+{
+    return chara_animation_->topology_observed();
+}
+
+std::uint32_t Sc6CandidateCheckpointCapture::transient_identity_issue() const noexcept
+{
+    return transient_identity_issue_;
+}
+
+std::uint64_t Sc6CandidateCheckpointCapture::transient_identity_expected() const noexcept
+{
+    return transient_identity_expected_;
+}
+
+std::uint64_t Sc6CandidateCheckpointCapture::transient_identity_observed() const noexcept
+{
+    return transient_identity_observed_;
 }
 
 Status Sc6CandidateCheckpointCapture::EnsureRestoreOwnership(
@@ -672,6 +728,31 @@ Status Sc6CandidateCheckpointCapture::RestoreAndVerify(
     if (status.ok()) status = adapter_->RebuildDerivedState();
     if (status.ok()) status = adapter_->VerifyRestoredState(snapshot);
     return status;
+}
+
+Status Sc6CandidateCheckpointCapture::RestoreInputLogForReplay(
+    const Snapshot& snapshot) noexcept
+{
+    CandidateCheckpointImage image{};
+    const Status decoded = CandidateCheckpointCodec::Decode(snapshot, image);
+    if (!decoded.ok()) return decoded;
+    return regions_->RestoreInputLogTransactional(image.native);
+}
+
+Status Sc6CandidateCheckpointCapture::RestoreMoveDispatchMasksForReplay(
+    const Snapshot& snapshot) noexcept
+{
+    CandidateCheckpointImage image{};
+    const Status decoded = CandidateCheckpointCodec::Decode(snapshot, image);
+    if (!decoded.ok()) return decoded;
+    return regions_->RestoreMoveDispatchMasksTransactional(image.native);
+}
+
+Status Sc6CandidateCheckpointCapture::PrepareInputLogForReplay(
+    const CanonicalInputDiagnostic& expected,
+    const InputPair& input) noexcept
+{
+    return regions_->PrepareInputLogTransactional(expected, input);
 }
 
 Status Sc6CandidateCheckpointCapture::TraceLocalStreamOffset(
@@ -703,6 +784,7 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 {
     adapter_->Reset();
     motion_banks_->Invalidate();
+    move_dispatch_->Invalidate();
     secondary_events_->Invalidate();
     chara_animation_->Invalidate();
     wind_transaction_.reset();

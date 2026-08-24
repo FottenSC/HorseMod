@@ -140,12 +140,28 @@ Using one immutable newly built DLL, each initial candidate is tested:
 
 Each case runs a 600-frame normal-render baseline plus correction depths 1, 6,
 and 11 near round start, active combat, hit/presentation activity, and round end.
+The same production correction pipeline also has a qualification-only forced
+depth-7 mode. On every normal-render gameplay tick it restores the authoritative
+state from exactly seven frames earlier, resimulates those seven historical
+frames with ephemeral presentation suppressed, reconciles exactly-once
+presentation, and then executes the next authoritative tick normally. Each
+required matchup and each correction location must sustain at least 600
+consecutive forced corrections.
 Acceptance requires:
 
 - Every confirmed canonical frame equals its no-correction baseline.
+- Every forced depth-7 correction converges exactly before the next authoritative
+  tick executes.
 - Final persistent presentation state matches the baseline.
 - Every ephemeral event commits exactly once.
+- No audio, camera, particle, or presentation-journal state leaks across a
+  correction.
 - No stale native identity or allocation survives restoration.
+- Forced-correction storage is bounded and preallocated, with no allocation or
+  lifecycle growth over the run and clean exit and re-entry.
+- Forced depth-7 correction-cycle p99 is below 16.67 ms. The separate checkpoint
+  capture requirement remains capture p99 at most 0.5 ms with no capture over
+  1 ms.
 - Replay seek/resume satisfies criterion 4 on the same build.
 
 Networking implementation and qualification remain blocked until this gate is

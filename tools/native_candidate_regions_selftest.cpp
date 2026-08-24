@@ -264,6 +264,17 @@ struct Fixture
         memory.Set(player_watch + 0x2A0, std::uint32_t{7});
 
         event_masks = memory_base + 0x2000;
+        memory.Set(addresses.move_dispatch + 0x470, memory_base + 0x2100);
+        memory.Set(addresses.move_dispatch + 0x478, std::int32_t{3});
+        memory.Set(addresses.move_dispatch + 0x47C, std::int32_t{2});
+        memory.Set(addresses.move_dispatch + 0x480, std::uint8_t{0});
+        memory.Set(addresses.move_dispatch + 0x484, std::int32_t{10});
+        memory.Set(addresses.move_dispatch + 0x488, std::uint8_t{1});
+        memory.Set(addresses.move_dispatch + 0x490, std::uint32_t{0});
+        memory.Set(addresses.move_dispatch + 0x494, std::int32_t{4});
+        memory.Set(addresses.move_dispatch + 0x498, std::uintptr_t{});
+        memory.Set(addresses.move_dispatch + 0x4A0, std::int32_t{0});
+        memory.Set(addresses.move_dispatch + 0x4A4, std::int32_t{0});
         memory.Set(addresses.move_dispatch + 0x4A8, event_masks);
         memory.Set(addresses.move_dispatch + 0x4B0, std::int32_t{2});
         memory.Set(addresses.move_dispatch + 0x4B4, std::int32_t{2});
@@ -642,6 +653,8 @@ void test_candidate_checkpoint_codec()
 
     CandidateCheckpointImage image{};
     image.native = native;
+    image.move_dispatch.generation = native.round_generation;
+    image.move_dispatch.phase = MoveDispatchActionModeState{};
     image.local_images.push_back(hgcpu);
     MotionBankSnapshot motion{fixture.memory};
     expect(motion.Bind(fixture.addresses.fighter_roots, hgcpu_context()).ok(),
@@ -688,6 +701,8 @@ void test_candidate_checkpoint_codec()
         "decode candidate checkpoint");
     expect(decoded.native == native,
         "candidate checkpoint round-trips typed native image");
+    expect(decoded.move_dispatch == image.move_dispatch,
+        "candidate checkpoint round-trips MoveDispatch semantic state");
     expect(decoded.local_images.size() == 2
             && decoded.local_images.front().serializer_id
                 == LocalSerializerId::HgCpuDirect
@@ -705,6 +720,17 @@ void test_candidate_checkpoint_codec()
         "candidate checkpoint round-trips value-only UCRT state");
     expect(decoded.wind == image.wind,
         "candidate checkpoint round-trips pointer-free wind state");
+
+    auto presentation_wind = image;
+    presentation_wind.wind.nodes.front().derived_state.front() ^= std::byte{1};
+    presentation_wind.wind.output_force.front() ^= std::byte{1};
+    Snapshot presentation_snapshot{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, presentation_wind, presentation_snapshot).ok()
+            && presentation_snapshot.canonical_hash == snapshot.canonical_hash
+            && presentation_snapshot.bytes != snapshot.bytes,
+        "node and root wind sampled/output force remain local-restorable but are excluded "
+        "from canonical peer truth");
 
     auto duplicate_local = image;
     duplicate_local.local_images[1] = hgcpu;
@@ -936,6 +962,20 @@ void test_chara_animation_state_normalizes_sections_and_undoes_exactly()
     fixture.memory.Set(runtime, section_table + 0x40);
     expect(animation.RestoreTransactional(pending_bootstrap).ok(),
         "active pre-bootstrap restore reproduces the native null runtime boundary");
+
+    fixture.memory.Set(clip + 8, section_table + 0x60);
+    fixture.memory.Set(clip + 0x2C, std::uint32_t{1});
+    fixture.memory.Set(runtime, section_table + 0x40);
+    CharaAnimationStateImage rebound_clip{};
+    expect(animation.Capture(rebound_clip).ok()
+            && rebound_clip.players[0].clip_section.present
+            && rebound_clip.players[0].runtime_section.present
+            && rebound_clip.players[0].clip_section
+                != rebound_clip.players[0].runtime_section,
+        "active clip rebinding preserves the independently consumed runtime section");
+    fixture.memory.Set(runtime, section_table + 0x60);
+    expect(animation.RestoreTransactional(rebound_clip).ok(),
+        "animation restore reconstructs distinct clip and runtime section identities");
     expect(animation.RestoreTransactional(baseline).ok(),
         "bootstrapped clip restore reconstructs runtime after pre-bootstrap state");
 
@@ -1005,7 +1045,7 @@ struct CandidateWindFixture
     explicit CandidateWindFixture(Fixture& fixture)
         : probe(fixture.memory), transaction(fixture.memory, allocator),
           motion(fixture.memory), secondary(fixture.memory),
-          animation(fixture.memory)
+          animation(fixture.memory), move_dispatch(fixture.memory)
     {
         addresses = {Fixture::image_base, 0x4300000,
             Fixture::memory_base + 0x1F000, 7};
@@ -1021,6 +1061,8 @@ struct CandidateWindFixture
             "bind candidate secondary-event fixture");
         expect(animation.Bind(fixture.addresses.fighter_roots, 7).ok(),
             "bind candidate character-animation fixture");
+        expect(move_dispatch.Bind(fixture.addresses.move_dispatch, 7).ok(),
+            "bind candidate MoveDispatch fixture");
     }
 
     EmptyStageWindAllocator allocator;
@@ -1029,6 +1071,7 @@ struct CandidateWindFixture
     MotionBankSnapshot motion;
     SecondaryEventState secondary;
     CharaAnimationState animation;
+    MoveDispatchState move_dispatch;
     StageWindTopologyAddresses addresses{};
     std::uintptr_t root{};
 };
@@ -1043,6 +1086,7 @@ CandidateAdapterBinding candidate_binding(
     binding.hgcpu_writer = &fake_hgcpu_writer;
     binding.hgcpu_reader = reader;
     binding.motion_banks = &wind.motion;
+    binding.move_dispatch = &wind.move_dispatch;
     binding.secondary_events = &wind.secondary;
     binding.chara_animation = &wind.animation;
     binding.ucrt_broker = &candidate_ucrt_broker;

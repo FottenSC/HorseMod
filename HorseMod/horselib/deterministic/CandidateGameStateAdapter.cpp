@@ -32,6 +32,7 @@ Status CandidateGameStateAdapter::Configure(
         || binding.context.stage_identity == 0 || binding.hgcpu_writer == nullptr
         || binding.hgcpu_reader == nullptr || !regions_.IsBound()
         || binding.motion_banks == nullptr
+        || binding.move_dispatch == nullptr
         || binding.secondary_events == nullptr
         || binding.chara_animation == nullptr
         || binding.ucrt_broker == nullptr || binding.simulation_thread_id == 0
@@ -113,6 +114,11 @@ Status CandidateGameStateAdapter::capture_image(
     const auto typed_begin = std::chrono::steady_clock::now();
     last_capture_phase_ = CandidateCapturePhase::NativeTyped;
     Status status = regions_.Capture(output.native);
+    if (status.ok())
+    {
+        last_capture_phase_ = CandidateCapturePhase::MoveDispatch;
+        status = binding_.move_dispatch->Capture(output.move_dispatch);
+    }
     if (status.ok())
     {
         last_capture_phase_ = CandidateCapturePhase::SecondaryEvents;
@@ -274,7 +280,10 @@ Status CandidateGameStateAdapter::decode_and_preflight(
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
-    return regions_.PreflightRestore(output.native);
+    Status status = regions_.PreflightRestore(output.native);
+    if (status.ok())
+        status = binding_.move_dispatch->PreflightRestore(output.move_dispatch);
+    return status;
 }
 
 Status CandidateGameStateAdapter::PreflightRestore(
@@ -325,6 +334,8 @@ Status CandidateGameStateAdapter::restore_image(
     {
         const auto typed_begin = std::chrono::steady_clock::now();
         status = regions_.RestoreTransactional(image.native);
+        if (status.ok()) status = binding_.move_dispatch->RestoreTransactional(
+            image.move_dispatch);
         if (status.ok()) status = binding_.secondary_events->RestoreTransactional(
             image.secondary_events);
         if (status.ok()) status = binding_.chara_animation->RestoreTransactional(
@@ -368,6 +379,8 @@ bool CandidateGameStateAdapter::undo_image(
     const Status motion = binding_.motion_banks->RestoreTransactional(
         image.local_images[1]);
     const Status native = regions_.RestoreTransactional(image.native);
+    const Status move_dispatch =
+        binding_.move_dispatch->RestoreTransactional(image.move_dispatch);
     const Status secondary = binding_.secondary_events->RestoreTransactional(
         image.secondary_events);
     const Status chara_animation =
@@ -376,7 +389,8 @@ bool CandidateGameStateAdapter::undo_image(
         binding_.wind_addresses, image.wind);
     const Status ucrt = binding_.ucrt_broker->Restore(
         binding_.simulation_thread_id, image.ucrt);
-    return hgcpu.ok() && motion.ok() && native.ok() && secondary.ok()
+    return hgcpu.ok() && motion.ok() && native.ok() && move_dispatch.ok()
+        && secondary.ok()
         && chara_animation.ok()
         && wind.ok() && ucrt.ok();
 }
@@ -412,6 +426,7 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
     // that the current serializer is bounded and valid; verification compares
     // only pointer-free typed state and explicitly admitted value supplements.
     return observed.native == expected_image.native
+            && observed.move_dispatch == expected_image.move_dispatch
             && observed.secondary_events == expected_image.secondary_events
             && observed.chara_animation == expected_image.chara_animation
             && observed.ucrt == expected_image.ucrt

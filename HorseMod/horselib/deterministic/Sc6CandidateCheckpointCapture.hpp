@@ -4,6 +4,7 @@
 #include "CharaAnimationState.hpp"
 #include "CandidateGameStateAdapter.hpp"
 #include "MotionBankSnapshot.hpp"
+#include "MoveDispatchState.hpp"
 #include "SecondaryEventState.hpp"
 #include "Schema.hpp"
 #include "SnapshotStore.hpp"
@@ -61,6 +62,12 @@ public:
         FrameCoordinate coordinate, Snapshot& output) noexcept;
     Status EnsureRestoreOwnership(std::uint32_t simulation_thread_id) noexcept;
     Status RestoreAndVerify(const Snapshot& snapshot) noexcept;
+    Status RestoreInputLogForReplay(const Snapshot& snapshot) noexcept;
+    Status RestoreMoveDispatchMasksForReplay(
+        const Snapshot& snapshot) noexcept;
+    Status PrepareInputLogForReplay(
+        const CanonicalInputDiagnostic& expected,
+        const InputPair& input) noexcept;
     void InvalidateHistory() noexcept;
     void ReleaseBinding() noexcept;
     void Reset() noexcept;
@@ -73,6 +80,14 @@ public:
         const noexcept;
     [[nodiscard]] CandidateAdapterPerformanceStatus adapter_performance()
         const noexcept;
+    [[nodiscard]] CandidateCapturePhase transient_capture_phase() const noexcept;
+    [[nodiscard]] CharaAnimationTopologyIssue
+    transient_animation_topology_issue() const noexcept;
+    [[nodiscard]] std::uintptr_t
+    transient_animation_topology_observed() const noexcept;
+    [[nodiscard]] std::uint32_t transient_identity_issue() const noexcept;
+    [[nodiscard]] std::uint64_t transient_identity_expected() const noexcept;
+    [[nodiscard]] std::uint64_t transient_identity_observed() const noexcept;
     Status TraceLocalStreamOffset(
         std::size_t stream_offset, HgCpuWriteSpan& output,
         std::array<std::uintptr_t, 2>& fighter_roots,
@@ -146,6 +161,7 @@ private:
     std::unique_ptr<ProcessMemory> memory_;
     std::unique_ptr<NativeCandidateRegions> regions_;
     std::unique_ptr<MotionBankSnapshot> motion_banks_;
+    std::unique_ptr<MoveDispatchState> move_dispatch_;
     std::unique_ptr<SecondaryEventState> secondary_events_;
     std::unique_ptr<CharaAnimationState> chara_animation_;
     std::unique_ptr<CallbackTopologyProbe> callback_probe_;
@@ -159,6 +175,8 @@ private:
         maximum_checkpoints_per_role, CapacityPolicy::RejectNew};
     SnapshotStore batch_entry_snapshots_{checkpoint_memory_limit,
         maximum_checkpoints_per_role, CapacityPolicy::RejectNew};
+    Snapshot landing_capture_scratch_{};
+    Snapshot batch_entry_capture_scratch_{};
     CandidateCheckpointCaptureStatus landing_status_{};
     CandidateCheckpointCaptureStatus batch_entry_status_{};
     TimingHistogram landing_capture_timing_{};
@@ -173,5 +191,8 @@ private:
     std::uint64_t bound_round_generation_{};
     CameraTopology bound_camera_topology_{};
     CallbackTopology bound_callback_topology_{};
+    std::uint32_t transient_identity_issue_{};
+    std::uint64_t transient_identity_expected_{};
+    std::uint64_t transient_identity_observed_{};
 };
 }

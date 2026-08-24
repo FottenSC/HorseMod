@@ -20,6 +20,10 @@ struct Config
     // Baseline-preserving depth 1/6/11 owned-resimulation probe. Diagnostic
     // only; it never substitutes or mutates captured input.
     bool correction_probe{};
+    // Qualification-only continuous rollback stress. This deliberately uses
+    // the production correction path at the fixed acceptance depth of seven
+    // frames; it is never enabled by the production allowlist.
+    bool forced_depth7_qualification{};
 };
 
 struct ConfigLoadResult

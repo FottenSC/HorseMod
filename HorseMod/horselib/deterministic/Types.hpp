@@ -40,6 +40,7 @@ enum class FailureCode : std::uint16_t
     PeerDisconnected,
     NativeLifecycleEnded,
     NativeGenerationMaterializationFailed,
+    PerformanceBudgetExceeded,
 };
 
 constexpr std::string_view failure_code_name(FailureCode code) noexcept
@@ -75,6 +76,7 @@ constexpr std::string_view failure_code_name(FailureCode code) noexcept
     case FailureCode::PeerDisconnected: return "peer_disconnected";
     case FailureCode::NativeLifecycleEnded: return "native_lifecycle_ended";
     case FailureCode::NativeGenerationMaterializationFailed: return "native_generation_materialization_failed";
+    case FailureCode::PerformanceBudgetExceeded: return "performance_budget_exceeded";
     }
     return "unknown_failure";
 }
@@ -141,13 +143,59 @@ struct InputPair
 };
 
 using CanonicalHash = std::array<std::byte, 32>;
+// Stable section fingerprints used only to localize a canonical mismatch.
+// Order: native typed, secondary events, character animation, UCRT, stage wind.
+using CanonicalComponentFingerprint = std::array<std::uint64_t, 5>;
+using CanonicalNativeFingerprint = std::array<std::uint64_t, 32>;
+// Masks followed by the P1/P2 {current6, mirror6, current11, mirror11}
+// collection-22 source fields.
+using CanonicalMoveDispatchDiagnostic = std::array<std::uint64_t, 10>;
+struct CanonicalInputDiagnostic
+{
+    std::array<std::uint32_t, 12> scalars{};
+    std::array<std::uint64_t, 64> cache_chunks{};
+    std::array<NativeInputCacheRowImage, 256> aligned_block_rows{};
+    friend constexpr bool operator==(
+        const CanonicalInputDiagnostic&,
+        const CanonicalInputDiagnostic&) = default;
+};
+using CanonicalWindSemanticDiagnostic = std::array<std::uint64_t, 32>;
+// Wind-only mismatch localization: schedule, callback queue, then semantic and
+// derived fingerprints for up to eight bounded nodes.
+using CanonicalWindFingerprint = std::array<std::uint64_t, 18>;
+
+// Narrow runtime diagnostic for the first bounded wind node. These values are
+// already part of the canonical semantic image; keeping them alongside the
+// hash only localizes a mismatch and does not enlarge the restore payload.
+struct CanonicalWindNodeDiagnostic
+{
+    std::uint32_t life_bits{};
+    std::int32_t oscillator_tick{};
+    std::uint32_t prepared{};
+    std::uint32_t active{};
+    std::uint32_t frame_step_bits{};
+    std::int32_t repeat_count{};
+    std::uint8_t kind{UINT8_MAX};
+    bool present{};
+
+    friend constexpr bool operator==(
+        const CanonicalWindNodeDiagnostic&,
+        const CanonicalWindNodeDiagnostic&) = default;
+};
 
 struct Snapshot
 {
     FrameCoordinate coordinate{};
     std::uint64_t context_identity{};
     CanonicalHash canonical_hash{};
+    CanonicalComponentFingerprint canonical_components{};
+    CanonicalNativeFingerprint canonical_native{};
+    CanonicalInputDiagnostic canonical_input{};
+    CanonicalWindSemanticDiagnostic canonical_wind_semantic{};
+    CanonicalWindFingerprint canonical_wind{};
+    CanonicalWindNodeDiagnostic canonical_wind_node{};
     std::vector<std::byte> bytes;
+    CanonicalMoveDispatchDiagnostic canonical_move_dispatch{};
 };
 
 struct PresentationEvent

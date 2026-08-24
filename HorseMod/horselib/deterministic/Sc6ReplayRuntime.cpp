@@ -17,8 +17,8 @@ OwnedCorrectionResult::WindNodeScheduleDiagnostic WindScheduleDiagnostic(
     OwnedCorrectionResult::WindNodeScheduleDiagnostic output{};
     if (index >= image.nodes.size()) return output;
     const auto& node = image.nodes[index];
-    // Common semantic bytes are packed as +0x20/2, +0x30/4, +0x40/0x30.
-    if (node.semantic_state.size() < 54) return output;
+    // Common semantic bytes are packed as +0x20/2, +0x30/4, +0x60/0x10.
+    if (node.semantic_state.size() < 22) return output;
     const auto load_u32 = [&](std::size_t offset, auto& value) noexcept {
         if (offset + sizeof(value) <= node.semantic_state.size())
             std::memcpy(&value, node.semantic_state.data() + offset,
@@ -27,14 +27,14 @@ OwnedCorrectionResult::WindNodeScheduleDiagnostic WindScheduleDiagnostic(
     output.present = true;
     output.kind = static_cast<std::uint8_t>(node.kind);
     load_u32(2, output.life_bits);
-    load_u32(38, output.oscillator_tick);
-    load_u32(46, output.prepared);
-    load_u32(50, output.active);
+    load_u32(6, output.oscillator_tick);
+    load_u32(14, output.prepared);
+    load_u32(18, output.active);
     if (node.kind == StageWindNodeKind::RingIn
-        && node.semantic_state.size() >= 230)
+        && node.semantic_state.size() >= 198)
     {
-        load_u32(222, output.frame_step_bits);
-        load_u32(226, output.repeat_count);
+        load_u32(190, output.frame_step_bits);
+        load_u32(194, output.repeat_count);
     }
     return output;
 }
@@ -116,6 +116,7 @@ std::uint64_t CandidateDifferenceMask(
         != observed.native.vm_freeze_record);
     mark(19, expected.native.stage_wind_emitters
         != observed.native.stage_wind_emitters);
+    mark(20, expected.move_dispatch != observed.move_dispatch);
     return mask;
 }
 }
@@ -154,6 +155,7 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     input_timeline_.Clear();
     batch_timeline_.Clear();
     canonical_timeline_.Clear();
+    forced_qualification_snapshots_.Clear();
     checkpoint_capture_.Reset();
     timeline_status_ = {};
     timeline_manager_ = 0;
@@ -179,6 +181,18 @@ bool Sc6ReplayRuntime::ready() const noexcept
 IReplayNativeBridge* Sc6ReplayRuntime::bridge() noexcept
 {
     return bridge_ ? &*bridge_ : nullptr;
+}
+
+void Sc6ReplayRuntime::SetForcedDepth7QualificationEnabled(
+    bool enabled) noexcept
+{
+    forced_depth7_qualification_enabled_ = enabled;
+    forced_qualification_snapshots_.Clear();
+}
+
+std::size_t Sc6ReplayRuntime::forced_qualification_bytes() const noexcept
+{
+    return forced_qualification_snapshots_.BytesUsed();
 }
 
 Status Sc6ReplayRuntime::PrepareInitialGeneration(
@@ -227,11 +241,16 @@ Status Sc6ReplayRuntime::ObserveFrame(
     }
     if (observation.outer_batch_id == 0)
     {
+        timeline_status_.identity_issue = 1;
+        timeline_status_.identity_observed = observation.outer_batch_id;
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
     }
     if (pending_batch_id_ != observation.outer_batch_id)
     {
+        timeline_status_.identity_issue = 2;
+        timeline_status_.identity_expected = pending_batch_id_;
+        timeline_status_.identity_observed = observation.outer_batch_id;
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
     }
@@ -321,6 +340,37 @@ Status Sc6ReplayRuntime::ObserveFrame(
     inputs.remote_confirmed = true;
     inputs.post_filter_observed = true;
     inputs.source_rows_observed = observation.source_rows_observed;
+    if (resume_validation_active_)
+    {
+        const auto expected_input = input_timeline_.GetExact(coordinate);
+        if (!expected_input.has_value())
+        {
+            timeline_status_.failure = FailureCode::MissingInput;
+            return Status::failure(timeline_status_.failure);
+        }
+        std::uint32_t issue{};
+        if (expected_input->players[0] != inputs.players[0]
+            || expected_input->players[1] != inputs.players[1]) issue |= 1;
+        if (expected_input->post_filter_players[0]
+                != inputs.post_filter_players[0]
+            || expected_input->post_filter_players[1]
+                != inputs.post_filter_players[1]) issue |= 2;
+        if (expected_input->source_rows[0] != inputs.source_rows[0]
+            || expected_input->source_rows[1] != inputs.source_rows[1])
+            issue |= 4;
+        if (expected_input->input_update_time != inputs.input_update_time)
+            issue |= 8;
+        if (issue != 0)
+        {
+            timeline_status_.identity_issue = 200 + issue;
+            timeline_status_.identity_expected =
+                (static_cast<std::uint64_t>(expected_input->players[0].held) << 32)
+                | expected_input->players[1].held;
+            timeline_status_.identity_observed =
+                (static_cast<std::uint64_t>(inputs.players[0].held) << 32)
+                | inputs.players[1].held;
+        }
+    }
     const Status appended = input_timeline_.AppendAuthoritative(coordinate, inputs);
     if (!appended.ok())
     {
@@ -362,11 +412,62 @@ Status Sc6ReplayRuntime::ObserveFrame(
             coordinate, observed);
         if (!captured.ok())
         {
+            timeline_status_.identity_issue =
+                100 + checkpoint_capture_.transient_identity_issue();
+            timeline_status_.identity_expected =
+                checkpoint_capture_.transient_identity_expected();
+            timeline_status_.identity_observed =
+                checkpoint_capture_.transient_identity_observed();
+            timeline_status_.canonical_capture_phase =
+                checkpoint_capture_.transient_capture_phase();
+            timeline_status_.canonical_animation_topology_issue =
+                checkpoint_capture_.transient_animation_topology_issue();
+            timeline_status_.canonical_animation_topology_observed =
+                checkpoint_capture_.transient_animation_topology_observed();
+            timeline_status_.canonical_capture_failure_coordinate = coordinate;
             timeline_status_.failure = captured.code;
             return captured;
         }
-        if (observed.canonical_hash != *expected)
+        if (observed.canonical_hash != expected->hash)
         {
+            timeline_status_.resume_failure_coordinate = coordinate;
+            timeline_status_.resume_expected_hash = expected->hash;
+            timeline_status_.resume_observed_hash = observed.canonical_hash;
+            timeline_status_.resume_component_difference_mask = 0;
+            for (std::size_t index = 0;
+                 index < expected->components.size(); ++index)
+            {
+                if (expected->components[index]
+                    != observed.canonical_components[index])
+                {
+                    timeline_status_.resume_component_difference_mask
+                        |= std::uint32_t{1} << index;
+                }
+            }
+            timeline_status_.resume_wind_difference_mask = 0;
+            for (std::size_t index = 0; index < expected->wind.size(); ++index)
+            {
+                if (expected->wind[index] != observed.canonical_wind[index])
+                {
+                    timeline_status_.resume_wind_difference_mask
+                        |= std::uint32_t{1} << index;
+                }
+            }
+            timeline_status_.resume_expected_wind_node = expected->wind_node;
+            timeline_status_.resume_observed_wind_node =
+                observed.canonical_wind_node;
+            timeline_status_.resume_first_wind_semantic_chunk = UINT32_MAX;
+            for (std::size_t index = 0;
+                 index < expected->wind_semantic.size(); ++index)
+            {
+                if (expected->wind_semantic[index]
+                    != observed.canonical_wind_semantic[index])
+                {
+                    timeline_status_.resume_first_wind_semantic_chunk =
+                        static_cast<std::uint32_t>(index);
+                    break;
+                }
+            }
             timeline_status_.failure = FailureCode::StateHashMismatch;
             return Status::failure(timeline_status_.failure);
         }
@@ -439,11 +540,30 @@ Status Sc6ReplayRuntime::ObserveFrame(
             coordinate, canonical);
         if (!captured.ok())
         {
+            timeline_status_.canonical_capture_phase =
+                checkpoint_capture_.transient_capture_phase();
+            timeline_status_.canonical_animation_topology_issue =
+                checkpoint_capture_.transient_animation_topology_issue();
+            timeline_status_.canonical_animation_topology_observed =
+                checkpoint_capture_.transient_animation_topology_observed();
+            timeline_status_.canonical_capture_failure_coordinate = coordinate;
+            if (captured.code == FailureCode::IdentityMismatch
+                || captured.code == FailureCode::GenerationMismatch)
+            {
+                generation_rebaseline_pending_ = true;
+                return Status::success();
+            }
             timeline_status_.failure = captured.code;
             return captured;
         }
         const Status stored = canonical_timeline_.Append(
-            coordinate, canonical.canonical_hash);
+            coordinate, canonical.canonical_hash,
+            canonical.canonical_components, canonical.canonical_native,
+            canonical.canonical_move_dispatch,
+            canonical.canonical_input,
+            canonical.canonical_wind_semantic,
+            canonical.canonical_wind,
+            canonical.canonical_wind_node);
         timeline_status_.canonical_frames = canonical_timeline_.size();
         timeline_status_.canonical_hash_bytes = canonical_timeline_.bytes_used();
         if (stored.code == FailureCode::CapacityExceeded)
@@ -455,6 +575,16 @@ Status Sc6ReplayRuntime::ObserveFrame(
         {
             timeline_status_.failure = stored.code;
             return stored;
+        }
+        if (forced_depth7_qualification_enabled_)
+        {
+            const Status retained =
+                forced_qualification_snapshots_.Save(std::move(canonical));
+            if (!retained.ok())
+            {
+                timeline_status_.failure = retained.code;
+                return retained;
+            }
         }
     }
     return Status::success();
@@ -477,6 +607,9 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         return Status::success();
     if (observation.batch_id == 0 || pending_batch_id_ != 0)
     {
+        timeline_status_.identity_issue = 3;
+        timeline_status_.identity_expected = 0;
+        timeline_status_.identity_observed = pending_batch_id_;
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
     }
@@ -489,6 +622,9 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     if (timeline_manager_ != 0
         && timeline_manager_ != observation.battle_manager)
     {
+        timeline_status_.identity_issue = 4;
+        timeline_status_.identity_expected = timeline_manager_;
+        timeline_status_.identity_observed = observation.battle_manager;
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
     }
@@ -509,6 +645,11 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         if (observation.before.frame_counter
             != timeline_status_.last_coordinate.frame)
         {
+            timeline_status_.identity_issue = 5;
+            timeline_status_.identity_expected =
+                timeline_status_.last_coordinate.frame;
+            timeline_status_.identity_observed =
+                observation.before.frame_counter;
             timeline_status_.failure = FailureCode::IdentityMismatch;
             return Status::failure(timeline_status_.failure);
         }
@@ -588,6 +729,43 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     return Status::success();
 }
 
+Status Sc6ReplayRuntime::PrepareResumeOuterTick(
+    std::uintptr_t battle_manager, std::uint32_t thread_id) noexcept
+{
+    if (!resume_validation_active_) return Status::success();
+    if (timeline_status_.failure != FailureCode::None)
+        return Status::failure(timeline_status_.failure);
+    if (battle_manager != timeline_manager_ || thread_id != timeline_thread_id_)
+    {
+        timeline_status_.failure = FailureCode::WrongThread;
+        return Status::failure(timeline_status_.failure);
+    }
+    const FrameCoordinate next{timeline_status_.last_coordinate.generation,
+        timeline_status_.last_coordinate.frame + 1};
+    const auto member = batch_timeline_.FindCoordinate(next);
+    if (!member.has_value())
+    {
+        timeline_status_.failure = FailureCode::MissingInput;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (member->offset_in_batch != 0)
+    {
+        timeline_status_.failure = FailureCode::AdapterUnqualified;
+        return Status::failure(timeline_status_.failure);
+    }
+    const auto expected = canonical_timeline_.GetExact(next);
+    const auto input = input_timeline_.GetExact(next);
+    if (!expected.has_value() || !input.has_value())
+    {
+        timeline_status_.failure = FailureCode::MissingInput;
+        return Status::failure(timeline_status_.failure);
+    }
+    const Status restored = checkpoint_capture_.PrepareInputLogForReplay(
+        expected->input, *input);
+    if (!restored.ok()) timeline_status_.failure = restored.code;
+    return restored;
+}
+
 void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
 {
     const std::uint64_t sessions = timeline_status_.sessions;
@@ -596,6 +774,7 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     input_timeline_.Clear();
     batch_timeline_.Clear();
     canonical_timeline_.Clear();
+    forced_qualification_snapshots_.Clear();
     checkpoint_capture_.InvalidateHistory();
     timeline_status_ = {};
     timeline_status_.sessions = sessions;
@@ -801,6 +980,7 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     input_timeline_.Clear();
     batch_timeline_.Clear();
     canonical_timeline_.Clear();
+    forced_qualification_snapshots_.Clear();
     checkpoint_capture_.InvalidateHistory();
     timeline_status_ = {};
     timeline_manager_ = 0;
@@ -853,10 +1033,11 @@ Status Sc6ReplayRuntime::CaptureOwnedLanding(
     void* user, FrameCoordinate coordinate) noexcept
 {
     auto* capture = static_cast<OwnedLandingCapture*>(user);
-    return capture != nullptr && capture->checkpoints != nullptr
-            && capture->output != nullptr
-        ? capture->checkpoints->CaptureTransient(coordinate, *capture->output)
-        : Status::failure(FailureCode::InvalidConfiguration);
+    if (capture == nullptr || capture->checkpoints == nullptr
+        || capture->output == nullptr)
+        return Status::failure(FailureCode::InvalidConfiguration);
+    return capture->checkpoints->CaptureTransient(
+        coordinate, *capture->output);
 }
 
 Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
@@ -867,6 +1048,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
     std::optional<std::size_t> landing_batch_index,
     std::uint32_t landing_offset,
     Snapshot* landing,
+    bool preserve_first_entry_input_log,
     std::uint64_t* replayed_coordinates,
     std::uint32_t* replayed_batches,
     std::size_t* failed_batch_index,
@@ -931,6 +1113,35 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
 
         const bool capture_landing = landing_batch_index.has_value()
             && batch_index == *landing_batch_index;
+        const auto batch_entry = checkpoint_capture_.snapshots(
+            CandidateCheckpointRole::BatchEntry).Load(
+                envelope->entry_coordinate);
+        Status input_handoff{};
+        if (preserve_first_entry_input_log
+            && batch_index == first_batch_index)
+        {
+            input_handoff = Status::success();
+        }
+        else if (batch_entry.has_value())
+        {
+            input_handoff =
+                checkpoint_capture_.RestoreInputLogForReplay(*batch_entry);
+        }
+        else
+        {
+            const auto expected_entry = canonical_timeline_.GetExact(
+                envelope->entry_coordinate);
+            if (!expected_entry.has_value() || envelope->coordinate_count == 0)
+                return Status::failure(FailureCode::MissingSnapshot);
+            input_handoff = checkpoint_capture_.PrepareInputLogForReplay(
+                expected_entry->input, inputs[0]);
+        }
+        if (!input_handoff.ok()) return input_handoff;
+        const auto expected_landing = capture_landing
+            ? canonical_timeline_.GetExact(coordinates[landing_offset])
+            : std::optional<CanonicalHashEntry>{};
+        if (capture_landing && !expected_landing.has_value())
+            return Status::failure(FailureCode::MissingSnapshot);
         OwnedLandingCapture landing_capture{&checkpoint_capture_, landing};
         OwnedBatchReplayRequest request{};
         request.battle_manager = timeline_manager_;
@@ -1079,7 +1290,14 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     }
     ReplaySeekPlan plan{};
     Status status = PlanSeek(target, plan);
-    if (!status.ok()) return status;
+    if (!status.ok())
+    {
+        timeline_status_.identity_issue = 300;
+        timeline_status_.identity_expected = target.frame;
+        timeline_status_.identity_observed =
+            static_cast<std::uint64_t>(status.code);
+        return status;
+    }
     if (!hooks.installed() || timeline_thread_id_ == 0
         || timeline_thread_id_ != ::GetCurrentThreadId()
         || timeline_manager_ == 0
@@ -1092,7 +1310,15 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     const auto expected_target = canonical_timeline_.GetExact(target);
     const auto expected_source = canonical_timeline_.GetExact(source_end);
     if (!expected_target.has_value() || !expected_source.has_value())
+    {
+        timeline_status_.identity_issue = expected_target.has_value() ? 302 : 301;
+        timeline_status_.identity_expected = expected_target.has_value()
+            ? source_end.frame : target.frame;
+        const auto range = canonical_timeline_.Range();
+        timeline_status_.identity_observed = range.has_value()
+            ? range->second.frame : 0;
         return Status::failure(FailureCode::MissingSnapshot);
+    }
     status = checkpoint_capture_.EnsureRestoreOwnership(timeline_thread_id_);
     if (!status.ok()) return status;
 
@@ -1102,7 +1328,13 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     if (!status.ok()) return status;
     const auto base = checkpoint_capture_.snapshots(
         CandidateCheckpointRole::BatchEntry).Load(plan.resimulation_base);
-    if (!base.has_value()) return Status::failure(FailureCode::MissingSnapshot);
+    if (!base.has_value())
+    {
+        timeline_status_.identity_issue = 303;
+        timeline_status_.identity_expected = plan.resimulation_base.frame;
+        timeline_status_.identity_observed = target.frame;
+        return Status::failure(FailureCode::MissingSnapshot);
+    }
 
     const auto restore_undo = [&]() noexcept {
         return checkpoint_capture_.RestoreAndVerify(undo).ok();
@@ -1117,11 +1349,87 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     {
         status = ReplayOwnedBatchRange(plan.first_batch_index,
             plan.landing_batch_index, target.generation, hooks,
-            plan.landing_batch_index, plan.landing_offset_in_batch, &landing);
+            plan.landing_batch_index, plan.landing_offset_in_batch, &landing,
+            false);
     }
     if (status.ok()) status = checkpoint_capture_.RestoreAndVerify(landing);
-    if (status.ok() && landing.canonical_hash != *expected_target)
+    if (status.ok())
+    {
+        const FrameCoordinate lookahead_coordinate{
+            target.generation, target.frame + 1};
+        auto target_input = input_timeline_.GetExact(lookahead_coordinate);
+        if (!target_input.has_value())
+            target_input = input_timeline_.GetExact(target);
+        if (!target_input.has_value())
+            status = Status::failure(FailureCode::MissingInput);
+        else
+            status = checkpoint_capture_.PrepareInputLogForReplay(
+                expected_target->input, *target_input);
+    }
+    if (status.ok())
+        status = checkpoint_capture_.CaptureTransient(target, landing);
+    if (status.ok() && landing.canonical_hash != expected_target->hash)
+    {
+        timeline_status_.resume_failure_coordinate = target;
+        timeline_status_.resume_expected_hash = expected_target->hash;
+        timeline_status_.resume_observed_hash = landing.canonical_hash;
+        timeline_status_.resume_component_difference_mask = 0;
+        for (std::size_t index = 0; index < expected_target->components.size(); ++index)
+            if (expected_target->components[index]
+                != landing.canonical_components[index])
+                timeline_status_.resume_component_difference_mask
+                    |= std::uint32_t{1} << index;
+        timeline_status_.resume_native_difference_mask = 0;
+        timeline_status_.resume_expected_move_dispatch =
+            expected_target->move_dispatch;
+        timeline_status_.resume_observed_move_dispatch =
+            landing.canonical_move_dispatch;
+        for (std::size_t index = 0; index < expected_target->native.size(); ++index)
+            if (expected_target->native[index] != landing.canonical_native[index])
+                timeline_status_.resume_native_difference_mask
+                    |= std::uint32_t{1} << index;
+        timeline_status_.resume_input_scalar_difference_mask = 0;
+        timeline_status_.resume_expected_input_scalars =
+            expected_target->input.scalars;
+        timeline_status_.resume_observed_input_scalars =
+            landing.canonical_input.scalars;
+        for (std::size_t index = 0;
+             index < expected_target->input.scalars.size(); ++index)
+            if (expected_target->input.scalars[index]
+                != landing.canonical_input.scalars[index])
+                timeline_status_.resume_input_scalar_difference_mask
+                    |= std::uint32_t{1} << index;
+        timeline_status_.resume_first_input_cache_chunk = UINT32_MAX;
+        for (std::size_t index = 0;
+             index < expected_target->input.cache_chunks.size(); ++index)
+            if (expected_target->input.cache_chunks[index]
+                != landing.canonical_input.cache_chunks[index])
+            {
+                timeline_status_.resume_first_input_cache_chunk =
+                    static_cast<std::uint32_t>(index);
+                break;
+            }
+        timeline_status_.resume_first_input_cache_row = UINT32_MAX;
+        for (std::size_t index = 0;
+             index < expected_target->input.aligned_block_rows.size(); ++index)
+            if (expected_target->input.aligned_block_rows[index]
+                != landing.canonical_input.aligned_block_rows[index])
+            {
+                timeline_status_.resume_first_input_cache_row =
+                    static_cast<std::uint32_t>(index);
+                timeline_status_.resume_expected_input_cache_row =
+                    expected_target->input.aligned_block_rows[index];
+                timeline_status_.resume_observed_input_cache_row =
+                    landing.canonical_input.aligned_block_rows[index];
+                break;
+            }
+        timeline_status_.resume_wind_difference_mask = 0;
+        for (std::size_t index = 0; index < expected_target->wind.size(); ++index)
+            if (expected_target->wind[index] != landing.canonical_wind[index])
+                timeline_status_.resume_wind_difference_mask
+                    |= std::uint32_t{1} << index;
         status = Status::failure(FailureCode::StateHashMismatch);
+    }
     if (!status.ok())
         return restore_undo()
             ? status : Status::failure(FailureCode::UndoFailed);
@@ -1129,6 +1437,16 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     timeline_status_.last_coordinate = target;
     timeline_status_.resume_target = target;
     timeline_status_.resume_source_end = source_end;
+    timeline_status_.resume_failure_coordinate = {};
+    timeline_status_.resume_expected_hash = {};
+    timeline_status_.resume_observed_hash = {};
+    timeline_status_.resume_component_difference_mask = 0;
+    timeline_status_.resume_native_difference_mask = 0;
+    timeline_status_.resume_input_scalar_difference_mask = 0;
+    timeline_status_.resume_first_input_cache_chunk = UINT32_MAX;
+    timeline_status_.resume_first_input_cache_row = UINT32_MAX;
+    timeline_status_.resume_first_wind_semantic_chunk = UINT32_MAX;
+    timeline_status_.resume_wind_difference_mask = 0;
     resume_target_ = target;
     resume_source_end_ = source_end;
     resume_catchup_pending_ = false;
@@ -1150,6 +1468,20 @@ Status Sc6ReplayRuntime::CaptureCurrentCanonical(Snapshot& output) noexcept
     }
     return checkpoint_capture_.CaptureTransient(
         timeline_status_.last_coordinate, output);
+}
+
+bool Sc6ReplayRuntime::GetSeekableRange(
+    FrameCoordinate& first, FrameCoordinate& last) const noexcept
+{
+    first = {};
+    last = {};
+    const auto range = canonical_timeline_.Range();
+    if (!range.has_value() || range->first.generation == 0
+        || range->first.generation != range->second.generation)
+        return false;
+    first = range->first;
+    last = range->second;
+    return true;
 }
 
 Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
@@ -1184,9 +1516,13 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     }
 
     ReplayCorrectionPlan plan{};
+    const SnapshotStore& correction_snapshots =
+        forced_depth7_qualification_enabled_
+        ? forced_qualification_snapshots_
+        : checkpoint_capture_.snapshots(CandidateCheckpointRole::BatchEntry);
     Status status = PlanReplayCorrection(earliest_changed,
         timeline_status_.last_coordinate, batch_timeline_,
-        checkpoint_capture_.snapshots(CandidateCheckpointRole::BatchEntry),
+        correction_snapshots,
         Schema::checkpoint_interval - 1, plan);
     if (!status.ok()) return finish(status);
     output.resimulation_base = plan.resimulation_base;
@@ -1205,8 +1541,7 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     output.undo_capture_ns = elapsed_ns(phase_begin, Clock::now());
     if (!status.ok()) return finish(status);
 
-    const auto base = checkpoint_capture_.snapshots(
-        CandidateCheckpointRole::BatchEntry).Load(plan.resimulation_base);
+    const auto base = correction_snapshots.Load(plan.resimulation_base);
     if (!base.has_value())
         return finish(Status::failure(FailureCode::MissingSnapshot));
     CandidateCheckpointImage base_diagnostic_image{};
@@ -1243,7 +1578,8 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     phase_begin = Clock::now();
     status = ReplayOwnedBatchRange(plan.first_batch_index,
         plan.final_batch_index, earliest_changed.generation, hooks,
-        std::nullopt, UINT32_MAX, nullptr, &output.replayed_coordinates,
+        std::nullopt, UINT32_MAX, nullptr,
+        forced_depth7_qualification_enabled_, &output.replayed_coordinates,
         &output.replayed_batches, &output.failed_batch_index,
         &output.failed_envelope, &output.failed_batch_result);
     output.resimulation_ns = elapsed_ns(phase_begin, Clock::now());
@@ -1255,6 +1591,31 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
             output.diagnostic_fighter_roots,
             output.diagnostic_image_base);
     }
+    if (!status.ok())
+    {
+        record_primary_failure(status);
+        if (!restore_undo()) status = Status::failure(FailureCode::UndoFailed);
+        return finish(status);
+    }
+
+    // Owned outer batches do not execute SC6's between-tick InputLog clock
+    // publication. Normalize that verified typed boundary exactly as replay
+    // seek does, then include it in the full canonical recapture below.
+    const auto expected_final = canonical_timeline_.GetExact(
+        timeline_status_.last_coordinate);
+    const auto final_input = input_timeline_.GetExact(
+        timeline_status_.last_coordinate);
+    if (!expected_final.has_value() || !final_input.has_value())
+    {
+        status = Status::failure(FailureCode::MissingInput);
+    }
+    else
+    {
+        status = checkpoint_capture_.PrepareInputLogForReplay(
+            expected_final->input, *final_input);
+    }
+    if (status.ok())
+        status = checkpoint_capture_.RestoreMoveDispatchMasksForReplay(undo);
     if (!status.ok())
     {
         record_primary_failure(status);
@@ -1277,6 +1638,8 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         && CandidateCheckpointCodec::Decode(undo, expected_image).ok()
         && CandidateCheckpointCodec::Decode(verified, verified_image).ok())
     {
+        output.expected_move_dispatch = undo.canonical_move_dispatch;
+        output.observed_move_dispatch = verified.canonical_move_dispatch;
         output.undo_comparison_mask = CandidateDifferenceMask(
             expected_image, verified_image);
         if (expected_image.local_images.size() == 2
@@ -1308,8 +1671,21 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
                 != verified_image.native.input_log.scalars[index])
             {
                 if (output.first_input_scalar_difference == UINT32_MAX)
+                {
                     output.first_input_scalar_difference =
                         static_cast<std::uint32_t>(index);
+                    const auto word = index & ~std::size_t{3};
+                    if (word + sizeof(std::uint32_t)
+                        <= expected_image.native.input_log.scalars.size())
+                    {
+                        std::memcpy(&output.expected_input_scalar_word,
+                            expected_image.native.input_log.scalars.data() + word,
+                            sizeof(output.expected_input_scalar_word));
+                        std::memcpy(&output.observed_input_scalar_word,
+                            verified_image.native.input_log.scalars.data() + word,
+                            sizeof(output.observed_input_scalar_word));
+                    }
+                }
                 ++output.input_scalar_difference_count;
             }
         }

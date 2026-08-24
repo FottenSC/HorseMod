@@ -11,6 +11,13 @@ struct CanonicalHashEntry
 {
     FrameCoordinate coordinate{};
     CanonicalHash hash{};
+    CanonicalComponentFingerprint components{};
+    CanonicalNativeFingerprint native{};
+    CanonicalMoveDispatchDiagnostic move_dispatch{};
+    CanonicalInputDiagnostic input{};
+    CanonicalWindSemanticDiagnostic wind_semantic{};
+    CanonicalWindFingerprint wind{};
+    CanonicalWindNodeDiagnostic wind_node{};
 };
 
 class CanonicalHashTimeline final
@@ -18,9 +25,18 @@ class CanonicalHashTimeline final
 public:
     explicit CanonicalHashTimeline(std::size_t maximum_entries) noexcept;
 
-    Status Append(FrameCoordinate coordinate, const CanonicalHash& hash) noexcept;
-    [[nodiscard]] std::optional<CanonicalHash> GetExact(
+    Status Append(FrameCoordinate coordinate, const CanonicalHash& hash,
+        const CanonicalComponentFingerprint& components,
+        const CanonicalNativeFingerprint& native,
+        const CanonicalMoveDispatchDiagnostic& move_dispatch,
+        const CanonicalInputDiagnostic& input,
+        const CanonicalWindSemanticDiagnostic& wind_semantic,
+        const CanonicalWindFingerprint& wind,
+        const CanonicalWindNodeDiagnostic& wind_node) noexcept;
+    [[nodiscard]] std::optional<CanonicalHashEntry> GetExact(
         FrameCoordinate coordinate) const noexcept;
+    [[nodiscard]] std::optional<std::pair<FrameCoordinate, FrameCoordinate>>
+    Range() const noexcept;
     void Clear() noexcept;
 
     [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }

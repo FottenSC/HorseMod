@@ -165,6 +165,20 @@ struct NativePumpImage
     friend bool operator==(const NativePumpImage&, const NativePumpImage&) = default;
 };
 
+// Proven sources for collection-22 event bits 6 and 11. HgCpuDirect owns
+// reconstruction of these fighter fields; the typed copy is canonical
+// verification/diagnostic state and is deliberately never double-written.
+struct NativeVfxEdgeDiagnostic
+{
+    // Per fighter: current bit-6 source, prior mirror, current bit-11 source,
+    // prior mirror. Offsets are +0x4E8/+0x630 and +0x510/+0x658.
+    std::array<std::array<std::uint32_t, 4>, 2> fighters{};
+
+    friend bool operator==(
+        const NativeVfxEdgeDiagnostic&,
+        const NativeVfxEdgeDiagnostic&) = default;
+};
+
 struct NativeSubVmImage
 {
     std::uint32_t vtable_rva{};
@@ -225,6 +239,7 @@ struct NativeCandidateImage
     NativeRoundSequenceImage round_sequence{};
     NativeFrameInputLogImage input_log{};
     std::array<std::uint64_t, 2> move_dispatch_masks{};
+    NativeVfxEdgeDiagnostic vfx_edges{};
     NativePumpImage pump{};
     std::array<NativeSchedulerImage, 2> schedulers{};
     std::array<NativeSubVmImage, 2> sub_vms{};
@@ -259,8 +274,17 @@ public:
     Status Capture(NativeCandidateImage& output) noexcept;
     Status PreflightRestore(const NativeCandidateImage& image) noexcept;
     Status RestoreTransactional(const NativeCandidateImage& image) noexcept;
+    Status RestoreInputLogTransactional(
+        const NativeCandidateImage& image) noexcept;
+    Status RestoreMoveDispatchMasksTransactional(
+        const NativeCandidateImage& image) noexcept;
+    Status PrepareInputLogTransactional(
+        const CanonicalInputDiagnostic& expected,
+        const InputPair& input) noexcept;
 
     [[nodiscard]] static std::vector<std::byte> CanonicalBytes(
+        const NativeCandidateImage& image);
+    [[nodiscard]] static CanonicalNativeFingerprint CanonicalFingerprint(
         const NativeCandidateImage& image);
     [[nodiscard]] static Status DecodeCanonicalBytes(
         std::span<const std::byte> bytes,

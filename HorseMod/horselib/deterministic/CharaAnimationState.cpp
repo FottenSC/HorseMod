@@ -11,7 +11,6 @@ constexpr std::size_t packed_section_table_offset_index = 3;
 constexpr std::size_t clip_binding_offset = 8;
 constexpr std::size_t clip_scalar_offset = 0x10;
 constexpr std::size_t clip_active_scalar_offset = 0x18;
-constexpr std::size_t clip_bootstrap_scalar_offset = 0x1C;
 constexpr std::size_t cue_owner_scalar_offset = 8;
 constexpr std::size_t cue_owner_enst_offset = 0x28;
 constexpr std::size_t cue_owner_scheduler_offset = 0x30;
@@ -51,16 +50,6 @@ bool clip_is_active(const CharaAnimationPlayerImage& player) noexcept
     return active != 0;
 }
 
-bool clip_is_bootstrapped(const CharaAnimationPlayerImage& player) noexcept
-{
-    std::uint32_t bootstrap{};
-    static_assert(clip_bootstrap_scalar_offset + sizeof(bootstrap)
-        <= std::tuple_size_v<decltype(player.clip_scalars)>);
-    std::memcpy(&bootstrap,
-        player.clip_scalars.data() + clip_bootstrap_scalar_offset,
-        sizeof(bootstrap));
-    return bootstrap != 0;
-}
 }
 
 CharaAnimationState::CharaAnimationState(INativeMemory& memory) noexcept
@@ -196,19 +185,37 @@ bool CharaAnimationState::topology_matches() noexcept
     for (std::size_t player = 0; player < 2; ++player)
     {
         PlayerTopology observed{};
-        if (!capture_topology(player, observed)
-            || observed.packed_data != topology_[player].packed_data
-            || observed.cue_owner_vtable != topology_[player].cue_owner_vtable
-            || observed.enst_data != topology_[player].enst_data
-            || observed.scheduler != topology_[player].scheduler
-            || observed.scheduler_vtable != topology_[player].scheduler_vtable
-            || observed.scheduler_chara != topology_[player].scheduler_chara
-            || observed.list_head != topology_[player].list_head
-            || observed.list_head_next != topology_[player].list_head_next
-            || observed.list_head_previous
-                != topology_[player].list_head_previous
-            || observed.trigger_count != topology_[player].trigger_count)
+        if (!capture_topology(player, observed)) return false;
+        if (observed.packed_data != topology_[player].packed_data)
+        {
+            topology_issue_ = CharaAnimationTopologyIssue::PackedData;
+            topology_observed_ = observed.packed_data;
             return false;
+        }
+        if (observed.cue_owner_vtable != topology_[player].cue_owner_vtable
+            || observed.enst_data != topology_[player].enst_data)
+        {
+            topology_issue_ = CharaAnimationTopologyIssue::CueOwner;
+            topology_observed_ = observed.enst_data;
+            return false;
+        }
+        if (observed.scheduler != topology_[player].scheduler
+            || observed.scheduler_vtable != topology_[player].scheduler_vtable
+            || observed.scheduler_chara != topology_[player].scheduler_chara)
+        {
+            topology_issue_ = CharaAnimationTopologyIssue::Scheduler;
+            topology_observed_ = observed.scheduler;
+            return false;
+        }
+        if (observed.list_head != topology_[player].list_head
+            || observed.list_head_next != topology_[player].list_head_next
+            || observed.list_head_previous != topology_[player].list_head_previous
+            || observed.trigger_count != topology_[player].trigger_count)
+        {
+            topology_issue_ = CharaAnimationTopologyIssue::TriggerList;
+            topology_observed_ = observed.trigger_count;
+            return false;
+        }
         for (std::uint32_t index = 0; index < observed.trigger_count; ++index)
         {
             if (observed.triggers[index].node
@@ -223,7 +230,11 @@ bool CharaAnimationState::topology_matches() noexcept
                     != topology_[player].triggers[index].control
                 || observed.triggers[index].object_vtable
                     != topology_[player].triggers[index].object_vtable)
+            {
+                topology_issue_ = CharaAnimationTopologyIssue::TriggerNode;
+                topology_observed_ = observed.triggers[index].node;
                 return false;
+            }
         }
     }
     return true;
@@ -299,10 +310,6 @@ bool CharaAnimationState::Validate(
             || player.clip_section.index >= chara_anim_maximum_packed_sections
             || player.runtime_section.index
                 >= chara_anim_maximum_packed_sections
-            || (clip_is_active(player) && player.runtime_section.present
-                && player.runtime_section != player.clip_section)
-            || (clip_is_active(player) && clip_is_bootstrapped(player)
-                && player.runtime_section != player.clip_section)
             || (clip_is_active(player) && !player.runtime_section.present
                 && !runtime_scalars_clear)
             || (!clip_is_active(player)
@@ -348,10 +355,7 @@ Status CharaAnimationState::capture_unchecked(
         if (clip_is_active(target)
             && (!read_value(memory_, runtime, runtime_pointer)
                 || !identify_section(player, runtime_pointer,
-                    target.runtime_section)
-                || (runtime_pointer != 0 && runtime_pointer != clip_pointer)
-                || (clip_is_bootstrapped(target)
-                    && runtime_pointer != clip_pointer)))
+                    target.runtime_section)))
         {
             topology_issue_ = CharaAnimationTopologyIssue::RuntimeSection;
             return Status::failure(FailureCode::CaptureFailed);
@@ -422,11 +426,7 @@ bool CharaAnimationState::write_unchecked(
         if (!resolve_section(player, source.clip_section, clip_pointer)
             || (clip_is_active(source)
                 && (!resolve_section(player, source.runtime_section,
-                        runtime_pointer)
-                    || (runtime_pointer != 0
-                        && runtime_pointer != clip_pointer)
-                    || (clip_is_bootstrapped(source)
-                        && runtime_pointer != clip_pointer)))
+                        runtime_pointer)))
             || !read_value(memory_, clip + 0x28, current_active)
             || !write_value(memory_, clip,
                 source.clip_owner_bound ? fighter : std::uintptr_t{})

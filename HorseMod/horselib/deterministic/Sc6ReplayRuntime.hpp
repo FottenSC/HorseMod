@@ -91,6 +91,31 @@ struct ReplayTimelineStatus
     bool resume_validation_active{};
     FrameCoordinate resume_target{};
     FrameCoordinate resume_source_end{};
+    FrameCoordinate resume_failure_coordinate{};
+    CanonicalHash resume_expected_hash{};
+    CanonicalHash resume_observed_hash{};
+    std::uint32_t resume_component_difference_mask{};
+    std::uint32_t resume_native_difference_mask{};
+    CanonicalMoveDispatchDiagnostic resume_expected_move_dispatch{};
+    CanonicalMoveDispatchDiagnostic resume_observed_move_dispatch{};
+    std::uint32_t resume_input_scalar_difference_mask{};
+    std::uint32_t resume_first_input_cache_chunk{UINT32_MAX};
+    std::uint32_t resume_first_input_cache_row{UINT32_MAX};
+    NativeInputCacheRowImage resume_expected_input_cache_row{};
+    NativeInputCacheRowImage resume_observed_input_cache_row{};
+    std::uint32_t resume_first_wind_semantic_chunk{UINT32_MAX};
+    std::array<std::uint32_t, 12> resume_expected_input_scalars{};
+    std::array<std::uint32_t, 12> resume_observed_input_scalars{};
+    std::uint32_t resume_wind_difference_mask{};
+    CanonicalWindNodeDiagnostic resume_expected_wind_node{};
+    CanonicalWindNodeDiagnostic resume_observed_wind_node{};
+    CandidateCapturePhase canonical_capture_phase{};
+    FrameCoordinate canonical_capture_failure_coordinate{};
+    CharaAnimationTopologyIssue canonical_animation_topology_issue{};
+    std::uintptr_t canonical_animation_topology_observed{};
+    std::uint32_t identity_issue{};
+    std::uint64_t identity_expected{};
+    std::uint64_t identity_observed{};
 };
 
 struct OwnedCorrectionResult
@@ -122,6 +147,8 @@ struct OwnedCorrectionResult
     FrameCoordinate resimulation_base{};
     FrameCoordinate final_coordinate{};
     CanonicalHash final_hash{};
+    CanonicalMoveDispatchDiagnostic expected_move_dispatch{};
+    CanonicalMoveDispatchDiagnostic observed_move_dispatch{};
     NativeCandidateValidationDiagnostic primary_validation{};
     NativeCandidateValidationDiagnostic undo_validation{};
     CandidateAdapterPerformanceStatus primary_performance{};
@@ -140,6 +167,8 @@ struct OwnedCorrectionResult
     std::uint32_t input_cache_difference_count{};
     std::uint32_t first_input_cache_difference{UINT32_MAX};
     std::uint32_t first_input_scalar_difference{UINT32_MAX};
+    std::uint32_t expected_input_scalar_word{};
+    std::uint32_t observed_input_scalar_word{};
     NativeInputCacheRowImage expected_input_cache_row{};
     NativeInputCacheRowImage observed_input_cache_row{};
     std::uint32_t rng_difference_mask{};
@@ -193,10 +222,14 @@ public:
     void Shutdown() noexcept;
 
     [[nodiscard]] bool ready() const noexcept;
+    void SetForcedDepth7QualificationEnabled(bool enabled) noexcept;
+    [[nodiscard]] std::size_t forced_qualification_bytes() const noexcept;
     [[nodiscard]] IReplayNativeBridge* bridge() noexcept;
     Status ObserveFrame(const FrameFencepostObservation& observation) noexcept;
     Status ObserveOuterTickBegin(
         const OuterTickObservation& observation) noexcept;
+    Status PrepareResumeOuterTick(
+        std::uintptr_t battle_manager, std::uint32_t thread_id) noexcept;
     Status ObserveOuterTick(const OuterTickObservation& observation) noexcept;
     void ObserveReplayExit() noexcept;
     [[nodiscard]] ReplayTimelineStatus timeline_status() const noexcept;
@@ -210,6 +243,8 @@ public:
     Status ExecuteOwnedStateSeek(
         FrameCoordinate target, DeterministicHookSet& hooks) noexcept;
     Status CaptureCurrentCanonical(Snapshot& output) noexcept;
+    [[nodiscard]] bool GetSeekableRange(
+        FrameCoordinate& first, FrameCoordinate& last) const noexcept;
     Status ExecuteOwnedCorrection(
         FrameCoordinate earliest_changed,
         const CanonicalHash& expected_final_hash,
@@ -235,6 +270,7 @@ private:
         std::optional<std::size_t> landing_batch_index,
         std::uint32_t landing_offset,
         Snapshot* landing,
+        bool preserve_first_entry_input_log = false,
         std::uint64_t* replayed_coordinates = nullptr,
         std::uint32_t* replayed_batches = nullptr,
         std::size_t* failed_batch_index = nullptr,
@@ -279,6 +315,9 @@ private:
         Schema::replay_canonical_hash_memory_budget
             / sizeof(CanonicalHashEntry)};
     Sc6CandidateCheckpointCapture checkpoint_capture_{};
+    SnapshotStore forced_qualification_snapshots_{
+        16u * 1024u * 1024u, 16, CapacityPolicy::EvictOldest};
+    bool forced_depth7_qualification_enabled_{};
     ReplayTimelineStatus timeline_status_{};
     std::uintptr_t timeline_manager_{};
     std::uintptr_t timeline_input_log_{};

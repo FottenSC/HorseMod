@@ -57,9 +57,15 @@ struct Request
 using RequestReplaySeekFn = bool (*)(std::uint64_t);
 using GetReplaySeekStatusFn = std::uint32_t (*)(
     std::uint64_t*, std::uint64_t*, std::uint64_t*, std::uint16_t*);
+using GetReplaySeekableRangeFn = bool (*)(
+    std::uint64_t*, std::uint64_t*, std::uint64_t*);
+using GetReplaySimulationPhaseFn = bool (*)(
+    std::int32_t*, std::int32_t*, std::uint32_t*, std::int32_t*);
 
 bool ResolveHorseModSeekApi(
-    RequestReplaySeekFn& request, GetReplaySeekStatusFn& status) noexcept
+    RequestReplaySeekFn& request, GetReplaySeekStatusFn& status,
+    GetReplaySeekableRangeFn& range,
+    GetReplaySimulationPhaseFn& phase) noexcept
 {
     std::array<HMODULE, 512> modules{};
     DWORD required{};
@@ -76,10 +82,19 @@ bool ResolveHorseModSeekApi(
             GetProcAddress(modules[index], "horsemod_request_replay_seek"));
         const auto candidate_status = reinterpret_cast<GetReplaySeekStatusFn>(
             GetProcAddress(modules[index], "horsemod_get_replay_seek_status"));
-        if (candidate_request != nullptr && candidate_status != nullptr)
+        const auto candidate_range = reinterpret_cast<GetReplaySeekableRangeFn>(
+            GetProcAddress(modules[index],
+                "horsemod_get_replay_seekable_range"));
+        const auto candidate_phase = reinterpret_cast<GetReplaySimulationPhaseFn>(
+            GetProcAddress(modules[index],
+                "horsemod_get_replay_simulation_phase"));
+        if (candidate_request != nullptr && candidate_status != nullptr
+            && candidate_range != nullptr && candidate_phase != nullptr)
         {
             request = candidate_request;
             status = candidate_status;
+            range = candidate_range;
+            phase = candidate_phase;
             return true;
         }
     }
@@ -359,6 +374,10 @@ private:
         initial_battle_frame_ = 0;
         seek_index_ = 0;
         seek_requested_ = false;
+        requested_seek_target_ = 0;
+        seek_range_generation_ = 0;
+        seek_range_first_ = 0;
+        seek_range_last_ = 0;
         profile_attempts_ = 0;
         next_profile_attempt_ = {};
         state_ = State::Importing;
@@ -436,6 +455,24 @@ private:
             Fail("battle_frame_counter_unreadable");
             return;
         }
+        RequestReplaySeekFn unused_request{};
+        GetReplaySeekStatusFn unused_status{};
+        GetReplaySeekableRangeFn unused_range{};
+        GetReplaySimulationPhaseFn get_phase{};
+        if (!ResolveHorseModSeekApi(unused_request, unused_status,
+                unused_range, get_phase))
+        {
+            Fail("horsemod_simulation_phase_api_unavailable");
+            return;
+        }
+        std::int32_t native_round{}, native_time{}, unpause_countdown{};
+        std::uint32_t round_state_frame{};
+        if (!get_phase(&native_round, &native_time, &round_state_frame,
+                &unpause_countdown)
+            || round_state_frame == 0 || unpause_countdown != 0)
+        {
+            return;
+        }
         if (!battle_scene_observed_)
         {
             battle_scene_observed_ = true;
@@ -443,7 +480,8 @@ private:
             importer_.ReleasePlaybackContext();
             Output::send<LogLevel::Default>(STR(
                 "[ReplayQualification] stock replay battle observed "
-                "frame={}\n"), frame);
+                "frame={} round={} time={} round_state_frame={}\n"), frame,
+                native_round, native_time, round_state_frame);
             return;
         }
         const std::uint32_t advanced = frame - initial_battle_frame_;
@@ -465,50 +503,84 @@ private:
     {
         RequestReplaySeekFn request_seek{};
         GetReplaySeekStatusFn get_status{};
-        if (!ResolveHorseModSeekApi(request_seek, get_status))
+        GetReplaySeekableRangeFn get_range{};
+        GetReplaySimulationPhaseFn get_phase{};
+        if (!ResolveHorseModSeekApi(
+                request_seek, get_status, get_range, get_phase))
         {
             Fail("horsemod_seek_api_unavailable");
             return;
         }
 
         const auto percentage = request_.seek_percentages[seek_index_];
-        const std::uint64_t target = static_cast<std::uint64_t>(
-            initial_battle_frame_) +
-            static_cast<std::uint64_t>(request_.watch_frames) * percentage / 100;
-        if (!seek_requested_)
+        if (seek_requested_)
         {
-            if (!request_seek(target))
+            std::uint64_t observed_target{};
+            std::uint64_t source_end{};
+            std::uint64_t verified{};
+            std::uint16_t failure{};
+            const auto status = get_status(
+                &observed_target, &source_end, &verified, &failure);
+            if (status == 3)
             {
-                Fail("horsemod_seek_request_rejected");
+                Fail("horsemod_seek_validation_failed");
                 return;
             }
-            seek_requested_ = true;
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] requested strict seek percent={} "
-                "target={} index={}\n"), percentage, target, seek_index_);
+            if (status == 1 && observed_target == requested_seek_target_
+                && source_end != 0)
+            {
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] strict seek passed percent={} "
+                    "target={} source_end={} verified={} index={}\n"),
+                    percentage, observed_target, source_end, verified,
+                    seek_index_);
+                ++seek_index_;
+                seek_requested_ = false;
+                requested_seek_target_ = 0;
+            }
             return;
         }
 
-        std::uint64_t observed_target{};
-        std::uint64_t source_end{};
-        std::uint64_t verified{};
-        std::uint16_t failure{};
-        const auto status = get_status(
-            &observed_target, &source_end, &verified, &failure);
-        if (status == 3)
+        std::uint64_t generation{}, first{}, last{};
+        std::int32_t native_round{}, native_time{}, unpause_countdown{};
+        std::uint32_t round_state_frame{};
+        if (!get_range(&generation, &first, &last) || first >= last
+            || last - first < request_.watch_frames)
         {
-            Fail("horsemod_seek_validation_failed");
             return;
         }
-        if (status == 1 && observed_target == target && source_end != 0)
+        if (!get_phase(&native_round, &native_time, &round_state_frame,
+                &unpause_countdown) || round_state_frame == 0)
         {
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] strict seek passed percent={} "
-                "target={} source_end={} verified={} index={}\n"),
-                percentage, observed_target, source_end, verified, seek_index_);
-            ++seek_index_;
-            seek_requested_ = false;
+            return;
         }
+        if (seek_range_generation_ == 0)
+        {
+            seek_range_generation_ = generation;
+            seek_range_first_ = first;
+            seek_range_last_ = last;
+        }
+        if (generation != seek_range_generation_)
+        {
+            Fail("horsemod_seek_generation_changed");
+            return;
+        }
+        const std::uint64_t target = seek_range_first_
+            + (seek_range_last_ - seek_range_first_) * percentage / 100;
+        if (!request_seek(target))
+        {
+            Fail("horsemod_seek_request_rejected");
+            return;
+        }
+        seek_requested_ = true;
+        requested_seek_target_ = target;
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] requested strict seek percent={} "
+            "generation={} range={}-{} target={} index={} round={} "
+            "time={} round_state_frame={} unpause={}\n"), percentage,
+            seek_range_generation_, seek_range_first_, seek_range_last_, target,
+            seek_index_, native_round,
+            native_time, round_state_frame, unpause_countdown);
     }
 
     void PollPlayerProfiles()
@@ -607,6 +679,10 @@ private:
     std::uint32_t initial_battle_frame_{};
     std::size_t seek_index_{};
     bool seek_requested_{};
+    std::uint64_t requested_seek_target_{};
+    std::uint64_t seek_range_generation_{};
+    std::uint64_t seek_range_first_{};
+    std::uint64_t seek_range_last_{};
     std::uint8_t profile_attempts_{};
 };
 

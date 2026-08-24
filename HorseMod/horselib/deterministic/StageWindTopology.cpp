@@ -14,7 +14,12 @@ constexpr std::size_t max_wind_nodes = 64;
 constexpr std::array common_ranges{
     StageWindStateRange{0x20, 0x02},
     StageWindStateRange{0x30, 0x04},
-    StageWindStateRange{0x40, 0x30},
+    // Oscillator tick, prepared, and active scheduling state. The sampled and
+    // output force vectors at +0x40..+0x5F are presentation-derived.
+    StageWindStateRange{0x60, 0x10},
+};
+constexpr std::array common_derived_ranges{
+    StageWindStateRange{0x40, 0x20},
 };
 constexpr std::array parallel_ranges{
     StageWindStateRange{0x70, 0x70},
@@ -25,9 +30,15 @@ constexpr std::array ring_out_ranges{
     StageWindStateRange{0x120, 0x0C},
 };
 constexpr std::array shock_wave_ranges{
-    StageWindStateRange{0x70, 0xA0},
+    StageWindStateRange{0x70, 0x74},
+    StageWindStateRange{0xF0, 0x20},
     StageWindStateRange{0x120, 0x0C},
     StageWindStateRange{0x130, 0x50},
+};
+constexpr std::array shock_wave_derived_ranges{
+    // Current-executable prepare/update/sample virtuals never access this
+    // allocator-residue gap. Retain it for byte-exact local rewind only.
+    StageWindStateRange{0xE4, 0x0C},
 };
 constexpr std::array ring_in_ranges{
     StageWindStateRange{0x70, 0x84},
@@ -49,7 +60,7 @@ constexpr std::array classes{
     StageWindNodeLayout{StageWindNodeKind::RingIn, 0x3E88CE8, 0x1E0,
         ring_in_ranges, ring_in_derived_ranges},
     StageWindNodeLayout{StageWindNodeKind::ShockWave, 0x3E88D18, 0x180,
-        shock_wave_ranges, no_derived_ranges},
+        shock_wave_ranges, shock_wave_derived_ranges},
 };
 
 template <typename T>
@@ -82,6 +93,11 @@ std::span<const StageWindStateRange> StageWindCommonRanges() noexcept
     return common_ranges;
 }
 
+std::span<const StageWindStateRange> StageWindCommonDerivedRanges() noexcept
+{
+    return common_derived_ranges;
+}
+
 const StageWindNodeLayout* FindStageWindNodeLayout(StageWindNodeKind kind) noexcept
 {
     const auto found = std::find_if(classes.begin(), classes.end(),
@@ -110,6 +126,7 @@ std::size_t StageWindSemanticStateSize(const StageWindNodeLayout& layout) noexce
 std::size_t StageWindDerivedStateSize(const StageWindNodeLayout& layout) noexcept
 {
     std::size_t total{};
+    for (const auto range : common_derived_ranges) total += range.size;
     for (const auto range : layout.derived_ranges) total += range.size;
     return total;
 }
@@ -266,6 +283,12 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
                 output = {};
                 return Status::failure(FailureCode::CaptureFailed);
             }
+        for (const auto range : common_derived_ranges)
+            if (!read_append(memory_, node + range.offset, range.size, image.derived_state))
+            {
+                output = {};
+                return Status::failure(FailureCode::CaptureFailed);
+            }
         for (const auto range : node_class->derived_ranges)
             if (!read_append(memory_, node + range.offset, range.size, image.derived_state))
             {
@@ -289,7 +312,8 @@ std::vector<std::byte> StageWindTopologyProbe::CanonicalBytes(
         sizeof(image.pending_callback_rvas));
     append(output, image.schedule_state.data(), image.schedule_state.size());
     append(output, image.schedule_params.data(), image.schedule_params.size());
-    append(output, image.output_force.data(), image.output_force.size());
+    // Root force lanes are presentation accumulation written after sampling.
+    // They remain in the local reconstruction image, not canonical peer truth.
     const auto count = static_cast<std::uint32_t>(image.nodes.size());
     append(output, &count, sizeof(count));
     for (const auto& node : image.nodes)
