@@ -6,6 +6,7 @@
 #include <polyhook2/Detour/x64Detour.hpp>
 
 #include <cstring>
+#include <intrin.h>
 #include <thread>
 
 namespace Horse::Deterministic
@@ -57,7 +58,8 @@ DeterministicHookSet::~DeterministicHookSet()
 
 Status DeterministicHookSet::Install(
     std::uintptr_t image_base,
-    DeterministicHookCallbacks callbacks)
+    DeterministicHookCallbacks callbacks,
+    UcrtRandBroker* ucrt_broker)
 {
     if (installed())
     {
@@ -93,6 +95,7 @@ Status DeterministicHookSet::Install(
 
     image_base_ = image_base;
     callbacks_ = callbacks;
+    ucrt_broker_ = ucrt_broker;
     frame_fencepost_trampoline_ = 0;
     replay_post_tick_trampoline_ = 0;
     outer_tick_trampoline_ = 0;
@@ -148,6 +151,17 @@ Status DeterministicHookSet::Install(
     }
     outer_tick_trampoline_global_.store(
         outer_tick_trampoline_, std::memory_order_release);
+    if (ucrt_broker_ != nullptr && !InstallUcrtIatHooks())
+    {
+        outer_tick_detour_->unHook();
+        replay_post_tick_detour_->unHook();
+        frame_fencepost_detour_->unHook();
+        active_.store(nullptr, std::memory_order_release);
+        while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
+            std::this_thread::yield();
+        ClearState();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
     installed_.store(true, std::memory_order_release);
     return Status::success();
 }
@@ -159,6 +173,7 @@ void DeterministicHookSet::Uninstall() noexcept
         return;
     }
     // Hooks are removed in the reverse of their installation order.
+    UninstallUcrtIatHooks();
     if (outer_tick_detour_)
     {
         outer_tick_detour_->unHook();
@@ -272,6 +287,112 @@ void __fastcall DeterministicHookSet::ReplayPostTickDetour(
         original(replay_state);
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+int __cdecl DeterministicHookSet::UcrtRandDetour() noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto original = hooks != nullptr ? hooks->original_rand_ : nullptr;
+    int result{};
+    if (hooks != nullptr && hooks->ucrt_broker_ != nullptr)
+    {
+        const auto return_address = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+        const auto return_rva = return_address >= hooks->image_base_
+            ? return_address - hooks->image_base_ : 0;
+        result = hooks->ucrt_broker_->HandleRand(
+            ::GetCurrentThreadId(), return_rva, original);
+    }
+    else if (original != nullptr)
+    {
+        result = original();
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return result;
+}
+
+void __cdecl DeterministicHookSet::UcrtSrandDetour(unsigned int seed) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto original = hooks != nullptr ? hooks->original_srand_ : nullptr;
+    if (hooks != nullptr && hooks->ucrt_broker_ != nullptr)
+    {
+        const auto return_address = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+        const auto return_rva = return_address >= hooks->image_base_
+            ? return_address - hooks->image_base_ : 0;
+        hooks->ucrt_broker_->HandleSrand(
+            ::GetCurrentThreadId(), return_rva, seed, original);
+    }
+    else if (original != nullptr)
+    {
+        original(seed);
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+bool DeterministicHookSet::InstallUcrtIatHooks() noexcept
+{
+    rand_iat_slot_ = image_base_ + Schema::Sc6UcrtLayout::rand_iat_rva;
+    srand_iat_slot_ = image_base_ + Schema::Sc6UcrtLayout::srand_iat_rva;
+    if (!SafeRead(rand_iat_slot_, original_rand_)
+        || !SafeRead(srand_iat_slot_, original_srand_)
+        || original_rand_ == nullptr || original_srand_ == nullptr)
+    {
+        return false;
+    }
+    DWORD old_protect{};
+    if (!::VirtualProtect(reinterpret_cast<void*>(rand_iat_slot_), sizeof(void*),
+            PAGE_READWRITE, &old_protect))
+        return false;
+    auto* rand_slot = reinterpret_cast<void* volatile*>(rand_iat_slot_);
+    const auto prior_rand = ::InterlockedCompareExchangePointer(
+        rand_slot, reinterpret_cast<void*>(&UcrtRandDetour),
+        reinterpret_cast<void*>(original_rand_));
+    DWORD ignored{};
+    ::VirtualProtect(reinterpret_cast<void*>(rand_iat_slot_), sizeof(void*),
+        old_protect, &ignored);
+    if (prior_rand != reinterpret_cast<void*>(original_rand_)) return false;
+
+    if (!::VirtualProtect(reinterpret_cast<void*>(srand_iat_slot_), sizeof(void*),
+            PAGE_READWRITE, &old_protect))
+    {
+        UninstallUcrtIatHooks();
+        return false;
+    }
+    auto* srand_slot = reinterpret_cast<void* volatile*>(srand_iat_slot_);
+    const auto prior_srand = ::InterlockedCompareExchangePointer(
+        srand_slot, reinterpret_cast<void*>(&UcrtSrandDetour),
+        reinterpret_cast<void*>(original_srand_));
+    ::VirtualProtect(reinterpret_cast<void*>(srand_iat_slot_), sizeof(void*),
+        old_protect, &ignored);
+    if (prior_srand != reinterpret_cast<void*>(original_srand_))
+    {
+        UninstallUcrtIatHooks();
+        return false;
+    }
+    return true;
+}
+
+void DeterministicHookSet::UninstallUcrtIatHooks() noexcept
+{
+    const auto restore = [](std::uintptr_t slot, void* hook, void* original) {
+        if (slot == 0 || original == nullptr) return;
+        DWORD old_protect{};
+        if (!::VirtualProtect(reinterpret_cast<void*>(slot), sizeof(void*),
+                PAGE_READWRITE, &old_protect)) return;
+        ::InterlockedCompareExchangePointer(
+            reinterpret_cast<void* volatile*>(slot), original, hook);
+        DWORD ignored{};
+        ::VirtualProtect(reinterpret_cast<void*>(slot), sizeof(void*),
+            old_protect, &ignored);
+    };
+    restore(srand_iat_slot_, reinterpret_cast<void*>(&UcrtSrandDetour),
+        reinterpret_cast<void*>(original_srand_));
+    restore(rand_iat_slot_, reinterpret_cast<void*>(&UcrtRandDetour),
+        reinterpret_cast<void*>(original_rand_));
+    srand_iat_slot_ = 0;
+    rand_iat_slot_ = 0;
 }
 
 void DeterministicHookSet::EmitFrameFencepost(void* battle_manager) noexcept
@@ -472,7 +593,12 @@ void DeterministicHookSet::ClearState() noexcept
     replay_post_tick_trampoline_global_.store(0, std::memory_order_release);
     frame_fencepost_trampoline_global_.store(0, std::memory_order_release);
     outer_tick_trampoline_global_.store(0, std::memory_order_release);
+    rand_iat_slot_ = 0;
+    srand_iat_slot_ = 0;
     image_base_ = 0;
+    original_rand_ = nullptr;
+    original_srand_ = nullptr;
+    ucrt_broker_ = nullptr;
     callbacks_ = {};
 }
 }

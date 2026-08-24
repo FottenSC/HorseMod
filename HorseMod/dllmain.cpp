@@ -116,6 +116,7 @@
 #include "horselib/deterministic/Sc6ReplayRuntime.hpp"
 #include "horselib/deterministic/Schema.hpp"
 #include "horselib/deterministic/StageBreakListenerDiagnostics.hpp"
+#include "horselib/deterministic/UcrtRandBroker.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
 // swap detour on IDXGISwapChain::Present.  This keeps Steam overlay
@@ -3187,6 +3188,7 @@ private:
         Horse::Deterministic::FailureCode::ContextUnavailable};
     Horse::Deterministic::Status m_frame_fencepost_hook_status{
         Horse::Deterministic::FailureCode::ContextUnavailable};
+    Horse::Deterministic::UcrtRandBroker m_ucrt_rand_broker{};
     std::atomic<Horse::Deterministic::FailureCode> m_frame_fencepost_failure{
         Horse::Deterministic::FailureCode::None};
     std::atomic<std::uintptr_t> m_frame_fencepost_manager{};
@@ -3436,6 +3438,9 @@ private:
                 logged_intervals, completed_intervals,
                 std::memory_order_acq_rel))
         {
+            Horse::Deterministic::UcrtRandBrokerImage ucrt_image{};
+            const auto ucrt_status = self->m_ucrt_rand_broker.Capture(
+                observation.thread_id, ucrt_image);
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] native fencepost evidence frames={} repeats={} "
                 "same_time={} cursor_mismatches={} round_state_frame={} "
@@ -3447,7 +3452,9 @@ private:
                 "fp_control_mismatches={} fp_status_mismatches={} "
                 "fp_x87_status_mismatches={} fp_mxcsr_status_mismatches={} "
                 "fp_before=0x{:04x}/0x{:04x}/0x{:08x} "
-                "fp_after=0x{:04x}/0x{:04x}/0x{:08x}\n"),
+                "fp_after=0x{:04x}/0x{:04x}/0x{:08x} "
+                "ucrt_mode={} ucrt_status={} ucrt_seeded={} ucrt_draws={} "
+                "ucrt_state=0x{:08x}\n"),
                 timeline.captured_frames,
                 timeline.repeat_requests,
                 timeline.same_native_time_coordinates,
@@ -3477,7 +3484,13 @@ private:
                 timeline.fp_last_before.mxcsr,
                 timeline.fp_last_after.x87_control,
                 timeline.fp_last_after.x87_status,
-                timeline.fp_last_after.mxcsr);
+                timeline.fp_last_after.mxcsr,
+                static_cast<unsigned int>(self->m_ucrt_rand_broker.mode()),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(ucrt_status.code))),
+                ucrt_image.seeded,
+                ucrt_image.draws,
+                ucrt_image.state);
         }
     }
 
@@ -3849,6 +3862,7 @@ public:
             m_stage_break_listener_diagnostics->Finish();
 
         m_deterministic_hooks.Uninstall();
+        m_ucrt_rand_broker.Stop();
         if (m_deterministic_config.trace)
         {
             const auto failure = m_frame_fencepost_failure.load(
@@ -4030,15 +4044,24 @@ public:
         }
         if (m_deterministic_config.trace)
         {
+            const auto ucrt_started = m_ucrt_rand_broker.Start(
+                ::GetCurrentThreadId());
+            if (!ucrt_started.ok())
+            {
+                m_frame_fencepost_hook_status = ucrt_started;
+                return;
+            }
             m_frame_fencepost_expected_thread.store(
                 0, std::memory_order_release);
             m_frame_fencepost_hook_status = m_deterministic_hooks.Install(
                 Horse::NativeBinding::imageBase(),
                 {this, &HorseMod::on_frame_fencepost,
                     &HorseMod::on_outer_tick_begin, &HorseMod::on_outer_tick,
-                    &HorseMod::on_replay_exit});
+                    &HorseMod::on_replay_exit},
+                &m_ucrt_rand_broker);
             if (!m_frame_fencepost_hook_status.ok())
             {
+                m_ucrt_rand_broker.Stop();
                 const auto failure = Horse::Deterministic::failure_code_name(
                     m_frame_fencepost_hook_status.code);
                 Output::send<LogLevel::Warning>(STR(

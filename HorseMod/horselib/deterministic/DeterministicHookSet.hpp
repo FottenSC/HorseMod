@@ -2,6 +2,7 @@
 
 #include "Types.hpp"
 #include "FloatingPointEnvironment.hpp"
+#include "UcrtRandBroker.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -101,7 +102,8 @@ public:
 
     Status Install(
         std::uintptr_t image_base,
-        DeterministicHookCallbacks callbacks);
+        DeterministicHookCallbacks callbacks,
+        UcrtRandBroker* ucrt_broker = nullptr);
     void Uninstall() noexcept;
 
     [[nodiscard]] bool installed() const noexcept;
@@ -123,6 +125,8 @@ private:
     static void __fastcall OuterTickDetour(
         void* battle_manager, float delta_seconds) noexcept;
     static void __fastcall ReplayPostTickDetour(void* replay_state) noexcept;
+    static int __cdecl UcrtRandDetour() noexcept;
+    static void __cdecl UcrtSrandDetour(unsigned int seed) noexcept;
     void EmitFrameFencepost(void* battle_manager) noexcept;
     void CaptureOuterTickState(
         void* battle_manager,
@@ -133,6 +137,8 @@ private:
         std::uint16_t input_bit,
         std::uint16_t cursor_bit) noexcept;
     void EmitReplayExit(void* replay_state) noexcept;
+    bool InstallUcrtIatHooks() noexcept;
+    void UninstallUcrtIatHooks() noexcept;
     void ClearState() noexcept;
 
     static std::atomic<DeterministicHookSet*> active_;
@@ -150,6 +156,11 @@ private:
     std::uint64_t outer_tick_trampoline_{};
     std::uint64_t next_outer_batch_id_{};
     std::uintptr_t image_base_{};
+    std::uintptr_t rand_iat_slot_{};
+    std::uintptr_t srand_iat_slot_{};
+    UcrtRandFn original_rand_{};
+    UcrtSrandFn original_srand_{};
+    UcrtRandBroker* ucrt_broker_{};
     DeterministicHookCallbacks callbacks_{};
     std::atomic<bool> installed_{};
 };
