@@ -178,8 +178,12 @@ Status Sc6ReplayRuntime::ObserveFrame(
     if (new_generation || coordinate.frame % Schema::checkpoint_interval == 0)
     {
         const Status checkpoint = checkpoint_capture_.Capture(
-            observation, coordinate, timeline_session_generation_);
-        const auto checkpoint_status = checkpoint_capture_.status();
+            CandidateCheckpointRole::Landing,
+            observation.battle_manager,
+            coordinate,
+            timeline_session_generation_);
+        const auto checkpoint_status = checkpoint_capture_.status(
+            CandidateCheckpointRole::Landing);
         timeline_status_.captured_checkpoints = checkpoint_status.captured;
         timeline_status_.checkpoint_bytes = checkpoint_status.bytes_used;
         timeline_status_.checkpoint_failure = checkpoint.ok()

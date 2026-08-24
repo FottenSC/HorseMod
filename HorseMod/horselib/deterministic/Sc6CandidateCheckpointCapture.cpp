@@ -1,6 +1,5 @@
 #include "Sc6CandidateCheckpointCapture.hpp"
 
-#include "DeterministicHookSet.hpp"
 #include "Schema.hpp"
 
 #include <Windows.h>
@@ -156,14 +155,14 @@ Status Sc6CandidateCheckpointCapture::resolve_move_dispatch(
 }
 
 Status Sc6CandidateCheckpointCapture::bind(
-    const FrameFencepostObservation& observation,
+    std::uintptr_t battle_manager,
     FrameCoordinate coordinate,
     std::uint64_t session_generation) noexcept
 {
     std::uintptr_t move_dispatch{};
     std::array<std::uintptr_t, 2> fighter_roots{};
     const Status resolved = resolve_move_dispatch(
-        observation.battle_manager, move_dispatch);
+        battle_manager, move_dispatch);
     if (!resolved.ok()) return resolved;
     if (!read_fighter_roots(fighter_roots))
         return Status::failure(FailureCode::ContextUnavailable);
@@ -207,7 +206,7 @@ Status Sc6CandidateCheckpointCapture::bind(
         regions_->Invalidate();
         return adapter_status;
     }
-    bound_manager_ = observation.battle_manager;
+    bound_manager_ = battle_manager;
     bound_move_dispatch_ = move_dispatch;
     bound_session_generation_ = session_generation;
     bound_round_generation_ = coordinate.generation;
@@ -215,39 +214,45 @@ Status Sc6CandidateCheckpointCapture::bind(
 }
 
 Status Sc6CandidateCheckpointCapture::Capture(
-    const FrameFencepostObservation& observation,
+    CandidateCheckpointRole role,
+    std::uintptr_t battle_manager,
     FrameCoordinate coordinate,
     std::uint64_t session_generation) noexcept
 {
-    if (image_base_ == 0 || observation.battle_manager == 0
+    if (image_base_ == 0 || battle_manager == 0
         || coordinate.generation == 0 || session_generation == 0)
     {
         return Status::failure(FailureCode::ContextUnavailable);
     }
-    if (!regions_->IsBound() || bound_manager_ != observation.battle_manager
+    CandidateCheckpointCaptureStatus& capture_status = role
+            == CandidateCheckpointRole::Landing
+        ? landing_status_ : batch_entry_status_;
+    SnapshotStore& snapshots = role == CandidateCheckpointRole::Landing
+        ? landing_snapshots_ : batch_entry_snapshots_;
+    if (!regions_->IsBound() || bound_manager_ != battle_manager
         || bound_session_generation_ != session_generation
         || bound_round_generation_ != coordinate.generation)
     {
-        const Status rebound = bind(observation, coordinate, session_generation);
+        const Status rebound = bind(battle_manager, coordinate, session_generation);
         if (!rebound.ok())
         {
-            status_.failure = rebound.code;
+            capture_status.failure = rebound.code;
             return rebound;
         }
     }
 
     Snapshot snapshot{};
     Status captured = adapter_->Capture(coordinate, snapshot);
-    if (captured.ok()) captured = snapshots_.Save(std::move(snapshot));
+    if (captured.ok()) captured = snapshots.Save(std::move(snapshot));
     if (!captured.ok())
     {
-        status_.failure = captured.code;
+        capture_status.failure = captured.code;
         return captured;
     }
-    status_.failure = FailureCode::None;
-    status_.last_coordinate = coordinate;
-    ++status_.captured;
-    status_.bytes_used = snapshots_.BytesUsed();
+    capture_status.failure = FailureCode::None;
+    capture_status.last_coordinate = coordinate;
+    ++capture_status.captured;
+    capture_status.bytes_used = snapshots.BytesUsed();
     return Status::success();
 }
 
@@ -264,19 +269,24 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 void Sc6CandidateCheckpointCapture::Reset() noexcept
 {
     ReleaseBinding();
-    snapshots_.Clear();
-    status_ = {};
+    landing_snapshots_.Clear();
+    batch_entry_snapshots_.Clear();
+    landing_status_ = {};
+    batch_entry_status_ = {};
     image_base_ = 0;
 }
 
-CandidateCheckpointCaptureStatus
-Sc6CandidateCheckpointCapture::status() const noexcept
+CandidateCheckpointCaptureStatus Sc6CandidateCheckpointCapture::status(
+    CandidateCheckpointRole role) const noexcept
 {
-    return status_;
+    return role == CandidateCheckpointRole::Landing
+        ? landing_status_ : batch_entry_status_;
 }
 
-const SnapshotStore& Sc6CandidateCheckpointCapture::snapshots() const noexcept
+const SnapshotStore& Sc6CandidateCheckpointCapture::snapshots(
+    CandidateCheckpointRole role) const noexcept
 {
-    return snapshots_;
+    return role == CandidateCheckpointRole::Landing
+        ? landing_snapshots_ : batch_entry_snapshots_;
 }
 }
