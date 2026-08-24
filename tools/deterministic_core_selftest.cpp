@@ -564,6 +564,14 @@ void test_batch_aware_replay_seek_planning()
     const std::array second_coordinates{FrameCoordinate{1, 4}};
     expect(batches.Append(second, second_coordinates).ok(),
         "append batch after seek landing boundary");
+    expect(batches.GetBatchCoordinate(0, 0) != nullptr
+            && batches.GetBatchCoordinate(0, 0)->coordinate
+                == FrameCoordinate{1, 1}
+            && batches.GetBatchCoordinate(0, 2) != nullptr
+            && batches.GetBatchCoordinate(0, 2)->coordinate
+                == FrameCoordinate{1, 3}
+            && batches.GetBatchCoordinate(0, 3) == nullptr,
+        "batch-coordinate lookup is exact and bounded");
 
     SnapshotStore entries{1024 * 1024, 8, CapacityPolicy::RejectNew};
     expect(entries.Save({{1, 0}, 1, {}, {}}).ok(),

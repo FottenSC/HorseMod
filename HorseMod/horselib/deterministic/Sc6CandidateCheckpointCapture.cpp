@@ -594,6 +594,56 @@ Status Sc6CandidateCheckpointCapture::Capture(
     return Status::success();
 }
 
+Status Sc6CandidateCheckpointCapture::CaptureTransient(
+    FrameCoordinate coordinate, Snapshot& output) noexcept
+{
+    output = {};
+    if (!regions_->IsBound() || bound_manager_ == 0
+        || coordinate.generation != bound_round_generation_)
+    {
+        return Status::failure(FailureCode::GenerationMismatch);
+    }
+    CameraTopology camera_topology{};
+    const Status camera = capture_camera_topology(camera_topology);
+    if (!camera.ok() || camera_topology != bound_camera_topology_)
+        return Status::failure(camera.ok()
+            ? FailureCode::IdentityMismatch : camera.code);
+    CallbackTopology callback_topology{};
+    const Status callbacks = capture_callback_topology(callback_topology);
+    if (!callbacks.ok() || callback_topology != bound_callback_topology_)
+        return Status::failure(callbacks.ok()
+            ? FailureCode::IdentityMismatch : callbacks.code);
+    return adapter_->Capture(coordinate, output);
+}
+
+Status Sc6CandidateCheckpointCapture::RestoreAndVerify(
+    const Snapshot& snapshot) noexcept
+{
+    if (!regions_->IsBound() || bound_manager_ == 0
+        || snapshot.coordinate.generation != bound_round_generation_)
+    {
+        return Status::failure(FailureCode::GenerationMismatch);
+    }
+    Status status = adapter_->PreflightRestore(snapshot);
+    if (status.ok()) status = adapter_->Restore(snapshot);
+    if (status.ok()) status = adapter_->RebuildDerivedState();
+    if (status.ok()) status = adapter_->VerifyRestoredState(snapshot);
+    return status;
+}
+
+void Sc6CandidateCheckpointCapture::InvalidateHistory() noexcept
+{
+    ReleaseBinding();
+    landing_snapshots_.Clear();
+    batch_entry_snapshots_.Clear();
+    landing_status_ = {};
+    batch_entry_status_ = {};
+    landing_capture_timing_ = {};
+    batch_entry_capture_timing_ = {};
+    landing_store_timing_ = {};
+    batch_entry_store_timing_ = {};
+}
+
 void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 {
     adapter_->Reset();
@@ -611,15 +661,7 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 
 void Sc6CandidateCheckpointCapture::Reset() noexcept
 {
-    ReleaseBinding();
-    landing_snapshots_.Clear();
-    batch_entry_snapshots_.Clear();
-    landing_status_ = {};
-    batch_entry_status_ = {};
-    landing_capture_timing_ = {};
-    batch_entry_capture_timing_ = {};
-    landing_store_timing_ = {};
-    batch_entry_store_timing_ = {};
+    InvalidateHistory();
     image_base_ = 0;
     image_size_ = 0;
     ucrt_broker_ = nullptr;

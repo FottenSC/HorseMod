@@ -109,6 +109,24 @@ const NativeBatchEnvelope* NativeBatchTimeline::GetBatch(
     return batch_index < batches_.size() ? &batches_[batch_index] : nullptr;
 }
 
+const NativeBatchCoordinate* NativeBatchTimeline::GetBatchCoordinate(
+    std::size_t batch_index, std::uint32_t offset_in_batch) const noexcept
+{
+    const auto found = std::lower_bound(
+        coordinates_.begin(), coordinates_.end(),
+        std::pair{batch_index, offset_in_batch},
+        [](const NativeBatchCoordinate& entry,
+            const std::pair<std::size_t, std::uint32_t>& value)
+        {
+            return entry.batch_index < value.first
+                || (entry.batch_index == value.first
+                    && entry.offset_in_batch < value.second);
+        });
+    return found != coordinates_.end() && found->batch_index == batch_index
+            && found->offset_in_batch == offset_in_batch
+        ? &*found : nullptr;
+}
+
 bool NativeBatchTimeline::CanAppendBatch(
     std::size_t coordinate_count) const noexcept
 {

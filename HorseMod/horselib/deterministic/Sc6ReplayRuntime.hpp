@@ -47,6 +47,7 @@ struct ReplayTimelineStatus
     std::uint64_t cursor_mismatches{};
     std::uint64_t input_filter_observations{};
     std::uint64_t input_filter_mutations{};
+    std::uint64_t identity_rebaselines{};
     std::uint64_t native_batches{};
     std::uint64_t zero_coordinate_batches{};
     std::uint64_t multi_coordinate_batches{};
@@ -98,15 +99,29 @@ public:
     [[nodiscard]] const NativeBatchTimeline& batch_timeline() const noexcept;
     [[nodiscard]] Status PlanSeek(
         FrameCoordinate target, ReplaySeekPlan& output) const noexcept;
+    // Transactional native-state reconstruction primitive. It intentionally
+    // has no production caller until presentation suppression/reconciliation
+    // owns the same window.
+    Status ExecuteOwnedStateSeek(
+        FrameCoordinate target, DeterministicHookSet& hooks) noexcept;
 
 private:
     Status PrepareInitialGeneration(
         const OuterTickObservation& observation) noexcept;
+    void RebaselineAfterIdentityDrift() noexcept;
     static void* ResolveReplayPlayer(void* user) noexcept;
     static void* ResolveBattleManager(void* user) noexcept;
     static void* ResolveFighterOne(void* user) noexcept;
     static void* ResolveFighterTwo(void* user) noexcept;
     static void* ResolveStage(void* user) noexcept;
+    static Status CaptureOwnedLanding(
+        void* user, FrameCoordinate coordinate) noexcept;
+
+    struct OwnedLandingCapture
+    {
+        Sc6CandidateCheckpointCapture* checkpoints{};
+        Snapshot* output{};
+    };
 
     [[nodiscard]] void* ResolveFighter(std::size_t index) noexcept;
 
@@ -128,6 +143,8 @@ private:
     std::uint64_t pending_batch_id_{};
     FrameCoordinate pending_batch_entry_{};
     std::vector<FrameCoordinate> pending_batch_coordinates_{};
+    bool generation_rebaseline_pending_{};
+    bool continuing_session_rebaseline_{};
 };
 }
 }

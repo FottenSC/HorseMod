@@ -2,6 +2,8 @@
 
 #include "../HorseLib.hpp"
 
+#include <Windows.h>
+
 namespace Horse::Deterministic
 {
 Sc6ReplayRuntime::Sc6ReplayRuntime(Lux& lux) noexcept
@@ -46,6 +48,8 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     pending_batch_id_ = 0;
     pending_batch_entry_ = {};
     pending_batch_coordinates_.clear();
+    generation_rebaseline_pending_ = false;
+    continuing_session_rebaseline_ = false;
 }
 
 bool Sc6ReplayRuntime::ready() const noexcept
@@ -66,7 +70,8 @@ Status Sc6ReplayRuntime::PrepareInitialGeneration(
     if (observation.battle_manager == 0 || observation.before.input_log == 0)
         return Status::failure(FailureCode::ContextUnavailable);
 
-    ++timeline_session_generation_;
+    if (!continuing_session_rebaseline_) ++timeline_session_generation_;
+    continuing_session_rebaseline_ = false;
     ++timeline_status_.generations;
     timeline_status_.sessions = timeline_session_generation_;
     timeline_status_.native_round = observation.before.input_game_round;
@@ -256,6 +261,12 @@ Status Sc6ReplayRuntime::ObserveFrame(
         timeline_status_.checkpoint_validation = checkpoint_status.validation;
         if (checkpoint.code == FailureCode::CapacityExceeded)
             timeline_status_.partial = true;
+        else if (checkpoint.code == FailureCode::IdentityMismatch
+            || checkpoint.code == FailureCode::GenerationMismatch)
+        {
+            generation_rebaseline_pending_ = true;
+            timeline_status_.checkpoint_failure = FailureCode::None;
+        }
     }
     return Status::success();
 }
@@ -348,7 +359,15 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         return Status::success();
     }
     if (!captured.ok())
+    {
+        if (captured.code == FailureCode::IdentityMismatch
+            || captured.code == FailureCode::GenerationMismatch)
+        {
+            generation_rebaseline_pending_ = true;
+            timeline_status_.batch_entry_checkpoint_failure = FailureCode::None;
+        }
         return Status::success();
+    }
     if (previous.captured != 0
         && previous.last_coordinate.generation == coordinate.generation)
     {
@@ -358,6 +377,28 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
             timeline_status_.maximum_batch_entry_checkpoint_gap = gap;
     }
     return Status::success();
+}
+
+void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
+{
+    const std::uint64_t sessions = timeline_status_.sessions;
+    const std::uint64_t generations = timeline_status_.generations;
+    const std::uint64_t rebaselines = timeline_status_.identity_rebaselines + 1;
+    input_timeline_.Clear();
+    batch_timeline_.Clear();
+    checkpoint_capture_.InvalidateHistory();
+    timeline_status_ = {};
+    timeline_status_.sessions = sessions;
+    timeline_status_.generations = generations;
+    timeline_status_.identity_rebaselines = rebaselines;
+    timeline_manager_ = 0;
+    timeline_input_log_ = 0;
+    timeline_thread_id_ = 0;
+    pending_batch_id_ = 0;
+    pending_batch_entry_ = {};
+    pending_batch_coordinates_.clear();
+    generation_rebaseline_pending_ = false;
+    continuing_session_rebaseline_ = true;
 }
 
 Status Sc6ReplayRuntime::ObserveOuterTick(
@@ -522,6 +563,7 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     {
         ++timeline_status_.batch_frame_accounting_mismatches;
     }
+    if (generation_rebaseline_pending_) RebaselineAfterIdentityDrift();
     return Status::success();
 }
 
@@ -534,6 +576,8 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     pending_batch_entry_ = {};
     pending_batch_coordinates_.clear();
     checkpoint_capture_.ReleaseBinding();
+    generation_rebaseline_pending_ = false;
+    continuing_session_rebaseline_ = false;
 }
 
 ReplayTimelineStatus Sc6ReplayRuntime::timeline_status() const noexcept
@@ -565,6 +609,121 @@ Status Sc6ReplayRuntime::PlanSeek(
         checkpoint_capture_.snapshots(CandidateCheckpointRole::BatchEntry),
         Schema::checkpoint_interval - 1,
         output);
+}
+
+Status Sc6ReplayRuntime::CaptureOwnedLanding(
+    void* user, FrameCoordinate coordinate) noexcept
+{
+    auto* capture = static_cast<OwnedLandingCapture*>(user);
+    return capture != nullptr && capture->checkpoints != nullptr
+            && capture->output != nullptr
+        ? capture->checkpoints->CaptureTransient(coordinate, *capture->output)
+        : Status::failure(FailureCode::InvalidConfiguration);
+}
+
+Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
+    FrameCoordinate target, DeterministicHookSet& hooks) noexcept
+{
+    ReplaySeekPlan plan{};
+    Status status = PlanSeek(target, plan);
+    if (!status.ok()) return status;
+    if (!hooks.installed() || timeline_thread_id_ == 0
+        || timeline_thread_id_ != ::GetCurrentThreadId()
+        || timeline_manager_ == 0
+        || timeline_status_.last_coordinate.generation != target.generation)
+    {
+        return Status::failure(FailureCode::WrongThread);
+    }
+
+    Snapshot undo{};
+    status = checkpoint_capture_.CaptureTransient(
+        timeline_status_.last_coordinate, undo);
+    if (!status.ok()) return status;
+    const auto base = checkpoint_capture_.snapshots(
+        CandidateCheckpointRole::BatchEntry).Load(plan.resimulation_base);
+    if (!base.has_value()) return Status::failure(FailureCode::MissingSnapshot);
+
+    const auto restore_undo = [&]() noexcept {
+        return checkpoint_capture_.RestoreAndVerify(undo).ok();
+    };
+    status = checkpoint_capture_.RestoreAndVerify(*base);
+    if (!status.ok())
+        return restore_undo()
+            ? status : Status::failure(FailureCode::UndoFailed);
+
+    Snapshot landing = *base;
+    if (plan.landing_requires_batch_replay)
+    {
+        for (std::size_t batch_index = plan.first_batch_index;
+             batch_index <= plan.landing_batch_index; ++batch_index)
+        {
+            const NativeBatchEnvelope* envelope =
+                batch_timeline_.GetBatch(batch_index);
+            if (envelope == nullptr
+                || envelope->entry_coordinate.generation != target.generation
+                || envelope->coordinate_count
+                    > Schema::maximum_supported_native_batch_width)
+            {
+                status = Status::failure(FailureCode::GenerationMismatch);
+                break;
+            }
+            std::array<FrameCoordinate,
+                Schema::maximum_supported_native_batch_width> coordinates{};
+            std::array<InputPair,
+                Schema::maximum_supported_native_batch_width> inputs{};
+            for (std::uint32_t offset = 0;
+                 offset < envelope->coordinate_count; ++offset)
+            {
+                const NativeBatchCoordinate* member =
+                    batch_timeline_.GetBatchCoordinate(batch_index, offset);
+                if (member == nullptr)
+                {
+                    status = Status::failure(FailureCode::MissingInput);
+                    break;
+                }
+                const auto input = input_timeline_.GetExact(member->coordinate);
+                if (!input.has_value())
+                {
+                    status = Status::failure(FailureCode::MissingInput);
+                    break;
+                }
+                coordinates[offset] = member->coordinate;
+                inputs[offset] = *input;
+            }
+            if (!status.ok()) break;
+
+            const bool landing_batch = batch_index == plan.landing_batch_index;
+            OwnedLandingCapture landing_capture{&checkpoint_capture_, &landing};
+            OwnedBatchReplayRequest request{};
+            request.battle_manager = timeline_manager_;
+            request.owner_thread_id = timeline_thread_id_;
+            request.envelope = envelope;
+            request.coordinates = std::span{coordinates.data(),
+                static_cast<std::size_t>(envelope->coordinate_count)};
+            request.inputs = std::span{inputs.data(),
+                static_cast<std::size_t>(envelope->coordinate_count)};
+            if (landing_batch)
+            {
+                request.landing_offset = plan.landing_offset_in_batch;
+                request.landing_user = &landing_capture;
+                request.capture_landing = CaptureOwnedLanding;
+            }
+            OwnedBatchReplayResult result{};
+            status = hooks.ExecuteOwnedBatch(request, result);
+            if (!status.ok()
+                || (landing_batch && !result.landing_captured))
+            {
+                if (status.ok())
+                    status = Status::failure(FailureCode::CaptureFailed);
+                break;
+            }
+        }
+    }
+    if (status.ok()) status = checkpoint_capture_.RestoreAndVerify(landing);
+    if (!status.ok())
+        return restore_undo()
+            ? status : Status::failure(FailureCode::UndoFailed);
+    return Status::success();
 }
 
 void* Sc6ReplayRuntime::ResolveReplayPlayer(void* user) noexcept

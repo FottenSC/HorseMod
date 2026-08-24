@@ -65,6 +65,12 @@ void CandidateGameStateAdapter::Reset() noexcept
     ucrt_capture_timing_ = {};
     wind_capture_timing_ = {};
     encode_timing_ = {};
+    local_restore_timing_ = {};
+    typed_restore_timing_ = {};
+    wind_restore_timing_ = {};
+    ucrt_restore_timing_ = {};
+    derived_repair_timing_ = {};
+    total_restore_timing_ = {};
     configured_ = false;
     bound_ = false;
 }
@@ -166,6 +172,12 @@ CandidateGameStateAdapter::performance_status() const noexcept
         ucrt_capture_timing_.Status(),
         wind_capture_timing_.Status(),
         encode_timing_.Status(),
+        local_restore_timing_.Status(),
+        typed_restore_timing_.Status(),
+        wind_restore_timing_.Status(),
+        ucrt_restore_timing_.Status(),
+        derived_repair_timing_.Status(),
+        total_restore_timing_.Status(),
     };
 }
 
@@ -204,6 +216,7 @@ Status CandidateGameStateAdapter::PreflightRestore(
 
 Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
 {
+    const auto total_begin = std::chrono::steady_clock::now();
     CandidateCheckpointImage image{};
     const Status preflight = decode_and_preflight(snapshot, image);
     if (!preflight.ok()) return preflight;
@@ -215,23 +228,52 @@ Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
     if (!restored.ok() && undo_captured && !undo_image(undo))
         restored = Status::failure(FailureCode::UndoFailed);
     const Status fp = fp_scope.Finish();
+    const auto total_end = std::chrono::steady_clock::now();
+    total_restore_timing_.Record(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            total_end - total_begin).count()));
     return restored.ok() ? fp : restored;
 }
 
 Status CandidateGameStateAdapter::restore_image(
     const CandidateCheckpointImage& image) noexcept
 {
+    const auto local_begin = std::chrono::steady_clock::now();
     Status status = hgcpu_.Restore(
         binding_.hgcpu_reader, binding_.hgcpu_context,
         image.local_images.front());
-    if (status.ok()) status = regions_.RestoreTransactional(image.native);
-    if (status.ok())
-        status = binding_.wind_transaction->Restore(
-            binding_.wind_addresses, image.wind);
+    const auto local_end = std::chrono::steady_clock::now();
+    local_restore_timing_.Record(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            local_end - local_begin).count()));
     if (status.ok())
     {
+        const auto typed_begin = std::chrono::steady_clock::now();
+        status = regions_.RestoreTransactional(image.native);
+        const auto typed_end = std::chrono::steady_clock::now();
+        typed_restore_timing_.Record(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                typed_end - typed_begin).count()));
+    }
+    if (status.ok())
+    {
+        const auto wind_begin = std::chrono::steady_clock::now();
+        status = binding_.wind_transaction->Restore(
+            binding_.wind_addresses, image.wind);
+        const auto wind_end = std::chrono::steady_clock::now();
+        wind_restore_timing_.Record(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                wind_end - wind_begin).count()));
+    }
+    if (status.ok())
+    {
+        const auto ucrt_begin = std::chrono::steady_clock::now();
         status = binding_.ucrt_broker->Restore(
             binding_.simulation_thread_id, image.ucrt);
+        const auto ucrt_end = std::chrono::steady_clock::now();
+        ucrt_restore_timing_.Record(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                ucrt_end - ucrt_begin).count()));
     }
     return status;
 }
@@ -239,24 +281,31 @@ Status CandidateGameStateAdapter::restore_image(
 bool CandidateGameStateAdapter::undo_image(
     const CandidateCheckpointImage& image) noexcept
 {
-    const Status ucrt = binding_.ucrt_broker->Restore(
-        binding_.simulation_thread_id, image.ucrt);
-    const Status native = regions_.RestoreTransactional(image.native);
-    const Status wind = binding_.wind_transaction->Restore(
-        binding_.wind_addresses, image.wind);
+    // Use the same verified consumer order as an ordinary restore. Continue
+    // through every lane so a failure cannot leave later undo lanes skipped.
     const Status hgcpu = hgcpu_.Restore(
         binding_.hgcpu_reader, binding_.hgcpu_context,
         image.local_images.front());
-    return ucrt.ok() && native.ok() && wind.ok() && hgcpu.ok();
+    const Status native = regions_.RestoreTransactional(image.native);
+    const Status wind = binding_.wind_transaction->Restore(
+        binding_.wind_addresses, image.wind);
+    const Status ucrt = binding_.ucrt_broker->Restore(
+        binding_.simulation_thread_id, image.ucrt);
+    return hgcpu.ok() && native.ok() && wind.ok() && ucrt.ok();
 }
 
 Status CandidateGameStateAdapter::RebuildDerivedState() noexcept
 {
     if (!bound_) return Status::failure(FailureCode::AdapterUnqualified);
     ScopedFloatingPointEnvironment fp_scope;
+    const auto rebuild_begin = std::chrono::steady_clock::now();
     const Status rebuilt = binding_.rebuild != nullptr
         ? binding_.rebuild(binding_.action_user)
         : Status::success();
+    const auto rebuild_end = std::chrono::steady_clock::now();
+    derived_repair_timing_.Record(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            rebuild_end - rebuild_begin).count()));
     const Status fp = fp_scope.Finish();
     return rebuilt.ok() ? fp : rebuilt;
 }

@@ -65,6 +65,26 @@ bool CaptureInputPairArray(void* argument, PlayerInput (&output)[2]) noexcept
         && SafeRead(data, output[0])
         && SafeRead(data + sizeof(PlayerInput), output[1]);
 }
+
+bool PublishInputPairArray(void* argument, const PlayerInput (&input)[2]) noexcept
+{
+    std::uintptr_t data{};
+    std::int32_t count{};
+    std::int32_t capacity{};
+    const auto header = reinterpret_cast<std::uintptr_t>(argument);
+    if (header == 0 || !SafeRead(header, data) || data == 0
+        || !SafeRead(header + 8, count) || count != 2
+        || !SafeRead(header + 12, capacity) || capacity < count)
+    {
+        return false;
+    }
+    __try
+    {
+        std::memcpy(reinterpret_cast<void*>(data), input, sizeof(input));
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
 }
 
 DeterministicHookSet::~DeterministicHookSet()
@@ -288,6 +308,119 @@ bool DeterministicHookSet::installed() const noexcept
     return installed_.load(std::memory_order_acquire);
 }
 
+bool DeterministicHookSet::OuterStateMatchesEnvelope(
+    const OuterTickState& state,
+    const NativeBatchEnvelope& envelope,
+    bool before) const noexcept
+{
+    return state.frame_counter
+            == (before ? envelope.native_frame_before
+                       : envelope.native_frame_after)
+        && state.input_game_round
+            == (before ? envelope.input_round_before
+                       : envelope.input_round_after)
+        && state.input_game_time
+            == (before ? envelope.input_time_before
+                       : envelope.input_time_after)
+        && state.manager_game_round_cursor
+            == (before ? envelope.manager_round_cursor_before
+                       : envelope.manager_round_cursor_after)
+        && state.manager_game_time_cursor
+            == (before ? envelope.manager_time_cursor_before
+                       : envelope.manager_time_cursor_after)
+        && state.main_state
+            == (before ? envelope.main_state_before : envelope.main_state_after)
+        && state.round_state
+            == (before ? envelope.round_state_before : envelope.round_state_after);
+}
+
+Status DeterministicHookSet::ExecuteOwnedBatch(
+    const OwnedBatchReplayRequest& request,
+    OwnedBatchReplayResult& output) noexcept
+{
+    output = {};
+    constexpr std::uint16_t required_reads =
+        Schema::Sc6FrameLayout::required_outer_tick_read_mask;
+    if (!installed() || request.battle_manager == 0
+        || request.owner_thread_id == 0
+        || request.owner_thread_id != ::GetCurrentThreadId()
+        || request.envelope == nullptr
+        || request.coordinates.size() != request.inputs.size()
+        || request.coordinates.size() != request.envelope->coordinate_count
+        || request.coordinates.size()
+            > Schema::maximum_supported_native_batch_width
+        || (request.landing_offset != UINT32_MAX
+            && (request.landing_offset >= request.coordinates.size()
+                || request.capture_landing == nullptr))
+        || request.envelope->input_generation_changed
+        || active_outer_capture_ != nullptr || outer_tick_trampoline_ == 0)
+    {
+        output.failure = FailureCode::InvalidConfiguration;
+        return Status::failure(output.failure);
+    }
+    for (std::size_t index = 0; index < request.coordinates.size(); ++index)
+    {
+        if (request.coordinates[index].generation
+                != request.envelope->entry_coordinate.generation
+            || request.coordinates[index].frame
+                != request.envelope->entry_coordinate.frame + index + 1
+            || !request.inputs[index].post_filter_observed)
+        {
+            output.failure = FailureCode::IdentityMismatch;
+            return Status::failure(output.failure);
+        }
+    }
+
+    std::uint16_t read_mask{};
+    CaptureOuterTickState(
+        reinterpret_cast<void*>(request.battle_manager), output.before,
+        read_mask, 0x1, 0x2, 0x4, 0x8);
+    if ((read_mask & 0x0f) != 0x0f
+        || !OuterStateMatchesEnvelope(output.before, *request.envelope, true))
+    {
+        output.failure = FailureCode::IdentityMismatch;
+        return Status::failure(output.failure);
+    }
+
+    OuterTickObservation observation{};
+    observation.battle_manager = request.battle_manager;
+    observation.batch_id = ++next_outer_batch_id_;
+    observation.thread_id = request.owner_thread_id;
+    observation.delta_seconds = request.envelope->delta_seconds;
+    observation.before = output.before;
+    observation.read_mask = read_mask;
+    OwnedBatchExecution execution{&request, &output};
+    OuterTickCaptureContext capture_context{&observation};
+    capture_context.owned = &execution;
+    active_outer_capture_ = &capture_context;
+    const auto original = reinterpret_cast<OuterTickFn>(outer_tick_trampoline_);
+    __try
+    {
+        original(reinterpret_cast<void*>(request.battle_manager),
+            request.envelope->delta_seconds);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        output.failure = FailureCode::AdvanceFailed;
+    }
+    active_outer_capture_ = nullptr;
+    if (output.failure != FailureCode::None)
+        return Status::failure(output.failure);
+
+    CaptureOuterTickState(
+        reinterpret_cast<void*>(request.battle_manager), output.after,
+        read_mask, 0x10, 0x20, 0x40, 0x80);
+    if (read_mask != required_reads
+        || output.observed_coordinates != request.coordinates.size()
+        || output.after.input_log != output.before.input_log
+        || !OuterStateMatchesEnvelope(output.after, *request.envelope, false))
+    {
+        output.failure = FailureCode::RestoreVerificationFailed;
+        return Status::failure(output.failure);
+    }
+    return Status::success();
+}
+
 void __fastcall DeterministicHookSet::FrameFencepostDetour(
     void* battle_manager) noexcept
 {
@@ -350,8 +483,27 @@ void __fastcall DeterministicHookSet::CallbackExecutorDetour(
             == batch->observation->battle_manager
                 + Schema::Sc6FrameLayout::manager_input_filter_callbacks;
     PlayerInput before[2]{};
-    const bool before_valid = is_input_filter
+    bool before_valid = is_input_filter
         && CaptureInputPairArray(callback_argument, before);
+    if (before_valid && batch->owned != nullptr)
+    {
+        auto& execution = *batch->owned;
+        const auto index = execution.result->observed_coordinates;
+        if (index >= execution.request->inputs.size()
+            || execution.invocations_for_coordinate != 0
+            || !PublishInputPairArray(callback_argument,
+                execution.request->inputs[index].players))
+        {
+            execution.result->failure = FailureCode::AdvanceFailed;
+            before_valid = false;
+        }
+        else
+        {
+            before[0] = execution.request->inputs[index].players[0];
+            before[1] = execution.request->inputs[index].players[1];
+            ++execution.invocations_for_coordinate;
+        }
+    }
     if (original != nullptr) original(collection, callback_argument);
     PlayerInput after[2]{};
     const bool after_valid = before_valid
@@ -362,6 +514,20 @@ void __fastcall DeterministicHookSet::CallbackExecutorDetour(
         std::copy(std::begin(after), std::end(after), batch->post_filter_inputs);
         ++batch->input_filter_invocations;
         batch->input_filter_observed = true;
+        if (batch->owned != nullptr)
+        {
+            auto& execution = *batch->owned;
+            const auto index = execution.result->observed_coordinates;
+            ++execution.result->filter_invocations;
+            if (index >= execution.request->inputs.size()
+                || after[0]
+                    != execution.request->inputs[index].post_filter_players[0]
+                || after[1]
+                    != execution.request->inputs[index].post_filter_players[1])
+            {
+                execution.result->failure = FailureCode::AdvanceFailed;
+            }
+        }
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
@@ -605,7 +771,35 @@ void DeterministicHookSet::EmitFrameFencepost(void* battle_manager) noexcept
         if (observation.repeat_pending != 0)
             ++batch->observation->repeat_pending_coordinates;
     }
-    callbacks_.frame_fencepost(callbacks_.user, observation);
+    if (batch != nullptr && batch->owned != nullptr)
+    {
+        auto& execution = *batch->owned;
+        const auto index = execution.result->observed_coordinates;
+        if (execution.result->failure == FailureCode::None
+            && (index >= execution.request->coordinates.size()
+                || execution.invocations_for_coordinate != 1
+                || observation.frame_counter
+                    != execution.request->coordinates[index].frame
+                || !observation.input_filter_observed))
+        {
+            execution.result->failure = FailureCode::AdvanceFailed;
+        }
+        if (execution.result->failure == FailureCode::None
+            && index == execution.request->landing_offset)
+        {
+            const Status captured = execution.request->capture_landing(
+                execution.request->landing_user,
+                execution.request->coordinates[index]);
+            if (!captured.ok()) execution.result->failure = captured.code;
+            else execution.result->landing_captured = true;
+        }
+        ++execution.result->observed_coordinates;
+        execution.invocations_for_coordinate = 0;
+    }
+    else
+    {
+        callbacks_.frame_fencepost(callbacks_.user, observation);
+    }
 }
 
 void DeterministicHookSet::CaptureOuterTickState(

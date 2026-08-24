@@ -131,6 +131,42 @@ normal-render 600-frame run observed this boundary at all 600 coordinates, acros
 with zero disagreement. This workload produced zero changed filter values, so a
 qualification workload that exercises an actual filter mutation remains required.
 
+### Bounded native-batch reconstruction implementation
+
+The inactive schema-7 adapter now contains the state-only half of the required
+batch-aware seek transaction. A fixed-capacity request replays only a recorded
+outer batch through the original `0x1403FE520` trampoline. At each verified
+manager `+0x1210` callback it publishes the recorded pre-filter pair, lets the
+native collection run once, and compares its output with the recorded post-filter
+pair. The executor validates owner thread, manager identity, entry/exit clocks,
+frame counter, manager cursors, main/round state, batch width, coordinate order,
+and stable InputLog generation. It rejects allocation/input-generation crossing.
+Ordinary timeline observation is suppressed only for this owned transaction.
+
+For a mid-batch target, the runtime restores the batch-entry image, replays every
+complete envelope, captures a transient landing image at the target fencepost,
+finishes the enclosing batch tail, and restores/verifies the landing. A complete
+pre-seek image is retained and restored on any failure. Exact batch-entry targets
+restore directly. Opaque images remain local and fixed-capacity arrays bound the
+per-batch input working set. The implementation has deliberately no production
+caller yet: native presentation terminals are not suppressed/reconciled, so
+exposing this state-only primitive would violate the seek contract.
+
+Restore instrumentation now separates native local reader, typed supplements,
+stage/wind, UCRT, derived repair, and total restore. Exact undo uses the same
+verified consumer order as ordinary restore and continues through every undo lane.
+
+The first normal-render regression exposed callback-topology compaction between
+the frame-0 batch entry and frame 1. Retaining that frame-0 image under the later
+generation would be unsafe. The runtime now finishes the enclosing native batch,
+atomically clears dependent images/input/batch history, and rebaselines on the
+next batch under a new native generation without incrementing the replay session.
+A subsequent 600-frame normal-render run passed with no checkpoint or fencepost
+failure, captured new generation-2 batch-entry and landing images, and reached
+native frame 601. This is dirty-tree regression evidence (DLL SHA-256
+`C24F8FE79B55808470BC3696F0A9442F6BBDB5C598527DA118A0D4EF22488781`),
+not release qualification.
+
 ## Remaining admission gate
 
 Repeat native-source coverage for every required matchup and correction phase.

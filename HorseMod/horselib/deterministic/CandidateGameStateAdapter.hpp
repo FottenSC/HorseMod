@@ -50,6 +50,12 @@ struct CandidateAdapterPerformanceStatus
     CandidatePhaseTimingStatus ucrt_capture{};
     CandidatePhaseTimingStatus wind_capture{};
     CandidatePhaseTimingStatus encode{};
+    CandidatePhaseTimingStatus local_restore{};
+    CandidatePhaseTimingStatus typed_restore{};
+    CandidatePhaseTimingStatus wind_restore{};
+    CandidatePhaseTimingStatus ucrt_restore{};
+    CandidatePhaseTimingStatus derived_repair{};
+    CandidatePhaseTimingStatus total_restore{};
 };
 
 class CandidateGameStateAdapter final : public IGameStateAdapter
@@ -129,6 +135,12 @@ private:
     PhaseTimingHistogram ucrt_capture_timing_{};
     PhaseTimingHistogram wind_capture_timing_{};
     PhaseTimingHistogram encode_timing_{};
+    PhaseTimingHistogram local_restore_timing_{};
+    PhaseTimingHistogram typed_restore_timing_{};
+    PhaseTimingHistogram wind_restore_timing_{};
+    PhaseTimingHistogram ucrt_restore_timing_{};
+    PhaseTimingHistogram derived_repair_timing_{};
+    PhaseTimingHistogram total_restore_timing_{};
     bool configured_{};
     bool bound_{};
 };

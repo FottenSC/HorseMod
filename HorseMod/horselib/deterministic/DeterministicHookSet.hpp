@@ -2,11 +2,13 @@
 
 #include "Types.hpp"
 #include "FloatingPointEnvironment.hpp"
+#include "NativeBatchTimeline.hpp"
 #include "UcrtRandBroker.hpp"
 
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <span>
 
 namespace PLH
 {
@@ -94,6 +96,31 @@ struct DeterministicHookCallbacks
     ReplayExitCallback replay_exit{};
 };
 
+using OwnedBatchLandingCaptureFn = Status (*)(
+    void* user, FrameCoordinate coordinate) noexcept;
+
+struct OwnedBatchReplayRequest
+{
+    std::uintptr_t battle_manager{};
+    std::uint32_t owner_thread_id{};
+    const NativeBatchEnvelope* envelope{};
+    std::span<const FrameCoordinate> coordinates{};
+    std::span<const InputPair> inputs{};
+    std::uint32_t landing_offset{UINT32_MAX};
+    void* landing_user{};
+    OwnedBatchLandingCaptureFn capture_landing{};
+};
+
+struct OwnedBatchReplayResult
+{
+    FailureCode failure{FailureCode::None};
+    OuterTickState before{};
+    OuterTickState after{};
+    std::uint32_t observed_coordinates{};
+    std::uint32_t filter_invocations{};
+    bool landing_captured{};
+};
+
 class DeterministicHookSet final
 {
 public:
@@ -110,8 +137,18 @@ public:
     void Uninstall() noexcept;
 
     [[nodiscard]] bool installed() const noexcept;
+    Status ExecuteOwnedBatch(
+        const OwnedBatchReplayRequest& request,
+        OwnedBatchReplayResult& output) noexcept;
 
 private:
+    struct OwnedBatchExecution
+    {
+        const OwnedBatchReplayRequest* request{};
+        OwnedBatchReplayResult* result{};
+        std::uint32_t invocations_for_coordinate{};
+    };
+
     struct OuterTickCaptureContext
     {
         OuterTickObservation* observation{};
@@ -122,6 +159,7 @@ private:
         PlayerInput post_filter_inputs[2]{};
         std::uint32_t input_filter_invocations{};
         bool input_filter_observed{};
+        OwnedBatchExecution* owned{};
     };
 
     using FrameFencepostFn = void (__fastcall*)(void* battle_manager);
@@ -148,6 +186,10 @@ private:
         std::uint16_t input_bit,
         std::uint16_t cursor_bit) noexcept;
     void EmitReplayExit(void* replay_state) noexcept;
+    [[nodiscard]] bool OuterStateMatchesEnvelope(
+        const OuterTickState& state,
+        const NativeBatchEnvelope& envelope,
+        bool before) const noexcept;
     bool InstallUcrtIatHooks() noexcept;
     void UninstallUcrtIatHooks() noexcept;
     void ClearState() noexcept;
