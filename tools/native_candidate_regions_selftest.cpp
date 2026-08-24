@@ -11,6 +11,7 @@
 #include "deterministic/SimulationSession.hpp"
 #include "deterministic/SnapshotStore.hpp"
 #include "deterministic/StageBreakListenerDiagnostics.hpp"
+#include "deterministic/StageWindTopology.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -1020,6 +1021,86 @@ void test_callback_topology_is_generation_bound_and_pointer_free()
             == FailureCode::IdentityMismatch,
         "inactive callback entries fail binding closed before capture");
 }
+
+void test_stage_wind_topology_is_bounded_and_pointer_free()
+{
+    constexpr std::uintptr_t base = 0x30000000;
+    constexpr std::uintptr_t image_base = 0x140000000;
+    FakeNativeMemory memory{base, 0x20000};
+    constexpr auto root_pointer = base + 0x100;
+    constexpr auto root = base + 0x1000;
+    constexpr auto first = base + 0x3000;
+    constexpr auto second = base + 0x5000;
+    memory.Set(root_pointer, root);
+    memory.Set(root, first);
+    memory.Fill(root + 0x08, 12, std::byte{0x11});
+    memory.Set(root + 0x18, image_base + std::uintptr_t{0x334430});
+    memory.Set(root + 0x98, std::uint32_t{1});
+    memory.Set(root + 0x9C, std::int32_t{1});
+    memory.Fill(root + 0xA0, 0x10, std::byte{0x22});
+    memory.Fill(root + 0xB0, 0x10, std::byte{0x33});
+    memory.Fill(root + 0xC0, 0x30, std::byte{0x44});
+
+    memory.Set(first, image_base + std::uintptr_t{0x3E88C88});
+    memory.Set(first + 0x10, second);
+    memory.Set(first + 0x18, std::uintptr_t{});
+    memory.Set(first + 0x28, root);
+    memory.Fill(first + 0x20, 2, std::byte{0x51});
+    memory.Fill(first + 0x30, 4, std::byte{0x52});
+    memory.Fill(first + 0x40, 0x30, std::byte{0x53});
+    memory.Fill(first + 0x70, 0x70, std::byte{0x54});
+    memory.Fill(first + 0x120, 0x0C, std::byte{0x55});
+
+    memory.Set(second, image_base + std::uintptr_t{0x3E88D18});
+    memory.Set(second + 0x10, std::uintptr_t{});
+    memory.Set(second + 0x18, first);
+    memory.Set(second + 0x28, root);
+    memory.Fill(second + 0x20, 2, std::byte{0x61});
+    memory.Fill(second + 0x30, 4, std::byte{0x62});
+    memory.Fill(second + 0x40, 0x30, std::byte{0x63});
+    memory.Fill(second + 0x70, 0xA0, std::byte{0x64});
+    memory.Fill(second + 0x120, 0x0C, std::byte{0x65});
+    memory.Fill(second + 0x130, 0x50, std::byte{0x66});
+
+    StageWindTopologyProbe probe{memory};
+    const StageWindTopologyAddresses addresses{
+        image_base, 0x4300000, root_pointer, 9};
+    StageWindTopologyImage image{};
+    expect(probe.Bind(addresses).ok() && probe.Capture(image).ok()
+            && image.nodes.size() == 2
+            && image.nodes[0].kind == StageWindNodeKind::Parallel
+            && image.nodes[1].kind == StageWindNodeKind::ShockWave
+            && image.pending_callback_rvas[0] == 0x334430,
+        "wind topology captures ordered value-only node classes and callback RVAs");
+    const auto canonical = StageWindTopologyProbe::CanonicalBytes(image);
+    expect(!contains_qword(canonical, root) && !contains_qword(canonical, first)
+            && !contains_qword(canonical, second),
+        "wind canonical bytes contain no native root or node pointer");
+
+    const auto canonical_before_residue = canonical;
+    memory.Fill(first + 0x34, 0x0C, std::byte{0x7A});
+    expect(probe.Capture(image).ok()
+            && StageWindTopologyProbe::CanonicalBytes(image)
+                == canonical_before_residue,
+        "wind canonical bytes exclude base allocator residue");
+    memory.Fill(first + 0x30, 4, std::byte{0x7B});
+    expect(probe.Capture(image).ok()
+            && StageWindTopologyProbe::CanonicalBytes(image)
+                != canonical_before_residue,
+        "wind lifecycle changes alter canonical state");
+
+    memory.Set(second + 0x10, first);
+    expect(probe.Capture(image).code == FailureCode::IdentityMismatch,
+        "wind topology rejects cycles");
+    memory.Set(second + 0x10, std::uintptr_t{});
+    memory.Set(second, image_base + std::uintptr_t{0x3E88000});
+    expect(probe.Capture(image).code == FailureCode::AdapterUnqualified,
+        "wind topology rejects unknown node vtables");
+    memory.Set(second, image_base + std::uintptr_t{0x3E88D18});
+    memory.Set(second + 0x18, std::uintptr_t{});
+    expect(probe.Capture(image).code == FailureCode::IdentityMismatch,
+        "wind topology rejects broken reverse links");
+}
 }
 
 int main()
@@ -1040,6 +1121,7 @@ int main()
     test_move_dispatch_partial_write_undoes_exactly();
     test_stage_break_listener_topology_is_value_only_and_bounded();
     test_callback_topology_is_generation_bound_and_pointer_free();
+    test_stage_wind_topology_is_bounded_and_pointer_free();
     if (failures == 0)
         std::cout << "NativeCandidateRegionsSelfTest passed\n";
     return failures == 0 ? 0 : 1;

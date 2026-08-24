@@ -3360,11 +3360,12 @@ private:
                 timeline.captured_checkpoints, std::memory_order_release);
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] candidate checkpoint captured count={} generation={} "
-                "frame={} bytes={}\n"),
+                "frame={} bytes={} wind_nodes={}\n"),
                 timeline.captured_checkpoints,
                 timeline.last_coordinate.generation,
                 timeline.last_coordinate.frame,
-                timeline.checkpoint_bytes);
+                timeline.checkpoint_bytes,
+                timeline.checkpoint_wind_nodes);
         }
         if (timeline.checkpoint_failure != Horse::Deterministic::FailureCode::None
             && !self->m_candidate_checkpoint_first_failure_logged.exchange(
@@ -3531,11 +3532,12 @@ private:
                 std::memory_order_release);
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] candidate batch-entry checkpoint captured count={} "
-                "generation={} frame={} bytes={}\n"),
+                "generation={} frame={} bytes={} wind_nodes={}\n"),
                 timeline.captured_batch_entry_checkpoints,
                 timeline.last_coordinate.generation,
                 timeline.last_coordinate.frame,
-                timeline.batch_entry_checkpoint_bytes);
+                timeline.batch_entry_checkpoint_bytes,
+                timeline.batch_entry_wind_nodes);
         }
         if (timeline.batch_entry_checkpoint_failure
                 != Horse::Deterministic::FailureCode::None

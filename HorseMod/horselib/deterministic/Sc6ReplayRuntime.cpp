@@ -222,6 +222,7 @@ Status Sc6ReplayRuntime::ObserveFrame(
             CandidateCheckpointRole::Landing);
         timeline_status_.captured_checkpoints = checkpoint_status.captured;
         timeline_status_.checkpoint_bytes = checkpoint_status.bytes_used;
+        timeline_status_.checkpoint_wind_nodes = checkpoint_status.wind_node_count;
         timeline_status_.checkpoint_failure = checkpoint.ok()
             ? FailureCode::None : checkpoint.code;
         if (checkpoint.code == FailureCode::CapacityExceeded)
@@ -302,6 +303,7 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         CandidateCheckpointRole::BatchEntry);
     timeline_status_.captured_batch_entry_checkpoints = status.captured;
     timeline_status_.batch_entry_checkpoint_bytes = status.bytes_used;
+    timeline_status_.batch_entry_wind_nodes = status.wind_node_count;
     timeline_status_.batch_entry_checkpoint_failure = captured.ok()
         ? FailureCode::None : captured.code;
     if (captured.code == FailureCode::CapacityExceeded)

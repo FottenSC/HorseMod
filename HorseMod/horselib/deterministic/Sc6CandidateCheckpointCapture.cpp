@@ -31,6 +31,7 @@ constexpr std::uintptr_t lcg_rng_rva = 0x485EB28;
 constexpr std::uintptr_t lfsr_rng_rva = 0x485EB30;
 constexpr std::uintptr_t xorshift_rng_rva = 0x470E2C8;
 constexpr std::uintptr_t wind_rng_rva = 0x470E2B0;
+constexpr std::uintptr_t wind_root_pointer_rva = 0x470E038;
 constexpr std::ptrdiff_t input_filter_collection = 0x1210;
 constexpr std::size_t callback_entry_size = 0x40;
 constexpr std::size_t maximum_callback_entries = 64;
@@ -120,6 +121,7 @@ Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
     : memory_(std::make_unique<ProcessMemory>()),
       regions_(std::make_unique<NativeCandidateRegions>(*memory_)),
       callback_probe_(std::make_unique<CallbackTopologyProbe>(*memory_)),
+      wind_probe_(std::make_unique<StageWindTopologyProbe>(*memory_)),
       adapter_(std::make_unique<CandidateGameStateAdapter>(*regions_, hgcpu_))
 {
 }
@@ -296,6 +298,14 @@ Status Sc6CandidateCheckpointCapture::bind(
     bound_move_dispatch_ = move_dispatch;
     bound_session_generation_ = session_generation;
     bound_round_generation_ = coordinate.generation;
+    const Status wind_status = wind_probe_->Bind({
+        image_base_, image_size_, image_base_ + wind_root_pointer_rva,
+        coordinate.generation});
+    if (!wind_status.ok())
+    {
+        ReleaseBinding();
+        return wind_status;
+    }
     CallbackTopology topology{};
     const Status callback_status = capture_callback_topology(topology);
     if (!callback_status.ok())
@@ -323,6 +333,7 @@ Status Sc6CandidateCheckpointCapture::Capture(
     CandidateCheckpointCaptureStatus& capture_status = role
             == CandidateCheckpointRole::Landing
         ? landing_status_ : batch_entry_status_;
+    capture_status.wind_node_count = 0;
     SnapshotStore& snapshots = role == CandidateCheckpointRole::Landing
         ? landing_snapshots_ : batch_entry_snapshots_;
     if (!regions_->IsBound() || bound_manager_ != battle_manager
@@ -350,6 +361,15 @@ Status Sc6CandidateCheckpointCapture::Capture(
         return Status::failure(failure);
     }
 
+    StageWindTopologyImage wind_topology{};
+    const Status wind_status = wind_probe_->Capture(wind_topology);
+    if (!wind_status.ok())
+    {
+        ReleaseBinding();
+        capture_status.failure = wind_status.code;
+        return wind_status;
+    }
+
     Snapshot snapshot{};
     Status captured = adapter_->Capture(coordinate, snapshot);
     if (captured.ok()) captured = snapshots.Save(std::move(snapshot));
@@ -362,6 +382,7 @@ Status Sc6CandidateCheckpointCapture::Capture(
     capture_status.last_coordinate = coordinate;
     ++capture_status.captured;
     capture_status.bytes_used = snapshots.BytesUsed();
+    capture_status.wind_node_count = wind_topology.nodes.size();
     return Status::success();
 }
 
@@ -369,6 +390,7 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 {
     adapter_->Reset();
     regions_->Invalidate();
+    wind_probe_->Invalidate();
     bound_manager_ = 0;
     bound_move_dispatch_ = 0;
     bound_session_generation_ = 0;

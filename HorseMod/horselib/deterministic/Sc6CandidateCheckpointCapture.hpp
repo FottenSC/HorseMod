@@ -4,6 +4,7 @@
 #include "CandidateGameStateAdapter.hpp"
 #include "Schema.hpp"
 #include "SnapshotStore.hpp"
+#include "StageWindTopology.hpp"
 
 #include <memory>
 
@@ -21,6 +22,7 @@ struct CandidateCheckpointCaptureStatus
     FrameCoordinate last_coordinate{};
     std::uint64_t captured{};
     std::size_t bytes_used{};
+    std::size_t wind_node_count{};
 };
 
 class Sc6CandidateCheckpointCapture final
@@ -66,6 +68,7 @@ private:
     std::unique_ptr<ProcessMemory> memory_;
     std::unique_ptr<NativeCandidateRegions> regions_;
     std::unique_ptr<CallbackTopologyProbe> callback_probe_;
+    std::unique_ptr<StageWindTopologyProbe> wind_probe_;
     HgCpuStreamShim hgcpu_{};
     std::unique_ptr<CandidateGameStateAdapter> adapter_;
     UcrtRandBroker* ucrt_broker_{};

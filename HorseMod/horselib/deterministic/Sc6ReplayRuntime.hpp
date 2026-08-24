@@ -28,6 +28,8 @@ struct ReplayTimelineStatus
     std::uint64_t captured_batch_entry_checkpoints{};
     std::size_t checkpoint_bytes{};
     std::size_t batch_entry_checkpoint_bytes{};
+    std::size_t checkpoint_wind_nodes{};
+    std::size_t batch_entry_wind_nodes{};
     std::uint64_t repeat_requests{};
     std::uint64_t same_native_time_coordinates{};
     std::uint64_t cursor_mismatches{};
