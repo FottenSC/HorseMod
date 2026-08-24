@@ -69,18 +69,25 @@ Status capture_actor(
     const StageBreakActorRef& actor,
     std::uint16_t actor_order,
     std::int32_t& captured_actor_id,
-    StageBreakListenerTopology& output) noexcept
+    StageBreakListenerTopology& output,
+    StageBreakListenerProbeFailure& failure) noexcept
 {
+    failure.kind = actor.kind;
+    failure.actor_order = actor_order;
     ActorLayout layout{};
     if (actor.address == 0 || (actor.address & 7) != 0
         || !actor_layout(actor.kind, layout))
     {
+        failure.fault = StageBreakListenerProbeFault::ActorReference;
         return Status::failure(FailureCode::InvalidConfiguration);
     }
 
     const auto emitter = actor.address + layout.emitter_offset;
     if (emitter < actor.address)
+    {
+        failure.fault = StageBreakListenerProbeFault::ActorLayoutOverflow;
         return Status::failure(FailureCode::IdentityMismatch);
+    }
     std::int32_t actor_id{};
     std::uintptr_t heap_entries{};
     std::int32_t count{};
@@ -90,14 +97,19 @@ Status capture_actor(
         || !read_value(memory, emitter + 0x50, count)
         || !read_value(memory, emitter + 0x54, capacity))
     {
+        failure.fault = StageBreakListenerProbeFault::ActorRead;
         return Status::failure(FailureCode::CaptureFailed);
     }
+    failure.actor_id = actor_id;
+    failure.listener_count = count;
+    failure.listener_capacity = capacity;
     if (actor_id < 0 || count < 0
         || count > static_cast<std::int32_t>(maximum_listeners_per_actor)
         || capacity < count || capacity > static_cast<std::int32_t>(maximum_listeners_per_actor)
         || (heap_entries == 0 && count > 1)
         || (heap_entries != 0 && (heap_entries & 7) != 0))
     {
+        failure.fault = StageBreakListenerProbeFault::CollectionBounds;
         return Status::failure(FailureCode::InvalidConfiguration);
     }
     captured_actor_id = actor_id;
@@ -108,23 +120,44 @@ Status capture_actor(
         const auto slot_index = static_cast<std::uint16_t>(reverse - 1);
         const auto entry = entries + slot_index * listener_entry_size;
         if (entry < entries)
+        {
+            failure.fault = StageBreakListenerProbeFault::EntryAddressOverflow;
+            failure.slot_index = slot_index;
             return Status::failure(FailureCode::IdentityMismatch);
+        }
         std::int32_t active{};
         std::uintptr_t listener_override{};
         if (!read_value(memory, entry + 0x30, active)
             || !read_value(memory, entry + 0x20, listener_override))
         {
+            failure.fault = StageBreakListenerProbeFault::EntryRead;
+            failure.slot_index = slot_index;
             return Status::failure(FailureCode::CaptureFailed);
         }
         if (active == 0) continue;
         const auto listener = listener_override != 0 ? listener_override : entry;
+        failure.slot_index = slot_index;
+        failure.listener_override_present = listener_override != 0;
         std::uintptr_t vtable{};
         std::uintptr_t callback{};
-        if (!read_value(memory, listener, vtable)
-            || !range_in_image(vtable, 0x70, image_base, image_size)
-            || !read_value(memory, vtable + 0x68, callback)
-            || !range_in_image(callback, 1, image_base, image_size))
+        if (!read_value(memory, listener, vtable))
         {
+            failure.fault = StageBreakListenerProbeFault::ListenerVtableRead;
+            return Status::failure(FailureCode::CaptureFailed);
+        }
+        if (!range_in_image(vtable, 0x70, image_base, image_size))
+        {
+            failure.fault = StageBreakListenerProbeFault::ListenerVtableOutsideImage;
+            return Status::failure(FailureCode::IdentityMismatch);
+        }
+        if (!read_value(memory, vtable + 0x68, callback))
+        {
+            failure.fault = StageBreakListenerProbeFault::CallbackRead;
+            return Status::failure(FailureCode::CaptureFailed);
+        }
+        if (!range_in_image(callback, 1, image_base, image_size))
+        {
+            failure.fault = StageBreakListenerProbeFault::CallbackOutsideImage;
             return Status::failure(FailureCode::IdentityMismatch);
         }
         output.listeners.push_back({
@@ -141,6 +174,29 @@ Status capture_actor(
 }
 }
 
+std::string_view stage_break_listener_probe_fault_name(
+    StageBreakListenerProbeFault fault) noexcept
+{
+    switch (fault)
+    {
+    case StageBreakListenerProbeFault::None: return "none";
+    case StageBreakListenerProbeFault::ActorReference: return "actor_reference";
+    case StageBreakListenerProbeFault::ActorLayoutOverflow: return "actor_layout_overflow";
+    case StageBreakListenerProbeFault::ActorRead: return "actor_read";
+    case StageBreakListenerProbeFault::CollectionBounds: return "collection_bounds";
+    case StageBreakListenerProbeFault::EntryAddressOverflow: return "entry_address_overflow";
+    case StageBreakListenerProbeFault::EntryRead: return "entry_read";
+    case StageBreakListenerProbeFault::ListenerVtableRead: return "listener_vtable_read";
+    case StageBreakListenerProbeFault::ListenerVtableOutsideImage:
+        return "listener_vtable_outside_image";
+    case StageBreakListenerProbeFault::CallbackRead: return "callback_read";
+    case StageBreakListenerProbeFault::CallbackOutsideImage: return "callback_outside_image";
+    case StageBreakListenerProbeFault::DuplicateActorIdentity:
+        return "duplicate_actor_identity";
+    }
+    return "unknown";
+}
+
 StageBreakListenerTopologyProbe::StageBreakListenerTopologyProbe(
     INativeMemory& memory) noexcept
     : memory_(memory)
@@ -151,9 +207,11 @@ Status StageBreakListenerTopologyProbe::Capture(
     std::uintptr_t image_base,
     std::size_t image_size,
     std::span<const StageBreakActorRef> actors,
-    StageBreakListenerTopology& output) noexcept
+    StageBreakListenerTopology& output,
+    StageBreakListenerProbeFailure* failure) noexcept
 {
     output = {};
+    if (failure != nullptr) *failure = {};
     if (image_base == 0 || image_size == 0 || actors.empty())
         return Status::failure(FailureCode::ContextUnavailable);
     if (actors.size() > maximum_actors)
@@ -162,13 +220,17 @@ Status StageBreakListenerTopologyProbe::Capture(
     {
         output.actors.reserve(actors.size());
         output.listeners.reserve(actors.size() * 2);
+        StageBreakListenerProbeFailure captured_failure{};
         for (std::size_t index = 0; index < actors.size(); ++index)
         {
+            captured_failure = {};
             std::int32_t actor_id{};
             const auto status = capture_actor(memory_, image_base, image_size,
-                actors[index], static_cast<std::uint16_t>(index), actor_id, output);
+                actors[index], static_cast<std::uint16_t>(index), actor_id, output,
+                captured_failure);
             if (!status.ok())
             {
+                if (failure != nullptr) *failure = captured_failure;
                 output = {};
                 return status;
             }
@@ -180,6 +242,12 @@ Status StageBreakListenerTopologyProbe::Capture(
                 });
             if (duplicate != output.actors.end())
             {
+                captured_failure.fault =
+                    StageBreakListenerProbeFault::DuplicateActorIdentity;
+                captured_failure.kind = actors[index].kind;
+                captured_failure.actor_order = static_cast<std::uint16_t>(index);
+                captured_failure.actor_id = actor_id;
+                if (failure != nullptr) *failure = captured_failure;
                 output = {};
                 return Status::failure(FailureCode::IdentityMismatch);
             }
@@ -322,6 +390,29 @@ void StageBreakListenerRuntimeDiagnostics::write_topology(
     report_.flush();
 }
 
+void StageBreakListenerRuntimeDiagnostics::write_failure(
+    std::uint64_t frame,
+    Status status,
+    const StageBreakListenerProbeFailure& failure)
+{
+    if (!report_) return;
+    report_ << "\n## Capture failure at frame " << frame << "\n\n"
+            << "- Status: `" << failure_code_name(status.code) << "`\n"
+            << "- Probe fault: `"
+            << stage_break_listener_probe_fault_name(failure.fault) << "`\n"
+            << "- Actor kind: `"
+            << (failure.kind == StageBreakActorKind::Wall ? "wall" : "barrier")
+            << "`\n"
+            << "- Actor order: " << failure.actor_order << "\n"
+            << "- Actor ID: " << failure.actor_id << "\n"
+            << "- Listener count/capacity: " << failure.listener_count
+            << "/" << failure.listener_capacity << "\n"
+            << "- Listener slot: " << failure.slot_index << "\n"
+            << "- Override object present: "
+            << (failure.listener_override_present ? "yes" : "no") << "\n";
+    report_.flush();
+}
+
 Status StageBreakListenerRuntimeDiagnostics::Observe(
     std::uintptr_t image_base,
     std::uint64_t frame,
@@ -334,8 +425,16 @@ Status StageBreakListenerRuntimeDiagnostics::Observe(
     if (!memory_->ReadImageSize(image_base, image_size))
         return Status::failure(FailureCode::ContextUnavailable);
     StageBreakListenerTopology topology{};
-    const auto status = probe_->Capture(image_base, image_size, actors, topology);
-    if (!status.ok()) return status;
+    StageBreakListenerProbeFailure failure{};
+    const auto status = probe_->Capture(
+        image_base, image_size, actors, topology, &failure);
+    if (!status.ok())
+    {
+        if (!header_written_) write_header();
+        write_failure(frame, status, failure);
+        Finish();
+        return status;
+    }
     if (!header_written_) write_header();
     if (!report_) return Status::failure(FailureCode::CaptureFailed);
     last_frame_ = frame;

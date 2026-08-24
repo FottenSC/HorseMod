@@ -6,6 +6,7 @@
 #include <fstream>
 #include <memory>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace Horse::Deterministic
@@ -59,6 +60,37 @@ struct StageBreakListenerTopology
         const StageBreakListenerTopology&) = default;
 };
 
+enum class StageBreakListenerProbeFault : std::uint8_t
+{
+    None,
+    ActorReference,
+    ActorLayoutOverflow,
+    ActorRead,
+    CollectionBounds,
+    EntryAddressOverflow,
+    EntryRead,
+    ListenerVtableRead,
+    ListenerVtableOutsideImage,
+    CallbackRead,
+    CallbackOutsideImage,
+    DuplicateActorIdentity,
+};
+
+[[nodiscard]] std::string_view stage_break_listener_probe_fault_name(
+    StageBreakListenerProbeFault fault) noexcept;
+
+struct StageBreakListenerProbeFailure
+{
+    StageBreakListenerProbeFault fault{};
+    StageBreakActorKind kind{};
+    std::uint16_t actor_order{};
+    std::uint16_t slot_index{};
+    std::int32_t actor_id{};
+    std::int32_t listener_count{};
+    std::int32_t listener_capacity{};
+    bool listener_override_present{};
+};
+
 class StageBreakListenerTopologyProbe
 {
 public:
@@ -68,7 +100,8 @@ public:
         std::uintptr_t image_base,
         std::size_t image_size,
         std::span<const StageBreakActorRef> actors,
-        StageBreakListenerTopology& output) noexcept;
+        StageBreakListenerTopology& output,
+        StageBreakListenerProbeFailure* failure = nullptr) noexcept;
 
 private:
     INativeMemory& memory_;
@@ -94,6 +127,10 @@ private:
     void write_topology(
         std::uint64_t frame,
         const StageBreakListenerTopology& topology);
+    void write_failure(
+        std::uint64_t frame,
+        Status status,
+        const StageBreakListenerProbeFailure& failure);
 
     static constexpr std::size_t maximum_samples = 600;
 

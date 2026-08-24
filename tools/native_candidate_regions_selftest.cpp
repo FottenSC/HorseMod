@@ -826,9 +826,13 @@ void test_stage_break_listener_topology_is_value_only_and_bounded()
 
     memory.Set(heap_entries + 0x40 + 0x30, std::int32_t{1});
     memory.Set(barrier_vtable + 0x68, base + image_size + 0x100);
-    expect(probe.Capture(base, image_size, actors, topology).code
+    StageBreakListenerProbeFailure failure{};
+    expect(probe.Capture(base, image_size, actors, topology, &failure).code
             == FailureCode::IdentityMismatch
-            && topology.listeners.empty(),
+            && topology.listeners.empty()
+            && failure.fault == StageBreakListenerProbeFault::CallbackOutsideImage
+            && failure.actor_order == 1
+            && failure.slot_index == 1,
         "callback targets outside the executable image fail closed");
 }
 }
