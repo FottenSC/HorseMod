@@ -234,6 +234,10 @@ using namespace RC::Unreal;
 #define HORSEMOD_VERSION "dev"
 #endif
 
+#ifndef HORSEMOD_SOURCE_COMMIT
+#define HORSEMOD_SOURCE_COMMIT "unknown"
+#endif
+
 static const char* horsemod_window_title()
 {
     return "HorseMod (Beta " HORSEMOD_VERSION ")";
@@ -3433,8 +3437,9 @@ public:
 
         s_instance.store(this);
         Output::send<LogLevel::Default>(
-            STR("[HorseMod] ctor v{} (deploy marker: replay-context-retry)\n"),
-            RC::to_generic_string(HORSEMOD_VERSION));
+            STR("[HorseMod] ctor v{} source={}\n"),
+            RC::to_generic_string(HORSEMOD_VERSION),
+            RC::to_generic_string(HORSEMOD_SOURCE_COMMIT));
     }
 
     ~HorseMod() override

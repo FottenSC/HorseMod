@@ -104,6 +104,18 @@ if(HORSEMOD_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)")
     set(HORSEMOD_VERSION_PATCH "${CMAKE_MATCH_3}")
 endif()
 
+set(HORSEMOD_SOURCE_COMMIT "unknown")
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse --verify HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE HORSEMOD_SOURCE_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+endif()
+
 add_library(${TARGET} SHARED
     dllmain.cpp
     ${SCVI_HEADERS}
@@ -186,6 +198,7 @@ add_custom_target(DeterministicSchema ALL DEPENDS "${HORSEMOD_GENERATED_SCHEMA}"
 
 target_compile_definitions(${TARGET} PRIVATE
     HORSE_ENABLE_GEKKONET=$<BOOL:${HORSEMOD_BUILD_PINNED_GEKKONET}>
+    HORSEMOD_SOURCE_COMMIT="${HORSEMOD_SOURCE_COMMIT}"
     HORSEMOD_VERSION="${HORSEMOD_VERSION}"
 )
 
