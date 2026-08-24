@@ -7,6 +7,7 @@
 
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
+#include <Unreal/FString.hpp>
 
 #include <array>
 #include <climits>
@@ -34,6 +35,9 @@ using FreeFn = void (__fastcall*)(void*);
 using GetContainerClassFn = const RC::Unreal::UClass* (__fastcall*)();
 using RequestPlayerProfilesFn = bool (__fastcall*)(void*);
 using ApplyPlaybackContextFn = void (__fastcall*)(void*);
+using InitializeProfileFn = void* (__fastcall*)(void*);
+using DestroyProfileFn = void (__fastcall*)(void*);
+using CopyProfileFn = void* (__fastcall*)(void*, void*);
 using QueueStageMapFn = void (__fastcall*)(void*, std::uint8_t,
                                            std::uint8_t, std::int32_t);
 
@@ -50,6 +54,9 @@ struct NativeFunctions
     GetContainerClassFn get_container_class{};
     RequestPlayerProfilesFn request_player_profiles{};
     ApplyPlaybackContextFn apply_playback_context{};
+    InitializeProfileFn initialize_profile{};
+    DestroyProfileFn destroy_profile{};
+    CopyProfileFn copy_profile{};
     QueueStageMapFn queue_stage_map{};
 };
 
@@ -84,6 +91,12 @@ constexpr FunctionContract kContracts[]{
                 std::byte{0x41}, std::byte{0x54}, std::byte{0x48}, std::byte{0x8d}}},
     {0x5e3010, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
                 std::byte{0x10}, std::byte{0x57}, std::byte{0x48}, std::byte{0x81}}},
+    {0x2dc0270, {std::byte{0x40}, std::byte{0x53}, std::byte{0x48}, std::byte{0x83},
+                  std::byte{0xec}, std::byte{0x20}, std::byte{0x48}, std::byte{0x8b}}},
+    {0x4eeed0, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+                std::byte{0x08}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83}}},
+    {0x4f1cf0, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+                std::byte{0x10}, std::byte{0x48}, std::byte{0x89}, std::byte{0x6c}}},
     {0x550d70, {std::byte{0x48}, std::byte{0x8b}, std::byte{0xc4}, std::byte{0x41},
                 std::byte{0x54}, std::byte{0x41}, std::byte{0x56}, std::byte{0x41}}},
 };
@@ -149,6 +162,9 @@ bool ReplayPayloadImporter::Bind(std::uintptr_t image_base) noexcept
         reinterpret_cast<GetContainerClassFn>(image_base + 0xb77900),
         reinterpret_cast<RequestPlayerProfilesFn>(image_base + 0x5e90c0),
         reinterpret_cast<ApplyPlaybackContextFn>(image_base + 0x5e3010),
+        reinterpret_cast<InitializeProfileFn>(image_base + 0x2dc0270),
+        reinterpret_cast<DestroyProfileFn>(image_base + 0x4eeed0),
+        reinterpret_cast<CopyProfileFn>(image_base + 0x4f1cf0),
         reinterpret_cast<QueueStageMapFn>(image_base + 0x550d70)};
     return true;
 }
@@ -292,6 +308,65 @@ bool ReplayPayloadImporter::RequestPlayerProfiles() noexcept
     return SafeCall(false, [&]() {
         return g_functions.request_player_profiles(playback_container_);
     });
+}
+
+bool ReplayPayloadImporter::PopulateFallbackProfiles() noexcept
+{
+    constexpr std::size_t kProfileBytes = 0x140;
+    constexpr std::size_t kLeftProfile = 0x1a80;
+    constexpr std::size_t kRightProfile = 0x1bc0;
+    constexpr std::size_t kRegion = 0x18;
+    constexpr std::size_t kLanguage = 0x1a;
+    constexpr std::size_t kDisplayName = 0x30;
+    constexpr std::size_t kValid = 0xf9;
+    if (playback_container_ == nullptr || g_functions.initialize_profile == nullptr
+        || g_functions.destroy_profile == nullptr
+        || g_functions.copy_profile == nullptr)
+    {
+        return false;
+    }
+
+    const auto populate = [&](std::size_t destination_offset,
+                              const wchar_t* display_name) {
+        alignas(16) std::array<std::byte, kProfileBytes> profile{};
+        if (!SafeCall(false, [&]() {
+                g_functions.initialize_profile(profile.data());
+                return true;
+            }))
+        {
+            return false;
+        }
+
+        bool copied = false;
+        try
+        {
+            profile[kRegion] = std::byte{7};
+            profile[kLanguage] = std::byte{2};
+            profile[kValid] = std::byte{1};
+            auto* name = reinterpret_cast<RC::Unreal::FString*>(
+                profile.data() + kDisplayName);
+            *name = RC::Unreal::FString(display_name);
+            copied = SafeCall(false, [&]() {
+                auto* destination =
+                    static_cast<std::byte*>(playback_container_)
+                    + destination_offset;
+                g_functions.copy_profile(destination, profile.data());
+                return true;
+            });
+        }
+        catch (...)
+        {
+            copied = false;
+        }
+        SafeCall(false, [&]() {
+            g_functions.destroy_profile(profile.data());
+            return true;
+        });
+        return copied;
+    };
+
+    return populate(kLeftProfile, L"P1")
+        && populate(kRightProfile, L"P2");
 }
 
 bool ReplayPayloadImporter::ApplyPlaybackContext() noexcept

@@ -39,6 +39,7 @@ public:
     ImportFailure Import(std::span<const std::byte> payload,
                          ReplayMetadata& metadata) noexcept;
     bool RequestPlayerProfiles() noexcept;
+    bool PopulateFallbackProfiles() noexcept;
     bool ApplyPlaybackContext() noexcept;
     void ReleasePlaybackContext() noexcept;
     bool QueueStageMap(void* game_instance,

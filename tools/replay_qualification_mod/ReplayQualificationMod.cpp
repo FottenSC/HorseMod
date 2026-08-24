@@ -381,7 +381,17 @@ private:
             {
                 if (profile_attempts_ >= 3)
                 {
-                    Fail("player_profile_request_failed");
+                    if (!importer_.PopulateFallbackProfiles())
+                    {
+                        Fail("player_profile_fallback_failed");
+                        return;
+                    }
+                    player_profiles_requested_ = true;
+                    player_profiles_requested_at_ =
+                        now - std::chrono::seconds(2);
+                    Output::send<LogLevel::Default>(STR(
+                        "[ReplayQualification] native profile service "
+                        "unavailable; staged bounded replay profiles\n"));
                     return;
                 }
                 next_profile_attempt_ = now + std::chrono::seconds(1);
