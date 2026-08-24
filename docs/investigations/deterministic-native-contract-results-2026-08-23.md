@@ -329,6 +329,18 @@ Its SC6 allocator binding admits only the assembly-proven sizes `0x130`,
 simulation thread. This path remains inactive with the production allowlist
 empty; live normal-render capture is required before any restore exercise.
 
+The format-v4 capture path subsequently passed a source-bound, normal-render
+replay-entry run for 600 requested frames at commit
+`fd7a7710a71c0d911a5aabda3f5e6a54f7a1c9c6`. It retained 21 landing
+checkpoints through frame 600 and 35 batch-entry checkpoints through frame 613;
+the graph grew from two to four nodes without a capture, identity, checksum, or
+capacity failure. Deployed HorseMod SHA-256 was
+`B4213C7CD39D98C594C6A4B253E80A3AF08E65F5BDB81D8AD3F44A7C34127B25` and
+generated schema SHA-256 was
+`70D0D5B73F547874CAD94E0354E75D8E91B730ADF64D2ECA04A8DF3997E7FFA7`.
+This is evidence for live capture and format ownership only; it does not claim
+that the FMemory-backed restore transaction has executed safely in SC6.
+
 ## RNG and FP contract
 
 ### Explicit Lux RNG families
