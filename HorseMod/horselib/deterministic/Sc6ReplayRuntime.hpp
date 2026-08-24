@@ -70,6 +70,8 @@ public:
     [[nodiscard]] const NativeBatchTimeline& batch_timeline() const noexcept;
 
 private:
+    Status PrepareInitialGeneration(
+        const OuterTickObservation& observation) noexcept;
     static void* ResolveReplayPlayer(void* user) noexcept;
     static void* ResolveBattleManager(void* user) noexcept;
     static void* ResolveFighterOne(void* user) noexcept;

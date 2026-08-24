@@ -57,6 +57,27 @@ IReplayNativeBridge* Sc6ReplayRuntime::bridge() noexcept
     return bridge_ ? &*bridge_ : nullptr;
 }
 
+Status Sc6ReplayRuntime::PrepareInitialGeneration(
+    const OuterTickObservation& observation) noexcept
+{
+    if (timeline_manager_ != 0)
+        return Status::success();
+    if (observation.battle_manager == 0 || observation.before.input_log == 0)
+        return Status::failure(FailureCode::ContextUnavailable);
+
+    ++timeline_session_generation_;
+    ++timeline_status_.generations;
+    timeline_status_.sessions = timeline_session_generation_;
+    timeline_status_.native_round = observation.before.input_game_round;
+    timeline_status_.native_time = observation.before.input_game_time;
+    timeline_status_.last_coordinate = {
+        timeline_status_.generations, observation.before.frame_counter};
+    timeline_manager_ = observation.battle_manager;
+    timeline_input_log_ = observation.before.input_log;
+    timeline_thread_id_ = observation.thread_id;
+    return Status::success();
+}
+
 Status Sc6ReplayRuntime::ObserveFrame(
     const FrameFencepostObservation& observation) noexcept
 {
@@ -127,7 +148,8 @@ Status Sc6ReplayRuntime::ObserveFrame(
 
     const FrameCoordinate coordinate{
         timeline_status_.generations, observation.frame_counter};
-    if (!new_generation && observation.game_time == timeline_status_.native_time)
+    if (!new_generation && timeline_status_.captured_frames != 0
+        && observation.game_time == timeline_status_.native_time)
         ++timeline_status_.same_native_time_coordinates;
     if (observation.repeat_pending != 0)
         ++timeline_status_.repeat_requests;
@@ -186,7 +208,8 @@ Status Sc6ReplayRuntime::ObserveFrame(
             timeline_status_.maximum_resim_distance_from_batch_entry = distance;
         }
     }
-    if (new_generation || coordinate.frame % Schema::checkpoint_interval == 0)
+    if (timeline_status_.captured_frames == 1 || new_generation
+        || coordinate.frame % Schema::checkpoint_interval == 0)
     {
         const Status checkpoint = checkpoint_capture_.Capture(
             CandidateCheckpointRole::Landing,
@@ -236,6 +259,12 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     {
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
+    }
+    const Status initialized = PrepareInitialGeneration(observation);
+    if (!initialized.ok())
+    {
+        timeline_status_.failure = initialized.code;
+        return initialized;
     }
     pending_batch_id_ = observation.batch_id;
     pending_batch_entry_ = timeline_status_.last_coordinate;

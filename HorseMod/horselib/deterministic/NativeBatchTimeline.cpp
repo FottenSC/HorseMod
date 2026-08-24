@@ -143,7 +143,9 @@ bool NativeBatchTimeline::Validate(
     }
     if (!batches_.empty()
         && (envelope.batch_id <= batches_.back().batch_id
-            || envelope.entry_coordinate != batches_.back().exit_coordinate))
+            || (envelope.entry_coordinate != batches_.back().exit_coordinate
+                && envelope.entry_coordinate.generation
+                    <= batches_.back().exit_coordinate.generation)))
     {
         return false;
     }

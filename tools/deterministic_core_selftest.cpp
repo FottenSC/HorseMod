@@ -449,6 +449,34 @@ void test_native_batch_timeline_is_exact_and_bounded()
     expect(timeline.Append(zero, {}).ok() && timeline.batch_count() == 1
             && timeline.coordinate_count() == 0,
         "zero-coordinate native batches must be retained explicitly");
+
+    NativeBatchTimeline generations{3, 3};
+    NativeBatchEnvelope generation_one{};
+    generation_one.batch_id = 30;
+    generation_one.entry_coordinate = {1, 0};
+    generation_one.exit_coordinate = {1, 1};
+    generation_one.coordinate_count = 1;
+    const std::array generation_one_coordinates{FrameCoordinate{1, 1}};
+    expect(generations.Append(
+            generation_one, generation_one_coordinates).ok(),
+        "append first native generation");
+    NativeBatchEnvelope generation_two{};
+    generation_two.batch_id = 31;
+    generation_two.entry_coordinate = {2, 0};
+    generation_two.exit_coordinate = {2, 1};
+    generation_two.coordinate_count = 1;
+    const std::array generation_two_coordinates{FrameCoordinate{2, 1}};
+    expect(generations.Append(
+            generation_two, generation_two_coordinates).ok(),
+        "retain an explicit native generation discontinuity");
+    NativeBatchEnvelope invalid_gap = generation_two;
+    invalid_gap.batch_id = 32;
+    invalid_gap.entry_coordinate = {2, 4};
+    invalid_gap.exit_coordinate = {2, 5};
+    const std::array invalid_gap_coordinates{FrameCoordinate{2, 5}};
+    expect(generations.Append(invalid_gap, invalid_gap_coordinates).code
+            == FailureCode::IdentityMismatch,
+        "reject an unexplained same-generation batch gap");
 }
 
 void test_snapshot_capacity_is_atomic()
