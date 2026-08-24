@@ -13,6 +13,7 @@ namespace
 constexpr std::size_t maximum_actors = 64;
 constexpr std::size_t maximum_listeners_per_actor = 32;
 constexpr std::size_t listener_entry_size = 0x40;
+constexpr std::uint32_t weak_stage_break_delegate_callback_rva = 0x41D870;
 
 template <typename T>
 bool read_value(INativeMemory& memory, std::uintptr_t address, T& output) noexcept
@@ -159,6 +160,23 @@ Status capture_actor(
             failure.fault = StageBreakListenerProbeFault::CallbackOutsideImage;
             return Status::failure(FailureCode::IdentityMismatch);
         }
+        auto bound_callback_rva = no_bound_stage_break_callback;
+        if (callback - image_base == weak_stage_break_delegate_callback_rva)
+        {
+            std::uintptr_t bound_callback{};
+            if (!read_value(memory, listener + 0x10, bound_callback))
+            {
+                failure.fault = StageBreakListenerProbeFault::BoundCallbackRead;
+                return Status::failure(FailureCode::CaptureFailed);
+            }
+            if (!range_in_image(bound_callback, 1, image_base, image_size))
+            {
+                failure.fault = StageBreakListenerProbeFault::BoundCallbackOutsideImage;
+                return Status::failure(FailureCode::IdentityMismatch);
+            }
+            bound_callback_rva = static_cast<std::uint32_t>(
+                bound_callback - image_base);
+        }
         output.listeners.push_back({
             actor.kind,
             actor_id,
@@ -167,6 +185,7 @@ Status capture_actor(
             slot_index,
             static_cast<std::uint32_t>(vtable - image_base),
             static_cast<std::uint32_t>(callback - image_base),
+            bound_callback_rva,
         });
     }
     return Status::success();
@@ -190,6 +209,9 @@ std::string_view stage_break_listener_probe_fault_name(
         return "listener_vtable_outside_image";
     case StageBreakListenerProbeFault::CallbackRead: return "callback_read";
     case StageBreakListenerProbeFault::CallbackOutsideImage: return "callback_outside_image";
+    case StageBreakListenerProbeFault::BoundCallbackRead: return "bound_callback_read";
+    case StageBreakListenerProbeFault::BoundCallbackOutsideImage:
+        return "bound_callback_outside_image";
     }
     return "unknown";
 }
@@ -271,6 +293,8 @@ Status StageBreakListenerTopologyProbe::Capture(
                 sizeof(record.listener_vtable_rva));
             signature = append_hash(signature, &record.callback_rva,
                 sizeof(record.callback_rva));
+            signature = append_hash(signature, &record.bound_callback_rva,
+                sizeof(record.bound_callback_rva));
         }
         output.signature = signature;
         return Status::success();
@@ -373,8 +397,8 @@ void StageBreakListenerRuntimeDiagnostics::write_topology(
         report_ << " |\n";
     }
     report_ << "\n"
-            << "| Kind | Actor ID | Actor order | Dispatch order | Slot | Vtable RVA | Callback RVA |\n"
-            << "|---|---:|---:|---:|---:|---:|---:|\n";
+            << "| Kind | Actor ID | Actor order | Dispatch order | Slot | Vtable RVA | Callback RVA | Bound callback RVA |\n"
+            << "|---|---:|---:|---:|---:|---:|---:|---:|\n";
     for (const auto& listener : topology.listeners)
     {
         report_ << "| "
@@ -382,7 +406,12 @@ void StageBreakListenerRuntimeDiagnostics::write_topology(
                 << " | " << listener.actor_id << " | " << listener.actor_order
                 << " | " << listener.dispatch_order << " | " << listener.slot_index
                 << " | `0x" << std::hex << listener.listener_vtable_rva
-                << "` | `0x" << listener.callback_rva << std::dec << "` |\n";
+                << "` | `0x" << listener.callback_rva << "` | ";
+        if (listener.bound_callback_rva == no_bound_stage_break_callback)
+            report_ << "-";
+        else
+            report_ << "`0x" << listener.bound_callback_rva << "`";
+        report_ << std::dec << " |\n";
     }
     report_.flush();
 }

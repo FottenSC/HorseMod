@@ -757,8 +757,8 @@ void test_move_dispatch_partial_write_undoes_exactly()
 void test_stage_break_listener_topology_is_value_only_and_bounded()
 {
     constexpr std::uintptr_t base = 0x10000000;
-    constexpr std::size_t image_size = 0x20000;
-    FakeNativeMemory memory{base, 0x40000};
+    constexpr std::size_t image_size = 0x430000;
+    FakeNativeMemory memory{base, 0x440000};
     constexpr auto wall = base + 0x1000;
     constexpr auto wall_emitter = wall + 0x3B0;
     constexpr auto wall_vtable = base + 0x8000;
@@ -824,6 +824,19 @@ void test_stage_break_listener_topology_is_value_only_and_bounded()
             && repeated_topology.actors[2].actor_id == 7
             && repeated_topology.actors[2].repeated_reference_of == 0,
         "ordered native list may repeat an actor reference without exposing its pointer");
+
+    constexpr auto weak_delegate_wrapper = base + 0x41D870;
+    constexpr auto bound_callback = base + 0xA000;
+    memory.Set(wall_vtable + 0x68, weak_delegate_wrapper);
+    memory.Set(wall_emitter + 0x10, bound_callback);
+    StageBreakListenerTopology bound_topology{};
+    expect(probe.Capture(base, image_size, actors, bound_topology).ok()
+            && bound_topology.listeners[0].callback_rva == 0x41D870
+            && bound_topology.listeners[0].bound_callback_rva == 0xA000
+            && bound_topology.listeners[1].bound_callback_rva
+                == no_bound_stage_break_callback,
+        "verified weak-delegate wrapper exposes its value-only bound callback RVA");
+    memory.Set(wall_vtable + 0x68, wall_callback);
 
     const auto first_signature = topology.signature;
     memory.Set(barrier_vtable + 0x68, base + 0x9200);
