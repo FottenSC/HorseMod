@@ -11,6 +11,25 @@ inline constexpr std::uint32_t protocol_version = 1;
 inline constexpr std::uint32_t snapshot_schema_version = 1;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::uint64_t checkpoint_interval = 30;
+inline constexpr std::size_t replay_round_image_size = 0xc0;
+inline constexpr std::uint32_t maximum_replay_round_images = 64;
+
+namespace Sc6ReplayLayout
+{
+inline constexpr std::uintptr_t replay_enabled = 0x398;
+inline constexpr std::uintptr_t round_images = 0x3a8;
+inline constexpr std::uintptr_t round_count = 0x3b0;
+inline constexpr std::uintptr_t round_capacity = 0x3b4;
+inline constexpr std::uintptr_t manager_round_image = 0x1360;
+inline constexpr std::uintptr_t manager_move_state = 0x1463;
+inline constexpr std::uintptr_t manager_pending_dispatch = 0x1464;
+inline constexpr std::uintptr_t manager_round_image_applied = 0x1465;
+inline constexpr std::uintptr_t manager_status = 0x1480;
+inline constexpr std::uintptr_t set_move_state_rva = 0x3f8370;
+inline constexpr std::array<std::byte, 7> set_move_state_signature{
+    std::byte{0x88}, std::byte{0x91}, std::byte{0x63}, std::byte{0x14},
+    std::byte{0x00}, std::byte{0x00}, std::byte{0xc3}};
+}
 
 enum class RegionClass : std::uint8_t
 {

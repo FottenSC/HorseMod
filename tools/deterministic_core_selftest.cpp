@@ -3,6 +3,7 @@
 #include "deterministic/NativeReplayMaterializer.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/ReplayCoordinator.hpp"
+#include "deterministic/Sc6ReplayNativeBridge.hpp"
 #include "deterministic/SnapshotStore.hpp"
 
 #include <cstring>
@@ -246,6 +247,91 @@ public:
     int request_count{};
 };
 
+struct RawReplayBridgeFixture
+{
+    enum class SetterMode { Normal, Ignore, Corrupt };
+
+    RawReplayBridgeFixture()
+    {
+        round_images.fill(std::byte{0x31});
+        manager.fill(std::byte{0x52});
+        replay.fill(std::byte{0});
+        write(replay, Schema::Sc6ReplayLayout::replay_enabled, std::uint8_t{1});
+        write(replay, Schema::Sc6ReplayLayout::round_images, round_images.data());
+        write(replay, Schema::Sc6ReplayLayout::round_count, std::int32_t{2});
+        write(replay, Schema::Sc6ReplayLayout::round_capacity, std::int32_t{2});
+        write(manager, Schema::Sc6ReplayLayout::manager_status, std::uint8_t{2});
+        write(manager, Schema::Sc6ReplayLayout::manager_move_state, std::uint8_t{0});
+        write(manager, Schema::Sc6ReplayLayout::manager_pending_dispatch, std::uint8_t{1});
+    }
+
+    template <std::size_t Size, typename T>
+    static void write(
+        std::array<std::byte, Size>& storage,
+        std::size_t offset,
+        const T& value)
+    {
+        std::memcpy(storage.data() + offset, &value, sizeof(value));
+    }
+
+    static void* replay_resolver(void* user) noexcept
+    {
+        return static_cast<RawReplayBridgeFixture*>(user)->replay.data();
+    }
+    static void* manager_resolver(void* user) noexcept
+    {
+        return static_cast<RawReplayBridgeFixture*>(user)->manager.data();
+    }
+    static void* fighter_one_resolver(void* user) noexcept
+    {
+        return &static_cast<RawReplayBridgeFixture*>(user)->fighter_one;
+    }
+    static void* fighter_two_resolver(void* user) noexcept
+    {
+        return &static_cast<RawReplayBridgeFixture*>(user)->fighter_two;
+    }
+    static void* stage_resolver(void* user) noexcept
+    {
+        return &static_cast<RawReplayBridgeFixture*>(user)->stage;
+    }
+    static void set_move_state(void* battle_manager, std::uint8_t state) noexcept
+    {
+        auto* fixture = active_setter_fixture;
+        if (fixture == nullptr || fixture->setter_mode == SetterMode::Ignore)
+        {
+            return;
+        }
+        const std::uint8_t written = fixture->setter_mode == SetterMode::Corrupt ? 5 : state;
+        std::memcpy(
+            static_cast<std::byte*>(battle_manager)
+                + Schema::Sc6ReplayLayout::manager_move_state,
+            &written,
+            sizeof(written));
+    }
+
+    Sc6ReplayResolvers resolvers() noexcept
+    {
+        active_setter_fixture = this;
+        return {this,
+            replay_resolver,
+            manager_resolver,
+            fighter_one_resolver,
+            fighter_two_resolver,
+            stage_resolver,
+            set_move_state,
+            true};
+    }
+
+    inline static RawReplayBridgeFixture* active_setter_fixture{};
+    std::array<std::byte, 0x3b8> replay{};
+    std::array<std::byte, 0x1481> manager{};
+    std::array<std::byte, Schema::replay_round_image_size * 2> round_images{};
+    std::uint64_t fighter_one{1};
+    std::uint64_t fighter_two{2};
+    std::uint64_t stage{3};
+    SetterMode setter_mode{SetterMode::Normal};
+};
+
 struct Fixture
 {
     FakeAdapter adapter;
@@ -442,6 +528,7 @@ void test_native_replay_materializer_requires_state4_fencepost()
     bridge.view.round_count = 2;
     bridge.view.round_capacity = 2;
     bridge.view.manager_status = 2;
+    bridge.view.replay_enabled = true;
 
     NativeReplayMaterializer materializer{bridge};
     const ReplayGenerationTarget target{context(), {1, 0}, 0, 7001};
@@ -463,6 +550,63 @@ void test_native_replay_materializer_requires_state4_fencepost()
         materializer.Preflight(target).code == FailureCode::IdentityMismatch,
         "reject changed native round image before mutation");
     expect(bridge.request_count == 1, "failed image preflight performs no native request");
+}
+
+void test_sc6_replay_bridge_transaction_and_undo()
+{
+    RawReplayBridgeFixture fixture;
+    Sc6ReplayNativeBridge bridge{fixture.resolvers()};
+    ReplayNativeRoundView view;
+    expect(bridge.InspectRound(1, view).ok(), "inspect bounded SC6 replay round image");
+    expect(view.replay_enabled, "inspect native replay enable state");
+    expect(view.round_count == 2 && view.round_capacity == 2, "inspect round array bounds");
+
+    const auto destination = fixture.manager.data()
+        + Schema::Sc6ReplayLayout::manager_round_image;
+    const auto source = fixture.round_images.data() + Schema::replay_round_image_size;
+    expect(
+        bridge.RequestRoundReset(1, view.round_image_identity).ok(),
+        "transactionally copy round image and request state 4");
+    expect(
+        std::memcmp(destination, source, Schema::replay_round_image_size) == 0,
+        "native bridge copies exactly one 0xc0 image");
+    std::uint8_t state{};
+    std::memcpy(
+        &state,
+        fixture.manager.data() + Schema::Sc6ReplayLayout::manager_move_state,
+        sizeof(state));
+    expect(state == 4, "native bridge publishes move state only after image copy");
+
+    RawReplayBridgeFixture rejected;
+    Sc6ReplayNativeBridge rejected_bridge{rejected.resolvers()};
+    const auto before_reject = rejected.manager;
+    expect(
+        rejected_bridge.RequestRoundReset(0, view.round_image_identity + 1).code
+            == FailureCode::RestorePreflightFailed,
+        "reject wrong round-image identity before mutation");
+    expect(rejected.manager == before_reject, "failed bridge preflight is a zero mutation");
+
+    RawReplayBridgeFixture ignored;
+    ignored.setter_mode = RawReplayBridgeFixture::SetterMode::Ignore;
+    Sc6ReplayNativeBridge ignored_bridge{ignored.resolvers()};
+    ReplayNativeRoundView ignored_view;
+    expect(ignored_bridge.InspectRound(0, ignored_view).ok(), "inspect ignored-setter case");
+    const auto ignored_before = ignored.manager;
+    expect(
+        ignored_bridge.RequestRoundReset(0, ignored_view.round_image_identity).code
+            == FailureCode::RestoreVerificationFailed,
+        "setter verification failure returns typed failure");
+    expect(ignored.manager == ignored_before, "setter verification failure restores exact undo");
+
+    RawReplayBridgeFixture corrupt;
+    corrupt.setter_mode = RawReplayBridgeFixture::SetterMode::Corrupt;
+    Sc6ReplayNativeBridge corrupt_bridge{corrupt.resolvers()};
+    ReplayNativeRoundView corrupt_view;
+    expect(corrupt_bridge.InspectRound(0, corrupt_view).ok(), "inspect corrupt-setter case");
+    expect(
+        corrupt_bridge.RequestRoundReset(0, corrupt_view.round_image_identity).code
+            == FailureCode::UndoFailed,
+        "failed state undo is terminal and typed");
 }
 
 void test_transactional_restore_failures_undo()
@@ -515,6 +659,7 @@ int main()
     test_cross_generation_seek_materializes_before_restore();
     test_cross_generation_identity_mismatch_fails_before_restore();
     test_native_replay_materializer_requires_state4_fencepost();
+    test_sc6_replay_bridge_transaction_and_undo();
     test_transactional_restore_failures_undo();
     if (failures == 0)
     {

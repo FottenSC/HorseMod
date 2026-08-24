@@ -17,6 +17,7 @@ struct ReplayNativeRoundView
     std::uint8_t move_state{};
     std::uint8_t pending_dispatch{};
     std::uint8_t round_image_applied{};
+    bool replay_enabled{};
 };
 
 class IReplayNativeBridge

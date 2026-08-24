@@ -20,7 +20,8 @@ Status NativeReplayMaterializer::validate_view(
     bool require_idle_manager) const noexcept
 {
     const NativeContext& expected = target.expected_context;
-    if (view.replay_player_identity == 0 || view.context.battle_identity == 0
+    if (!view.replay_enabled || view.replay_player_identity == 0
+        || view.context.battle_identity == 0
         || view.context.fighter_identities[0] == 0
         || view.context.fighter_identities[1] == 0
         || view.context.stage_identity == 0
