@@ -270,7 +270,6 @@ private:
         started_ = std::chrono::steady_clock::now();
         player_profiles_requested_ = false;
         playback_context_staged_ = false;
-        battle_asset_requested_ = false;
         profile_attempts_ = 0;
         next_profile_attempt_ = {};
         state_ = State::Importing;
@@ -355,20 +354,6 @@ private:
         bool pending = true;
         if (!CallBool(instance, L"HasAnyBattleRequest", pending) || pending)
         {
-            return;
-        }
-        if (!battle_asset_requested_)
-        {
-            if (!SetReplayPath(GetBattleSetup(instance), request_.replay_path)
-                || !CallNoParams(instance, L"RequestBattleAsset")
-                || !SetReplayPath(GetBattleSetup(instance), request_.replay_path))
-            {
-                Fail("battle_asset_request_failed");
-                return;
-            }
-            battle_asset_requested_ = true;
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] native battle assets requested\n"));
             return;
         }
         bool ready = false;
@@ -469,7 +454,6 @@ private:
     bool waiting_context_logged_{};
     bool player_profiles_requested_{};
     bool playback_context_staged_{};
-    bool battle_asset_requested_{};
     std::uint8_t profile_attempts_{};
 };
 
