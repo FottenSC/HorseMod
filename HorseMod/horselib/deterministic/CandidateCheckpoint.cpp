@@ -26,7 +26,7 @@ void reset_checkpoint_image(CandidateCheckpointImage& output) noexcept
 constexpr std::array<std::byte, 8> magic{
     std::byte{'H'}, std::byte{'R'}, std::byte{'S'}, std::byte{'C'},
     std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{9}};
-constexpr std::uint32_t format_version = 12;
+constexpr std::uint32_t format_version = 14;
 constexpr std::array<std::byte, 20> hash_domain{
     std::byte{'H'}, std::byte{'o'}, std::byte{'r'}, std::byte{'s'},
     std::byte{'e'}, std::byte{'C'}, std::byte{'a'}, std::byte{'n'},

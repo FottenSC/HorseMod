@@ -443,7 +443,9 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         return Status::success();
     const auto previous = checkpoint_capture_.status(
         CandidateCheckpointRole::BatchEntry);
-    const std::optional<FrameCoordinate> previous_coordinate = std::nullopt;
+    const std::optional<FrameCoordinate> previous_coordinate = previous.captured == 0
+        ? std::nullopt
+        : std::optional<FrameCoordinate>{previous.last_coordinate};
     const auto action = PlanResimulationBase(
         previous_coordinate,
         coordinate,

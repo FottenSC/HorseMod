@@ -51,6 +51,8 @@ struct CandidateAdapterPerformanceStatus
 {
     CandidatePhaseTimingStatus typed_capture{};
     CandidatePhaseTimingStatus local_capture{};
+    CandidatePhaseTimingStatus hgcpu_capture{};
+    CandidatePhaseTimingStatus motion_capture{};
     CandidatePhaseTimingStatus ucrt_capture{};
     CandidatePhaseTimingStatus wind_capture{};
     CandidatePhaseTimingStatus encode{};
@@ -173,6 +175,8 @@ private:
     CandidateAdapterBinding binding_{};
     PhaseTimingHistogram typed_capture_timing_{};
     PhaseTimingHistogram local_capture_timing_{};
+    PhaseTimingHistogram hgcpu_capture_timing_{};
+    PhaseTimingHistogram motion_capture_timing_{};
     PhaseTimingHistogram ucrt_capture_timing_{};
     PhaseTimingHistogram wind_capture_timing_{};
     PhaseTimingHistogram encode_timing_{};
@@ -182,6 +186,7 @@ private:
     PhaseTimingHistogram ucrt_restore_timing_{};
     PhaseTimingHistogram derived_repair_timing_{};
     PhaseTimingHistogram total_restore_timing_{};
+    CandidateCheckpointImage capture_scratch_{};
     CandidateCapturePhase last_capture_phase_{};
     bool configured_{};
     bool bound_{};

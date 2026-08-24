@@ -18,10 +18,10 @@ enum class LocalSerializerId : std::uint32_t
     MotionBankTriples = 2,
 };
 
-// Version 2 replaces the byte-at-a-time FNV checksum with the bounded
-// word-at-a-time checksum in HgCpuStream.cpp. Local images are deliberately
-// same-build artifacts, but the version still makes rejection explicit.
-inline constexpr std::uint32_t hgcpu_direct_serializer_version = 2;
+// Version 3 uses the bounded local CRC32C/portable integrity checksum. Local
+// images are deliberately same-build artifacts, but the version still makes
+// rejection explicit.
+inline constexpr std::uint32_t hgcpu_direct_serializer_version = 3;
 
 struct LocalReconstructionGenerationContext
 {

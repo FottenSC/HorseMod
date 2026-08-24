@@ -617,6 +617,39 @@ ms maxima for this run. This single workload now passes the 16.67 ms depth-11
 latency limit; p99 admission still requires the complete three-matchup sample.
 Production rollback remains disabled and the allowlist remains empty.
 
+Schema 16 closes the first normal-render performance gate for this replay
+workload. The batch-entry scheduler now supplies its actual last retained
+coordinate to `PlanResimulationBase`; the prior hard-coded empty value forced a
+467-KiB reconstruction image every outer batch. The corrected cadence retains
+one image every 18 coordinates, reducing frame-359 batch-entry storage from
+166.6 MiB to 9.33 MiB while preserving the 29-coordinate resimulation bound.
+Both local serializers reuse their capture buffers and use bounded hardware
+CRC32C when available (with a portable word-wise fallback); HgCpuDirect is
+format version 3 and MotionBankTriples is version 4.
+
+Current-executable control flow at
+`LuxMoveVM_InitializeCharaAnimClipPlayer @ 0x14037C230` and
+`LuxMoveVM_AdvanceCharaAnimClipPlayer @ 0x14037C2F0` also proves an active
+pre-bootstrap boundary is valid: `dwActive` may be nonzero while
+`dwBootstrapState` and owner `+0x2B270` are zero, because the first native
+advance publishes `pClipData` before consuming the runtime. The typed adapter
+now preserves and restores that null runtime exactly, but still requires every
+bootstrapped active runtime to equal the clip binding. The directly relevant
+Ghidra comments were updated and saved; the advance function has zero effective
+fixable completeness deductions.
+
+On dirty source commit `7cce740a`, normal-render DLL SHA-256
+`A62F1B818D620C4C51F7B84C847F3CDAD49EB623B03369662292A134A4673C4B`
+and generated-schema SHA-256
+`40AD313E3D6DFFBC8BC424479A1983095E51C8D4A3662A957978BD5FEDCA17CB`
+passed exact corrections at configured depths 1, 6, and 11 in one 360-frame
+session. Total correction times were 7.290, 7.052, and 7.918 ms respectively.
+Steady checkpoint capture p99 was 0.460 ms and maximum was 0.455 ms; component
+p99 values were HgCpu 0.160 ms, MotionBank 0.240 ms, typed 0.040 ms, and encode
+0.140 ms. This satisfies the capture and one-frame depth-11 limits for the
+measured workload only. The three required content matchups and p99 population
+remain pending; production rollback remains disabled and the allowlist empty.
+
 Codec reset paths now destroy/reconstruct the large value image in place rather
 than materializing another approximately 48-KiB temporary. The direct suite
 caught the prior stack-overflow boundary. The three deterministic CTest targets

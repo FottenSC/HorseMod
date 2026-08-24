@@ -3217,9 +3217,9 @@ private:
 
     void service_owned_correction_probe() noexcept
     {
-        static constexpr std::array<std::uint64_t, 3> depths{11, 6, 11};
+        static constexpr std::array<std::uint64_t, 3> depths{1, 6, 11};
         static constexpr std::array<std::uint64_t, 3> trigger_frames{
-            180, 360, 540};
+            180, 270, 330};
         if (!m_deterministic_config.trace
             || !m_deterministic_config.correction_probe
             || m_owned_correction_probe_index >= depths.size())
@@ -3646,7 +3646,8 @@ private:
                 "[HorseMod] candidate checkpoint captured count={} generation={} "
                 "frame={} bytes={} wind_nodes={} capture_p99_us={} "
                 "capture_max_us={} store_p99_us={} typed_p99_us={} "
-                "local_p99_us={} wind_p99_us={} encode_p99_us={}\n"),
+                "local_p99_us={} hgcpu_p99_us={} motion_p99_us={} "
+                "wind_p99_us={} encode_p99_us={}\n"),
                 timeline.captured_checkpoints,
                 timeline.last_coordinate.generation,
                 timeline.last_coordinate.frame,
@@ -3657,6 +3658,8 @@ private:
                 timeline.checkpoint_store_p99_ns / 1000,
                 timeline.checkpoint_adapter_performance.typed_capture.p99_ns / 1000,
                 timeline.checkpoint_adapter_performance.local_capture.p99_ns / 1000,
+                timeline.checkpoint_adapter_performance.hgcpu_capture.p99_ns / 1000,
+                timeline.checkpoint_adapter_performance.motion_capture.p99_ns / 1000,
                 timeline.checkpoint_adapter_performance.wind_capture.p99_ns / 1000,
                 timeline.checkpoint_adapter_performance.encode.p99_ns / 1000);
         }
@@ -3850,8 +3853,9 @@ private:
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] candidate batch-entry checkpoint captured count={} "
                 "generation={} frame={} bytes={} wind_nodes={} "
-                "capture_p99_us={} capture_max_us={} store_p99_us={} "
-                "typed_p99_us={} local_p99_us={} wind_p99_us={} "
+                        "capture_p99_us={} capture_max_us={} store_p99_us={} "
+                        "typed_p99_us={} local_p99_us={} hgcpu_p99_us={} "
+                        "motion_p99_us={} wind_p99_us={} "
                 "encode_p99_us={}\n"),
                 timeline.captured_batch_entry_checkpoints,
                 timeline.last_coordinate.generation,
@@ -3861,9 +3865,11 @@ private:
                 timeline.batch_entry_capture_p99_ns / 1000,
                 timeline.batch_entry_capture_max_ns / 1000,
                 timeline.batch_entry_store_p99_ns / 1000,
-                timeline.batch_entry_adapter_performance.typed_capture.p99_ns / 1000,
-                timeline.batch_entry_adapter_performance.local_capture.p99_ns / 1000,
-                timeline.batch_entry_adapter_performance.wind_capture.p99_ns / 1000,
+                        timeline.batch_entry_adapter_performance.typed_capture.p99_ns / 1000,
+                        timeline.batch_entry_adapter_performance.local_capture.p99_ns / 1000,
+                        timeline.batch_entry_adapter_performance.hgcpu_capture.p99_ns / 1000,
+                        timeline.batch_entry_adapter_performance.motion_capture.p99_ns / 1000,
+                        timeline.batch_entry_adapter_performance.wind_capture.p99_ns / 1000,
                 timeline.batch_entry_adapter_performance.encode.p99_ns / 1000);
         }
         if (timeline.batch_entry_checkpoint_failure

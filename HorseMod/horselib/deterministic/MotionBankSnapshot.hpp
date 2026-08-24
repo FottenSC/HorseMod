@@ -7,7 +7,7 @@
 
 namespace Horse::Deterministic
 {
-inline constexpr std::uint32_t motion_bank_serializer_version = 2;
+inline constexpr std::uint32_t motion_bank_serializer_version = 4;
 inline constexpr std::size_t motion_bank_primary_bytes = 0xC000;
 inline constexpr std::size_t motion_bank_secondary_bytes = 0x800;
 inline constexpr std::ptrdiff_t motion_tail_fighter_offset = 0x96490;

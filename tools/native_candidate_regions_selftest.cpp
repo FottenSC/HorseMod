@@ -924,6 +924,21 @@ void test_chara_animation_state_normalizes_sections_and_undoes_exactly()
     expect(animation.RestoreTransactional(baseline).ok(),
         "active clip restore reconstructs runtime after inactive cleanup lag");
 
+    fixture.memory.Set(clip + 0x28, std::uint32_t{1});
+    fixture.memory.Set(clip + 0x2C, std::uint32_t{});
+    fixture.memory.Set(runtime, std::uintptr_t{});
+    fixture.memory.Fill(runtime + 8, 8, std::byte{});
+    CharaAnimationStateImage pending_bootstrap{};
+    expect(animation.Capture(pending_bootstrap).ok()
+            && !pending_bootstrap.players[0].runtime_section.present,
+        "active pre-bootstrap clip preserves the native null runtime boundary");
+    fixture.memory.Set(clip + 0x2C, std::uint32_t{1});
+    fixture.memory.Set(runtime, section_table + 0x40);
+    expect(animation.RestoreTransactional(pending_bootstrap).ok(),
+        "active pre-bootstrap restore reproduces the native null runtime boundary");
+    expect(animation.RestoreTransactional(baseline).ok(),
+        "bootstrapped clip restore reconstructs runtime after pre-bootstrap state");
+
     fixture.memory.Set(clip + 8, section_table + 0x60);
     fixture.memory.Fill(clip + 0x10, 0x20, std::byte{0xE1});
     fixture.memory.Set(runtime, section_table + 0x60);

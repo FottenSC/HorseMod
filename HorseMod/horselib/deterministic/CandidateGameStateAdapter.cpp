@@ -65,6 +65,8 @@ void CandidateGameStateAdapter::Reset() noexcept
     binding_ = {};
     typed_capture_timing_ = {};
     local_capture_timing_ = {};
+    hgcpu_capture_timing_ = {};
+    motion_capture_timing_ = {};
     ucrt_capture_timing_ = {};
     wind_capture_timing_ = {};
     encode_timing_ = {};
@@ -74,6 +76,7 @@ void CandidateGameStateAdapter::Reset() noexcept
     ucrt_restore_timing_ = {};
     derived_repair_timing_ = {};
     total_restore_timing_ = {};
+    capture_scratch_ = {};
     last_capture_phase_ = CandidateCapturePhase::None;
     configured_ = false;
     bound_ = false;
@@ -102,7 +105,11 @@ Status CandidateGameStateAdapter::capture_image(
     CandidateCheckpointImage& output) noexcept
 {
     ScopedFloatingPointEnvironment fp_scope;
+    auto local_images = std::move(output.local_images);
     output = {};
+    output.local_images = std::move(local_images);
+    try { output.local_images.resize(2); }
+    catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     const auto typed_begin = std::chrono::steady_clock::now();
     last_capture_phase_ = CandidateCapturePhase::NativeTyped;
     Status status = regions_.Capture(output.native);
@@ -122,28 +129,25 @@ Status CandidateGameStateAdapter::capture_image(
             typed_end - typed_begin).count()));
     if (status.ok())
     {
-        HgCpuLocalImage local{};
         const auto local_begin = std::chrono::steady_clock::now();
+        const auto hgcpu_begin = local_begin;
         last_capture_phase_ = CandidateCapturePhase::HgCpu;
         status = hgcpu_.Capture(
-            binding_.hgcpu_writer, binding_.hgcpu_context, local);
+            binding_.hgcpu_writer, binding_.hgcpu_context,
+            output.local_images[0]);
+        const auto hgcpu_end = std::chrono::steady_clock::now();
+        hgcpu_capture_timing_.Record(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                hgcpu_end - hgcpu_begin).count()));
         if (status.ok())
         {
-            try { output.local_images.push_back(std::move(local)); }
-            catch (...) { status = Status::failure(FailureCode::CapacityExceeded); }
-        }
-        if (status.ok())
-        {
-            LocalReconstructionImage motion{};
+            const auto motion_begin = std::chrono::steady_clock::now();
             last_capture_phase_ = CandidateCapturePhase::MotionBanks;
-            status = binding_.motion_banks->Capture(motion);
-            if (status.ok())
-            {
-                try { output.local_images.push_back(std::move(motion)); }
-                catch (...) {
-                    status = Status::failure(FailureCode::CapacityExceeded);
-                }
-            }
+            status = binding_.motion_banks->Capture(output.local_images[1]);
+            const auto motion_end = std::chrono::steady_clock::now();
+            motion_capture_timing_.Record(static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    motion_end - motion_begin).count()));
         }
         const auto local_end = std::chrono::steady_clock::now();
         local_capture_timing_.Record(static_cast<std::uint64_t>(
@@ -182,14 +186,13 @@ Status CandidateGameStateAdapter::Capture(
     output = {};
     const Status preflight = PreflightCapture(coordinate);
     if (!preflight.ok()) return preflight;
-    CandidateCheckpointImage image{};
     last_capture_phase_ = CandidateCapturePhase::None;
-    const Status captured = capture_image(image);
+    const Status captured = capture_image(capture_scratch_);
     if (!captured.ok()) return captured;
     const auto encode_begin = std::chrono::steady_clock::now();
     last_capture_phase_ = CandidateCapturePhase::Encode;
     const Status encoded = CandidateCheckpointCodec::EncodeCaptured(
-        coordinate, binding_.context.battle_identity, image, output);
+        coordinate, binding_.context.battle_identity, capture_scratch_, output);
     const auto encode_end = std::chrono::steady_clock::now();
     encode_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -204,6 +207,8 @@ CandidateGameStateAdapter::performance_status() const noexcept
     return {
         typed_capture_timing_.Status(),
         local_capture_timing_.Status(),
+        hgcpu_capture_timing_.Status(),
+        motion_capture_timing_.Status(),
         ucrt_capture_timing_.Status(),
         wind_capture_timing_.Status(),
         encode_timing_.Status(),

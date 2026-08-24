@@ -1,4 +1,5 @@
 #include "MotionBankSnapshot.hpp"
+#include "LocalImageChecksum.hpp"
 
 #include <bit>
 #include <cstring>
@@ -121,21 +122,13 @@ bool MotionBankSnapshot::topology_matches() noexcept
 std::uint64_t MotionBankSnapshot::Checksum(
     const LocalReconstructionImage& image) noexcept
 {
-    std::uint64_t hash = 1469598103934665603ull;
-    const auto add = [&hash](const void* data, std::size_t size) noexcept {
-        const auto* bytes = static_cast<const std::byte*>(data);
-        while (size-- != 0)
-        {
-            hash ^= std::to_integer<std::uint8_t>(*bytes++);
-            hash *= 1099511628211ull;
-        }
-    };
-    add(&image.serializer_id, sizeof(image.serializer_id));
-    add(&image.serializer_version, sizeof(image.serializer_version));
-    add(&image.context, sizeof(image.context));
-    add(&image.cursor, sizeof(image.cursor));
-    add(image.bytes.data(), image.bytes.size());
-    return hash;
+    LocalImageChecksum checksum;
+    checksum.Add(&image.serializer_id, sizeof(image.serializer_id));
+    checksum.Add(&image.serializer_version, sizeof(image.serializer_version));
+    checksum.Add(&image.context, sizeof(image.context));
+    checksum.Add(&image.cursor, sizeof(image.cursor));
+    checksum.Add(image.bytes.data(), image.bytes.size());
+    return checksum.Finish();
 }
 
 bool MotionBankSnapshot::ValidateLocalImageMetadata(
@@ -156,13 +149,15 @@ bool MotionBankSnapshot::ValidateLocalImage(
 Status MotionBankSnapshot::capture_unchecked(
     LocalReconstructionImage& output) noexcept
 {
-    output = {};
+    output.serializer_id = LocalSerializerId::MotionBankTriples;
+    output.serializer_version = motion_bank_serializer_version;
+    output.context = {};
+    output.cursor = 0;
+    output.checksum = 0;
     if (!topology_matches())
         return Status::failure(FailureCode::IdentityMismatch);
     try { output.bytes.resize(motion_bank_image_bytes); }
     catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
-    output.serializer_id = LocalSerializerId::MotionBankTriples;
-    output.serializer_version = motion_bank_serializer_version;
     output.context = context_;
     output.cursor = output.bytes.size();
     std::size_t cursor = 8;
