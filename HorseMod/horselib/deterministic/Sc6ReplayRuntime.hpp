@@ -157,6 +157,13 @@ struct OwnedCorrectionResult
     std::size_t failed_batch_index{SIZE_MAX};
     std::uint64_t replayed_coordinates{};
     std::uint32_t replayed_batches{};
+    std::uint64_t suppressed_stage_wall_calls{};
+    std::uint64_t suppressed_stage_barrier_calls{};
+    std::uint64_t semantic_stage_dispatch_calls{};
+    std::uint64_t suppressed_audio_calls{};
+    std::uint64_t verified_audio_batches{};
+    std::uint64_t audio_sequence_mismatches{};
+    std::uint64_t presentation_failures{};
     std::uint64_t undo_capture_ns{};
     std::uint64_t restore_ns{};
     std::uint64_t resimulation_ns{};
@@ -295,7 +302,8 @@ private:
         OwnedCorrectionResult::WindGraphScheduleDiagnostic*
             first_interbatch_expected_wind_graph = nullptr,
         OwnedCorrectionResult::WindGraphScheduleDiagnostic*
-            first_interbatch_observed_wind_graph = nullptr) noexcept;
+            first_interbatch_observed_wind_graph = nullptr,
+        OwnedCorrectionResult* presentation_diagnostics = nullptr) noexcept;
 
     struct OwnedLandingCapture
     {

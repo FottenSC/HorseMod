@@ -888,6 +888,11 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         timeline_status_.failure = FailureCode::AdapterUnqualified;
         return Status::failure(timeline_status_.failure);
     }
+    if (observation.battle_audio_signature_failures != 0)
+    {
+        timeline_status_.failure = FailureCode::PresentationFailed;
+        return Status::failure(timeline_status_.failure);
+    }
     if (observation.batch_id == 0
         || coordinate_count != pending_batch_coordinates_.size()
         || pending_batch_id_ != observation.batch_id)
@@ -924,6 +929,10 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.repeat_pending_coordinates;
     envelope.same_input_time_coordinates =
         observation.same_input_time_coordinates;
+    envelope.battle_audio_dispatches = observation.battle_audio_dispatches;
+    envelope.battle_audio_route_hash = observation.battle_audio_route_hash;
+    envelope.battle_audio_payload_hash = observation.battle_audio_payload_hash;
+    envelope.battle_audio_position_hash = observation.battle_audio_position_hash;
     envelope.main_state_before = observation.before.main_state;
     envelope.main_state_after = observation.after.main_state;
     envelope.round_state_before = observation.before.round_state;
@@ -1092,7 +1101,8 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
     OwnedCorrectionResult::WindGraphScheduleDiagnostic*
         first_interbatch_expected_wind_graph,
     OwnedCorrectionResult::WindGraphScheduleDiagnostic*
-        first_interbatch_observed_wind_graph) noexcept
+        first_interbatch_observed_wind_graph,
+    OwnedCorrectionResult* presentation_diagnostics) noexcept
 {
     if (first_batch_index > final_batch_index || generation == 0
         || (landing_batch_index.has_value() && landing == nullptr))
@@ -1182,6 +1192,37 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
         }
         OwnedBatchReplayResult result{};
         Status status = hooks.ExecuteOwnedBatch(request, result);
+        if (status.ok()
+            && (result.suppressed_audio_calls
+                    != envelope->battle_audio_dispatches
+                || result.suppressed_audio_route_hash
+                    != envelope->battle_audio_route_hash
+                || result.suppressed_audio_payload_hash
+                    != envelope->battle_audio_payload_hash
+                || result.suppressed_audio_position_hash
+                    != envelope->battle_audio_position_hash))
+        {
+            ++result.audio_sequence_mismatches;
+            result.failure = FailureCode::PresentationFailed;
+            status = Status::failure(result.failure);
+        }
+        if (presentation_diagnostics != nullptr)
+        {
+            presentation_diagnostics->suppressed_stage_wall_calls +=
+                result.suppressed_stage_wall_calls;
+            presentation_diagnostics->suppressed_stage_barrier_calls +=
+                result.suppressed_stage_barrier_calls;
+            presentation_diagnostics->semantic_stage_dispatch_calls +=
+                result.semantic_stage_dispatch_calls;
+            presentation_diagnostics->suppressed_audio_calls +=
+                result.suppressed_audio_calls;
+            presentation_diagnostics->verified_audio_batches +=
+                result.audio_sequence_mismatches == 0 ? 1 : 0;
+            presentation_diagnostics->audio_sequence_mismatches +=
+                result.audio_sequence_mismatches;
+            presentation_diagnostics->presentation_failures +=
+                result.presentation_failures;
+        }
         if (!status.ok() || (capture_landing && !result.landing_captured))
         {
             if (failed_batch_index != nullptr) *failed_batch_index = batch_index;
@@ -1603,7 +1644,9 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         std::nullopt, UINT32_MAX, nullptr,
         forced_depth7_qualification_enabled_, &output.replayed_coordinates,
         &output.replayed_batches, &output.failed_batch_index,
-        &output.failed_envelope, &output.failed_batch_result);
+        &output.failed_envelope, &output.failed_batch_result,
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &output);
     output.resimulation_ns = elapsed_ns(phase_begin, Clock::now());
     if (output.first_interbatch_local_difference != UINT32_MAX)
     {

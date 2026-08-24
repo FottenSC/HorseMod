@@ -322,6 +322,30 @@ The replay qualification bridge now waits for native `round_state_frame != 0`
 and `unpause_countdown == 0` before starting its normal-play watch counter, so
 character intros cannot satisfy gameplay qualification.
 
+### 2026-08-25 — Forced audio identity gate exposed a typed omission
+
+The forced path now reports actual stage/audio suppression counters rather than
+treating the suppression flag as evidence. A normal-render 600-correction run
+intercepted 5,018 battle-audio terminal calls with zero hook failures while
+retaining exact canonical convergence (cycle p99 3.8 ms; capture p99 0.190 ms,
+maximum 0.384 ms). Stage-break routes were not exercised by that workload and
+terminal coverage remains explicitly incomplete.
+
+A stricter bounded per-native-batch check records authoritative audio call
+count and ordered hashes of the fields actually consumed by
+`LuxBattleManager_DispatchBattleEventByClass @ 0x140519480`, then compares them
+with suppressed resimulation. It excludes padding and the unused record class
+byte. The first depth-7 correction fails closed with matching call count
+(10/10), matching event-type/route hash (`31ae5da0`), matching position hash
+(`83fad042`), but different authored payload-ID hash (`44c34e1e` versus
+`b2c29812`); transactional undo succeeds. Ghidra confirms contact-sound payload
+selection is derived in `HandleContactSoundEventForBattleSound @ 0x1403C63C0`
+from handler voice-cue tables, player/material/setup state, and alternate-contact
+state before terminal dispatch. This is a real presentation-selection state
+omission hidden by the canonical gameplay hash. Do not weaken the gate. Recover
+and snapshot/shadow the bounded selector state, or move to an independently
+verified source-frame journal boundary, then rerun the exact sequence check.
+
 ### Phase 4: Implement authenticated Steam rollback
 
 1. Pin a reviewed immutable `FottenSC/GekkoNet` fork commit containing the required

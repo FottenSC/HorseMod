@@ -3232,6 +3232,13 @@ private:
         std::size_t checkpoint_bytes_begin{};
         std::size_t batch_entry_bytes_begin{};
         std::size_t forced_history_bytes_begin{};
+        std::uint64_t suppressed_stage_wall_calls{};
+        std::uint64_t suppressed_stage_barrier_calls{};
+        std::uint64_t semantic_stage_dispatch_calls{};
+        std::uint64_t suppressed_audio_calls{};
+        std::uint64_t verified_audio_batches{};
+        std::uint64_t audio_sequence_mismatches{};
+        std::uint64_t presentation_failures{};
         Horse::Deterministic::Snapshot expected_scratch{};
         Horse::Deterministic::FailureCode failure{
             Horse::Deterministic::FailureCode::None};
@@ -3851,7 +3858,12 @@ private:
                 "input_cache={} rng_mask=0x{:x} wind_mask=0x{:x} "
                 "move_dispatch={:016x}/{:016x}->{:016x}/{:016x} "
                 "wind_node={} kind={}->{} semantic={} byte={}->{} "
-                "interbatch_mask=0x{:x} interbatch_batch={}\n"),
+                "interbatch_mask=0x{:x} interbatch_batch={} "
+                "audio_expected={} audio_observed={} "
+                "audio_route=0x{:08x}->0x{:08x} "
+                "audio_payload=0x{:08x}->0x{:08x} "
+                "audio_position=0x{:08x}->0x{:08x} "
+                "audio_sequence_mismatches={} presentation_failures={}\n"),
                 qualification.completed, timeline.last_coordinate.frame,
                 RC::to_generic_string(std::string(
                     Horse::Deterministic::failure_code_name(status.code))),
@@ -3885,10 +3897,31 @@ private:
                 result.expected_wind_difference_byte,
                 result.observed_wind_difference_byte,
                 result.first_interbatch_difference_mask,
-                result.first_interbatch_difference_batch);
+                result.first_interbatch_difference_batch,
+                result.failed_envelope.battle_audio_dispatches,
+                result.failed_batch_result.suppressed_audio_calls,
+                result.failed_envelope.battle_audio_route_hash,
+                result.failed_batch_result.suppressed_audio_route_hash,
+                result.failed_envelope.battle_audio_payload_hash,
+                result.failed_batch_result.suppressed_audio_payload_hash,
+                result.failed_envelope.battle_audio_position_hash,
+                result.failed_batch_result.suppressed_audio_position_hash,
+                result.failed_batch_result.audio_sequence_mismatches,
+                result.failed_batch_result.presentation_failures);
             return;
         }
         qualification.Record(result.total_ns);
+        qualification.suppressed_stage_wall_calls +=
+            result.suppressed_stage_wall_calls;
+        qualification.suppressed_stage_barrier_calls +=
+            result.suppressed_stage_barrier_calls;
+        qualification.semantic_stage_dispatch_calls +=
+            result.semantic_stage_dispatch_calls;
+        qualification.suppressed_audio_calls += result.suppressed_audio_calls;
+        qualification.verified_audio_batches += result.verified_audio_batches;
+        qualification.audio_sequence_mismatches +=
+            result.audio_sequence_mismatches;
+        qualification.presentation_failures += result.presentation_failures;
         ++qualification.completed;
         qualification.last_frame = timeline.last_coordinate.frame;
         if (qualification.completed < kForcedQualificationCorrections) return;
@@ -3915,7 +3948,11 @@ private:
             "capture_samples={} capture_p99_us={} capture_max_us={} "
             "checkpoint_bytes={}->{} batch_entry_bytes={}->{} "
             "forced_history_bytes={}->{} "
-            "canonical_convergence=exact presentation_suppressed=true\n"),
+            "stage_wall_suppressed={} stage_barrier_suppressed={} "
+            "stage_semantic_dispatches={} audio_suppressed={} "
+            "audio_batches_verified={} audio_sequence_mismatches={} "
+            "presentation_failures={} canonical_convergence=exact "
+            "presentation_terminal_coverage=incomplete\n"),
             qualification.failure == Horse::Deterministic::FailureCode::None
                 ? STR("passed") : STR("failed"),
             qualification.completed, qualification.generation,
@@ -3929,7 +3966,14 @@ private:
             qualification.batch_entry_bytes_begin,
             final_timeline.batch_entry_checkpoint_bytes,
             qualification.forced_history_bytes_begin,
-            m_replay_native_runtime.forced_qualification_bytes());
+            m_replay_native_runtime.forced_qualification_bytes(),
+            qualification.suppressed_stage_wall_calls,
+            qualification.suppressed_stage_barrier_calls,
+            qualification.semantic_stage_dispatch_calls,
+            qualification.suppressed_audio_calls,
+            qualification.verified_audio_batches,
+            qualification.audio_sequence_mismatches,
+            qualification.presentation_failures);
     }
 
     void observe_hgcpu_diagnostic(std::uint32_t frame) noexcept

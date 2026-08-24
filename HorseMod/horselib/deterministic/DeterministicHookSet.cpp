@@ -126,6 +126,60 @@ struct PresentationMaskContext
 
 thread_local PresentationMaskContext* active_presentation_mask{};
 
+bool AppendBattleAudioSignature(
+    const void* event_record, bool alternate_route,
+    std::uint64_t& sequence_hash, std::uint32_t& route_hash,
+    std::uint32_t& payload_hash, std::uint32_t& position_hash) noexcept
+{
+    // FLuxBattleEventRecord is a verified pointer-free 0x18-byte record. This
+    // dispatcher consumes event type, authored payload ID, and optional
+    // position/reserved payload. Its +0x14 class byte is not read; route is the
+    // separate third parameter. Exclude the unused class byte and both pads.
+    std::array<std::byte, 18> semantic{};
+    __try
+    {
+        if (event_record == nullptr) return false;
+        const auto* bytes = static_cast<const std::byte*>(event_record);
+        semantic[0] = bytes[0];
+        std::memcpy(semantic.data() + 1, bytes + 4, 16);
+        semantic[17] = static_cast<std::byte>(alternate_route ? 1 : 0);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+
+    const auto append = [](std::uint64_t& destination,
+                            const std::byte* bytes, std::size_t size) noexcept
+    {
+        constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+        constexpr std::uint64_t prime = 1099511628211ull;
+        auto hash = destination == 0 ? offset_basis : destination;
+        for (std::size_t index = 0; index < size; ++index)
+        {
+            hash ^= std::to_integer<std::uint8_t>(bytes[index]);
+            hash *= prime;
+        }
+        destination = hash;
+    };
+    append(sequence_hash, semantic.data(), semantic.size());
+    const auto append32 = [](std::uint32_t& destination,
+                              const std::byte* bytes, std::size_t size) noexcept
+    {
+        constexpr std::uint32_t offset_basis = 2166136261u;
+        constexpr std::uint32_t prime = 16777619u;
+        auto hash = destination == 0 ? offset_basis : destination;
+        for (std::size_t index = 0; index < size; ++index)
+        {
+            hash ^= std::to_integer<std::uint8_t>(bytes[index]);
+            hash *= prime;
+        }
+        destination = hash;
+    };
+    const std::array route{semantic[0], semantic[17]};
+    append32(route_hash, route.data(), route.size());
+    append32(payload_hash, semantic.data() + 1, 4);
+    append32(position_hash, semantic.data() + 5, 12);
+    return true;
+}
+
 template <std::size_t Count>
 bool CaptureAndZeroFields(
     void* object, const std::array<MaskedField, Count>& fields,
@@ -862,11 +916,13 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
     }
     else
     {
+        ++batch->owned->result->suppressed_stage_wall_calls;
         std::array<std::array<std::byte, 8>, wall_presentation_fields.size()> saved{};
         std::size_t written{};
         if (!CaptureAndZeroFields(actor, wall_presentation_fields, saved, written))
         {
             RestoreFields(actor, wall_presentation_fields, saved, written);
+            ++batch->owned->result->presentation_failures;
             batch->owned->result->failure = FailureCode::PresentationFailed;
         }
         else
@@ -884,7 +940,10 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
             }
             active_presentation_mask = previous_mask;
             if (!RestoreFields(actor, wall_presentation_fields, saved, written))
+            {
+                ++batch->owned->result->presentation_failures;
                 batch->owned->result->failure = FailureCode::PresentationFailed;
+            }
         }
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -907,11 +966,13 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
     }
     else
     {
+        ++batch->owned->result->suppressed_stage_barrier_calls;
         std::array<std::array<std::byte, 8>, barrier_presentation_fields.size()> saved{};
         std::size_t written{};
         if (!CaptureAndZeroFields(actor, barrier_presentation_fields, saved, written))
         {
             RestoreFields(actor, barrier_presentation_fields, saved, written);
+            ++batch->owned->result->presentation_failures;
             batch->owned->result->failure = FailureCode::PresentationFailed;
         }
         else
@@ -929,7 +990,10 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
             }
             active_presentation_mask = previous_mask;
             if (!RestoreFields(actor, barrier_presentation_fields, saved, written))
+            {
+                ++batch->owned->result->presentation_failures;
                 batch->owned->result->failure = FailureCode::PresentationFailed;
+            }
         }
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -951,6 +1015,9 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
     }
     else if (!RestoreMaskContext(*context))
     {
+        auto* batch = active_outer_capture_;
+        if (batch != nullptr && batch->owned != nullptr)
+            ++batch->owned->result->presentation_failures;
         if (context->failure != nullptr)
             *context->failure = FailureCode::PresentationFailed;
         callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -958,10 +1025,15 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
     }
     else
     {
+        auto* batch = active_outer_capture_;
+        if (batch != nullptr && batch->owned != nullptr)
+            ++batch->owned->result->semantic_stage_dispatch_calls;
         if (original != nullptr) original(emitter, actor_id, location);
         if (!ZeroMaskContext(*context))
         {
             RestoreMaskContext(*context);
+            if (batch != nullptr && batch->owned != nullptr)
+                ++batch->owned->result->presentation_failures;
             if (context->failure != nullptr)
                 *context->failure = FailureCode::PresentationFailed;
             callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -989,6 +1061,29 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
     // that sentinel prevents callers from publishing a live voice identity while
     // leaving the enclosing gameplay event/listener dispatch intact.
     std::int32_t result = -1;
+    if (suppress)
+    {
+        ++batch->owned->result->suppressed_audio_calls;
+        if (!AppendBattleAudioSignature(event_record, alternate_route,
+                batch->owned->result->suppressed_audio_sequence_hash,
+                batch->owned->result->suppressed_audio_route_hash,
+                batch->owned->result->suppressed_audio_payload_hash,
+                batch->owned->result->suppressed_audio_position_hash))
+        {
+            ++batch->owned->result->presentation_failures;
+            batch->owned->result->failure = FailureCode::PresentationFailed;
+        }
+    }
+    else if (batch != nullptr && batch->observation != nullptr)
+    {
+        ++batch->observation->battle_audio_dispatches;
+        if (!AppendBattleAudioSignature(event_record, alternate_route,
+                batch->observation->battle_audio_sequence_hash,
+                batch->observation->battle_audio_route_hash,
+                batch->observation->battle_audio_payload_hash,
+                batch->observation->battle_audio_position_hash))
+            ++batch->observation->battle_audio_signature_failures;
+    }
     if (!suppress && original != nullptr)
         result = original(battle_manager, event_record, alternate_route);
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);

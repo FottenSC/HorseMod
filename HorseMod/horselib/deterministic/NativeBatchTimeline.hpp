@@ -27,6 +27,10 @@ struct NativeBatchEnvelope
     std::uint32_t coordinate_count{};
     std::uint32_t repeat_pending_coordinates{};
     std::uint32_t same_input_time_coordinates{};
+    std::uint32_t battle_audio_dispatches{};
+    std::uint32_t battle_audio_route_hash{};
+    std::uint32_t battle_audio_payload_hash{};
+    std::uint32_t battle_audio_position_hash{};
     std::uint8_t main_state_before{};
     std::uint8_t main_state_after{};
     std::uint8_t round_state_before{};
