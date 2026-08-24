@@ -111,6 +111,7 @@
 #include "horselib/TimeDilationGate.hpp"
 #include "horselib/WindRngGate.hpp"
 #include "horselib/deterministic/Config.hpp"
+#include "horselib/deterministic/DeterministicHookSet.hpp"
 #include "horselib/deterministic/HgCpuRuntimeDiagnostics.hpp"
 #include "horselib/deterministic/Sc6ReplayRuntime.hpp"
 #include "horselib/deterministic/Schema.hpp"
@@ -3120,6 +3121,7 @@ private:
 
     Horse::Lux                 m_lux;
     Horse::Deterministic::Sc6ReplayRuntime m_replay_native_runtime{m_lux};
+    Horse::Deterministic::DeterministicHookSet m_deterministic_hooks{};
 
     // Configured backends can target Persistent for active hit/hurt trails.
     // The *_once backends stay Foreground so inactive boxes in broad view
@@ -3175,6 +3177,58 @@ private:
     bool m_deterministic_config_present = false;
     Horse::Deterministic::Status m_replay_native_runtime_status{
         Horse::Deterministic::FailureCode::ContextUnavailable};
+    Horse::Deterministic::Status m_frame_fencepost_hook_status{
+        Horse::Deterministic::FailureCode::ContextUnavailable};
+    std::atomic<Horse::Deterministic::FailureCode> m_frame_fencepost_failure{
+        Horse::Deterministic::FailureCode::None};
+    std::atomic<std::uintptr_t> m_frame_fencepost_manager{};
+    std::atomic<std::uint32_t> m_frame_fencepost_last_frame{};
+    std::atomic<std::uint64_t> m_frame_fencepost_observations{};
+    std::atomic<std::uint64_t> m_frame_fencepost_repeats{};
+    std::atomic<std::uint64_t> m_frame_fencepost_generations{};
+    std::uint32_t m_frame_fencepost_expected_thread{};
+
+    static void on_frame_fencepost(
+        void* user,
+        const Horse::Deterministic::FrameFencepostObservation& observation) noexcept
+    {
+        auto* self = static_cast<HorseMod*>(user);
+        if (self == nullptr)
+        {
+            return;
+        }
+        if (observation.thread_id != self->m_frame_fencepost_expected_thread)
+        {
+            self->m_frame_fencepost_failure.store(
+                Horse::Deterministic::FailureCode::WrongThread,
+                std::memory_order_release);
+            return;
+        }
+
+        const std::uintptr_t prior_manager = self->m_frame_fencepost_manager.exchange(
+            observation.battle_manager, std::memory_order_acq_rel);
+        const std::uint64_t prior_count = self->m_frame_fencepost_observations.fetch_add(
+            1, std::memory_order_acq_rel);
+        const std::uint32_t prior_frame = self->m_frame_fencepost_last_frame.exchange(
+            observation.frame_counter, std::memory_order_acq_rel);
+        if (prior_manager != observation.battle_manager)
+        {
+            self->m_frame_fencepost_generations.fetch_add(
+                1, std::memory_order_relaxed);
+        }
+        else if (prior_count != 0
+                 && observation.frame_counter != prior_frame + 1)
+        {
+            self->m_frame_fencepost_failure.store(
+                Horse::Deterministic::FailureCode::AdvanceFailed,
+                std::memory_order_release);
+        }
+        if (observation.repeat_pending != 0)
+        {
+            self->m_frame_fencepost_repeats.fetch_add(
+                1, std::memory_order_relaxed);
+        }
+    }
 public:
     HorseMod() : CppUserModBase()
     {
@@ -3390,6 +3444,7 @@ public:
         if (m_hgcpu_runtime_diagnostics)
             m_hgcpu_runtime_diagnostics->Finish();
 
+        m_deterministic_hooks.Uninstall();
         m_replay_native_runtime.Shutdown();
 
         // Final settings save - catches anything the periodic
@@ -3548,6 +3603,27 @@ public:
                 "[HorseMod] native replay bridge unavailable: {}; "
                 "deterministic simulation remains disabled\n"),
                 RC::to_generic_string(std::string(failure)));
+        }
+        if (m_deterministic_config.trace)
+        {
+            m_frame_fencepost_expected_thread = ::GetCurrentThreadId();
+            m_frame_fencepost_hook_status = m_deterministic_hooks.Install(
+                Horse::NativeBinding::imageBase(),
+                {this, &HorseMod::on_frame_fencepost});
+            if (!m_frame_fencepost_hook_status.ok())
+            {
+                const auto failure = Horse::Deterministic::failure_code_name(
+                    m_frame_fencepost_hook_status.code);
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] frame-fencepost runtime proof unavailable: {}\n"),
+                    RC::to_generic_string(std::string(failure)));
+            }
+            else
+            {
+                Output::send<LogLevel::Default>(STR(
+                    "[HorseMod] frame-fencepost runtime proof armed; "
+                    "stock simulation remains authoritative\n"));
+            }
         }
 
         // Install the C++-level chara-teleport hook.  This is the
@@ -7429,6 +7505,29 @@ private:
                         "Replay native bridge: unavailable (%.*s)",
                         static_cast<int>(bridge_failure.size()),
                         bridge_failure.data());
+                }
+                if (m_deterministic_config.trace)
+                {
+                    ImGui::TextDisabled(
+                        "Frame fencepost: %s (observed=%llu, repeats=%llu, "
+                        "generations=%llu)",
+                        m_deterministic_hooks.installed() ? "armed" : "unavailable",
+                        static_cast<unsigned long long>(
+                            m_frame_fencepost_observations.load()),
+                        static_cast<unsigned long long>(
+                            m_frame_fencepost_repeats.load()),
+                        static_cast<unsigned long long>(
+                            m_frame_fencepost_generations.load()));
+                    const auto probe_failure = m_frame_fencepost_failure.load(
+                        std::memory_order_acquire);
+                    if (probe_failure != Horse::Deterministic::FailureCode::None)
+                    {
+                        const auto failure = Horse::Deterministic::failure_code_name(
+                            probe_failure);
+                        ImGui::TextDisabled(
+                            "Frame fencepost failure: %.*s",
+                            static_cast<int>(failure.size()), failure.data());
+                    }
                 }
                 ImGui::TextDisabled(
                     "Config: %s (window=%u, delay=%u, trace=%s)",
