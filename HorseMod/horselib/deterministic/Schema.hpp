@@ -85,6 +85,17 @@ inline constexpr std::array<std::byte, 16> outer_tick_signature{
     std::byte{0x24}, std::byte{0x20}, std::byte{0x0f}, std::byte{0xb6}};
 }
 
+namespace Sc6UcrtLayout
+{
+inline constexpr std::uint32_t algorithm_version = 1;
+inline constexpr std::uint32_t allowlist_version = 1;
+inline constexpr std::uintptr_t rand_iat_rva = 0x322d800;
+inline constexpr std::uintptr_t srand_iat_rva = 0x322d818;
+inline constexpr std::uintptr_t rng_init_srand_return_rva = 0x34f634;
+inline constexpr std::uintptr_t rng_init_rand_return_rva = 0x34f658;
+inline constexpr std::uintptr_t movevm_rand_return_rva = 0x366ff4;
+}
+
 enum class RegionClass : std::uint8_t
 {
     CanonicalGameplay,

@@ -9,11 +9,13 @@
 #include "deterministic/ReplaySeekPlanner.hpp"
 #include "deterministic/Sc6ReplayNativeBridge.hpp"
 #include "deterministic/SnapshotStore.hpp"
+#include "deterministic/UcrtRandBroker.hpp"
 
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <cstdlib>
 #include <xmmintrin.h>
 #include <vector>
 
@@ -921,6 +923,50 @@ void test_floating_point_environment_capture_is_raw_and_non_mutating()
     expect(CaptureFloatingPointEnvironment() == original,
         "scoped FP restoration returns the complete caller environment");
 }
+
+void test_ucrt_broker_is_callsite_and_thread_bound()
+{
+    constexpr unsigned seed = 0x12345678u;
+    std::array<int, 4> expected{};
+    std::srand(seed);
+    for (auto& value : expected) value = std::rand();
+
+    UcrtRandBroker broker;
+    expect(broker.Start(77).ok(), "start UCRT broker on one owner thread");
+    broker.HandleSrand(77, Schema::Sc6UcrtLayout::rng_init_srand_return_rva,
+        seed, &std::srand);
+    expect(broker.AcquireOwnership(77).ok(),
+        "UCRT broker acquires only after an allowlisted seed");
+    for (const auto value : expected)
+    {
+        expect(broker.HandleRand(77,
+                Schema::Sc6UcrtLayout::movevm_rand_return_rva, &std::rand)
+                == value,
+            "private UCRT algorithm matches the imported CRT sequence");
+    }
+
+    UcrtRandBrokerImage saved{};
+    expect(broker.Capture(77, saved).ok() && saved.draws == expected.size(),
+        "capture value-only UCRT state and draw count");
+    const int advanced = broker.HandleRand(77,
+        Schema::Sc6UcrtLayout::movevm_rand_return_rva, &std::rand);
+    expect(broker.Restore(77, saved).ok()
+            && broker.HandleRand(77,
+                Schema::Sc6UcrtLayout::movevm_rand_return_rva, &std::rand)
+                == advanced,
+        "restored private UCRT state reproduces the exact next draw");
+
+    std::srand(seed);
+    const int forwarded = broker.HandleRand(99, 0x1111, &std::rand);
+    std::srand(seed);
+    expect(forwarded == std::rand() && broker.mode() == UcrtRandBrokerMode::Owned,
+        "non-allowlisted calls on other threads forward without broker mutation");
+    broker.HandleRand(99, Schema::Sc6UcrtLayout::movevm_rand_return_rva,
+        &std::rand);
+    expect(broker.mode() == UcrtRandBrokerMode::Failed
+            && broker.failure() == FailureCode::WrongThread,
+        "allowlisted callsite migration fails the broker terminally");
+}
 }
 
 int main()
@@ -940,6 +986,7 @@ int main()
     test_sc6_replay_bridge_transaction_and_undo();
     test_transactional_restore_failures_undo();
     test_floating_point_environment_capture_is_raw_and_non_mutating();
+    test_ucrt_broker_is_callsite_and_thread_bound();
     if (failures == 0)
     {
         std::cout << "DeterministicCoreSelfTest passed\n";
