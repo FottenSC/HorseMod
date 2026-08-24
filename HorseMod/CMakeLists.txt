@@ -125,6 +125,23 @@ add_library(${TARGET} SHARED
     ${HORSEMOD_IMGUIFILEDIALOG_SOURCES}
 )
 
+add_library(ReplayQualificationMod SHARED EXCLUDE_FROM_ALL
+    ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod/ReplayQualificationMod.cpp
+    ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod/ReplayPayloadImporter.cpp
+)
+target_include_directories(ReplayQualificationMod PRIVATE
+    ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod
+)
+target_compile_features(ReplayQualificationMod PRIVATE cxx_std_20)
+target_compile_definitions(ReplayQualificationMod PRIVATE
+    REPLAY_QUALIFICATION_SOURCE_COMMIT="${HORSEMOD_SOURCE_COMMIT}"
+)
+target_link_libraries(ReplayQualificationMod PRIVATE UE4SS)
+if(MSVC)
+    set_property(TARGET ReplayQualificationMod PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 add_executable(DeterministicCoreSelfTest
     ${CMAKE_SOURCE_DIR}/tools/deterministic_core_selftest.cpp
 )

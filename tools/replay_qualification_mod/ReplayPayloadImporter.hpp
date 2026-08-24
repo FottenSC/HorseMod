@@ -1,0 +1,46 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string_view>
+
+namespace Horse::Qualification
+{
+enum class ImportFailure : std::uint8_t
+{
+    None,
+    UnsupportedExecutable,
+    InvalidPayload,
+    InitializeFailed,
+    DecompressFailed,
+    DeserializeFailed,
+    SaveManagerUnavailable,
+    CopyFailed,
+    DestroyFailed,
+};
+
+class ReplayPayloadImporter final
+{
+public:
+    bool Bind(std::uintptr_t image_base) noexcept;
+    ImportFailure Import(std::span<const std::byte> payload) noexcept;
+};
+
+constexpr std::string_view import_failure_name(ImportFailure failure) noexcept
+{
+    switch (failure)
+    {
+    case ImportFailure::None: return "none";
+    case ImportFailure::UnsupportedExecutable: return "unsupported_executable";
+    case ImportFailure::InvalidPayload: return "invalid_payload";
+    case ImportFailure::InitializeFailed: return "initialize_failed";
+    case ImportFailure::DecompressFailed: return "decompress_failed";
+    case ImportFailure::DeserializeFailed: return "deserialize_failed";
+    case ImportFailure::SaveManagerUnavailable: return "save_manager_unavailable";
+    case ImportFailure::CopyFailed: return "copy_failed";
+    case ImportFailure::DestroyFailed: return "destroy_failed";
+    }
+    return "unknown";
+}
+}
