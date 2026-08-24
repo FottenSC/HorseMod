@@ -394,7 +394,7 @@ public:
 
 HgCpuGenerationContext hgcpu_context()
 {
-    return {0x231, Schema::snapshot_schema_version, 11, 7, {101, 102}, 201};
+    return {0x231, Schema::snapshot_schema_version, 11, 7, {101, 102}, 301};
 }
 
 Status noop_reconcile(void*, FrameCoordinate) noexcept

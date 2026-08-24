@@ -62,6 +62,7 @@ private:
         std::uintptr_t battle_manager,
         std::uintptr_t& output) noexcept;
     bool read_fighter_roots(std::array<std::uintptr_t, 2>& output) noexcept;
+    Status resolve_camera_generation(std::uint64_t& output) noexcept;
     Status capture_callback_topology(CallbackTopology& output) noexcept;
 
     static constexpr std::size_t checkpoint_memory_limit =
@@ -89,6 +90,7 @@ private:
     std::uintptr_t bound_move_dispatch_{};
     std::uint64_t bound_session_generation_{};
     std::uint64_t bound_round_generation_{};
+    std::uint64_t bound_camera_generation_{};
     CallbackTopology bound_callback_topology_{};
 };
 }

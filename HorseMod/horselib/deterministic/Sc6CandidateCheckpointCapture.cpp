@@ -19,6 +19,11 @@ namespace Horse::Deterministic
 namespace
 {
 constexpr std::uintptr_t fighter_roots_rva = 0x470DE90;
+constexpr std::uintptr_t effect_camera_pointer_rva = 0x470DEE8;
+constexpr std::uintptr_t camera_director_state_rva = 0x470E9F0;
+constexpr std::uintptr_t camera_director_vtable_rva = 0x3E85568;
+constexpr std::uintptr_t camera_interface_vtable_rva = 0x3E87A58;
+constexpr std::size_t hgcpu_camera_state_size = 0x360;
 constexpr std::uintptr_t move_dispatch_filter_rva = 0x427940;
 constexpr std::uintptr_t adjusted_weak_callback_vtable_rva = 0x3285198;
 constexpr std::uintptr_t hgcpu_writer_rva = 0x3841E0;
@@ -210,6 +215,35 @@ bool Sc6CandidateCheckpointCapture::read_fighter_roots(
         && output[0] != 0 && output[1] != 0 && output[0] != output[1];
 }
 
+Status Sc6CandidateCheckpointCapture::resolve_camera_generation(
+    std::uint64_t& output) noexcept
+{
+    output = 0;
+    std::uintptr_t root{};
+    if (!memory_->Read(image_base_ + effect_camera_pointer_rva,
+            std::as_writable_bytes(std::span{&root, 1})))
+    {
+        return Status::failure(FailureCode::CapturePreflightFailed);
+    }
+    if (root == 0) return Status::success();
+
+    std::array<std::byte, hgcpu_camera_state_size> readable{};
+    std::array<std::uintptr_t, 2> vtables{};
+    if (root != image_base_ + camera_director_state_rva
+        || !memory_->Read(root, readable)
+        || !memory_->Read(root,
+            std::as_writable_bytes(std::span{vtables.data(), 1}))
+        || !memory_->Read(root + 0x10,
+            std::as_writable_bytes(std::span{vtables.data() + 1, 1}))
+        || vtables[0] != image_base_ + camera_director_vtable_rva
+        || vtables[1] != image_base_ + camera_interface_vtable_rva)
+    {
+        return Status::failure(FailureCode::IdentityMismatch);
+    }
+    output = static_cast<std::uint64_t>(root);
+    return Status::success();
+}
+
 Status Sc6CandidateCheckpointCapture::capture_callback_topology(
     CallbackTopology& output) noexcept
 {
@@ -288,11 +322,14 @@ Status Sc6CandidateCheckpointCapture::bind(
 {
     std::uintptr_t move_dispatch{};
     std::array<std::uintptr_t, 2> fighter_roots{};
+    std::uint64_t camera_generation{};
     const Status resolved = resolve_move_dispatch(
         battle_manager, move_dispatch);
     if (!resolved.ok()) return resolved;
     if (!read_fighter_roots(fighter_roots))
         return Status::failure(FailureCode::ContextUnavailable);
+    const Status camera_status = resolve_camera_generation(camera_generation);
+    if (!camera_status.ok()) return camera_status;
     NativeCandidateAddresses addresses{
         image_base_,
         battle_manager,
@@ -357,7 +394,7 @@ Status Sc6CandidateCheckpointCapture::bind(
         session_generation,
         coordinate.generation,
         {context.fighter_identities[0], context.fighter_identities[1]},
-        context.stage_identity,
+        camera_generation,
     };
     adapter_binding.hgcpu_writer = reinterpret_cast<HgCpuExecFn>(
         image_base_ + hgcpu_writer_rva);
@@ -379,6 +416,7 @@ Status Sc6CandidateCheckpointCapture::bind(
     bound_move_dispatch_ = move_dispatch;
     bound_session_generation_ = session_generation;
     bound_round_generation_ = coordinate.generation;
+    bound_camera_generation_ = camera_generation;
     CallbackTopology topology{};
     const Status callback_status = capture_callback_topology(topology);
     if (!callback_status.ok())
@@ -422,6 +460,17 @@ Status Sc6CandidateCheckpointCapture::Capture(
             capture_status.validation = regions_->validation_diagnostic();
             return rebound;
         }
+    }
+
+    std::uint64_t camera_generation{};
+    const Status camera_status = resolve_camera_generation(camera_generation);
+    if (!camera_status.ok() || camera_generation != bound_camera_generation_)
+    {
+        const auto failure = camera_status.ok()
+            ? FailureCode::IdentityMismatch : camera_status.code;
+        ReleaseBinding();
+        capture_status.failure = failure;
+        return Status::failure(failure);
     }
 
     CallbackTopology topology{};
@@ -473,6 +522,7 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
     bound_move_dispatch_ = 0;
     bound_session_generation_ = 0;
     bound_round_generation_ = 0;
+    bound_camera_generation_ = 0;
     bound_callback_topology_ = {};
 }
 

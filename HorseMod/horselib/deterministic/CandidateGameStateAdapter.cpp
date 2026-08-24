@@ -41,9 +41,7 @@ Status CandidateGameStateAdapter::Configure(
         || binding.hgcpu_context.fighter_generations[0]
             != binding.context.fighter_identities[0]
         || binding.hgcpu_context.fighter_generations[1]
-            != binding.context.fighter_identities[1]
-        || binding.hgcpu_context.camera_generation
-            != binding.context.stage_identity)
+            != binding.context.fighter_identities[1])
     {
         return Status::failure(FailureCode::InvalidConfiguration);
     }
