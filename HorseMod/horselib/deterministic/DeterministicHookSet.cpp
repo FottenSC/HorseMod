@@ -22,6 +22,12 @@ std::atomic<std::uint64_t>
     DeterministicHookSet::replay_post_tick_trampoline_global_{};
 std::atomic<std::uint64_t>
     DeterministicHookSet::callback_executor_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::stage_break_wall_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::stage_break_barrier_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::stage_break_dispatch_trampoline_global_{};
 thread_local DeterministicHookSet::OuterTickCaptureContext*
     DeterministicHookSet::active_outer_capture_{};
 
@@ -85,6 +91,123 @@ bool PublishInputPairArray(void* argument, const PlayerInput (&input)[2]) noexce
     }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+
+struct MaskedField
+{
+    std::uint16_t offset{};
+    std::uint8_t size{};
+};
+
+struct PresentationMaskContext
+{
+    void* actor{};
+    const MaskedField* fields{};
+    const std::array<std::byte, 8>* saved{};
+    std::size_t count{};
+    bool masked{};
+    FailureCode* failure{};
+};
+
+thread_local PresentationMaskContext* active_presentation_mask{};
+
+template <std::size_t Count>
+bool CaptureAndZeroFields(
+    void* object, const std::array<MaskedField, Count>& fields,
+    std::array<std::array<std::byte, 8>, Count>& saved,
+    std::size_t& written) noexcept
+{
+    written = 0;
+    if (object == nullptr) return false;
+    const auto base = reinterpret_cast<std::uintptr_t>(object);
+    __try
+    {
+        for (std::size_t index = 0; index < Count; ++index)
+        {
+            if (fields[index].size == 0 || fields[index].size > 8) return false;
+            std::memcpy(saved[index].data(),
+                reinterpret_cast<const void*>(base + fields[index].offset),
+                fields[index].size);
+        }
+        for (; written < Count; ++written)
+        {
+            std::memset(reinterpret_cast<void*>(base + fields[written].offset),
+                0, fields[written].size);
+        }
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+template <std::size_t Count>
+bool RestoreFields(
+    void* object, const std::array<MaskedField, Count>& fields,
+    const std::array<std::array<std::byte, 8>, Count>& saved,
+    std::size_t count) noexcept
+{
+    if (object == nullptr || count > Count) return false;
+    const auto base = reinterpret_cast<std::uintptr_t>(object);
+    __try
+    {
+        for (std::size_t index = 0; index < count; ++index)
+        {
+            std::memcpy(reinterpret_cast<void*>(base + fields[index].offset),
+                saved[index].data(), fields[index].size);
+        }
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool RestoreMaskContext(PresentationMaskContext& context) noexcept
+{
+    if (context.actor == nullptr || context.fields == nullptr
+        || context.saved == nullptr)
+        return false;
+    const auto base = reinterpret_cast<std::uintptr_t>(context.actor);
+    __try
+    {
+        for (std::size_t index = 0; index < context.count; ++index)
+        {
+            std::memcpy(reinterpret_cast<void*>(base + context.fields[index].offset),
+                context.saved[index].data(), context.fields[index].size);
+        }
+        context.masked = false;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool ZeroMaskContext(PresentationMaskContext& context) noexcept
+{
+    if (context.actor == nullptr || context.fields == nullptr) return false;
+    const auto base = reinterpret_cast<std::uintptr_t>(context.actor);
+    __try
+    {
+        for (std::size_t index = 0; index < context.count; ++index)
+        {
+            std::memset(reinterpret_cast<void*>(base + context.fields[index].offset),
+                0, context.fields[index].size);
+        }
+        context.masked = true;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+constexpr std::array wall_presentation_fields{
+    MaskedField{0x420, 8}, MaskedField{0x428, 8},
+    MaskedField{0x430, 8}, MaskedField{0x438, 8},
+    MaskedField{0x440, 8}, MaskedField{0x448, 8},
+    MaskedField{0x458, 8}, MaskedField{0x460, 8},
+};
+constexpr std::array barrier_presentation_fields{
+    MaskedField{0x400, 8}, MaskedField{0x408, 8},
+    MaskedField{0x410, 8}, MaskedField{0x418, 8},
+    MaskedField{0x438, 4}, MaskedField{0x448, 4},
+    MaskedField{0x458, 4}, MaskedField{0x460, 8},
+    MaskedField{0x470, 8}, MaskedField{0x478, 8},
+};
+constexpr DWORD presentation_mask_exception = 0xe0421001;
 }
 
 DeterministicHookSet::~DeterministicHookSet()
@@ -129,7 +252,19 @@ Status DeterministicHookSet::Install(
             reinterpret_cast<const void*>(
                 image_base + Schema::Sc6FrameLayout::callback_executor_rva),
             Schema::Sc6FrameLayout::callback_executor_signature.data(),
-            Schema::Sc6FrameLayout::callback_executor_signature.size()))
+            Schema::Sc6FrameLayout::callback_executor_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::stage_break_wall_handler_rva),
+            Schema::Sc6FrameLayout::stage_break_wall_handler_signature.data(),
+            Schema::Sc6FrameLayout::stage_break_wall_handler_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::stage_break_barrier_handler_rva),
+            Schema::Sc6FrameLayout::stage_break_barrier_handler_signature.data(),
+            Schema::Sc6FrameLayout::stage_break_barrier_handler_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::stage_break_dispatch_rva),
+            Schema::Sc6FrameLayout::stage_break_dispatch_signature.data(),
+            Schema::Sc6FrameLayout::stage_break_dispatch_signature.size()))
     {
         return Status::failure(FailureCode::AdapterUnqualified);
     }
@@ -141,6 +276,9 @@ Status DeterministicHookSet::Install(
     replay_post_tick_trampoline_ = 0;
     outer_tick_trampoline_ = 0;
     callback_executor_trampoline_ = 0;
+    stage_break_wall_trampoline_ = 0;
+    stage_break_barrier_trampoline_ = 0;
+    stage_break_dispatch_trampoline_ = 0;
     frame_fencepost_detour_ = std::make_unique<PLH::x64Detour>(
         static_cast<std::uint64_t>(frame_target),
         reinterpret_cast<std::uint64_t>(&FrameFencepostDetour),
@@ -211,8 +349,71 @@ Status DeterministicHookSet::Install(
     }
     callback_executor_trampoline_global_.store(
         callback_executor_trampoline_, std::memory_order_release);
+    stage_break_wall_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::stage_break_wall_handler_rva),
+        reinterpret_cast<std::uint64_t>(&StageBreakWallDetour),
+        &stage_break_wall_trampoline_);
+    if (!stage_break_wall_detour_->hook())
+    {
+        callback_executor_detour_->unHook();
+        outer_tick_detour_->unHook();
+        replay_post_tick_detour_->unHook();
+        frame_fencepost_detour_->unHook();
+        active_.store(nullptr, std::memory_order_release);
+        while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
+            std::this_thread::yield();
+        ClearState();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    stage_break_wall_trampoline_global_.store(
+        stage_break_wall_trampoline_, std::memory_order_release);
+    stage_break_barrier_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::stage_break_barrier_handler_rva),
+        reinterpret_cast<std::uint64_t>(&StageBreakBarrierDetour),
+        &stage_break_barrier_trampoline_);
+    if (!stage_break_barrier_detour_->hook())
+    {
+        stage_break_wall_detour_->unHook();
+        callback_executor_detour_->unHook();
+        outer_tick_detour_->unHook();
+        replay_post_tick_detour_->unHook();
+        frame_fencepost_detour_->unHook();
+        active_.store(nullptr, std::memory_order_release);
+        while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
+            std::this_thread::yield();
+        ClearState();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    stage_break_barrier_trampoline_global_.store(
+        stage_break_barrier_trampoline_, std::memory_order_release);
+    stage_break_dispatch_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::stage_break_dispatch_rva),
+        reinterpret_cast<std::uint64_t>(&StageBreakDispatchDetour),
+        &stage_break_dispatch_trampoline_);
+    if (!stage_break_dispatch_detour_->hook())
+    {
+        stage_break_barrier_detour_->unHook();
+        stage_break_wall_detour_->unHook();
+        callback_executor_detour_->unHook();
+        outer_tick_detour_->unHook();
+        replay_post_tick_detour_->unHook();
+        frame_fencepost_detour_->unHook();
+        active_.store(nullptr, std::memory_order_release);
+        while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
+            std::this_thread::yield();
+        ClearState();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    stage_break_dispatch_trampoline_global_.store(
+        stage_break_dispatch_trampoline_, std::memory_order_release);
     if (ucrt_broker_ != nullptr && !InstallUcrtIatHooks())
     {
+        stage_break_dispatch_detour_->unHook();
+        stage_break_barrier_detour_->unHook();
+        stage_break_wall_detour_->unHook();
         callback_executor_detour_->unHook();
         outer_tick_detour_->unHook();
         replay_post_tick_detour_->unHook();
@@ -235,6 +436,9 @@ void DeterministicHookSet::Uninstall() noexcept
     }
     // Hooks are removed in the reverse of their installation order.
     UninstallUcrtIatHooks();
+    if (stage_break_dispatch_detour_) stage_break_dispatch_detour_->unHook();
+    if (stage_break_barrier_detour_) stage_break_barrier_detour_->unHook();
+    if (stage_break_wall_detour_) stage_break_wall_detour_->unHook();
     if (callback_executor_detour_)
     {
         callback_executor_detour_->unHook();
@@ -527,6 +731,132 @@ void __fastcall DeterministicHookSet::CallbackExecutorDetour(
             {
                 execution.result->failure = FailureCode::AdvanceFailed;
             }
+        }
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+void __fastcall DeterministicHookSet::StageBreakWallDetour(
+    void* actor, bool immediately) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr ? hooks->stage_break_wall_trampoline_
+        : stage_break_wall_trampoline_global_.load(std::memory_order_acquire);
+    const auto original = reinterpret_cast<StageBreakWallFn>(trampoline);
+    auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+    if (!suppress)
+    {
+        if (original != nullptr) original(actor, immediately);
+    }
+    else
+    {
+        std::array<std::array<std::byte, 8>, wall_presentation_fields.size()> saved{};
+        std::size_t written{};
+        if (!CaptureAndZeroFields(actor, wall_presentation_fields, saved, written))
+        {
+            RestoreFields(actor, wall_presentation_fields, saved, written);
+            batch->owned->result->failure = FailureCode::PresentationFailed;
+        }
+        else
+        {
+            PresentationMaskContext context{actor,
+                wall_presentation_fields.data(), saved.data(), written, true,
+                &batch->owned->result->failure};
+            auto* previous_mask = active_presentation_mask;
+            active_presentation_mask = &context;
+            __try { if (original != nullptr) original(actor, immediately); }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                if (batch->owned->result->failure == FailureCode::None)
+                    batch->owned->result->failure = FailureCode::AdvanceFailed;
+            }
+            active_presentation_mask = previous_mask;
+            if (!RestoreFields(actor, wall_presentation_fields, saved, written))
+                batch->owned->result->failure = FailureCode::PresentationFailed;
+        }
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
+    void* actor, void* direction) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr ? hooks->stage_break_barrier_trampoline_
+        : stage_break_barrier_trampoline_global_.load(std::memory_order_acquire);
+    const auto original = reinterpret_cast<StageBreakBarrierFn>(trampoline);
+    auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+    if (!suppress)
+    {
+        if (original != nullptr) original(actor, direction);
+    }
+    else
+    {
+        std::array<std::array<std::byte, 8>, barrier_presentation_fields.size()> saved{};
+        std::size_t written{};
+        if (!CaptureAndZeroFields(actor, barrier_presentation_fields, saved, written))
+        {
+            RestoreFields(actor, barrier_presentation_fields, saved, written);
+            batch->owned->result->failure = FailureCode::PresentationFailed;
+        }
+        else
+        {
+            PresentationMaskContext context{actor,
+                barrier_presentation_fields.data(), saved.data(), written, true,
+                &batch->owned->result->failure};
+            auto* previous_mask = active_presentation_mask;
+            active_presentation_mask = &context;
+            __try { if (original != nullptr) original(actor, direction); }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                if (batch->owned->result->failure == FailureCode::None)
+                    batch->owned->result->failure = FailureCode::AdvanceFailed;
+            }
+            active_presentation_mask = previous_mask;
+            if (!RestoreFields(actor, barrier_presentation_fields, saved, written))
+                batch->owned->result->failure = FailureCode::PresentationFailed;
+        }
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
+    void* emitter, std::int32_t actor_id, void* location) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->stage_break_dispatch_trampoline_
+        : stage_break_dispatch_trampoline_global_.load(std::memory_order_acquire);
+    const auto original = reinterpret_cast<StageBreakDispatchFn>(trampoline);
+    auto* context = active_presentation_mask;
+    if (context == nullptr || !context->masked)
+    {
+        if (original != nullptr) original(emitter, actor_id, location);
+    }
+    else if (!RestoreMaskContext(*context))
+    {
+        if (context->failure != nullptr)
+            *context->failure = FailureCode::PresentationFailed;
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        ::RaiseException(presentation_mask_exception, 0, 0, nullptr);
+    }
+    else
+    {
+        if (original != nullptr) original(emitter, actor_id, location);
+        if (!ZeroMaskContext(*context))
+        {
+            RestoreMaskContext(*context);
+            if (context->failure != nullptr)
+                *context->failure = FailureCode::PresentationFailed;
+            callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+            ::RaiseException(presentation_mask_exception, 0, 0, nullptr);
         }
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -864,6 +1194,9 @@ void DeterministicHookSet::EmitReplayExit(void* replay_state) noexcept
 
 void DeterministicHookSet::ClearState() noexcept
 {
+    stage_break_dispatch_detour_.reset();
+    stage_break_barrier_detour_.reset();
+    stage_break_wall_detour_.reset();
     callback_executor_detour_.reset();
     outer_tick_detour_.reset();
     replay_post_tick_detour_.reset();
@@ -872,11 +1205,17 @@ void DeterministicHookSet::ClearState() noexcept
     frame_fencepost_trampoline_ = 0;
     outer_tick_trampoline_ = 0;
     callback_executor_trampoline_ = 0;
+    stage_break_wall_trampoline_ = 0;
+    stage_break_barrier_trampoline_ = 0;
+    stage_break_dispatch_trampoline_ = 0;
     next_outer_batch_id_ = 0;
     replay_post_tick_trampoline_global_.store(0, std::memory_order_release);
     frame_fencepost_trampoline_global_.store(0, std::memory_order_release);
     outer_tick_trampoline_global_.store(0, std::memory_order_release);
     callback_executor_trampoline_global_.store(0, std::memory_order_release);
+    stage_break_wall_trampoline_global_.store(0, std::memory_order_release);
+    stage_break_barrier_trampoline_global_.store(0, std::memory_order_release);
+    stage_break_dispatch_trampoline_global_.store(0, std::memory_order_release);
     rand_iat_slot_ = 0;
     srand_iat_slot_ = 0;
     image_base_ = 0;

@@ -56,6 +56,9 @@ inline constexpr std::array<std::byte, 7> set_move_state_signature{
 
 namespace Sc6FrameLayout
 {
+inline constexpr std::uintptr_t stage_break_wall_handler_rva = 0x53d4b0;
+inline constexpr std::uintptr_t stage_break_barrier_handler_rva = 0x549f40;
+inline constexpr std::uintptr_t stage_break_dispatch_rva = 0x53d130;
 inline constexpr std::uint16_t required_observation_read_mask = 0x0fff;
 inline constexpr std::uint16_t required_outer_tick_read_mask = 0x00ff;
 inline constexpr std::uintptr_t frame_counter_rva = 0x470d0c4;
@@ -90,6 +93,27 @@ inline constexpr std::array<std::byte, 16> callback_executor_signature{
     std::byte{0xec}, std::byte{0x20}, std::byte{0xff}, std::byte{0x41},
     std::byte{0x64}, std::byte{0x48}, std::byte{0x8b}, std::byte{0xf1},
     std::byte{0x8b}, std::byte{0x41}, std::byte{0x50}, std::byte{0x48}};
+inline constexpr std::array<std::byte, 18> stage_break_wall_handler_signature{
+    std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+    std::byte{0x18}, std::byte{0x48}, std::byte{0x89}, std::byte{0x74},
+    std::byte{0x24}, std::byte{0x20}, std::byte{0x55}, std::byte{0x48},
+    std::byte{0x8b}, std::byte{0xec}, std::byte{0x48}, std::byte{0x83},
+    std::byte{0xec}, std::byte{0x70},
+};
+inline constexpr std::array<std::byte, 23> stage_break_barrier_handler_signature{
+    std::byte{0x4c}, std::byte{0x8b}, std::byte{0xdc}, std::byte{0x49},
+    std::byte{0x89}, std::byte{0x5b}, std::byte{0x18}, std::byte{0x49},
+    std::byte{0x89}, std::byte{0x73}, std::byte{0x20}, std::byte{0x55},
+    std::byte{0x49}, std::byte{0x8d}, std::byte{0x6b}, std::byte{0xa1},
+    std::byte{0x48}, std::byte{0x81}, std::byte{0xec}, std::byte{0xc0},
+    std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+};
+inline constexpr std::array<std::byte, 16> stage_break_dispatch_signature{
+    std::byte{0x40}, std::byte{0x56}, std::byte{0x48}, std::byte{0x83},
+    std::byte{0xec}, std::byte{0x30}, std::byte{0xff}, std::byte{0x41},
+    std::byte{0x64}, std::byte{0x48}, std::byte{0x8b}, std::byte{0xf1},
+    std::byte{0x8b}, std::byte{0x41}, std::byte{0x50}, std::byte{0x48},
+};
 }
 
 namespace Sc6UcrtLayout

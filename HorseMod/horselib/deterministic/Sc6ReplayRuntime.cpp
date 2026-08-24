@@ -702,6 +702,7 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
                 static_cast<std::size_t>(envelope->coordinate_count)};
             request.inputs = std::span{inputs.data(),
                 static_cast<std::size_t>(envelope->coordinate_count)};
+            request.suppress_ephemeral_presentation = true;
             if (landing_batch)
             {
                 request.landing_offset = plan.landing_offset_in_batch;

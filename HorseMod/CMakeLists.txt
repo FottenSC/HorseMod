@@ -55,6 +55,7 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/SimulationSession.cpp
     horselib/deterministic/SnapshotStore.cpp
     horselib/deterministic/StageBreakListenerDiagnostics.cpp
+    horselib/deterministic/StageBreakPresentationIdentity.cpp
     horselib/deterministic/StageWindGraphTransaction.cpp
     horselib/deterministic/StageWindTopology.cpp
     horselib/deterministic/UcrtRandBroker.cpp

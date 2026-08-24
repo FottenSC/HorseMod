@@ -109,6 +109,7 @@ struct OwnedBatchReplayRequest
     std::uint32_t landing_offset{UINT32_MAX};
     void* landing_user{};
     OwnedBatchLandingCaptureFn capture_landing{};
+    bool suppress_ephemeral_presentation{};
 };
 
 struct OwnedBatchReplayResult
@@ -167,6 +168,10 @@ private:
     using ReplayPostTickFn = void (__fastcall*)(void* replay_state);
     using CallbackExecutorFn = void (__fastcall*)(
         void* collection, void* callback_argument);
+    using StageBreakWallFn = void (__fastcall*)(void* actor, bool immediately);
+    using StageBreakBarrierFn = void (__fastcall*)(void* actor, void* direction);
+    using StageBreakDispatchFn = void (__fastcall*)(
+        void* emitter, std::int32_t actor_id, void* location);
 
     static void __fastcall FrameFencepostDetour(void* battle_manager) noexcept;
     static void __fastcall OuterTickDetour(
@@ -174,6 +179,12 @@ private:
     static void __fastcall ReplayPostTickDetour(void* replay_state) noexcept;
     static void __fastcall CallbackExecutorDetour(
         void* collection, void* callback_argument) noexcept;
+    static void __fastcall StageBreakWallDetour(
+        void* actor, bool immediately) noexcept;
+    static void __fastcall StageBreakBarrierDetour(
+        void* actor, void* direction) noexcept;
+    static void __fastcall StageBreakDispatchDetour(
+        void* emitter, std::int32_t actor_id, void* location) noexcept;
     static int __cdecl UcrtRandDetour() noexcept;
     static void __cdecl UcrtSrandDetour(unsigned int seed) noexcept;
     void EmitFrameFencepost(void* battle_manager) noexcept;
@@ -200,16 +211,25 @@ private:
     static std::atomic<std::uint64_t> outer_tick_trampoline_global_;
     static std::atomic<std::uint64_t> replay_post_tick_trampoline_global_;
     static std::atomic<std::uint64_t> callback_executor_trampoline_global_;
+    static std::atomic<std::uint64_t> stage_break_wall_trampoline_global_;
+    static std::atomic<std::uint64_t> stage_break_barrier_trampoline_global_;
+    static std::atomic<std::uint64_t> stage_break_dispatch_trampoline_global_;
     static thread_local OuterTickCaptureContext* active_outer_capture_;
 
     std::unique_ptr<PLH::x64Detour> frame_fencepost_detour_{};
     std::unique_ptr<PLH::x64Detour> replay_post_tick_detour_{};
     std::unique_ptr<PLH::x64Detour> outer_tick_detour_{};
     std::unique_ptr<PLH::x64Detour> callback_executor_detour_{};
+    std::unique_ptr<PLH::x64Detour> stage_break_wall_detour_{};
+    std::unique_ptr<PLH::x64Detour> stage_break_barrier_detour_{};
+    std::unique_ptr<PLH::x64Detour> stage_break_dispatch_detour_{};
     std::uint64_t frame_fencepost_trampoline_{};
     std::uint64_t replay_post_tick_trampoline_{};
     std::uint64_t outer_tick_trampoline_{};
     std::uint64_t callback_executor_trampoline_{};
+    std::uint64_t stage_break_wall_trampoline_{};
+    std::uint64_t stage_break_barrier_trampoline_{};
+    std::uint64_t stage_break_dispatch_trampoline_{};
     std::uint64_t next_outer_batch_id_{};
     std::uintptr_t image_base_{};
     std::uintptr_t rand_iat_slot_{};

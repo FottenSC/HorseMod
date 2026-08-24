@@ -11,6 +11,7 @@
 #include "deterministic/SimulationSession.hpp"
 #include "deterministic/SnapshotStore.hpp"
 #include "deterministic/StageBreakListenerDiagnostics.hpp"
+#include "deterministic/StageBreakPresentationIdentity.hpp"
 #include "deterministic/StageWindGraphTransaction.hpp"
 #include "deterministic/StageWindTopology.hpp"
 
@@ -1248,6 +1249,79 @@ void test_stage_break_listener_topology_is_value_only_and_bounded()
         "callback targets outside the executable image fail closed");
 }
 
+void test_stage_break_presentation_identity_is_generation_scoped()
+{
+    constexpr std::uintptr_t wall = 0x10001000;
+    constexpr std::uintptr_t barrier = 0x10002000;
+    constexpr std::uintptr_t wall_asset = 0x20001000;
+    constexpr std::uintptr_t hit_asset = 0x20002000;
+    constexpr std::uintptr_t break_asset = 0x20003000;
+    const std::array actors{
+        StageBreakActorRef{StageBreakActorKind::Wall, wall},
+        StageBreakActorRef{StageBreakActorKind::Barrier, barrier},
+        StageBreakActorRef{StageBreakActorKind::Barrier, barrier},
+    };
+    StageBreakListenerTopology topology{};
+    topology.signature = 0x12345678;
+    topology.actors = {
+        {StageBreakActorKind::Wall, 7, 0, no_repeated_actor_reference},
+        {StageBreakActorKind::Barrier, 9, 1, no_repeated_actor_reference},
+        {StageBreakActorKind::Barrier, 9, 2, 1},
+    };
+    const std::array assets{
+        StageBreakParticleAssetRef{wall, ParticleRoute::WallBreak, 0, wall_asset},
+        StageBreakParticleAssetRef{barrier, ParticleRoute::BarrierHit, 0, hit_asset},
+        // A repeated template slot is one logical native asset identity.
+        StageBreakParticleAssetRef{barrier, ParticleRoute::BarrierHit, 1, hit_asset},
+        StageBreakParticleAssetRef{barrier, ParticleRoute::BarrierBreak, 0, break_asset},
+    };
+
+    StageBreakPresentationIdentityMap identities{};
+    expect(identities.Bind(11, actors, topology, assets).ok()
+            && identities.bound() && identities.generation() == 11
+            && identities.topology_signature() == topology.signature,
+        "seal bounded stage-break presentation identity topology");
+    StageBreakPresentationIdentity wall_identity{};
+    StageBreakPresentationIdentity hit_identity{};
+    StageBreakPresentationIdentity break_identity{};
+    expect(identities.Resolve(11, wall, ParticleRoute::WallBreak,
+                wall_asset, wall_identity).ok()
+            && identities.Resolve(11, barrier, ParticleRoute::BarrierHit,
+                hit_asset, hit_identity).ok()
+            && identities.Resolve(11, barrier, ParticleRoute::BarrierBreak,
+                break_asset, break_identity).ok()
+            && wall_identity.owner_logical_id != wall
+            && hit_identity.owner_logical_id != barrier
+            && hit_identity.asset_logical_id != hit_asset
+            && hit_identity.owner_logical_id == break_identity.owner_logical_id
+            && hit_identity.asset_logical_id != break_identity.asset_logical_id,
+        "resolve route-qualified pointer-free owner and asset identities");
+    StageBreakPresentationIdentity rejected{};
+    expect(identities.Resolve(12, barrier, ParticleRoute::BarrierHit,
+                hit_asset, rejected).code == FailureCode::GenerationMismatch
+            && rejected.owner_logical_id == 0
+            && identities.Resolve(11, barrier, ParticleRoute::WallBreak,
+                hit_asset, rejected).code == FailureCode::UnsupportedContent,
+        "generation drift and cross-route aliases fail closed");
+
+    auto replacement_actors = actors;
+    replacement_actors[1].address = 0x10004000;
+    replacement_actors[2].address = 0x10004000;
+    expect(identities.Bind(12, replacement_actors, topology, {}).ok()
+            && identities.Resolve(11, barrier, ParticleRoute::BarrierHit,
+                hit_asset, rejected).code == FailureCode::GenerationMismatch
+            && identities.Resolve(12, barrier, ParticleRoute::BarrierHit,
+                hit_asset, rejected).code == FailureCode::UnsupportedContent,
+        "allocation replacement atomically revokes prior native bindings");
+
+    auto invalid_topology = topology;
+    invalid_topology.actors[2].repeated_reference_of = 0;
+    expect(identities.Bind(13, actors, invalid_topology, assets).code
+            == FailureCode::IdentityMismatch
+            && !identities.bound(),
+        "invalid repeated-reference topology leaves the identity map unbound");
+}
+
 Status resolve_fake_callback_owner(
     void*, std::int32_t object_index, std::int32_t serial_number,
     std::uint64_t& class_token) noexcept
@@ -1571,6 +1645,7 @@ int main()
     test_move_dispatch_pending_phase_restore();
     test_move_dispatch_partial_write_undoes_exactly();
     test_stage_break_listener_topology_is_value_only_and_bounded();
+    test_stage_break_presentation_identity_is_generation_scoped();
     test_callback_topology_is_generation_bound_and_pointer_free();
     test_stage_wind_topology_is_bounded_and_pointer_free();
     test_stage_wind_graph_restore_is_transactional();

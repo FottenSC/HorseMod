@@ -617,6 +617,51 @@ changed-value coverage remains an admission requirement.
 | UCRT/thread/FP | UCRT callsite, owner-thread observation, schema-v3 checkpoint capture/hash, exact local restore, and adapter undo are implemented. The exact seed call bound the simulation thread, 734 admitted draws advanced the private stream, unrelated calls forwarded, and the broker reported no failure. FP observation is also closed for the measured replay: 597 samples, zero control drift, zero x87-status drift, and MXCSR sticky-status changes that the inactive adapter now restores narrowly. Acquire ownership only at a frozen baseline; failure-inject UCRT/FP exits during actual SC6 restore/resimulation. | Commit `a76b2189`; DLL `FAF55902...`; normal-render owned convergence and exact runtime undo remain required |
 | Stage/camera | Enumerate proposed stage classes/topology and live camera interface/action vtables | Exact content allowlist, bounded counts, semantic repair |
 | Presentation | Particle creation is closed, and proves that terminal-wide suppression is unsafe because the Blueprint native-exec route returns a live UObject identity. Trace the matching stop/update/destroy/callback paths for the two static barrier/wall routes; prove the Blueprint route unreachable per allowlisted workload or keep it fail-closed. Continue the same caller/return-use audit for audio, material/fade, camera, UI, and cinematics. | Callsite-qualified value schemas, logical-to-current-generation component mappings, exactly-once commit, persistent reconciliation, and no speculative UObject identity visible to Blueprint |
+
+### Native batch stage-break presentation boundary (2026-08-24)
+
+Current-executable Ghidra evidence closes the static wall/barrier particle stop and
+spawn suppression boundary without suppressing the generic particle factory.
+`HandleStageBreakableWallBroken @ 0x14053D4B0` owns authoritative break state
+`+0x468` and fade values `+0x46C/+0x470`; its six mesh identities
+`+0x420..+0x448`, particle template `+0x458`, and live component `+0x460` are
+presentation-only for this transaction. `HandleStageBreakableBarrierHit @
+0x140549F40` owns authoritative hit count `+0x468`; component identities
+`+0x400..+0x418`, material-list counts `+0x438/+0x448`, hit-template-list count
+`+0x458`, break template `+0x460`, and live hit/break components
+`+0x470/+0x478` are presentation-only at this boundary. The material-list data
+pointers and capacities are not modified.
+
+`DeterministicHookSet` now signature-gates both handlers and
+`DispatchLuxStageBreakEvent @ 0x14053D130`. An owned native batch may request
+ephemeral suppression. The matching handler then captures and nulls only the
+verified presentation fields, executes the stock handler so authoritative state
+and control flow remain native, restores every masked field before the exact
+synchronous listener dispatch, re-masks after the listener returns, and finally
+restores the original presentation fields exactly. Any mask/restore failure marks
+the owned batch `PresentationFailed`; the enclosing owned-seek transaction then
+restores its full undo checkpoint. Normal execution is pass-through. The dynamic
+Blueprint particle route remains untouched and unsupported during owned
+resimulation.
+
+`StageBreakPresentationIdentityMap` supplies the separate generation-scoped,
+bounded pointer-to-value bridge needed by the future journal. Owner identity is
+derived from actor kind, semantic ID, and canonical ordered-list position;
+repeated native references canonicalize to the first order. Asset identity is a
+route-qualified logical slot. Native addresses remain local binding metadata and
+never enter journal values or canonical hashes. Generation drift, allocation
+replacement, invalid repeated-reference relations, route aliases, and topology
+mismatch fail closed. Focused tests cover these cases.
+
+A normal-render 600-frame replay-entry pass installed all three hooks and reached
+the requested watch limit with clean teardown. Dirty-build DLL SHA-256 was
+`8EE00D1FB59100BB7042415466256D802E4C152059EDF0FD5FD43E28D23A52C6`;
+replay SHA-256 remained
+`95E12E394D35C13D5E0DD3DCE692F9E0A4022E2A84205A9EC75F2FA6726D7879`.
+This proves installation and ordinary pass-through only. It does not certify an
+actual speculative wall/barrier event, confirmed presentation replay, or the
+other audio/camera/UI presentation families, so the owned seek still has no
+production caller.
 | Replay/scene/disconnect | Close replay stop/order and earliest world/online invalidation signals | No identity survives transition/partial failure |
 | Hook teardown | Audit Horse shutdown only after target set is final | Admission gate, reverse removal, zero in-flight callbacks |
 
