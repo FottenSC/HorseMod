@@ -913,6 +913,13 @@ void test_floating_point_environment_capture_is_raw_and_non_mutating()
     expect(FloatingPointControlMatches(original, restored)
             && FloatingPointStatusMatches(original, restored),
         "read-only FP capture preserves and recovers exact caller environment");
+
+    ScopedFloatingPointEnvironment scope;
+    _mm_setcsr(original_mxcsr ^ 0x01u);
+    expect(scope.Finish().ok(),
+        "scoped FP environment restores MXCSR sticky status exactly");
+    expect(CaptureFloatingPointEnvironment() == original,
+        "scoped FP restoration returns the complete caller environment");
 }
 }
 

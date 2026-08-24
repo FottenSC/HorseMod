@@ -60,4 +60,28 @@ bool FloatingPointMxcsrStatusMatches(
 {
     return (left.mxcsr & mxcsr_status_mask) == (right.mxcsr & mxcsr_status_mask);
 }
+
+ScopedFloatingPointEnvironment::ScopedFloatingPointEnvironment() noexcept
+    : before_(CaptureFloatingPointEnvironment())
+{
+}
+
+ScopedFloatingPointEnvironment::~ScopedFloatingPointEnvironment()
+{
+    if (!finished_) _mm_setcsr(before_.mxcsr);
+}
+
+Status ScopedFloatingPointEnvironment::Finish() noexcept
+{
+    if (finished_) return Status::failure(FailureCode::IllegalTransition);
+    const auto native_after = CaptureFloatingPointEnvironment();
+    _mm_setcsr(before_.mxcsr);
+    finished_ = true;
+    const auto restored = CaptureFloatingPointEnvironment();
+    return native_after.x87_control == before_.x87_control
+            && native_after.x87_status == before_.x87_status
+            && restored == before_
+        ? Status::success()
+        : Status::failure(FailureCode::RestoreVerificationFailed);
+}
 }

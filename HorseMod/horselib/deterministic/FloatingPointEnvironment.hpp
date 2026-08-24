@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "Types.hpp"
+
 namespace Horse::Deterministic
 {
 struct FloatingPointEnvironment
@@ -28,4 +30,21 @@ struct FloatingPointEnvironment
 [[nodiscard]] bool FloatingPointMxcsrStatusMatches(
     const FloatingPointEnvironment& left,
     const FloatingPointEnvironment& right) noexcept;
+
+class ScopedFloatingPointEnvironment
+{
+public:
+    ScopedFloatingPointEnvironment() noexcept;
+    ~ScopedFloatingPointEnvironment();
+
+    ScopedFloatingPointEnvironment(const ScopedFloatingPointEnvironment&) = delete;
+    ScopedFloatingPointEnvironment& operator=(
+        const ScopedFloatingPointEnvironment&) = delete;
+
+    [[nodiscard]] Status Finish() noexcept;
+
+private:
+    FloatingPointEnvironment before_{};
+    bool finished_{};
+};
 }

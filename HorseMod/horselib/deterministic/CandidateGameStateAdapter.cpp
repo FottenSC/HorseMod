@@ -1,5 +1,7 @@
 #include "CandidateGameStateAdapter.hpp"
 
+#include "FloatingPointEnvironment.hpp"
+
 namespace Horse::Deterministic
 {
 CandidateGameStateAdapter::CandidateGameStateAdapter(
@@ -74,11 +76,16 @@ Status CandidateGameStateAdapter::PreflightCapture(
 Status CandidateGameStateAdapter::capture_image(
     CandidateCheckpointImage& output) noexcept
 {
+    ScopedFloatingPointEnvironment fp_scope;
     output = {};
     Status status = regions_.Capture(output.native);
-    if (!status.ok()) return status;
-    return hgcpu_.Capture(
-        binding_.hgcpu_writer, binding_.hgcpu_context, output.hgcpu);
+    if (status.ok())
+    {
+        status = hgcpu_.Capture(
+            binding_.hgcpu_writer, binding_.hgcpu_context, output.hgcpu);
+    }
+    const Status fp = fp_scope.Finish();
+    return status.ok() ? fp : status;
 }
 
 Status CandidateGameStateAdapter::Capture(
@@ -125,21 +132,27 @@ Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
     CandidateCheckpointImage image{};
     const Status preflight = decode_and_preflight(snapshot, image);
     if (!preflight.ok()) return preflight;
+    ScopedFloatingPointEnvironment fp_scope;
 
     // The native reader reconstructs local opaque state first. Explicit typed
     // canonical fields are then restored last so their documented values win.
     const Status reconstructed = hgcpu_.Restore(
         binding_.hgcpu_reader, binding_.hgcpu_context, image.hgcpu);
-    if (!reconstructed.ok()) return reconstructed;
-    return regions_.RestoreTransactional(image.native);
+    Status restored = reconstructed;
+    if (restored.ok()) restored = regions_.RestoreTransactional(image.native);
+    const Status fp = fp_scope.Finish();
+    return restored.ok() ? fp : restored;
 }
 
 Status CandidateGameStateAdapter::RebuildDerivedState() noexcept
 {
     if (!bound_) return Status::failure(FailureCode::AdapterUnqualified);
-    return binding_.rebuild != nullptr
+    ScopedFloatingPointEnvironment fp_scope;
+    const Status rebuilt = binding_.rebuild != nullptr
         ? binding_.rebuild(binding_.action_user)
         : Status::success();
+    const Status fp = fp_scope.Finish();
+    return rebuilt.ok() ? fp : rebuilt;
 }
 
 Status CandidateGameStateAdapter::VerifyRestoredState(
@@ -165,10 +178,13 @@ Status CandidateGameStateAdapter::AdvanceFrame(FrameCoordinate coordinate,
 {
     if (!bound_ || coordinate.generation != binding_.context.generation)
         return Status::failure(FailureCode::GenerationMismatch);
-    return binding_.advance != nullptr
+    ScopedFloatingPointEnvironment fp_scope;
+    const Status advanced = binding_.advance != nullptr
         ? binding_.advance(binding_.action_user, coordinate, inputs,
             suppress_ephemeral_presentation)
         : Status::failure(FailureCode::AdapterUnqualified);
+    const Status fp = fp_scope.Finish();
+    return advanced.ok() ? fp : advanced;
 }
 
 Status CandidateGameStateAdapter::ReconcilePresentation(
@@ -176,8 +192,11 @@ Status CandidateGameStateAdapter::ReconcilePresentation(
 {
     if (!bound_ || coordinate.generation != binding_.context.generation)
         return Status::failure(FailureCode::GenerationMismatch);
-    return binding_.reconcile != nullptr
+    ScopedFloatingPointEnvironment fp_scope;
+    const Status reconciled = binding_.reconcile != nullptr
         ? binding_.reconcile(binding_.action_user, coordinate)
         : Status::failure(FailureCode::AdapterUnqualified);
+    const Status fp = fp_scope.Finish();
+    return reconciled.ok() ? fp : reconciled;
 }
 }
