@@ -25,6 +25,8 @@ struct ReplayTimelineStatus
     std::uint64_t captured_frames{};
     std::uint64_t captured_checkpoints{};
     std::size_t checkpoint_bytes{};
+    std::uint64_t maximum_checkpoint_gap{};
+    std::uint64_t maximum_checkpoint_target_overshoot{};
     std::uint64_t repeat_requests{};
     std::uint64_t same_native_time_coordinates{};
     std::uint64_t cursor_mismatches{};
@@ -69,6 +71,9 @@ private:
     static void* ResolveStage(void* user) noexcept;
 
     [[nodiscard]] void* ResolveFighter(std::size_t index) noexcept;
+    void CaptureBatchCheckpoint(
+        const OuterTickObservation& observation,
+        std::uint32_t coordinate_count) noexcept;
 
     Lux& lux_;
     std::optional<Sc6ReplayNativeBridge> bridge_{};
@@ -88,6 +93,9 @@ private:
     std::uint64_t pending_batch_id_{};
     FrameCoordinate pending_batch_entry_{};
     std::vector<FrameCoordinate> pending_batch_coordinates_{};
+    FrameFencepostObservation last_frame_observation_{};
+    std::uint64_t checkpoint_generation_{};
+    std::uint64_t next_checkpoint_frame_{};
 };
 }
 }

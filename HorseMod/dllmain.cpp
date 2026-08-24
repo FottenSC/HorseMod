@@ -3266,32 +3266,6 @@ private:
             return;
         }
         self->observe_hgcpu_diagnostic(observation.frame_counter);
-        const auto timeline = self->m_replay_native_runtime.timeline_status();
-        const auto logged_checkpoints =
-            self->m_candidate_checkpoint_logged_count.load(std::memory_order_acquire);
-        if (self->m_deterministic_config.trace
-            && timeline.captured_checkpoints > logged_checkpoints)
-        {
-            self->m_candidate_checkpoint_logged_count.store(
-                timeline.captured_checkpoints, std::memory_order_release);
-            Output::send<LogLevel::Default>(STR(
-                "[HorseMod] candidate checkpoint captured count={} generation={} "
-                "frame={} bytes={}\n"),
-                timeline.captured_checkpoints,
-                timeline.last_coordinate.generation,
-                timeline.last_coordinate.frame,
-                timeline.checkpoint_bytes);
-        }
-        if (timeline.checkpoint_failure != Horse::Deterministic::FailureCode::None
-            && !self->m_candidate_checkpoint_first_failure_logged.exchange(
-                true, std::memory_order_acq_rel))
-        {
-            const auto failure = Horse::Deterministic::failure_code_name(
-                timeline.checkpoint_failure);
-            Output::send<LogLevel::Warning>(STR(
-                "[HorseMod] candidate checkpoint capture unavailable: {}\n"),
-                RC::to_generic_string(std::string(failure)));
-        }
 
         const std::uintptr_t prior_manager = self->m_frame_fencepost_manager.exchange(
             observation.battle_manager, std::memory_order_acq_rel);
@@ -3344,6 +3318,33 @@ private:
         }
 
         const auto timeline = self->m_replay_native_runtime.timeline_status();
+        const auto logged_checkpoints =
+            self->m_candidate_checkpoint_logged_count.load(std::memory_order_acquire);
+        if (self->m_deterministic_config.trace
+            && timeline.captured_checkpoints > logged_checkpoints)
+        {
+            self->m_candidate_checkpoint_logged_count.store(
+                timeline.captured_checkpoints, std::memory_order_release);
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] candidate checkpoint captured count={} generation={} "
+                "frame={} bytes={} max_gap={} max_overshoot={}\n"),
+                timeline.captured_checkpoints,
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame,
+                timeline.checkpoint_bytes,
+                timeline.maximum_checkpoint_gap,
+                timeline.maximum_checkpoint_target_overshoot);
+        }
+        if (timeline.checkpoint_failure != Horse::Deterministic::FailureCode::None
+            && !self->m_candidate_checkpoint_first_failure_logged.exchange(
+                true, std::memory_order_acq_rel))
+        {
+            const auto failure = Horse::Deterministic::failure_code_name(
+                timeline.checkpoint_failure);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] candidate checkpoint capture unavailable: {}\n"),
+                RC::to_generic_string(std::string(failure)));
+        }
         const std::uint64_t completed_intervals = timeline.captured_frames / 600;
         std::uint64_t logged_intervals =
             self->m_native_batch_evidence_logged_intervals.load(
@@ -7769,13 +7770,18 @@ private:
                             m_replay_exit_observations.load()));
                     ImGui::TextDisabled(
                         "Replay timeline: frames=%llu sessions=%llu generations=%llu "
-                        "checkpoints=%llu checkpoint_mib=%.2f "
+                        "checkpoints=%llu checkpoint_mib=%.2f gap_max=%llu "
+                        "overshoot_max=%llu "
                         "round=%d native_time=%d%s",
                         static_cast<unsigned long long>(timeline.captured_frames),
                         static_cast<unsigned long long>(timeline.sessions),
                         static_cast<unsigned long long>(timeline.generations),
                         static_cast<unsigned long long>(timeline.captured_checkpoints),
                         static_cast<double>(timeline.checkpoint_bytes) / (1024.0 * 1024.0),
+                        static_cast<unsigned long long>(
+                            timeline.maximum_checkpoint_gap),
+                        static_cast<unsigned long long>(
+                            timeline.maximum_checkpoint_target_overshoot),
                         timeline.native_round,
                         timeline.native_time,
                         timeline.partial ? " (memory limit reached)" : "");

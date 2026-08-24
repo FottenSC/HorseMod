@@ -2,6 +2,8 @@
 
 #include "../HorseLib.hpp"
 
+#include <algorithm>
+
 namespace Horse::Deterministic
 {
 Sc6ReplayRuntime::Sc6ReplayRuntime(Lux& lux) noexcept
@@ -45,6 +47,9 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     pending_batch_id_ = 0;
     pending_batch_entry_ = {};
     pending_batch_coordinates_.clear();
+    last_frame_observation_ = {};
+    checkpoint_generation_ = 0;
+    next_checkpoint_frame_ = 0;
 }
 
 bool Sc6ReplayRuntime::ready() const noexcept
@@ -175,18 +180,7 @@ Status Sc6ReplayRuntime::ObserveFrame(
     timeline_status_.unpause_countdown = observation.unpause_countdown;
     timeline_status_.pending_move_state = observation.pending_move_state;
     ++timeline_status_.captured_frames;
-    if (new_generation || coordinate.frame % Schema::checkpoint_interval == 0)
-    {
-        const Status checkpoint = checkpoint_capture_.Capture(
-            observation, coordinate, timeline_session_generation_);
-        const auto checkpoint_status = checkpoint_capture_.status();
-        timeline_status_.captured_checkpoints = checkpoint_status.captured;
-        timeline_status_.checkpoint_bytes = checkpoint_status.bytes_used;
-        timeline_status_.checkpoint_failure = checkpoint.ok()
-            ? FailureCode::None : checkpoint.code;
-        if (checkpoint.code == FailureCode::CapacityExceeded)
-            timeline_status_.partial = true;
-    }
+    last_frame_observation_ = observation;
     return Status::success();
 }
 
@@ -332,7 +326,55 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     {
         ++timeline_status_.batch_frame_accounting_mismatches;
     }
+    CaptureBatchCheckpoint(observation, coordinate_count);
     return Status::success();
+}
+
+void Sc6ReplayRuntime::CaptureBatchCheckpoint(
+    const OuterTickObservation& observation,
+    std::uint32_t coordinate_count) noexcept
+{
+    if (coordinate_count == 0 || timeline_status_.partial
+        || last_frame_observation_.outer_batch_id != observation.batch_id)
+    {
+        return;
+    }
+    const FrameCoordinate coordinate = timeline_status_.last_coordinate;
+    const bool new_generation = checkpoint_generation_ != coordinate.generation;
+    if (!new_generation && coordinate.frame < next_checkpoint_frame_)
+        return;
+
+    const std::uint64_t target_frame = new_generation
+        ? coordinate.frame : next_checkpoint_frame_;
+    const auto prior = checkpoint_capture_.status().last_coordinate;
+    const Status checkpoint = checkpoint_capture_.Capture(
+        last_frame_observation_, coordinate, timeline_session_generation_);
+    const auto checkpoint_status = checkpoint_capture_.status();
+    timeline_status_.captured_checkpoints = checkpoint_status.captured;
+    timeline_status_.checkpoint_bytes = checkpoint_status.bytes_used;
+    timeline_status_.checkpoint_failure = checkpoint.ok()
+        ? FailureCode::None : checkpoint.code;
+    if (checkpoint.code == FailureCode::CapacityExceeded)
+    {
+        timeline_status_.partial = true;
+        return;
+    }
+    if (!checkpoint.ok())
+        return;
+
+    if (prior.generation == coordinate.generation)
+    {
+        timeline_status_.maximum_checkpoint_gap = std::max(
+            timeline_status_.maximum_checkpoint_gap,
+            coordinate.frame - prior.frame);
+    }
+    timeline_status_.maximum_checkpoint_target_overshoot = std::max(
+        timeline_status_.maximum_checkpoint_target_overshoot,
+        coordinate.frame - target_frame);
+    checkpoint_generation_ = coordinate.generation;
+    next_checkpoint_frame_ =
+        (coordinate.frame / Schema::checkpoint_interval + 1)
+        * Schema::checkpoint_interval;
 }
 
 void Sc6ReplayRuntime::ObserveReplayExit() noexcept
