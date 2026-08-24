@@ -602,6 +602,21 @@ not admitted: undo capture was 0.633 ms, restore 7.345 ms, resimulation 21.481
 ms, verification 0.647 ms, and total 32.021 ms, above the 16.67 ms depth-11
 gate. Production rollback remains disabled and the allowlist remains empty.
 
+The first performance correction removed diagnostic-only full checkpoint
+captures from every successful inter-batch boundary and deferred the expensive
+decoded-image difference scan unless the final canonical comparison actually
+fails. These diagnostics remain available on failure and do not change the
+restore, resimulation, or final recapture contract. On source commit `722d603d`
+with the same schema and replay, normal-render dirty-build DLL SHA-256
+`4ED3A091C6F140353239AD7F68A31D0940E108C5773AC64C0D1A384B009424C5`
+again converged exactly at depth 11 from coordinate 172 through 183. Undo
+capture was 0.630 ms, restore 6.812 ms, resimulation 1.698 ms, verification
+0.673 ms, and total 10.464 ms. The adapter's restore instrumentation reported
+local 2.250 ms, typed 0.100 ms, wind 0.030 ms, UCRT 0.010 ms, and total 4.060
+ms maxima for this run. This single workload now passes the 16.67 ms depth-11
+latency limit; p99 admission still requires the complete three-matchup sample.
+Production rollback remains disabled and the allowlist remains empty.
+
 Codec reset paths now destroy/reconstruct the large value image in place rather
 than materializing another approximately 48-KiB temporary. The direct suite
 caught the prior stack-overflow boundary. The three deterministic CTest targets

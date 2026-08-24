@@ -3478,12 +3478,24 @@ private:
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] owned correction probe passed depth={} base={} "
             "final={} batches={} coordinates={} undo_capture_us={} "
-            "restore_us={} resim_us={} verify_us={} total_us={}\n"),
+            "restore_us={} resim_us={} verify_us={} total_us={} "
+            "restore_phase_us(local={}/{} typed={}/{} wind={}/{} "
+            "ucrt={}/{} total={}/{})\n"),
             depths[index], result.resimulation_base.frame,
             result.final_coordinate.frame, result.replayed_batches,
             result.replayed_coordinates, result.undo_capture_ns / 1000,
             result.restore_ns / 1000, result.resimulation_ns / 1000,
-            result.verification_ns / 1000, result.total_ns / 1000);
+            result.verification_ns / 1000, result.total_ns / 1000,
+            result.primary_performance.local_restore.p99_ns / 1000,
+            result.primary_performance.local_restore.maximum_ns / 1000,
+            result.primary_performance.typed_restore.p99_ns / 1000,
+            result.primary_performance.typed_restore.maximum_ns / 1000,
+            result.primary_performance.wind_restore.p99_ns / 1000,
+            result.primary_performance.wind_restore.maximum_ns / 1000,
+            result.primary_performance.ucrt_restore.p99_ns / 1000,
+            result.primary_performance.ucrt_restore.maximum_ns / 1000,
+            result.primary_performance.total_restore.p99_ns / 1000,
+            result.primary_performance.total_restore.maximum_ns / 1000);
     }
 
     void observe_hgcpu_diagnostic(std::uint32_t frame) noexcept

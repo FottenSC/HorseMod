@@ -1119,20 +1119,7 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         plan.final_batch_index, earliest_changed.generation, hooks,
         std::nullopt, UINT32_MAX, nullptr, &output.replayed_coordinates,
         &output.replayed_batches, &output.failed_batch_index,
-        &output.failed_envelope, &output.failed_batch_result,
-        &output.first_interbatch_difference_mask,
-        &output.first_interbatch_difference_batch,
-        &output.first_interbatch_frame_difference_mask,
-        &output.first_interbatch_local_difference,
-        &output.interbatch_local_difference_count,
-        &output.first_interbatch_motion_difference,
-        &output.interbatch_motion_difference_count,
-        &output.first_interbatch_expected_rng,
-        &output.first_interbatch_observed_rng,
-        &output.first_interbatch_expected_wind,
-        &output.first_interbatch_observed_wind,
-        &output.first_interbatch_expected_wind_graph,
-        &output.first_interbatch_observed_wind_graph);
+        &output.failed_envelope, &output.failed_batch_result);
     output.resimulation_ns = elapsed_ns(phase_begin, Clock::now());
     if (output.first_interbatch_local_difference != UINT32_MAX)
     {
@@ -1155,9 +1142,13 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         timeline_status_.last_coordinate, verified);
     output.verification_ns = elapsed_ns(phase_begin, Clock::now());
     output.final_hash = verified.canonical_hash;
+    const bool final_mismatch = status.ok()
+        && (verified.coordinate != timeline_status_.last_coordinate
+            || verified.canonical_hash != expected_final_hash);
     CandidateCheckpointImage expected_image{};
     CandidateCheckpointImage verified_image{};
-    if (CandidateCheckpointCodec::Decode(undo, expected_image).ok()
+    if (final_mismatch
+        && CandidateCheckpointCodec::Decode(undo, expected_image).ok()
         && CandidateCheckpointCodec::Decode(verified, verified_image).ok())
     {
         output.undo_comparison_mask = CandidateDifferenceMask(
@@ -1311,9 +1302,7 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
                     static_cast<std::uint32_t>(common);
         }
     }
-    if (status.ok()
-        && (verified.coordinate != timeline_status_.last_coordinate
-            || verified.canonical_hash != expected_final_hash))
+    if (final_mismatch)
     {
         status = Status::failure(FailureCode::StateHashMismatch);
     }
@@ -1325,6 +1314,7 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     }
 
     output.converged = true;
+    output.primary_performance = checkpoint_capture_.adapter_performance();
     return finish(Status::success());
 }
 
