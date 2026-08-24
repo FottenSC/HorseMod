@@ -1,6 +1,12 @@
 #include "ReplayPayloadImporter.hpp"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
+
+#include <Unreal/UObject.hpp>
+#include <Unreal/UObjectGlobals.hpp>
 
 #include <array>
 #include <climits>
@@ -25,6 +31,9 @@ using DecompressFn = bool (__fastcall*)(ByteArray*, ByteArray*);
 using DeserializeFn = bool (__fastcall*)(ByteArray*, void*);
 using CopyFn = void* (__fastcall*)(void*, void*);
 using FreeFn = void (__fastcall*)(void*);
+using GetContainerClassFn = const RC::Unreal::UClass* (__fastcall*)();
+using RequestPlayerProfilesFn = bool (__fastcall*)(void*);
+using ApplyPlaybackContextFn = void (__fastcall*)(void*);
 using QueueStageMapFn = void (__fastcall*)(void*, std::uint8_t,
                                            std::uint8_t, std::int32_t);
 
@@ -38,6 +47,9 @@ struct NativeFunctions
     CopyFn copy_battle_data{};
     CopyFn copy_item{};
     FreeFn free_memory{};
+    GetContainerClassFn get_container_class{};
+    RequestPlayerProfilesFn request_player_profiles{};
+    ApplyPlaybackContextFn apply_playback_context{};
     QueueStageMapFn queue_stage_map{};
 };
 
@@ -66,6 +78,12 @@ constexpr FunctionContract kContracts[]{
                 std::byte{0x08}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83}}},
     {0xd46a00, {std::byte{0x48}, std::byte{0x85}, std::byte{0xc9}, std::byte{0x74},
                 std::byte{0x1d}, std::byte{0x4c}, std::byte{0x8b}, std::byte{0x05}}},
+    {0xb77900, {std::byte{0x48}, std::byte{0x81}, std::byte{0xec}, std::byte{0x98},
+                std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x48}}},
+    {0x5e90c0, {std::byte{0x40}, std::byte{0x55}, std::byte{0x53}, std::byte{0x57},
+                std::byte{0x41}, std::byte{0x54}, std::byte{0x48}, std::byte{0x8d}}},
+    {0x5e3010, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+                std::byte{0x10}, std::byte{0x57}, std::byte{0x48}, std::byte{0x81}}},
     {0x550d70, {std::byte{0x48}, std::byte{0x8b}, std::byte{0xc4}, std::byte{0x41},
                 std::byte{0x54}, std::byte{0x41}, std::byte{0x56}, std::byte{0x41}}},
 };
@@ -109,8 +127,14 @@ void Release(ByteArray& bytes) noexcept
 }
 }
 
+ReplayPayloadImporter::~ReplayPayloadImporter()
+{
+    ReleasePlaybackContext();
+}
+
 bool ReplayPayloadImporter::Bind(std::uintptr_t image_base) noexcept
 {
+    ReleasePlaybackContext();
     g_functions = {};
     if (image_base == 0 || !ValidateContracts(image_base)) return false;
     g_functions = {
@@ -122,6 +146,9 @@ bool ReplayPayloadImporter::Bind(std::uintptr_t image_base) noexcept
         reinterpret_cast<CopyFn>(image_base + 0x538580),
         reinterpret_cast<CopyFn>(image_base + 0x57e1b0),
         reinterpret_cast<FreeFn>(image_base + 0xd46a00),
+        reinterpret_cast<GetContainerClassFn>(image_base + 0xb77900),
+        reinterpret_cast<RequestPlayerProfilesFn>(image_base + 0x5e90c0),
+        reinterpret_cast<ApplyPlaybackContextFn>(image_base + 0x5e3010),
         reinterpret_cast<QueueStageMapFn>(image_base + 0x550d70)};
     return true;
 }
@@ -132,12 +159,14 @@ ImportFailure ReplayPayloadImporter::Import(
     constexpr std::size_t kMaximumPayload = 64u * 1024u * 1024u;
     constexpr std::size_t kItemSize = 0x1a00;
     constexpr std::size_t kBattleData = 0xa0;
+    constexpr std::size_t kContainerCurrentItem = 0x80;
     constexpr std::size_t kCurrentTarget = 0x40;
     constexpr std::size_t kTemporaryItem = 0x19e0;
     constexpr std::size_t kStageIndex = kBattleData + 0x98;
     constexpr std::size_t kLeftCharacter = kBattleData + 0xa0 + 0x28 + 0x08;
     constexpr std::size_t kRightCharacter = kBattleData + 0xcf0 + 0x28 + 0x08;
     metadata = {};
+    ReleasePlaybackContext();
     if (g_functions.initialize == nullptr || payload.size() < 8
         || payload.size() > kMaximumPayload || payload.size() > INT32_MAX
         || std::memcmp(payload.data(), "ULX1", 4) != 0)
@@ -204,6 +233,41 @@ ImportFailure ReplayPayloadImporter::Import(
                 });
                 if (!copied) result = ImportFailure::CopyFailed;
             }
+            if (result == ImportFailure::None)
+            {
+                playback_container_ = SafeCall<void*>(nullptr, [&]() {
+                    const RC::Unreal::UClass* klass =
+                        g_functions.get_container_class();
+                    if (klass == nullptr) return static_cast<void*>(nullptr);
+                    RC::Unreal::UObject* container =
+                        RC::Unreal::UObjectGlobals::NewObject<
+                            RC::Unreal::UObject>(nullptr, klass);
+                    if (container != nullptr) container->SetRootSet();
+                    return static_cast<void*>(container);
+                });
+                if (playback_container_ == nullptr)
+                {
+                    result = ImportFailure::ContainerCreateFailed;
+                }
+                else
+                {
+                    auto* container =
+                        static_cast<std::byte*>(playback_container_);
+                    const bool copied = SafeCall(false, [&]() {
+                        g_functions.copy_item(
+                            container + kContainerCurrentItem, item.data());
+                        g_functions.copy_battle_data(
+                            container + kContainerCurrentItem + kBattleData,
+                            item.data() + kBattleData);
+                        return true;
+                    });
+                    if (!copied)
+                    {
+                        result = ImportFailure::PlaybackContextCopyFailed;
+                        ReleasePlaybackContext();
+                    }
+                }
+            }
         }
     }
 
@@ -212,8 +276,47 @@ ImportFailure ReplayPayloadImporter::Import(
         return true;
     });
     Release(decoded);
-    return !destroyed && result == ImportFailure::None
-        ? ImportFailure::DestroyFailed : result;
+    if (!destroyed && result == ImportFailure::None)
+        result = ImportFailure::DestroyFailed;
+    if (result != ImportFailure::None) ReleasePlaybackContext();
+    return result;
+}
+
+bool ReplayPayloadImporter::RequestPlayerProfiles() noexcept
+{
+    if (playback_container_ == nullptr
+        || g_functions.request_player_profiles == nullptr)
+    {
+        return false;
+    }
+    return SafeCall(false, [&]() {
+        return g_functions.request_player_profiles(playback_container_);
+    });
+}
+
+bool ReplayPayloadImporter::ApplyPlaybackContext() noexcept
+{
+    if (playback_container_ == nullptr
+        || g_functions.apply_playback_context == nullptr)
+    {
+        return false;
+    }
+    return SafeCall(false, [&]() {
+        g_functions.apply_playback_context(playback_container_);
+        return true;
+    });
+}
+
+void ReplayPayloadImporter::ReleasePlaybackContext() noexcept
+{
+    if (playback_container_ == nullptr) return;
+    SafeCall(false, [&]() {
+        auto* container =
+            static_cast<RC::Unreal::UObject*>(playback_container_);
+        if (container->IsRootSet()) container->ClearRootSet();
+        return true;
+    });
+    playback_container_ = nullptr;
 }
 
 bool ReplayPayloadImporter::QueueStageMap(

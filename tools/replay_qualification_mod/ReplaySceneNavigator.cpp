@@ -144,7 +144,8 @@ bool ReplaySceneNavigator::Bind(std::uintptr_t image_base) noexcept
     return true;
 }
 
-NavigationState ReplaySceneNavigator::Tick(std::string& detail)
+NavigationState ReplaySceneNavigator::Tick(
+    bool playback_context_staged, std::string& detail)
 {
     RC::Unreal::UObject* manager = FindManager();
     RC::Unreal::UObject* scene = CurrentScene(manager);
@@ -188,6 +189,12 @@ NavigationState ReplaySceneNavigator::Tick(std::string& detail)
         }
         detail = "title_to_main_menu_requested";
         return NavigationState::Waiting;
+    }
+    if (scene_name.find("ReplayListScene") != std::string::npos
+        && !playback_context_staged)
+    {
+        detail = scene_name;
+        return NavigationState::ReplayListReady;
     }
     const wchar_t* tag = scene_name.find("ReplaySetupScene") != std::string::npos
         ? L"replaybattle"

@@ -268,6 +268,10 @@ private:
         last_run_id_ = request.run_id;
         request_ = std::move(request);
         started_ = std::chrono::steady_clock::now();
+        player_profiles_requested_ = false;
+        playback_context_staged_ = false;
+        profile_attempts_ = 0;
+        next_profile_attempt_ = {};
         state_ = State::Importing;
         Output::send<LogLevel::Default>(STR(
             "[ReplayQualification] accepted replay request run_id={}\n"),
@@ -327,7 +331,7 @@ private:
         RC::Unreal::UObject* instance = FindGameInstance();
         std::string navigation_detail;
         const Horse::Qualification::NavigationState navigation =
-            navigator_.Tick(navigation_detail);
+            navigator_.Tick(playback_context_staged_, navigation_detail);
         if (navigation_detail != last_navigation_detail_)
         {
             last_navigation_detail_ = navigation_detail;
@@ -338,6 +342,11 @@ private:
         if (navigation == Horse::Qualification::NavigationState::Failed)
         {
             Fail(navigation_detail);
+            return;
+        }
+        if (navigation == Horse::Qualification::NavigationState::ReplayListReady)
+        {
+            PollPlayerProfiles();
             return;
         }
         if (navigation != Horse::Qualification::NavigationState::Ready)
@@ -357,11 +366,48 @@ private:
             return;
         }
         state_ = State::Launched;
+        importer_.ReleasePlaybackContext();
         WriteResult("launch_requested", "none");
+    }
+
+    void PollPlayerProfiles()
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (!player_profiles_requested_)
+        {
+            if (now < next_profile_attempt_) return;
+            ++profile_attempts_;
+            if (!importer_.RequestPlayerProfiles())
+            {
+                if (profile_attempts_ >= 3)
+                {
+                    Fail("player_profile_request_failed");
+                    return;
+                }
+                next_profile_attempt_ = now + std::chrono::seconds(1);
+                return;
+            }
+            player_profiles_requested_ = true;
+            player_profiles_requested_at_ = now;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] replay player profiles requested\n"));
+            return;
+        }
+        if (now - player_profiles_requested_at_ < std::chrono::seconds(2))
+            return;
+        if (!importer_.ApplyPlaybackContext())
+        {
+            Fail("playback_context_apply_failed");
+            return;
+        }
+        playback_context_staged_ = true;
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] native replay playback context staged\n"));
     }
 
     void Fail(std::string_view reason)
     {
+        importer_.ReleasePlaybackContext();
         state_ = State::Failed;
         WriteResult("failed", reason);
     }
@@ -388,12 +434,17 @@ private:
     std::string last_run_id_{};
     std::string last_navigation_detail_{};
     std::chrono::steady_clock::time_point started_{};
+    std::chrono::steady_clock::time_point player_profiles_requested_at_{};
+    std::chrono::steady_clock::time_point next_profile_attempt_{};
     State state_{State::Idle};
     std::uint32_t poll_divider_{};
     RC::Unreal::Hook::GlobalCallbackId engine_tick_id_{
         RC::Unreal::Hook::ERROR_ID};
     bool bound_{};
     bool waiting_context_logged_{};
+    bool player_profiles_requested_{};
+    bool playback_context_staged_{};
+    std::uint8_t profile_attempts_{};
 };
 
 #define REPLAY_QUALIFICATION_API __declspec(dllexport)
