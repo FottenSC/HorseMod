@@ -38,6 +38,7 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/HgCpuCoverageProbe.cpp
     horselib/deterministic/HgCpuRuntimeDiagnostics.cpp
     horselib/deterministic/MoveDispatchState.cpp
+    horselib/deterministic/NativeReplayMaterializer.cpp
     horselib/deterministic/InputTimeline.cpp
     horselib/deterministic/NativeCandidateRegions.cpp
     horselib/deterministic/OnlineCoordinator.cpp

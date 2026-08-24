@@ -1,5 +1,6 @@
 #include "deterministic/InputTimeline.hpp"
 #include "deterministic/Config.hpp"
+#include "deterministic/NativeReplayMaterializer.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/ReplayCoordinator.hpp"
 #include "deterministic/SnapshotStore.hpp"
@@ -198,6 +199,53 @@ public:
     bool corrupt_identity{};
 };
 
+class FakeReplayNativeBridge final : public IReplayNativeBridge
+{
+public:
+    Status InspectRound(
+        std::uint32_t native_round_index,
+        ReplayNativeRoundView& output) noexcept override
+    {
+        if (failure != FailureCode::None)
+        {
+            return Status::failure(failure);
+        }
+        if (native_round_index >= view.round_count)
+        {
+            return Status::failure(FailureCode::IdentityMismatch);
+        }
+        output = view;
+        return Status::success();
+    }
+
+    Status RequestRoundReset(
+        std::uint32_t native_round_index,
+        std::uint64_t round_image_identity) noexcept override
+    {
+        if (native_round_index >= view.round_count
+            || round_image_identity != view.round_image_identity)
+        {
+            return Status::failure(FailureCode::IdentityMismatch);
+        }
+        ++request_count;
+        view.move_state = 4;
+        view.pending_dispatch = 0;
+        view.round_image_applied = 0;
+        return Status::success();
+    }
+
+    void CompleteFence() noexcept
+    {
+        view.move_state = 0;
+        view.pending_dispatch = 1;
+        view.round_image_applied = 1;
+    }
+
+    ReplayNativeRoundView view{};
+    FailureCode failure{FailureCode::None};
+    int request_count{};
+};
+
 struct Fixture
 {
     FakeAdapter adapter;
@@ -384,6 +432,39 @@ void test_cross_generation_identity_mismatch_fails_before_restore()
     expect(!materializer.requested.has_value(), "failed seek cancels native materializer");
 }
 
+void test_native_replay_materializer_requires_state4_fencepost()
+{
+    FakeReplayNativeBridge bridge;
+    bridge.view.context = context();
+    bridge.view.context.generation = 0;
+    bridge.view.replay_player_identity = 9001;
+    bridge.view.round_image_identity = 7001;
+    bridge.view.round_count = 2;
+    bridge.view.round_capacity = 2;
+    bridge.view.manager_status = 2;
+
+    NativeReplayMaterializer materializer{bridge};
+    const ReplayGenerationTarget target{context(), {1, 0}, 0, 7001};
+    expect(materializer.Preflight(target).ok(), "preflight native replay round image");
+    expect(materializer.Request(target).ok(), "request native state-4 round reset");
+    expect(bridge.request_count == 1, "native round reset requested exactly once");
+    expect(!materializer.Poll().has_value(), "state 4 is not a completion fencepost");
+    expect(
+        materializer.TerminalFailure() == FailureCode::None,
+        "waiting state 4 is nonterminal");
+    bridge.CompleteFence();
+    const auto completed = materializer.Poll();
+    expect(completed.has_value(), "publish after state-4 callback cleanup fencepost");
+    expect(completed->context == context(), "publish exact expected native identities");
+
+    materializer.Cancel();
+    bridge.view.round_image_identity = 8001;
+    expect(
+        materializer.Preflight(target).code == FailureCode::IdentityMismatch,
+        "reject changed native round image before mutation");
+    expect(bridge.request_count == 1, "failed image preflight performs no native request");
+}
+
 void test_transactional_restore_failures_undo()
 {
     for (const AdapterFailure phase : {
@@ -433,6 +514,7 @@ int main()
     test_replay_checkpoint_seek_and_resume();
     test_cross_generation_seek_materializes_before_restore();
     test_cross_generation_identity_mismatch_fails_before_restore();
+    test_native_replay_materializer_requires_state4_fencepost();
     test_transactional_restore_failures_undo();
     if (failures == 0)
     {
