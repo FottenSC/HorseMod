@@ -494,6 +494,22 @@ const NativeBatchTimeline& Sc6ReplayRuntime::batch_timeline() const noexcept
     return batch_timeline_;
 }
 
+Status Sc6ReplayRuntime::PlanSeek(
+    FrameCoordinate target, ReplaySeekPlan& output) const noexcept
+{
+    output = {};
+    if (!ready())
+        return Status::failure(FailureCode::ContextUnavailable);
+    if (timeline_status_.failure != FailureCode::None)
+        return Status::failure(timeline_status_.failure);
+    return PlanReplaySeek(
+        target,
+        batch_timeline_,
+        checkpoint_capture_.snapshots(CandidateCheckpointRole::BatchEntry),
+        Schema::checkpoint_interval - 1,
+        output);
+}
+
 void* Sc6ReplayRuntime::ResolveReplayPlayer(void* user) noexcept
 {
     auto* runtime = static_cast<Sc6ReplayRuntime*>(user);

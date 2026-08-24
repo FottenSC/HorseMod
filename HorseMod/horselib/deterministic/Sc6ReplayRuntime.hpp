@@ -3,6 +3,7 @@
 #include "DeterministicHookSet.hpp"
 #include "InputTimeline.hpp"
 #include "NativeBatchTimeline.hpp"
+#include "ReplaySeekPlanner.hpp"
 #include "Sc6CandidateCheckpointCapture.hpp"
 #include "Sc6ReplayNativeBridge.hpp"
 
@@ -68,6 +69,8 @@ public:
     [[nodiscard]] ReplayTimelineStatus timeline_status() const noexcept;
     [[nodiscard]] const InputTimeline& input_timeline() const noexcept;
     [[nodiscard]] const NativeBatchTimeline& batch_timeline() const noexcept;
+    [[nodiscard]] Status PlanSeek(
+        FrameCoordinate target, ReplaySeekPlan& output) const noexcept;
 
 private:
     Status PrepareInitialGeneration(
