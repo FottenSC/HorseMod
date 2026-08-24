@@ -41,6 +41,8 @@ struct ReplayTimelineStatus
     std::uint64_t fp_samples{};
     std::uint64_t fp_control_mismatches{};
     std::uint64_t fp_status_mismatches{};
+    std::uint64_t fp_x87_status_mismatches{};
+    std::uint64_t fp_mxcsr_status_mismatches{};
     std::uint64_t coordinates_without_batch_entry_checkpoint{};
     std::uint64_t maximum_batch_entry_checkpoint_gap{};
     std::uint64_t maximum_resim_distance_from_batch_entry{};

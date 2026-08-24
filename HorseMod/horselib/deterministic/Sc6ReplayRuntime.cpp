@@ -369,6 +369,10 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         ++timeline_status_.fp_control_mismatches;
     if (!FloatingPointStatusMatches(observation.fp_before, observation.fp_after))
         ++timeline_status_.fp_status_mismatches;
+    if (!FloatingPointX87StatusMatches(observation.fp_before, observation.fp_after))
+        ++timeline_status_.fp_x87_status_mismatches;
+    if (!FloatingPointMxcsrStatusMatches(observation.fp_before, observation.fp_after))
+        ++timeline_status_.fp_mxcsr_status_mismatches;
     if (observation.after.frame_counter != observation.before.frame_counter
         && timeline_manager_ != 0
         && timeline_manager_ != observation.battle_manager)

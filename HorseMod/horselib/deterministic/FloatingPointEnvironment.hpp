@@ -22,4 +22,10 @@ struct FloatingPointEnvironment
 [[nodiscard]] bool FloatingPointStatusMatches(
     const FloatingPointEnvironment& left,
     const FloatingPointEnvironment& right) noexcept;
+[[nodiscard]] bool FloatingPointX87StatusMatches(
+    const FloatingPointEnvironment& left,
+    const FloatingPointEnvironment& right) noexcept;
+[[nodiscard]] bool FloatingPointMxcsrStatusMatches(
+    const FloatingPointEnvironment& left,
+    const FloatingPointEnvironment& right) noexcept;
 }

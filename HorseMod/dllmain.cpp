@@ -3445,6 +3445,7 @@ private:
                 "batch_accounting_mismatches={} entry_uncovered={} "
                 "entry_gap_max={} resim_distance_max={} fp_samples={} "
                 "fp_control_mismatches={} fp_status_mismatches={} "
+                "fp_x87_status_mismatches={} fp_mxcsr_status_mismatches={} "
                 "fp_before=0x{:04x}/0x{:04x}/0x{:08x} "
                 "fp_after=0x{:04x}/0x{:04x}/0x{:08x}\n"),
                 timeline.captured_frames,
@@ -3469,6 +3470,8 @@ private:
                 timeline.fp_samples,
                 timeline.fp_control_mismatches,
                 timeline.fp_status_mismatches,
+                timeline.fp_x87_status_mismatches,
+                timeline.fp_mxcsr_status_mismatches,
                 timeline.fp_last_before.x87_control,
                 timeline.fp_last_before.x87_status,
                 timeline.fp_last_before.mxcsr,

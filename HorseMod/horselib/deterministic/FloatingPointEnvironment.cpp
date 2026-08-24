@@ -43,7 +43,21 @@ bool FloatingPointStatusMatches(
     const FloatingPointEnvironment& left,
     const FloatingPointEnvironment& right) noexcept
 {
-    return left.x87_status == right.x87_status
-        && (left.mxcsr & mxcsr_status_mask) == (right.mxcsr & mxcsr_status_mask);
+    return FloatingPointX87StatusMatches(left, right)
+        && FloatingPointMxcsrStatusMatches(left, right);
+}
+
+bool FloatingPointX87StatusMatches(
+    const FloatingPointEnvironment& left,
+    const FloatingPointEnvironment& right) noexcept
+{
+    return left.x87_status == right.x87_status;
+}
+
+bool FloatingPointMxcsrStatusMatches(
+    const FloatingPointEnvironment& left,
+    const FloatingPointEnvironment& right) noexcept
+{
+    return (left.mxcsr & mxcsr_status_mask) == (right.mxcsr & mxcsr_status_mask);
 }
 }

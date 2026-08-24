@@ -908,6 +908,8 @@ void test_floating_point_environment_capture_is_raw_and_non_mutating()
 
     expect(!FloatingPointControlMatches(original, changed),
         "FP capture distinguishes MXCSR control changes");
+    expect(FloatingPointX87StatusMatches(original, changed),
+        "MXCSR control changes do not masquerade as x87 status changes");
     expect(FloatingPointControlMatches(original, restored)
             && FloatingPointStatusMatches(original, restored),
         "read-only FP capture preserves and recovers exact caller environment");
