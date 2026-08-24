@@ -3196,7 +3196,7 @@ private:
         Horse::Deterministic::FailureCode::None};
     std::atomic<std::uintptr_t> m_replay_exit_state{};
     std::atomic<std::uint64_t> m_replay_exit_observations{};
-    std::uint32_t m_frame_fencepost_expected_thread{};
+    std::atomic<std::uint32_t> m_frame_fencepost_expected_thread{};
     bool m_frame_fencepost_first_observation_logged{};
     bool m_frame_fencepost_incomplete_logged{};
     bool m_frame_fencepost_failure_logged{};
@@ -3215,7 +3215,9 @@ private:
         self->m_frame_fencepost_entries.fetch_add(1, std::memory_order_acq_rel);
         self->m_frame_fencepost_last_read_mask.store(
             observation.read_mask, std::memory_order_release);
-        if (observation.thread_id != self->m_frame_fencepost_expected_thread)
+        if (observation.thread_id
+            != self->m_frame_fencepost_expected_thread.load(
+                std::memory_order_acquire))
         {
             self->m_frame_fencepost_failure.store(
                 Horse::Deterministic::FailureCode::WrongThread,
@@ -3264,7 +3266,9 @@ private:
         {
             return;
         }
-        if (observation.thread_id != self->m_frame_fencepost_expected_thread)
+        if (observation.thread_id
+            != self->m_frame_fencepost_expected_thread.load(
+                std::memory_order_acquire))
         {
             self->m_replay_exit_failure.store(
                 Horse::Deterministic::FailureCode::WrongThread,
@@ -3288,6 +3292,8 @@ private:
         const std::uint64_t observations =
             m_frame_fencepost_observations.load(std::memory_order_acquire);
         if (entries != 0 && observations == 0
+            && m_frame_fencepost_last_read_mask.load(std::memory_order_acquire)
+                != 0x7
             && !m_frame_fencepost_incomplete_logged)
         {
             m_frame_fencepost_incomplete_logged = true;
@@ -3707,6 +3713,12 @@ public:
                    RC::Unreal::UEngine*, float, bool) {
                     HorseMod* self = s_instance.load(std::memory_order_acquire);
                     if (!self) return;
+                    if (self->m_frame_fencepost_expected_thread.load(
+                            std::memory_order_acquire) == 0)
+                    {
+                        self->m_frame_fencepost_expected_thread.store(
+                            ::GetCurrentThreadId(), std::memory_order_release);
+                    }
                     self->service_gameimgui_toggle_key_release();
                     self->service_gameimgui_deferred_install();
                     self->draw_line_overlays_after_battle_tick();
@@ -3733,7 +3745,8 @@ public:
         }
         if (m_deterministic_config.trace)
         {
-            m_frame_fencepost_expected_thread = ::GetCurrentThreadId();
+            m_frame_fencepost_expected_thread.store(
+                0, std::memory_order_release);
             m_frame_fencepost_hook_status = m_deterministic_hooks.Install(
                 Horse::NativeBinding::imageBase(),
                 {this, &HorseMod::on_frame_fencepost, &HorseMod::on_replay_exit});
