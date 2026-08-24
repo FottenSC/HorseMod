@@ -128,6 +128,7 @@ add_library(${TARGET} SHARED
 add_library(ReplayQualificationMod SHARED EXCLUDE_FROM_ALL
     ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod/ReplayQualificationMod.cpp
     ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod/ReplayPayloadImporter.cpp
+    ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod/ReplaySceneNavigator.cpp
 )
 target_include_directories(ReplayQualificationMod PRIVATE
     ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod

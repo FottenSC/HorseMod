@@ -7,6 +7,7 @@
 #include <Windows.h>
 
 #include "ReplayPayloadImporter.hpp"
+#include "ReplaySceneNavigator.hpp"
 
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <Mod/CppUserModBase.hpp>
@@ -224,6 +225,8 @@ public:
     {
         bound_ = importer_.Bind(reinterpret_cast<std::uintptr_t>(
             GetModuleHandleW(nullptr)));
+        bound_ = bound_ && navigator_.Bind(reinterpret_cast<std::uintptr_t>(
+            GetModuleHandleW(nullptr)));
         Output::send<LogLevel::Default>(STR(
             "[ReplayQualification] source={} native_import={}\n"),
             HORSE_WIDEN(REPLAY_QUALIFICATION_SOURCE_COMMIT),
@@ -322,6 +325,16 @@ private:
             return;
         }
         RC::Unreal::UObject* instance = FindGameInstance();
+        std::string navigation_detail;
+        const Horse::Qualification::NavigationState navigation =
+            navigator_.Tick(navigation_detail);
+        if (navigation == Horse::Qualification::NavigationState::Failed)
+        {
+            Fail(navigation_detail);
+            return;
+        }
+        if (navigation != Horse::Qualification::NavigationState::Ready)
+            return;
         bool pending = true;
         bool ready = false;
         if (!CallBool(instance, L"HasAnyBattleRequest", pending)
@@ -362,6 +375,7 @@ private:
     }
 
     Horse::Qualification::ReplayPayloadImporter importer_{};
+    Horse::Qualification::ReplaySceneNavigator navigator_{};
     static inline std::atomic<ReplayQualificationMod*> s_instance_{nullptr};
     Request request_{};
     std::string last_run_id_{};
