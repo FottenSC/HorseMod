@@ -3191,6 +3191,8 @@ private:
     std::atomic<std::uint64_t> m_frame_fencepost_repeats{};
     std::atomic<std::uint64_t> m_frame_fencepost_generations{};
     std::uint32_t m_frame_fencepost_expected_thread{};
+    bool m_frame_fencepost_first_observation_logged{};
+    bool m_frame_fencepost_failure_logged{};
 
     static void on_frame_fencepost(
         void* user,
@@ -3231,6 +3233,33 @@ private:
         {
             self->m_frame_fencepost_repeats.fetch_add(
                 1, std::memory_order_relaxed);
+        }
+    }
+
+    void service_frame_fencepost_diagnostics() noexcept
+    {
+        const std::uint64_t observations =
+            m_frame_fencepost_observations.load(std::memory_order_acquire);
+        if (observations != 0 && !m_frame_fencepost_first_observation_logged)
+        {
+            m_frame_fencepost_first_observation_logged = true;
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] frame-fencepost first observation frame={} "
+                "manager=0x{:x}\n"),
+                m_frame_fencepost_last_frame.load(std::memory_order_acquire),
+                m_frame_fencepost_manager.load(std::memory_order_acquire));
+        }
+
+        const auto failure = m_frame_fencepost_failure.load(
+            std::memory_order_acquire);
+        if (failure != Horse::Deterministic::FailureCode::None
+            && !m_frame_fencepost_failure_logged)
+        {
+            m_frame_fencepost_failure_logged = true;
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] frame-fencepost observation failed: {}\n"),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(failure))));
         }
     }
 public:
@@ -3450,6 +3479,19 @@ public:
             m_hgcpu_runtime_diagnostics->Finish();
 
         m_deterministic_hooks.Uninstall();
+        if (m_deterministic_config.trace)
+        {
+            const auto failure = m_frame_fencepost_failure.load(
+                std::memory_order_acquire);
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] frame-fencepost summary observed={} repeats={} "
+                "generations={} failure={}\n"),
+                m_frame_fencepost_observations.load(std::memory_order_acquire),
+                m_frame_fencepost_repeats.load(std::memory_order_acquire),
+                m_frame_fencepost_generations.load(std::memory_order_acquire),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(failure))));
+        }
         m_replay_native_runtime.Shutdown();
 
         // Final settings save - catches anything the periodic
@@ -3702,6 +3744,7 @@ public:
         }
 
         service_presence_transition_safety("update");
+        service_frame_fencepost_diagnostics();
         service_gameimgui_toggle_key_release();
         // IsInGameThread() throws until UE4SS records the game-thread id;
         // on_update can run before that during startup. Use only the old
