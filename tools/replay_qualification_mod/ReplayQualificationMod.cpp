@@ -11,9 +11,11 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <Mod/CppUserModBase.hpp>
 #include <Unreal/FString.hpp>
+#include <Unreal/Hooks/Hooks.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -209,6 +211,15 @@ public:
         ModAuthors = STR("HorseMod qualification");
     }
 
+    ~ReplayQualificationMod() override
+    {
+        s_instance_.store(nullptr, std::memory_order_release);
+        if (engine_tick_id_ != RC::Unreal::Hook::ERROR_ID)
+        {
+            (void)RC::Unreal::Hook::UnregisterCallback(engine_tick_id_);
+        }
+    }
+
     void on_unreal_init() override
     {
         bound_ = importer_.Bind(reinterpret_cast<std::uintptr_t>(
@@ -217,9 +228,26 @@ public:
             "[ReplayQualification] source={} native_import={}\n"),
             HORSE_WIDEN(REPLAY_QUALIFICATION_SOURCE_COMMIT),
             bound_ ? STR("ready") : STR("blocked"));
+        if (!bound_) return;
+        s_instance_.store(this, std::memory_order_release);
+        RC::Unreal::Hook::FCallbackOptions options{};
+        options.bReadonly = true;
+        options.OwnerModName = STR("ReplayQualificationMod");
+        options.HookName = STR("ReplayEntry");
+        engine_tick_id_ = RC::Unreal::Hook::RegisterEngineTickPostCallback(
+            [](RC::Unreal::Hook::TCallbackIterationData<void>&,
+               RC::Unreal::UEngine*, float, bool) {
+                ReplayQualificationMod* self =
+                    s_instance_.load(std::memory_order_acquire);
+                if (self != nullptr) self->TickGameThread();
+            }, options);
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] game-thread replay entry armed id={}\n"),
+            engine_tick_id_);
     }
 
-    void on_update() override
+private:
+    void TickGameThread()
     {
         if (!bound_ || state_ == State::Launched || state_ == State::Failed) return;
         if (++poll_divider_ < 15) return;
@@ -229,7 +257,6 @@ public:
         if (state_ == State::WaitingForAssets) PollLaunch();
     }
 
-private:
     void LoadRequest()
     {
         Request request{};
@@ -239,13 +266,26 @@ private:
         request_ = std::move(request);
         started_ = std::chrono::steady_clock::now();
         state_ = State::Importing;
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] accepted replay request run_id={}\n"),
+            RC::to_generic_string(request_.run_id));
     }
 
     void StartRequest()
     {
         RC::Unreal::UObject* instance = FindGameInstance();
         RC::Unreal::UObject* setup = GetBattleSetup(instance);
-        if (instance == nullptr || setup == nullptr) return;
+        if (instance == nullptr || setup == nullptr)
+        {
+            if (!waiting_context_logged_)
+            {
+                waiting_context_logged_ = true;
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] waiting for game instance/setup\n"));
+            }
+            return;
+        }
+        waiting_context_logged_ = false;
         std::vector<std::byte> payload;
         if (!ReadPayload(request_.replay_path, payload))
         {
@@ -321,12 +361,16 @@ private:
     }
 
     Horse::Qualification::ReplayPayloadImporter importer_{};
+    static inline std::atomic<ReplayQualificationMod*> s_instance_{nullptr};
     Request request_{};
     std::string last_run_id_{};
     std::chrono::steady_clock::time_point started_{};
     State state_{State::Idle};
     std::uint32_t poll_divider_{};
+    RC::Unreal::Hook::GlobalCallbackId engine_tick_id_{
+        RC::Unreal::Hook::ERROR_ID};
     bool bound_{};
+    bool waiting_context_logged_{};
 };
 
 #define REPLAY_QUALIFICATION_API __declspec(dllexport)
