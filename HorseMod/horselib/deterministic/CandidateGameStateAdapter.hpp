@@ -21,6 +21,8 @@ struct CandidateAdapterBinding
     HgCpuGenerationContext hgcpu_context{};
     HgCpuExecFn hgcpu_writer{};
     HgCpuExecFn hgcpu_reader{};
+    UcrtRandBroker* ucrt_broker{};
+    std::uint32_t simulation_thread_id{};
     void* action_user{};
     CandidateAdvanceFn advance{};
     CandidateRebuildFn rebuild{};
@@ -54,6 +56,8 @@ private:
     Status capture_image(CandidateCheckpointImage& output) noexcept;
     Status decode_and_preflight(
         const Snapshot& snapshot, CandidateCheckpointImage& output) noexcept;
+    Status restore_image(const CandidateCheckpointImage& image) noexcept;
+    bool undo_image(const CandidateCheckpointImage& image) noexcept;
 
     NativeCandidateRegions& regions_;
     HgCpuStreamShim& hgcpu_;

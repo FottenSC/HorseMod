@@ -9,7 +9,8 @@ Sc6ReplayRuntime::Sc6ReplayRuntime(Lux& lux) noexcept
 {
 }
 
-Status Sc6ReplayRuntime::Initialize(std::uintptr_t image_base) noexcept
+Status Sc6ReplayRuntime::Initialize(
+    std::uintptr_t image_base, UcrtRandBroker* ucrt_broker) noexcept
 {
     Shutdown();
     if (!Sc6ReplayNativeBridge::ValidateMoveStateSetter(image_base))
@@ -28,7 +29,7 @@ Status Sc6ReplayRuntime::Initialize(std::uintptr_t image_base) noexcept
         image_base + Schema::Sc6ReplayLayout::set_move_state_rva);
     resolvers.set_move_state_signature_valid = true;
     bridge_.emplace(resolvers);
-    return checkpoint_capture_.Initialize(image_base);
+    return checkpoint_capture_.Initialize(image_base, ucrt_broker);
 }
 
 void Sc6ReplayRuntime::Shutdown() noexcept
@@ -215,7 +216,8 @@ Status Sc6ReplayRuntime::ObserveFrame(
             CandidateCheckpointRole::Landing,
             observation.battle_manager,
             coordinate,
-            timeline_session_generation_);
+            timeline_session_generation_,
+            observation.thread_id);
         const auto checkpoint_status = checkpoint_capture_.status(
             CandidateCheckpointRole::Landing);
         timeline_status_.captured_checkpoints = checkpoint_status.captured;
@@ -294,7 +296,8 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         CandidateCheckpointRole::BatchEntry,
         observation.battle_manager,
         coordinate,
-        timeline_session_generation_);
+        timeline_session_generation_,
+        observation.thread_id);
     const auto status = checkpoint_capture_.status(
         CandidateCheckpointRole::BatchEntry);
     timeline_status_.captured_batch_entry_checkpoints = status.captured;

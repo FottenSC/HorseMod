@@ -4034,7 +4034,7 @@ public:
         // tracking, line-batcher refresh, and throw-height prediction.
         Horse::NativeBinding::resolve();
         m_replay_native_runtime_status = m_replay_native_runtime.Initialize(
-            Horse::NativeBinding::imageBase());
+            Horse::NativeBinding::imageBase(), &m_ucrt_rand_broker);
         if (!m_replay_native_runtime_status.ok())
         {
             const auto failure = Horse::Deterministic::failure_code_name(

@@ -2,6 +2,7 @@
 
 #include "HgCpuStream.hpp"
 #include "NativeCandidateRegions.hpp"
+#include "UcrtRandBroker.hpp"
 
 namespace Horse::Deterministic
 {
@@ -11,6 +12,7 @@ struct CandidateCheckpointImage
 {
     NativeCandidateImage native{};
     HgCpuLocalImage hgcpu{};
+    UcrtRandBrokerImage ucrt{};
 };
 
 class CandidateCheckpointCodec

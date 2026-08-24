@@ -29,6 +29,9 @@ Status CandidateGameStateAdapter::Configure(
         || binding.context.fighter_identities[1] == 0
         || binding.context.stage_identity == 0 || binding.hgcpu_writer == nullptr
         || binding.hgcpu_reader == nullptr || !regions_.IsBound()
+        || binding.ucrt_broker == nullptr || binding.simulation_thread_id == 0
+        || binding.ucrt_broker->owner_thread_id()
+            != binding.simulation_thread_id
         || binding.hgcpu_context.schema_id != Schema::snapshot_schema_version
         || binding.hgcpu_context.session_generation
             != binding.context.battle_identity
@@ -84,6 +87,11 @@ Status CandidateGameStateAdapter::capture_image(
         status = hgcpu_.Capture(
             binding_.hgcpu_writer, binding_.hgcpu_context, output.hgcpu);
     }
+    if (status.ok())
+    {
+        status = binding_.ucrt_broker->Capture(
+            binding_.simulation_thread_id, output.ucrt);
+    }
     const Status fp = fp_scope.Finish();
     return status.ok() ? fp : status;
 }
@@ -117,6 +125,12 @@ Status CandidateGameStateAdapter::decode_and_preflight(
     {
         return Status::failure(FailureCode::IdentityMismatch);
     }
+    if (binding_.ucrt_broker->mode() != UcrtRandBrokerMode::Owned
+        || binding_.ucrt_broker->owner_thread_id()
+            != binding_.simulation_thread_id)
+    {
+        return Status::failure(FailureCode::IllegalTransition);
+    }
     return regions_.PreflightRestore(output.native);
 }
 
@@ -133,15 +147,39 @@ Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
     const Status preflight = decode_and_preflight(snapshot, image);
     if (!preflight.ok()) return preflight;
     ScopedFloatingPointEnvironment fp_scope;
-
-    // The native reader reconstructs local opaque state first. Explicit typed
-    // canonical fields are then restored last so their documented values win.
-    const Status reconstructed = hgcpu_.Restore(
-        binding_.hgcpu_reader, binding_.hgcpu_context, image.hgcpu);
-    Status restored = reconstructed;
-    if (restored.ok()) restored = regions_.RestoreTransactional(image.native);
+    CandidateCheckpointImage undo{};
+    Status restored = capture_image(undo);
+    const bool undo_captured = restored.ok();
+    if (restored.ok()) restored = restore_image(image);
+    if (!restored.ok() && undo_captured && !undo_image(undo))
+        restored = Status::failure(FailureCode::UndoFailed);
     const Status fp = fp_scope.Finish();
     return restored.ok() ? fp : restored;
+}
+
+Status CandidateGameStateAdapter::restore_image(
+    const CandidateCheckpointImage& image) noexcept
+{
+    Status status = hgcpu_.Restore(
+        binding_.hgcpu_reader, binding_.hgcpu_context, image.hgcpu);
+    if (status.ok()) status = regions_.RestoreTransactional(image.native);
+    if (status.ok())
+    {
+        status = binding_.ucrt_broker->Restore(
+            binding_.simulation_thread_id, image.ucrt);
+    }
+    return status;
+}
+
+bool CandidateGameStateAdapter::undo_image(
+    const CandidateCheckpointImage& image) noexcept
+{
+    const Status ucrt = binding_.ucrt_broker->Restore(
+        binding_.simulation_thread_id, image.ucrt);
+    const Status native = regions_.RestoreTransactional(image.native);
+    const Status hgcpu = hgcpu_.Restore(
+        binding_.hgcpu_reader, binding_.hgcpu_context, image.hgcpu);
+    return ucrt.ok() && native.ok() && hgcpu.ok();
 }
 
 Status CandidateGameStateAdapter::RebuildDerivedState() noexcept
@@ -169,6 +207,7 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
             && observed.hgcpu.cursor == expected_image.hgcpu.cursor
             && observed.hgcpu.checksum == expected_image.hgcpu.checksum
             && observed.hgcpu.bytes == expected_image.hgcpu.bytes
+            && observed.ucrt == expected_image.ucrt
         ? Status::success()
         : Status::failure(FailureCode::RestoreVerificationFailed);
 }

@@ -126,10 +126,12 @@ Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
 
 Sc6CandidateCheckpointCapture::~Sc6CandidateCheckpointCapture() = default;
 
-Status Sc6CandidateCheckpointCapture::Initialize(std::uintptr_t image_base) noexcept
+Status Sc6CandidateCheckpointCapture::Initialize(
+    std::uintptr_t image_base, UcrtRandBroker* ucrt_broker) noexcept
 {
     Reset();
-    if (image_base == 0) return Status::failure(FailureCode::ContextUnavailable);
+    if (image_base == 0 || ucrt_broker == nullptr)
+        return Status::failure(FailureCode::ContextUnavailable);
     __try
     {
         const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image_base);
@@ -148,6 +150,7 @@ Status Sc6CandidateCheckpointCapture::Initialize(std::uintptr_t image_base) noex
         return Status::failure(FailureCode::ContextUnavailable);
     }
     image_base_ = image_base;
+    ucrt_broker_ = ucrt_broker;
     return Status::success();
 }
 
@@ -233,7 +236,8 @@ Status Sc6CandidateCheckpointCapture::resolve_move_dispatch(
 Status Sc6CandidateCheckpointCapture::bind(
     std::uintptr_t battle_manager,
     FrameCoordinate coordinate,
-    std::uint64_t session_generation) noexcept
+    std::uint64_t session_generation,
+    std::uint32_t simulation_thread_id) noexcept
 {
     std::uintptr_t move_dispatch{};
     std::array<std::uintptr_t, 2> fighter_roots{};
@@ -279,6 +283,8 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + hgcpu_writer_rva);
     adapter_binding.hgcpu_reader = reinterpret_cast<HgCpuExecFn>(
         image_base_ + hgcpu_reader_rva);
+    adapter_binding.ucrt_broker = ucrt_broker_;
+    adapter_binding.simulation_thread_id = simulation_thread_id;
     Status adapter_status = adapter_->Configure(adapter_binding);
     if (adapter_status.ok()) adapter_status = adapter_->BindContext(context);
     if (!adapter_status.ok())
@@ -305,10 +311,12 @@ Status Sc6CandidateCheckpointCapture::Capture(
     CandidateCheckpointRole role,
     std::uintptr_t battle_manager,
     FrameCoordinate coordinate,
-    std::uint64_t session_generation) noexcept
+    std::uint64_t session_generation,
+    std::uint32_t simulation_thread_id) noexcept
 {
     if (image_base_ == 0 || battle_manager == 0
-        || coordinate.generation == 0 || session_generation == 0)
+        || coordinate.generation == 0 || session_generation == 0
+        || simulation_thread_id == 0)
     {
         return Status::failure(FailureCode::ContextUnavailable);
     }
@@ -321,7 +329,9 @@ Status Sc6CandidateCheckpointCapture::Capture(
         || bound_session_generation_ != session_generation
         || bound_round_generation_ != coordinate.generation)
     {
-        const Status rebound = bind(battle_manager, coordinate, session_generation);
+        const Status rebound = bind(
+            battle_manager, coordinate, session_generation,
+            simulation_thread_id);
         if (!rebound.ok())
         {
             capture_status.failure = rebound.code;
@@ -375,6 +385,7 @@ void Sc6CandidateCheckpointCapture::Reset() noexcept
     batch_entry_status_ = {};
     image_base_ = 0;
     image_size_ = 0;
+    ucrt_broker_ = nullptr;
 }
 
 CandidateCheckpointCaptureStatus Sc6CandidateCheckpointCapture::status(

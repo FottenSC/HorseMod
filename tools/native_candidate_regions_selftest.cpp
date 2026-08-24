@@ -217,6 +217,28 @@ bool contains_qword(const std::vector<std::byte>& bytes, std::uintptr_t value)
 
 std::array<std::byte, 32> hgcpu_payload{};
 bool hgcpu_read_matched = false;
+UcrtRandBroker candidate_ucrt_broker{};
+constexpr std::uint32_t candidate_thread_id = 77;
+
+UcrtRandBrokerImage candidate_ucrt_image(std::uint32_t state = 0x12345678u)
+{
+    return {
+        Schema::Sc6UcrtLayout::algorithm_version,
+        Schema::Sc6UcrtLayout::allowlist_version,
+        state,
+        0,
+        true,
+    };
+}
+
+void prepare_candidate_ucrt_broker()
+{
+    candidate_ucrt_broker.Start();
+    candidate_ucrt_broker.HandleSrand(candidate_thread_id,
+        Schema::Sc6UcrtLayout::rng_init_srand_return_rva,
+        0x12345678u, nullptr);
+    candidate_ucrt_broker.AcquireOwnership(candidate_thread_id);
+}
 
 void* __fastcall fake_hgcpu_writer(HgCpuStreamShim* shim)
 {
@@ -374,7 +396,7 @@ void test_candidate_checkpoint_codec()
     expect(shim.Capture(&fake_hgcpu_writer, hgcpu_context(), hgcpu).ok(),
         "capture checkpoint HgCpu image");
 
-    CandidateCheckpointImage image{native, hgcpu};
+    CandidateCheckpointImage image{native, hgcpu, candidate_ucrt_image()};
     Snapshot snapshot{};
     expect(CandidateCheckpointCodec::Encode({7, 30}, 0x9191, image, snapshot).ok(),
         "encode pointer-free candidate checkpoint");
@@ -392,6 +414,8 @@ void test_candidate_checkpoint_codec()
             && decoded.hgcpu.checksum == hgcpu.checksum
             && decoded.hgcpu.bytes == hgcpu.bytes,
         "candidate checkpoint round-trips local HgCpu reconstruction image");
+    expect(decoded.ucrt == image.ucrt,
+        "candidate checkpoint round-trips value-only UCRT state");
 
     Snapshot corrupted = snapshot;
     corrupted.bytes.back() ^= std::byte{1};
@@ -408,11 +432,14 @@ void test_candidate_checkpoint_codec()
 
 CandidateAdapterBinding candidate_binding(HgCpuExecFn reader)
 {
+    prepare_candidate_ucrt_broker();
     CandidateAdapterBinding binding{};
     binding.context = NativeContext{7, 11, {101, 102}, 201};
     binding.hgcpu_context = hgcpu_context();
     binding.hgcpu_writer = &fake_hgcpu_writer;
     binding.hgcpu_reader = reader;
+    binding.ucrt_broker = &candidate_ucrt_broker;
+    binding.simulation_thread_id = candidate_thread_id;
     binding.reconcile = &noop_reconcile;
     return binding;
 }
@@ -437,6 +464,10 @@ void test_candidate_adapter_restore_and_outer_undo()
     hgcpu_payload.fill(std::byte{0x21});
     const auto initial_hgcpu = hgcpu_payload;
     const auto initial_memory = restored_fixture.memory.bytes();
+    UcrtRandBrokerImage initial_ucrt{};
+    expect(candidate_ucrt_broker.Capture(
+        candidate_thread_id, initial_ucrt).ok(),
+        "capture candidate adapter UCRT baseline");
     expect(restored_session.BindAndCaptureBaseline(
         restored_binding.context, {7, 0}).ok(),
         "capture real candidate adapter baseline");
@@ -445,12 +476,19 @@ void test_candidate_adapter_restore_and_outer_undo()
     restored_fixture.memory.Fill(
         restored_fixture.addresses.pump_state + 0x20, 0x1C, std::byte{0x92});
     hgcpu_payload.fill(std::byte{0x93});
+    candidate_ucrt_broker.HandleRand(candidate_thread_id,
+        Schema::Sc6UcrtLayout::movevm_rand_return_rva, nullptr);
     expect(restored_session.RestoreAndResimulate({7, 0}, {7, 0}).ok(),
         "restore real candidate adapter through SimulationSession transaction");
     expect(restored_fixture.memory.bytes() == initial_memory,
         "candidate adapter restores exact typed native image");
     expect(hgcpu_payload == initial_hgcpu,
         "candidate adapter restores exact HgCpu reconstruction image");
+    UcrtRandBrokerImage restored_ucrt{};
+    expect(candidate_ucrt_broker.Capture(
+            candidate_thread_id, restored_ucrt).ok()
+            && restored_ucrt == initial_ucrt,
+        "candidate adapter restores exact value-only UCRT image");
 
     Fixture failed_fixture;
     expect(failed_fixture.regions.Bind(failed_fixture.addresses).ok(),

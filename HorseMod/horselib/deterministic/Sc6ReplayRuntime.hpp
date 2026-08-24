@@ -63,7 +63,8 @@ class Sc6ReplayRuntime final
 public:
     explicit Sc6ReplayRuntime(Lux& lux) noexcept;
 
-    Status Initialize(std::uintptr_t image_base) noexcept;
+    Status Initialize(
+        std::uintptr_t image_base, UcrtRandBroker* ucrt_broker) noexcept;
     void Shutdown() noexcept;
 
     [[nodiscard]] bool ready() const noexcept;

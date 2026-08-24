@@ -29,12 +29,14 @@ public:
     Sc6CandidateCheckpointCapture();
     ~Sc6CandidateCheckpointCapture();
 
-    Status Initialize(std::uintptr_t image_base) noexcept;
+    Status Initialize(
+        std::uintptr_t image_base, UcrtRandBroker* ucrt_broker) noexcept;
     Status Capture(
         CandidateCheckpointRole role,
         std::uintptr_t battle_manager,
         FrameCoordinate coordinate,
-        std::uint64_t session_generation) noexcept;
+        std::uint64_t session_generation,
+        std::uint32_t simulation_thread_id) noexcept;
     void ReleaseBinding() noexcept;
     void Reset() noexcept;
 
@@ -49,7 +51,8 @@ private:
     Status bind(
         std::uintptr_t battle_manager,
         FrameCoordinate coordinate,
-        std::uint64_t session_generation) noexcept;
+        std::uint64_t session_generation,
+        std::uint32_t simulation_thread_id) noexcept;
     Status resolve_move_dispatch(
         std::uintptr_t battle_manager,
         std::uintptr_t& output) noexcept;
@@ -65,6 +68,7 @@ private:
     std::unique_ptr<CallbackTopologyProbe> callback_probe_;
     HgCpuStreamShim hgcpu_{};
     std::unique_ptr<CandidateGameStateAdapter> adapter_;
+    UcrtRandBroker* ucrt_broker_{};
     SnapshotStore landing_snapshots_{checkpoint_memory_limit,
         maximum_checkpoints_per_role, CapacityPolicy::RejectNew};
     SnapshotStore batch_entry_snapshots_{checkpoint_memory_limit,

@@ -18,14 +18,14 @@ namespace
 {
 constexpr std::array<std::byte, 8> magic{
     std::byte{'H'}, std::byte{'R'}, std::byte{'S'}, std::byte{'C'},
-    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{2}};
-constexpr std::uint32_t format_version = 2;
+    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{3}};
+constexpr std::uint32_t format_version = 3;
 constexpr std::array<std::byte, 20> hash_domain{
     std::byte{'H'}, std::byte{'o'}, std::byte{'r'}, std::byte{'s'},
     std::byte{'e'}, std::byte{'C'}, std::byte{'a'}, std::byte{'n'},
     std::byte{'d'}, std::byte{'i'}, std::byte{'d'}, std::byte{'a'},
     std::byte{'t'}, std::byte{'e'}, std::byte{'S'}, std::byte{'t'},
-    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{2}};
+    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{3}};
 
 template <typename T>
 void append(std::vector<std::byte>& bytes, const T& value)
@@ -37,6 +37,23 @@ void append(std::vector<std::byte>& bytes, const T& value)
 void append_range(std::vector<std::byte>& output, std::span<const std::byte> bytes)
 {
     output.insert(output.end(), bytes.begin(), bytes.end());
+}
+
+void append_ucrt_canonical(
+    std::vector<std::byte>& output, const UcrtRandBrokerImage& image)
+{
+    append(output, image.algorithm_version);
+    append(output, image.allowlist_version);
+    append(output, image.state);
+    append(output, image.draws);
+    append(output, static_cast<std::uint8_t>(image.seeded));
+}
+
+bool valid_ucrt_image(const UcrtRandBrokerImage& image) noexcept
+{
+    return image.seeded
+        && image.algorithm_version == Schema::Sc6UcrtLayout::algorithm_version
+        && image.allowlist_version == Schema::Sc6UcrtLayout::allowlist_version;
 }
 
 class Reader
@@ -111,7 +128,8 @@ bool generations_match(FrameCoordinate coordinate,
         && image.native.round_generation == coordinate.generation
         && image.hgcpu.context.schema_id == Schema::snapshot_schema_version
         && image.hgcpu.context.session_generation == image.native.session_generation
-        && image.hgcpu.context.round_generation == image.native.round_generation;
+        && image.hgcpu.context.round_generation == image.native.round_generation
+        && valid_ucrt_image(image.ucrt);
 }
 }
 
@@ -127,19 +145,28 @@ Status CandidateCheckpointCodec::Encode(FrameCoordinate coordinate,
     }
     try
     {
-        const auto canonical = NativeCandidateRegions::CanonicalBytes(image.native);
-        if (canonical.empty() || canonical.size() > std::numeric_limits<std::uint32_t>::max())
+        const auto native_canonical =
+            NativeCandidateRegions::CanonicalBytes(image.native);
+        if (native_canonical.empty()
+            || native_canonical.size() > std::numeric_limits<std::uint32_t>::max())
             return Status::failure(FailureCode::CapacityExceeded);
+        std::vector<std::byte> canonical = native_canonical;
+        append_ucrt_canonical(canonical, image.ucrt);
         output.coordinate = coordinate;
         output.context_identity = context_identity;
         if (!hash_candidate(coordinate, context_identity, canonical, output.canonical_hash))
             return Status::failure(FailureCode::CaptureFailed);
 
-        output.bytes.reserve(96 + canonical.size() + image.hgcpu.bytes.size());
+        output.bytes.reserve(128 + canonical.size() + image.hgcpu.bytes.size());
         append_range(output.bytes, magic);
         append(output.bytes, format_version);
         append(output.bytes, Schema::snapshot_schema_version);
-        append(output.bytes, static_cast<std::uint32_t>(canonical.size()));
+        append(output.bytes, static_cast<std::uint32_t>(native_canonical.size()));
+        append(output.bytes, image.ucrt.algorithm_version);
+        append(output.bytes, image.ucrt.allowlist_version);
+        append(output.bytes, image.ucrt.state);
+        append(output.bytes, image.ucrt.draws);
+        append(output.bytes, static_cast<std::uint8_t>(image.ucrt.seeded));
         append(output.bytes, image.hgcpu.context.build_id);
         append(output.bytes, image.hgcpu.context.schema_id);
         append(output.bytes, image.hgcpu.context.session_generation);
@@ -149,7 +176,7 @@ Status CandidateCheckpointCodec::Encode(FrameCoordinate coordinate,
         append(output.bytes, image.hgcpu.context.camera_generation);
         append(output.bytes, static_cast<std::uint64_t>(image.hgcpu.cursor));
         append(output.bytes, image.hgcpu.checksum);
-        append_range(output.bytes, canonical);
+        append_range(output.bytes, native_canonical);
         append_range(output.bytes, image.hgcpu.bytes);
         return Status::success();
     }
@@ -168,14 +195,20 @@ Status CandidateCheckpointCodec::Decode(
     std::array<std::byte, magic.size()> observed_magic{};
     std::uint32_t observed_format{};
     std::uint32_t observed_schema{};
-    std::uint32_t canonical_size{};
+    std::uint32_t native_canonical_size{};
+    std::uint8_t ucrt_seeded{};
     std::uint64_t hgcpu_size{};
     if (snapshot.coordinate.generation == 0 || snapshot.context_identity == 0
         || !reader.TakeBytes(observed_magic) || observed_magic != magic
         || !reader.Take(observed_format) || observed_format != format_version
         || !reader.Take(observed_schema)
         || observed_schema != Schema::snapshot_schema_version
-        || !reader.Take(canonical_size)
+        || !reader.Take(native_canonical_size)
+        || !reader.Take(output.ucrt.algorithm_version)
+        || !reader.Take(output.ucrt.allowlist_version)
+        || !reader.Take(output.ucrt.state)
+        || !reader.Take(output.ucrt.draws)
+        || !reader.Take(ucrt_seeded) || ucrt_seeded > 1
         || !reader.Take(output.hgcpu.context.build_id)
         || !reader.Take(output.hgcpu.context.schema_id)
         || !reader.Take(output.hgcpu.context.session_generation)
@@ -189,10 +222,11 @@ Status CandidateCheckpointCodec::Decode(
     {
         return Status::failure(FailureCode::CaptureFailed);
     }
+    output.ucrt.seeded = ucrt_seeded != 0;
     output.hgcpu.cursor = static_cast<std::size_t>(hgcpu_size);
-    const auto canonical = reader.TakeView(canonical_size);
+    const auto native_canonical = reader.TakeView(native_canonical_size);
     const auto hgcpu_bytes = reader.TakeView(output.hgcpu.cursor);
-    if (canonical.size() != canonical_size
+    if (native_canonical.size() != native_canonical_size
         || hgcpu_bytes.size() != output.hgcpu.cursor || !reader.Finished())
     {
         output = {};
@@ -207,9 +241,20 @@ Status CandidateCheckpointCodec::Decode(
         output = {};
         return Status::failure(FailureCode::CapacityExceeded);
     }
+    std::vector<std::byte> canonical;
     CanonicalHash verified_hash{};
+    try
+    {
+        canonical.assign(native_canonical.begin(), native_canonical.end());
+        append_ucrt_canonical(canonical, output.ucrt);
+    }
+    catch (...)
+    {
+        output = {};
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
     const Status decoded = NativeCandidateRegions::DecodeCanonicalBytes(
-        canonical, output.native);
+        native_canonical, output.native);
     if (!decoded.ok() || !generations_match(snapshot.coordinate, output)
         || !HgCpuStreamShim::ValidateLocalImage(output.hgcpu)
         || !hash_candidate(snapshot.coordinate, snapshot.context_identity,
