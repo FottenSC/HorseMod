@@ -250,6 +250,20 @@ Phase 2 conclusion: VMPump, scheduler scalars, the exact same-generation SubVM a
 
 Stage/content qualification presently supports no stage. A future narrow allowlist must prove an exact stage ID plus static authored topology, zero unmodeled hazards/destructibles, bounded wind lists, unchanged allocation generations, and concrete camera-action classes. A runtime assertion of emptiness/dormancy is required even where static analysis finds no named route.
 
+The read-only wind admission probe passed a source-bound 600-frame normal-render
+run at commit `b81ea65a76d578bb916a32a32ca4c20a293ee874`. Both landing and
+batch-entry capture remained available with no topology failure. The observed
+ordered graph grew through the legitimate native lifecycle from two nodes at
+frame 0/1, to three by frame 18, and four by frame 108; it remained at four
+through landing frame 600. This proves that the allowlist, link validation, and
+dynamic traversal accept the measured workload rather than merely asserting an
+empty graph. It does not prove restore: no native node/link pointer is present in
+the canonical probe bytes, and no allocation is created, destroyed, or relinked
+by HorseMod. The DLL SHA-256 is
+`10DD33BBFB3847B30FE27376E1054A102E8DF1E77D1E095A8F04E7EFCBE272BF`;
+the generated schema SHA-256 is
+`CED7084AB7DC4C57F8CA63B1BE484844C45E3CA27FCC72107EF7ADE7181E171E`.
+
 ## RNG and FP contract
 
 ### Explicit Lux RNG families
