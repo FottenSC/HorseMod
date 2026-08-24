@@ -99,6 +99,7 @@ void HgCpuRuntimeDiagnostics::write_sample(const HgCpuCoverageSample& sample)
         const auto& delta = sample.unmapped_deltas[i];
         report_ << 'P' << static_cast<unsigned>(delta.target + 1)
                 << "+0x" << std::hex << delta.offset << std::dec;
+        if (delta.length > 1) report_ << "/0x" << std::hex << delta.length << std::dec;
     }
     if (sample.unmapped_deltas.size() > shown) report_ << ", …";
     report_ << " | ";

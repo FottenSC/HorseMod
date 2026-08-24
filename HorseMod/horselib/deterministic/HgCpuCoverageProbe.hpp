@@ -21,6 +21,7 @@ struct HgCpuUnmappedDelta
 {
     std::uint8_t target{};
     std::uint32_t offset{};
+    std::uint32_t length{1};
     std::byte before{};
     std::byte after{};
 };
@@ -52,9 +53,19 @@ public:
 
 private:
     bool capture_targets(std::array<std::vector<std::byte>, 2>& output) noexcept;
-    bool directly_sourced(std::uintptr_t address, const HgCpuWriteTrace& trace) const noexcept;
+    struct SourceRange
+    {
+        std::uintptr_t begin{};
+        std::uintptr_t end{};
+    };
 
-    static constexpr std::size_t maximum_write_spans = 2048;
+    static std::vector<SourceRange> merge_source_ranges(
+        const HgCpuWriteTrace& trace);
+    static bool directly_sourced(
+        std::uintptr_t address,
+        const std::vector<SourceRange>& ranges) noexcept;
+
+    static constexpr std::size_t maximum_write_spans = 131072;
     static constexpr std::size_t maximum_unmapped_deltas = 4096;
     static constexpr std::size_t maximum_target_size = 0x100000;
 
@@ -62,7 +73,7 @@ private:
     HgCpuStreamShim shim_;
     std::array<HgCpuCoverageTarget, 2> targets_{};
     std::array<std::vector<std::byte>, 2> previous_{};
-    std::array<HgCpuWriteSpan, maximum_write_spans> spans_{};
+    std::vector<HgCpuWriteSpan> spans_{};
     bool bound_{};
     bool have_baseline_{};
 };
