@@ -111,6 +111,12 @@ Status Sc6ReplayRuntime::ObserveFrame(
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
     }
+    if (!observation.input_filter_observed
+        || observation.input_filter_invocations == 0)
+    {
+        timeline_status_.failure = FailureCode::AdapterUnqualified;
+        return Status::failure(timeline_status_.failure);
+    }
     if (!batch_timeline_.CanAppendBatch(
             pending_batch_coordinates_.size() + 1))
     {
@@ -154,6 +160,18 @@ Status Sc6ReplayRuntime::ObserveFrame(
         ++timeline_status_.same_native_time_coordinates;
     if (observation.repeat_pending != 0)
         ++timeline_status_.repeat_requests;
+    ++timeline_status_.input_filter_observations;
+    if (observation.pre_filter_inputs[0] != observation.inputs[0]
+        || observation.pre_filter_inputs[1] != observation.inputs[1])
+    {
+        ++timeline_status_.input_filter_mutations;
+    }
+    if (observation.input_filter_invocations
+        > timeline_status_.maximum_input_filter_invocation_ordinal)
+    {
+        timeline_status_.maximum_input_filter_invocation_ordinal =
+            observation.input_filter_invocations;
+    }
     if (observation.manager_game_round_cursor != observation.game_round
         || observation.manager_game_time_cursor
             != static_cast<std::uint32_t>(observation.game_time))
@@ -161,9 +179,12 @@ Status Sc6ReplayRuntime::ObserveFrame(
         ++timeline_status_.cursor_mismatches;
     }
     InputPair inputs{};
-    inputs.players[0] = observation.inputs[0];
-    inputs.players[1] = observation.inputs[1];
+    inputs.players[0] = observation.pre_filter_inputs[0];
+    inputs.players[1] = observation.pre_filter_inputs[1];
+    inputs.post_filter_players[0] = observation.inputs[0];
+    inputs.post_filter_players[1] = observation.inputs[1];
     inputs.remote_confirmed = true;
+    inputs.post_filter_observed = true;
     const Status appended = input_timeline_.AppendAuthoritative(coordinate, inputs);
     if (!appended.ok())
     {

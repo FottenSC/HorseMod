@@ -103,7 +103,7 @@ struct FrameCoordinate
 
 struct PlayerInput
 {
-    // Exact post-filter FLuxBattleInputPair words consumed by SC6.
+    // Exact FLuxBattleInputPair words at a defined native boundary.
     std::uint32_t held{};
     std::uint32_t rising{};
 
@@ -112,8 +112,13 @@ struct PlayerInput
 
 struct InputPair
 {
+    // Authoritative values published before BattleManager+0x1210 callbacks.
     PlayerInput players[2]{};
+    // Values consumed by PerFrameTick after the native filter callbacks.
+    // These verify replay capture/resimulation; only players[] is injected.
+    PlayerInput post_filter_players[2]{};
     bool remote_confirmed{};
+    bool post_filter_observed{};
 
     friend constexpr bool operator==(const InputPair&, const InputPair&) = default;
 };

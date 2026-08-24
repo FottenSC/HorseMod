@@ -3461,7 +3461,9 @@ private:
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] native fencepost evidence frames={} repeats={} "
                 "same_time={} cursor_mismatches={} round_state_frame={} "
-                "unpause={} pending_move_state={} batches={} zero_batches={} "
+                "input_filter_observations={} input_filter_mutations={} "
+                "input_filter_invocations_max={} unpause={} "
+                "pending_move_state={} batches={} zero_batches={} "
                 "multi_batches={} batch_repeats={} batch_same_time={} max_batch={} "
                 "max_input_delta={} input_generation_changes={} "
                 "batch_accounting_mismatches={} entry_uncovered={} "
@@ -3478,6 +3480,9 @@ private:
                 timeline.same_native_time_coordinates,
                 timeline.cursor_mismatches,
                 timeline.round_state_frame,
+                timeline.input_filter_observations,
+                timeline.input_filter_mutations,
+                timeline.maximum_input_filter_invocation_ordinal,
                 timeline.unpause_countdown,
                 static_cast<unsigned int>(timeline.pending_move_state),
                 timeline.native_batches,

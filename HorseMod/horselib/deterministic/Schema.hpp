@@ -8,7 +8,7 @@
 namespace Horse::Deterministic::Schema
 {
 inline constexpr std::uint32_t protocol_version = 1;
-inline constexpr std::uint32_t snapshot_schema_version = 6;
+inline constexpr std::uint32_t snapshot_schema_version = 7;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::uint64_t checkpoint_interval = 30;
 inline constexpr std::uint32_t maximum_supported_native_batch_width = 12;
@@ -61,6 +61,8 @@ inline constexpr std::uint16_t required_outer_tick_read_mask = 0x00ff;
 inline constexpr std::uintptr_t frame_counter_rva = 0x470d0c4;
 inline constexpr std::uintptr_t landing_fencepost_rva = 0x3fca60;
 inline constexpr std::uintptr_t outer_tick_rva = 0x3fbf30;
+inline constexpr std::uintptr_t callback_executor_rva = 0x1d38300;
+inline constexpr std::ptrdiff_t manager_input_filter_callbacks = 0x1210;
 inline constexpr std::ptrdiff_t manager_input_log = 0x478;
 inline constexpr std::ptrdiff_t manager_input_pair_array = 0x14a8;
 inline constexpr std::ptrdiff_t manager_active_player_count = 0x14b0;
@@ -83,6 +85,11 @@ inline constexpr std::array<std::byte, 16> outer_tick_signature{
     std::byte{0xec}, std::byte{0x30}, std::byte{0x48}, std::byte{0x8b},
     std::byte{0xd9}, std::byte{0x0f}, std::byte{0x29}, std::byte{0x74},
     std::byte{0x24}, std::byte{0x20}, std::byte{0x0f}, std::byte{0xb6}};
+inline constexpr std::array<std::byte, 16> callback_executor_signature{
+    std::byte{0x40}, std::byte{0x56}, std::byte{0x48}, std::byte{0x83},
+    std::byte{0xec}, std::byte{0x20}, std::byte{0xff}, std::byte{0x41},
+    std::byte{0x64}, std::byte{0x48}, std::byte{0x8b}, std::byte{0xf1},
+    std::byte{0x8b}, std::byte{0x41}, std::byte{0x50}, std::byte{0x48}};
 }
 
 namespace Sc6UcrtLayout

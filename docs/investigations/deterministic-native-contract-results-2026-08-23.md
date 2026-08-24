@@ -597,6 +597,16 @@ Explicitly unsupported despite the ten candidate components and one workload-sco
 
 ## Unresolved blockers and exact next actions
 
+Schema-7 runtime closure: the generic callback executor at `0x141D38300` is now
+signature-validated and observed only for the current battle manager's `+0x1210`
+input-filter collection. The runtime captures the two-player pair before and
+after the native collection, retains the pre-filter pair as authoritative input,
+and retains the post-filter pair only for deterministic verification. A
+normal-render 600-frame probe observed all 600 coordinates through 597 batches
+(maximum width/ordinal three, one repeat) without a missing observation or
+post-filter/fencepost mismatch. No value-changing filter fired in this workload;
+changed-value coverage remains an admission requirement.
+
 | Blocker | Exact next action | Closure evidence |
 |---|---|---|
 | Input and post-frame callbacks | **Closed for the measured replay generation.** Static registration/removal surfaces are closed for `+0x1210`, `+0x8E0`, `+0xA30`, `+0xB80`, and `+0xF70`; the binding now stores and verifies the pointer-free owner-generation/class/RVA/order topology before every candidate capture and invalidates atomically on drift. Repeat the proof at replacement/re-entry boundaries and for each content candidate. | Commit `8c351ca0`; normal-render 600-frame probe with 21 landing and 35 batch-entry captures through frame 600; zero topology/identity failures; collection headers, raw UObject pointers, and callback storage remain excluded |

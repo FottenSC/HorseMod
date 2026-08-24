@@ -5,6 +5,7 @@
 #include <Windows.h>
 #include <polyhook2/Detour/x64Detour.hpp>
 
+#include <algorithm>
 #include <cstring>
 #include <intrin.h>
 #include <thread>
@@ -19,6 +20,8 @@ std::atomic<std::uint64_t>
     DeterministicHookSet::outer_tick_trampoline_global_{};
 std::atomic<std::uint64_t>
     DeterministicHookSet::replay_post_tick_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::callback_executor_trampoline_global_{};
 thread_local DeterministicHookSet::OuterTickCaptureContext*
     DeterministicHookSet::active_outer_capture_{};
 
@@ -48,6 +51,19 @@ bool SafeRead(std::uintptr_t address, T& output) noexcept
     {
         return false;
     }
+}
+
+bool CaptureInputPairArray(void* argument, PlayerInput (&output)[2]) noexcept
+{
+    std::uintptr_t data{};
+    std::int32_t count{};
+    std::int32_t capacity{};
+    const auto header = reinterpret_cast<std::uintptr_t>(argument);
+    return header != 0 && SafeRead(header, data) && data != 0
+        && SafeRead(header + 8, count) && count == 2
+        && SafeRead(header + 12, capacity) && capacity >= count
+        && SafeRead(data, output[0])
+        && SafeRead(data + sizeof(PlayerInput), output[1]);
 }
 }
 
@@ -88,7 +104,12 @@ Status DeterministicHookSet::Install(
             reinterpret_cast<const void*>(
                 image_base + Schema::Sc6ReplayLayout::post_tick_rva),
             Schema::Sc6ReplayLayout::post_tick_signature.data(),
-            Schema::Sc6ReplayLayout::post_tick_signature.size()))
+            Schema::Sc6ReplayLayout::post_tick_signature.size())
+        || !SafeEqual(
+            reinterpret_cast<const void*>(
+                image_base + Schema::Sc6FrameLayout::callback_executor_rva),
+            Schema::Sc6FrameLayout::callback_executor_signature.data(),
+            Schema::Sc6FrameLayout::callback_executor_signature.size()))
     {
         return Status::failure(FailureCode::AdapterUnqualified);
     }
@@ -99,6 +120,7 @@ Status DeterministicHookSet::Install(
     frame_fencepost_trampoline_ = 0;
     replay_post_tick_trampoline_ = 0;
     outer_tick_trampoline_ = 0;
+    callback_executor_trampoline_ = 0;
     frame_fencepost_detour_ = std::make_unique<PLH::x64Detour>(
         static_cast<std::uint64_t>(frame_target),
         reinterpret_cast<std::uint64_t>(&FrameFencepostDetour),
@@ -151,8 +173,27 @@ Status DeterministicHookSet::Install(
     }
     outer_tick_trampoline_global_.store(
         outer_tick_trampoline_, std::memory_order_release);
+    callback_executor_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(
+            image_base + Schema::Sc6FrameLayout::callback_executor_rva),
+        reinterpret_cast<std::uint64_t>(&CallbackExecutorDetour),
+        &callback_executor_trampoline_);
+    if (!callback_executor_detour_->hook())
+    {
+        outer_tick_detour_->unHook();
+        replay_post_tick_detour_->unHook();
+        frame_fencepost_detour_->unHook();
+        active_.store(nullptr, std::memory_order_release);
+        while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
+            std::this_thread::yield();
+        ClearState();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    callback_executor_trampoline_global_.store(
+        callback_executor_trampoline_, std::memory_order_release);
     if (ucrt_broker_ != nullptr && !InstallUcrtIatHooks())
     {
+        callback_executor_detour_->unHook();
         outer_tick_detour_->unHook();
         replay_post_tick_detour_->unHook();
         frame_fencepost_detour_->unHook();
@@ -174,6 +215,10 @@ void DeterministicHookSet::Uninstall() noexcept
     }
     // Hooks are removed in the reverse of their installation order.
     UninstallUcrtIatHooks();
+    if (callback_executor_detour_)
+    {
+        callback_executor_detour_->unHook();
+    }
     if (outer_tick_detour_)
     {
         outer_tick_detour_->unHook();
@@ -285,6 +330,38 @@ void __fastcall DeterministicHookSet::ReplayPostTickDetour(
     if (original != nullptr)
     {
         original(replay_state);
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+void __fastcall DeterministicHookSet::CallbackExecutorDetour(
+    void* collection, void* callback_argument) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->callback_executor_trampoline_
+        : callback_executor_trampoline_global_.load(std::memory_order_acquire);
+    const auto original = reinterpret_cast<CallbackExecutorFn>(trampoline);
+    auto* batch = active_outer_capture_;
+    const bool is_input_filter = hooks != nullptr && batch != nullptr
+        && batch->observation != nullptr
+        && reinterpret_cast<std::uintptr_t>(collection)
+            == batch->observation->battle_manager
+                + Schema::Sc6FrameLayout::manager_input_filter_callbacks;
+    PlayerInput before[2]{};
+    const bool before_valid = is_input_filter
+        && CaptureInputPairArray(callback_argument, before);
+    if (original != nullptr) original(collection, callback_argument);
+    PlayerInput after[2]{};
+    const bool after_valid = before_valid
+        && CaptureInputPairArray(callback_argument, after);
+    if (after_valid)
+    {
+        std::copy(std::begin(before), std::end(before), batch->pre_filter_inputs);
+        std::copy(std::begin(after), std::end(after), batch->post_filter_inputs);
+        ++batch->input_filter_invocations;
+        batch->input_filter_observed = true;
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
@@ -505,6 +582,16 @@ void DeterministicHookSet::EmitFrameFencepost(void* battle_manager) noexcept
         && batch->observation->battle_manager == observation.battle_manager)
     {
         observation.outer_batch_id = batch->observation->batch_id;
+        observation.input_filter_observed = batch->input_filter_observed;
+        observation.input_filter_invocations = batch->input_filter_invocations;
+        std::copy(std::begin(batch->pre_filter_inputs),
+            std::end(batch->pre_filter_inputs), observation.pre_filter_inputs);
+        if (batch->input_filter_observed
+            && (batch->post_filter_inputs[0] != observation.inputs[0]
+                || batch->post_filter_inputs[1] != observation.inputs[1]))
+        {
+            observation.input_filter_observed = false;
+        }
         if (batch->has_previous_coordinate
             && batch->previous_game_round == observation.game_round
             && batch->previous_game_time == observation.game_time)
@@ -583,16 +670,19 @@ void DeterministicHookSet::EmitReplayExit(void* replay_state) noexcept
 
 void DeterministicHookSet::ClearState() noexcept
 {
+    callback_executor_detour_.reset();
     outer_tick_detour_.reset();
     replay_post_tick_detour_.reset();
     frame_fencepost_detour_.reset();
     replay_post_tick_trampoline_ = 0;
     frame_fencepost_trampoline_ = 0;
     outer_tick_trampoline_ = 0;
+    callback_executor_trampoline_ = 0;
     next_outer_batch_id_ = 0;
     replay_post_tick_trampoline_global_.store(0, std::memory_order_release);
     frame_fencepost_trampoline_global_.store(0, std::memory_order_release);
     outer_tick_trampoline_global_.store(0, std::memory_order_release);
+    callback_executor_trampoline_global_.store(0, std::memory_order_release);
     rand_iat_slot_ = 0;
     srand_iat_slot_ = 0;
     image_base_ = 0;

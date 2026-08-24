@@ -45,6 +45,8 @@ struct ReplayTimelineStatus
     std::uint64_t repeat_requests{};
     std::uint64_t same_native_time_coordinates{};
     std::uint64_t cursor_mismatches{};
+    std::uint64_t input_filter_observations{};
+    std::uint64_t input_filter_mutations{};
     std::uint64_t native_batches{};
     std::uint64_t zero_coordinate_batches{};
     std::uint64_t multi_coordinate_batches{};
@@ -62,6 +64,7 @@ struct ReplayTimelineStatus
     std::uint64_t maximum_resim_distance_from_batch_entry{};
     std::uint32_t maximum_coordinates_per_batch{};
     std::uint32_t maximum_input_delta_per_batch{};
+    std::uint32_t maximum_input_filter_invocation_ordinal{};
     std::uint32_t round_state_frame{};
     std::int32_t unpause_countdown{};
     std::uint8_t pending_move_state{};

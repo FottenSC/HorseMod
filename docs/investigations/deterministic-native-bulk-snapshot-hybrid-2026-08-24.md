@@ -96,6 +96,41 @@ regression reduced landing capture to 0.37 ms p99/max and encode to 0.09 ms p99;
 batch-entry retained one 0.671 ms cold sample and no capture exceeded 1 ms. The
 next exact-commit long run remains the admission measurement.
 
+### Exact-commit capture admission evidence
+
+Commit `3e1e22b360` removed the redundant checksum of a fresh, same-stack native
+image while retaining checksum verification for stored, decoded, general encode,
+and restore paths. Its exact-source normal-render 1,800-frame replay-entry run
+produced 61 landing samples and 102 batch-entry samples across a native generation
+change. Landing capture was 0.37 ms p99 with a 0.387 ms maximum; batch-entry
+capture was 0.35 ms p99. DLL SHA-256 was
+`75B610BE3AD37DF82E16AD3D64993CF5B1CB691E8684FB9630F334861CAD8986`.
+This passes the capture-time gate for this workload only. All three qualification
+matchups and the depth-11 restore/resimulation gate remain required.
+
+### Schema 7 input-boundary closure
+
+Current-executable Ghidra evidence closes the native input boundary used by the
+outer simulation worker. `LuxBattleManager_Tick_MainStateMachine_At1461 @
+0x1403FBF30` and
+`LuxBattleManager_Tick_SimulationLoop_UpdateInputAndRoundState @ 0x1403FE520`
+show that the complete worker owns input production, the manager `+0x1210`
+callback collection, world/simulation callbacks, round sequencing, repairs, and
+the once-per-batch tail. `FilterALuxBattleMoveDispatchInputPairByFrameSlot @
+0x140427940` proves those callbacks may change the pair before the per-frame
+consumer. `ProcessAndCompactCallbackEntries @ 0x141D38300` is therefore hooked
+only when its collection identity equals the current manager plus `0x1210`.
+
+Schema 7 records both the pre-filter pair and the post-filter verification pair.
+Only the pre-filter pair is authoritative for later injection; the post-filter
+pair proves that the native callbacks ran exactly once and produced the same
+consumer input. Malformed callback arguments, a count other than two, a missing
+observation, or disagreement with the manager fencepost fails closed. A
+normal-render 600-frame run observed this boundary at all 600 coordinates, across
+597 native batches, a maximum batch width/filter ordinal of three, and one repeat,
+with zero disagreement. This workload produced zero changed filter values, so a
+qualification workload that exercises an actual filter mutation remains required.
+
 ## Remaining admission gate
 
 Repeat native-source coverage for every required matchup and correction phase.

@@ -30,10 +30,13 @@ struct FrameFencepostObservation
     std::uint32_t round_state_frame{};
     std::int32_t unpause_countdown{};
     PlayerInput inputs[2]{};
+    PlayerInput pre_filter_inputs[2]{};
     std::uint8_t round_state{};
     std::uint8_t repeat_pending{};
     std::uint8_t pending_move_state{};
     std::uint16_t read_mask{};
+    std::uint32_t input_filter_invocations{};
+    bool input_filter_observed{};
 };
 
 struct ReplayExitObservation
@@ -115,16 +118,24 @@ private:
         std::int32_t previous_game_round{};
         std::int32_t previous_game_time{};
         bool has_previous_coordinate{};
+        PlayerInput pre_filter_inputs[2]{};
+        PlayerInput post_filter_inputs[2]{};
+        std::uint32_t input_filter_invocations{};
+        bool input_filter_observed{};
     };
 
     using FrameFencepostFn = void (__fastcall*)(void* battle_manager);
     using OuterTickFn = void (__fastcall*)(void* battle_manager, float delta_seconds);
     using ReplayPostTickFn = void (__fastcall*)(void* replay_state);
+    using CallbackExecutorFn = void (__fastcall*)(
+        void* collection, void* callback_argument);
 
     static void __fastcall FrameFencepostDetour(void* battle_manager) noexcept;
     static void __fastcall OuterTickDetour(
         void* battle_manager, float delta_seconds) noexcept;
     static void __fastcall ReplayPostTickDetour(void* replay_state) noexcept;
+    static void __fastcall CallbackExecutorDetour(
+        void* collection, void* callback_argument) noexcept;
     static int __cdecl UcrtRandDetour() noexcept;
     static void __cdecl UcrtSrandDetour(unsigned int seed) noexcept;
     void EmitFrameFencepost(void* battle_manager) noexcept;
@@ -146,14 +157,17 @@ private:
     static std::atomic<std::uint64_t> frame_fencepost_trampoline_global_;
     static std::atomic<std::uint64_t> outer_tick_trampoline_global_;
     static std::atomic<std::uint64_t> replay_post_tick_trampoline_global_;
+    static std::atomic<std::uint64_t> callback_executor_trampoline_global_;
     static thread_local OuterTickCaptureContext* active_outer_capture_;
 
     std::unique_ptr<PLH::x64Detour> frame_fencepost_detour_{};
     std::unique_ptr<PLH::x64Detour> replay_post_tick_detour_{};
     std::unique_ptr<PLH::x64Detour> outer_tick_detour_{};
+    std::unique_ptr<PLH::x64Detour> callback_executor_detour_{};
     std::uint64_t frame_fencepost_trampoline_{};
     std::uint64_t replay_post_tick_trampoline_{};
     std::uint64_t outer_tick_trampoline_{};
+    std::uint64_t callback_executor_trampoline_{};
     std::uint64_t next_outer_batch_id_{};
     std::uintptr_t image_base_{};
     std::uintptr_t rand_iat_slot_{};
