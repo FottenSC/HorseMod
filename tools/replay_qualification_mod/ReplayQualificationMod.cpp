@@ -292,8 +292,9 @@ private:
             Fail("replay_file_unreadable");
             return;
         }
+        Horse::Qualification::ReplayMetadata metadata{};
         const Horse::Qualification::ImportFailure imported =
-            importer_.Import(payload);
+            importer_.Import(payload, metadata);
         if (imported == Horse::Qualification::ImportFailure::SaveManagerUnavailable)
             return;
         if (imported != Horse::Qualification::ImportFailure::None)
@@ -303,7 +304,7 @@ private:
         }
         if (!CallNoParams(instance, L"ApplyReplayToBattleSetup")
             || !SetReplayPath(GetBattleSetup(instance), request_.replay_path)
-            || !CallNoParams(instance, L"RequestBattleAsset")
+            || !importer_.QueueStageMap(instance, metadata)
             || !SetReplayPath(GetBattleSetup(instance), request_.replay_path))
         {
             Fail("battle_setup_or_asset_request_failed");
