@@ -186,6 +186,20 @@ RC::Unreal::UObject* GetBattleSetup(RC::Unreal::UObject* instance) noexcept
     __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
 }
 
+bool CallNoParams(RC::Unreal::UObject* object, const wchar_t* name) noexcept
+{
+    if (object == nullptr) return false;
+    __try
+    {
+        auto* function = object->GetFunctionByNameInChain(name);
+        if (function == nullptr) return false;
+        std::byte params{};
+        object->ProcessEvent(function, &params);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 }
 
 class ReplayQualificationMod final : public CppUserModBase
@@ -375,9 +389,17 @@ private:
             Fail("playback_context_apply_failed");
             return;
         }
+        RC::Unreal::UObject* instance = FindGameInstance();
+        if (instance == nullptr
+            || !CallNoParams(instance, L"ApplyReplayToBattleSetup"))
+        {
+            Fail("apply_replay_to_battle_setup_failed");
+            return;
+        }
         playback_context_staged_ = true;
         Output::send<LogLevel::Default>(STR(
-            "[ReplayQualification] native replay playback context staged\n"));
+            "[ReplayQualification] native replay playback context and "
+            "battle setup staged\n"));
     }
 
     void Fail(std::string_view reason)
