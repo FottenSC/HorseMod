@@ -200,6 +200,21 @@ bool CallNoParams(RC::Unreal::UObject* object, const wchar_t* name) noexcept
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
+bool ReadLuxBattleFrame(std::uint32_t& output) noexcept
+{
+    constexpr std::uintptr_t kFrameCounterRva = 0x470d0c4;
+    const auto image_base = reinterpret_cast<std::uintptr_t>(
+        GetModuleHandleW(nullptr));
+    if (image_base == 0) return false;
+    __try
+    {
+        output = *reinterpret_cast<const std::uint32_t*>(
+            image_base + kFrameCounterRva);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 }
 
 class ReplayQualificationMod final : public CppUserModBase
@@ -271,6 +286,8 @@ private:
         started_ = std::chrono::steady_clock::now();
         player_profiles_requested_ = false;
         playback_context_staged_ = false;
+        battle_scene_observed_ = false;
+        initial_battle_frame_ = 0;
         profile_attempts_ = 0;
         next_profile_attempt_ = {};
         state_ = State::Importing;
@@ -342,11 +359,28 @@ private:
             return;
         }
         if (navigation != Horse::Qualification::NavigationState::Ready) return;
+        std::uint32_t frame = 0;
+        if (!ReadLuxBattleFrame(frame))
+        {
+            Fail("battle_frame_counter_unreadable");
+            return;
+        }
+        if (!battle_scene_observed_)
+        {
+            battle_scene_observed_ = true;
+            initial_battle_frame_ = frame;
+            importer_.ReleasePlaybackContext();
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] stock replay battle observed "
+                "frame={}\n"), frame);
+            return;
+        }
+        if (frame == initial_battle_frame_) return;
         state_ = State::Launched;
-        importer_.ReleasePlaybackContext();
         WriteResult("launch_requested", "none");
         Output::send<LogLevel::Default>(STR(
-            "[ReplayQualification] stock replay battle observed\n"));
+            "[ReplayQualification] replay simulation frame advanced "
+            "initial={} current={}\n"), initial_battle_frame_, frame);
     }
 
     void PollPlayerProfiles()
@@ -441,6 +475,8 @@ private:
     bool waiting_context_logged_{};
     bool player_profiles_requested_{};
     bool playback_context_staged_{};
+    bool battle_scene_observed_{};
+    std::uint32_t initial_battle_frame_{};
     std::uint8_t profile_attempts_{};
 };
 
