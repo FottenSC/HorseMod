@@ -11,49 +11,36 @@ namespace
 {
 constexpr std::size_t max_wind_nodes = 64;
 
-struct Range
-{
-    std::size_t offset;
-    std::size_t size;
-};
-
-struct NodeClass
-{
-    std::uint32_t vtable_rva;
-    StageWindNodeKind kind;
-    std::span<const Range> ranges;
-};
-
 constexpr std::array common_ranges{
-    Range{0x20, 0x02},
-    Range{0x30, 0x04},
-    Range{0x40, 0x30},
+    StageWindStateRange{0x20, 0x02},
+    StageWindStateRange{0x30, 0x04},
+    StageWindStateRange{0x40, 0x30},
 };
 constexpr std::array parallel_ranges{
-    Range{0x70, 0x70},
-    Range{0x120, 0x0C},
+    StageWindStateRange{0x70, 0x70},
+    StageWindStateRange{0x120, 0x0C},
 };
 constexpr std::array ring_out_ranges{
-    Range{0x70, 0xA0},
-    Range{0x120, 0x60},
+    StageWindStateRange{0x70, 0x70},
+    StageWindStateRange{0x120, 0x0C},
 };
 constexpr std::array shock_wave_ranges{
-    Range{0x70, 0xA0},
-    Range{0x120, 0x0C},
-    Range{0x130, 0x50},
+    StageWindStateRange{0x70, 0xA0},
+    StageWindStateRange{0x120, 0x0C},
+    StageWindStateRange{0x130, 0x50},
 };
 constexpr std::array ring_in_ranges{
-    Range{0x70, 0x84},
-    Range{0xF8, 0x24},
-    Range{0x130, 0x04},
-    Range{0x148, 0x04},
-    Range{0x1D0, 0x10},
+    StageWindStateRange{0x70, 0x84},
+    StageWindStateRange{0xF8, 0x24},
+    StageWindStateRange{0x130, 0x04},
+    StageWindStateRange{0x148, 0x04},
+    StageWindStateRange{0x1D0, 0x10},
 };
 constexpr std::array classes{
-    NodeClass{0x3E88C88, StageWindNodeKind::Parallel, parallel_ranges},
-    NodeClass{0x3E88CB8, StageWindNodeKind::RingOut, ring_out_ranges},
-    NodeClass{0x3E88CE8, StageWindNodeKind::RingIn, ring_in_ranges},
-    NodeClass{0x3E88D18, StageWindNodeKind::ShockWave, shock_wave_ranges},
+    StageWindNodeLayout{StageWindNodeKind::Parallel, 0x3E88C88, 0x130, parallel_ranges},
+    StageWindNodeLayout{StageWindNodeKind::RingOut, 0x3E88CB8, 0x130, ring_out_ranges},
+    StageWindNodeLayout{StageWindNodeKind::RingIn, 0x3E88CE8, 0x1E0, ring_in_ranges},
+    StageWindNodeLayout{StageWindNodeKind::ShockWave, 0x3E88D18, 0x180, shock_wave_ranges},
 };
 
 template <typename T>
@@ -79,12 +66,36 @@ void append(std::vector<std::byte>& output, const void* data, std::size_t size)
     output.insert(output.end(), first, first + size);
 }
 
-const NodeClass* classify(std::uint32_t rva) noexcept
+}
+
+std::span<const StageWindStateRange> StageWindCommonRanges() noexcept
+{
+    return common_ranges;
+}
+
+const StageWindNodeLayout* FindStageWindNodeLayout(StageWindNodeKind kind) noexcept
 {
     const auto found = std::find_if(classes.begin(), classes.end(),
-        [rva](const NodeClass& item) { return item.vtable_rva == rva; });
+        [kind](const StageWindNodeLayout& item) { return item.kind == kind; });
     return found == classes.end() ? nullptr : &*found;
 }
+
+const StageWindNodeLayout* FindStageWindNodeLayoutByVtable(
+    std::uint32_t vtable_rva) noexcept
+{
+    const auto found = std::find_if(classes.begin(), classes.end(),
+        [vtable_rva](const StageWindNodeLayout& item) {
+            return item.vtable_rva == vtable_rva;
+        });
+    return found == classes.end() ? nullptr : &*found;
+}
+
+std::size_t StageWindSemanticStateSize(const StageWindNodeLayout& layout) noexcept
+{
+    std::size_t total{};
+    for (const auto range : common_ranges) total += range.size;
+    for (const auto range : layout.class_ranges) total += range.size;
+    return total;
 }
 
 StageWindTopologyProbe::StageWindTopologyProbe(INativeMemory& memory) noexcept
@@ -199,7 +210,7 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
             output = {};
             return Status::failure(FailureCode::IdentityMismatch);
         }
-        const auto* node_class = classify(static_cast<std::uint32_t>(
+        const auto* node_class = FindStageWindNodeLayoutByVtable(static_cast<std::uint32_t>(
             vtable - addresses_.image_base));
         if (node_class == nullptr)
         {
@@ -214,7 +225,7 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
                 output = {};
                 return Status::failure(FailureCode::CaptureFailed);
             }
-        for (const auto range : node_class->ranges)
+        for (const auto range : node_class->class_ranges)
             if (!read_append(memory_, node + range.offset, range.size, image.semantic_state))
             {
                 output = {};

@@ -11,6 +11,7 @@
 #include "deterministic/SimulationSession.hpp"
 #include "deterministic/SnapshotStore.hpp"
 #include "deterministic/StageBreakListenerDiagnostics.hpp"
+#include "deterministic/StageWindGraphTransaction.hpp"
 #include "deterministic/StageWindTopology.hpp"
 
 #include <algorithm>
@@ -58,6 +59,8 @@ public:
         const auto offset = resolve(address, source.size());
         if (offset == invalid) return false;
         std::memcpy(bytes_.data() + offset, source.data(), source.size());
+        if (corrupt_after_write_call_ == write_calls_)
+            bytes_.at(resolve(corrupt_address_, 1)) = corrupt_value_;
         return true;
     }
 
@@ -90,12 +93,24 @@ public:
     {
         write_calls_ = 0;
         fail_write_call_ = call;
+        corrupt_after_write_call_ = 0;
     }
 
     void AllowWrites() noexcept
     {
         write_calls_ = 0;
         fail_write_call_ = 0;
+        corrupt_after_write_call_ = 0;
+    }
+
+    void CorruptAfterWrite(
+        std::size_t call, std::uintptr_t address, std::byte value) noexcept
+    {
+        write_calls_ = 0;
+        fail_write_call_ = 0;
+        corrupt_after_write_call_ = call;
+        corrupt_address_ = address;
+        corrupt_value_ = value;
     }
 
     const std::vector<std::byte>& bytes() const noexcept { return bytes_; }
@@ -114,6 +129,9 @@ private:
     std::vector<std::byte> bytes_;
     std::size_t write_calls_{};
     std::size_t fail_write_call_{};
+    std::size_t corrupt_after_write_call_{};
+    std::uintptr_t corrupt_address_{};
+    std::byte corrupt_value_{};
 };
 
 struct Fixture
@@ -1101,6 +1119,128 @@ void test_stage_wind_topology_is_bounded_and_pointer_free()
     expect(probe.Capture(image).code == FailureCode::IdentityMismatch,
         "wind topology rejects broken reverse links");
 }
+
+class FixedStageWindAllocator final : public IStageWindAllocator
+{
+public:
+    explicit FixedStageWindAllocator(std::uintptr_t next) : next_(next) {}
+
+    std::uintptr_t Allocate(std::size_t size) noexcept override
+    {
+        ++allocation_calls_;
+        if (fail_allocation_ == allocation_calls_) return 0;
+        const auto result = next_;
+        next_ += (size + 0xFF) & ~std::size_t{0xFF};
+        allocations.push_back(result);
+        return result;
+    }
+
+    void Free(std::uintptr_t address) noexcept override
+    {
+        frees.push_back(address);
+    }
+
+    void FailAllocation(std::size_t call) noexcept
+    {
+        allocation_calls_ = 0;
+        fail_allocation_ = call;
+    }
+
+    std::vector<std::uintptr_t> allocations;
+    std::vector<std::uintptr_t> frees;
+
+private:
+    std::uintptr_t next_{};
+    std::size_t allocation_calls_{};
+    std::size_t fail_allocation_{};
+};
+
+void test_stage_wind_graph_restore_is_transactional()
+{
+    constexpr std::uintptr_t base = 0x31000000;
+    constexpr std::uintptr_t image_base = 0x140000000;
+    constexpr auto root_pointer = base + 0x100;
+    constexpr auto root = base + 0x1000;
+    constexpr auto old_node = base + 0x3000;
+    FakeNativeMemory memory{base, 0x40000};
+    const auto* ring_out_layout = FindStageWindNodeLayout(StageWindNodeKind::RingOut);
+    expect(ring_out_layout != nullptr && ring_out_layout->allocation_size == 0x130
+            && ring_out_layout->class_ranges.back().offset
+                + ring_out_layout->class_ranges.back().size <= 0x130,
+        "ring-out layout is bounded by the assembly-proven 0x130 allocation");
+    memory.Set(root_pointer, root);
+    memory.Set(root, old_node);
+    memory.Fill(root + 0x08, 12, std::byte{0x11});
+    memory.Set(root + 0x98, std::uint32_t{});
+    memory.Set(root + 0x9C, std::int32_t{});
+    memory.Fill(root + 0xB0, 0x10, std::byte{0x33});
+    memory.Fill(root + 0xC0, 0x30, std::byte{0x44});
+    memory.Set(old_node, image_base + std::uintptr_t{0x3E88C88});
+    memory.Set(old_node + 0x10, std::uintptr_t{});
+    memory.Set(old_node + 0x18, std::uintptr_t{});
+    memory.Set(old_node + 0x28, root);
+    memory.Fill(old_node + 0x20, 2, std::byte{0x21});
+    memory.Fill(old_node + 0x30, 4, std::byte{0x22});
+    memory.Fill(old_node + 0x40, 0x30, std::byte{0x23});
+    memory.Fill(old_node + 0x70, 0x70, std::byte{0x24});
+    memory.Fill(old_node + 0x120, 0x0C, std::byte{0x25});
+
+    const StageWindTopologyAddresses addresses{
+        image_base, 0x4300000, root_pointer, 10};
+    StageWindTopologyProbe probe{memory};
+    StageWindTopologyImage target{};
+    expect(probe.Bind(addresses).ok() && probe.Capture(target).ok(),
+        "wind transaction fixture captures a qualified source graph");
+    target.root_clock[0] = std::byte{0x7A};
+    target.nodes[0].semantic_state[0] = std::byte{0x6A};
+
+    FixedStageWindAllocator allocator{base + 0x10000};
+    StageWindGraphTransaction transaction{memory, allocator};
+    expect(transaction.Restore(addresses, target).ok(),
+        "wind graph restore commits a verified replacement graph");
+    StageWindTopologyImage restored{};
+    expect(probe.Capture(restored).ok() && restored == target,
+        "wind graph replacement reconstructs the exact pointer-free target");
+    expect(allocator.frees.size() == 1 && allocator.frees[0] == old_node,
+        "wind graph commit frees the detached old graph only after verification");
+
+    const auto committed_head = allocator.allocations.back();
+    StageWindTopologyImage second_target = target;
+    second_target.root_clock[1] = std::byte{0x5A};
+    FixedStageWindAllocator failing_allocator{base + 0x20000};
+    StageWindGraphTransaction failing_transaction{memory, failing_allocator};
+    memory.FailWrite(2); // one replacement-node write, then the root publication
+    expect(failing_transaction.Restore(addresses, second_target).code
+            == FailureCode::RestoreWriteFailed,
+        "wind graph root publication failure aborts the transaction");
+    memory.AllowWrites();
+    expect(probe.Capture(restored).ok() && restored == target,
+        "wind graph publication failure leaves the committed graph unchanged");
+    expect(failing_allocator.frees.size() == 1
+            && failing_allocator.frees[0] != committed_head,
+        "wind graph publication failure frees only unpublished replacements");
+
+    FixedStageWindAllocator corrupting_allocator{base + 0x28000};
+    StageWindGraphTransaction corrupting_transaction{memory, corrupting_allocator};
+    memory.CorruptAfterWrite(2, base + 0x28000 + 0x20, std::byte{0xEE});
+    expect(corrupting_transaction.Restore(addresses, second_target).code
+            == FailureCode::RestoreVerificationFailed,
+        "wind graph post-publication verification failure reports restore failure");
+    memory.AllowWrites();
+    expect(probe.Capture(restored).ok() && restored == target,
+        "wind graph post-publication verification restores the exact old root");
+    expect(corrupting_allocator.frees.size() == 1
+            && corrupting_allocator.frees[0] == base + 0x28000,
+        "wind graph verification failure retires only the rejected replacement");
+
+    FixedStageWindAllocator exhausted_allocator{base + 0x30000};
+    exhausted_allocator.FailAllocation(1);
+    StageWindGraphTransaction exhausted_transaction{memory, exhausted_allocator};
+    expect(exhausted_transaction.Restore(addresses, second_target).code
+            == FailureCode::CapacityExceeded
+            && probe.Capture(restored).ok() && restored == target,
+        "wind graph allocation failure is mutation-free");
+}
 }
 
 int main()
@@ -1122,6 +1262,7 @@ int main()
     test_stage_break_listener_topology_is_value_only_and_bounded();
     test_callback_topology_is_generation_bound_and_pointer_free();
     test_stage_wind_topology_is_bounded_and_pointer_free();
+    test_stage_wind_graph_restore_is_transactional();
     if (failures == 0)
         std::cout << "NativeCandidateRegionsSelfTest passed\n";
     return failures == 0 ? 0 : 1;

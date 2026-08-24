@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace Horse::Deterministic
@@ -16,6 +17,28 @@ enum class StageWindNodeKind : std::uint8_t
     RingIn,
     ShockWave,
 };
+
+struct StageWindStateRange
+{
+    std::size_t offset{};
+    std::size_t size{};
+};
+
+struct StageWindNodeLayout
+{
+    StageWindNodeKind kind{};
+    std::uint32_t vtable_rva{};
+    std::size_t allocation_size{};
+    std::span<const StageWindStateRange> class_ranges{};
+};
+
+[[nodiscard]] std::span<const StageWindStateRange> StageWindCommonRanges() noexcept;
+[[nodiscard]] const StageWindNodeLayout* FindStageWindNodeLayout(
+    StageWindNodeKind kind) noexcept;
+[[nodiscard]] const StageWindNodeLayout* FindStageWindNodeLayoutByVtable(
+    std::uint32_t vtable_rva) noexcept;
+[[nodiscard]] std::size_t StageWindSemanticStateSize(
+    const StageWindNodeLayout& layout) noexcept;
 
 struct StageWindNodeImage
 {
