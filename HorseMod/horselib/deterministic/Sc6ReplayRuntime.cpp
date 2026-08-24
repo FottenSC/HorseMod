@@ -223,6 +223,11 @@ Status Sc6ReplayRuntime::ObserveFrame(
         timeline_status_.captured_checkpoints = checkpoint_status.captured;
         timeline_status_.checkpoint_bytes = checkpoint_status.bytes_used;
         timeline_status_.checkpoint_wind_nodes = checkpoint_status.wind_node_count;
+        timeline_status_.checkpoint_capture_samples = checkpoint_status.capture_samples;
+        timeline_status_.checkpoint_capture_max_ns = checkpoint_status.capture_max_ns;
+        timeline_status_.checkpoint_capture_p99_ns = checkpoint_status.capture_p99_ns;
+        timeline_status_.checkpoint_store_max_ns = checkpoint_status.store_max_ns;
+        timeline_status_.checkpoint_store_p99_ns = checkpoint_status.store_p99_ns;
         timeline_status_.checkpoint_failure = checkpoint.ok()
             ? FailureCode::None : checkpoint.code;
         timeline_status_.checkpoint_validation = checkpoint_status.validation;
@@ -305,6 +310,11 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     timeline_status_.captured_batch_entry_checkpoints = status.captured;
     timeline_status_.batch_entry_checkpoint_bytes = status.bytes_used;
     timeline_status_.batch_entry_wind_nodes = status.wind_node_count;
+    timeline_status_.batch_entry_capture_samples = status.capture_samples;
+    timeline_status_.batch_entry_capture_max_ns = status.capture_max_ns;
+    timeline_status_.batch_entry_capture_p99_ns = status.capture_p99_ns;
+    timeline_status_.batch_entry_store_max_ns = status.store_max_ns;
+    timeline_status_.batch_entry_store_p99_ns = status.store_p99_ns;
     timeline_status_.batch_entry_checkpoint_failure = captured.ok()
         ? FailureCode::None : captured.code;
     timeline_status_.batch_entry_checkpoint_validation = status.validation;

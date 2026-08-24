@@ -10,28 +10,43 @@
 namespace Horse::Deterministic
 {
 inline constexpr std::size_t hgcpu_stream_capacity = 0x28018;
+inline constexpr std::size_t maximum_local_reconstruction_images = 4;
 
-struct HgCpuGenerationContext
+enum class LocalSerializerId : std::uint32_t
+{
+    HgCpuDirect = 1,
+};
+
+inline constexpr std::uint32_t hgcpu_direct_serializer_version = 1;
+
+struct LocalReconstructionGenerationContext
 {
     std::uint64_t build_id{};
     std::uint64_t schema_id{};
     std::uint64_t session_generation{};
     std::uint64_t round_generation{};
     std::uint64_t fighter_generations[2]{};
+    std::uint64_t stage_generation{};
     std::uint64_t camera_generation{};
+    std::uint64_t allocation_generation{};
 
     friend bool operator==(
-        const HgCpuGenerationContext&,
-        const HgCpuGenerationContext&) = default;
+        const LocalReconstructionGenerationContext&,
+        const LocalReconstructionGenerationContext&) = default;
 };
 
-struct HgCpuLocalImage
+struct LocalReconstructionImage
 {
-    HgCpuGenerationContext context{};
+    LocalSerializerId serializer_id{LocalSerializerId::HgCpuDirect};
+    std::uint32_t serializer_version{hgcpu_direct_serializer_version};
+    LocalReconstructionGenerationContext context{};
     std::size_t cursor{};
     std::uint64_t checksum{};
     std::vector<std::byte> bytes;
 };
+
+using HgCpuGenerationContext = LocalReconstructionGenerationContext;
+using HgCpuLocalImage = LocalReconstructionImage;
 
 struct HgCpuWriteSpan
 {

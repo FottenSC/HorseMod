@@ -90,6 +90,14 @@ content allowlist remains empty.
 
 ### Current deterministic evidence
 
+The checkpoint design has now pivoted to the native bulk snapshot hybrid in
+[`deterministic-native-bulk-snapshot-hybrid-2026-08-24.md`](deterministic-native-bulk-snapshot-hybrid-2026-08-24.md).
+Opaque, same-generation native images provide local reconstruction while typed
+regions remain the canonical hash, omission layer, and verifier. Do not resume
+exhaustive field-by-field restoration for bytes already covered by a qualified
+native serializer; classify and retain only verified omissions and canonical
+projections. Opaque images never enter peer hashes or transport.
+
 The most recent commit, `50d03826`, advances the candidate checkpoint format to
 schema 5 and adds the exact native input boundary:
 

@@ -66,7 +66,10 @@ bool HgCpuStreamShim::ValidContext(const HgCpuGenerationContext& context) noexce
     return context.build_id != 0 && context.schema_id != 0
         && context.session_generation != 0 && context.round_generation != 0
         && context.fighter_generations[0] != 0
-        && context.fighter_generations[1] != 0;
+        && context.fighter_generations[1] != 0
+        && context.stage_generation != 0
+        && context.camera_generation != 0
+        && context.allocation_generation != 0;
 }
 
 std::uint64_t HgCpuStreamShim::Checksum(const HgCpuLocalImage& image) noexcept
@@ -82,6 +85,8 @@ std::uint64_t HgCpuStreamShim::Checksum(const HgCpuLocalImage& image) noexcept
             hash *= prime;
         }
     };
+    add(&image.serializer_id, sizeof(image.serializer_id));
+    add(&image.serializer_version, sizeof(image.serializer_version));
     add(&image.context, sizeof(image.context));
     add(&image.cursor, sizeof(image.cursor));
     add(image.bytes.data(), image.bytes.size());
@@ -122,6 +127,8 @@ Status HgCpuStreamShim::Capture(
     }
     buffer.resize(cursor_);
     output.context = context;
+    output.serializer_id = LocalSerializerId::HgCpuDirect;
+    output.serializer_version = hgcpu_direct_serializer_version;
     output.cursor = cursor_;
     output.bytes = std::move(buffer);
     output.checksum = Checksum(output);
@@ -136,6 +143,8 @@ Status HgCpuStreamShim::Restore(
     const HgCpuLocalImage& image) noexcept
 {
     if (reader == nullptr || !ValidContext(current)
+        || image.serializer_id != LocalSerializerId::HgCpuDirect
+        || image.serializer_version != hgcpu_direct_serializer_version
         || current != image.context || image.cursor == 0
         || image.cursor != image.bytes.size()
         || image.cursor > hgcpu_stream_capacity
@@ -236,7 +245,9 @@ std::int32_t __fastcall HgCpuStreamShim::Validate(HgCpuStreamShim* self) noexcep
 
 bool HgCpuStreamShim::ValidateLocalImage(const HgCpuLocalImage& image) noexcept
 {
-    return ValidContext(image.context) && image.cursor != 0
+    return image.serializer_id == LocalSerializerId::HgCpuDirect
+        && image.serializer_version == hgcpu_direct_serializer_version
+        && ValidContext(image.context) && image.cursor != 0
         && image.cursor == image.bytes.size()
         && image.cursor <= hgcpu_stream_capacity
         && image.checksum == Checksum(image);

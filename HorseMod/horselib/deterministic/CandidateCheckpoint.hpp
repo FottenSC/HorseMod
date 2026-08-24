@@ -12,7 +12,7 @@ namespace Horse::Deterministic
 struct CandidateCheckpointImage
 {
     NativeCandidateImage native{};
-    HgCpuLocalImage hgcpu{};
+    std::vector<LocalReconstructionImage> local_images;
     UcrtRandBrokerImage ucrt{};
     StageWindTopologyImage wind{};
 };

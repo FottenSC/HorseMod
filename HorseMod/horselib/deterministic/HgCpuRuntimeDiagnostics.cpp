@@ -177,6 +177,8 @@ Status HgCpuRuntimeDiagnostics::Observe(
         generation_,
         {roots[0], roots[1]},
         1,
+        1,
+        generation_,
     };
     HgCpuCoverageSample sample{};
     const auto writer = reinterpret_cast<HgCpuExecFn>(image_base + 0x3841E0);

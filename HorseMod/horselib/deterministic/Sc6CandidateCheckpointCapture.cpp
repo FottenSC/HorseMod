@@ -1,5 +1,7 @@
 #include "Sc6CandidateCheckpointCapture.hpp"
 
+#include <chrono>
+
 #include "Schema.hpp"
 
 #ifndef NOMINMAX
@@ -449,7 +451,9 @@ Status Sc6CandidateCheckpointCapture::bind(
         session_generation,
         coordinate.generation,
         {context.fighter_identities[0], context.fighter_identities[1]},
+        context.stage_identity,
         static_cast<std::uint64_t>(camera_topology.camera_root),
+        coordinate.generation,
     };
     adapter_binding.hgcpu_writer = reinterpret_cast<HgCpuExecFn>(
         image_base_ + hgcpu_writer_rva);
@@ -549,8 +553,31 @@ Status Sc6CandidateCheckpointCapture::Capture(
     }
 
     Snapshot snapshot{};
+    TimingHistogram& capture_timing = role == CandidateCheckpointRole::Landing
+        ? landing_capture_timing_ : batch_entry_capture_timing_;
+    TimingHistogram& store_timing = role == CandidateCheckpointRole::Landing
+        ? landing_store_timing_ : batch_entry_store_timing_;
+    const auto capture_begin = std::chrono::steady_clock::now();
     Status captured = adapter_->Capture(coordinate, snapshot);
-    if (captured.ok()) captured = snapshots.Save(std::move(snapshot));
+    const auto capture_end = std::chrono::steady_clock::now();
+    capture_timing.Record(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            capture_end - capture_begin).count()));
+    if (captured.ok())
+    {
+        const auto store_begin = std::chrono::steady_clock::now();
+        captured = snapshots.Save(std::move(snapshot));
+        const auto store_end = std::chrono::steady_clock::now();
+        store_timing.Record(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                store_end - store_begin).count()));
+    }
+    capture_status.capture_samples = capture_timing.samples;
+    capture_status.capture_total_ns = capture_timing.total_ns;
+    capture_status.capture_max_ns = capture_timing.maximum_ns;
+    capture_status.capture_p99_ns = capture_timing.Percentile99();
+    capture_status.store_max_ns = store_timing.maximum_ns;
+    capture_status.store_p99_ns = store_timing.Percentile99();
     if (!captured.ok())
     {
         capture_status.failure = captured.code;
@@ -588,6 +615,10 @@ void Sc6CandidateCheckpointCapture::Reset() noexcept
     batch_entry_snapshots_.Clear();
     landing_status_ = {};
     batch_entry_status_ = {};
+    landing_capture_timing_ = {};
+    batch_entry_capture_timing_ = {};
+    landing_store_timing_ = {};
+    batch_entry_store_timing_ = {};
     image_base_ = 0;
     image_size_ = 0;
     ucrt_broker_ = nullptr;

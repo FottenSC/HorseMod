@@ -408,7 +408,8 @@ public:
 
 HgCpuGenerationContext hgcpu_context()
 {
-    return {0x231, Schema::snapshot_schema_version, 11, 7, {101, 102}, 301};
+    return {0x231, Schema::snapshot_schema_version, 11, 7,
+        {101, 102}, 201, 301, 7};
 }
 
 Status noop_reconcile(void*, FrameCoordinate) noexcept
@@ -443,6 +444,18 @@ void test_hgcpu_stream_contract()
         shim.Restore(&fake_hgcpu_reader, wrong_generation, image).code
             == FailureCode::RestorePreflightFailed,
         "HgCpu generation mismatch fails before native reader");
+    auto wrong_allocation = context;
+    ++wrong_allocation.allocation_generation;
+    expect(
+        shim.Restore(&fake_hgcpu_reader, wrong_allocation, image).code
+            == FailureCode::RestorePreflightFailed,
+        "local reconstruction allocation generation mismatch fails preflight");
+    auto wrong_serializer = image;
+    ++wrong_serializer.serializer_version;
+    expect(
+        shim.Restore(&fake_hgcpu_reader, context, wrong_serializer).code
+            == FailureCode::RestorePreflightFailed,
+        "local reconstruction serializer version mismatch fails preflight");
     expect(
         shim.Restore(&fake_hgcpu_short_reader, context, image).code
             == FailureCode::RestoreVerificationFailed,
@@ -476,7 +489,10 @@ void test_candidate_checkpoint_codec()
     expect(shim.Capture(&fake_hgcpu_writer, hgcpu_context(), hgcpu).ok(),
         "capture checkpoint HgCpu image");
 
-    CandidateCheckpointImage image{native, hgcpu, candidate_ucrt_image()};
+    CandidateCheckpointImage image{};
+    image.native = native;
+    image.local_images.push_back(hgcpu);
+    image.ucrt = candidate_ucrt_image();
     image.wind.generation = native.round_generation;
     const auto* ring_in_layout = FindStageWindNodeLayout(StageWindNodeKind::RingIn);
     StageWindNodeImage ring_in{};
@@ -498,15 +514,28 @@ void test_candidate_checkpoint_codec()
         "decode candidate checkpoint");
     expect(decoded.native == native,
         "candidate checkpoint round-trips typed native image");
-    expect(decoded.hgcpu.context == hgcpu.context
-            && decoded.hgcpu.cursor == hgcpu.cursor
-            && decoded.hgcpu.checksum == hgcpu.checksum
-            && decoded.hgcpu.bytes == hgcpu.bytes,
+    expect(decoded.local_images.size() == 1
+            && decoded.local_images.front().serializer_id
+                == LocalSerializerId::HgCpuDirect
+            && decoded.local_images.front().serializer_version
+                == hgcpu_direct_serializer_version
+            && decoded.local_images.front().context == hgcpu.context
+            && decoded.local_images.front().cursor == hgcpu.cursor
+            && decoded.local_images.front().checksum == hgcpu.checksum
+            && decoded.local_images.front().bytes == hgcpu.bytes,
         "candidate checkpoint round-trips local HgCpu reconstruction image");
     expect(decoded.ucrt == image.ucrt,
         "candidate checkpoint round-trips value-only UCRT state");
     expect(decoded.wind == image.wind,
         "candidate checkpoint round-trips pointer-free wind state");
+
+    auto duplicate_local = image;
+    duplicate_local.local_images.push_back(hgcpu);
+    Snapshot rejected_duplicate{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, duplicate_local, rejected_duplicate).code
+            == FailureCode::IdentityMismatch,
+        "checkpoint rejects an unsupported duplicate local serializer");
 
     Snapshot corrupted_wind = snapshot;
     const std::array derived_marker{
@@ -522,7 +551,14 @@ void test_candidate_checkpoint_codec()
         "checkpoint rejects corrupted non-canonical wind-derived bytes");
 
     Snapshot corrupted = snapshot;
-    corrupted.bytes.back() ^= std::byte{1};
+    const std::array local_marker{
+        std::byte{0x80}, std::byte{0x81}, std::byte{0x82}, std::byte{0x83},
+        std::byte{0x84}, std::byte{0x85}, std::byte{0x86}, std::byte{0x87}};
+    const auto local_byte = std::search(corrupted.bytes.begin(),
+        corrupted.bytes.end(), local_marker.begin(), local_marker.end());
+    expect(local_byte != corrupted.bytes.end(),
+        "checkpoint contains opaque local reconstruction payload");
+    if (local_byte != corrupted.bytes.end()) *local_byte ^= std::byte{1};
     expect(CandidateCheckpointCodec::Decode(corrupted, decoded).code
             == FailureCode::RestoreVerificationFailed,
         "checkpoint rejects corrupted local reconstruction bytes");

@@ -41,7 +41,12 @@ Status CandidateGameStateAdapter::Configure(
         || binding.hgcpu_context.fighter_generations[0]
             != binding.context.fighter_identities[0]
         || binding.hgcpu_context.fighter_generations[1]
-            != binding.context.fighter_identities[1])
+            != binding.context.fighter_identities[1]
+        || binding.hgcpu_context.stage_generation
+            != binding.context.stage_identity
+        || binding.hgcpu_context.camera_generation == 0
+        || binding.hgcpu_context.allocation_generation
+            != binding.context.generation)
     {
         return Status::failure(FailureCode::InvalidConfiguration);
     }
@@ -84,8 +89,14 @@ Status CandidateGameStateAdapter::capture_image(
     Status status = regions_.Capture(output.native);
     if (status.ok())
     {
+        HgCpuLocalImage local{};
         status = hgcpu_.Capture(
-            binding_.hgcpu_writer, binding_.hgcpu_context, output.hgcpu);
+            binding_.hgcpu_writer, binding_.hgcpu_context, local);
+        if (status.ok())
+        {
+            try { output.local_images.push_back(std::move(local)); }
+            catch (...) { status = Status::failure(FailureCode::CapacityExceeded); }
+        }
     }
     if (status.ok())
     {
@@ -121,8 +132,9 @@ Status CandidateGameStateAdapter::decode_and_preflight(
     }
     const Status decoded = CandidateCheckpointCodec::Decode(snapshot, output);
     if (!decoded.ok()) return decoded;
-    if (output.hgcpu.context != binding_.hgcpu_context
-        || !HgCpuStreamShim::ValidateLocalImage(output.hgcpu))
+    if (output.local_images.size() != 1
+        || output.local_images.front().context != binding_.hgcpu_context
+        || !HgCpuStreamShim::ValidateLocalImage(output.local_images.front()))
     {
         return Status::failure(FailureCode::IdentityMismatch);
     }
@@ -162,7 +174,8 @@ Status CandidateGameStateAdapter::restore_image(
     const CandidateCheckpointImage& image) noexcept
 {
     Status status = hgcpu_.Restore(
-        binding_.hgcpu_reader, binding_.hgcpu_context, image.hgcpu);
+        binding_.hgcpu_reader, binding_.hgcpu_context,
+        image.local_images.front());
     if (status.ok()) status = regions_.RestoreTransactional(image.native);
     if (status.ok())
         status = binding_.wind_transaction->Restore(
@@ -184,7 +197,8 @@ bool CandidateGameStateAdapter::undo_image(
     const Status wind = binding_.wind_transaction->Restore(
         binding_.wind_addresses, image.wind);
     const Status hgcpu = hgcpu_.Restore(
-        binding_.hgcpu_reader, binding_.hgcpu_context, image.hgcpu);
+        binding_.hgcpu_reader, binding_.hgcpu_context,
+        image.local_images.front());
     return ucrt.ok() && native.ok() && wind.ok() && hgcpu.ok();
 }
 
@@ -209,10 +223,20 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
     const Status captured = capture_image(observed);
     if (!captured.ok()) return captured;
     return observed.native == expected_image.native
-            && observed.hgcpu.context == expected_image.hgcpu.context
-            && observed.hgcpu.cursor == expected_image.hgcpu.cursor
-            && observed.hgcpu.checksum == expected_image.hgcpu.checksum
-            && observed.hgcpu.bytes == expected_image.hgcpu.bytes
+            && observed.local_images.size() == 1
+            && expected_image.local_images.size() == 1
+            && observed.local_images.front().serializer_id
+                == expected_image.local_images.front().serializer_id
+            && observed.local_images.front().serializer_version
+                == expected_image.local_images.front().serializer_version
+            && observed.local_images.front().context
+                == expected_image.local_images.front().context
+            && observed.local_images.front().cursor
+                == expected_image.local_images.front().cursor
+            && observed.local_images.front().checksum
+                == expected_image.local_images.front().checksum
+            && observed.local_images.front().bytes
+                == expected_image.local_images.front().bytes
             && observed.ucrt == expected_image.ucrt
             && observed.wind == expected_image.wind
         ? Status::success()

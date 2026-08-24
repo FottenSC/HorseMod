@@ -3360,12 +3360,16 @@ private:
                 timeline.captured_checkpoints, std::memory_order_release);
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] candidate checkpoint captured count={} generation={} "
-                "frame={} bytes={} wind_nodes={}\n"),
+                "frame={} bytes={} wind_nodes={} capture_p99_us={} "
+                "capture_max_us={} store_p99_us={}\n"),
                 timeline.captured_checkpoints,
                 timeline.last_coordinate.generation,
                 timeline.last_coordinate.frame,
                 timeline.checkpoint_bytes,
-                timeline.checkpoint_wind_nodes);
+                timeline.checkpoint_wind_nodes,
+                timeline.checkpoint_capture_p99_ns / 1000,
+                timeline.checkpoint_capture_max_ns / 1000,
+                timeline.checkpoint_store_p99_ns / 1000);
         }
         if (timeline.checkpoint_failure != Horse::Deterministic::FailureCode::None
             && !self->m_candidate_checkpoint_first_failure_logged.exchange(
@@ -3539,12 +3543,16 @@ private:
                 std::memory_order_release);
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] candidate batch-entry checkpoint captured count={} "
-                "generation={} frame={} bytes={} wind_nodes={}\n"),
+                "generation={} frame={} bytes={} wind_nodes={} "
+                "capture_p99_us={} capture_max_us={} store_p99_us={}\n"),
                 timeline.captured_batch_entry_checkpoints,
                 timeline.last_coordinate.generation,
                 timeline.last_coordinate.frame,
                 timeline.batch_entry_checkpoint_bytes,
-                timeline.batch_entry_wind_nodes);
+                timeline.batch_entry_wind_nodes,
+                timeline.batch_entry_capture_p99_ns / 1000,
+                timeline.batch_entry_capture_max_ns / 1000,
+                timeline.batch_entry_store_p99_ns / 1000);
         }
         if (timeline.batch_entry_checkpoint_failure
                 != Horse::Deterministic::FailureCode::None

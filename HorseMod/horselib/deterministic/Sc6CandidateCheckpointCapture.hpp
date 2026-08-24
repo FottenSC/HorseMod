@@ -7,6 +7,8 @@
 #include "StageWindTopology.hpp"
 #include "StageWindGraphTransaction.hpp"
 
+#include <algorithm>
+#include <array>
 #include <memory>
 
 namespace Horse::Deterministic
@@ -24,6 +26,12 @@ struct CandidateCheckpointCaptureStatus
     std::uint64_t captured{};
     std::size_t bytes_used{};
     std::size_t wind_node_count{};
+    std::uint64_t capture_samples{};
+    std::uint64_t capture_total_ns{};
+    std::uint64_t capture_max_ns{};
+    std::uint64_t capture_p99_ns{};
+    std::uint64_t store_max_ns{};
+    std::uint64_t store_p99_ns{};
     NativeCandidateValidationDiagnostic validation{};
 };
 
@@ -79,6 +87,41 @@ private:
         Schema::replay_checkpoint_memory_budget / 2;
     static constexpr std::size_t maximum_checkpoints_per_role = 32768;
 
+    struct TimingHistogram
+    {
+        static constexpr std::uint64_t bucket_width_ns = 10'000;
+        static constexpr std::size_t bucket_count = 502;
+
+        void Record(std::uint64_t nanoseconds) noexcept
+        {
+            const auto bucket = static_cast<std::size_t>(std::min<std::uint64_t>(
+                nanoseconds / bucket_width_ns, bucket_count - 1));
+            ++buckets[bucket];
+            ++samples;
+            total_ns += nanoseconds;
+            if (nanoseconds > maximum_ns) maximum_ns = nanoseconds;
+        }
+
+        [[nodiscard]] std::uint64_t Percentile99() const noexcept
+        {
+            if (samples == 0) return 0;
+            const std::uint64_t target = (samples * 99 + 99) / 100;
+            std::uint64_t cumulative{};
+            for (std::size_t index = 0; index < buckets.size(); ++index)
+            {
+                cumulative += buckets[index];
+                if (cumulative >= target)
+                    return (index + 1) * bucket_width_ns;
+            }
+            return bucket_count * bucket_width_ns;
+        }
+
+        std::array<std::uint64_t, bucket_count> buckets{};
+        std::uint64_t samples{};
+        std::uint64_t total_ns{};
+        std::uint64_t maximum_ns{};
+    };
+
     std::unique_ptr<ProcessMemory> memory_;
     std::unique_ptr<NativeCandidateRegions> regions_;
     std::unique_ptr<CallbackTopologyProbe> callback_probe_;
@@ -94,6 +137,10 @@ private:
         maximum_checkpoints_per_role, CapacityPolicy::RejectNew};
     CandidateCheckpointCaptureStatus landing_status_{};
     CandidateCheckpointCaptureStatus batch_entry_status_{};
+    TimingHistogram landing_capture_timing_{};
+    TimingHistogram batch_entry_capture_timing_{};
+    TimingHistogram landing_store_timing_{};
+    TimingHistogram batch_entry_store_timing_{};
     std::uintptr_t image_base_{};
     std::size_t image_size_{};
     std::uintptr_t bound_manager_{};
