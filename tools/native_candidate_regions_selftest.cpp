@@ -157,6 +157,7 @@ struct Fixture
         addresses.wind_rng = memory_base + 0x10300;
         addresses.pending_hit_record = memory_base + 0x10400;
         addresses.pending_launcher_sync = memory_base + 0x10420;
+        addresses.camera_action_backing = memory_base + 0x1D000;
         addresses.fighter_roots = {
             memory_base + 0x12000, memory_base + 0x13000};
         addresses.session_generation = 11;
@@ -219,6 +220,19 @@ struct Fixture
         memory.Set(addresses.pending_hit_record + 8, addresses.fighter_roots[1]);
         memory.Set(addresses.pending_hit_record + 0x10, std::uint32_t{0x400000});
         memory.Set(addresses.pending_launcher_sync, std::uint8_t{1});
+
+        for (std::size_t index = 0; index < native_camera_action_count; ++index)
+        {
+            const auto action = addresses.camera_action_backing + index * 0x3E0;
+            memory.Set(action, image_base + std::uintptr_t{0x3E88000 + index * 8});
+        }
+        const auto player_watch = addresses.camera_action_backing + 3 * 0x3E0;
+        memory.Set(player_watch, image_base + std::uintptr_t{0x3E87EB0});
+        for (std::size_t index = 0; index < 16; ++index)
+            memory.Set(player_watch + 0x25C + index * sizeof(float),
+                static_cast<float>(100 + index));
+        memory.Set(player_watch + 0x29C, std::int32_t{11});
+        memory.Set(player_watch + 0x2A0, std::uint32_t{7});
 
         event_masks = memory_base + 0x2000;
         memory.Set(addresses.move_dispatch + 0x4A8, event_masks);
@@ -731,6 +745,10 @@ void test_capture_restore_preserves_exclusions()
     fixture.memory.Set(fixture.addresses.pending_hit_record + 0x10,
         std::uint32_t{0x200000});
     fixture.memory.Set(fixture.addresses.pending_launcher_sync, std::uint8_t{0});
+    const auto player_watch = fixture.addresses.camera_action_backing + 3 * 0x3E0;
+    fixture.memory.Fill(player_watch + 0x25C, 16 * sizeof(float), std::byte{0xCC});
+    fixture.memory.Set(player_watch + 0x29C, std::int32_t{19});
+    fixture.memory.Set(player_watch + 0x2A0, std::uint32_t{12});
     fixture.memory.Set(fixture.addresses.frame_counter, std::uint32_t{99});
     fixture.memory.Set(fixture.addresses.input_log + 0x3A0, std::int32_t{8});
     fixture.memory.Set(fixture.addresses.input_log + 0x3A4, std::int32_t{99});
@@ -785,6 +803,11 @@ void test_capture_restore_preserves_exclusions()
     expect(restored.pending_hit == baseline.pending_hit
             && restored.pending_hit.attacker_slot == 2,
         "restore the pending-hit record through its fighter-relative slot");
+    expect(restored.camera_distance_history == baseline.camera_distance_history
+            && restored.camera_distance_history[3].present == 1
+            && restored.camera_distance_history[3].sample_count == 11
+            && restored.camera_distance_history[3].cursor == 7,
+        "restore exact PlayerWatch distance-history ring and cursors");
 
     const auto canonical = NativeCandidateRegions::CanonicalBytes(baseline);
     expect(!contains_qword(canonical, fixture.event_masks), "canonical bytes exclude event owner pointer");
@@ -833,6 +856,40 @@ void test_unknown_class_and_invalid_header_fail_closed()
         header.regions.RestoreTransactional(baseline).code == FailureCode::IdentityMismatch,
         "invalid event-mask count rejects restore");
     expect(header.memory.bytes() == before, "invalid header performs zero mutation");
+
+    Fixture camera_class;
+    expect(camera_class.regions.Bind(camera_class.addresses).ok(),
+        "bind camera-class drift fixture");
+    expect(camera_class.regions.Capture(baseline).ok(),
+        "capture camera-class drift baseline");
+    camera_class.memory.Set(camera_class.addresses.camera_action_backing + 3 * 0x3E0,
+        Fixture::image_base + std::uintptr_t{0x3E88018});
+    const auto camera_before = camera_class.memory.bytes();
+    expect(camera_class.regions.RestoreTransactional(baseline).code
+            == FailureCode::IdentityMismatch,
+        "camera action class drift rejects restore");
+    expect(camera_class.memory.bytes() == camera_before,
+        "camera class rejection performs zero mutation");
+
+    Fixture camera_cursor;
+    camera_cursor.memory.Set(
+        camera_cursor.addresses.camera_action_backing + 3 * 0x3E0 + 0x2A0,
+        std::uint32_t{16});
+    expect(camera_cursor.regions.Bind(camera_cursor.addresses).code
+            == FailureCode::CapturePreflightFailed,
+        "PlayerWatch distance-history cursor outside the 16-slot ring fails closed");
+
+    Fixture no_camera;
+    no_camera.addresses.camera_action_backing = 0;
+    NativeCandidateImage no_camera_image{};
+    expect(no_camera.regions.Bind(no_camera.addresses).ok()
+            && no_camera.regions.Capture(no_camera_image).ok()
+            && std::all_of(no_camera_image.camera_distance_history.begin(),
+                no_camera_image.camera_distance_history.end(),
+                [](const NativeCameraDistanceHistoryImage& history) {
+                    return history.present == 0;
+                }),
+        "an absent optional camera produces an empty bounded history image");
 
     Fixture prior_header;
     prior_header.memory.Set(

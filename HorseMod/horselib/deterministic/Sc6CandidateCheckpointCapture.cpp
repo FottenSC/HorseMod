@@ -400,6 +400,7 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + wind_rng_rva,
         image_base_ + pending_hit_record_rva,
         image_base_ + pending_launcher_sync_rva,
+        camera_topology.action_backing,
         fighter_roots,
         session_generation,
         coordinate.generation,

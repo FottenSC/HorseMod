@@ -39,6 +39,7 @@ struct NativeCandidateAddresses
     std::uintptr_t wind_rng{};
     std::uintptr_t pending_hit_record{};
     std::uintptr_t pending_launcher_sync{};
+    std::uintptr_t camera_action_backing{};
     std::array<std::uintptr_t, 2> fighter_roots{};
     std::uint64_t session_generation{};
     std::uint64_t round_generation{};
@@ -194,6 +195,25 @@ struct NativeSchedulerImage
     friend bool operator==(const NativeSchedulerImage&, const NativeSchedulerImage&) = default;
 };
 
+inline constexpr std::size_t native_camera_action_count = 17;
+
+// LuxEffectCamera PlayerWatch actions retain the last 16 requested distances.
+// Only slots whose bound vtable is the exact supported PlayerWatch class are
+// present; every other camera-action subtype remains identity-only.
+struct NativeCameraDistanceHistoryImage
+{
+    // Preserve IEEE-754 payload bits so NaN payloads, if ever produced by the
+    // native camera, still verify byte-exactly instead of using float equality.
+    std::array<std::uint32_t, 16> sample_bits{};
+    std::int32_t sample_count{};
+    std::uint32_t cursor{};
+    std::uint8_t present{};
+
+    friend bool operator==(
+        const NativeCameraDistanceHistoryImage&,
+        const NativeCameraDistanceHistoryImage&) = default;
+};
+
 inline constexpr std::size_t native_move_command_semantic_bytes = 0x2F2C;
 
 struct NativeCandidateImage
@@ -212,6 +232,8 @@ struct NativeCandidateImage
     std::array<std::array<std::byte, 0x28>, 2> slot_params{};
     NativePendingHitImage pending_hit{};
     NativeRngImage rng{};
+    std::array<NativeCameraDistanceHistoryImage, native_camera_action_count>
+        camera_distance_history{};
 
     friend bool operator==(const NativeCandidateImage&, const NativeCandidateImage&) = default;
 };
@@ -265,6 +287,7 @@ private:
         std::array<std::uintptr_t, 6> pump{};
         std::array<SubVmIdentity, 2> sub_vms{};
         std::array<std::array<std::uintptr_t, 17>, 2> move_commands{};
+        std::array<std::uintptr_t, native_camera_action_count> camera_vtables{};
     };
 
     bool read_bytes(std::uintptr_t address, std::span<std::byte> out) noexcept;

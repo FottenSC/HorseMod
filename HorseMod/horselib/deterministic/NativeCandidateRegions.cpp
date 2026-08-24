@@ -31,6 +31,9 @@ constexpr std::array<Range, 9> move_command_ranges{{
     {0x19A0, 0x1088},
     {0x2AA8, 0x058C},
 }};
+constexpr std::size_t camera_action_stride = 0x3E0;
+constexpr std::size_t camera_distance_history_offset = 0x25C;
+constexpr std::uint32_t player_watch_camera_vtable_rva = 0x3E87EB0;
 constexpr std::ptrdiff_t manager_input_log = 0x478;
 constexpr std::ptrdiff_t manager_repeat_pending = 0x1462;
 constexpr std::ptrdiff_t manager_pending_move_state = 0x1463;
@@ -167,6 +170,19 @@ void append_input_log(
 bool valid_pending_hit(const NativePendingHitImage& image) noexcept
 {
     return image.attacker_slot <= 2 && image.launcher_sync <= 1;
+}
+
+bool valid_camera_history(
+    const NativeCameraDistanceHistoryImage& image) noexcept
+{
+    if (image.present > 1) return false;
+    if (image.present == 0)
+    {
+        return image.sample_count == 0 && image.cursor == 0
+            && std::all_of(image.sample_bits.begin(), image.sample_bits.end(),
+                [](std::uint32_t value) { return value == 0; });
+    }
+    return image.sample_count >= 0 && image.cursor < image.sample_bits.size();
 }
 
 bool capture_input_log_cache(
@@ -433,6 +449,21 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
             return false;
         }
     }
+    if (addresses_.camera_action_backing != 0)
+    {
+        for (std::size_t index = 0; index < output.camera_vtables.size(); ++index)
+        {
+            if (!read_value(memory_, addresses_.camera_action_backing
+                    + index * camera_action_stride,
+                    output.camera_vtables[index])
+                || output.camera_vtables[index] < addresses_.image_base
+                || output.camera_vtables[index] - addresses_.image_base
+                    > std::numeric_limits<std::uint32_t>::max())
+            {
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -448,7 +479,9 @@ bool NativeCandidateRegions::identities_match() noexcept
         && current.round_sequence_array == identities_.round_sequence_array
         && current.round_sequence_capacity == identities_.round_sequence_capacity
         && current.event_mask_owner == identities_.event_mask_owner
-        && current.pump == identities_.pump && current.move_commands == identities_.move_commands
+        && current.pump == identities_.pump
+        && current.move_commands == identities_.move_commands
+        && current.camera_vtables == identities_.camera_vtables
         && std::equal(
             current.sub_vms.begin(), current.sub_vms.end(), identities_.sub_vms.begin(),
             [](const SubVmIdentity& a, const SubVmIdentity& b) {
@@ -680,6 +713,28 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
     {
         return false;
     }
+    for (std::size_t index = 0;
+         index < output.camera_distance_history.size(); ++index)
+    {
+        auto& history = output.camera_distance_history[index];
+        const auto vtable = identities_.camera_vtables[index];
+        if (vtable != addresses_.image_base + player_watch_camera_vtable_rva)
+            continue;
+        const auto action = addresses_.camera_action_backing
+            + index * camera_action_stride;
+        std::uintptr_t current_vtable{};
+        history.present = 1;
+        if (!read_value(memory_, action, current_vtable)
+            || current_vtable != vtable
+            || !read_bytes(action + camera_distance_history_offset,
+                std::as_writable_bytes(std::span{history.sample_bits}))
+            || !read_value(memory_, action + 0x29C, history.sample_count)
+            || !read_value(memory_, action + 0x2A0, history.cursor)
+            || !valid_camera_history(history))
+        {
+            return region_read_failed(static_cast<std::uint32_t>(30 + index));
+        }
+    }
     return true;
 }
 
@@ -709,6 +764,17 @@ bool NativeCandidateRegions::image_matches_binding(
         if (state.extent != identity.extent
             || state.vtable_rva != identity.vtable - addresses_.image_base
             || derived_size(state.extent) > state.derived.size())
+        {
+            return false;
+        }
+    }
+    for (std::size_t index = 0;
+         index < image.camera_distance_history.size(); ++index)
+    {
+        const bool expected = identities_.camera_vtables[index]
+            == addresses_.image_base + player_watch_camera_vtable_rva;
+        if (!valid_camera_history(image.camera_distance_history[index])
+            || (image.camera_distance_history[index].present != 0) != expected)
         {
             return false;
         }
@@ -828,6 +894,26 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
     for (std::size_t lane = 0; lane < image.slot_params.size(); ++lane)
         if (!write_bytes(addresses_.slot_param_base + lane * 0x2C, image.slot_params[lane]))
             return false;
+    for (std::size_t index = 0;
+         index < image.camera_distance_history.size(); ++index)
+    {
+        const auto& history = image.camera_distance_history[index];
+        if (history.present == 0) continue;
+        const auto action = addresses_.camera_action_backing
+            + index * camera_action_stride;
+        std::uintptr_t vtable{};
+        if (!read_value(memory_, action, vtable)
+            || vtable != identities_.camera_vtables[index]
+            || !write_bytes(action + camera_distance_history_offset,
+                std::as_bytes(std::span{history.sample_bits}))
+            || !write_bytes(action + 0x29C,
+                std::as_bytes(std::span{&history.sample_count, 1}))
+            || !write_bytes(action + 0x2A0,
+                std::as_bytes(std::span{&history.cursor, 1})))
+        {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -837,6 +923,25 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
     const std::uintptr_t pending_attacker = image.pending_hit.attacker_slot == 0
         ? 0 : addresses_.fighter_roots[image.pending_hit.attacker_slot - 1];
     const std::int32_t round_sequence_count = image.round_sequence.count;
+    for (std::size_t index = image.camera_distance_history.size(); index-- > 0;)
+    {
+        const auto& history = image.camera_distance_history[index];
+        if (history.present == 0) continue;
+        const auto action = addresses_.camera_action_backing
+            + index * camera_action_stride;
+        std::uintptr_t vtable{};
+        const bool identity_ok = read_value(memory_, action, vtable)
+            && vtable == identities_.camera_vtables[index];
+        ok = identity_ok
+            && write_bytes(action + 0x2A0,
+                std::as_bytes(std::span{&history.cursor, 1})) && ok;
+        ok = identity_ok
+            && write_bytes(action + 0x29C,
+                std::as_bytes(std::span{&history.sample_count, 1})) && ok;
+        ok = identity_ok
+            && write_bytes(action + camera_distance_history_offset,
+                std::as_bytes(std::span{history.sample_bits})) && ok;
+    }
     for (std::size_t lane = image.slot_params.size(); lane-- > 0;)
         ok = write_bytes(addresses_.slot_param_base + lane * 0x2C, image.slot_params[lane]) && ok;
     for (std::size_t lane = image.move_commands.size(); lane-- > 0;)
@@ -1002,6 +1107,14 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
     append_bytes(output, &image.rng.lfsr_index, sizeof(image.rng.lfsr_index));
     append_bytes(output, image.rng.xorshift.data(), sizeof(image.rng.xorshift));
     append_bytes(output, image.rng.wind.data(), sizeof(image.rng.wind));
+    for (const auto& history : image.camera_distance_history)
+    {
+        append_bytes(output, &history.present, sizeof(history.present));
+        if (history.present == 0) continue;
+        append_bytes(output, history.sample_bits.data(), sizeof(history.sample_bits));
+        append_bytes(output, &history.sample_count, sizeof(history.sample_count));
+        append_bytes(output, &history.cursor, sizeof(history.cursor));
+    }
     return output;
 }
 
@@ -1133,6 +1246,20 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
     {
         output = {};
         return Status::failure(FailureCode::CaptureFailed);
+    }
+    for (auto& history : output.camera_distance_history)
+    {
+        if (!take(&history.present, sizeof(history.present))
+            || history.present > 1
+            || (history.present != 0
+                && (!take(history.sample_bits.data(), sizeof(history.sample_bits))
+                    || !take(&history.sample_count, sizeof(history.sample_count))
+                    || !take(&history.cursor, sizeof(history.cursor))))
+            || !valid_camera_history(history))
+        {
+            output = {};
+            return Status::failure(FailureCode::CaptureFailed);
+        }
     }
     if (cursor != bytes.size())
     {
