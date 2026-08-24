@@ -3373,9 +3373,16 @@ private:
         {
             const auto failure = Horse::Deterministic::failure_code_name(
                 timeline.checkpoint_failure);
+            const auto& diagnostic = timeline.checkpoint_validation;
             Output::send<LogLevel::Warning>(STR(
-                "[HorseMod] candidate checkpoint capture unavailable: {}\n"),
-                RC::to_generic_string(std::string(failure)));
+                "[HorseMod] candidate checkpoint capture unavailable: {} "
+                "detail={} index={} observed={}/{} expected={}/{}\n"),
+                RC::to_generic_string(std::string(failure)),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::native_candidate_validation_issue_name(
+                        diagnostic.issue))),
+                diagnostic.index, diagnostic.observed_a, diagnostic.observed_b,
+                diagnostic.expected_a, diagnostic.expected_b);
         }
 
         const std::uintptr_t prior_manager = self->m_frame_fencepost_manager.exchange(
@@ -3546,9 +3553,16 @@ private:
         {
             const auto failure = Horse::Deterministic::failure_code_name(
                 timeline.batch_entry_checkpoint_failure);
+            const auto& diagnostic = timeline.batch_entry_checkpoint_validation;
             Output::send<LogLevel::Warning>(STR(
-                "[HorseMod] candidate batch-entry checkpoint unavailable: {}\n"),
-                RC::to_generic_string(std::string(failure)));
+                "[HorseMod] candidate batch-entry checkpoint unavailable: {} "
+                "detail={} index={} observed={}/{} expected={}/{}\n"),
+                RC::to_generic_string(std::string(failure)),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::native_candidate_validation_issue_name(
+                        diagnostic.issue))),
+                diagnostic.index, diagnostic.observed_a, diagnostic.observed_b,
+                diagnostic.expected_a, diagnostic.expected_b);
         }
     }
 

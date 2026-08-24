@@ -24,6 +24,7 @@ struct CandidateCheckpointCaptureStatus
     std::uint64_t captured{};
     std::size_t bytes_used{};
     std::size_t wind_node_count{};
+    NativeCandidateValidationDiagnostic validation{};
 };
 
 class Sc6CandidateCheckpointCapture final

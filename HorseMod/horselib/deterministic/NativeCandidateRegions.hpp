@@ -84,6 +84,45 @@ struct NativeFrameInputLogImage
         const NativeFrameInputLogImage&) = default;
 };
 
+enum class NativeCandidateValidationIssue : std::uint8_t
+{
+    None,
+    IdentityRead,
+    InputLogScalarRead,
+    InputLogCacheRead,
+    InputLogCacheFill,
+    InputLogPlayerCount,
+    InputLogClock,
+    CandidateRegionRead,
+};
+
+struct NativeCandidateValidationDiagnostic
+{
+    NativeCandidateValidationIssue issue{NativeCandidateValidationIssue::None};
+    std::uint32_t index{};
+    std::int32_t observed_a{};
+    std::int32_t observed_b{};
+    std::int32_t expected_a{};
+    std::int32_t expected_b{};
+};
+
+[[nodiscard]] constexpr const char* native_candidate_validation_issue_name(
+    NativeCandidateValidationIssue issue) noexcept
+{
+    switch (issue)
+    {
+    case NativeCandidateValidationIssue::None: return "none";
+    case NativeCandidateValidationIssue::IdentityRead: return "identity_read";
+    case NativeCandidateValidationIssue::InputLogScalarRead: return "input_log_scalar_read";
+    case NativeCandidateValidationIssue::InputLogCacheRead: return "input_log_cache_read";
+    case NativeCandidateValidationIssue::InputLogCacheFill: return "input_log_cache_fill";
+    case NativeCandidateValidationIssue::InputLogPlayerCount: return "input_log_player_count";
+    case NativeCandidateValidationIssue::InputLogClock: return "input_log_clock";
+    case NativeCandidateValidationIssue::CandidateRegionRead: return "candidate_region_read";
+    }
+    return "unknown";
+}
+
 struct NativeRngImage
 {
     std::uint32_t lcg{};
@@ -152,6 +191,8 @@ public:
     Status Bind(const NativeCandidateAddresses& addresses) noexcept;
     void Invalidate() noexcept;
     [[nodiscard]] bool IsBound() const noexcept { return bound_; }
+    [[nodiscard]] NativeCandidateValidationDiagnostic validation_diagnostic()
+        const noexcept { return validation_diagnostic_; }
 
     Status PreflightCapture() noexcept;
     Status Capture(NativeCandidateImage& output) noexcept;
@@ -205,6 +246,7 @@ private:
     INativeMemory& memory_;
     NativeCandidateAddresses addresses_{};
     BoundIdentities identities_{};
+    NativeCandidateValidationDiagnostic validation_diagnostic_{};
     bool bound_{};
 };
 }

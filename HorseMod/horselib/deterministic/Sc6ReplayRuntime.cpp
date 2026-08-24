@@ -225,6 +225,7 @@ Status Sc6ReplayRuntime::ObserveFrame(
         timeline_status_.checkpoint_wind_nodes = checkpoint_status.wind_node_count;
         timeline_status_.checkpoint_failure = checkpoint.ok()
             ? FailureCode::None : checkpoint.code;
+        timeline_status_.checkpoint_validation = checkpoint_status.validation;
         if (checkpoint.code == FailureCode::CapacityExceeded)
             timeline_status_.partial = true;
     }
@@ -306,6 +307,7 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     timeline_status_.batch_entry_wind_nodes = status.wind_node_count;
     timeline_status_.batch_entry_checkpoint_failure = captured.ok()
         ? FailureCode::None : captured.code;
+    timeline_status_.batch_entry_checkpoint_validation = status.validation;
     if (captured.code == FailureCode::CapacityExceeded)
     {
         timeline_status_.partial = true;

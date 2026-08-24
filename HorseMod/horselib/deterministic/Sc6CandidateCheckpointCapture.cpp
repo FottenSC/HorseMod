@@ -415,6 +415,7 @@ Status Sc6CandidateCheckpointCapture::Capture(
         if (!rebound.ok())
         {
             capture_status.failure = rebound.code;
+            capture_status.validation = regions_->validation_diagnostic();
             return rebound;
         }
     }
@@ -445,9 +446,11 @@ Status Sc6CandidateCheckpointCapture::Capture(
     if (!captured.ok())
     {
         capture_status.failure = captured.code;
+        capture_status.validation = regions_->validation_diagnostic();
         return captured;
     }
     capture_status.failure = FailureCode::None;
+    capture_status.validation = {};
     capture_status.last_coordinate = coordinate;
     ++capture_status.captured;
     capture_status.bytes_used = snapshots.BytesUsed();

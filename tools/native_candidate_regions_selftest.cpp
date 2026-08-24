@@ -170,9 +170,14 @@ struct Fixture
         memory.Set(addresses.battle_manager + 0x478, addresses.input_log);
         memory.Set(addresses.input_log + 0x10, memory_base + 0x22000);
         memory.Set(addresses.battle_manager + 0x1498, previous_inputs);
+        memory.Set(addresses.battle_manager + 0x14A0, std::int32_t{2});
+        memory.Set(addresses.battle_manager + 0x14A4, std::int32_t{2});
         memory.Set(addresses.battle_manager + 0x14A8, input_pairs);
         memory.Set(addresses.battle_manager + 0x14B0, std::int32_t{2});
-        memory.Set(addresses.battle_manager + 0x14B4, prior_input_pairs);
+        memory.Set(addresses.battle_manager + 0x14B4, std::int32_t{2});
+        memory.Set(addresses.battle_manager + 0x14B8, prior_input_pairs);
+        memory.Set(addresses.battle_manager + 0x14C0, std::int32_t{2});
+        memory.Set(addresses.battle_manager + 0x14C4, std::int32_t{2});
         memory.Set(addresses.frame_counter, std::uint32_t{42});
         memory.Set(addresses.input_log + 0x3A0, std::int32_t{3});
         memory.Set(addresses.input_log + 0x3A4, std::int32_t{42});
@@ -794,6 +799,18 @@ void test_unknown_class_and_invalid_header_fail_closed()
         header.regions.RestoreTransactional(baseline).code == FailureCode::IdentityMismatch,
         "invalid event-mask count rejects restore");
     expect(header.memory.bytes() == before, "invalid header performs zero mutation");
+
+    Fixture prior_header;
+    prior_header.memory.Set(
+        prior_header.addresses.battle_manager + 0x14C4, std::int32_t{1});
+    expect(prior_header.regions.Bind(prior_header.addresses).code
+            == FailureCode::AdapterUnqualified,
+        "prior-input TArray capacity below its two-player count is unqualified");
+    const auto diagnostic = prior_header.regions.validation_diagnostic();
+    expect(diagnostic.issue == NativeCandidateValidationIssue::IdentityRead
+            && diagnostic.index == 22 && diagnostic.observed_a == 2
+            && diagnostic.observed_b == 1,
+        "prior-input TArray rejection identifies the exact invalid header");
 }
 
 void test_lfsr_refill_sentinel_is_bounded()

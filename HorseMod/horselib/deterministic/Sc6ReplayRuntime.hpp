@@ -57,6 +57,8 @@ struct ReplayTimelineStatus
     FloatingPointEnvironment fp_last_after{};
     FailureCode checkpoint_failure{FailureCode::None};
     FailureCode batch_entry_checkpoint_failure{FailureCode::None};
+    NativeCandidateValidationDiagnostic checkpoint_validation{};
+    NativeCandidateValidationDiagnostic batch_entry_checkpoint_validation{};
     bool partial{};
 };
 
