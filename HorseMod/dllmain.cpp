@@ -3362,7 +3362,8 @@ private:
                 "unpause={} pending_move_state={} batches={} zero_batches={} "
                 "multi_batches={} batch_repeats={} batch_same_time={} max_batch={} "
                 "max_input_delta={} input_generation_changes={} "
-                "batch_accounting_mismatches={}\n"),
+                "batch_accounting_mismatches={} entry_uncovered={} "
+                "entry_gap_max={} resim_distance_max={}\n"),
                 timeline.captured_frames,
                 timeline.repeat_requests,
                 timeline.same_native_time_coordinates,
@@ -3378,7 +3379,10 @@ private:
                 timeline.maximum_coordinates_per_batch,
                 timeline.maximum_input_delta_per_batch,
                 timeline.batch_input_generation_changes,
-                timeline.batch_frame_accounting_mismatches);
+                timeline.batch_frame_accounting_mismatches,
+                timeline.coordinates_without_batch_entry_checkpoint,
+                timeline.maximum_batch_entry_checkpoint_gap,
+                timeline.maximum_resim_distance_from_batch_entry);
         }
     }
 
@@ -7868,6 +7872,15 @@ private:
                         timeline.maximum_input_delta_per_batch,
                         static_cast<unsigned long long>(
                             timeline.batch_frame_accounting_mismatches));
+                    ImGui::TextDisabled(
+                        "Resim bases: uncovered=%llu entry_gap_max=%llu "
+                        "distance_max=%llu",
+                        static_cast<unsigned long long>(
+                            timeline.coordinates_without_batch_entry_checkpoint),
+                        static_cast<unsigned long long>(
+                            timeline.maximum_batch_entry_checkpoint_gap),
+                        static_cast<unsigned long long>(
+                            timeline.maximum_resim_distance_from_batch_entry));
                     if (timeline.checkpoint_failure
                         != Horse::Deterministic::FailureCode::None)
                     {

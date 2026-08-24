@@ -37,6 +37,9 @@ struct ReplayTimelineStatus
     std::uint64_t batch_same_input_time_coordinates{};
     std::uint64_t batch_input_generation_changes{};
     std::uint64_t batch_frame_accounting_mismatches{};
+    std::uint64_t coordinates_without_batch_entry_checkpoint{};
+    std::uint64_t maximum_batch_entry_checkpoint_gap{};
+    std::uint64_t maximum_resim_distance_from_batch_entry{};
     std::uint32_t maximum_coordinates_per_batch{};
     std::uint32_t maximum_input_delta_per_batch{};
     std::uint32_t round_state_frame{};

@@ -172,6 +172,22 @@ Status Sc6ReplayRuntime::ObserveFrame(
     timeline_status_.unpause_countdown = observation.unpause_countdown;
     timeline_status_.pending_move_state = observation.pending_move_state;
     ++timeline_status_.captured_frames;
+    const auto batch_entry = checkpoint_capture_.snapshots(
+        CandidateCheckpointRole::BatchEntry).NearestAtOrBefore(coordinate);
+    if (!batch_entry.has_value())
+    {
+        ++timeline_status_.coordinates_without_batch_entry_checkpoint;
+    }
+    else
+    {
+        const std::uint64_t distance =
+            coordinate.frame - batch_entry->coordinate.frame;
+        if (distance
+            > timeline_status_.maximum_resim_distance_from_batch_entry)
+        {
+            timeline_status_.maximum_resim_distance_from_batch_entry = distance;
+        }
+    }
     if (new_generation || coordinate.frame % Schema::checkpoint_interval == 0)
     {
         const Status checkpoint = checkpoint_capture_.Capture(
@@ -237,6 +253,8 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     if (!due)
         return Status::success();
 
+    const auto previous = checkpoint_capture_.status(
+        CandidateCheckpointRole::BatchEntry);
     const Status captured = checkpoint_capture_.Capture(
         CandidateCheckpointRole::BatchEntry,
         observation.battle_manager,
@@ -255,6 +273,14 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     }
     if (!captured.ok())
         return Status::success();
+    if (previous.captured != 0
+        && previous.last_coordinate.generation == coordinate.generation)
+    {
+        const std::uint64_t gap =
+            coordinate.frame - previous.last_coordinate.frame;
+        if (gap > timeline_status_.maximum_batch_entry_checkpoint_gap)
+            timeline_status_.maximum_batch_entry_checkpoint_gap = gap;
+    }
     batch_entry_checkpoint_generation_ = coordinate.generation;
     if (new_generation)
     {

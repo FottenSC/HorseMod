@@ -463,6 +463,24 @@ void test_snapshot_capacity_is_atomic()
     store.Clear();
     expect(store.BytesUsed() == 0 && !store.Load({1, 0}).has_value(),
         "snapshot store clear releases all generation history");
+
+    SnapshotStore generations{1024 * 1024, 8, CapacityPolicy::RejectNew};
+    expect(generations.Save({{1, 3}, 1, {}, {}}).ok(),
+        "save first generation resimulation base");
+    expect(generations.Save({{1, 21}, 1, {}, {}}).ok(),
+        "save later first generation resimulation base");
+    expect(generations.Save({{2, 4}, 1, {}, {}}).ok(),
+        "save second generation resimulation base");
+    expect(!generations.NearestAtOrBefore({1, 2}).has_value(),
+        "coordinate before first base remains uncovered");
+    expect(generations.NearestAtOrBefore({1, 20})->coordinate
+            == FrameCoordinate{1, 3},
+        "nearest lookup selects prior base in the same generation");
+    expect(generations.NearestAtOrBefore({1, 21})->coordinate
+            == FrameCoordinate{1, 21},
+        "nearest lookup selects an exact base");
+    expect(!generations.NearestAtOrBefore({2, 3}).has_value(),
+        "nearest lookup never crosses a generation boundary");
 }
 
 void test_presentation_exactly_once()
