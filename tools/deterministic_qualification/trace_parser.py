@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 SOURCE_PATTERN = re.compile(r"\[HorseMod\] ctor v(?P<version>\S+) source=(?P<commit>[0-9a-f]{40})")
-HOOK_ARMED_TEXT = "[HorseMod] frame-fencepost runtime proof armed"
+HOOK_ARMED_TEXT = "[HorseMod] deterministic lifecycle hooks armed"
 HOOK_FAILED_TEXT = "[HorseMod] frame-fencepost runtime proof unavailable"
 
 

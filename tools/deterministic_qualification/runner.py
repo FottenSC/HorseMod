@@ -71,7 +71,7 @@ def run_boot(args: argparse.Namespace) -> int:
         "runtime": {
             "horsemod_version": evidence.version,
             "reported_source_commit": evidence.source_commit,
-            "frame_fencepost_hook_armed": True,
+            "deterministic_lifecycle_hooks_armed": True,
             "clean_exit_requested": not args.keep_game,
         },
     }
