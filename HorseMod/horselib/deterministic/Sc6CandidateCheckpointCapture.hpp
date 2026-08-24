@@ -53,6 +53,16 @@ private:
     class ProcessMemory;
     class ProcessStageWindAllocator;
 
+    struct CameraTopology
+    {
+        std::uintptr_t camera_root{};
+        std::uintptr_t action_backing{};
+        std::array<std::uintptr_t, 17> action_vtables{};
+        std::array<std::uint32_t, 17> action_types{};
+
+        friend bool operator==(const CameraTopology&, const CameraTopology&) = default;
+    };
+
     Status bind(
         std::uintptr_t battle_manager,
         FrameCoordinate coordinate,
@@ -62,7 +72,7 @@ private:
         std::uintptr_t battle_manager,
         std::uintptr_t& output) noexcept;
     bool read_fighter_roots(std::array<std::uintptr_t, 2>& output) noexcept;
-    Status resolve_camera_generation(std::uint64_t& output) noexcept;
+    Status capture_camera_topology(CameraTopology& output) noexcept;
     Status capture_callback_topology(CallbackTopology& output) noexcept;
 
     static constexpr std::size_t checkpoint_memory_limit =
@@ -90,7 +100,7 @@ private:
     std::uintptr_t bound_move_dispatch_{};
     std::uint64_t bound_session_generation_{};
     std::uint64_t bound_round_generation_{};
-    std::uint64_t bound_camera_generation_{};
+    CameraTopology bound_camera_topology_{};
     CallbackTopology bound_callback_topology_{};
 };
 }

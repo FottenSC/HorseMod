@@ -24,6 +24,12 @@ constexpr std::uintptr_t camera_director_state_rva = 0x470E9F0;
 constexpr std::uintptr_t camera_director_vtable_rva = 0x3E85568;
 constexpr std::uintptr_t camera_interface_vtable_rva = 0x3E87A58;
 constexpr std::size_t hgcpu_camera_state_size = 0x360;
+constexpr std::uintptr_t camera_action_list_rva = 0x470EE90;
+constexpr std::uintptr_t camera_action_owner_rva = 0x470ED50;
+constexpr std::size_t camera_action_count = 17;
+constexpr std::size_t camera_action_stride = 0x3E0;
+constexpr std::size_t camera_action_backing_size =
+    camera_action_count * camera_action_stride;
 constexpr std::uintptr_t move_dispatch_filter_rva = 0x427940;
 constexpr std::uintptr_t adjusted_weak_callback_vtable_rva = 0x3285198;
 constexpr std::uintptr_t hgcpu_writer_rva = 0x3841E0;
@@ -215,10 +221,10 @@ bool Sc6CandidateCheckpointCapture::read_fighter_roots(
         && output[0] != 0 && output[1] != 0 && output[0] != output[1];
 }
 
-Status Sc6CandidateCheckpointCapture::resolve_camera_generation(
-    std::uint64_t& output) noexcept
+Status Sc6CandidateCheckpointCapture::capture_camera_topology(
+    CameraTopology& output) noexcept
 {
-    output = 0;
+    output = {};
     std::uintptr_t root{};
     if (!memory_->Read(image_base_ + effect_camera_pointer_rva,
             std::as_writable_bytes(std::span{&root, 1})))
@@ -240,7 +246,55 @@ Status Sc6CandidateCheckpointCapture::resolve_camera_generation(
     {
         return Status::failure(FailureCode::IdentityMismatch);
     }
-    output = static_cast<std::uint64_t>(root);
+
+    const std::uintptr_t list = image_base_ + camera_action_list_rva;
+    std::uintptr_t owner{};
+    std::uintptr_t backing{};
+    std::array<std::uintptr_t, camera_action_count> slots{};
+    std::byte backing_tail{};
+    if (!memory_->Read(list,
+            std::as_writable_bytes(std::span{&owner, 1}))
+        || !memory_->Read(list + 0x08,
+            std::as_writable_bytes(std::span{&backing, 1}))
+        || !memory_->Read(list + 0x10,
+            std::as_writable_bytes(std::span{slots}))
+        || owner != image_base_ + camera_action_owner_rva || backing == 0
+        || !memory_->Read(backing + camera_action_backing_size - 1,
+            std::span<std::byte>{&backing_tail, 1}))
+    {
+        return Status::failure(FailureCode::IdentityMismatch);
+    }
+
+    for (std::size_t index = 0; index < slots.size(); ++index)
+    {
+        const std::uintptr_t expected = backing + index * camera_action_stride;
+        std::uint32_t slot_index{};
+        std::uintptr_t action_owner{};
+        std::uintptr_t action_list{};
+        if (slots[index] != expected
+            || !memory_->Read(expected,
+                std::as_writable_bytes(
+                    std::span{output.action_vtables.data() + index, 1}))
+            || !memory_->Read(expected + 0x08,
+                std::as_writable_bytes(std::span{&slot_index, 1}))
+            || !memory_->Read(expected + 0x10,
+                std::as_writable_bytes(std::span{&action_owner, 1}))
+            || !memory_->Read(expected + 0x18,
+                std::as_writable_bytes(std::span{&action_list, 1}))
+            || !memory_->Read(expected + 0x20,
+                std::as_writable_bytes(
+                    std::span{output.action_types.data() + index, 1}))
+            || slot_index != index || action_owner != owner || action_list != list
+            || output.action_vtables[index] < image_base_
+            || output.action_vtables[index] >= image_base_ + image_size_
+            || (output.action_vtables[index] & 7) != 0
+            || output.action_types[index] > 0x1A)
+        {
+            return Status::failure(FailureCode::IdentityMismatch);
+        }
+    }
+    output.camera_root = root;
+    output.action_backing = backing;
     return Status::success();
 }
 
@@ -322,13 +376,13 @@ Status Sc6CandidateCheckpointCapture::bind(
 {
     std::uintptr_t move_dispatch{};
     std::array<std::uintptr_t, 2> fighter_roots{};
-    std::uint64_t camera_generation{};
+    CameraTopology camera_topology{};
     const Status resolved = resolve_move_dispatch(
         battle_manager, move_dispatch);
     if (!resolved.ok()) return resolved;
     if (!read_fighter_roots(fighter_roots))
         return Status::failure(FailureCode::ContextUnavailable);
-    const Status camera_status = resolve_camera_generation(camera_generation);
+    const Status camera_status = capture_camera_topology(camera_topology);
     if (!camera_status.ok()) return camera_status;
     NativeCandidateAddresses addresses{
         image_base_,
@@ -394,7 +448,7 @@ Status Sc6CandidateCheckpointCapture::bind(
         session_generation,
         coordinate.generation,
         {context.fighter_identities[0], context.fighter_identities[1]},
-        camera_generation,
+        static_cast<std::uint64_t>(camera_topology.camera_root),
     };
     adapter_binding.hgcpu_writer = reinterpret_cast<HgCpuExecFn>(
         image_base_ + hgcpu_writer_rva);
@@ -416,7 +470,7 @@ Status Sc6CandidateCheckpointCapture::bind(
     bound_move_dispatch_ = move_dispatch;
     bound_session_generation_ = session_generation;
     bound_round_generation_ = coordinate.generation;
-    bound_camera_generation_ = camera_generation;
+    bound_camera_topology_ = camera_topology;
     CallbackTopology topology{};
     const Status callback_status = capture_callback_topology(topology);
     if (!callback_status.ok())
@@ -462,9 +516,9 @@ Status Sc6CandidateCheckpointCapture::Capture(
         }
     }
 
-    std::uint64_t camera_generation{};
-    const Status camera_status = resolve_camera_generation(camera_generation);
-    if (!camera_status.ok() || camera_generation != bound_camera_generation_)
+    CameraTopology camera_topology{};
+    const Status camera_status = capture_camera_topology(camera_topology);
+    if (!camera_status.ok() || camera_topology != bound_camera_topology_)
     {
         const auto failure = camera_status.ok()
             ? FailureCode::IdentityMismatch : camera_status.code;
@@ -522,7 +576,7 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
     bound_move_dispatch_ = 0;
     bound_session_generation_ = 0;
     bound_round_generation_ = 0;
-    bound_camera_generation_ = 0;
+    bound_camera_topology_ = {};
     bound_callback_topology_ = {};
 }
 
