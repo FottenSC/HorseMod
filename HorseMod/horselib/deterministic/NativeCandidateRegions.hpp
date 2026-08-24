@@ -30,9 +30,24 @@ struct NativeCandidateAddresses
     std::uintptr_t scheduler_base{};
     std::uintptr_t move_command_base{};
     std::uintptr_t slot_param_base{};
+    std::uintptr_t lcg_rng{};
+    std::uintptr_t lfsr_rng{};
+    std::uintptr_t xorshift_rng{};
+    std::uintptr_t wind_rng{};
     std::array<std::uintptr_t, 2> fighter_roots{};
     std::uint64_t session_generation{};
     std::uint64_t round_generation{};
+};
+
+struct NativeRngImage
+{
+    std::uint32_t lcg{};
+    std::array<std::uint32_t, 25> lfsr{};
+    std::uint32_t lfsr_index{};
+    std::array<std::uint32_t, 3> xorshift{};
+    std::array<std::uint32_t, 6> wind{};
+
+    friend bool operator==(const NativeRngImage&, const NativeRngImage&) = default;
 };
 
 struct NativePumpImage
@@ -77,6 +92,7 @@ struct NativeCandidateImage
     std::array<std::array<std::byte, native_move_command_semantic_bytes>, 2>
         move_commands{};
     std::array<std::array<std::byte, 0x28>, 2> slot_params{};
+    NativeRngImage rng{};
 
     friend bool operator==(const NativeCandidateImage&, const NativeCandidateImage&) = default;
 };

@@ -18,14 +18,14 @@ namespace
 {
 constexpr std::array<std::byte, 8> magic{
     std::byte{'H'}, std::byte{'R'}, std::byte{'S'}, std::byte{'C'},
-    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{1}};
-constexpr std::uint32_t format_version = 1;
+    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{2}};
+constexpr std::uint32_t format_version = 2;
 constexpr std::array<std::byte, 20> hash_domain{
     std::byte{'H'}, std::byte{'o'}, std::byte{'r'}, std::byte{'s'},
     std::byte{'e'}, std::byte{'C'}, std::byte{'a'}, std::byte{'n'},
     std::byte{'d'}, std::byte{'i'}, std::byte{'d'}, std::byte{'a'},
     std::byte{'t'}, std::byte{'e'}, std::byte{'S'}, std::byte{'t'},
-    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{1}};
+    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{2}};
 
 template <typename T>
 void append(std::vector<std::byte>& bytes, const T& value)

@@ -7,6 +7,7 @@
 #include "deterministic/HgCpuCoverageProbe.hpp"
 #include "deterministic/MoveDispatchState.hpp"
 #include "deterministic/PresentationJournal.hpp"
+#include "deterministic/Schema.hpp"
 #include "deterministic/SimulationSession.hpp"
 #include "deterministic/SnapshotStore.hpp"
 #include "deterministic/StageBreakListenerDiagnostics.hpp"
@@ -128,6 +129,10 @@ struct Fixture
         addresses.scheduler_base = memory_base + 0x4000;
         addresses.move_command_base = memory_base + 0x7000;
         addresses.slot_param_base = memory_base + 0xF000;
+        addresses.lcg_rng = memory_base + 0x10000;
+        addresses.lfsr_rng = memory_base + 0x10100;
+        addresses.xorshift_rng = memory_base + 0x10200;
+        addresses.wind_rng = memory_base + 0x10300;
         addresses.fighter_roots = {
             memory_base + 0x12000, memory_base + 0x13000};
         addresses.session_generation = 11;
@@ -137,6 +142,18 @@ struct Fixture
 
     void initialize()
     {
+        memory.Set(addresses.lcg_rng, std::uint32_t{0x12345678});
+        for (std::size_t index = 0; index < 25; ++index)
+            memory.Set(addresses.lfsr_rng + index * 4,
+                static_cast<std::uint32_t>(0x1000 + index));
+        memory.Set(addresses.lfsr_rng + 0x64, std::uint32_t{7});
+        for (std::size_t index = 0; index < 3; ++index)
+            memory.Set(addresses.xorshift_rng + index * 4,
+                static_cast<std::uint32_t>(0x2000 + index));
+        for (std::size_t index = 0; index < 6; ++index)
+            memory.Set(addresses.wind_rng + index * 4,
+                static_cast<std::uint32_t>(0x3000 + index));
+
         event_masks = memory_base + 0x2000;
         memory.Set(addresses.move_dispatch + 0x4A8, event_masks);
         memory.Set(addresses.move_dispatch + 0x4B0, std::int32_t{2});
@@ -289,7 +306,7 @@ public:
 
 HgCpuGenerationContext hgcpu_context()
 {
-    return {0x231, 1, 11, 7, {101, 102}, 201};
+    return {0x231, Schema::snapshot_schema_version, 11, 7, {101, 102}, 201};
 }
 
 Status noop_reconcile(void*, FrameCoordinate) noexcept
@@ -538,6 +555,11 @@ void test_capture_restore_preserves_exclusions()
     fixture.memory.Fill(Fixture::memory_base + 0x5008, 1, std::byte{0xE3});
     fixture.memory.Fill(fixture.addresses.move_command_base, 1, std::byte{0xE4});
     fixture.memory.Fill(fixture.addresses.slot_param_base, 1, std::byte{0xE5});
+    fixture.memory.Fill(fixture.addresses.lcg_rng, 4, std::byte{0xE8});
+    fixture.memory.Fill(fixture.addresses.lfsr_rng, 0x64, std::byte{0xE9});
+    fixture.memory.Set(fixture.addresses.lfsr_rng + 0x64, std::uint32_t{8});
+    fixture.memory.Fill(fixture.addresses.xorshift_rng, 0x0C, std::byte{0xEA});
+    fixture.memory.Fill(fixture.addresses.wind_rng, 0x18, std::byte{0xEB});
 
     fixture.memory.Fill(fixture.addresses.pump_state + 0x3C, 1, std::byte{0xA1});
     fixture.memory.Fill(fixture.addresses.scheduler_base + 0x0C, 1, std::byte{0xA6});
@@ -548,7 +570,8 @@ void test_capture_restore_preserves_exclusions()
     fixture.memory.Fill(fixture.addresses.move_command_base + 0x3034, 1, std::byte{0xA4});
     fixture.memory.Fill(fixture.addresses.slot_param_base + 0x28, 1, std::byte{0xA5});
 
-    expect(fixture.regions.RestoreTransactional(baseline).ok(), "restore all eight candidate regions");
+    expect(fixture.regions.RestoreTransactional(baseline).ok(),
+        "restore native candidate regions and explicit RNG streams");
     NativeCandidateImage restored{};
     expect(fixture.regions.Capture(restored).ok() && restored == baseline, "recapture exact semantic image");
     expect(fixture.memory.Get(fixture.addresses.pump_state + 0x3C) == std::byte{0xA1}, "preserve pump tail");
@@ -559,6 +582,8 @@ void test_capture_restore_preserves_exclusions()
     expect(fixture.memory.Get(fixture.addresses.move_command_base + 0x2A28) == std::byte{0xA3}, "preserve diagnostic text");
     expect(fixture.memory.Get(fixture.addresses.move_command_base + 0x3034) == std::byte{0xA4}, "preserve uninitialized tail");
     expect(fixture.memory.Get(fixture.addresses.slot_param_base + 0x28) == std::byte{0xA5}, "preserve slot padding");
+    expect(restored.rng == baseline.rng,
+        "restore all four explicit Lux RNG streams exactly");
 
     const auto canonical = NativeCandidateRegions::CanonicalBytes(baseline);
     expect(!contains_qword(canonical, fixture.event_masks), "canonical bytes exclude event owner pointer");

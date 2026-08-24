@@ -202,6 +202,8 @@ Status NativeCandidateRegions::Bind(const NativeCandidateAddresses& addresses) n
     if (addresses.image_base == 0 || addresses.move_dispatch == 0
         || addresses.pump_state == 0 || addresses.scheduler_base == 0
         || addresses.move_command_base == 0 || addresses.slot_param_base == 0
+        || addresses.lcg_rng == 0 || addresses.lfsr_rng == 0
+        || addresses.xorshift_rng == 0 || addresses.wind_rng == 0
         || addresses.fighter_roots[0] == 0 || addresses.fighter_roots[1] == 0
         || addresses.fighter_roots[0] == addresses.fighter_roots[1]
         || addresses.session_generation == 0 || addresses.round_generation == 0)
@@ -312,6 +314,19 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
             return false;
         }
     }
+    if (!read_value(memory_, addresses_.lcg_rng, output.rng.lcg)
+        || !read_bytes(addresses_.lfsr_rng,
+            std::as_writable_bytes(std::span{output.rng.lfsr}))
+        || !read_value(memory_, addresses_.lfsr_rng + 0x64,
+            output.rng.lfsr_index)
+        || !read_bytes(addresses_.xorshift_rng,
+            std::as_writable_bytes(std::span{output.rng.xorshift}))
+        || !read_bytes(addresses_.wind_rng,
+            std::as_writable_bytes(std::span{output.rng.wind}))
+        || output.rng.lfsr_index >= output.rng.lfsr.size())
+    {
+        return false;
+    }
     return true;
 }
 
@@ -343,7 +358,7 @@ bool NativeCandidateRegions::image_matches_binding(
             return false;
         }
     }
-    return true;
+    return image.rng.lfsr_index < image.rng.lfsr.size();
 }
 
 Status NativeCandidateRegions::PreflightRestore(
@@ -359,6 +374,19 @@ Status NativeCandidateRegions::PreflightRestore(
 
 bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) noexcept
 {
+    if (!write_bytes(addresses_.wind_rng,
+            std::as_bytes(std::span{image.rng.wind}))
+        || !write_bytes(addresses_.xorshift_rng,
+            std::as_bytes(std::span{image.rng.xorshift}))
+        || !write_bytes(addresses_.lfsr_rng,
+            std::as_bytes(std::span{image.rng.lfsr}))
+        || !write_bytes(addresses_.lfsr_rng + 0x64,
+            std::as_bytes(std::span{&image.rng.lfsr_index, 1}))
+        || !write_bytes(addresses_.lcg_rng,
+            std::as_bytes(std::span{&image.rng.lcg, 1})))
+    {
+        return false;
+    }
     if (!write_bytes(
             identities_.event_mask_owner,
             std::as_bytes(std::span{image.move_dispatch_masks}))) return false;
@@ -444,6 +472,16 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
     ok = write_bytes(
         identities_.event_mask_owner,
         std::as_bytes(std::span{image.move_dispatch_masks})) && ok;
+    ok = write_bytes(addresses_.lcg_rng,
+        std::as_bytes(std::span{&image.rng.lcg, 1})) && ok;
+    ok = write_bytes(addresses_.lfsr_rng + 0x64,
+        std::as_bytes(std::span{&image.rng.lfsr_index, 1})) && ok;
+    ok = write_bytes(addresses_.lfsr_rng,
+        std::as_bytes(std::span{image.rng.lfsr})) && ok;
+    ok = write_bytes(addresses_.xorshift_rng,
+        std::as_bytes(std::span{image.rng.xorshift})) && ok;
+    ok = write_bytes(addresses_.wind_rng,
+        std::as_bytes(std::span{image.rng.wind})) && ok;
     return ok;
 }
 
@@ -496,6 +534,11 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
         append_bytes(output, command.data(), command.size());
     for (const auto& param : image.slot_params)
         append_bytes(output, param.data(), param.size());
+    append_bytes(output, &image.rng.lcg, sizeof(image.rng.lcg));
+    append_bytes(output, image.rng.lfsr.data(), sizeof(image.rng.lfsr));
+    append_bytes(output, &image.rng.lfsr_index, sizeof(image.rng.lfsr_index));
+    append_bytes(output, image.rng.xorshift.data(), sizeof(image.rng.xorshift));
+    append_bytes(output, image.rng.wind.data(), sizeof(image.rng.wind));
     return output;
 }
 
@@ -560,6 +603,16 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
             output = {};
             return Status::failure(FailureCode::CaptureFailed);
         }
+    }
+    if (!take(&output.rng.lcg, sizeof(output.rng.lcg))
+        || !take(output.rng.lfsr.data(), sizeof(output.rng.lfsr))
+        || !take(&output.rng.lfsr_index, sizeof(output.rng.lfsr_index))
+        || output.rng.lfsr_index >= output.rng.lfsr.size()
+        || !take(output.rng.xorshift.data(), sizeof(output.rng.xorshift))
+        || !take(output.rng.wind.data(), sizeof(output.rng.wind)))
+    {
+        output = {};
+        return Status::failure(FailureCode::CaptureFailed);
     }
     if (cursor != bytes.size())
     {

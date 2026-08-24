@@ -27,6 +27,10 @@ constexpr std::uintptr_t pump_state_rva = 0x4100C70;
 constexpr std::uintptr_t scheduler_base_rva = 0x4715400;
 constexpr std::uintptr_t move_command_base_rva = 0x470F390;
 constexpr std::uintptr_t slot_param_base_rva = 0x470E0C0;
+constexpr std::uintptr_t lcg_rng_rva = 0x485EB28;
+constexpr std::uintptr_t lfsr_rng_rva = 0x485EB30;
+constexpr std::uintptr_t xorshift_rng_rva = 0x470E2C8;
+constexpr std::uintptr_t wind_rng_rva = 0x470E2B0;
 constexpr std::ptrdiff_t input_filter_collection = 0x1210;
 constexpr std::size_t callback_entry_size = 0x40;
 constexpr std::size_t maximum_callback_entries = 64;
@@ -245,6 +249,10 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + scheduler_base_rva,
         image_base_ + move_command_base_rva,
         image_base_ + slot_param_base_rva,
+        image_base_ + lcg_rng_rva,
+        image_base_ + lfsr_rng_rva,
+        image_base_ + xorshift_rng_rva,
+        image_base_ + wind_rng_rva,
         fighter_roots,
         session_generation,
         coordinate.generation,
