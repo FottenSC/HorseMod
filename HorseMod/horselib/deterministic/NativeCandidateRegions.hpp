@@ -64,6 +64,19 @@ struct NativeFrameBoundaryImage
         const NativeFrameBoundaryImage&) = default;
 };
 
+inline constexpr std::size_t native_round_sequence_max_states = 32;
+
+struct NativeRoundSequenceImage
+{
+    std::array<std::uint8_t, native_round_sequence_max_states> states{};
+    std::uint8_t count{};
+    std::uint8_t current_state{};
+
+    friend bool operator==(
+        const NativeRoundSequenceImage&,
+        const NativeRoundSequenceImage&) = default;
+};
+
 struct NativeInputCacheRowImage
 {
     std::int32_t game_round{};
@@ -188,6 +201,7 @@ struct NativeCandidateImage
     std::uint64_t session_generation{};
     std::uint64_t round_generation{};
     NativeFrameBoundaryImage frame{};
+    NativeRoundSequenceImage round_sequence{};
     NativeFrameInputLogImage input_log{};
     std::array<std::uint64_t, 2> move_dispatch_masks{};
     NativePumpImage pump{};
@@ -245,6 +259,8 @@ private:
         std::uintptr_t previous_input_array{};
         std::uintptr_t input_pair_array{};
         std::uintptr_t prior_input_pair_array{};
+        std::uintptr_t round_sequence_array{};
+        std::int32_t round_sequence_capacity{};
         std::uintptr_t event_mask_owner{};
         std::array<std::uintptr_t, 6> pump{};
         std::array<SubVmIdentity, 2> sub_vms{};

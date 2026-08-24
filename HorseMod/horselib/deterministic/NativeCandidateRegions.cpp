@@ -34,6 +34,10 @@ constexpr std::array<Range, 9> move_command_ranges{{
 constexpr std::ptrdiff_t manager_input_log = 0x478;
 constexpr std::ptrdiff_t manager_repeat_pending = 0x1462;
 constexpr std::ptrdiff_t manager_pending_move_state = 0x1463;
+constexpr std::ptrdiff_t manager_round_sequence_array = 0x1470;
+constexpr std::ptrdiff_t manager_round_sequence_count = 0x1478;
+constexpr std::ptrdiff_t manager_round_sequence_capacity = 0x147C;
+constexpr std::ptrdiff_t manager_round_sequence_state = 0x1480;
 constexpr std::ptrdiff_t manager_game_round_cursor = 0x1488;
 constexpr std::ptrdiff_t manager_game_time_cursor = 0x148C;
 constexpr std::ptrdiff_t manager_round_state_frame = 0x1490;
@@ -134,6 +138,16 @@ void append_frame_boundary(
     append_bytes(output, &frame.repeat_pending, sizeof(frame.repeat_pending));
     append_bytes(output, &frame.pending_move_state,
         sizeof(frame.pending_move_state));
+}
+
+void append_round_sequence(
+    std::vector<std::byte>& output,
+    const NativeRoundSequenceImage& sequence)
+{
+    append_bytes(output, &sequence.count, sizeof(sequence.count));
+    append_bytes(output, &sequence.current_state,
+        sizeof(sequence.current_state));
+    append_bytes(output, sequence.states.data(), sequence.count);
 }
 
 void append_input_log(
@@ -276,6 +290,7 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
     std::int32_t input_pair_capacity{};
     std::int32_t prior_count{};
     std::int32_t prior_capacity{};
+    std::int32_t round_sequence_count{};
     std::int32_t mask_count{};
     std::int32_t mask_capacity{};
     if (!read_value(memory_, addresses_.battle_manager + manager_input_log,
@@ -311,6 +326,15 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
         || !read_value(memory_, addresses_.battle_manager
                 + manager_active_player_count,
             player_count)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_round_sequence_array,
+            output.round_sequence_array)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_round_sequence_count,
+            round_sequence_count)
+        || !read_value(memory_, addresses_.battle_manager
+                + manager_round_sequence_capacity,
+            output.round_sequence_capacity)
         || !read_value(memory_, addresses_.move_dispatch + 0x4A8,
             output.event_mask_owner)
         || !read_value(memory_, addresses_.move_dispatch + 0x4B0, mask_count)
@@ -338,6 +362,22 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
     if (output.prior_input_pair_array == 0
         || prior_count != 2 || prior_capacity < prior_count)
         return array_invalid(22, prior_count, prior_capacity);
+    if (output.round_sequence_array == 0 || round_sequence_count < 0
+        || round_sequence_count
+            > static_cast<std::int32_t>(native_round_sequence_max_states)
+        || output.round_sequence_capacity < round_sequence_count
+        || output.round_sequence_capacity < 8
+        || output.round_sequence_capacity > 1024)
+    {
+        validation_diagnostic_.issue = NativeCandidateValidationIssue::IdentityRead;
+        validation_diagnostic_.index = 23;
+        validation_diagnostic_.observed_a = round_sequence_count;
+        validation_diagnostic_.observed_b = output.round_sequence_capacity;
+        validation_diagnostic_.expected_a = 0;
+        validation_diagnostic_.expected_b =
+            static_cast<std::int32_t>(native_round_sequence_max_states);
+        return false;
+    }
     for (std::size_t i = 0; i < output.pump.size(); ++i)
     {
         if (!read_value(
@@ -405,6 +445,8 @@ bool NativeCandidateRegions::identities_match() noexcept
         && current.previous_input_array == identities_.previous_input_array
         && current.input_pair_array == identities_.input_pair_array
         && current.prior_input_pair_array == identities_.prior_input_pair_array
+        && current.round_sequence_array == identities_.round_sequence_array
+        && current.round_sequence_capacity == identities_.round_sequence_capacity
         && current.event_mask_owner == identities_.event_mask_owner
         && current.pump == identities_.pump && current.move_commands == identities_.move_commands
         && std::equal(
@@ -513,6 +555,27 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
         return region_read_failed(12);
     if (!validate_input_log_image(
             output.input_log, output.frame, validation_diagnostic_)) return false;
+    std::int32_t round_sequence_count{};
+    if (!read_value(memory_, addresses_.battle_manager
+            + manager_round_sequence_count, round_sequence_count)
+        || round_sequence_count < 0
+        || round_sequence_count
+            > static_cast<std::int32_t>(native_round_sequence_max_states)
+        || round_sequence_count > identities_.round_sequence_capacity
+        || !read_value(memory_, addresses_.battle_manager
+            + manager_round_sequence_state,
+            output.round_sequence.current_state))
+    {
+        return region_read_failed(16);
+    }
+    output.round_sequence.count = static_cast<std::uint8_t>(round_sequence_count);
+    if (round_sequence_count != 0
+        && !read_bytes(identities_.round_sequence_array,
+            std::as_writable_bytes(std::span{output.round_sequence.states})
+                .first(static_cast<std::size_t>(round_sequence_count))))
+    {
+        return region_read_failed(17);
+    }
     if (!read_bytes(
             identities_.event_mask_owner,
             std::as_writable_bytes(std::span{output.move_dispatch_masks})))
@@ -651,6 +714,8 @@ bool NativeCandidateRegions::image_matches_binding(
         }
     }
     return valid_pending_hit(image.pending_hit)
+        && image.round_sequence.count <= native_round_sequence_max_states
+        && image.round_sequence.count <= identities_.round_sequence_capacity
         && image.rng.lfsr_index <= image.rng.lfsr.size();
 }
 
@@ -669,6 +734,7 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
 {
     const std::uintptr_t pending_attacker = image.pending_hit.attacker_slot == 0
         ? 0 : addresses_.fighter_roots[image.pending_hit.attacker_slot - 1];
+    const std::int32_t round_sequence_count = image.round_sequence.count;
     if (!write_input_log_cache(memory_, addresses_.input_log, image.input_log)
         || !write_bytes(identities_.previous_input_array,
             std::as_bytes(std::span{image.frame.previous_inputs}))
@@ -692,6 +758,14 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
             std::as_bytes(std::span{&image.frame.repeat_pending, 1}))
         || !write_bytes(addresses_.battle_manager + manager_pending_move_state,
             std::as_bytes(std::span{&image.frame.pending_move_state, 1}))
+        || (round_sequence_count != 0
+            && !write_bytes(identities_.round_sequence_array,
+                std::as_bytes(std::span{image.round_sequence.states})
+                    .first(static_cast<std::size_t>(round_sequence_count))))
+        || !write_bytes(addresses_.battle_manager + manager_round_sequence_count,
+            std::as_bytes(std::span{&round_sequence_count, 1}))
+        || !write_bytes(addresses_.battle_manager + manager_round_sequence_state,
+            std::as_bytes(std::span{&image.round_sequence.current_state, 1}))
         || !write_bytes(addresses_.frame_counter,
             std::as_bytes(std::span{&image.frame.frame_counter, 1}))
         || !write_bytes(addresses_.pending_hit_record,
@@ -762,6 +836,7 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
     bool ok = true;
     const std::uintptr_t pending_attacker = image.pending_hit.attacker_slot == 0
         ? 0 : addresses_.fighter_roots[image.pending_hit.attacker_slot - 1];
+    const std::int32_t round_sequence_count = image.round_sequence.count;
     for (std::size_t lane = image.slot_params.size(); lane-- > 0;)
         ok = write_bytes(addresses_.slot_param_base + lane * 0x2C, image.slot_params[lane]) && ok;
     for (std::size_t lane = image.move_commands.size(); lane-- > 0;)
@@ -826,6 +901,14 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
         std::as_bytes(std::span{&image.pending_hit.reaction_move_id, 1})) && ok;
     ok = write_bytes(addresses_.frame_counter,
         std::as_bytes(std::span{&image.frame.frame_counter, 1})) && ok;
+    ok = write_bytes(addresses_.battle_manager + manager_round_sequence_state,
+        std::as_bytes(std::span{&image.round_sequence.current_state, 1})) && ok;
+    ok = write_bytes(addresses_.battle_manager + manager_round_sequence_count,
+        std::as_bytes(std::span{&round_sequence_count, 1})) && ok;
+    if (round_sequence_count != 0)
+        ok = write_bytes(identities_.round_sequence_array,
+            std::as_bytes(std::span{image.round_sequence.states})
+                .first(static_cast<std::size_t>(round_sequence_count))) && ok;
     ok = write_bytes(addresses_.battle_manager + manager_pending_move_state,
         std::as_bytes(std::span{&image.frame.pending_move_state, 1})) && ok;
     ok = write_bytes(addresses_.battle_manager + manager_repeat_pending,
@@ -880,6 +963,7 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
     append_bytes(output, &image.session_generation, sizeof(image.session_generation));
     append_bytes(output, &image.round_generation, sizeof(image.round_generation));
     append_frame_boundary(output, image.frame);
+    append_round_sequence(output, image.round_sequence);
     append_input_log(output, image.input_log);
     append_bytes(output, image.move_dispatch_masks.data(), sizeof(image.move_dispatch_masks));
     append_bytes(output, image.pump.lane_a.data(), image.pump.lane_a.size());
@@ -957,6 +1041,12 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
             sizeof(output.frame.repeat_pending))
         || !take(&output.frame.pending_move_state,
             sizeof(output.frame.pending_move_state))
+        || !take(&output.round_sequence.count,
+            sizeof(output.round_sequence.count))
+        || output.round_sequence.count > native_round_sequence_max_states
+        || !take(&output.round_sequence.current_state,
+            sizeof(output.round_sequence.current_state))
+        || !take(output.round_sequence.states.data(), output.round_sequence.count)
         || !take(output.input_log.scalars.data(),
             output.input_log.scalars.size()))
     {

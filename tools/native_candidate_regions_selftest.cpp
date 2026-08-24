@@ -169,6 +169,7 @@ struct Fixture
         const auto previous_inputs = memory_base + 0x1C000;
         const auto input_pairs = memory_base + 0x1C100;
         const auto prior_input_pairs = memory_base + 0x1C200;
+        const auto round_sequence = memory_base + 0x1C300;
         memory.Set(addresses.battle_manager + 0x478, addresses.input_log);
         memory.Set(addresses.input_log + 0x10, memory_base + 0x22000);
         memory.Set(addresses.battle_manager + 0x1498, previous_inputs);
@@ -180,6 +181,11 @@ struct Fixture
         memory.Set(addresses.battle_manager + 0x14B8, prior_input_pairs);
         memory.Set(addresses.battle_manager + 0x14C0, std::int32_t{2});
         memory.Set(addresses.battle_manager + 0x14C4, std::int32_t{2});
+        memory.Set(addresses.battle_manager + 0x1470, round_sequence);
+        memory.Set(addresses.battle_manager + 0x1478, std::int32_t{3});
+        memory.Set(addresses.battle_manager + 0x147C, std::int32_t{8});
+        memory.Set(addresses.battle_manager + 0x1480, std::uint8_t{2});
+        memory.Set(round_sequence, std::array<std::uint8_t, 3>{2, 3, 5});
         memory.Set(addresses.frame_counter, std::uint32_t{42});
         memory.Set(addresses.input_log + 0x3A0, std::int32_t{3});
         memory.Set(addresses.input_log + 0x3A4, std::int32_t{42});
@@ -734,6 +740,10 @@ void test_capture_restore_preserves_exclusions()
     fixture.memory.Set(fixture.addresses.battle_manager + 0x14F0, std::int32_t{7});
     fixture.memory.Set(fixture.addresses.battle_manager + 0x1462, std::uint8_t{1});
     fixture.memory.Set(fixture.addresses.battle_manager + 0x1463, std::uint8_t{3});
+    fixture.memory.Set(fixture.addresses.battle_manager + 0x1478, std::int32_t{1});
+    fixture.memory.Set(fixture.addresses.battle_manager + 0x1480, std::uint8_t{9});
+    fixture.memory.Set(Fixture::memory_base + 0x1C300,
+        std::array<std::uint8_t, 3>{9, 9, 9});
     fixture.memory.Fill(Fixture::memory_base + 0x1C000, 8, std::byte{0xEC});
     fixture.memory.Fill(Fixture::memory_base + 0x1C100, 16, std::byte{0xED});
     fixture.memory.Fill(Fixture::memory_base + 0x1C200, 16, std::byte{0xEE});
@@ -770,6 +780,8 @@ void test_capture_restore_preserves_exclusions()
         "restore all four explicit Lux RNG streams exactly");
     expect(restored.frame == baseline.frame,
         "restore the coordinate clocks and input-pair boundary exactly");
+    expect(restored.round_sequence == baseline.round_sequence,
+        "restore the bounded round-state sequence values and current state");
     expect(restored.pending_hit == baseline.pending_hit
             && restored.pending_hit.attacker_slot == 2,
         "restore the pending-hit record through its fighter-relative slot");
@@ -781,6 +793,8 @@ void test_capture_restore_preserves_exclusions()
         "canonical bytes exclude InputLog owner pointer");
     expect(!contains_qword(canonical, Fixture::memory_base + 0x1C100),
         "canonical bytes exclude input-pair backing pointer");
+    expect(!contains_qword(canonical, Fixture::memory_base + 0x1C300),
+        "canonical bytes exclude round-sequence backing pointer");
     expect(!contains_qword(canonical, fixture.addresses.fighter_roots[0])
             && !contains_qword(canonical, fixture.addresses.fighter_roots[1]),
         "canonical bytes exclude pending-hit fighter pointers");
@@ -843,6 +857,14 @@ void test_unknown_class_and_invalid_header_fail_closed()
                 == NativeCandidateValidationIssue::CandidateRegionRead
             && pending_diagnostic.index == 14,
         "pending-hit owner rejection identifies the fighter-slot mapping");
+
+    Fixture oversized_sequence;
+    oversized_sequence.memory.Set(
+        oversized_sequence.addresses.battle_manager + 0x1478,
+        std::int32_t{static_cast<std::int32_t>(native_round_sequence_max_states + 1)});
+    expect(oversized_sequence.regions.Bind(oversized_sequence.addresses).code
+            == FailureCode::AdapterUnqualified,
+        "oversized round-state sequence fails closed before capture");
 }
 
 void test_lfsr_refill_sentinel_is_bounded()
