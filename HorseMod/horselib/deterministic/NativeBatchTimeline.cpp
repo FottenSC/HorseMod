@@ -12,6 +12,31 @@ static_assert(
     sizeof(NativeBatchCoordinate)
     <= Schema::replay_native_batch_coordinate_budget);
 
+ResimulationBaseAction PlanResimulationBase(
+    std::optional<FrameCoordinate> previous,
+    FrameCoordinate batch_entry,
+    std::uint32_t maximum_batch_width,
+    std::uint64_t maximum_resimulation_distance) noexcept
+{
+    if (batch_entry.generation == 0 || maximum_batch_width == 0
+        || maximum_batch_width > maximum_resimulation_distance)
+    {
+        return ResimulationBaseAction::Invalid;
+    }
+    if (!previous.has_value()
+        || previous->generation != batch_entry.generation)
+    {
+        return ResimulationBaseAction::Capture;
+    }
+    if (batch_entry.frame < previous->frame)
+        return ResimulationBaseAction::Invalid;
+    const std::uint64_t distance = batch_entry.frame - previous->frame;
+    return distance
+            > maximum_resimulation_distance - maximum_batch_width
+        ? ResimulationBaseAction::Capture
+        : ResimulationBaseAction::Retain;
+}
+
 NativeBatchTimeline::NativeBatchTimeline(
     std::size_t maximum_batches,
     std::size_t maximum_coordinates) noexcept

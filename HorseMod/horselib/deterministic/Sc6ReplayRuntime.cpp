@@ -45,8 +45,6 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     pending_batch_id_ = 0;
     pending_batch_entry_ = {};
     pending_batch_coordinates_.clear();
-    batch_entry_checkpoint_generation_ = 0;
-    next_batch_entry_checkpoint_target_ = 0;
 }
 
 bool Sc6ReplayRuntime::ready() const noexcept
@@ -245,16 +243,24 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     const FrameCoordinate coordinate = timeline_status_.last_coordinate;
     if (coordinate.generation == 0)
         return Status::success();
-    const bool new_generation =
-        batch_entry_checkpoint_generation_ != coordinate.generation;
-    const bool due = new_generation
-        || coordinate.frame + Schema::maximum_supported_native_batch_width
-            >= next_batch_entry_checkpoint_target_;
-    if (!due)
-        return Status::success();
-
     const auto previous = checkpoint_capture_.status(
         CandidateCheckpointRole::BatchEntry);
+    const std::optional<FrameCoordinate> previous_coordinate =
+        previous.captured == 0
+        ? std::nullopt
+        : std::optional<FrameCoordinate>{previous.last_coordinate};
+    const auto action = PlanResimulationBase(
+        previous_coordinate,
+        coordinate,
+        Schema::maximum_supported_native_batch_width,
+        Schema::checkpoint_interval - 1);
+    if (action == ResimulationBaseAction::Invalid)
+    {
+        timeline_status_.failure = FailureCode::IdentityMismatch;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (action == ResimulationBaseAction::Retain)
+        return Status::success();
     const Status captured = checkpoint_capture_.Capture(
         CandidateCheckpointRole::BatchEntry,
         observation.battle_manager,
@@ -280,17 +286,6 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
             coordinate.frame - previous.last_coordinate.frame;
         if (gap > timeline_status_.maximum_batch_entry_checkpoint_gap)
             timeline_status_.maximum_batch_entry_checkpoint_gap = gap;
-    }
-    batch_entry_checkpoint_generation_ = coordinate.generation;
-    if (new_generation)
-    {
-        next_batch_entry_checkpoint_target_ =
-            coordinate.frame + Schema::checkpoint_interval;
-    }
-    while (next_batch_entry_checkpoint_target_
-            <= coordinate.frame + Schema::maximum_supported_native_batch_width)
-    {
-        next_batch_entry_checkpoint_target_ += Schema::checkpoint_interval;
     }
     return Status::success();
 }
@@ -452,8 +447,6 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     pending_batch_id_ = 0;
     pending_batch_entry_ = {};
     pending_batch_coordinates_.clear();
-    batch_entry_checkpoint_generation_ = 0;
-    next_batch_entry_checkpoint_target_ = 0;
     checkpoint_capture_.ReleaseBinding();
 }
 

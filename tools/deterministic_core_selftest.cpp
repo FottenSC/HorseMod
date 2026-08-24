@@ -483,6 +483,32 @@ void test_snapshot_capacity_is_atomic()
         "nearest lookup never crosses a generation boundary");
 }
 
+void test_resimulation_base_planning_respects_batch_width()
+{
+    constexpr std::uint32_t maximum_batch_width = 12;
+    constexpr std::uint64_t maximum_distance = 29;
+    expect(PlanResimulationBase(std::nullopt, {1, 3},
+            maximum_batch_width, maximum_distance)
+            == ResimulationBaseAction::Capture,
+        "first known native batch entry requires a base");
+    expect(PlanResimulationBase(FrameCoordinate{1, 3}, {1, 20},
+            maximum_batch_width, maximum_distance)
+            == ResimulationBaseAction::Retain,
+        "retain a base while the widest next batch remains within 29 frames");
+    expect(PlanResimulationBase(FrameCoordinate{1, 3}, {1, 21},
+            maximum_batch_width, maximum_distance)
+            == ResimulationBaseAction::Capture,
+        "capture before the widest next batch could exceed 29 frames");
+    expect(PlanResimulationBase(FrameCoordinate{1, 21}, {2, 1},
+            maximum_batch_width, maximum_distance)
+            == ResimulationBaseAction::Capture,
+        "a native generation change always requires a new base");
+    expect(PlanResimulationBase(FrameCoordinate{2, 4}, {2, 3},
+            maximum_batch_width, maximum_distance)
+            == ResimulationBaseAction::Invalid,
+        "a same-generation rewind is not a valid batch entry");
+}
+
 void test_presentation_exactly_once()
 {
     PresentationJournal journal{4, 64};
@@ -729,6 +755,7 @@ int main()
     test_input_replacement_and_invalidation();
     test_native_batch_timeline_is_exact_and_bounded();
     test_snapshot_capacity_is_atomic();
+    test_resimulation_base_planning_respects_batch_width();
     test_presentation_exactly_once();
     test_replay_checkpoint_seek_and_resume();
     test_cross_generation_seek_materializes_before_restore();

@@ -96,8 +96,6 @@ private:
     std::uint64_t pending_batch_id_{};
     FrameCoordinate pending_batch_entry_{};
     std::vector<FrameCoordinate> pending_batch_coordinates_{};
-    std::uint64_t batch_entry_checkpoint_generation_{};
-    std::uint64_t next_batch_entry_checkpoint_target_{};
 };
 }
 }

@@ -41,6 +41,19 @@ struct NativeBatchCoordinate
     std::uint32_t offset_in_batch{};
 };
 
+enum class ResimulationBaseAction : std::uint8_t
+{
+    Retain,
+    Capture,
+    Invalid,
+};
+
+[[nodiscard]] ResimulationBaseAction PlanResimulationBase(
+    std::optional<FrameCoordinate> previous,
+    FrameCoordinate batch_entry,
+    std::uint32_t maximum_batch_width,
+    std::uint64_t maximum_resimulation_distance) noexcept;
+
 class NativeBatchTimeline final
 {
 public:
