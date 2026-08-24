@@ -37,6 +37,8 @@ struct NativeCandidateAddresses
     std::uintptr_t lfsr_rng{};
     std::uintptr_t xorshift_rng{};
     std::uintptr_t wind_rng{};
+    std::uintptr_t vm_freeze_record{};
+    std::uintptr_t stage_wind_emitter_list{};
     std::uintptr_t pending_hit_record{};
     std::uintptr_t pending_launcher_sync{};
     std::uintptr_t camera_action_backing{};
@@ -184,6 +186,17 @@ struct NativeSchedulerImage
 };
 
 inline constexpr std::size_t native_camera_action_count = 17;
+inline constexpr std::size_t native_stage_wind_emitter_max_count = 16;
+inline constexpr std::size_t native_stage_wind_emitter_state_size = 0xA8;
+
+struct NativeStageWindEmitterListImage
+{
+    std::vector<std::array<std::byte, native_stage_wind_emitter_state_size>>
+        states;
+
+    friend bool operator==(const NativeStageWindEmitterListImage&,
+        const NativeStageWindEmitterListImage&) = default;
+};
 
 // LuxEffectCamera PlayerWatch actions retain the last 16 requested distances.
 // Only slots whose bound vtable is the exact supported PlayerWatch class are
@@ -220,6 +233,11 @@ struct NativeCandidateImage
     std::array<std::array<std::byte, 0x28>, 2> slot_params{};
     NativePendingHitImage pending_hit{};
     NativeRngImage rng{};
+    // FLuxBattleVMFreezeRecord is a fixed, pointer-free 0x40-byte simulation
+    // timing record. Its published +0x30 frame step drives stage-wind lifetime
+    // and therefore shared-LFSR admission.
+    std::array<std::byte, 0x40> vm_freeze_record{};
+    NativeStageWindEmitterListImage stage_wind_emitters{};
     std::array<NativeCameraDistanceHistoryImage, native_camera_action_count>
         camera_distance_history{};
 
@@ -276,6 +294,17 @@ private:
         std::array<SubVmIdentity, 2> sub_vms{};
         std::array<std::array<std::uintptr_t, 17>, 2> move_commands{};
         std::array<std::uintptr_t, native_camera_action_count> camera_vtables{};
+        std::uintptr_t stage_wind_emitter_sentinel{};
+        std::array<std::uintptr_t, native_stage_wind_emitter_max_count>
+            stage_wind_emitter_nodes{};
+        std::array<std::uintptr_t, native_stage_wind_emitter_max_count>
+            stage_wind_emitters{};
+        std::array<std::uintptr_t, native_stage_wind_emitter_max_count>
+            stage_wind_emitter_ref_controls{};
+        std::uint8_t stage_wind_emitter_count{};
+
+        friend bool operator==(const BoundIdentities&,
+            const BoundIdentities&) = default;
     };
 
     bool read_bytes(std::uintptr_t address, std::span<std::byte> out) noexcept;

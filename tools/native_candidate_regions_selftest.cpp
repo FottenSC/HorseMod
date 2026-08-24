@@ -1,5 +1,6 @@
 #include "deterministic/CandidateCheckpoint.hpp"
 #include "deterministic/CallbackTopology.hpp"
+#include "deterministic/CharaAnimationState.hpp"
 #include "deterministic/CandidateGameStateAdapter.hpp"
 #include "deterministic/InputTimeline.hpp"
 #include "deterministic/NativeCandidateRegions.hpp"
@@ -158,6 +159,8 @@ struct Fixture
         addresses.lfsr_rng = memory_base + 0x10100;
         addresses.xorshift_rng = memory_base + 0x10200;
         addresses.wind_rng = memory_base + 0x10300;
+        addresses.vm_freeze_record = memory_base + 0x10340;
+        addresses.stage_wind_emitter_list = memory_base + 0x10480;
         addresses.pending_hit_record = memory_base + 0x10400;
         addresses.pending_launcher_sync = memory_base + 0x10420;
         addresses.camera_action_backing = memory_base + 0x1D000;
@@ -218,6 +221,29 @@ struct Fixture
         for (std::size_t index = 0; index < 6; ++index)
             memory.Set(addresses.wind_rng + index * 4,
                 static_cast<std::uint32_t>(0x3000 + index));
+        for (std::size_t index = 0; index < 0x40; ++index)
+            memory.Set(addresses.vm_freeze_record + index,
+                std::byte{static_cast<unsigned char>(0x40 + index)});
+        const auto emitter_sentinel = memory_base + 0x10500;
+        const auto emitter_node_one = memory_base + 0x10600;
+        const auto emitter_node_two = memory_base + 0x10620;
+        const auto emitter_one = memory_base + 0x10700;
+        const auto emitter_two = memory_base + 0x10800;
+        memory.Set(addresses.stage_wind_emitter_list, emitter_sentinel);
+        memory.Set(emitter_sentinel, emitter_node_one);
+        memory.Set(emitter_sentinel + 8, emitter_node_two);
+        memory.Set(emitter_node_one, emitter_node_two);
+        memory.Set(emitter_node_one + 8, emitter_sentinel);
+        memory.Set(emitter_node_one + 0x10, emitter_one);
+        memory.Set(emitter_node_one + 0x18, memory_base + 0x10900);
+        memory.Set(emitter_node_two, emitter_sentinel);
+        memory.Set(emitter_node_two + 8, emitter_node_one);
+        memory.Set(emitter_node_two + 0x10, emitter_two);
+        memory.Set(emitter_node_two + 0x18, memory_base + 0x10920);
+        memory.Fill(emitter_one, native_stage_wind_emitter_state_size,
+            std::byte{0x31});
+        memory.Fill(emitter_two, native_stage_wind_emitter_state_size,
+            std::byte{0x42});
         memory.Set(addresses.pending_hit_record, std::uint32_t{0x1234});
         memory.Set(addresses.pending_hit_record + 4, 0.25f);
         memory.Set(addresses.pending_hit_record + 8, addresses.fighter_roots[1]);
@@ -341,6 +367,69 @@ struct Fixture
             for (std::size_t index = 0; index < 3; ++index)
                 memory.Set(headers + index * 8 + 2,
                     static_cast<std::uint16_t>(10 + player * 3 + index));
+
+            const auto packed = memory_base + 0x90000 + player * 0x10000;
+            memory.Set(packed, std::array<std::uint32_t, 5>{
+                3, 0, 0, 0x100, 0x200});
+            const auto section_table = packed + 0x100;
+            memory.Set(section_table, std::array<std::uint32_t, 4>{
+                2, 0x40, 0x60, 0x80});
+            memory.Fill(section_table + 0x40, 0x40,
+                std::byte{static_cast<unsigned char>(0x71 + player)});
+            const auto clip = addresses.fighter_roots[player]
+                + chara_anim_clip_player_offset;
+            memory.Set(addresses.fighter_roots[player]
+                    + chara_anim_slot_controller_offset,
+                packed);
+            memory.Set(clip, addresses.fighter_roots[player]);
+            memory.Set(clip + 8, section_table + 0x40);
+            memory.Fill(clip + 0x10, 0x20,
+                std::byte{static_cast<unsigned char>(0x81 + player)});
+            const auto runtime = addresses.fighter_roots[player]
+                + chara_anim_runtime_offset;
+            memory.Set(runtime, section_table + 0x40);
+            memory.Fill(runtime + 8, 8,
+                std::byte{static_cast<unsigned char>(0x91 + player)});
+
+            const auto cue_owner = addresses.fighter_roots[player]
+                + pose_event_cue_owner_offset;
+            const auto scheduler = memory_base + 0x80000 + player * 0x2000;
+            const auto head = scheduler + 0x100;
+            const auto node_one = scheduler + 0x200;
+            const auto node_two = scheduler + 0x220;
+            const auto object_one = scheduler + 0x400;
+            const auto object_two = scheduler + 0x420;
+            memory.Set(cue_owner,
+                image_base + std::uintptr_t{0x3EA0000 + player * 8});
+            memory.Fill(cue_owner + 8, 0x20,
+                std::byte{static_cast<unsigned char>(0xA1 + player)});
+            memory.Set(cue_owner + 0x28, packed + 0x300);
+            memory.Set(cue_owner + 0x30, scheduler);
+            memory.Set(scheduler,
+                image_base + std::uintptr_t{0x3EA0100 + player * 8});
+            memory.Set(scheduler + 8, addresses.fighter_roots[player]);
+            memory.Fill(scheduler + 0x10, 0x5C,
+                std::byte{static_cast<unsigned char>(0xB1 + player)});
+            memory.Set(scheduler + 0x70, head);
+            memory.Set(scheduler + 0x78, std::uint64_t{2});
+            memory.Set(head, node_one);
+            memory.Set(head + 8, node_two);
+            memory.Set(node_one, node_two);
+            memory.Set(node_one + 8, head);
+            memory.Set(node_one + 0x10, object_one);
+            memory.Set(node_one + 0x18, scheduler + 0x600);
+            memory.Set(node_two, head);
+            memory.Set(node_two + 8, node_one);
+            memory.Set(node_two + 0x10, object_two);
+            memory.Set(node_two + 0x18, scheduler + 0x620);
+            memory.Set(object_one,
+                image_base + std::uintptr_t{0x3EA0200 + player * 0x10});
+            memory.Set(object_two,
+                image_base + std::uintptr_t{0x3EA0208 + player * 0x10});
+            memory.Fill(object_one + 8, 0x18,
+                std::byte{static_cast<unsigned char>(0xC1 + player)});
+            memory.Fill(object_two + 8, 0x18,
+                std::byte{static_cast<unsigned char>(0xD1 + player)});
         }
     }
 
@@ -566,6 +655,11 @@ void test_candidate_checkpoint_codec()
         "bind checkpoint secondary-event state");
     expect(secondary.Capture(image.secondary_events).ok(),
         "capture checkpoint secondary-event state");
+    CharaAnimationState animation{fixture.memory};
+    expect(animation.Bind(fixture.addresses.fighter_roots, 7).ok(),
+        "bind checkpoint character-animation state");
+    expect(animation.Capture(image.chara_animation).ok(),
+        "capture checkpoint character-animation state");
     image.ucrt = candidate_ucrt_image();
     image.wind.generation = native.round_generation;
     const auto* ring_in_layout = FindStageWindNodeLayout(StageWindNodeKind::RingIn);
@@ -779,6 +873,111 @@ void test_secondary_event_state_is_pointer_free_and_transactional()
         "partial secondary-event write restores the complete undo image exactly");
 }
 
+void test_chara_animation_state_normalizes_sections_and_undoes_exactly()
+{
+    Fixture fixture;
+    CharaAnimationState animation{fixture.memory};
+    expect(animation.Bind(fixture.addresses.fighter_roots, 7).ok(),
+        "bind character-animation scheduler topology");
+    CharaAnimationStateImage baseline{};
+    expect(animation.Capture(baseline).ok()
+            && baseline.players[0].clip_section.present
+            && baseline.players[0].clip_section.index == 0
+            && baseline.players[0].trigger_count == 2,
+        "capture normalized clip section and bounded trigger state");
+    const auto canonical = CharaAnimationState::CanonicalBytes(baseline);
+    const auto fighter = fixture.addresses.fighter_roots[0];
+    const auto scheduler = Fixture::memory_base + 0x80000;
+    expect(!contains_qword(canonical, fighter)
+            && !contains_qword(canonical, scheduler)
+            && !contains_qword(canonical, scheduler + 0x100)
+            && !contains_qword(canonical, scheduler + 0x400),
+        "character-animation canonical state excludes owner, list, and payload pointers");
+
+    const auto packed = Fixture::memory_base + 0x90000;
+    const auto section_table = packed + 0x100;
+    const auto clip = fighter + chara_anim_clip_player_offset;
+    const auto runtime = fighter + chara_anim_runtime_offset;
+    fixture.memory.Set(scheduler + 8, fixture.addresses.fighter_roots[1]);
+    CharaAnimationStateImage cross_fighter_scheduler{};
+    expect(animation.Capture(cross_fighter_scheduler).code
+            == FailureCode::IdentityMismatch,
+        "scheduler character rebinding invalidates the checkpoint generation");
+    expect(animation.Bind(fixture.addresses.fighter_roots, 8).ok()
+            && animation.Capture(cross_fighter_scheduler).ok()
+            && cross_fighter_scheduler.players[0].scheduler_chara_bound,
+        "scheduler rebind starts a fresh pointer-free checkpoint generation");
+    fixture.memory.Set(scheduler + 8, fighter);
+    expect(animation.Bind(fixture.addresses.fighter_roots, 7).ok(),
+        "restore original animation topology after generation test");
+
+    fixture.memory.Set(clip + 0x28, std::uint32_t{});
+    fixture.memory.Set(runtime, Fixture::memory_base + 0xA8000);
+    fixture.memory.Fill(runtime + 8, 8, std::byte{0xD7});
+    CharaAnimationStateImage dormant{};
+    expect(animation.Capture(dormant).ok()
+            && !dormant.players[0].runtime_section.present
+            && std::all_of(dormant.players[0].runtime_scalars.begin(),
+                dormant.players[0].runtime_scalars.end(),
+                [](std::byte value) { return value == std::byte{}; }),
+        "inactive clip canonicalizes lagging presentation cleanup as absent");
+    expect(animation.RestoreTransactional(baseline).ok(),
+        "active clip restore reconstructs runtime after inactive cleanup lag");
+
+    fixture.memory.Set(clip + 8, section_table + 0x60);
+    fixture.memory.Fill(clip + 0x10, 0x20, std::byte{0xE1});
+    fixture.memory.Set(runtime, section_table + 0x60);
+    fixture.memory.Fill(runtime + 8, 8, std::byte{0xE2});
+    fixture.memory.Fill(scheduler + 0x10, 0x5C, std::byte{0xE3});
+    fixture.memory.Fill(scheduler + 0x408, 0x18, std::byte{0xE4});
+    fixture.memory.Set(scheduler + 0x6C, std::uint32_t{0x12345678});
+    expect(animation.RestoreTransactional(baseline).ok(),
+        "restore animation scalars and reconstruct authored section pointers");
+    CharaAnimationStateImage restored{};
+    expect(animation.Capture(restored).ok() && restored == baseline,
+        "character-animation restore recaptures exact pointer-free image");
+    std::uintptr_t restored_clip_pointer{}, restored_runtime_pointer{};
+    expect(fixture.memory.Read(clip + 8,
+                std::as_writable_bytes(std::span{&restored_clip_pointer, 1}))
+            && fixture.memory.Read(runtime,
+                std::as_writable_bytes(std::span{&restored_runtime_pointer, 1}))
+            && restored_clip_pointer == section_table + 0x40
+            && restored_runtime_pointer == section_table + 0x40,
+        "animation restore derives pointers from live packed-data topology");
+    std::uint32_t allocator_residue{};
+    expect(fixture.memory.Read(scheduler + 0x6C,
+                std::as_writable_bytes(std::span{&allocator_residue, 1}))
+            && allocator_residue == 0x12345678,
+        "animation restore preserves noncanonical scheduler allocator residue");
+
+    fixture.memory.Set(scheduler + 0x200, scheduler + 0x100);
+    const auto before_topology_rejection = fixture.memory.bytes();
+    expect(animation.RestoreTransactional(baseline).code
+            == FailureCode::RestorePreflightFailed
+            && fixture.memory.bytes() == before_topology_rejection,
+        "animation list replacement fails before mutation");
+    fixture.memory.Set(scheduler + 0x200, scheduler + 0x220);
+
+    auto wrong_count = baseline;
+    ++wrong_count.players[0].trigger_count;
+    const auto before_count_rejection = fixture.memory.bytes();
+    expect(animation.RestoreTransactional(wrong_count).code
+            == FailureCode::RestorePreflightFailed
+            && fixture.memory.bytes() == before_count_rejection,
+        "animation trigger-count drift fails before undo capture");
+
+    fixture.memory.Fill(clip + 0x10, 0x20, std::byte{0xA1});
+    fixture.memory.Fill(runtime + 8, 8, std::byte{0xA2});
+    const auto before_partial_failure = fixture.memory.bytes();
+    fixture.memory.FailWrite(4);
+    expect(animation.RestoreTransactional(baseline).code
+            == FailureCode::RestoreWriteFailed,
+        "partial character-animation write reports transactional failure");
+    fixture.memory.AllowWrites();
+    expect(fixture.memory.bytes() == before_partial_failure,
+        "partial character-animation write restores the complete undo image exactly");
+}
+
 class EmptyStageWindAllocator final : public IStageWindAllocator
 {
 public:
@@ -790,7 +989,8 @@ struct CandidateWindFixture
 {
     explicit CandidateWindFixture(Fixture& fixture)
         : probe(fixture.memory), transaction(fixture.memory, allocator),
-          motion(fixture.memory), secondary(fixture.memory)
+          motion(fixture.memory), secondary(fixture.memory),
+          animation(fixture.memory)
     {
         addresses = {Fixture::image_base, 0x4300000,
             Fixture::memory_base + 0x1F000, 7};
@@ -804,6 +1004,8 @@ struct CandidateWindFixture
             "bind candidate matrix-bank fixture");
         expect(secondary.Bind(fixture.addresses.fighter_roots, 7).ok(),
             "bind candidate secondary-event fixture");
+        expect(animation.Bind(fixture.addresses.fighter_roots, 7).ok(),
+            "bind candidate character-animation fixture");
     }
 
     EmptyStageWindAllocator allocator;
@@ -811,6 +1013,7 @@ struct CandidateWindFixture
     StageWindGraphTransaction transaction;
     MotionBankSnapshot motion;
     SecondaryEventState secondary;
+    CharaAnimationState animation;
     StageWindTopologyAddresses addresses{};
     std::uintptr_t root{};
 };
@@ -826,6 +1029,7 @@ CandidateAdapterBinding candidate_binding(
     binding.hgcpu_reader = reader;
     binding.motion_banks = &wind.motion;
     binding.secondary_events = &wind.secondary;
+    binding.chara_animation = &wind.animation;
     binding.ucrt_broker = &candidate_ucrt_broker;
     binding.wind_probe = &wind.probe;
     binding.wind_transaction = &wind.transaction;
@@ -999,6 +1203,15 @@ void test_capture_restore_preserves_exclusions()
     fixture.memory.Set(fixture.addresses.lfsr_rng + 0x64, std::uint32_t{8});
     fixture.memory.Fill(fixture.addresses.xorshift_rng, 0x0C, std::byte{0xEA});
     fixture.memory.Fill(fixture.addresses.wind_rng, 0x18, std::byte{0xEB});
+    fixture.memory.Fill(fixture.addresses.vm_freeze_record, 0x40,
+        std::byte{0xE7});
+    fixture.memory.Fill(Fixture::memory_base + 0x10700,
+        native_stage_wind_emitter_state_size, std::byte{0xE6});
+    fixture.memory.Fill(Fixture::memory_base + 0x10800,
+        native_stage_wind_emitter_state_size, std::byte{0xE5});
+    fixture.memory.Fill(Fixture::memory_base + 0x10700
+            + native_stage_wind_emitter_state_size,
+        8, std::byte{0xA9});
     fixture.memory.Set(fixture.addresses.pending_hit_record, std::uint32_t{0xABCD});
     fixture.memory.Set(fixture.addresses.pending_hit_record + 4, -0.125f);
     fixture.memory.Set(fixture.addresses.pending_hit_record + 8,
@@ -1057,6 +1270,14 @@ void test_capture_restore_preserves_exclusions()
         "preserve initialized cache-row reserved bytes");
     expect(restored.rng == baseline.rng,
         "restore all four explicit Lux RNG streams exactly");
+    expect(restored.vm_freeze_record == baseline.vm_freeze_record,
+        "restore the complete simulation freeze-output record exactly");
+    expect(restored.stage_wind_emitters == baseline.stage_wind_emitters
+            && restored.stage_wind_emitters.states.size() == 2,
+        "restore bounded stage-wind emitter timers and admission state exactly");
+    expect(fixture.memory.Get(Fixture::memory_base + 0x10700
+            + native_stage_wind_emitter_state_size) == std::byte{0xA9},
+        "preserve the unverified stage-wind emitter tail");
     expect(restored.frame == baseline.frame,
         "restore the coordinate clocks and input-pair boundary exactly");
     expect(restored.round_sequence == baseline.round_sequence,
@@ -1852,6 +2073,7 @@ int main()
     test_candidate_checkpoint_codec();
     test_motion_bank_snapshot_is_bounded_and_transactional();
     test_secondary_event_state_is_pointer_free_and_transactional();
+    test_chara_animation_state_normalizes_sections_and_undoes_exactly();
     test_candidate_adapter_restore_and_outer_undo();
     test_candidate_adapter_native_failure_undoes_hgcpu();
     test_hgcpu_direct_source_coverage();

@@ -3,11 +3,17 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <memory>
 
 namespace Horse::Deterministic
 {
 namespace
 {
+void reset_native_candidate(NativeCandidateImage& output) noexcept
+{
+    std::destroy_at(&output);
+    std::construct_at(&output);
+}
 struct Range
 {
     std::size_t offset;
@@ -475,6 +481,44 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
             }
         }
     }
+    if (!read_value(memory_, addresses_.stage_wind_emitter_list,
+            output.stage_wind_emitter_sentinel)
+        || output.stage_wind_emitter_sentinel == 0)
+    {
+        return false;
+    }
+    std::uintptr_t emitter_node{};
+    if (!read_value(memory_, output.stage_wind_emitter_sentinel, emitter_node))
+        return false;
+    std::uintptr_t previous = output.stage_wind_emitter_sentinel;
+    while (emitter_node != output.stage_wind_emitter_sentinel)
+    {
+        const auto index = output.stage_wind_emitter_count;
+        if (index >= native_stage_wind_emitter_max_count) return false;
+        std::uintptr_t next{}, node_previous{}, emitter{}, ref_control{};
+        if (emitter_node == 0
+            || !read_value(memory_, emitter_node, next)
+            || !read_value(memory_, emitter_node + 8, node_previous)
+            || !read_value(memory_, emitter_node + 0x10, emitter)
+            || !read_value(memory_, emitter_node + 0x18, ref_control)
+            || node_previous != previous || emitter == 0 || ref_control == 0)
+        {
+            return false;
+        }
+        output.stage_wind_emitter_nodes[index] = emitter_node;
+        output.stage_wind_emitters[index] = emitter;
+        output.stage_wind_emitter_ref_controls[index] = ref_control;
+        ++output.stage_wind_emitter_count;
+        previous = emitter_node;
+        emitter_node = next;
+    }
+    std::uintptr_t sentinel_previous{};
+    if (!read_value(memory_, output.stage_wind_emitter_sentinel + 8,
+            sentinel_previous)
+        || sentinel_previous != previous)
+    {
+        return false;
+    }
     return true;
 }
 
@@ -493,6 +537,15 @@ bool NativeCandidateRegions::identities_match() noexcept
         && current.pump == identities_.pump
         && current.move_commands == identities_.move_commands
         && current.camera_vtables == identities_.camera_vtables
+        && current.stage_wind_emitter_sentinel
+            == identities_.stage_wind_emitter_sentinel
+        && current.stage_wind_emitter_nodes
+            == identities_.stage_wind_emitter_nodes
+        && current.stage_wind_emitters == identities_.stage_wind_emitters
+        && current.stage_wind_emitter_ref_controls
+            == identities_.stage_wind_emitter_ref_controls
+        && current.stage_wind_emitter_count
+            == identities_.stage_wind_emitter_count
         && std::equal(
             current.sub_vms.begin(), current.sub_vms.end(), identities_.sub_vms.begin(),
             [](const SubVmIdentity& a, const SubVmIdentity& b) {
@@ -516,6 +569,8 @@ Status NativeCandidateRegions::Bind(const NativeCandidateAddresses& addresses) n
         || addresses.move_command_base == 0 || addresses.slot_param_base == 0
         || addresses.lcg_rng == 0 || addresses.lfsr_rng == 0
         || addresses.xorshift_rng == 0 || addresses.wind_rng == 0
+        || addresses.vm_freeze_record == 0
+        || addresses.stage_wind_emitter_list == 0
         || addresses.pending_hit_record == 0
         || addresses.pending_launcher_sync == 0
         || addresses.fighter_roots[0] == 0 || addresses.fighter_roots[1] == 0
@@ -558,7 +613,7 @@ Status NativeCandidateRegions::PreflightCapture() noexcept
 
 bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noexcept
 {
-    output = {};
+    reset_native_candidate(output);
     validation_diagnostic_ = {};
     output.session_generation = addresses_.session_generation;
     output.round_generation = addresses_.round_generation;
@@ -724,6 +779,21 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
     {
         return false;
     }
+    if (!read_bytes(addresses_.vm_freeze_record, output.vm_freeze_record))
+        return region_read_failed(18);
+    try
+    {
+        output.stage_wind_emitters.states.resize(
+            identities_.stage_wind_emitter_count);
+    }
+    catch (...) { return region_read_failed(19); }
+    for (std::size_t index = 0;
+         index < output.stage_wind_emitters.states.size(); ++index)
+    {
+        if (!read_bytes(identities_.stage_wind_emitters[index],
+                output.stage_wind_emitters.states[index]))
+            return region_read_failed(static_cast<std::uint32_t>(19 + index));
+    }
     for (std::size_t index = 0;
          index < output.camera_distance_history.size(); ++index)
     {
@@ -793,7 +863,9 @@ bool NativeCandidateRegions::image_matches_binding(
     return valid_pending_hit(image.pending_hit)
         && image.round_sequence.count <= native_round_sequence_max_states
         && image.round_sequence.count <= identities_.round_sequence_capacity
-        && image.rng.lfsr_index <= image.rng.lfsr.size();
+        && image.rng.lfsr_index <= image.rng.lfsr.size()
+        && image.stage_wind_emitters.states.size()
+            == identities_.stage_wind_emitter_count;
 }
 
 Status NativeCandidateRegions::PreflightRestore(
@@ -864,9 +936,17 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
         || !write_bytes(addresses_.lfsr_rng + 0x64,
             std::as_bytes(std::span{&image.rng.lfsr_index, 1}))
         || !write_bytes(addresses_.lcg_rng,
-            std::as_bytes(std::span{&image.rng.lcg, 1})))
+            std::as_bytes(std::span{&image.rng.lcg, 1}))
+        || !write_bytes(addresses_.vm_freeze_record,
+            image.vm_freeze_record))
     {
         return false;
+    }
+    for (std::size_t index = 0;
+         index < image.stage_wind_emitters.states.size(); ++index)
+    {
+        if (!write_bytes(identities_.stage_wind_emitters[index],
+                image.stage_wind_emitters.states[index])) return false;
     }
     if (!write_bytes(
             identities_.event_mask_owner,
@@ -1005,6 +1085,11 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
         std::as_bytes(std::span{image.rng.xorshift})) && ok;
     ok = write_bytes(addresses_.wind_rng,
         std::as_bytes(std::span{image.rng.wind})) && ok;
+    ok = write_bytes(addresses_.vm_freeze_record,
+        image.vm_freeze_record) && ok;
+    for (std::size_t index = image.stage_wind_emitters.states.size(); index-- > 0;)
+        ok = write_bytes(identities_.stage_wind_emitters[index],
+            image.stage_wind_emitters.states[index]) && ok;
     ok = write_bytes(addresses_.pending_launcher_sync,
         std::as_bytes(std::span{&image.pending_hit.launcher_sync, 1})) && ok;
     ok = write_bytes(addresses_.pending_hit_record + 0x10,
@@ -1121,6 +1206,17 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
     append_bytes(output, &image.rng.lfsr_index, sizeof(image.rng.lfsr_index));
     append_bytes(output, image.rng.xorshift.data(), sizeof(image.rng.xorshift));
     append_bytes(output, image.rng.wind.data(), sizeof(image.rng.wind));
+    append_bytes(output, image.vm_freeze_record.data(),
+        image.vm_freeze_record.size());
+    const auto emitter_count = static_cast<std::uint8_t>(
+        image.stage_wind_emitters.states.size());
+    append_bytes(output, &emitter_count, sizeof(emitter_count));
+    for (std::size_t index = 0;
+         index < image.stage_wind_emitters.states.size(); ++index)
+    {
+        append_bytes(output, image.stage_wind_emitters.states[index].data(),
+            image.stage_wind_emitters.states[index].size());
+    }
     for (const auto& history : image.camera_distance_history)
     {
         append_bytes(output, &history.present, sizeof(history.present));
@@ -1136,7 +1232,7 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
     std::span<const std::byte> bytes,
     NativeCandidateImage& output) noexcept
 {
-    output = {};
+    reset_native_candidate(output);
     std::size_t cursor{};
     const auto take = [&bytes, &cursor](void* destination, std::size_t size) {
         if (size > bytes.size() - std::min(cursor, bytes.size())) return false;
@@ -1177,7 +1273,7 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
         || !take(output.input_log.scalars.data(),
             output.input_log.scalars.size()))
     {
-        output = {};
+        reset_native_candidate(output);
         return Status::failure(FailureCode::CaptureFailed);
     }
     for (auto& row : output.input_log.cache_rows)
@@ -1188,7 +1284,7 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
             || !take(&row.filled, sizeof(row.filled))
             || row.filled > 1)
         {
-            output = {};
+            reset_native_candidate(output);
             return Status::failure(FailureCode::CaptureFailed);
         }
     }
@@ -1198,7 +1294,7 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
         || !take(output.pump.lane_b.data(), output.pump.lane_b.size())
         || !take(output.pump.controls.data(), output.pump.controls.size()))
     {
-        output = {};
+        reset_native_candidate(output);
         return Status::failure(FailureCode::CaptureFailed);
     }
     for (auto& scheduler : output.schedulers)
@@ -1207,7 +1303,7 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
             || !take(scheduler.command_state.data(), scheduler.command_state.size())
             || !take(scheduler.active_slot.data(), scheduler.active_slot.size()))
         {
-            output = {};
+            reset_native_candidate(output);
             return Status::failure(FailureCode::CaptureFailed);
         }
     }
@@ -1220,7 +1316,7 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
             || !take(subvm.common.data(), subvm.common.size())
             || !take(subvm.derived.data(), derived_size(subvm.extent)))
         {
-            output = {};
+            reset_native_candidate(output);
             return Status::failure(FailureCode::AdapterUnqualified);
         }
     }
@@ -1228,7 +1324,7 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
     {
         if (!take(command.data(), command.size()))
         {
-            output = {};
+            reset_native_candidate(output);
             return Status::failure(FailureCode::CaptureFailed);
         }
     }
@@ -1236,7 +1332,7 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
     {
         if (!take(param.data(), param.size()))
         {
-            output = {};
+            reset_native_candidate(output);
             return Status::failure(FailureCode::CaptureFailed);
         }
     }
@@ -1256,10 +1352,36 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
         || !take(&output.rng.lfsr_index, sizeof(output.rng.lfsr_index))
         || output.rng.lfsr_index > output.rng.lfsr.size()
         || !take(output.rng.xorshift.data(), sizeof(output.rng.xorshift))
-        || !take(output.rng.wind.data(), sizeof(output.rng.wind)))
+        || !take(output.rng.wind.data(), sizeof(output.rng.wind))
+        || !take(output.vm_freeze_record.data(),
+            output.vm_freeze_record.size())
+        )
     {
-        output = {};
+        reset_native_candidate(output);
         return Status::failure(FailureCode::CaptureFailed);
+    }
+    std::uint8_t emitter_count{};
+    if (!take(&emitter_count, sizeof(emitter_count))
+        || emitter_count > native_stage_wind_emitter_max_count)
+    {
+        reset_native_candidate(output);
+        return Status::failure(FailureCode::CaptureFailed);
+    }
+    try { output.stage_wind_emitters.states.resize(emitter_count); }
+    catch (...)
+    {
+        reset_native_candidate(output);
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    for (std::size_t index = 0;
+         index < output.stage_wind_emitters.states.size(); ++index)
+    {
+        if (!take(output.stage_wind_emitters.states[index].data(),
+                output.stage_wind_emitters.states[index].size()))
+        {
+            reset_native_candidate(output);
+            return Status::failure(FailureCode::CaptureFailed);
+        }
     }
     for (auto& history : output.camera_distance_history)
     {
@@ -1271,13 +1393,13 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
                     || !take(&history.cursor, sizeof(history.cursor))))
             || !valid_camera_history(history))
         {
-            output = {};
+            reset_native_candidate(output);
             return Status::failure(FailureCode::CaptureFailed);
         }
     }
     if (cursor != bytes.size())
     {
-        output = {};
+        reset_native_candidate(output);
         return Status::failure(FailureCode::CaptureFailed);
     }
     return Status::success();

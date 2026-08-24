@@ -75,11 +75,39 @@ struct ReplayTimelineStatus
     FailureCode batch_entry_checkpoint_failure{FailureCode::None};
     NativeCandidateValidationDiagnostic checkpoint_validation{};
     NativeCandidateValidationDiagnostic batch_entry_checkpoint_validation{};
+    CharaAnimationTopologyIssue checkpoint_animation_topology_issue{};
+    CharaAnimationTopologyIssue batch_entry_animation_topology_issue{};
+    CandidateCapturePhase checkpoint_capture_phase{};
+    CandidateCapturePhase batch_entry_capture_phase{};
+    std::uintptr_t checkpoint_animation_observed{};
+    std::uintptr_t batch_entry_animation_observed{};
+    std::array<std::uintptr_t, 2> checkpoint_animation_fighters{};
+    std::array<std::uintptr_t, 2> batch_entry_animation_fighters{};
     bool partial{};
 };
 
 struct OwnedCorrectionResult
 {
+    struct WindNodeScheduleDiagnostic
+    {
+        std::uint32_t life_bits{};
+        std::int32_t oscillator_tick{};
+        std::uint32_t prepared{};
+        std::uint32_t active{};
+        std::uint32_t frame_step_bits{};
+        std::int32_t repeat_count{};
+        std::uint8_t kind{UINT8_MAX};
+        bool present{};
+    };
+    struct WindGraphScheduleDiagnostic
+    {
+        std::array<WindNodeScheduleDiagnostic, 8> nodes{};
+        std::uint64_t callback_hash{};
+        std::uint32_t node_count{};
+        std::uint32_t callback_count{};
+        std::uint32_t active_bank{};
+        std::int32_t pending_count{};
+    };
     FailureCode failure{FailureCode::None};
     FailureCode primary_failure{FailureCode::None};
     FailureCode undo_failure{FailureCode::None};
@@ -124,6 +152,26 @@ struct OwnedCorrectionResult
     std::uintptr_t diagnostic_image_base{};
     NativeRngImage expected_rng{};
     NativeRngImage observed_rng{};
+    std::uint32_t first_lfsr_difference{UINT32_MAX};
+    std::uint32_t expected_wind_node_count{};
+    std::uint32_t observed_wind_node_count{};
+    std::uint32_t first_wind_node_difference{UINT32_MAX};
+    std::uint32_t first_wind_semantic_difference{UINT32_MAX};
+    std::uint32_t first_wind_derived_difference{UINT32_MAX};
+    std::uint32_t first_wind_output_difference{UINT32_MAX};
+    std::uint8_t expected_wind_node_kind{UINT8_MAX};
+    std::uint8_t observed_wind_node_kind{UINT8_MAX};
+    std::uint8_t expected_wind_difference_byte{};
+    std::uint8_t observed_wind_difference_byte{};
+    NativeRngImage first_interbatch_expected_rng{};
+    NativeRngImage first_interbatch_observed_rng{};
+    WindNodeScheduleDiagnostic first_interbatch_expected_wind{};
+    WindNodeScheduleDiagnostic first_interbatch_observed_wind{};
+    WindNodeScheduleDiagnostic final_expected_wind{};
+    WindNodeScheduleDiagnostic final_observed_wind{};
+    WindGraphScheduleDiagnostic base_wind_graph{};
+    WindGraphScheduleDiagnostic first_interbatch_expected_wind_graph{};
+    WindGraphScheduleDiagnostic first_interbatch_observed_wind_graph{};
     bool converged{};
     bool undo_restored{};
 };
@@ -191,7 +239,17 @@ private:
         std::uint32_t* first_interbatch_local_difference = nullptr,
         std::uint32_t* interbatch_local_difference_count = nullptr,
         std::uint32_t* first_interbatch_motion_difference = nullptr,
-        std::uint32_t* interbatch_motion_difference_count = nullptr) noexcept;
+        std::uint32_t* interbatch_motion_difference_count = nullptr,
+        NativeRngImage* first_interbatch_expected_rng = nullptr,
+        NativeRngImage* first_interbatch_observed_rng = nullptr,
+        OwnedCorrectionResult::WindNodeScheduleDiagnostic*
+            first_interbatch_expected_wind = nullptr,
+        OwnedCorrectionResult::WindNodeScheduleDiagnostic*
+            first_interbatch_observed_wind = nullptr,
+        OwnedCorrectionResult::WindGraphScheduleDiagnostic*
+            first_interbatch_expected_wind_graph = nullptr,
+        OwnedCorrectionResult::WindGraphScheduleDiagnostic*
+            first_interbatch_observed_wind_graph = nullptr) noexcept;
 
     struct OwnedLandingCapture
     {

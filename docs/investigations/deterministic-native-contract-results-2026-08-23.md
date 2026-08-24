@@ -562,6 +562,52 @@ This does not admit suppression. The static handlers also stop prior components,
 
 ## Hook table
 
+### Native bulk hybrid correction closure (schema 14, 2026-08-24)
+
+The local reconstruction adapter now combines the bounded same-generation
+`HgCpuDirect` image and the three-slot MotionBank image with pointer-free typed
+exceptions. `CharaAnimationState` covers each fighter's clip/controller,
+MoveVM-owned runtime section identity, cue scheduler, and at most 64 trigger
+nodes. Packed-data references are section-index normalized; scheduler/list/node
+allocations remain generation-bound identities. An inactive outer clip
+canonicalizes the lagging nested runtime pointer away, matching
+`LuxMoveVM_ResetCharaAnimSlotController @ 0x1402F78E0`.
+
+The first complete depth-11 correction exposed a coupled stage-wind/LFSR
+divergence. `IwWind_UpdateRingInOscillation @ 0x140333550` proved that RingIn
+life `+0x30`, frame step `+0x130`, repeat state `+0x148`, and shared LFSR order
+are semantic. The complete pointer-free 0x40-byte
+`FLuxBattleVMFreezeRecord @ 0x1448462D0` is therefore now typed checkpoint
+state. Restoring it alone did not converge: the first replayed batch prepended a
+new `life=179/tick=1` RingIn while the expected graph merely advanced the two
+existing RingIns.
+
+`AdvanceLuxBattleStageWindEmitter @ 0x140334960` identified the missing
+authority. Each fixed-list `IwWindEmitter` owns `nActive`, burst count, base and
+reload timers, spawn parameters, and jitter through `+0xA7`; an expired reload
+timer consumes shared LFSR and allocates a 0x1E0 RingIn. Schema 14 captures and
+canonically hashes the verified pointer-free `0xA8` prefix for at most 16
+generation-bound emitters. List sentinel, node, emitter, and ref-control
+pointers are validation identities only. The unverified `+0xA8..+0xAF` tail is
+neither restored nor hashed. Topology replacement invalidates the image.
+
+With those emitter timers restored, normal-render DLL SHA-256
+`4A8C20B7B172838C2B9A077845A354B058B79201FAF6CFACFAD17104FA997CD3`
+passed the live depth-11 owned correction from coordinate 172 through 183: 11
+batches, 11 coordinates, exact final canonical hash, and no undo path. The
+generated schema SHA-256 was
+`38F6A2EACCE604B4ED9602BD2FF53BC6EE50929CA19B375BB8DF1C4C8626BAF6`.
+This closes correctness only for the measured replay/workload. Performance is
+not admitted: undo capture was 0.633 ms, restore 7.345 ms, resimulation 21.481
+ms, verification 0.647 ms, and total 32.021 ms, above the 16.67 ms depth-11
+gate. Production rollback remains disabled and the allowlist remains empty.
+
+Codec reset paths now destroy/reconstruct the large value image in place rather
+than materializing another approximately 48-KiB temporary. The direct suite
+caught the prior stack-overflow boundary. The three deterministic CTest targets
+pass with schema 14, including exact emitter restore, excluded-tail
+preservation, pointer exclusion, partial-write undo, and canonical round trip.
+
 | Target | Phase | Owner | Install prerequisite | Teardown ordering | Recursion/thread rule | Failure behavior |
 |---|---|---|---|---|---|---|
 | `0x1403FE520` entry/exit | Transaction fence | BattleManager generation | All state/callback graphs admitted | Remove first after admission stops and in-flight depth is zero | Bound simulation thread; reject recursion/migration | Run stock; rollback disabled |

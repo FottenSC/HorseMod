@@ -44,6 +44,8 @@ constexpr std::uintptr_t lcg_rng_rva = 0x485EB28;
 constexpr std::uintptr_t lfsr_rng_rva = 0x485EB30;
 constexpr std::uintptr_t xorshift_rng_rva = 0x470E2C8;
 constexpr std::uintptr_t wind_rng_rva = 0x470E2B0;
+constexpr std::uintptr_t vm_freeze_record_rva = 0x48462D0;
+constexpr std::uintptr_t stage_wind_emitter_list_rva = 0x470F1C0;
 constexpr std::uintptr_t pending_hit_record_rva = 0x485E738;
 constexpr std::uintptr_t pending_launcher_sync_rva = 0x470F38D;
 constexpr std::uintptr_t wind_root_pointer_rva = 0x470E038;
@@ -180,6 +182,7 @@ Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
       regions_(std::make_unique<NativeCandidateRegions>(*memory_)),
       motion_banks_(std::make_unique<MotionBankSnapshot>(*memory_)),
       secondary_events_(std::make_unique<SecondaryEventState>(*memory_)),
+      chara_animation_(std::make_unique<CharaAnimationState>(*memory_)),
       callback_probe_(std::make_unique<CallbackTopologyProbe>(*memory_)),
       wind_probe_(std::make_unique<StageWindTopologyProbe>(*memory_)),
       adapter_(std::make_unique<CandidateGameStateAdapter>(*regions_, hgcpu_))
@@ -402,6 +405,8 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + lfsr_rng_rva,
         image_base_ + xorshift_rng_rva,
         image_base_ + wind_rng_rva,
+        image_base_ + vm_freeze_record_rva,
+        image_base_ + stage_wind_emitter_list_rva,
         image_base_ + pending_hit_record_rva,
         image_base_ + pending_launcher_sync_rva,
         camera_topology.action_backing,
@@ -463,6 +468,7 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + hgcpu_reader_rva);
     adapter_binding.motion_banks = motion_banks_.get();
     adapter_binding.secondary_events = secondary_events_.get();
+    adapter_binding.chara_animation = chara_animation_.get();
     adapter_binding.ucrt_broker = ucrt_broker_;
     adapter_binding.wind_probe = wind_probe_.get();
     adapter_binding.wind_transaction = wind_transaction_.get();
@@ -471,6 +477,8 @@ Status Sc6CandidateCheckpointCapture::bind(
     Status adapter_status = motion_banks_->Bind(
         fighter_roots, adapter_binding.hgcpu_context);
     if (adapter_status.ok()) adapter_status = secondary_events_->Bind(
+        fighter_roots, coordinate.generation);
+    if (adapter_status.ok()) adapter_status = chara_animation_->Bind(
         fighter_roots, coordinate.generation);
     if (adapter_status.ok()) adapter_status = adapter_->Configure(adapter_binding);
     if (adapter_status.ok()) adapter_status = adapter_->BindContext(context);
@@ -525,6 +533,12 @@ Status Sc6CandidateCheckpointCapture::Capture(
         {
             capture_status.failure = rebound.code;
             capture_status.validation = regions_->validation_diagnostic();
+            capture_status.animation_topology_issue =
+                chara_animation_->topology_issue();
+            capture_status.animation_topology_observed =
+                chara_animation_->topology_observed();
+            capture_status.animation_fighters = chara_animation_->fighters();
+            capture_status.capture_phase = adapter_->last_capture_phase();
             return rebound;
         }
     }
@@ -591,10 +605,20 @@ Status Sc6CandidateCheckpointCapture::Capture(
     {
         capture_status.failure = captured.code;
         capture_status.validation = regions_->validation_diagnostic();
+        capture_status.animation_topology_issue =
+            chara_animation_->topology_issue();
+        capture_status.animation_topology_observed =
+            chara_animation_->topology_observed();
+        capture_status.animation_fighters = chara_animation_->fighters();
+        capture_status.capture_phase = adapter_->last_capture_phase();
         return captured;
     }
     capture_status.failure = FailureCode::None;
     capture_status.validation = {};
+    capture_status.animation_topology_issue = {};
+    capture_status.animation_topology_observed = 0;
+    capture_status.animation_fighters = {};
+    capture_status.capture_phase = {};
     capture_status.last_coordinate = coordinate;
     ++capture_status.captured;
     capture_status.bytes_used = snapshots.BytesUsed();
@@ -680,6 +704,7 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
     adapter_->Reset();
     motion_banks_->Invalidate();
     secondary_events_->Invalidate();
+    chara_animation_->Invalidate();
     wind_transaction_.reset();
     wind_allocator_.reset();
     regions_->Invalidate();

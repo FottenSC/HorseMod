@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HgCpuStream.hpp"
+#include "CharaAnimationState.hpp"
 #include "NativeCandidateRegions.hpp"
 #include "SecondaryEventState.hpp"
 #include "StageWindTopology.hpp"
@@ -16,6 +17,7 @@ struct CandidateCheckpointImage
     std::vector<LocalReconstructionImage> local_images;
     UcrtRandBrokerImage ucrt{};
     SecondaryEventStateImage secondary_events{};
+    CharaAnimationStateImage chara_animation{};
     StageWindTopologyImage wind{};
 };
 

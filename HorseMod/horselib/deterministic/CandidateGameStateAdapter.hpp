@@ -28,6 +28,7 @@ struct CandidateAdapterBinding
     HgCpuExecFn hgcpu_reader{};
     MotionBankSnapshot* motion_banks{};
     SecondaryEventState* secondary_events{};
+    CharaAnimationState* chara_animation{};
     UcrtRandBroker* ucrt_broker{};
     StageWindTopologyProbe* wind_probe{};
     StageWindGraphTransaction* wind_transaction{};
@@ -61,6 +62,37 @@ struct CandidateAdapterPerformanceStatus
     CandidatePhaseTimingStatus total_restore{};
 };
 
+enum class CandidateCapturePhase : std::uint8_t
+{
+    None,
+    NativeTyped,
+    SecondaryEvents,
+    CharaAnimation,
+    HgCpu,
+    MotionBanks,
+    Ucrt,
+    StageWind,
+    Encode,
+};
+
+constexpr std::string_view candidate_capture_phase_name(
+    CandidateCapturePhase phase) noexcept
+{
+    switch (phase)
+    {
+    case CandidateCapturePhase::None: return "none";
+    case CandidateCapturePhase::NativeTyped: return "native_typed";
+    case CandidateCapturePhase::SecondaryEvents: return "secondary_events";
+    case CandidateCapturePhase::CharaAnimation: return "chara_animation";
+    case CandidateCapturePhase::HgCpu: return "hgcpu";
+    case CandidateCapturePhase::MotionBanks: return "motion_banks";
+    case CandidateCapturePhase::Ucrt: return "ucrt";
+    case CandidateCapturePhase::StageWind: return "stage_wind";
+    case CandidateCapturePhase::Encode: return "encode";
+    }
+    return "unknown";
+}
+
 class CandidateGameStateAdapter final : public IGameStateAdapter
 {
 public:
@@ -84,6 +116,10 @@ public:
     Status ReconcilePresentation(FrameCoordinate coordinate) noexcept override;
     [[nodiscard]] CandidateAdapterPerformanceStatus performance_status()
         const noexcept;
+    [[nodiscard]] CandidateCapturePhase last_capture_phase() const noexcept
+    {
+        return last_capture_phase_;
+    }
     Status TraceLocalStreamOffset(std::size_t stream_offset,
         HgCpuWriteSpan& output) noexcept;
 
@@ -146,6 +182,7 @@ private:
     PhaseTimingHistogram ucrt_restore_timing_{};
     PhaseTimingHistogram derived_repair_timing_{};
     PhaseTimingHistogram total_restore_timing_{};
+    CandidateCapturePhase last_capture_phase_{};
     bool configured_{};
     bool bound_{};
 };

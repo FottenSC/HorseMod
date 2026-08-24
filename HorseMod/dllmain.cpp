@@ -3346,6 +3346,96 @@ private:
                     result.observed_rng.lfsr_index,
                     result.expected_rng.wind[0], result.observed_rng.wind[0]);
             }
+            if (result.rng_difference_mask != 0
+                || result.wind_difference_mask != 0)
+            {
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] correction RNG state "
+                    "lcg=0x{:x}/0x{:x} lfsr_index={}/{} "
+                    "xorshift=0x{:x},0x{:x},0x{:x}/0x{:x},0x{:x},0x{:x} "
+                    "wind=0x{:x},0x{:x},0x{:x},0x{:x},0x{:x},0x{:x}/"
+                    "0x{:x},0x{:x},0x{:x},0x{:x},0x{:x},0x{:x}\n"),
+                    result.expected_rng.lcg, result.observed_rng.lcg,
+                    result.expected_rng.lfsr_index,
+                    result.observed_rng.lfsr_index,
+                    result.expected_rng.xorshift[0],
+                    result.expected_rng.xorshift[1],
+                    result.expected_rng.xorshift[2],
+                    result.observed_rng.xorshift[0],
+                    result.observed_rng.xorshift[1],
+                    result.observed_rng.xorshift[2],
+                    result.expected_rng.wind[0], result.expected_rng.wind[1],
+                    result.expected_rng.wind[2], result.expected_rng.wind[3],
+                    result.expected_rng.wind[4], result.expected_rng.wind[5],
+                    result.observed_rng.wind[0], result.observed_rng.wind[1],
+                    result.observed_rng.wind[2], result.observed_rng.wind[3],
+                    result.observed_rng.wind[4], result.observed_rng.wind[5]);
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] correction wind detail lfsr_word={} "
+                    "nodes={}/{} first_node={} kind={}/{} semantic={} "
+                    "byte=0x{:x}/0x{:x} derived={} output={}\n"),
+                    result.first_lfsr_difference,
+                    result.expected_wind_node_count,
+                    result.observed_wind_node_count,
+                    result.first_wind_node_difference,
+                    result.expected_wind_node_kind,
+                    result.observed_wind_node_kind,
+                    result.first_wind_semantic_difference,
+                    result.expected_wind_difference_byte,
+                    result.observed_wind_difference_byte,
+                    result.first_wind_derived_difference,
+                    result.first_wind_output_difference);
+                const auto& ie = result.first_interbatch_expected_wind;
+                const auto& io = result.first_interbatch_observed_wind;
+                const auto& fe = result.final_expected_wind;
+                const auto& fo = result.final_observed_wind;
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] correction wind schedule interbatch "
+                    "kind={}/{} present={}/{} life=0x{:x}/0x{:x} "
+                    "tick={}/{} prepared={}/{} active={}/{} "
+                    "step=0x{:x}/0x{:x} repeat={}/{} "
+                    "lfsr_index={}/{} final_life=0x{:x}/0x{:x} "
+                    "final_tick={}/{} final_active={}/{}\n"),
+                    ie.kind, io.kind, ie.present, io.present,
+                    ie.life_bits, io.life_bits,
+                    ie.oscillator_tick, io.oscillator_tick,
+                    ie.prepared, io.prepared, ie.active, io.active,
+                    ie.frame_step_bits, io.frame_step_bits,
+                    ie.repeat_count, io.repeat_count,
+                    result.first_interbatch_expected_rng.lfsr_index,
+                    result.first_interbatch_observed_rng.lfsr_index,
+                    fe.life_bits, fo.life_bits,
+                    fe.oscillator_tick, fo.oscillator_tick,
+                    fe.active, fo.active);
+                const auto& bg = result.base_wind_graph;
+                const auto& eg = result.first_interbatch_expected_wind_graph;
+                const auto& og = result.first_interbatch_observed_wind_graph;
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] correction wind graph "
+                    "root(base={}/{}/{} expected={}/{}/{} observed={}/{}/{}) "
+                    "nodes={}/{}/{} callback_hash=0x{:x}/0x{:x}/0x{:x} "
+                    "life0-3=0x{:x},0x{:x},0x{:x},0x{:x}/"
+                    "0x{:x},0x{:x},0x{:x},0x{:x}/"
+                    "0x{:x},0x{:x},0x{:x},0x{:x} "
+                    "tick0-3={},{},{},{}/{},{},{},{}/{},{},{},{}\n"),
+                    bg.active_bank, bg.pending_count, bg.callback_count,
+                    eg.active_bank, eg.pending_count, eg.callback_count,
+                    og.active_bank, og.pending_count, og.callback_count,
+                    bg.node_count, eg.node_count, og.node_count,
+                    bg.callback_hash, eg.callback_hash, og.callback_hash,
+                    bg.nodes[0].life_bits, bg.nodes[1].life_bits,
+                    bg.nodes[2].life_bits, bg.nodes[3].life_bits,
+                    eg.nodes[0].life_bits, eg.nodes[1].life_bits,
+                    eg.nodes[2].life_bits, eg.nodes[3].life_bits,
+                    og.nodes[0].life_bits, og.nodes[1].life_bits,
+                    og.nodes[2].life_bits, og.nodes[3].life_bits,
+                    bg.nodes[0].oscillator_tick, bg.nodes[1].oscillator_tick,
+                    bg.nodes[2].oscillator_tick, bg.nodes[3].oscillator_tick,
+                    eg.nodes[0].oscillator_tick, eg.nodes[1].oscillator_tick,
+                    eg.nodes[2].oscillator_tick, eg.nodes[3].oscillator_tick,
+                    og.nodes[0].oscillator_tick, og.nodes[1].oscillator_tick,
+                    og.nodes[2].oscillator_tick, og.nodes[3].oscillator_tick);
+            }
             if (result.failed_batch_index != SIZE_MAX)
             {
                 const auto& envelope = result.failed_envelope;
@@ -3567,11 +3657,21 @@ private:
             const auto& diagnostic = timeline.checkpoint_validation;
             Output::send<LogLevel::Warning>(STR(
                 "[HorseMod] candidate checkpoint capture unavailable: {} "
-                "detail={} index={} observed={}/{} expected={}/{}\n"),
+                "phase={} detail={} animation={} animation_ptr=0x{:x} fighters=0x{:x}/0x{:x} "
+                "index={} observed={}/{} expected={}/{}\n"),
                 RC::to_generic_string(std::string(failure)),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::candidate_capture_phase_name(
+                        timeline.checkpoint_capture_phase))),
                 RC::to_generic_string(std::string(
                     Horse::Deterministic::native_candidate_validation_issue_name(
                         diagnostic.issue))),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::chara_animation_topology_issue_name(
+                        timeline.checkpoint_animation_topology_issue))),
+                timeline.checkpoint_animation_observed,
+                timeline.checkpoint_animation_fighters[0],
+                timeline.checkpoint_animation_fighters[1],
                 diagnostic.index, diagnostic.observed_a, diagnostic.observed_b,
                 diagnostic.expected_a, diagnostic.expected_b);
         }
@@ -3764,11 +3864,21 @@ private:
             const auto& diagnostic = timeline.batch_entry_checkpoint_validation;
             Output::send<LogLevel::Warning>(STR(
                 "[HorseMod] candidate batch-entry checkpoint unavailable: {} "
-                "detail={} index={} observed={}/{} expected={}/{}\n"),
+                "phase={} detail={} animation={} animation_ptr=0x{:x} fighters=0x{:x}/0x{:x} "
+                "index={} observed={}/{} expected={}/{}\n"),
                 RC::to_generic_string(std::string(failure)),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::candidate_capture_phase_name(
+                        timeline.batch_entry_capture_phase))),
                 RC::to_generic_string(std::string(
                     Horse::Deterministic::native_candidate_validation_issue_name(
                         diagnostic.issue))),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::chara_animation_topology_issue_name(
+                        timeline.batch_entry_animation_topology_issue))),
+                timeline.batch_entry_animation_observed,
+                timeline.batch_entry_animation_fighters[0],
+                timeline.batch_entry_animation_fighters[1],
                 diagnostic.index, diagnostic.observed_a, diagnostic.observed_b,
                 diagnostic.expected_a, diagnostic.expected_b);
         }

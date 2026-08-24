@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CallbackTopology.hpp"
+#include "CharaAnimationState.hpp"
 #include "CandidateGameStateAdapter.hpp"
 #include "MotionBankSnapshot.hpp"
 #include "SecondaryEventState.hpp"
@@ -36,6 +37,10 @@ struct CandidateCheckpointCaptureStatus
     std::uint64_t store_p99_ns{};
     CandidateAdapterPerformanceStatus adapter_performance{};
     NativeCandidateValidationDiagnostic validation{};
+    CharaAnimationTopologyIssue animation_topology_issue{};
+    std::uintptr_t animation_topology_observed{};
+    std::array<std::uintptr_t, 2> animation_fighters{};
+    CandidateCapturePhase capture_phase{};
 };
 
 class Sc6CandidateCheckpointCapture final
@@ -142,6 +147,7 @@ private:
     std::unique_ptr<NativeCandidateRegions> regions_;
     std::unique_ptr<MotionBankSnapshot> motion_banks_;
     std::unique_ptr<SecondaryEventState> secondary_events_;
+    std::unique_ptr<CharaAnimationState> chara_animation_;
     std::unique_ptr<CallbackTopologyProbe> callback_probe_;
     std::unique_ptr<StageWindTopologyProbe> wind_probe_;
     std::unique_ptr<ProcessStageWindAllocator> wind_allocator_;

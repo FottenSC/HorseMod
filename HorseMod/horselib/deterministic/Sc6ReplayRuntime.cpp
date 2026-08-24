@@ -5,11 +5,65 @@
 #include <Windows.h>
 
 #include <chrono>
+#include <cstring>
 
 namespace Horse::Deterministic
 {
 namespace
 {
+OwnedCorrectionResult::WindNodeScheduleDiagnostic WindScheduleDiagnostic(
+    const StageWindTopologyImage& image, std::size_t index = 0) noexcept
+{
+    OwnedCorrectionResult::WindNodeScheduleDiagnostic output{};
+    if (index >= image.nodes.size()) return output;
+    const auto& node = image.nodes[index];
+    // Common semantic bytes are packed as +0x20/2, +0x30/4, +0x40/0x30.
+    if (node.semantic_state.size() < 54) return output;
+    const auto load_u32 = [&](std::size_t offset, auto& value) noexcept {
+        if (offset + sizeof(value) <= node.semantic_state.size())
+            std::memcpy(&value, node.semantic_state.data() + offset,
+                sizeof(value));
+    };
+    output.present = true;
+    output.kind = static_cast<std::uint8_t>(node.kind);
+    load_u32(2, output.life_bits);
+    load_u32(38, output.oscillator_tick);
+    load_u32(46, output.prepared);
+    load_u32(50, output.active);
+    if (node.kind == StageWindNodeKind::RingIn
+        && node.semantic_state.size() >= 230)
+    {
+        load_u32(222, output.frame_step_bits);
+        load_u32(226, output.repeat_count);
+    }
+    return output;
+}
+
+OwnedCorrectionResult::WindGraphScheduleDiagnostic WindGraphDiagnostic(
+    const StageWindTopologyImage& image) noexcept
+{
+    OwnedCorrectionResult::WindGraphScheduleDiagnostic output{};
+    output.node_count = static_cast<std::uint32_t>(image.nodes.size());
+    std::memcpy(&output.active_bank, image.schedule_state.data(),
+        sizeof(output.active_bank));
+    std::memcpy(&output.pending_count, image.schedule_state.data() + 4,
+        sizeof(output.pending_count));
+    output.callback_hash = 1469598103934665603ull;
+    for (const auto rva : image.pending_callback_rvas)
+    {
+        if (rva != 0) ++output.callback_count;
+        for (unsigned shift = 0; shift < 32; shift += 8)
+        {
+            output.callback_hash ^= (rva >> shift) & 0xffu;
+            output.callback_hash *= 1099511628211ull;
+        }
+    }
+    const auto count = (std::min)(output.nodes.size(), image.nodes.size());
+    for (std::size_t index = 0; index < count; ++index)
+        output.nodes[index] = WindScheduleDiagnostic(image, index);
+    return output;
+}
+
 std::uint64_t CandidateDifferenceMask(
     const CandidateCheckpointImage& expected,
     const CandidateCheckpointImage& observed) noexcept
@@ -57,6 +111,11 @@ std::uint64_t CandidateDifferenceMask(
     }
     mark(15, local_different);
     mark(16, expected.secondary_events != observed.secondary_events);
+    mark(17, expected.chara_animation != observed.chara_animation);
+    mark(18, expected.native.vm_freeze_record
+        != observed.native.vm_freeze_record);
+    mark(19, expected.native.stage_wind_emitters
+        != observed.native.stage_wind_emitters);
     return mask;
 }
 }
@@ -318,6 +377,14 @@ Status Sc6ReplayRuntime::ObserveFrame(
         timeline_status_.checkpoint_failure = checkpoint.ok()
             ? FailureCode::None : checkpoint.code;
         timeline_status_.checkpoint_validation = checkpoint_status.validation;
+        timeline_status_.checkpoint_animation_topology_issue =
+            checkpoint_status.animation_topology_issue;
+        timeline_status_.checkpoint_capture_phase =
+            checkpoint_status.capture_phase;
+        timeline_status_.checkpoint_animation_observed =
+            checkpoint_status.animation_topology_observed;
+        timeline_status_.checkpoint_animation_fighters =
+            checkpoint_status.animation_fighters;
         if (checkpoint.code == FailureCode::CapacityExceeded)
             timeline_status_.partial = true;
         else if (checkpoint.code == FailureCode::IdentityMismatch
@@ -409,6 +476,13 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     timeline_status_.batch_entry_checkpoint_failure = captured.ok()
         ? FailureCode::None : captured.code;
     timeline_status_.batch_entry_checkpoint_validation = status.validation;
+    timeline_status_.batch_entry_animation_topology_issue =
+        status.animation_topology_issue;
+    timeline_status_.batch_entry_capture_phase = status.capture_phase;
+    timeline_status_.batch_entry_animation_observed =
+        status.animation_topology_observed;
+    timeline_status_.batch_entry_animation_fighters =
+        status.animation_fighters;
     if (captured.code == FailureCode::CapacityExceeded)
     {
         timeline_status_.partial = true;
@@ -703,7 +777,17 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
     std::uint32_t* first_interbatch_local_difference,
     std::uint32_t* interbatch_local_difference_count,
     std::uint32_t* first_interbatch_motion_difference,
-    std::uint32_t* interbatch_motion_difference_count) noexcept
+    std::uint32_t* interbatch_motion_difference_count,
+    NativeRngImage* first_interbatch_expected_rng,
+    NativeRngImage* first_interbatch_observed_rng,
+    OwnedCorrectionResult::WindNodeScheduleDiagnostic*
+        first_interbatch_expected_wind,
+    OwnedCorrectionResult::WindNodeScheduleDiagnostic*
+        first_interbatch_observed_wind,
+    OwnedCorrectionResult::WindGraphScheduleDiagnostic*
+        first_interbatch_expected_wind_graph,
+    OwnedCorrectionResult::WindGraphScheduleDiagnostic*
+        first_interbatch_observed_wind_graph) noexcept
 {
     if (first_batch_index > final_batch_index || generation == 0
         || (landing_batch_index.has_value() && landing == nullptr))
@@ -807,7 +891,25 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                     const auto material_difference =
                         difference & ~expected_intertick_differences;
                     if (material_difference != 0)
+                    {
                         *first_interbatch_difference_mask = difference;
+                        if (first_interbatch_expected_rng != nullptr)
+                            *first_interbatch_expected_rng = expected_image.native.rng;
+                        if (first_interbatch_observed_rng != nullptr)
+                            *first_interbatch_observed_rng = observed_image.native.rng;
+                        if (first_interbatch_expected_wind != nullptr)
+                            *first_interbatch_expected_wind =
+                                WindScheduleDiagnostic(expected_image.wind);
+                        if (first_interbatch_observed_wind != nullptr)
+                            *first_interbatch_observed_wind =
+                                WindScheduleDiagnostic(observed_image.wind);
+                        if (first_interbatch_expected_wind_graph != nullptr)
+                            *first_interbatch_expected_wind_graph =
+                                WindGraphDiagnostic(expected_image.wind);
+                        if (first_interbatch_observed_wind_graph != nullptr)
+                            *first_interbatch_observed_wind_graph =
+                                WindGraphDiagnostic(observed_image.wind);
+                    }
                     if (material_difference != 0
                         && first_interbatch_difference_batch != nullptr)
                         *first_interbatch_difference_batch = batch_index;
@@ -981,6 +1083,10 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         CandidateCheckpointRole::BatchEntry).Load(plan.resimulation_base);
     if (!base.has_value())
         return finish(Status::failure(FailureCode::MissingSnapshot));
+    CandidateCheckpointImage base_diagnostic_image{};
+    if (CandidateCheckpointCodec::Decode(*base, base_diagnostic_image).ok())
+        output.base_wind_graph = WindGraphDiagnostic(
+            base_diagnostic_image.wind);
 
     bool native_state_was_written = false;
     const auto record_primary_failure = [&](Status failure) noexcept {
@@ -1020,7 +1126,13 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         &output.first_interbatch_local_difference,
         &output.interbatch_local_difference_count,
         &output.first_interbatch_motion_difference,
-        &output.interbatch_motion_difference_count);
+        &output.interbatch_motion_difference_count,
+        &output.first_interbatch_expected_rng,
+        &output.first_interbatch_observed_rng,
+        &output.first_interbatch_expected_wind,
+        &output.first_interbatch_observed_wind,
+        &output.first_interbatch_expected_wind_graph,
+        &output.first_interbatch_observed_wind_graph);
     output.resimulation_ns = elapsed_ns(phase_begin, Clock::now());
     if (output.first_interbatch_local_difference != UINT32_MAX)
     {
@@ -1108,7 +1220,16 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         output.observed_rng = observed_rng;
         if (expected_rng.lcg != observed_rng.lcg) output.rng_difference_mask |= 1;
         if (expected_rng.lfsr != observed_rng.lfsr)
+        {
             output.rng_difference_mask |= 2;
+            for (std::size_t index = 0; index < expected_rng.lfsr.size(); ++index)
+                if (expected_rng.lfsr[index] != observed_rng.lfsr[index])
+                {
+                    output.first_lfsr_difference =
+                        static_cast<std::uint32_t>(index);
+                    break;
+                }
+        }
         if (expected_rng.lfsr_index != observed_rng.lfsr_index)
             output.rng_difference_mask |= 4;
         if (expected_rng.xorshift != observed_rng.xorshift)
@@ -1117,6 +1238,8 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
             output.rng_difference_mask |= 16;
         const auto& expected_wind = expected_image.wind;
         const auto& observed_wind = verified_image.wind;
+        output.final_expected_wind = WindScheduleDiagnostic(expected_wind);
+        output.final_observed_wind = WindScheduleDiagnostic(observed_wind);
         if (expected_wind.root_clock != observed_wind.root_clock)
             output.wind_difference_mask |= 1;
         if (expected_wind.pending_callback_rvas
@@ -1127,9 +1250,66 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         if (expected_wind.schedule_params != observed_wind.schedule_params)
             output.wind_difference_mask |= 8;
         if (expected_wind.output_force != observed_wind.output_force)
+        {
             output.wind_difference_mask |= 16;
+            for (std::size_t index = 0; index < expected_wind.output_force.size(); ++index)
+                if (expected_wind.output_force[index]
+                    != observed_wind.output_force[index])
+                {
+                    output.first_wind_output_difference =
+                        static_cast<std::uint32_t>(index);
+                    break;
+                }
+        }
         if (expected_wind.nodes != observed_wind.nodes)
+        {
             output.wind_difference_mask |= 32;
+            output.expected_wind_node_count =
+                static_cast<std::uint32_t>(expected_wind.nodes.size());
+            output.observed_wind_node_count =
+                static_cast<std::uint32_t>(observed_wind.nodes.size());
+            const auto common = (std::min)(
+                expected_wind.nodes.size(), observed_wind.nodes.size());
+            for (std::size_t index = 0; index < common; ++index)
+            {
+                const auto& a = expected_wind.nodes[index];
+                const auto& b = observed_wind.nodes[index];
+                if (a == b) continue;
+                output.first_wind_node_difference =
+                    static_cast<std::uint32_t>(index);
+                output.expected_wind_node_kind =
+                    static_cast<std::uint8_t>(a.kind);
+                output.observed_wind_node_kind =
+                    static_cast<std::uint8_t>(b.kind);
+                const auto semantic_common = (std::min)(
+                    a.semantic_state.size(), b.semantic_state.size());
+                for (std::size_t byte = 0; byte < semantic_common; ++byte)
+                    if (a.semantic_state[byte] != b.semantic_state[byte])
+                    {
+                        output.first_wind_semantic_difference =
+                            static_cast<std::uint32_t>(byte);
+                        output.expected_wind_difference_byte =
+                            std::to_integer<std::uint8_t>(a.semantic_state[byte]);
+                        output.observed_wind_difference_byte =
+                            std::to_integer<std::uint8_t>(b.semantic_state[byte]);
+                        break;
+                    }
+                const auto derived_common = (std::min)(
+                    a.derived_state.size(), b.derived_state.size());
+                for (std::size_t byte = 0; byte < derived_common; ++byte)
+                    if (a.derived_state[byte] != b.derived_state[byte])
+                    {
+                        output.first_wind_derived_difference =
+                            static_cast<std::uint32_t>(byte);
+                        break;
+                    }
+                break;
+            }
+            if (output.first_wind_node_difference == UINT32_MAX
+                && expected_wind.nodes.size() != observed_wind.nodes.size())
+                output.first_wind_node_difference =
+                    static_cast<std::uint32_t>(common);
+        }
     }
     if (status.ok()
         && (verified.coordinate != timeline_status_.last_coordinate

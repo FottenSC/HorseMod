@@ -33,6 +33,7 @@ Status CandidateGameStateAdapter::Configure(
         || binding.hgcpu_reader == nullptr || !regions_.IsBound()
         || binding.motion_banks == nullptr
         || binding.secondary_events == nullptr
+        || binding.chara_animation == nullptr
         || binding.ucrt_broker == nullptr || binding.simulation_thread_id == 0
         || binding.wind_probe == nullptr || binding.wind_transaction == nullptr
         || binding.wind_addresses.generation != binding.context.generation
@@ -73,6 +74,7 @@ void CandidateGameStateAdapter::Reset() noexcept
     ucrt_restore_timing_ = {};
     derived_repair_timing_ = {};
     total_restore_timing_ = {};
+    last_capture_phase_ = CandidateCapturePhase::None;
     configured_ = false;
     bound_ = false;
 }
@@ -102,9 +104,18 @@ Status CandidateGameStateAdapter::capture_image(
     ScopedFloatingPointEnvironment fp_scope;
     output = {};
     const auto typed_begin = std::chrono::steady_clock::now();
+    last_capture_phase_ = CandidateCapturePhase::NativeTyped;
     Status status = regions_.Capture(output.native);
-    if (status.ok()) status = binding_.secondary_events->Capture(
-        output.secondary_events);
+    if (status.ok())
+    {
+        last_capture_phase_ = CandidateCapturePhase::SecondaryEvents;
+        status = binding_.secondary_events->Capture(output.secondary_events);
+    }
+    if (status.ok())
+    {
+        last_capture_phase_ = CandidateCapturePhase::CharaAnimation;
+        status = binding_.chara_animation->Capture(output.chara_animation);
+    }
     const auto typed_end = std::chrono::steady_clock::now();
     typed_capture_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -113,6 +124,7 @@ Status CandidateGameStateAdapter::capture_image(
     {
         HgCpuLocalImage local{};
         const auto local_begin = std::chrono::steady_clock::now();
+        last_capture_phase_ = CandidateCapturePhase::HgCpu;
         status = hgcpu_.Capture(
             binding_.hgcpu_writer, binding_.hgcpu_context, local);
         if (status.ok())
@@ -123,6 +135,7 @@ Status CandidateGameStateAdapter::capture_image(
         if (status.ok())
         {
             LocalReconstructionImage motion{};
+            last_capture_phase_ = CandidateCapturePhase::MotionBanks;
             status = binding_.motion_banks->Capture(motion);
             if (status.ok())
             {
@@ -140,6 +153,7 @@ Status CandidateGameStateAdapter::capture_image(
     if (status.ok())
     {
         const auto ucrt_begin = std::chrono::steady_clock::now();
+        last_capture_phase_ = CandidateCapturePhase::Ucrt;
         status = binding_.ucrt_broker->Capture(
             binding_.simulation_thread_id, output.ucrt);
         const auto ucrt_end = std::chrono::steady_clock::now();
@@ -150,6 +164,7 @@ Status CandidateGameStateAdapter::capture_image(
     if (status.ok())
     {
         const auto wind_begin = std::chrono::steady_clock::now();
+        last_capture_phase_ = CandidateCapturePhase::StageWind;
         status = binding_.wind_probe->Capture(output.wind);
         const auto wind_end = std::chrono::steady_clock::now();
         wind_capture_timing_.Record(static_cast<std::uint64_t>(
@@ -157,6 +172,7 @@ Status CandidateGameStateAdapter::capture_image(
                 wind_end - wind_begin).count()));
     }
     const Status fp = fp_scope.Finish();
+    if (status.ok() && fp.ok()) last_capture_phase_ = CandidateCapturePhase::None;
     return status.ok() ? fp : status;
 }
 
@@ -167,15 +183,18 @@ Status CandidateGameStateAdapter::Capture(
     const Status preflight = PreflightCapture(coordinate);
     if (!preflight.ok()) return preflight;
     CandidateCheckpointImage image{};
+    last_capture_phase_ = CandidateCapturePhase::None;
     const Status captured = capture_image(image);
     if (!captured.ok()) return captured;
     const auto encode_begin = std::chrono::steady_clock::now();
+    last_capture_phase_ = CandidateCapturePhase::Encode;
     const Status encoded = CandidateCheckpointCodec::EncodeCaptured(
         coordinate, binding_.context.battle_identity, image, output);
     const auto encode_end = std::chrono::steady_clock::now();
     encode_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             encode_end - encode_begin).count()));
+    if (encoded.ok()) last_capture_phase_ = CandidateCapturePhase::None;
     return encoded;
 }
 
@@ -303,6 +322,8 @@ Status CandidateGameStateAdapter::restore_image(
         status = regions_.RestoreTransactional(image.native);
         if (status.ok()) status = binding_.secondary_events->RestoreTransactional(
             image.secondary_events);
+        if (status.ok()) status = binding_.chara_animation->RestoreTransactional(
+            image.chara_animation);
         const auto typed_end = std::chrono::steady_clock::now();
         typed_restore_timing_.Record(static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -344,11 +365,14 @@ bool CandidateGameStateAdapter::undo_image(
     const Status native = regions_.RestoreTransactional(image.native);
     const Status secondary = binding_.secondary_events->RestoreTransactional(
         image.secondary_events);
+    const Status chara_animation =
+        binding_.chara_animation->RestoreTransactional(image.chara_animation);
     const Status wind = binding_.wind_transaction->Restore(
         binding_.wind_addresses, image.wind);
     const Status ucrt = binding_.ucrt_broker->Restore(
         binding_.simulation_thread_id, image.ucrt);
     return hgcpu.ok() && motion.ok() && native.ok() && secondary.ok()
+        && chara_animation.ok()
         && wind.ok() && ucrt.ok();
 }
 
@@ -384,6 +408,7 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
     // only pointer-free typed state and explicitly admitted value supplements.
     return observed.native == expected_image.native
             && observed.secondary_events == expected_image.secondary_events
+            && observed.chara_animation == expected_image.chara_animation
             && observed.ucrt == expected_image.ucrt
             && observed.wind == expected_image.wind
         ? Status::success()
