@@ -2,6 +2,7 @@
 #include "deterministic/Config.hpp"
 #include "deterministic/NativeReplayMaterializer.hpp"
 #include "deterministic/NativeBatchTimeline.hpp"
+#include "deterministic/ParticlePresentation.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/ReplayCoordinator.hpp"
 #include "deterministic/ReplaySeekPlanner.hpp"
@@ -620,6 +621,64 @@ void test_presentation_exactly_once()
     expect(bounded_sink.count == 100, "committed-event dedup metadata stays bounded");
 }
 
+void test_callsite_qualified_particle_values()
+{
+    ParticlePresentationValue create{};
+    create.coordinate = {1, 40};
+    create.route = ParticleRoute::BarrierHit;
+    create.operation = ParticleOperation::Create;
+    create.owner_logical_id = 17;
+    create.asset_logical_id = 29;
+    create.event_logical_id = 37;
+    create.effect_logical_id = 41;
+    create.location = {1.0f, 2.0f, 3.0f};
+    create.rotation_degrees = {4.0f, 5.0f, 6.0f};
+    create.scale = {1.0f, 1.0f, 1.0f};
+    create.auto_activate = true;
+
+    PresentationEvent encoded{};
+    expect(EncodeParticlePresentation(create, encoded).ok(),
+        "encode a qualified static particle route");
+    expect(encoded.payload.size() == Schema::particle_presentation_payload_size
+            && encoded.identity == create.event_logical_id,
+        "particle encoding uses the generated schema and logical identity");
+    ParticlePresentationValue decoded{};
+    expect(DecodeParticlePresentation(encoded, decoded).ok() && decoded == create,
+        "particle value round-trips without native pointers");
+    const PresentationEvent create_event = encoded;
+
+    PresentationEvent dynamic_route = encoded;
+    dynamic_route.payload[2] = std::byte{4};
+    expect(DecodeParticlePresentation(dynamic_route, decoded).code
+            == FailureCode::ProtocolMismatch,
+        "dynamic Blueprint particle routes fail closed");
+
+    ParticlePresentationValue stop{};
+    stop.coordinate = create.coordinate;
+    stop.route = ParticleRoute::BarrierHit;
+    stop.operation = ParticleOperation::Stop;
+    stop.owner_logical_id = 17;
+    stop.event_logical_id = 43;
+    stop.effect_logical_id = 41;
+    expect(EncodeParticlePresentation(stop, encoded).ok(),
+        "encode a canonical value-only stop");
+    stop.asset_logical_id = 29;
+    expect(EncodeParticlePresentation(stop, encoded).code
+            == FailureCode::InvalidConfiguration,
+        "stop events reject stale create-only values");
+    stop.asset_logical_id = 0;
+    expect(EncodeParticlePresentation(stop, encoded).ok(),
+        "restore canonical stop after invalid input");
+
+    PresentationJournal journal{8, 1024};
+    CountingSink sink;
+    expect(journal.Record(create_event).ok() && journal.Record(encoded).ok()
+            && journal.Record(create_event).ok() && journal.Record(encoded).ok(),
+        "journal retains distinct same-coordinate operations and deduplicates repeats");
+    expect(journal.CommitThrough(stop.coordinate, sink).ok() && sink.count == 2,
+        "particle operations commit exactly once");
+}
+
 void test_replay_checkpoint_seek_and_resume()
 {
     Fixture fixture;
@@ -845,6 +904,7 @@ int main()
     test_resimulation_base_planning_respects_batch_width();
     test_batch_aware_replay_seek_planning();
     test_presentation_exactly_once();
+    test_callsite_qualified_particle_values();
     test_replay_checkpoint_seek_and_resume();
     test_cross_generation_seek_materializes_before_restore();
     test_cross_generation_identity_mismatch_fails_before_restore();
