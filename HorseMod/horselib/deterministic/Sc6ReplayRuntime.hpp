@@ -38,6 +38,9 @@ struct ReplayTimelineStatus
     std::uint64_t batch_same_input_time_coordinates{};
     std::uint64_t batch_input_generation_changes{};
     std::uint64_t batch_frame_accounting_mismatches{};
+    std::uint64_t fp_samples{};
+    std::uint64_t fp_control_mismatches{};
+    std::uint64_t fp_status_mismatches{};
     std::uint64_t coordinates_without_batch_entry_checkpoint{};
     std::uint64_t maximum_batch_entry_checkpoint_gap{};
     std::uint64_t maximum_resim_distance_from_batch_entry{};
@@ -46,6 +49,8 @@ struct ReplayTimelineStatus
     std::uint32_t round_state_frame{};
     std::int32_t unpause_countdown{};
     std::uint8_t pending_move_state{};
+    FloatingPointEnvironment fp_last_before{};
+    FloatingPointEnvironment fp_last_after{};
     FailureCode checkpoint_failure{FailureCode::None};
     FailureCode batch_entry_checkpoint_failure{FailureCode::None};
     bool partial{};

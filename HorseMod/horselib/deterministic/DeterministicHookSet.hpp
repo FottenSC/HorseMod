@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Types.hpp"
+#include "FloatingPointEnvironment.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -60,10 +61,14 @@ struct OuterTickObservation
     float delta_seconds{};
     OuterTickState before{};
     OuterTickState after{};
+    FloatingPointEnvironment fp_before{};
+    FloatingPointEnvironment fp_after{};
     std::uint32_t observed_coordinates{};
     std::uint32_t repeat_pending_coordinates{};
     std::uint32_t same_input_time_coordinates{};
     std::uint16_t read_mask{};
+    bool fp_before_valid{};
+    bool fp_after_valid{};
 };
 
 using FrameFencepostCallback = void (*)(

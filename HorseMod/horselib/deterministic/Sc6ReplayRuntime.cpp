@@ -254,6 +254,18 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         timeline_status_.failure = FailureCode::WrongThread;
         return Status::failure(timeline_status_.failure);
     }
+    if (!observation.fp_before_valid || !observation.fp_after_valid)
+    {
+        timeline_status_.failure = FailureCode::ContextUnavailable;
+        return Status::failure(timeline_status_.failure);
+    }
+    ++timeline_status_.fp_samples;
+    timeline_status_.fp_last_before = observation.fp_before;
+    timeline_status_.fp_last_after = observation.fp_after;
+    if (!FloatingPointControlMatches(observation.fp_before, observation.fp_after))
+        ++timeline_status_.fp_control_mismatches;
+    if (!FloatingPointStatusMatches(observation.fp_before, observation.fp_after))
+        ++timeline_status_.fp_status_mismatches;
     if (timeline_manager_ != 0
         && timeline_manager_ != observation.battle_manager)
     {

@@ -193,6 +193,8 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     observation.batch_id = hooks != nullptr ? ++hooks->next_outer_batch_id_ : 0;
     observation.thread_id = ::GetCurrentThreadId();
     observation.delta_seconds = delta_seconds;
+    observation.fp_before = CaptureFloatingPointEnvironment();
+    observation.fp_before_valid = true;
     if (hooks != nullptr)
     {
         hooks->CaptureOuterTickState(
@@ -209,6 +211,8 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
         original(battle_manager, delta_seconds);
     }
     active_outer_capture_ = previous_capture;
+    observation.fp_after = CaptureFloatingPointEnvironment();
+    observation.fp_after_valid = true;
     if (hooks != nullptr)
     {
         hooks->CaptureOuterTickState(

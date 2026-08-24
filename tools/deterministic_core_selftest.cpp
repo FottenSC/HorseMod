@@ -1,5 +1,6 @@
 #include "deterministic/InputTimeline.hpp"
 #include "deterministic/Config.hpp"
+#include "deterministic/FloatingPointEnvironment.hpp"
 #include "deterministic/NativeReplayMaterializer.hpp"
 #include "deterministic/NativeBatchTimeline.hpp"
 #include "deterministic/ParticlePresentation.hpp"
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <xmmintrin.h>
 #include <vector>
 
 using namespace Horse::Deterministic;
@@ -893,6 +895,23 @@ void test_transactional_restore_failures_undo()
         fixture.simulation.RestoreAndResimulate({1, 2}, {1, 2}).code == FailureCode::UndoFailed,
         "failed undo is terminal and typed");
 }
+
+void test_floating_point_environment_capture_is_raw_and_non_mutating()
+{
+    const auto original = CaptureFloatingPointEnvironment();
+    const auto original_mxcsr = _mm_getcsr();
+    const auto next_rounding = (original_mxcsr + 0x2000u) & 0x6000u;
+    _mm_setcsr((original_mxcsr & ~0x6000u) | next_rounding);
+    const auto changed = CaptureFloatingPointEnvironment();
+    _mm_setcsr(original_mxcsr);
+    const auto restored = CaptureFloatingPointEnvironment();
+
+    expect(!FloatingPointControlMatches(original, changed),
+        "FP capture distinguishes MXCSR control changes");
+    expect(FloatingPointControlMatches(original, restored)
+            && FloatingPointStatusMatches(original, restored),
+        "read-only FP capture preserves and recovers exact caller environment");
+}
 }
 
 int main()
@@ -911,6 +930,7 @@ int main()
     test_native_replay_materializer_requires_state4_fencepost();
     test_sc6_replay_bridge_transaction_and_undo();
     test_transactional_restore_failures_undo();
+    test_floating_point_environment_capture_is_raw_and_non_mutating();
     if (failures == 0)
     {
         std::cout << "DeterministicCoreSelfTest passed\n";

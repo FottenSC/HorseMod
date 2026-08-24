@@ -3443,7 +3443,10 @@ private:
                 "multi_batches={} batch_repeats={} batch_same_time={} max_batch={} "
                 "max_input_delta={} input_generation_changes={} "
                 "batch_accounting_mismatches={} entry_uncovered={} "
-                "entry_gap_max={} resim_distance_max={}\n"),
+                "entry_gap_max={} resim_distance_max={} fp_samples={} "
+                "fp_control_mismatches={} fp_status_mismatches={} "
+                "fp_before=0x{:04x}/0x{:04x}/0x{:08x} "
+                "fp_after=0x{:04x}/0x{:04x}/0x{:08x}\n"),
                 timeline.captured_frames,
                 timeline.repeat_requests,
                 timeline.same_native_time_coordinates,
@@ -3462,7 +3465,16 @@ private:
                 timeline.batch_frame_accounting_mismatches,
                 timeline.coordinates_without_batch_entry_checkpoint,
                 timeline.maximum_batch_entry_checkpoint_gap,
-                timeline.maximum_resim_distance_from_batch_entry);
+                timeline.maximum_resim_distance_from_batch_entry,
+                timeline.fp_samples,
+                timeline.fp_control_mismatches,
+                timeline.fp_status_mismatches,
+                timeline.fp_last_before.x87_control,
+                timeline.fp_last_before.x87_status,
+                timeline.fp_last_before.mxcsr,
+                timeline.fp_last_after.x87_control,
+                timeline.fp_last_after.x87_status,
+                timeline.fp_last_after.mxcsr);
         }
     }
 
