@@ -9,6 +9,7 @@
 #include "deterministic/MotionBankSnapshot.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/Schema.hpp"
+#include "deterministic/SecondaryEventState.hpp"
 #include "deterministic/SimulationSession.hpp"
 #include "deterministic/SnapshotStore.hpp"
 #include "deterministic/StageBreakListenerDiagnostics.hpp"
@@ -315,6 +316,31 @@ struct Fixture
                     + motion_tail_fighter_offset,
                 motion_tail_bytes,
                 std::byte{static_cast<unsigned char>(0x90 + player)});
+
+            const auto stack = addresses.fighter_roots[player]
+                + secondary_event_stack_fighter_offset;
+            const auto table = memory_base + 0x40000 + player * 0x3000;
+            const auto headers = table + 0x1000;
+            const auto payloads = table + 0x2000;
+            memory.Set(stack + 0x240, table);
+            memory.Set(stack + 0x248, headers);
+            memory.Set(stack + 0x250, payloads);
+            memory.Set(table + 0x14, std::int32_t{3});
+            for (std::size_t slot = 0;
+                 slot < secondary_event_slot_count; ++slot)
+            {
+                const auto address = stack + slot * 0x18;
+                memory.Fill(address, 8, std::byte{static_cast<unsigned char>(
+                    0x20 + player)});
+                memory.Set(address + 8, addresses.fighter_roots[player]);
+                memory.Fill(address + 0x10, 8,
+                    std::byte{static_cast<unsigned char>(0x40 + slot)});
+            }
+            memory.Fill(stack + 0x258, 8,
+                std::byte{static_cast<unsigned char>(0x60 + player)});
+            for (std::size_t index = 0; index < 3; ++index)
+                memory.Set(headers + index * 8 + 2,
+                    static_cast<std::uint16_t>(10 + player * 3 + index));
         }
     }
 
@@ -535,6 +561,11 @@ void test_candidate_checkpoint_codec()
     expect(motion.Capture(motion_image).ok(),
         "capture checkpoint matrix-bank image");
     image.local_images.push_back(motion_image);
+    SecondaryEventState secondary{fixture.memory};
+    expect(secondary.Bind(fixture.addresses.fighter_roots, 7).ok(),
+        "bind checkpoint secondary-event state");
+    expect(secondary.Capture(image.secondary_events).ok(),
+        "capture checkpoint secondary-event state");
     image.ucrt = candidate_ucrt_image();
     image.wind.generation = native.round_generation;
     const auto* ring_in_layout = FindStageWindNodeLayout(StageWindNodeKind::RingIn);
@@ -684,6 +715,70 @@ void test_motion_bank_snapshot_is_bounded_and_transactional()
         "partial motion write restores the complete undo image exactly");
 }
 
+void test_secondary_event_state_is_pointer_free_and_transactional()
+{
+    Fixture fixture;
+    SecondaryEventState secondary{fixture.memory};
+    expect(secondary.Bind(fixture.addresses.fighter_roots, 7).ok(),
+        "bind secondary-event pointer topology");
+    SecondaryEventStateImage baseline{};
+    expect(secondary.Capture(baseline).ok(),
+        "capture pointer-free secondary-event state");
+    const auto canonical = SecondaryEventState::CanonicalBytes(baseline);
+    expect(!contains_qword(canonical, fixture.addresses.fighter_roots[0])
+            && !contains_qword(canonical, fixture.addresses.fighter_roots[1]),
+        "secondary-event canonical state excludes fighter back-pointers");
+
+    const auto stack = fixture.addresses.fighter_roots[0]
+        + secondary_event_stack_fighter_offset;
+    const auto preserved_back_pointer = fixture.addresses.fighter_roots[0]
+        + 0x111;
+    fixture.memory.Fill(stack, 8, std::byte{0xE1});
+    fixture.memory.Set(stack + 8, preserved_back_pointer);
+    fixture.memory.Fill(stack + 0x10, 8, std::byte{0xE2});
+    fixture.memory.Fill(stack + 0x258, 8, std::byte{0xE3});
+    fixture.memory.Set(Fixture::memory_base + 0x41000 + 2,
+        std::uint16_t{0x7777});
+    expect(secondary.RestoreTransactional(baseline).ok(),
+        "restore secondary-event semantic fields and cursors");
+    SecondaryEventStateImage restored{};
+    expect(secondary.Capture(restored).ok() && restored == baseline,
+        "secondary-event restore recaptures exact typed image");
+    std::uintptr_t observed_back_pointer{};
+    expect(fixture.memory.Read(stack + 8,
+            std::as_writable_bytes(std::span{&observed_back_pointer, 1}))
+            && observed_back_pointer == preserved_back_pointer,
+        "secondary-event restore does not overwrite fighter back-pointers");
+
+    const auto table_pointer_address = stack + 0x240;
+    fixture.memory.Set(table_pointer_address, std::uintptr_t{});
+    const auto before_topology_rejection = fixture.memory.bytes();
+    expect(secondary.RestoreTransactional(baseline).code
+            == FailureCode::RestorePreflightFailed
+            && fixture.memory.bytes() == before_topology_rejection,
+        "secondary-event allocation replacement fails without mutation");
+    fixture.memory.Set(table_pointer_address, Fixture::memory_base + 0x40000);
+
+    auto wrong_count = baseline;
+    ++wrong_count.header_counts[0];
+    const auto before_count_rejection = fixture.memory.bytes();
+    expect(secondary.RestoreTransactional(wrong_count).code
+            == FailureCode::RestorePreflightFailed
+            && fixture.memory.bytes() == before_count_rejection,
+        "secondary-event header-count mismatch fails before undo capture");
+
+    fixture.memory.Fill(stack, 8, std::byte{0xA1});
+    fixture.memory.Fill(stack + 0x10, 8, std::byte{0xA2});
+    const auto before_partial_failure = fixture.memory.bytes();
+    fixture.memory.FailWrite(4);
+    expect(secondary.RestoreTransactional(baseline).code
+            == FailureCode::RestoreWriteFailed,
+        "partial secondary-event write reports transactional failure");
+    fixture.memory.AllowWrites();
+    expect(fixture.memory.bytes() == before_partial_failure,
+        "partial secondary-event write restores the complete undo image exactly");
+}
+
 class EmptyStageWindAllocator final : public IStageWindAllocator
 {
 public:
@@ -695,7 +790,7 @@ struct CandidateWindFixture
 {
     explicit CandidateWindFixture(Fixture& fixture)
         : probe(fixture.memory), transaction(fixture.memory, allocator),
-          motion(fixture.memory)
+          motion(fixture.memory), secondary(fixture.memory)
     {
         addresses = {Fixture::image_base, 0x4300000,
             Fixture::memory_base + 0x1F000, 7};
@@ -707,12 +802,15 @@ struct CandidateWindFixture
         expect(probe.Bind(addresses).ok(), "bind empty candidate wind fixture");
         expect(motion.Bind(fixture.addresses.fighter_roots, hgcpu_context()).ok(),
             "bind candidate matrix-bank fixture");
+        expect(secondary.Bind(fixture.addresses.fighter_roots, 7).ok(),
+            "bind candidate secondary-event fixture");
     }
 
     EmptyStageWindAllocator allocator;
     StageWindTopologyProbe probe;
     StageWindGraphTransaction transaction;
     MotionBankSnapshot motion;
+    SecondaryEventState secondary;
     StageWindTopologyAddresses addresses{};
     std::uintptr_t root{};
 };
@@ -727,6 +825,7 @@ CandidateAdapterBinding candidate_binding(
     binding.hgcpu_writer = &fake_hgcpu_writer;
     binding.hgcpu_reader = reader;
     binding.motion_banks = &wind.motion;
+    binding.secondary_events = &wind.secondary;
     binding.ucrt_broker = &candidate_ucrt_broker;
     binding.wind_probe = &wind.probe;
     binding.wind_transaction = &wind.transaction;
@@ -1752,6 +1851,7 @@ int main()
     test_hgcpu_stream_contract();
     test_candidate_checkpoint_codec();
     test_motion_bank_snapshot_is_bounded_and_transactional();
+    test_secondary_event_state_is_pointer_free_and_transactional();
     test_candidate_adapter_restore_and_outer_undo();
     test_candidate_adapter_native_failure_undoes_hgcpu();
     test_hgcpu_direct_source_coverage();

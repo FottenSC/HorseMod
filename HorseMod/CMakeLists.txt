@@ -43,6 +43,7 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/HgCpuRuntimeDiagnostics.cpp
     horselib/deterministic/MoveDispatchState.cpp
     horselib/deterministic/MotionBankSnapshot.cpp
+    horselib/deterministic/SecondaryEventState.cpp
     horselib/deterministic/NativeReplayMaterializer.cpp
     horselib/deterministic/InputTimeline.cpp
     horselib/deterministic/NativeBatchTimeline.cpp

@@ -209,6 +209,29 @@ not the sparse production policy, but the serializer is not admitted until both
 correctness and the stated normal-render limits pass. Production rollback
 remains disabled and the allowlist remains empty.
 
+### Schema 10 secondary-event typed exception
+
+The bounded secondary MoveVM event stack at fighter `+0x95788` is now an
+explicit typed canonical exception rather than opaque fighter memory. Its image
+contains the semantic halves of 24 fixed 0x18-byte slots, the fixed scalar at
+`+0x258`, and the active per-header cursors. It deliberately excludes each
+slot's fighter back-pointer and the table, header-array, and payload-array
+pointers. Bind and restore instead validate those live allocation identities,
+the table's bounded header count (maximum 256), and the round generation.
+Restore is transactional, preserves pointer fields, verifies an exact typed
+recapture, and restores a complete undo image after partial writes. Direct unit
+tests cover pointer exclusion, allocation replacement, header-count drift,
+partial failure, and exact undo.
+
+A normal-render depth-11 diagnostic on DLL SHA-256
+`5CE4E5BA58B4B02086B0D7A282187B09D12C65A58438C8B29ED0E7701B1AD9CC`
+replayed all 11 batches in 21.827 ms and restored the outer undo exactly. The
+canonical failure remained LCG, LFSR value/index, wind RNG, wind output, and
+wind node state (`diff_mask=0xc800`, `rng_mask=0x17`, `wind_mask=0x30`). This
+classifies the secondary-event stack as required pointer-free canonical state,
+but proves it is not the missing consumer input responsible for the current
+correction divergence.
+
 Repeat native-source coverage for every required matchup and correction phase.
 For each admitted subsystem, the native stream must cover at least 90% of
 measured changing bytes and every remaining byte must be classified as typed

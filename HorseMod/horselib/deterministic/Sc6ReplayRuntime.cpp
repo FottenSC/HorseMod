@@ -56,6 +56,7 @@ std::uint64_t CandidateDifferenceMask(
         }
     }
     mark(15, local_different);
+    mark(16, expected.secondary_events != observed.secondary_events);
     return mask;
 }
 }

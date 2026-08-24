@@ -19,14 +19,14 @@ namespace
 {
 constexpr std::array<std::byte, 8> magic{
     std::byte{'H'}, std::byte{'R'}, std::byte{'S'}, std::byte{'C'},
-    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{7}};
-constexpr std::uint32_t format_version = 7;
+    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{8}};
+constexpr std::uint32_t format_version = 8;
 constexpr std::array<std::byte, 20> hash_domain{
     std::byte{'H'}, std::byte{'o'}, std::byte{'r'}, std::byte{'s'},
     std::byte{'e'}, std::byte{'C'}, std::byte{'a'}, std::byte{'n'},
     std::byte{'d'}, std::byte{'i'}, std::byte{'d'}, std::byte{'a'},
     std::byte{'t'}, std::byte{'e'}, std::byte{'S'}, std::byte{'t'},
-    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{7}};
+    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{8}};
 
 template <typename T>
 void append(std::vector<std::byte>& bytes, const T& value)
@@ -219,6 +219,9 @@ bool generations_match(FrameCoordinate coordinate,
         && hgcpu.context.round_generation == image.native.round_generation
         && hgcpu.context.stage_generation != 0
         && hgcpu.context.allocation_generation == image.native.round_generation
+        && image.secondary_events.round_generation
+            == image.native.round_generation
+        && SecondaryEventState::Validate(image.secondary_events)
         && image.wind.generation == image.native.round_generation
         && valid_ucrt_image(image.ucrt) && valid_wind_image(image.wind);
 }
@@ -270,6 +273,9 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
             || native_canonical.size() > std::numeric_limits<std::uint32_t>::max())
             return Status::failure(FailureCode::CapacityExceeded);
         std::vector<std::byte> canonical = native_canonical;
+        const auto secondary_canonical =
+            SecondaryEventState::CanonicalBytes(image.secondary_events);
+        append_range(canonical, secondary_canonical);
         append_ucrt_canonical(canonical, image.ucrt);
         const auto wind_canonical = StageWindTopologyProbe::CanonicalBytes(image.wind);
         append_range(canonical, wind_canonical);
@@ -289,6 +295,9 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         append(output.bytes, format_version);
         append(output.bytes, Schema::snapshot_schema_version);
         append(output.bytes, static_cast<std::uint32_t>(native_canonical.size()));
+        append(output.bytes,
+            static_cast<std::uint32_t>(secondary_canonical.size()));
+        append(output.bytes, local_checksum(secondary_canonical));
         append(output.bytes, static_cast<std::uint32_t>(wind_local.size()));
         append(output.bytes, local_checksum(wind_local));
         append(output.bytes, image.ucrt.algorithm_version);
@@ -315,6 +324,7 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
             append_range(output.bytes, local.bytes);
         }
         append_range(output.bytes, native_canonical);
+        append_range(output.bytes, secondary_canonical);
         append_range(output.bytes, wind_local);
         return Status::success();
     }
@@ -334,6 +344,8 @@ Status CandidateCheckpointCodec::Decode(
     std::uint32_t observed_format{};
     std::uint32_t observed_schema{};
     std::uint32_t native_canonical_size{};
+    std::uint32_t secondary_canonical_size{};
+    std::uint64_t secondary_canonical_checksum{};
     std::uint32_t wind_local_size{};
     std::uint64_t wind_local_checksum{};
     std::uint8_t ucrt_seeded{};
@@ -344,6 +356,9 @@ Status CandidateCheckpointCodec::Decode(
         || !reader.Take(observed_schema)
         || observed_schema != Schema::snapshot_schema_version
         || !reader.Take(native_canonical_size)
+        || !reader.Take(secondary_canonical_size)
+        || secondary_canonical_size > 0x1000
+        || !reader.Take(secondary_canonical_checksum)
         || !reader.Take(wind_local_size)
         || !reader.Take(wind_local_checksum)
         || !reader.Take(output.ucrt.algorithm_version)
@@ -401,8 +416,12 @@ Status CandidateCheckpointCodec::Decode(
         catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     }
     const auto native_canonical = reader.TakeView(native_canonical_size);
+    const auto secondary_canonical = reader.TakeView(secondary_canonical_size);
     const auto wind_local = reader.TakeView(wind_local_size);
     if (native_canonical.size() != native_canonical_size
+        || secondary_canonical.size() != secondary_canonical_size
+        || local_checksum(secondary_canonical)
+            != secondary_canonical_checksum
         || wind_local.size() != wind_local_size
         || local_checksum(wind_local) != wind_local_checksum
         || !reader.Finished())
@@ -415,6 +434,7 @@ Status CandidateCheckpointCodec::Decode(
     try
     {
         canonical.assign(native_canonical.begin(), native_canonical.end());
+        append_range(canonical, secondary_canonical);
         append_ucrt_canonical(canonical, output.ucrt);
     }
     catch (...)
@@ -424,6 +444,8 @@ Status CandidateCheckpointCodec::Decode(
     }
     const Status decoded = NativeCandidateRegions::DecodeCanonicalBytes(
         native_canonical, output.native);
+    const Status secondary_decoded = SecondaryEventState::DecodeCanonicalBytes(
+        secondary_canonical, output.secondary_events);
     const Status wind_decoded = decode_wind_local(wind_local, output.wind);
     if (wind_decoded.ok())
     {
@@ -439,7 +461,7 @@ Status CandidateCheckpointCodec::Decode(
             return Status::failure(FailureCode::CapacityExceeded);
         }
     }
-    if (!decoded.ok() || !wind_decoded.ok()
+    if (!decoded.ok() || !secondary_decoded.ok() || !wind_decoded.ok()
         || !generations_match(snapshot.coordinate, output)
         || !valid_local_images(output, true)
         || !hash_candidate(snapshot.coordinate, snapshot.context_identity,

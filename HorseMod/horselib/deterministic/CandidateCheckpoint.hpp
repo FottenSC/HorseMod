@@ -2,6 +2,7 @@
 
 #include "HgCpuStream.hpp"
 #include "NativeCandidateRegions.hpp"
+#include "SecondaryEventState.hpp"
 #include "StageWindTopology.hpp"
 #include "UcrtRandBroker.hpp"
 
@@ -14,6 +15,7 @@ struct CandidateCheckpointImage
     NativeCandidateImage native{};
     std::vector<LocalReconstructionImage> local_images;
     UcrtRandBrokerImage ucrt{};
+    SecondaryEventStateImage secondary_events{};
     StageWindTopologyImage wind{};
 };
 

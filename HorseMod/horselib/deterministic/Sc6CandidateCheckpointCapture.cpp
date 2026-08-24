@@ -179,6 +179,7 @@ Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
     : memory_(std::make_unique<ProcessMemory>()),
       regions_(std::make_unique<NativeCandidateRegions>(*memory_)),
       motion_banks_(std::make_unique<MotionBankSnapshot>(*memory_)),
+      secondary_events_(std::make_unique<SecondaryEventState>(*memory_)),
       callback_probe_(std::make_unique<CallbackTopologyProbe>(*memory_)),
       wind_probe_(std::make_unique<StageWindTopologyProbe>(*memory_)),
       adapter_(std::make_unique<CandidateGameStateAdapter>(*regions_, hgcpu_))
@@ -461,6 +462,7 @@ Status Sc6CandidateCheckpointCapture::bind(
     adapter_binding.hgcpu_reader = reinterpret_cast<HgCpuExecFn>(
         image_base_ + hgcpu_reader_rva);
     adapter_binding.motion_banks = motion_banks_.get();
+    adapter_binding.secondary_events = secondary_events_.get();
     adapter_binding.ucrt_broker = ucrt_broker_;
     adapter_binding.wind_probe = wind_probe_.get();
     adapter_binding.wind_transaction = wind_transaction_.get();
@@ -468,6 +470,8 @@ Status Sc6CandidateCheckpointCapture::bind(
     adapter_binding.simulation_thread_id = simulation_thread_id;
     Status adapter_status = motion_banks_->Bind(
         fighter_roots, adapter_binding.hgcpu_context);
+    if (adapter_status.ok()) adapter_status = secondary_events_->Bind(
+        fighter_roots, coordinate.generation);
     if (adapter_status.ok()) adapter_status = adapter_->Configure(adapter_binding);
     if (adapter_status.ok()) adapter_status = adapter_->BindContext(context);
     if (!adapter_status.ok())
@@ -675,6 +679,7 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 {
     adapter_->Reset();
     motion_banks_->Invalidate();
+    secondary_events_->Invalidate();
     wind_transaction_.reset();
     wind_allocator_.reset();
     regions_->Invalidate();

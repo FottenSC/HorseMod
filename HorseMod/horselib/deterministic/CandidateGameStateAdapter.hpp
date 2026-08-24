@@ -27,6 +27,7 @@ struct CandidateAdapterBinding
     HgCpuExecFn hgcpu_writer{};
     HgCpuExecFn hgcpu_reader{};
     MotionBankSnapshot* motion_banks{};
+    SecondaryEventState* secondary_events{};
     UcrtRandBroker* ucrt_broker{};
     StageWindTopologyProbe* wind_probe{};
     StageWindGraphTransaction* wind_transaction{};

@@ -32,6 +32,7 @@ Status CandidateGameStateAdapter::Configure(
         || binding.context.stage_identity == 0 || binding.hgcpu_writer == nullptr
         || binding.hgcpu_reader == nullptr || !regions_.IsBound()
         || binding.motion_banks == nullptr
+        || binding.secondary_events == nullptr
         || binding.ucrt_broker == nullptr || binding.simulation_thread_id == 0
         || binding.wind_probe == nullptr || binding.wind_transaction == nullptr
         || binding.wind_addresses.generation != binding.context.generation
@@ -102,6 +103,8 @@ Status CandidateGameStateAdapter::capture_image(
     output = {};
     const auto typed_begin = std::chrono::steady_clock::now();
     Status status = regions_.Capture(output.native);
+    if (status.ok()) status = binding_.secondary_events->Capture(
+        output.secondary_events);
     const auto typed_end = std::chrono::steady_clock::now();
     typed_capture_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -298,6 +301,8 @@ Status CandidateGameStateAdapter::restore_image(
     {
         const auto typed_begin = std::chrono::steady_clock::now();
         status = regions_.RestoreTransactional(image.native);
+        if (status.ok()) status = binding_.secondary_events->RestoreTransactional(
+            image.secondary_events);
         const auto typed_end = std::chrono::steady_clock::now();
         typed_restore_timing_.Record(static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -337,11 +342,14 @@ bool CandidateGameStateAdapter::undo_image(
     const Status motion = binding_.motion_banks->RestoreTransactional(
         image.local_images[1]);
     const Status native = regions_.RestoreTransactional(image.native);
+    const Status secondary = binding_.secondary_events->RestoreTransactional(
+        image.secondary_events);
     const Status wind = binding_.wind_transaction->Restore(
         binding_.wind_addresses, image.wind);
     const Status ucrt = binding_.ucrt_broker->Restore(
         binding_.simulation_thread_id, image.ucrt);
-    return hgcpu.ok() && motion.ok() && native.ok() && wind.ok() && ucrt.ok();
+    return hgcpu.ok() && motion.ok() && native.ok() && secondary.ok()
+        && wind.ok() && ucrt.ok();
 }
 
 Status CandidateGameStateAdapter::RebuildDerivedState() noexcept
@@ -375,6 +383,7 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
     // that the current serializer is bounded and valid; verification compares
     // only pointer-free typed state and explicitly admitted value supplements.
     return observed.native == expected_image.native
+            && observed.secondary_events == expected_image.secondary_events
             && observed.ucrt == expected_image.ucrt
             && observed.wind == expected_image.wind
         ? Status::success()
