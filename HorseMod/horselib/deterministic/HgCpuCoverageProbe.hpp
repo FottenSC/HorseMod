@@ -10,6 +10,9 @@
 
 namespace Horse::Deterministic
 {
+inline constexpr std::size_t hgcpu_coverage_page_size = 0x1000;
+inline constexpr std::size_t hgcpu_coverage_pages_per_target = 0x100;
+
 struct HgCpuCoverageTarget
 {
     std::uintptr_t base{};
@@ -35,6 +38,8 @@ struct HgCpuCoverageSample
     std::size_t directly_sourced_changed_bytes{};
     bool write_spans_truncated{};
     bool unmapped_deltas_truncated{};
+    std::array<std::array<std::uint32_t,
+        hgcpu_coverage_pages_per_target>, 2> unmapped_changed_by_page{};
     std::vector<HgCpuUnmappedDelta> unmapped_deltas;
 };
 

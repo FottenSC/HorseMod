@@ -61,7 +61,9 @@ def qualification_root() -> Path:
     return Path(local_app_data) / "HorseMod" / "Qualification"
 
 
-def create_request(replay_path: Path) -> str:
+def create_request(replay_path: Path, watch_frames: int) -> str:
+    if watch_frames < 1 or watch_frames > 36000:
+        raise RuntimeError("watch frames must be between 1 and 36000")
     replay_text = str(replay_path.resolve())
     if "\n" in replay_text or "\r" in replay_text:
         raise RuntimeError("replay path contains a newline")
@@ -73,7 +75,8 @@ def create_request(replay_path: Path) -> str:
     result.unlink(missing_ok=True)
     temporary = request.with_suffix(".tmp")
     temporary.write_text(
-        f"version=1\nrun_id={run_id}\nreplay_path={replay_text}\n",
+        f"version=2\nrun_id={run_id}\nreplay_path={replay_text}\n"
+        f"watch_frames={watch_frames}\n",
         encoding="utf-8",
     )
     os.replace(temporary, request)

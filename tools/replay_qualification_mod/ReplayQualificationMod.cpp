@@ -47,6 +47,7 @@ struct Request
 {
     std::string run_id;
     std::filesystem::path replay_path;
+    std::uint32_t watch_frames{1};
 };
 
 std::filesystem::path QualificationRoot()
@@ -105,14 +106,22 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
             return false;
         }
     }
-    if (!stream.eof() || fields.size() != 3 || fields["version"] != "1"
+    if (!stream.eof() || fields.size() != 4 || fields["version"] != "2"
         || !ValidRunId(fields["run_id"]))
     {
         return false;
     }
     const std::wstring replay_path = Widen(fields["replay_path"]);
     if (replay_path.empty()) return false;
-    output = {fields["run_id"], std::filesystem::path(replay_path)};
+    std::uint32_t watch_frames = 0;
+    try
+    {
+        const unsigned long parsed = std::stoul(fields["watch_frames"]);
+        if (parsed == 0 || parsed > 36000) return false;
+        watch_frames = static_cast<std::uint32_t>(parsed);
+    }
+    catch (...) { return false; }
+    output = {fields["run_id"], std::filesystem::path(replay_path), watch_frames};
     return output.replay_path.is_absolute();
 }
 
@@ -375,12 +384,14 @@ private:
                 "frame={}\n"), frame);
             return;
         }
-        if (frame == initial_battle_frame_) return;
+        const std::uint32_t advanced = frame - initial_battle_frame_;
+        if (advanced < request_.watch_frames) return;
         state_ = State::Launched;
         WriteResult("launch_requested", "none");
         Output::send<LogLevel::Default>(STR(
             "[ReplayQualification] replay simulation frame advanced "
-            "initial={} current={}\n"), initial_battle_frame_, frame);
+            "initial={} current={} watched={}\n"), initial_battle_frame_, frame,
+            request_.watch_frames);
     }
 
     void PollPlayerProfiles()

@@ -3203,6 +3203,27 @@ private:
     bool m_replay_exit_first_observation_logged{};
     bool m_replay_exit_failure_logged{};
 
+    void observe_hgcpu_diagnostic(std::uint32_t frame) noexcept
+    {
+        if (!m_hgcpu_runtime_diagnostics
+            || m_hgcpu_runtime_diagnostics->complete())
+        {
+            return;
+        }
+        const auto status = m_hgcpu_runtime_diagnostics->Observe(
+            Horse::NativeBinding::imageBase(), frame);
+        if (!status.ok()
+            && status.code != Horse::Deterministic::FailureCode::ContextUnavailable
+            && !m_hgcpu_diagnostic_failure_logged)
+        {
+            m_hgcpu_diagnostic_failure_logged = true;
+            const auto failure = Horse::Deterministic::failure_code_name(status.code);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] HgCpu runtime coverage diagnostic failed: {}\n"),
+                RC::to_generic_string(std::string(failure)));
+        }
+    }
+
     static void on_frame_fencepost(
         void* user,
         const Horse::Deterministic::FrameFencepostObservation& observation) noexcept
@@ -3239,6 +3260,7 @@ private:
                 capture.code, std::memory_order_release);
             return;
         }
+        self->observe_hgcpu_diagnostic(observation.frame_counter);
 
         const std::uintptr_t prior_manager = self->m_frame_fencepost_manager.exchange(
             observation.battle_manager, std::memory_order_acq_rel);
@@ -5463,27 +5485,6 @@ private:
         // world tick), while the ImGui tab callback only runs when the
         // user has the menu open.
         frame_step_apply();
-
-        if (m_hgcpu_runtime_diagnostics
-            && !m_hgcpu_runtime_diagnostics->complete())
-        {
-            uint32_t diagnostic_frame{};
-            if (read_lux_battle_game_frame(diagnostic_frame))
-            {
-                const auto status = m_hgcpu_runtime_diagnostics->Observe(
-                    Horse::NativeBinding::imageBase(), diagnostic_frame);
-                if (!status.ok()
-                    && status.code != Horse::Deterministic::FailureCode::ContextUnavailable
-                    && !m_hgcpu_diagnostic_failure_logged)
-                {
-                    m_hgcpu_diagnostic_failure_logged = true;
-                    const auto failure = Horse::Deterministic::failure_code_name(status.code);
-                    Output::send<LogLevel::Warning>(STR(
-                        "[HorseMod] HgCpu runtime coverage diagnostic failed: {}\n"),
-                        RC::to_generic_string(std::string(failure)));
-                }
-            }
-        }
 
         // Free-camera driver.  Resolves ALuxBattleCamera* from the current
         // LuxBattleManager.BattleCamera property (null outside battle)

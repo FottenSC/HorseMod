@@ -89,6 +89,15 @@ void HgCpuRuntimeDiagnostics::write_header(std::uintptr_t image_base)
 void HgCpuRuntimeDiagnostics::write_sample(const HgCpuCoverageSample& sample)
 {
     if (!report_) return;
+    for (std::size_t lane = 0; lane < unmapped_changed_by_page_.size(); ++lane)
+    {
+        for (std::size_t page = 0;
+             page < unmapped_changed_by_page_[lane].size(); ++page)
+        {
+            unmapped_changed_by_page_[lane][page] +=
+                sample.unmapped_changed_by_page[lane][page];
+        }
+    }
     report_ << "| " << sample.frame << " | " << sample.stream_cursor
             << " | " << sample.write_span_count << " | " << sample.changed_bytes
             << " | " << sample.directly_sourced_changed_bytes << " | ";
@@ -107,6 +116,41 @@ void HgCpuRuntimeDiagnostics::write_sample(const HgCpuCoverageSample& sample)
     if (sample.unmapped_deltas_truncated) report_ << "deltas-truncated ";
     report_ << "|\n";
     if ((samples_ % 30) == 0) report_.flush();
+}
+
+void HgCpuRuntimeDiagnostics::write_page_summary()
+{
+    struct PageTotal
+    {
+        std::size_t lane{};
+        std::size_t page{};
+        std::uint64_t changed{};
+    };
+    std::vector<PageTotal> totals;
+    for (std::size_t lane = 0; lane < unmapped_changed_by_page_.size(); ++lane)
+    {
+        for (std::size_t page = 0;
+             page < unmapped_changed_by_page_[lane].size(); ++page)
+        {
+            const auto changed = unmapped_changed_by_page_[lane][page];
+            if (changed != 0) totals.push_back({lane, page, changed});
+        }
+    }
+    std::sort(totals.begin(), totals.end(), [](const PageTotal& left,
+        const PageTotal& right) { return left.changed > right.changed; });
+    report_ << "\n## Complete unmapped-change heat map\n\n"
+            << "Every unmapped changed byte contributes to one 4-KiB page; "
+               "this summary is not bounded by the per-frame range display.\n\n"
+            << "| Rank | Lane | Offset | Changed-byte observations |\n"
+            << "|---:|---:|---:|---:|\n";
+    for (std::size_t rank = 0; rank < totals.size(); ++rank)
+    {
+        const auto& total = totals[rank];
+        report_ << "| " << rank + 1 << " | P" << total.lane + 1
+                << " | 0x" << std::hex
+                << total.page * hgcpu_coverage_page_size << std::dec
+                << " | " << total.changed << " |\n";
+    }
 }
 
 Status HgCpuRuntimeDiagnostics::Observe(
@@ -151,6 +195,7 @@ void HgCpuRuntimeDiagnostics::Finish() noexcept
     finished_ = true;
     if (report_)
     {
+        write_page_summary();
         report_ << "\nCaptured samples: " << samples_ << ".\n";
         report_.flush();
         report_.close();

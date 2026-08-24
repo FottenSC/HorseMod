@@ -160,6 +160,8 @@ Status HgCpuCoverageProbe::Observe(
                 }
                 else if (output.unmapped_deltas.size() < maximum_unmapped_deltas)
                 {
+                    ++output.unmapped_changed_by_page[lane]
+                        [offset / hgcpu_coverage_page_size];
                     auto* previous_range = output.unmapped_deltas.empty()
                         ? nullptr : &output.unmapped_deltas.back();
                     if (previous_range != nullptr
@@ -180,6 +182,8 @@ Status HgCpuCoverageProbe::Observe(
                 }
                 else
                 {
+                    ++output.unmapped_changed_by_page[lane]
+                        [offset / hgcpu_coverage_page_size];
                     output.unmapped_deltas_truncated = true;
                 }
             }

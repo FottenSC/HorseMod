@@ -117,7 +117,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     mods_root = GAME_ROOT / "ue4ss" / "Mods"
     with TemporaryReplayMod(replay_mod, mods_root):
         try:
-            run_id = create_request(replay)
+            run_id = create_request(replay, args.watch_frames)
             launch_game()
             pid = wait_for_game(args.timeout)
             guard = lambda: require_game_process(pid)
@@ -147,7 +147,10 @@ def run_replay_entry(args: argparse.Namespace) -> int:
         "kind": "replay_entry_probe",
         "certifying": False,
         "result": "pass",
-        "reason": "native replay import, stock launch request, and first frame observation only",
+        "reason": (
+            "native replay import, stock launch request, and bounded normal-play "
+            "frame observation"
+        ),
         "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "source": identity,
         "artifacts": {
@@ -167,6 +170,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             "reported_source_commit": boot.source_commit,
             "native_replay_import_ready": lifecycle.native_import_ready,
             "launch_requested": True,
+            "watch_frames": args.watch_frames,
             "frame_fencepost_observed": True,
             "temporary_mod_removed": True,
             "clean_exit_requested": True,
@@ -208,6 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--game-executable", type=Path, default=GAME_ROOT / "SoulcaliburVI.exe")
     replay.add_argument("--report", type=Path, default=DEFAULT_REPLAY_REPORT)
     replay.add_argument("--timeout", type=float, default=120.0)
+    replay.add_argument("--watch-frames", type=int, default=1)
     replay.set_defaults(handler=run_replay_entry)
     return parser
 
