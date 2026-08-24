@@ -130,12 +130,47 @@ bool ReadPayload(const std::filesystem::path& path,
         reinterpret_cast<char*>(output.data()), size));
 }
 
+RC::Unreal::UObject* TryResolveOwningGameInstance(
+    RC::Unreal::UObject* manager) noexcept
+{
+    if (manager == nullptr || !RC::Unreal::UObject::IsReal(manager)) return nullptr;
+    __try
+    {
+        auto** scene = manager->GetValuePtrByPropertyNameInChain<
+            RC::Unreal::UObject*>(L"CurrentScene");
+        if (scene == nullptr || *scene == nullptr
+            || !RC::Unreal::UObject::IsReal(*scene))
+        {
+            return nullptr;
+        }
+        auto* world = reinterpret_cast<RC::Unreal::UObject*>(manager->GetWorld());
+        if (world == nullptr || !RC::Unreal::UObject::IsReal(world)) return nullptr;
+        auto** instance = world->GetValuePtrByPropertyNameInChain<
+            RC::Unreal::UObject*>(L"OwningGameInstance");
+        if (instance == nullptr || *instance == nullptr
+            || !RC::Unreal::UObject::IsReal(*instance)
+            || (*instance)->GetFunctionByNameInChain(L"GetBattleSetup") == nullptr)
+        {
+            return nullptr;
+        }
+        return *instance;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+}
+
 RC::Unreal::UObject* FindGameInstance() noexcept
 {
-    RC::Unreal::UObject* instance =
-        RC::Unreal::UObjectGlobals::FindFirstOf(L"LuxGameInstance");
-    return instance != nullptr && RC::Unreal::UObject::IsReal(instance)
-        ? instance : nullptr;
+    std::vector<RC::Unreal::UObject*> managers;
+    RC::Unreal::UObjectGlobals::FindAllOf(L"LuxUIGameFlowManager", managers);
+    for (RC::Unreal::UObject* manager : managers)
+    {
+        if (RC::Unreal::UObject* instance =
+                TryResolveOwningGameInstance(manager))
+        {
+            return instance;
+        }
+    }
+    return nullptr;
 }
 
 bool CallNoParams(RC::Unreal::UObject* object, const wchar_t* name) noexcept
