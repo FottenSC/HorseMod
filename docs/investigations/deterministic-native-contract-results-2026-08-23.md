@@ -23,9 +23,11 @@ absent from `Schema::production_regions`.
 The proven nine-slot HgCpu buffer ABI is implemented in
 `HorseMod/horselib/deterministic/HgCpuStream.*` with the exact `0x28018` bound,
 build/schema/session/round/fighter/camera generation metadata, exact cursor,
-and local integrity checksum. It remains an inactive primitive and is not yet
-authorized to invoke `0x1403841E0/0x140384540`: the enclosing fighter, camera,
-timer, supplemental-region, thread, and undo preflights below are still open.
+and local integrity checksum. The writer at `0x1403841E0` is now invoked only
+for diagnostic checkpoint capture during ordinary forward replay playback. The
+reader at `0x140384540` remains disconnected from runtime activation: the
+enclosing fighter, camera, timer, supplemental-region, thread, and lifecycle
+preflights below are still open.
 
 `NativeCandidateRegionsSelfTest` covers semantic restoration, excluded-byte
 preservation, identity drift, invalid container metadata, unknown SubVM class,
@@ -49,6 +51,17 @@ checkpoints at generation 1 frames 1, 30, 60, and 90, growing by exactly
 the C++ schema and total 512 MiB. The capture path remains inactive for restore,
 seek, production admission, and peer hashing until the enclosing blockers below
 are closed.
+
+`CandidateGameStateAdapter` now implements the real `IGameStateAdapter` capture,
+preflight, restore, derived-repair, and recapture-verification contract over the
+typed candidate regions plus the local HgCpu image. Restore reconstructs the
+opaque same-generation image first and writes the explicit typed canonical
+fields last. `SimulationSession` remains the sole transaction owner: it captures
+the combined undo image before mutation and restores and verifies that image if
+either the HgCpu reader or a later native write fails. The real adapter tests
+cover both failure boundaries and prove exact native-plus-HgCpu undo. Its frame
+advance and presentation callbacks are deliberately unconfigured, and the
+adapter is not connected to replay seek or online rollback.
 
 - Closed gates: ten native regions pass the static six-gate audit and are listed in restore order below: one MoveDispatch mask bank, one VMPump semantic image, two scheduler semantic images, two same-generation allowlisted SubVM images, two `FLuxMoveCommandPlayerRollbackOverlay_Partial` semantic images, and two `FLuxMoveVMSlotParam` semantic prefixes. The paired HgCpuDirect writer/reader is additionally proven as a same-generation local reconstruction primitive, but its opaque stream is not peer-canonical and is not itself an admitted region.
 - Open blockers: SubVM generation crossing, pending dynamic hit/list generations, input callback families other than the now-closed `+0x1210` filter collection, stage/wind topology, UCRT/thread/FP ownership, full camera/presentation terminal coverage, and runtime lifecycle qualification. The fighter/HgCpu supplement coverage gap is closed for the measured replay workload only; other content still requires the same bounded proof before admission.

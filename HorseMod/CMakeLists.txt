@@ -34,6 +34,7 @@ file(GLOB_RECURSE SCVI_HEADERS
 
 set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/CandidateCheckpoint.cpp
+    horselib/deterministic/CandidateGameStateAdapter.cpp
     horselib/deterministic/Config.cpp
     horselib/deterministic/HgCpuStream.cpp
     horselib/deterministic/HgCpuCoverageProbe.cpp

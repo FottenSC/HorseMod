@@ -1,8 +1,13 @@
 #include "deterministic/CandidateCheckpoint.hpp"
+#include "deterministic/CandidateGameStateAdapter.hpp"
+#include "deterministic/InputTimeline.hpp"
 #include "deterministic/NativeCandidateRegions.hpp"
 #include "deterministic/HgCpuStream.hpp"
 #include "deterministic/HgCpuCoverageProbe.hpp"
 #include "deterministic/MoveDispatchState.hpp"
+#include "deterministic/PresentationJournal.hpp"
+#include "deterministic/SimulationSession.hpp"
+#include "deterministic/SnapshotStore.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -221,7 +226,24 @@ void* __fastcall fake_hgcpu_reader(HgCpuStreamShim* shim)
     std::array<std::byte, 32> actual{};
     read(shim, actual.data(), actual.size());
     hgcpu_read_matched = actual == hgcpu_payload;
+    hgcpu_payload = actual;
     return shim;
+}
+
+bool fail_next_hgcpu_read = false;
+
+void* __fastcall flaky_hgcpu_reader(HgCpuStreamShim* shim)
+{
+    using ReadFn = std::int64_t (__fastcall*)(HgCpuStreamShim*, void*, std::size_t);
+    auto** vtable = *reinterpret_cast<void***>(shim);
+    auto read = reinterpret_cast<ReadFn>(vtable[6]);
+    if (fail_next_hgcpu_read)
+    {
+        fail_next_hgcpu_read = false;
+        read(shim, hgcpu_payload.data(), hgcpu_payload.size() / 2);
+        return shim;
+    }
+    return fake_hgcpu_reader(shim);
 }
 
 void* __fastcall fake_hgcpu_short_reader(HgCpuStreamShim* shim)
@@ -266,6 +288,11 @@ public:
 HgCpuGenerationContext hgcpu_context()
 {
     return {0x231, 1, 11, 7, {101, 102}, 201};
+}
+
+Status noop_reconcile(void*, FrameCoordinate) noexcept
+{
+    return Status::success();
 }
 
 void test_hgcpu_stream_contract()
@@ -358,6 +385,115 @@ void test_candidate_checkpoint_codec()
     expect(CandidateCheckpointCodec::Decode(wrong_generation, decoded).code
             == FailureCode::RestoreVerificationFailed,
         "checkpoint rejects native generation drift");
+}
+
+CandidateAdapterBinding candidate_binding(HgCpuExecFn reader)
+{
+    CandidateAdapterBinding binding{};
+    binding.context = NativeContext{7, 11, {101, 102}, 201};
+    binding.hgcpu_context = hgcpu_context();
+    binding.hgcpu_writer = &fake_hgcpu_writer;
+    binding.hgcpu_reader = reader;
+    binding.reconcile = &noop_reconcile;
+    return binding;
+}
+
+void test_candidate_adapter_restore_and_outer_undo()
+{
+    Fixture restored_fixture;
+    expect(restored_fixture.regions.Bind(restored_fixture.addresses).ok(),
+        "bind candidate adapter restore fixture");
+    HgCpuStreamShim restored_hgcpu;
+    CandidateGameStateAdapter restored_adapter{
+        restored_fixture.regions, restored_hgcpu};
+    const auto restored_binding = candidate_binding(&fake_hgcpu_reader);
+    expect(restored_adapter.Configure(restored_binding).ok(),
+        "configure candidate adapter restore fixture");
+    InputTimeline restored_inputs{16};
+    SnapshotStore restored_snapshots{
+        1024 * 1024, 8, CapacityPolicy::RejectNew};
+    PresentationJournal restored_journal{16, 1024};
+    SimulationSession restored_session{restored_adapter, restored_inputs,
+        restored_snapshots, restored_journal};
+    hgcpu_payload.fill(std::byte{0x21});
+    const auto initial_hgcpu = hgcpu_payload;
+    const auto initial_memory = restored_fixture.memory.bytes();
+    expect(restored_session.BindAndCaptureBaseline(
+        restored_binding.context, {7, 0}).ok(),
+        "capture real candidate adapter baseline");
+    restored_fixture.memory.Fill(
+        restored_fixture.event_masks, 0x10, std::byte{0x91});
+    restored_fixture.memory.Fill(
+        restored_fixture.addresses.pump_state + 0x20, 0x1C, std::byte{0x92});
+    hgcpu_payload.fill(std::byte{0x93});
+    expect(restored_session.RestoreAndResimulate({7, 0}, {7, 0}).ok(),
+        "restore real candidate adapter through SimulationSession transaction");
+    expect(restored_fixture.memory.bytes() == initial_memory,
+        "candidate adapter restores exact typed native image");
+    expect(hgcpu_payload == initial_hgcpu,
+        "candidate adapter restores exact HgCpu reconstruction image");
+
+    Fixture failed_fixture;
+    expect(failed_fixture.regions.Bind(failed_fixture.addresses).ok(),
+        "bind candidate adapter failure fixture");
+    HgCpuStreamShim failed_hgcpu;
+    CandidateGameStateAdapter failed_adapter{failed_fixture.regions, failed_hgcpu};
+    const auto failed_binding = candidate_binding(&flaky_hgcpu_reader);
+    expect(failed_adapter.Configure(failed_binding).ok(),
+        "configure candidate adapter failure fixture");
+    InputTimeline failed_inputs{16};
+    SnapshotStore failed_snapshots{1024 * 1024, 8, CapacityPolicy::RejectNew};
+    PresentationJournal failed_journal{16, 1024};
+    SimulationSession failed_session{
+        failed_adapter, failed_inputs, failed_snapshots, failed_journal};
+    hgcpu_payload.fill(std::byte{0x31});
+    expect(failed_session.BindAndCaptureBaseline(
+        failed_binding.context, {7, 0}).ok(),
+        "capture candidate adapter failure baseline");
+    failed_fixture.memory.Fill(
+        failed_fixture.event_masks, 0x10, std::byte{0xA1});
+    hgcpu_payload.fill(std::byte{0xA2});
+    const auto before_failed_memory = failed_fixture.memory.bytes();
+    const auto before_failed_hgcpu = hgcpu_payload;
+    fail_next_hgcpu_read = true;
+    expect(failed_session.RestoreAndResimulate({7, 0}, {7, 0}).code
+            == FailureCode::RestoreWriteFailed,
+        "partial HgCpu reader failure reports typed restore failure");
+    expect(failed_fixture.memory.bytes() == before_failed_memory
+            && hgcpu_payload == before_failed_hgcpu,
+        "partial HgCpu reader failure restores exact outer undo image");
+}
+
+void test_candidate_adapter_native_failure_undoes_hgcpu()
+{
+    Fixture fixture;
+    expect(fixture.regions.Bind(fixture.addresses).ok(),
+        "bind candidate adapter native-failure fixture");
+    HgCpuStreamShim hgcpu;
+    CandidateGameStateAdapter adapter{fixture.regions, hgcpu};
+    const auto binding = candidate_binding(&fake_hgcpu_reader);
+    expect(adapter.Configure(binding).ok(),
+        "configure candidate adapter native-failure fixture");
+    InputTimeline inputs{16};
+    SnapshotStore snapshots{1024 * 1024, 8, CapacityPolicy::RejectNew};
+    PresentationJournal journal{16, 1024};
+    SimulationSession session{adapter, inputs, snapshots, journal};
+    hgcpu_payload.fill(std::byte{0x41});
+    expect(session.BindAndCaptureBaseline(binding.context, {7, 0}).ok(),
+        "capture candidate adapter native-failure baseline");
+    fixture.memory.Fill(fixture.event_masks, 0x10, std::byte{0xB1});
+    fixture.memory.Fill(
+        fixture.addresses.pump_state + 0x20, 0x1C, std::byte{0xB2});
+    hgcpu_payload.fill(std::byte{0xB3});
+    const auto before_memory = fixture.memory.bytes();
+    const auto before_hgcpu = hgcpu_payload;
+    fixture.memory.FailWrite(5);
+    expect(session.RestoreAndResimulate({7, 0}, {7, 0}).code
+            == FailureCode::RestoreWriteFailed,
+        "native write after HgCpu reconstruction reports typed failure");
+    expect(fixture.memory.bytes() == before_memory
+            && hgcpu_payload == before_hgcpu,
+        "native write failure restores native and HgCpu outer undo image");
 }
 
 void test_hgcpu_direct_source_coverage()
@@ -622,6 +758,8 @@ int main()
 {
     test_hgcpu_stream_contract();
     test_candidate_checkpoint_codec();
+    test_candidate_adapter_restore_and_outer_undo();
+    test_candidate_adapter_native_failure_undoes_hgcpu();
     test_hgcpu_direct_source_coverage();
     test_capture_restore_preserves_exclusions();
     test_preflight_is_atomic();
