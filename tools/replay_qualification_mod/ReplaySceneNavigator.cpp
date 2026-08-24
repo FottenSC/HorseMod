@@ -160,11 +160,6 @@ NavigationState ReplaySceneNavigator::Tick(
         detail = scene_name;
         return NavigationState::Ready;
     }
-    if (scene_name.find("ReplaySetupScene") != std::string::npos)
-    {
-        detail = scene_name;
-        return NavigationState::Ready;
-    }
     if (scene_name.find("InitScene") != std::string::npos
         || scene_name.find("AdvertiseScene") != std::string::npos)
     {
@@ -183,6 +178,11 @@ NavigationState ReplaySceneNavigator::Tick(
         return NavigationState::Waiting;
     }
     retry_frames_ = 0;
+    if (scene_name.find("ReplaySetupScene") != std::string::npos)
+    {
+        detail = scene_name;
+        return NavigationState::Ready;
+    }
     if (scene_name.find("TitleScene") != std::string::npos)
     {
         if (!EmulateTitleDecide()
