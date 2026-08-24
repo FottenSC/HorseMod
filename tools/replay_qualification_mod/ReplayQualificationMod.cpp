@@ -270,6 +270,7 @@ private:
         started_ = std::chrono::steady_clock::now();
         player_profiles_requested_ = false;
         playback_context_staged_ = false;
+        battle_asset_requested_ = false;
         profile_attempts_ = 0;
         next_profile_attempt_ = {};
         state_ = State::Importing;
@@ -323,7 +324,7 @@ private:
 
     void PollLaunch()
     {
-        if (std::chrono::steady_clock::now() - started_ > std::chrono::seconds(90))
+        if (std::chrono::steady_clock::now() - started_ > std::chrono::seconds(140))
         {
             Fail("asset_wait_timeout");
             return;
@@ -352,13 +353,27 @@ private:
         if (navigation != Horse::Qualification::NavigationState::Ready)
             return;
         bool pending = true;
-        bool ready = false;
-        if (!CallBool(instance, L"HasAnyBattleRequest", pending)
-            || !CallBool(instance, L"CanLaunchBattleManually", ready)
-            || pending || !ready)
+        if (!CallBool(instance, L"HasAnyBattleRequest", pending) || pending)
         {
             return;
         }
+        if (!battle_asset_requested_)
+        {
+            if (!SetReplayPath(GetBattleSetup(instance), request_.replay_path)
+                || !CallNoParams(instance, L"RequestBattleAsset")
+                || !SetReplayPath(GetBattleSetup(instance), request_.replay_path))
+            {
+                Fail("battle_asset_request_failed");
+                return;
+            }
+            battle_asset_requested_ = true;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] native battle assets requested\n"));
+            return;
+        }
+        bool ready = false;
+        if (!CallBool(instance, L"CanLaunchBattleManually", ready) || !ready)
+            return;
         if (!SetReplayPath(GetBattleSetup(instance), request_.replay_path)
             || !CallNoParams(instance, L"ManualLaunchBattle"))
         {
@@ -454,6 +469,7 @@ private:
     bool waiting_context_logged_{};
     bool player_profiles_requested_{};
     bool playback_context_staged_{};
+    bool battle_asset_requested_{};
     std::uint8_t profile_attempts_{};
 };
 

@@ -160,6 +160,11 @@ NavigationState ReplaySceneNavigator::Tick(
         detail = scene_name;
         return NavigationState::Ready;
     }
+    if (scene_name.find("ReplaySetupScene") != std::string::npos)
+    {
+        detail = scene_name;
+        return NavigationState::Ready;
+    }
     if (scene_name.find("InitScene") != std::string::npos
         || scene_name.find("AdvertiseScene") != std::string::npos)
     {
@@ -196,10 +201,8 @@ NavigationState ReplaySceneNavigator::Tick(
         detail = scene_name;
         return NavigationState::ReplayListReady;
     }
-    const wchar_t* tag = scene_name.find("ReplaySetupScene") != std::string::npos
-        ? L"replaybattle"
-        : scene_name.find("ReplayListScene") != std::string::npos
-            ? L"battlesetup" : L"replay_list";
+    const wchar_t* tag = scene_name.find("ReplayListScene") != std::string::npos
+        ? L"battlesetup" : L"replay_list";
     if (!ChangeScene(manager, tag))
     {
         detail = "change_scene_failed:" + scene_name;
