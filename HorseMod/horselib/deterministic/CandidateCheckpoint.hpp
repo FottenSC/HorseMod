@@ -25,8 +25,24 @@ public:
         std::uint64_t context_identity,
         const CandidateCheckpointImage& image,
         Snapshot& output) noexcept;
+    // Only for an image returned directly by the bound capture adapter. Capture
+    // already computed its checksum and no code can mutate the image between
+    // these calls. Stored/decoded/untrusted images must use Encode or Decode.
+    [[nodiscard]] static Status EncodeCaptured(
+        FrameCoordinate coordinate,
+        std::uint64_t context_identity,
+        const CandidateCheckpointImage& image,
+        Snapshot& output) noexcept;
     [[nodiscard]] static Status Decode(
         const Snapshot& snapshot,
         CandidateCheckpointImage& output) noexcept;
+
+private:
+    [[nodiscard]] static Status EncodeInternal(
+        FrameCoordinate coordinate,
+        std::uint64_t context_identity,
+        const CandidateCheckpointImage& image,
+        bool verify_local_checksum,
+        Snapshot& output) noexcept;
 };
 }

@@ -148,7 +148,7 @@ Status CandidateGameStateAdapter::Capture(
     const Status captured = capture_image(image);
     if (!captured.ok()) return captured;
     const auto encode_begin = std::chrono::steady_clock::now();
-    const Status encoded = CandidateCheckpointCodec::Encode(
+    const Status encoded = CandidateCheckpointCodec::EncodeCaptured(
         coordinate, binding_.context.battle_identity, image, output);
     const auto encode_end = std::chrono::steady_clock::now();
     encode_timing_.Record(static_cast<std::uint64_t>(

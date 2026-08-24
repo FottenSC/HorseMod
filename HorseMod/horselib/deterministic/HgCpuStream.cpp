@@ -269,11 +269,18 @@ std::int32_t __fastcall HgCpuStreamShim::Validate(HgCpuStreamShim* self) noexcep
 
 bool HgCpuStreamShim::ValidateLocalImage(const HgCpuLocalImage& image) noexcept
 {
+    return ValidateLocalImageMetadata(image)
+        && image.checksum == Checksum(image);
+}
+
+bool HgCpuStreamShim::ValidateLocalImageMetadata(
+    const HgCpuLocalImage& image) noexcept
+{
     return image.serializer_id == LocalSerializerId::HgCpuDirect
         && image.serializer_version == hgcpu_direct_serializer_version
         && ValidContext(image.context) && image.cursor != 0
         && image.cursor == image.bytes.size()
         && image.cursor <= hgcpu_stream_capacity
-        && image.checksum == Checksum(image);
+        && image.checksum != 0;
 }
 }

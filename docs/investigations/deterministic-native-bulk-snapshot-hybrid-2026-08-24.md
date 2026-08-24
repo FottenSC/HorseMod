@@ -84,6 +84,18 @@ first sample to 0.22 ms after initialization. A longer exact-commit workload is
 still required to establish steady p99 with enough samples; the cold maximum is
 retained and the 0.5 ms threshold is not relaxed.
 
+An exact-commit 1,800-frame run at `ee0f7d3a` then produced 61 landing and 103
+batch-entry samples across a native generation change. It retained a 0.658 ms
+maximum but narrowly missed the steady gate at 0.52 ms landing p99 and 0.54 ms
+batch-entry p99. Phase evidence showed encoding still revalidated the checksum
+of the same freshly captured opaque image. The capture adapter now uses a
+dedicated same-stack `EncodeCaptured` entry point that validates image metadata
+without recomputing that checksum; general encoding, decoding, restoration, and
+all stored-image paths still verify the full checksum. A 600-frame normal-render
+regression reduced landing capture to 0.37 ms p99/max and encode to 0.09 ms p99;
+batch-entry retained one 0.671 ms cold sample and no capture exceeded 1 ms. The
+next exact-commit long run remains the admission measurement.
+
 ## Remaining admission gate
 
 Repeat native-source coverage for every required matchup and correction phase.

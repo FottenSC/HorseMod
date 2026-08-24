@@ -224,9 +224,28 @@ Status CandidateCheckpointCodec::Encode(FrameCoordinate coordinate,
     std::uint64_t context_identity, const CandidateCheckpointImage& image,
     Snapshot& output) noexcept
 {
+    return EncodeInternal(
+        coordinate, context_identity, image, true, output);
+}
+
+Status CandidateCheckpointCodec::EncodeCaptured(FrameCoordinate coordinate,
+    std::uint64_t context_identity, const CandidateCheckpointImage& image,
+    Snapshot& output) noexcept
+{
+    return EncodeInternal(
+        coordinate, context_identity, image, false, output);
+}
+
+Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
+    std::uint64_t context_identity, const CandidateCheckpointImage& image,
+    bool verify_local_checksum, Snapshot& output) noexcept
+{
     output = {};
     if (context_identity == 0 || !generations_match(coordinate, image)
-        || !HgCpuStreamShim::ValidateLocalImage(image.local_images.front()))
+        || !(verify_local_checksum
+            ? HgCpuStreamShim::ValidateLocalImage(image.local_images.front())
+            : HgCpuStreamShim::ValidateLocalImageMetadata(
+                image.local_images.front())))
     {
         return Status::failure(FailureCode::IdentityMismatch);
     }

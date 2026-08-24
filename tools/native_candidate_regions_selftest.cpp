@@ -508,6 +508,12 @@ void test_candidate_checkpoint_codec()
     expect(!snapshot.bytes.empty()
             && snapshot.canonical_hash != CanonicalHash{},
         "checkpoint contains versioned payload and canonical component hash");
+    Snapshot captured_snapshot{};
+    expect(CandidateCheckpointCodec::EncodeCaptured(
+            {7, 30}, 0x9191, image, captured_snapshot).ok()
+            && captured_snapshot.bytes == snapshot.bytes
+            && captured_snapshot.canonical_hash == snapshot.canonical_hash,
+        "fresh-capture encoding preserves the fully validated wire image");
 
     CandidateCheckpointImage decoded{};
     expect(CandidateCheckpointCodec::Decode(snapshot, decoded).ok(),
