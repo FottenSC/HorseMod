@@ -328,6 +328,13 @@ private:
         std::string navigation_detail;
         const Horse::Qualification::NavigationState navigation =
             navigator_.Tick(navigation_detail);
+        if (navigation_detail != last_navigation_detail_)
+        {
+            last_navigation_detail_ = navigation_detail;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] navigation={}\n"),
+                RC::to_generic_string(navigation_detail));
+        }
         if (navigation == Horse::Qualification::NavigationState::Failed)
         {
             Fail(navigation_detail);
@@ -379,6 +386,7 @@ private:
     static inline std::atomic<ReplayQualificationMod*> s_instance_{nullptr};
     Request request_{};
     std::string last_run_id_{};
+    std::string last_navigation_detail_{};
     std::chrono::steady_clock::time_point started_{};
     State state_{State::Idle};
     std::uint32_t poll_divider_{};
