@@ -625,6 +625,23 @@ void test_unknown_class_and_invalid_header_fail_closed()
     expect(header.memory.bytes() == before, "invalid header performs zero mutation");
 }
 
+void test_lfsr_refill_sentinel_is_bounded()
+{
+    Fixture sentinel;
+    sentinel.memory.Set(sentinel.addresses.lfsr_rng + 0x64, std::uint32_t{25});
+    expect(sentinel.regions.Bind(sentinel.addresses).ok(),
+        "LFSR index 25 is the valid native refill sentinel");
+    NativeCandidateImage image{};
+    expect(sentinel.regions.Capture(image).ok() && image.rng.lfsr_index == 25,
+        "capture the valid LFSR refill sentinel exactly");
+
+    Fixture invalid;
+    invalid.memory.Set(invalid.addresses.lfsr_rng + 0x64, std::uint32_t{26});
+    expect(invalid.regions.Bind(invalid.addresses).code
+            == FailureCode::CapturePreflightFailed,
+        "LFSR index above the refill sentinel fails closed");
+}
+
 void test_partial_write_undoes_exactly()
 {
     Fixture fixture;
@@ -977,6 +994,7 @@ int main()
     test_capture_restore_preserves_exclusions();
     test_preflight_is_atomic();
     test_unknown_class_and_invalid_header_fail_closed();
+    test_lfsr_refill_sentinel_is_bounded();
     test_partial_write_undoes_exactly();
     test_move_dispatch_action_phase_restore();
     test_move_dispatch_phase_drift_is_atomic();

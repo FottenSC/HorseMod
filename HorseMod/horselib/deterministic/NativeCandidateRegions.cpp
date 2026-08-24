@@ -323,7 +323,7 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
             std::as_writable_bytes(std::span{output.rng.xorshift}))
         || !read_bytes(addresses_.wind_rng,
             std::as_writable_bytes(std::span{output.rng.wind}))
-        || output.rng.lfsr_index >= output.rng.lfsr.size())
+        || output.rng.lfsr_index > output.rng.lfsr.size())
     {
         return false;
     }
@@ -358,7 +358,7 @@ bool NativeCandidateRegions::image_matches_binding(
             return false;
         }
     }
-    return image.rng.lfsr_index < image.rng.lfsr.size();
+    return image.rng.lfsr_index <= image.rng.lfsr.size();
 }
 
 Status NativeCandidateRegions::PreflightRestore(
@@ -607,7 +607,7 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
     if (!take(&output.rng.lcg, sizeof(output.rng.lcg))
         || !take(output.rng.lfsr.data(), sizeof(output.rng.lfsr))
         || !take(&output.rng.lfsr_index, sizeof(output.rng.lfsr_index))
-        || output.rng.lfsr_index >= output.rng.lfsr.size()
+        || output.rng.lfsr_index > output.rng.lfsr.size()
         || !take(output.rng.xorshift.data(), sizeof(output.rng.xorshift))
         || !take(output.rng.wind.data(), sizeof(output.rng.wind)))
     {
