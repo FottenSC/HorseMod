@@ -22,7 +22,11 @@ from .replay_entry import (
     wait_for_replay_entry,
 )
 from .report import write_report
-from .trace_parser import wait_for_boot_evidence, wait_for_replay_lifecycle_evidence
+from .trace_parser import (
+    capture_log_offset,
+    wait_for_boot_evidence,
+    wait_for_replay_lifecycle_evidence,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,11 +59,12 @@ def run_boot(args: argparse.Namespace) -> int:
     existing_pid = find_game_pid()
     if existing_pid is not None:
         raise RuntimeError("SoulcaliburVI is already running; refusing ambiguous boot evidence")
+    log_start = capture_log_offset(args.log)
     launch_game()
     pid = wait_for_game(args.timeout)
     try:
         evidence = wait_for_boot_evidence(
-            args.log, args.timeout, lambda: require_game_process(pid)
+            args.log, args.timeout, lambda: require_game_process(pid), log_start
         )
         if evidence.source_commit != identity["commit"]:
             raise RuntimeError(
@@ -118,13 +123,16 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     with TemporaryReplayMod(replay_mod, mods_root):
         try:
             run_id = create_request(replay, args.watch_frames)
+            log_start = capture_log_offset(args.log)
             launch_game()
             pid = wait_for_game(args.timeout)
             guard = lambda: require_game_process(pid)
-            boot = wait_for_boot_evidence(args.log, args.timeout, guard)
+            boot = wait_for_boot_evidence(
+                args.log, args.timeout, guard, log_start
+            )
             entry = wait_for_replay_entry(run_id, args.timeout, guard)
             lifecycle = wait_for_replay_lifecycle_evidence(
-                args.log, args.timeout, guard
+                args.log, args.timeout, guard, log_start
             )
             if boot.source_commit != identity["commit"]:
                 raise RuntimeError(

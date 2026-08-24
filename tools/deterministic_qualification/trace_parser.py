@@ -31,6 +31,20 @@ class ReplayLifecycleEvidence:
     frame_observed_line: str
 
 
+def capture_log_offset(log_path: Path) -> int:
+    try:
+        return log_path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _read_since(log_path: Path, start_offset: int) -> str:
+    with log_path.open("rb") as stream:
+        size = stream.seek(0, 2)
+        stream.seek(start_offset if start_offset <= size else 0)
+        return stream.read().decode("utf-8", errors="replace")
+
+
 def parse_boot_evidence(text: str) -> BootEvidence | None:
     source_matches = list(SOURCE_PATTERN.finditer(text))
     if not source_matches:
@@ -51,13 +65,14 @@ def wait_for_boot_evidence(
     log_path: Path,
     timeout_seconds: float,
     progress_guard: Callable[[], None] | None = None,
+    start_offset: int = 0,
 ) -> BootEvidence:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         if progress_guard is not None:
             progress_guard()
         try:
-            evidence = parse_boot_evidence(log_path.read_text(encoding="utf-8", errors="replace"))
+            evidence = parse_boot_evidence(_read_since(log_path, start_offset))
         except OSError:
             evidence = None
         if evidence is not None:
@@ -89,6 +104,7 @@ def wait_for_replay_lifecycle_evidence(
     log_path: Path,
     timeout_seconds: float,
     progress_guard: Callable[[], None] | None = None,
+    start_offset: int = 0,
 ) -> ReplayLifecycleEvidence:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -96,7 +112,7 @@ def wait_for_replay_lifecycle_evidence(
             progress_guard()
         try:
             evidence = parse_replay_lifecycle_evidence(
-                log_path.read_text(encoding="utf-8", errors="replace")
+                _read_since(log_path, start_offset)
             )
         except OSError:
             evidence = None
