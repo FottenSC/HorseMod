@@ -79,6 +79,26 @@ RC::Unreal::UObject* CurrentScene(RC::Unreal::UObject* manager) noexcept
         && RC::Unreal::UObject::IsReal(*value) ? *value : nullptr;
 }
 
+RC::Unreal::UObject* ObjectProperty(RC::Unreal::UObject* owner,
+                                    const wchar_t* name) noexcept
+{
+    if (owner == nullptr) return nullptr;
+    auto** value = owner->GetValuePtrByPropertyNameInChain<RC::Unreal::UObject*>(
+        name);
+    return value != nullptr && *value != nullptr
+        && RC::Unreal::UObject::IsReal(*value) ? *value : nullptr;
+}
+
+bool CallNoParams(RC::Unreal::UObject* object, const wchar_t* name)
+{
+    if (object == nullptr) return false;
+    auto* function = object->GetFunctionByNameInChain(name);
+    if (function == nullptr) return false;
+    std::byte params{};
+    object->ProcessEvent(function, &params);
+    return true;
+}
+
 bool ChangeScene(RC::Unreal::UObject* manager, const wchar_t* tag)
 {
     auto* function = manager->GetFunctionByNameInChain(L"ChangeScene");
@@ -136,12 +156,23 @@ NavigationState ReplaySceneNavigator::Tick(std::string& detail)
         last_scene_ = scene_name;
         retry_frames_ = 0;
     }
-    if (++retry_frames_ < 60)
+    if (++retry_frames_ < 15)
     {
         detail = scene_name;
         return NavigationState::Waiting;
     }
     retry_frames_ = 0;
+    if (scene_name.find("TitleScene") != std::string::npos)
+    {
+        if (!CallNoParams(ObjectProperty(manager, L"CeBankManager"),
+                          L"TitleToMainMenu"))
+        {
+            detail = "title_to_main_menu_failed";
+            return NavigationState::Failed;
+        }
+        detail = "title_to_main_menu_requested";
+        return NavigationState::Waiting;
+    }
     const wchar_t* tag = scene_name.find("ReplaySetupScene") != std::string::npos
         ? L"replaybattle"
         : scene_name.find("ReplayListScene") != std::string::npos
