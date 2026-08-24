@@ -38,8 +38,6 @@ using ApplyPlaybackContextFn = void (__fastcall*)(void*);
 using InitializeProfileFn = void* (__fastcall*)(void*);
 using DestroyProfileFn = void (__fastcall*)(void*);
 using CopyProfileFn = void* (__fastcall*)(void*, void*);
-using QueueStageMapFn = void (__fastcall*)(void*, std::uint8_t,
-                                           std::uint8_t, std::int32_t);
 
 struct NativeFunctions
 {
@@ -57,7 +55,6 @@ struct NativeFunctions
     InitializeProfileFn initialize_profile{};
     DestroyProfileFn destroy_profile{};
     CopyProfileFn copy_profile{};
-    QueueStageMapFn queue_stage_map{};
 };
 
 NativeFunctions g_functions{};
@@ -97,8 +94,6 @@ constexpr FunctionContract kContracts[]{
                 std::byte{0x08}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83}}},
     {0x4f1cf0, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
                 std::byte{0x10}, std::byte{0x48}, std::byte{0x89}, std::byte{0x6c}}},
-    {0x550d70, {std::byte{0x48}, std::byte{0x8b}, std::byte{0xc4}, std::byte{0x41},
-                std::byte{0x54}, std::byte{0x41}, std::byte{0x56}, std::byte{0x41}}},
 };
 
 bool SafeEqual(const void* left, const void* right, std::size_t size) noexcept
@@ -164,8 +159,7 @@ bool ReplayPayloadImporter::Bind(std::uintptr_t image_base) noexcept
         reinterpret_cast<ApplyPlaybackContextFn>(image_base + 0x5e3010),
         reinterpret_cast<InitializeProfileFn>(image_base + 0x2dc0270),
         reinterpret_cast<DestroyProfileFn>(image_base + 0x4eeed0),
-        reinterpret_cast<CopyProfileFn>(image_base + 0x4f1cf0),
-        reinterpret_cast<QueueStageMapFn>(image_base + 0x550d70)};
+        reinterpret_cast<CopyProfileFn>(image_base + 0x4f1cf0)};
     return true;
 }
 
@@ -394,23 +388,4 @@ void ReplayPayloadImporter::ReleasePlaybackContext() noexcept
     playback_container_ = nullptr;
 }
 
-bool ReplayPayloadImporter::QueueStageMap(
-    void* game_instance, const ReplayMetadata& metadata) noexcept
-{
-    if (game_instance == nullptr || g_functions.queue_stage_map == nullptr)
-        return false;
-    const std::int32_t map_index = metadata.stage_index > 0xff
-        ? metadata.stage_index & 0xff : metadata.stage_index;
-    if (map_index < 0 || map_index > 0xff
-        || metadata.left_character == 0xff
-        || metadata.right_character == 0xff)
-    {
-        return false;
-    }
-    return SafeCall(false, [&]() {
-        g_functions.queue_stage_map(game_instance, metadata.left_character,
-                                    metadata.right_character, map_index);
-        return true;
-    });
-}
 }

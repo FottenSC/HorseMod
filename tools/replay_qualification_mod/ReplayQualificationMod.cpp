@@ -11,7 +11,6 @@
 
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <Mod/CppUserModBase.hpp>
-#include <Unreal/FString.hpp>
 #include <Unreal/Hooks/Hooks.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
@@ -39,7 +38,7 @@ enum class State : std::uint8_t
 {
     Idle,
     Importing,
-    WaitingForAssets,
+    WaitingForLaunch,
     Launched,
     Failed,
 };
@@ -173,37 +172,6 @@ RC::Unreal::UObject* FindGameInstance() noexcept
     return nullptr;
 }
 
-bool CallNoParams(RC::Unreal::UObject* object, const wchar_t* name) noexcept
-{
-    if (object == nullptr) return false;
-    __try
-    {
-        auto* function = object->GetFunctionByNameInChain(name);
-        if (function == nullptr) return false;
-        std::byte params{};
-        object->ProcessEvent(function, &params);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-}
-
-bool CallBool(RC::Unreal::UObject* object, const wchar_t* name,
-              bool& output) noexcept
-{
-    output = false;
-    if (object == nullptr) return false;
-    __try
-    {
-        auto* function = object->GetFunctionByNameInChain(name);
-        if (function == nullptr) return false;
-        struct Params { bool result{}; } params{};
-        object->ProcessEvent(function, &params);
-        output = params.result;
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-}
-
 RC::Unreal::UObject* GetBattleSetup(RC::Unreal::UObject* instance) noexcept
 {
     if (instance == nullptr) return nullptr;
@@ -218,22 +186,6 @@ RC::Unreal::UObject* GetBattleSetup(RC::Unreal::UObject* instance) noexcept
     __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
 }
 
-bool SetReplayPath(RC::Unreal::UObject* setup,
-                   const std::filesystem::path& replay_path) noexcept
-{
-    if (setup == nullptr) return false;
-    auto* replay = setup->GetValuePtrByPropertyNameInChain<std::byte>(
-        L"BattleReplay");
-    if (replay == nullptr) return false;
-    *reinterpret_cast<bool*>(replay + 0x00) = false;
-    *reinterpret_cast<bool*>(replay + 0x18) = true;
-    *reinterpret_cast<bool*>(replay + 0x30) = false;
-    auto* recording = reinterpret_cast<RC::Unreal::FString*>(replay + 0x08);
-    auto* playing = reinterpret_cast<RC::Unreal::FString*>(replay + 0x20);
-    *recording = RC::Unreal::FString(L"");
-    *playing = RC::Unreal::FString(replay_path.c_str());
-    return true;
-}
 }
 
 class ReplayQualificationMod final : public CppUserModBase
@@ -292,7 +244,7 @@ private:
         poll_divider_ = 0;
         if (state_ == State::Idle) LoadRequest();
         if (state_ == State::Importing) StartRequest();
-        if (state_ == State::WaitingForAssets) PollLaunch();
+        if (state_ == State::WaitingForLaunch) PollLaunch();
     }
 
     void LoadRequest()
@@ -305,8 +257,6 @@ private:
         started_ = std::chrono::steady_clock::now();
         player_profiles_requested_ = false;
         playback_context_staged_ = false;
-        setup_assets_requested_ = false;
-        replay_metadata_ = {};
         profile_attempts_ = 0;
         next_profile_attempt_ = {};
         state_ = State::Importing;
@@ -346,9 +296,8 @@ private:
             Fail(Horse::Qualification::import_failure_name(imported));
             return;
         }
-        replay_metadata_ = metadata;
-        state_ = State::WaitingForAssets;
-        WriteResult("waiting_for_assets", "none");
+        state_ = State::WaitingForLaunch;
+        WriteResult("waiting_for_launch", "none");
     }
 
     void PollLaunch()
@@ -358,7 +307,6 @@ private:
             Fail("asset_wait_timeout");
             return;
         }
-        RC::Unreal::UObject* instance = FindGameInstance();
         std::string navigation_detail;
         const Horse::Qualification::NavigationState navigation =
             navigator_.Tick(playback_context_staged_, navigation_detail);
@@ -379,53 +327,12 @@ private:
             PollPlayerProfiles();
             return;
         }
-        if (navigation != Horse::Qualification::NavigationState::Ready)
-            return;
-        if (!setup_assets_requested_)
-        {
-            if (!CallNoParams(instance, L"ApplyReplayToBattleSetup"))
-            {
-                Fail("apply_replay_to_battle_setup_failed");
-                return;
-            }
-            if (!SetReplayPath(GetBattleSetup(instance), request_.replay_path))
-            {
-                Fail("replay_path_before_asset_request_failed");
-                return;
-            }
-            if (!importer_.QueueStageMap(instance, replay_metadata_))
-            {
-                Fail("native_stage_map_request_failed");
-                return;
-            }
-            if (!SetReplayPath(GetBattleSetup(instance), request_.replay_path))
-            {
-                Fail("replay_path_after_asset_request_failed");
-                return;
-            }
-            setup_assets_requested_ = true;
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] replay setup and native asset "
-                "request staged\n"));
-            return;
-        }
-        bool pending = true;
-        if (!CallBool(instance, L"HasAnyBattleRequest", pending) || pending)
-        {
-            return;
-        }
-        bool ready = false;
-        if (!CallBool(instance, L"CanLaunchBattleManually", ready) || !ready)
-            return;
-        if (!SetReplayPath(GetBattleSetup(instance), request_.replay_path)
-            || !CallNoParams(instance, L"ManualLaunchBattle"))
-        {
-            Fail("manual_launch_failed");
-            return;
-        }
+        if (navigation != Horse::Qualification::NavigationState::Ready) return;
         state_ = State::Launched;
         importer_.ReleasePlaybackContext();
         WriteResult("launch_requested", "none");
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] stock replay battle observed\n"));
     }
 
     void PollPlayerProfiles()
@@ -497,7 +404,6 @@ private:
 
     Horse::Qualification::ReplayPayloadImporter importer_{};
     Horse::Qualification::ReplaySceneNavigator navigator_{};
-    Horse::Qualification::ReplayMetadata replay_metadata_{};
     static inline std::atomic<ReplayQualificationMod*> s_instance_{nullptr};
     Request request_{};
     std::string last_run_id_{};
@@ -513,7 +419,6 @@ private:
     bool waiting_context_logged_{};
     bool player_profiles_requested_{};
     bool playback_context_staged_{};
-    bool setup_assets_requested_{};
     std::uint8_t profile_attempts_{};
 };
 

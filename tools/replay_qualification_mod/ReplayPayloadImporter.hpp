@@ -42,8 +42,6 @@ public:
     bool PopulateFallbackProfiles() noexcept;
     bool ApplyPlaybackContext() noexcept;
     void ReleasePlaybackContext() noexcept;
-    bool QueueStageMap(void* game_instance,
-                       const ReplayMetadata& metadata) noexcept;
 
 private:
     void* playback_container_{};

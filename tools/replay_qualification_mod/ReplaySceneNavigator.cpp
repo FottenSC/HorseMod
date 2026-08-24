@@ -181,7 +181,7 @@ NavigationState ReplaySceneNavigator::Tick(
     if (scene_name.find("ReplaySetupScene") != std::string::npos)
     {
         detail = scene_name;
-        return NavigationState::Ready;
+        return NavigationState::Waiting;
     }
     if (scene_name.find("TitleScene") != std::string::npos)
     {
