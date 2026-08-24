@@ -37,6 +37,8 @@ struct NativeCandidateAddresses
     std::uintptr_t lfsr_rng{};
     std::uintptr_t xorshift_rng{};
     std::uintptr_t wind_rng{};
+    std::uintptr_t pending_hit_record{};
+    std::uintptr_t pending_launcher_sync{};
     std::array<std::uintptr_t, 2> fighter_roots{};
     std::uint64_t session_generation{};
     std::uint64_t round_generation{};
@@ -134,6 +136,22 @@ struct NativeRngImage
     friend bool operator==(const NativeRngImage&, const NativeRngImage&) = default;
 };
 
+// The native pending-hit owner is a raw fighter pointer. Checkpoints encode it
+// as a bounded slot (0 = none, 1 = P1, 2 = P2) and reconstruct only against
+// the already-bound same-generation fighter roots.
+struct NativePendingHitImage
+{
+    std::uint32_t reaction_move_id{};
+    float launcher_facing_delta{};
+    std::uint32_t transition_flags{};
+    std::uint8_t attacker_slot{};
+    std::uint8_t launcher_sync{};
+
+    friend bool operator==(
+        const NativePendingHitImage&,
+        const NativePendingHitImage&) = default;
+};
+
 struct NativePumpImage
 {
     std::array<std::byte, 0x1C> lane_a{};
@@ -178,6 +196,7 @@ struct NativeCandidateImage
     std::array<std::array<std::byte, native_move_command_semantic_bytes>, 2>
         move_commands{};
     std::array<std::array<std::byte, 0x28>, 2> slot_params{};
+    NativePendingHitImage pending_hit{};
     NativeRngImage rng{};
 
     friend bool operator==(const NativeCandidateImage&, const NativeCandidateImage&) = default;

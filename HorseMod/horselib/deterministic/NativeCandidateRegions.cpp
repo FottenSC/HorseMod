@@ -150,6 +150,11 @@ void append_input_log(
     }
 }
 
+bool valid_pending_hit(const NativePendingHitImage& image) noexcept
+{
+    return image.attacker_slot <= 2 && image.launcher_sync <= 1;
+}
+
 bool capture_input_log_cache(
     INativeMemory& memory,
     std::uintptr_t input_log,
@@ -425,6 +430,8 @@ Status NativeCandidateRegions::Bind(const NativeCandidateAddresses& addresses) n
         || addresses.move_command_base == 0 || addresses.slot_param_base == 0
         || addresses.lcg_rng == 0 || addresses.lfsr_rng == 0
         || addresses.xorshift_rng == 0 || addresses.wind_rng == 0
+        || addresses.pending_hit_record == 0
+        || addresses.pending_launcher_sync == 0
         || addresses.fighter_roots[0] == 0 || addresses.fighter_roots[1] == 0
         || addresses.fighter_roots[0] == addresses.fighter_roots[1]
         || addresses.session_generation == 0 || addresses.round_generation == 0)
@@ -574,6 +581,29 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
             return false;
         }
     }
+    std::uintptr_t pending_attacker{};
+    if (!read_value(memory_, addresses_.pending_hit_record,
+            output.pending_hit.reaction_move_id)
+        || !read_value(memory_, addresses_.pending_hit_record + 4,
+            output.pending_hit.launcher_facing_delta)
+        || !read_value(memory_, addresses_.pending_hit_record + 8,
+            pending_attacker)
+        || !read_value(memory_, addresses_.pending_hit_record + 0x10,
+            output.pending_hit.transition_flags)
+        || !read_value(memory_, addresses_.pending_launcher_sync,
+            output.pending_hit.launcher_sync))
+    {
+        return region_read_failed(13);
+    }
+    if (pending_attacker == 0)
+        output.pending_hit.attacker_slot = 0;
+    else if (pending_attacker == addresses_.fighter_roots[0])
+        output.pending_hit.attacker_slot = 1;
+    else if (pending_attacker == addresses_.fighter_roots[1])
+        output.pending_hit.attacker_slot = 2;
+    else
+        return region_read_failed(14);
+    if (!valid_pending_hit(output.pending_hit)) return region_read_failed(15);
     if (!read_value(memory_, addresses_.lcg_rng, output.rng.lcg)
         || !read_bytes(addresses_.lfsr_rng,
             std::as_writable_bytes(std::span{output.rng.lfsr}))
@@ -620,7 +650,8 @@ bool NativeCandidateRegions::image_matches_binding(
             return false;
         }
     }
-    return image.rng.lfsr_index <= image.rng.lfsr.size();
+    return valid_pending_hit(image.pending_hit)
+        && image.rng.lfsr_index <= image.rng.lfsr.size();
 }
 
 Status NativeCandidateRegions::PreflightRestore(
@@ -636,6 +667,8 @@ Status NativeCandidateRegions::PreflightRestore(
 
 bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) noexcept
 {
+    const std::uintptr_t pending_attacker = image.pending_hit.attacker_slot == 0
+        ? 0 : addresses_.fighter_roots[image.pending_hit.attacker_slot - 1];
     if (!write_input_log_cache(memory_, addresses_.input_log, image.input_log)
         || !write_bytes(identities_.previous_input_array,
             std::as_bytes(std::span{image.frame.previous_inputs}))
@@ -661,6 +694,16 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
             std::as_bytes(std::span{&image.frame.pending_move_state, 1}))
         || !write_bytes(addresses_.frame_counter,
             std::as_bytes(std::span{&image.frame.frame_counter, 1}))
+        || !write_bytes(addresses_.pending_hit_record,
+            std::as_bytes(std::span{&image.pending_hit.reaction_move_id, 1}))
+        || !write_bytes(addresses_.pending_hit_record + 4,
+            std::as_bytes(std::span{&image.pending_hit.launcher_facing_delta, 1}))
+        || !write_bytes(addresses_.pending_hit_record + 8,
+            std::as_bytes(std::span{&pending_attacker, 1}))
+        || !write_bytes(addresses_.pending_hit_record + 0x10,
+            std::as_bytes(std::span{&image.pending_hit.transition_flags, 1}))
+        || !write_bytes(addresses_.pending_launcher_sync,
+            std::as_bytes(std::span{&image.pending_hit.launcher_sync, 1}))
         || !write_bytes(addresses_.wind_rng,
             std::as_bytes(std::span{image.rng.wind}))
         || !write_bytes(addresses_.xorshift_rng,
@@ -717,6 +760,8 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
 bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) noexcept
 {
     bool ok = true;
+    const std::uintptr_t pending_attacker = image.pending_hit.attacker_slot == 0
+        ? 0 : addresses_.fighter_roots[image.pending_hit.attacker_slot - 1];
     for (std::size_t lane = image.slot_params.size(); lane-- > 0;)
         ok = write_bytes(addresses_.slot_param_base + lane * 0x2C, image.slot_params[lane]) && ok;
     for (std::size_t lane = image.move_commands.size(); lane-- > 0;)
@@ -769,6 +814,16 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
         std::as_bytes(std::span{image.rng.xorshift})) && ok;
     ok = write_bytes(addresses_.wind_rng,
         std::as_bytes(std::span{image.rng.wind})) && ok;
+    ok = write_bytes(addresses_.pending_launcher_sync,
+        std::as_bytes(std::span{&image.pending_hit.launcher_sync, 1})) && ok;
+    ok = write_bytes(addresses_.pending_hit_record + 0x10,
+        std::as_bytes(std::span{&image.pending_hit.transition_flags, 1})) && ok;
+    ok = write_bytes(addresses_.pending_hit_record + 8,
+        std::as_bytes(std::span{&pending_attacker, 1})) && ok;
+    ok = write_bytes(addresses_.pending_hit_record + 4,
+        std::as_bytes(std::span{&image.pending_hit.launcher_facing_delta, 1})) && ok;
+    ok = write_bytes(addresses_.pending_hit_record,
+        std::as_bytes(std::span{&image.pending_hit.reaction_move_id, 1})) && ok;
     ok = write_bytes(addresses_.frame_counter,
         std::as_bytes(std::span{&image.frame.frame_counter, 1})) && ok;
     ok = write_bytes(addresses_.battle_manager + manager_pending_move_state,
@@ -848,6 +903,16 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
         append_bytes(output, command.data(), command.size());
     for (const auto& param : image.slot_params)
         append_bytes(output, param.data(), param.size());
+    append_bytes(output, &image.pending_hit.reaction_move_id,
+        sizeof(image.pending_hit.reaction_move_id));
+    append_bytes(output, &image.pending_hit.launcher_facing_delta,
+        sizeof(image.pending_hit.launcher_facing_delta));
+    append_bytes(output, &image.pending_hit.transition_flags,
+        sizeof(image.pending_hit.transition_flags));
+    append_bytes(output, &image.pending_hit.attacker_slot,
+        sizeof(image.pending_hit.attacker_slot));
+    append_bytes(output, &image.pending_hit.launcher_sync,
+        sizeof(image.pending_hit.launcher_sync));
     append_bytes(output, &image.rng.lcg, sizeof(image.rng.lcg));
     append_bytes(output, image.rng.lfsr.data(), sizeof(image.rng.lfsr));
     append_bytes(output, &image.rng.lfsr_index, sizeof(image.rng.lfsr_index));
@@ -958,7 +1023,18 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
             return Status::failure(FailureCode::CaptureFailed);
         }
     }
-    if (!take(&output.rng.lcg, sizeof(output.rng.lcg))
+    if (!take(&output.pending_hit.reaction_move_id,
+            sizeof(output.pending_hit.reaction_move_id))
+        || !take(&output.pending_hit.launcher_facing_delta,
+            sizeof(output.pending_hit.launcher_facing_delta))
+        || !take(&output.pending_hit.transition_flags,
+            sizeof(output.pending_hit.transition_flags))
+        || !take(&output.pending_hit.attacker_slot,
+            sizeof(output.pending_hit.attacker_slot))
+        || !take(&output.pending_hit.launcher_sync,
+            sizeof(output.pending_hit.launcher_sync))
+        || !valid_pending_hit(output.pending_hit)
+        || !take(&output.rng.lcg, sizeof(output.rng.lcg))
         || !take(output.rng.lfsr.data(), sizeof(output.rng.lfsr))
         || !take(&output.rng.lfsr_index, sizeof(output.rng.lfsr_index))
         || output.rng.lfsr_index > output.rng.lfsr.size()

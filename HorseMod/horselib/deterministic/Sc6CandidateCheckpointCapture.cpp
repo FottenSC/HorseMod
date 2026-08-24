@@ -31,6 +31,8 @@ constexpr std::uintptr_t lcg_rng_rva = 0x485EB28;
 constexpr std::uintptr_t lfsr_rng_rva = 0x485EB30;
 constexpr std::uintptr_t xorshift_rng_rva = 0x470E2C8;
 constexpr std::uintptr_t wind_rng_rva = 0x470E2B0;
+constexpr std::uintptr_t pending_hit_record_rva = 0x485E738;
+constexpr std::uintptr_t pending_launcher_sync_rva = 0x470F38D;
 constexpr std::uintptr_t wind_root_pointer_rva = 0x470E038;
 constexpr std::uintptr_t fmemory_malloc_rva = 0x4A61C0;
 constexpr std::uintptr_t fmemory_free_rva = 0x1F90000;
@@ -305,6 +307,8 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + lfsr_rng_rva,
         image_base_ + xorshift_rng_rva,
         image_base_ + wind_rng_rva,
+        image_base_ + pending_hit_record_rva,
+        image_base_ + pending_launcher_sync_rva,
         fighter_roots,
         session_generation,
         coordinate.generation,

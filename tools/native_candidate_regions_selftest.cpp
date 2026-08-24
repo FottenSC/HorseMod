@@ -155,6 +155,8 @@ struct Fixture
         addresses.lfsr_rng = memory_base + 0x10100;
         addresses.xorshift_rng = memory_base + 0x10200;
         addresses.wind_rng = memory_base + 0x10300;
+        addresses.pending_hit_record = memory_base + 0x10400;
+        addresses.pending_launcher_sync = memory_base + 0x10420;
         addresses.fighter_roots = {
             memory_base + 0x12000, memory_base + 0x13000};
         addresses.session_generation = 11;
@@ -206,6 +208,11 @@ struct Fixture
         for (std::size_t index = 0; index < 6; ++index)
             memory.Set(addresses.wind_rng + index * 4,
                 static_cast<std::uint32_t>(0x3000 + index));
+        memory.Set(addresses.pending_hit_record, std::uint32_t{0x1234});
+        memory.Set(addresses.pending_hit_record + 4, 0.25f);
+        memory.Set(addresses.pending_hit_record + 8, addresses.fighter_roots[1]);
+        memory.Set(addresses.pending_hit_record + 0x10, std::uint32_t{0x400000});
+        memory.Set(addresses.pending_launcher_sync, std::uint8_t{1});
 
         event_masks = memory_base + 0x2000;
         memory.Set(addresses.move_dispatch + 0x4A8, event_masks);
@@ -711,6 +718,13 @@ void test_capture_restore_preserves_exclusions()
     fixture.memory.Set(fixture.addresses.lfsr_rng + 0x64, std::uint32_t{8});
     fixture.memory.Fill(fixture.addresses.xorshift_rng, 0x0C, std::byte{0xEA});
     fixture.memory.Fill(fixture.addresses.wind_rng, 0x18, std::byte{0xEB});
+    fixture.memory.Set(fixture.addresses.pending_hit_record, std::uint32_t{0xABCD});
+    fixture.memory.Set(fixture.addresses.pending_hit_record + 4, -0.125f);
+    fixture.memory.Set(fixture.addresses.pending_hit_record + 8,
+        fixture.addresses.fighter_roots[0]);
+    fixture.memory.Set(fixture.addresses.pending_hit_record + 0x10,
+        std::uint32_t{0x200000});
+    fixture.memory.Set(fixture.addresses.pending_launcher_sync, std::uint8_t{0});
     fixture.memory.Set(fixture.addresses.frame_counter, std::uint32_t{99});
     fixture.memory.Set(fixture.addresses.input_log + 0x3A0, std::int32_t{8});
     fixture.memory.Set(fixture.addresses.input_log + 0x3A4, std::int32_t{99});
@@ -756,6 +770,9 @@ void test_capture_restore_preserves_exclusions()
         "restore all four explicit Lux RNG streams exactly");
     expect(restored.frame == baseline.frame,
         "restore the coordinate clocks and input-pair boundary exactly");
+    expect(restored.pending_hit == baseline.pending_hit
+            && restored.pending_hit.attacker_slot == 2,
+        "restore the pending-hit record through its fighter-relative slot");
 
     const auto canonical = NativeCandidateRegions::CanonicalBytes(baseline);
     expect(!contains_qword(canonical, fixture.event_masks), "canonical bytes exclude event owner pointer");
@@ -764,6 +781,9 @@ void test_capture_restore_preserves_exclusions()
         "canonical bytes exclude InputLog owner pointer");
     expect(!contains_qword(canonical, Fixture::memory_base + 0x1C100),
         "canonical bytes exclude input-pair backing pointer");
+    expect(!contains_qword(canonical, fixture.addresses.fighter_roots[0])
+            && !contains_qword(canonical, fixture.addresses.fighter_roots[1]),
+        "canonical bytes exclude pending-hit fighter pointers");
 }
 
 void test_preflight_is_atomic()
@@ -811,6 +831,18 @@ void test_unknown_class_and_invalid_header_fail_closed()
             && diagnostic.index == 22 && diagnostic.observed_a == 2
             && diagnostic.observed_b == 1,
         "prior-input TArray rejection identifies the exact invalid header");
+
+    Fixture pending_owner;
+    pending_owner.memory.Set(pending_owner.addresses.pending_hit_record + 8,
+        Fixture::memory_base + 0x21000);
+    expect(pending_owner.regions.Bind(pending_owner.addresses).code
+            == FailureCode::CapturePreflightFailed,
+        "pending-hit owner outside the bound fighter pair fails closed");
+    const auto pending_diagnostic = pending_owner.regions.validation_diagnostic();
+    expect(pending_diagnostic.issue
+                == NativeCandidateValidationIssue::CandidateRegionRead
+            && pending_diagnostic.index == 14,
+        "pending-hit owner rejection identifies the fighter-slot mapping");
 }
 
 void test_lfsr_refill_sentinel_is_bounded()
