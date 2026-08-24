@@ -4,6 +4,7 @@
 #include "deterministic/NativeBatchTimeline.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/ReplayCoordinator.hpp"
+#include "deterministic/ReplaySeekPlanner.hpp"
 #include "deterministic/Sc6ReplayNativeBridge.hpp"
 #include "deterministic/SnapshotStore.hpp"
 
@@ -509,6 +510,64 @@ void test_resimulation_base_planning_respects_batch_width()
         "a same-generation rewind is not a valid batch entry");
 }
 
+void test_batch_aware_replay_seek_planning()
+{
+    NativeBatchTimeline batches{4, 8};
+    NativeBatchEnvelope first{};
+    first.batch_id = 1;
+    first.entry_coordinate = {1, 0};
+    first.exit_coordinate = {1, 3};
+    first.coordinate_count = 3;
+    const std::array first_coordinates{
+        FrameCoordinate{1, 1}, FrameCoordinate{1, 2}, FrameCoordinate{1, 3}};
+    expect(batches.Append(first, first_coordinates).ok(),
+        "append multi-coordinate seek batch");
+
+    NativeBatchEnvelope second{};
+    second.batch_id = 2;
+    second.entry_coordinate = {1, 3};
+    second.exit_coordinate = {1, 4};
+    second.coordinate_count = 1;
+    const std::array second_coordinates{FrameCoordinate{1, 4}};
+    expect(batches.Append(second, second_coordinates).ok(),
+        "append batch after seek landing boundary");
+
+    SnapshotStore entries{1024 * 1024, 8, CapacityPolicy::RejectNew};
+    expect(entries.Save({{1, 0}, 1, {}, {}}).ok(),
+        "save generation baseline batch entry");
+    ReplaySeekPlan plan{};
+    expect(PlanReplaySeek({1, 2}, batches, entries, 29, plan).ok(),
+        "plan a seek landing inside a multi-coordinate batch");
+    expect(plan.resimulation_base == FrameCoordinate{1, 0}
+            && plan.first_batch_index == 0
+            && plan.landing_batch_index == 0
+            && plan.landing_offset_in_batch == 1
+            && plan.coordinates_after_landing == 1
+            && plan.resimulation_coordinates == 2
+            && plan.landing_requires_batch_replay,
+        "mid-batch plan preserves its base, landing offset, and batch tail");
+
+    expect(entries.Save({{1, 3}, 1, {}, {}}).ok(),
+        "save resumable exact batch boundary");
+    expect(PlanReplaySeek({1, 3}, batches, entries, 29, plan).ok(),
+        "plan an exact batch-boundary seek");
+    expect(plan.resimulation_base == FrameCoordinate{1, 3}
+            && plan.first_batch_index == 1
+            && plan.resimulation_coordinates == 0
+            && !plan.landing_requires_batch_replay,
+        "exact entry checkpoint resumes at the following batch");
+
+    SnapshotStore missing{1024 * 1024, 8, CapacityPolicy::RejectNew};
+    expect(PlanReplaySeek({1, 2}, batches, missing, 29, plan).code
+            == FailureCode::MissingSnapshot,
+        "seek before the first captured base fails without mutation");
+    expect(entries.Save({{2, 0}, 1, {}, {}}).ok(),
+        "retain a separate generation entry");
+    expect(PlanReplaySeek({1, 2}, batches, entries, 1, plan).code
+            == FailureCode::AdapterUnqualified,
+        "seek planning fails closed beyond the reconstruction bound");
+}
+
 void test_presentation_exactly_once()
 {
     PresentationJournal journal{4, 64};
@@ -756,6 +815,7 @@ int main()
     test_native_batch_timeline_is_exact_and_bounded();
     test_snapshot_capacity_is_atomic();
     test_resimulation_base_planning_respects_batch_width();
+    test_batch_aware_replay_seek_planning();
     test_presentation_exactly_once();
     test_replay_checkpoint_seek_and_resume();
     test_cross_generation_seek_materializes_before_restore();

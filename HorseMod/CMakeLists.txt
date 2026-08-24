@@ -47,6 +47,7 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/OnlineCoordinator.cpp
     horselib/deterministic/PresentationJournal.cpp
     horselib/deterministic/ReplayCoordinator.cpp
+    horselib/deterministic/ReplaySeekPlanner.cpp
     horselib/deterministic/Sc6ReplayNativeBridge.cpp
     horselib/deterministic/SimulationSession.cpp
     horselib/deterministic/SnapshotStore.cpp
