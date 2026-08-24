@@ -46,7 +46,6 @@ struct NativeFunctions
     GetSaveManagerFn get_save_manager{};
     DecompressFn decompress{};
     DeserializeFn deserialize{};
-    CopyFn copy_battle_data{};
     CopyFn copy_item{};
     FreeFn free_memory{};
     GetContainerClassFn get_container_class{};
@@ -76,8 +75,6 @@ constexpr FunctionContract kContracts[]{
                  std::byte{0x41}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83}}},
     {0x5b17f0, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
                 std::byte{0x10}, std::byte{0x57}, std::byte{0x48}, std::byte{0x81}}},
-    {0x538580, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
-                std::byte{0x08}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83}}},
     {0x57e1b0, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
                 std::byte{0x08}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83}}},
     {0xd46a00, {std::byte{0x48}, std::byte{0x85}, std::byte{0xc9}, std::byte{0x74},
@@ -151,7 +148,6 @@ bool ReplayPayloadImporter::Bind(std::uintptr_t image_base) noexcept
         reinterpret_cast<GetSaveManagerFn>(image_base + 0x50bda0),
         reinterpret_cast<DecompressFn>(image_base + 0x2dce6f0),
         reinterpret_cast<DeserializeFn>(image_base + 0x5b17f0),
-        reinterpret_cast<CopyFn>(image_base + 0x538580),
         reinterpret_cast<CopyFn>(image_base + 0x57e1b0),
         reinterpret_cast<FreeFn>(image_base + 0xd46a00),
         reinterpret_cast<GetContainerClassFn>(image_base + 0xb77900),
@@ -170,8 +166,6 @@ ImportFailure ReplayPayloadImporter::Import(
     constexpr std::size_t kItemSize = 0x1a00;
     constexpr std::size_t kBattleData = 0xa0;
     constexpr std::size_t kContainerCurrentItem = 0x80;
-    constexpr std::size_t kCurrentTarget = 0x40;
-    constexpr std::size_t kTemporaryItem = 0x19e0;
     constexpr std::size_t kStageIndex = kBattleData + 0x98;
     constexpr std::size_t kLeftCharacter = kBattleData + 0xa0 + 0x28 + 0x08;
     constexpr std::size_t kRightCharacter = kBattleData + 0xcf0 + 0x28 + 0x08;
@@ -229,20 +223,6 @@ ImportFailure ReplayPayloadImporter::Import(
             {
                 result = ImportFailure::SaveManagerUnavailable;
             }
-            else
-            {
-                auto* bytes = static_cast<std::byte*>(save);
-                const bool copied = SafeCall(false, [&]() {
-                    g_functions.copy_battle_data(bytes + kCurrentTarget,
-                                                 item.data() + kBattleData);
-                    g_functions.copy_item(bytes + kTemporaryItem, item.data());
-                    g_functions.copy_battle_data(
-                        bytes + kTemporaryItem + kBattleData,
-                        item.data() + kBattleData);
-                    return true;
-                });
-                if (!copied) result = ImportFailure::CopyFailed;
-            }
             if (result == ImportFailure::None)
             {
                 playback_container_ = SafeCall<void*>(nullptr, [&]() {
@@ -266,9 +246,6 @@ ImportFailure ReplayPayloadImporter::Import(
                     const bool copied = SafeCall(false, [&]() {
                         g_functions.copy_item(
                             container + kContainerCurrentItem, item.data());
-                        g_functions.copy_battle_data(
-                            container + kContainerCurrentItem + kBattleData,
-                            item.data() + kBattleData);
                         return true;
                     });
                     if (!copied)
