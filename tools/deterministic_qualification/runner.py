@@ -122,7 +122,9 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     mods_root = GAME_ROOT / "ue4ss" / "Mods"
     with TemporaryReplayMod(replay_mod, mods_root):
         try:
-            run_id = create_request(replay, args.watch_frames)
+            run_id = create_request(
+                replay, args.watch_frames, tuple(args.seek_percentages)
+            )
             log_start = capture_log_offset(args.log)
             launch_game()
             pid = wait_for_game(args.timeout)
@@ -179,6 +181,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             "native_replay_import_ready": lifecycle.native_import_ready,
             "launch_requested": True,
             "watch_frames": args.watch_frames,
+            "seek_percentages": args.seek_percentages,
             "frame_fencepost_observed": True,
             "temporary_mod_removed": True,
             "clean_exit_requested": True,
@@ -226,6 +229,13 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--report", type=Path, default=DEFAULT_REPLAY_REPORT)
     replay.add_argument("--timeout", type=float, default=120.0)
     replay.add_argument("--watch-frames", type=int, default=1)
+    replay.add_argument(
+        "--seek-percentages",
+        type=int,
+        nargs="*",
+        default=[],
+        help="after the baseline, strictly seek to these percentages in order",
+    )
     replay.add_argument(
         "--allow-dirty",
         action="store_true",

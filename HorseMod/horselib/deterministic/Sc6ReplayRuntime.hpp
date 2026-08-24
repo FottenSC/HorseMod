@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CanonicalHashTimeline.hpp"
 #include "DeterministicHookSet.hpp"
 #include "InputTimeline.hpp"
 #include "NativeBatchTimeline.hpp"
@@ -26,6 +27,9 @@ struct ReplayTimelineStatus
     std::uint64_t captured_frames{};
     std::uint64_t captured_checkpoints{};
     std::uint64_t captured_batch_entry_checkpoints{};
+    std::uint64_t canonical_frames{};
+    std::size_t canonical_hash_bytes{};
+    std::uint64_t resumed_frames_verified{};
     std::size_t checkpoint_bytes{};
     std::size_t batch_entry_checkpoint_bytes{};
     std::size_t checkpoint_wind_nodes{};
@@ -84,6 +88,9 @@ struct ReplayTimelineStatus
     std::array<std::uintptr_t, 2> checkpoint_animation_fighters{};
     std::array<std::uintptr_t, 2> batch_entry_animation_fighters{};
     bool partial{};
+    bool resume_validation_active{};
+    FrameCoordinate resume_target{};
+    FrameCoordinate resume_source_end{};
 };
 
 struct OwnedCorrectionResult
@@ -268,6 +275,9 @@ private:
             / Schema::replay_native_batch_entry_budget,
         (Schema::replay_native_batch_memory_budget / 2)
             / Schema::replay_native_batch_coordinate_budget};
+    CanonicalHashTimeline canonical_timeline_{
+        Schema::replay_canonical_hash_memory_budget
+            / sizeof(CanonicalHashEntry)};
     Sc6CandidateCheckpointCapture checkpoint_capture_{};
     ReplayTimelineStatus timeline_status_{};
     std::uintptr_t timeline_manager_{};
@@ -277,6 +287,10 @@ private:
     std::uint64_t pending_batch_id_{};
     FrameCoordinate pending_batch_entry_{};
     std::vector<FrameCoordinate> pending_batch_coordinates_{};
+    FrameCoordinate resume_target_{};
+    FrameCoordinate resume_source_end_{};
+    bool resume_validation_active_{};
+    bool resume_catchup_pending_{};
     bool generation_rebaseline_pending_{};
     bool continuing_session_rebaseline_{};
 };

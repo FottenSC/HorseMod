@@ -8,7 +8,7 @@
 namespace Horse::Deterministic::Schema
 {
 inline constexpr std::uint32_t protocol_version = 1;
-inline constexpr std::uint32_t snapshot_schema_version = 16;
+inline constexpr std::uint32_t snapshot_schema_version = 17;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::uint64_t checkpoint_interval = 30;
 inline constexpr std::uint32_t maximum_supported_native_batch_width = 12;
@@ -21,9 +21,11 @@ inline constexpr std::size_t replay_input_memory_budget =
     96ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_native_batch_memory_budget =
     32ull * 1024ull * 1024ull;
+inline constexpr std::size_t replay_canonical_hash_memory_budget =
+    16ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_checkpoint_memory_budget =
     replay_timeline_memory_limit - replay_input_memory_budget
-    - replay_native_batch_memory_budget;
+    - replay_native_batch_memory_budget - replay_canonical_hash_memory_budget;
 inline constexpr std::size_t replay_input_entry_budget = 128;
 inline constexpr std::size_t replay_native_batch_entry_budget = 128;
 inline constexpr std::size_t replay_native_batch_coordinate_budget = 32;

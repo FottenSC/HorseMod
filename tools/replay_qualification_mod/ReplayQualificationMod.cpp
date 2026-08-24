@@ -5,6 +5,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <Psapi.h>
 
 #include "ReplayPayloadImporter.hpp"
 #include "ReplaySceneNavigator.hpp"
@@ -15,6 +16,8 @@
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -48,7 +51,40 @@ struct Request
     std::string run_id;
     std::filesystem::path replay_path;
     std::uint32_t watch_frames{1};
+    std::vector<std::uint32_t> seek_percentages{};
 };
+
+using RequestReplaySeekFn = bool (*)(std::uint64_t);
+using GetReplaySeekStatusFn = std::uint32_t (*)(
+    std::uint64_t*, std::uint64_t*, std::uint64_t*, std::uint16_t*);
+
+bool ResolveHorseModSeekApi(
+    RequestReplaySeekFn& request, GetReplaySeekStatusFn& status) noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+    {
+        return false;
+    }
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate_request = reinterpret_cast<RequestReplaySeekFn>(
+            GetProcAddress(modules[index], "horsemod_request_replay_seek"));
+        const auto candidate_status = reinterpret_cast<GetReplaySeekStatusFn>(
+            GetProcAddress(modules[index], "horsemod_get_replay_seek_status"));
+        if (candidate_request != nullptr && candidate_status != nullptr)
+        {
+            request = candidate_request;
+            status = candidate_status;
+            return true;
+        }
+    }
+    return false;
+}
 
 std::filesystem::path QualificationRoot()
 {
@@ -106,8 +142,10 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
             return false;
         }
     }
-    if (!stream.eof() || fields.size() != 4 || fields["version"] != "2"
-        || !ValidRunId(fields["run_id"]))
+    if (!stream.eof() || !ValidRunId(fields["run_id"])
+        || (fields["version"] != "2" && fields["version"] != "3")
+        || (fields["version"] == "2" && fields.size() != 4)
+        || (fields["version"] == "3" && fields.size() != 5))
     {
         return false;
     }
@@ -121,7 +159,29 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         watch_frames = static_cast<std::uint32_t>(parsed);
     }
     catch (...) { return false; }
-    output = {fields["run_id"], std::filesystem::path(replay_path), watch_frames};
+    std::vector<std::uint32_t> percentages;
+    if (fields["version"] == "3")
+    {
+        std::string_view remaining = fields["seek_percentages"];
+        while (!remaining.empty())
+        {
+            const auto comma = remaining.find(',');
+            const auto token = remaining.substr(0, comma);
+            try
+            {
+                const auto value = std::stoul(std::string(token));
+                if (value == 0 || value >= 100 || percentages.size() >= 16)
+                    return false;
+                percentages.push_back(static_cast<std::uint32_t>(value));
+            }
+            catch (...) { return false; }
+            if (comma == std::string_view::npos) break;
+            remaining.remove_prefix(comma + 1);
+        }
+        if (percentages.empty()) return false;
+    }
+    output = {fields["run_id"], std::filesystem::path(replay_path),
+        watch_frames, std::move(percentages)};
     return output.replay_path.is_absolute();
 }
 
@@ -297,6 +357,8 @@ private:
         playback_context_staged_ = false;
         battle_scene_observed_ = false;
         initial_battle_frame_ = 0;
+        seek_index_ = 0;
+        seek_requested_ = false;
         profile_attempts_ = 0;
         next_profile_attempt_ = {};
         state_ = State::Importing;
@@ -386,12 +448,67 @@ private:
         }
         const std::uint32_t advanced = frame - initial_battle_frame_;
         if (advanced < request_.watch_frames) return;
+        if (seek_index_ < request_.seek_percentages.size())
+        {
+            PollSeekQualification();
+            return;
+        }
         state_ = State::Launched;
         WriteResult("launch_requested", "none");
         Output::send<LogLevel::Default>(STR(
             "[ReplayQualification] replay simulation frame advanced "
             "initial={} current={} watched={}\n"), initial_battle_frame_, frame,
             request_.watch_frames);
+    }
+
+    void PollSeekQualification()
+    {
+        RequestReplaySeekFn request_seek{};
+        GetReplaySeekStatusFn get_status{};
+        if (!ResolveHorseModSeekApi(request_seek, get_status))
+        {
+            Fail("horsemod_seek_api_unavailable");
+            return;
+        }
+
+        const auto percentage = request_.seek_percentages[seek_index_];
+        const std::uint64_t target = static_cast<std::uint64_t>(
+            initial_battle_frame_) +
+            static_cast<std::uint64_t>(request_.watch_frames) * percentage / 100;
+        if (!seek_requested_)
+        {
+            if (!request_seek(target))
+            {
+                Fail("horsemod_seek_request_rejected");
+                return;
+            }
+            seek_requested_ = true;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] requested strict seek percent={} "
+                "target={} index={}\n"), percentage, target, seek_index_);
+            return;
+        }
+
+        std::uint64_t observed_target{};
+        std::uint64_t source_end{};
+        std::uint64_t verified{};
+        std::uint16_t failure{};
+        const auto status = get_status(
+            &observed_target, &source_end, &verified, &failure);
+        if (status == 3)
+        {
+            Fail("horsemod_seek_validation_failed");
+            return;
+        }
+        if (status == 1 && observed_target == target && source_end != 0)
+        {
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] strict seek passed percent={} "
+                "target={} source_end={} verified={} index={}\n"),
+                percentage, observed_target, source_end, verified, seek_index_);
+            ++seek_index_;
+            seek_requested_ = false;
+        }
     }
 
     void PollPlayerProfiles()
@@ -488,6 +605,8 @@ private:
     bool playback_context_staged_{};
     bool battle_scene_observed_{};
     std::uint32_t initial_battle_frame_{};
+    std::size_t seek_index_{};
+    bool seek_requested_{};
     std::uint8_t profile_attempts_{};
 };
 

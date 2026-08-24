@@ -285,6 +285,9 @@ static std::wstring horsemod_current_module_path() noexcept
 }
 
 // ----------------------------------------------------------------------------
+class HorseMod;
+static std::atomic<HorseMod*> g_horse_mod_instance{nullptr};
+
 class HorseMod final : public CppUserModBase
 {
 private:
@@ -3214,6 +3217,88 @@ private:
     std::atomic_bool m_candidate_checkpoint_first_failure_logged{};
     std::atomic_bool m_candidate_batch_entry_first_failure_logged{};
     std::size_t m_owned_correction_probe_index{};
+    std::atomic<std::uint64_t> m_seek_request_frame{UINT64_MAX};
+    std::atomic<std::uint64_t> m_seek_request_sequence{};
+    std::uint64_t m_seek_handled_sequence{};
+    bool m_seek_request_active{};
+
+    bool service_owned_seek_request() noexcept
+    {
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        if (m_seek_request_active)
+        {
+            if (timeline.failure != Horse::Deterministic::FailureCode::None)
+            {
+                m_seek_request_active = false;
+                return true;
+            }
+            if (!timeline.resume_validation_active)
+            {
+                m_seek_request_active = false;
+                Output::send<LogLevel::Default>(STR(
+                    "[HorseMod] owned replay seek resume verified "
+                    "target={} source_end={} verified_frames={} final={}\n"),
+                    timeline.resume_target.frame,
+                    timeline.resume_source_end.frame,
+                    timeline.resumed_frames_verified,
+                    timeline.last_coordinate.frame);
+            }
+            return true;
+        }
+
+        const auto sequence = m_seek_request_sequence.load(
+            std::memory_order_acquire);
+        if (sequence == m_seek_handled_sequence) return false;
+        m_seek_handled_sequence = sequence;
+        const auto requested_frame = m_seek_request_frame.load(
+            std::memory_order_acquire);
+        if (timeline.partial
+            || timeline.failure != Horse::Deterministic::FailureCode::None
+            || timeline.last_coordinate.generation == 0
+            || requested_frame >= timeline.last_coordinate.frame)
+        {
+            const auto failure = Horse::Deterministic::FailureCode::IllegalTransition;
+            m_frame_fencepost_failure.store(failure, std::memory_order_release);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] owned replay seek request rejected target={} "
+                "current={} partial={} failure={}\n"),
+                requested_frame, timeline.last_coordinate.frame,
+                timeline.partial,
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(timeline.failure))));
+            return true;
+        }
+
+        const Horse::Deterministic::FrameCoordinate target{
+            timeline.last_coordinate.generation, requested_frame};
+        const auto status = m_replay_native_runtime.ExecuteOwnedStateSeek(
+            target, m_deterministic_hooks);
+        if (!status.ok())
+        {
+            m_frame_fencepost_failure.store(status.code, std::memory_order_release);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] owned replay seek request failed target={} "
+                "source_end={} status={}\n"),
+                target.frame, timeline.last_coordinate.frame,
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(status.code))));
+            return true;
+        }
+        m_seek_request_active = target != timeline.last_coordinate;
+        // The independent hook-health cursor observes the same rewritten
+        // native counter. Rebase it atomically so the first resumed frame is
+        // still required to be exactly target+1 rather than misreported as a
+        // spontaneous generation reset.
+        m_frame_fencepost_last_frame.store(
+            static_cast<std::uint32_t>(target.frame),
+            std::memory_order_release);
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] owned replay seek restored target={} source_end={} "
+            "resume_validation={}\n"),
+            target.frame, timeline.last_coordinate.frame,
+            m_seek_request_active);
+        return true;
+    }
 
     void service_owned_correction_probe() noexcept
     {
@@ -3632,9 +3717,13 @@ private:
                 capture.code, std::memory_order_release);
             return;
         }
-        self->observe_hgcpu_diagnostic(observation.frame_counter);
-        self->observe_stage_break_listener_diagnostic(observation.frame_counter);
         const auto timeline = self->m_replay_native_runtime.timeline_status();
+        if (!timeline.resume_validation_active)
+        {
+            self->observe_hgcpu_diagnostic(observation.frame_counter);
+            self->observe_stage_break_listener_diagnostic(
+                observation.frame_counter);
+        }
         const auto logged_checkpoints =
             self->m_candidate_checkpoint_logged_count.load(std::memory_order_acquire);
         if (self->m_deterministic_config.trace
@@ -3814,7 +3903,8 @@ private:
                 ucrt_image.draws,
                 ucrt_image.state);
         }
-        self->service_owned_correction_probe();
+        if (!self->service_owned_seek_request())
+            self->service_owned_correction_probe();
     }
 
     static void on_outer_tick_begin(
@@ -3927,6 +4017,9 @@ private:
         self->m_frame_fencepost_last_frame.store(0, std::memory_order_release);
         self->m_replay_native_runtime.ObserveReplayExit();
         self->m_owned_correction_probe_index = 0;
+        self->m_seek_request_active = false;
+        self->m_seek_handled_sequence = self->m_seek_request_sequence.load(
+            std::memory_order_acquire);
         self->m_replay_exit_state.store(
             observation.replay_state, std::memory_order_release);
         self->m_replay_exit_observations.fetch_add(1, std::memory_order_acq_rel);
@@ -3996,6 +4089,37 @@ private:
         }
     }
 public:
+    bool RequestReplaySeek(std::uint64_t frame) noexcept
+    {
+        if (frame == UINT64_MAX) return false;
+        m_seek_request_frame.store(frame, std::memory_order_release);
+        m_seek_request_sequence.fetch_add(1, std::memory_order_acq_rel);
+        return true;
+    }
+
+    std::uint32_t GetReplaySeekStatus(
+        std::uint64_t& target_frame,
+        std::uint64_t& source_end_frame,
+        std::uint64_t& verified_frames,
+        std::uint16_t& failure) const noexcept
+    {
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        target_frame = timeline.resume_target.frame;
+        source_end_frame = timeline.resume_source_end.frame;
+        verified_frames = timeline.resumed_frames_verified;
+        const auto hook_failure = m_frame_fencepost_failure.load(
+            std::memory_order_acquire);
+        const auto effective_failure = timeline.failure
+            != Horse::Deterministic::FailureCode::None
+            ? timeline.failure : hook_failure;
+        failure = static_cast<std::uint16_t>(effective_failure);
+        if (effective_failure != Horse::Deterministic::FailureCode::None)
+            return 3;
+        if (timeline.resume_validation_active) return 2;
+        if (timeline.resume_target.generation != 0) return 1;
+        return 0;
+    }
+
     HorseMod() : CppUserModBase()
     {
         ModName        = STR("HorseMod");
@@ -8403,8 +8527,8 @@ private:
                         static_cast<int>(failure.size()), failure.data());
                 }
                 ImGui::TextDisabled(
-                    "Replay seek and online ownership remain fail-closed until "
-                    "the native adapter is qualified.");
+                    "Replay seek is exposed only through the qualification "
+                    "fencepost API; online ownership remains fail-closed.");
                 render_khit_audit_log_options();
             }
 
@@ -8417,11 +8541,40 @@ extern "C"
 {
     HORSE_MOD_API CppUserModBase* start_mod()
     {
-        return new HorseMod();
+        auto* mod = new HorseMod();
+        g_horse_mod_instance.store(mod, std::memory_order_release);
+        return mod;
     }
 
     HORSE_MOD_API void uninstall_mod(CppUserModBase* mod)
     {
+        auto* expected = static_cast<HorseMod*>(mod);
+        (void)g_horse_mod_instance.compare_exchange_strong(
+            expected, nullptr, std::memory_order_acq_rel);
         delete mod;
+    }
+
+    HORSE_MOD_API bool horsemod_request_replay_seek(
+        std::uint64_t target_frame)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && mod->RequestReplaySeek(target_frame);
+    }
+
+    HORSE_MOD_API std::uint32_t horsemod_get_replay_seek_status(
+        std::uint64_t* target_frame,
+        std::uint64_t* source_end_frame,
+        std::uint64_t* verified_frames,
+        std::uint16_t* failure)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        if (mod == nullptr || target_frame == nullptr
+            || source_end_frame == nullptr || verified_frames == nullptr
+            || failure == nullptr)
+        {
+            return 0;
+        }
+        return mod->GetReplaySeekStatus(*target_frame, *source_end_frame,
+            *verified_frames, *failure);
     }
 }

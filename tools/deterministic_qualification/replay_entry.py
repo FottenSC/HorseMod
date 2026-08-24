@@ -61,7 +61,11 @@ def qualification_root() -> Path:
     return Path(local_app_data) / "HorseMod" / "Qualification"
 
 
-def create_request(replay_path: Path, watch_frames: int) -> str:
+def create_request(
+    replay_path: Path,
+    watch_frames: int,
+    seek_percentages: tuple[int, ...] = (),
+) -> str:
     if watch_frames < 1 or watch_frames > 36000:
         raise RuntimeError("watch frames must be between 1 and 36000")
     replay_text = str(replay_path.resolve())
@@ -74,9 +78,17 @@ def create_request(replay_path: Path, watch_frames: int) -> str:
     result = root / "replay_result.txt"
     result.unlink(missing_ok=True)
     temporary = request.with_suffix(".tmp")
+    for percentage in seek_percentages:
+        if percentage <= 0 or percentage >= 100:
+            raise RuntimeError("seek percentages must be between 1 and 99")
+    version = 3 if seek_percentages else 2
+    seek_line = (
+        "seek_percentages=" + ",".join(map(str, seek_percentages)) + "\n"
+        if seek_percentages else ""
+    )
     temporary.write_text(
-        f"version=2\nrun_id={run_id}\nreplay_path={replay_text}\n"
-        f"watch_frames={watch_frames}\n",
+        f"version={version}\nrun_id={run_id}\nreplay_path={replay_text}\n"
+        f"watch_frames={watch_frames}\n{seek_line}",
         encoding="utf-8",
     )
     os.replace(temporary, request)

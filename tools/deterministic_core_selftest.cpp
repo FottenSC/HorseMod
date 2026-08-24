@@ -1,3 +1,4 @@
+#include "deterministic/CanonicalHashTimeline.hpp"
 #include "deterministic/InputTimeline.hpp"
 #include "deterministic/Config.hpp"
 #include "deterministic/FloatingPointEnvironment.hpp"
@@ -32,6 +33,33 @@ void expect(bool condition, const char* message)
         std::cerr << "FAIL: " << message << '\n';
         ++failures;
     }
+}
+
+void test_canonical_hash_timeline_is_immutable_and_bounded()
+{
+    CanonicalHashTimeline timeline{2};
+    CanonicalHash first{};
+    CanonicalHash second{};
+    first[0] = std::byte{0x11};
+    second[0] = std::byte{0x22};
+
+    expect(timeline.Append({1, 10}, first).ok()
+            && timeline.Append({1, 11}, second).ok(),
+        "canonical timeline accepts a strictly increasing baseline");
+    expect(timeline.Append({1, 10}, first).ok(),
+        "canonical timeline treats an exact resumed frame as validation");
+    expect(timeline.Append({1, 10}, second).code
+            == FailureCode::StateHashMismatch,
+        "canonical timeline rejects divergence without replacing baseline");
+    expect(timeline.Append({1, 9}, first).code
+            == FailureCode::IdentityMismatch,
+        "canonical timeline rejects out-of-order history mutation");
+    expect(timeline.Append({1, 12}, first).code
+            == FailureCode::CapacityExceeded,
+        "canonical timeline stops cleanly at its fixed capacity");
+    expect(timeline.GetExact({1, 10}) == first
+            && timeline.GetExact({1, 12}) == std::nullopt,
+        "canonical timeline retains only the immutable bounded baseline");
 }
 
 enum class AdapterFailure
@@ -1018,6 +1046,7 @@ void test_ucrt_broker_is_callsite_and_thread_bound()
 
 int main()
 {
+    test_canonical_hash_timeline_is_immutable_and_bounded();
     test_public_config_contract();
     test_input_replacement_and_invalidation();
     test_native_batch_timeline_is_exact_and_bounded();

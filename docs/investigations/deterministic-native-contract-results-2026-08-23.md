@@ -1,5 +1,27 @@
 # Deterministic native contract results
 
+## 2026-08-24 bounded seek/resume integration (schema 17)
+
+- Replay capture now retains an immutable, pointer-free canonical hash for
+  every captured frame in a preallocated 16 MiB timeline. The budget is
+  deducted from the existing 512 MiB replay cap; opaque reconstruction images
+  remain local and outside the canonical history.
+- `ExecuteOwnedStateSeek` now acquires native restore ownership, requires both
+  target and source-end hashes, restores transactionally, verifies the landing
+  hash, rebases the runtime cursor, and enters a resume-validation state.
+- While resuming, authoritative input must match the immutable baseline,
+  batch/checkpoint stores are not duplicated, and each live frame is recaptured
+  and compared to its original canonical hash. Capture resumes only after the
+  original source-end coordinate is reached at an outer-batch boundary.
+- HorseMod exposes a test-only in-process request/status boundary. Requests are
+  queued from qualification tooling but executed only on the verified
+  simulation outer-tick fencepost. ReplayQualificationMod request schema 3 can
+  exercise ordered 10/25/50/75-percent seeks without adding a launcher,
+  transport, filesystem poller, or production fault injection to HorseMod.
+- Local evidence before runtime deployment: all three CTest targets pass and
+  all 14 deterministic qualification Python tests pass. Normal-render runtime
+  evidence is still required before this slice can be called qualified.
+
 ## Build and Ghidra identity
 
 - Executable identity/hash: SHA-256 `F8904E4B04BCA3B47BC52A683F6190365D2EB89EE8F44F8072759E9C5E04A553`

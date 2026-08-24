@@ -153,6 +153,7 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     bridge_.reset();
     input_timeline_.Clear();
     batch_timeline_.Clear();
+    canonical_timeline_.Clear();
     checkpoint_capture_.Reset();
     timeline_status_ = {};
     timeline_manager_ = 0;
@@ -162,6 +163,10 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     pending_batch_id_ = 0;
     pending_batch_entry_ = {};
     pending_batch_coordinates_.clear();
+    resume_target_ = {};
+    resume_source_end_ = {};
+    resume_validation_active_ = false;
+    resume_catchup_pending_ = false;
     generation_rebaseline_pending_ = false;
     continuing_session_rebaseline_ = false;
 }
@@ -236,7 +241,7 @@ Status Sc6ReplayRuntime::ObserveFrame(
         timeline_status_.failure = FailureCode::AdapterUnqualified;
         return Status::failure(timeline_status_.failure);
     }
-    if (!batch_timeline_.CanAppendBatch(
+    if (!resume_validation_active_ && !batch_timeline_.CanAppendBatch(
             pending_batch_coordinates_.size() + 1))
     {
         timeline_status_.partial = true;
@@ -247,13 +252,13 @@ Status Sc6ReplayRuntime::ObserveFrame(
     timeline_thread_id_ = observation.thread_id;
 
     const bool new_session = timeline_manager_ == 0;
-    const bool new_generation = new_session
+    const bool new_generation = !resume_validation_active_ && (new_session
         || timeline_manager_ != observation.battle_manager
         || timeline_input_log_ != observation.input_log
         || timeline_status_.native_round != observation.game_round
         || (timeline_status_.captured_frames != 0
             && observation.frame_counter
-                <= timeline_status_.last_coordinate.frame);
+                <= timeline_status_.last_coordinate.frame));
     if (new_generation)
     {
         if (new_session)
@@ -274,6 +279,14 @@ Status Sc6ReplayRuntime::ObserveFrame(
 
     const FrameCoordinate coordinate{
         timeline_status_.generations, observation.frame_counter};
+    if (resume_validation_active_
+        && (coordinate.generation != resume_source_end_.generation
+            || coordinate <= timeline_status_.last_coordinate
+            || coordinate > resume_source_end_))
+    {
+        timeline_status_.failure = FailureCode::AdvanceFailed;
+        return Status::failure(timeline_status_.failure);
+    }
     if (!new_generation && timeline_status_.captured_frames != 0
         && observation.game_time == timeline_status_.native_time)
         ++timeline_status_.same_native_time_coordinates;
@@ -336,6 +349,31 @@ Status Sc6ReplayRuntime::ObserveFrame(
     timeline_status_.round_state_frame = observation.round_state_frame;
     timeline_status_.unpause_countdown = observation.unpause_countdown;
     timeline_status_.pending_move_state = observation.pending_move_state;
+    if (resume_validation_active_)
+    {
+        const auto expected = canonical_timeline_.GetExact(coordinate);
+        if (!expected.has_value())
+        {
+            timeline_status_.failure = FailureCode::MissingSnapshot;
+            return Status::failure(timeline_status_.failure);
+        }
+        Snapshot observed{};
+        const Status captured = checkpoint_capture_.CaptureTransient(
+            coordinate, observed);
+        if (!captured.ok())
+        {
+            timeline_status_.failure = captured.code;
+            return captured;
+        }
+        if (observed.canonical_hash != *expected)
+        {
+            timeline_status_.failure = FailureCode::StateHashMismatch;
+            return Status::failure(timeline_status_.failure);
+        }
+        ++timeline_status_.resumed_frames_verified;
+        if (coordinate == resume_source_end_) resume_catchup_pending_ = true;
+        return Status::success();
+    }
     ++timeline_status_.captured_frames;
     const auto batch_entry = checkpoint_capture_.snapshots(
         CandidateCheckpointRole::BatchEntry).NearestAtOrBefore(coordinate);
@@ -394,6 +432,31 @@ Status Sc6ReplayRuntime::ObserveFrame(
             timeline_status_.checkpoint_failure = FailureCode::None;
         }
     }
+    if (!generation_rebaseline_pending_)
+    {
+        Snapshot canonical{};
+        const Status captured = checkpoint_capture_.CaptureTransient(
+            coordinate, canonical);
+        if (!captured.ok())
+        {
+            timeline_status_.failure = captured.code;
+            return captured;
+        }
+        const Status stored = canonical_timeline_.Append(
+            coordinate, canonical.canonical_hash);
+        timeline_status_.canonical_frames = canonical_timeline_.size();
+        timeline_status_.canonical_hash_bytes = canonical_timeline_.bytes_used();
+        if (stored.code == FailureCode::CapacityExceeded)
+        {
+            timeline_status_.partial = true;
+            return Status::success();
+        }
+        if (!stored.ok())
+        {
+            timeline_status_.failure = stored.code;
+            return stored;
+        }
+    }
     return Status::success();
 }
 
@@ -437,6 +500,20 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     }
     pending_batch_id_ = observation.batch_id;
     pending_batch_entry_ = timeline_status_.last_coordinate;
+
+    // A resumed future reuses the immutable baseline checkpoints and batch
+    // envelopes. Capturing a second batch-entry image here would both waste
+    // the bounded store and violate its strictly increasing coordinate order.
+    if (resume_validation_active_)
+    {
+        if (observation.before.frame_counter
+            != timeline_status_.last_coordinate.frame)
+        {
+            timeline_status_.failure = FailureCode::IdentityMismatch;
+            return Status::failure(timeline_status_.failure);
+        }
+        return Status::success();
+    }
 
     const FrameCoordinate coordinate = timeline_status_.last_coordinate;
     if (coordinate.generation == 0)
@@ -518,6 +595,7 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     const std::uint64_t rebaselines = timeline_status_.identity_rebaselines + 1;
     input_timeline_.Clear();
     batch_timeline_.Clear();
+    canonical_timeline_.Clear();
     checkpoint_capture_.InvalidateHistory();
     timeline_status_ = {};
     timeline_status_.sessions = sessions;
@@ -529,6 +607,10 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     pending_batch_id_ = 0;
     pending_batch_entry_ = {};
     pending_batch_coordinates_.clear();
+    resume_target_ = {};
+    resume_source_end_ = {};
+    resume_validation_active_ = false;
+    resume_catchup_pending_ = false;
     generation_rebaseline_pending_ = false;
     continuing_session_rebaseline_ = true;
 }
@@ -648,6 +730,18 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     envelope.round_state_before = observation.before.round_state;
     envelope.round_state_after = observation.after.round_state;
     envelope.input_generation_changed = input_generation_changed;
+    if (resume_validation_active_)
+    {
+        pending_batch_id_ = 0;
+        pending_batch_coordinates_.clear();
+        if (resume_catchup_pending_)
+        {
+            resume_validation_active_ = false;
+            resume_catchup_pending_ = false;
+            timeline_status_.resume_validation_active = false;
+        }
+        return Status::success();
+    }
     const Status stored = batch_timeline_.Append(
         envelope, pending_batch_coordinates_);
     pending_batch_id_ = 0;
@@ -706,6 +800,7 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     // envelope before that native teardown begins; no identity survives re-entry.
     input_timeline_.Clear();
     batch_timeline_.Clear();
+    canonical_timeline_.Clear();
     checkpoint_capture_.InvalidateHistory();
     timeline_status_ = {};
     timeline_manager_ = 0;
@@ -714,6 +809,10 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     pending_batch_id_ = 0;
     pending_batch_entry_ = {};
     pending_batch_coordinates_.clear();
+    resume_target_ = {};
+    resume_source_end_ = {};
+    resume_validation_active_ = false;
+    resume_catchup_pending_ = false;
     checkpoint_capture_.ReleaseBinding();
     generation_rebaseline_pending_ = false;
     continuing_session_rebaseline_ = false;
@@ -972,6 +1071,12 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
 Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     FrameCoordinate target, DeterministicHookSet& hooks) noexcept
 {
+    if (resume_validation_active_ || pending_batch_id_ != 0
+        || timeline_status_.partial
+        || timeline_status_.failure != FailureCode::None)
+    {
+        return Status::failure(FailureCode::IllegalTransition);
+    }
     ReplaySeekPlan plan{};
     Status status = PlanSeek(target, plan);
     if (!status.ok()) return status;
@@ -982,6 +1087,14 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     {
         return Status::failure(FailureCode::WrongThread);
     }
+
+    const FrameCoordinate source_end = timeline_status_.last_coordinate;
+    const auto expected_target = canonical_timeline_.GetExact(target);
+    const auto expected_source = canonical_timeline_.GetExact(source_end);
+    if (!expected_target.has_value() || !expected_source.has_value())
+        return Status::failure(FailureCode::MissingSnapshot);
+    status = checkpoint_capture_.EnsureRestoreOwnership(timeline_thread_id_);
+    if (!status.ok()) return status;
 
     Snapshot undo{};
     status = checkpoint_capture_.CaptureTransient(
@@ -1007,9 +1120,20 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
             plan.landing_batch_index, plan.landing_offset_in_batch, &landing);
     }
     if (status.ok()) status = checkpoint_capture_.RestoreAndVerify(landing);
+    if (status.ok() && landing.canonical_hash != *expected_target)
+        status = Status::failure(FailureCode::StateHashMismatch);
     if (!status.ok())
         return restore_undo()
             ? status : Status::failure(FailureCode::UndoFailed);
+
+    timeline_status_.last_coordinate = target;
+    timeline_status_.resume_target = target;
+    timeline_status_.resume_source_end = source_end;
+    resume_target_ = target;
+    resume_source_end_ = source_end;
+    resume_catchup_pending_ = false;
+    resume_validation_active_ = target != source_end;
+    timeline_status_.resume_validation_active = resume_validation_active_;
     return Status::success();
 }
 
