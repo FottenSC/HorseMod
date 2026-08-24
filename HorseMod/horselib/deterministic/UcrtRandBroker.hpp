@@ -33,7 +33,7 @@ struct UcrtRandBrokerImage
 class UcrtRandBroker
 {
 public:
-    Status Start(std::uint32_t owner_thread_id) noexcept;
+    Status Start() noexcept;
     Status AcquireOwnership(std::uint32_t thread_id) noexcept;
     void Stop() noexcept;
 
@@ -48,6 +48,10 @@ public:
 
     [[nodiscard]] UcrtRandBrokerMode mode() const noexcept { return mode_; }
     [[nodiscard]] FailureCode failure() const noexcept { return failure_; }
+    [[nodiscard]] std::uint32_t owner_thread_id() const noexcept
+    {
+        return owner_thread_id_;
+    }
 
 private:
     [[nodiscard]] static bool IsRandCallsite(std::uintptr_t return_rva) noexcept;

@@ -932,9 +932,11 @@ void test_ucrt_broker_is_callsite_and_thread_bound()
     for (auto& value : expected) value = std::rand();
 
     UcrtRandBroker broker;
-    expect(broker.Start(77).ok(), "start UCRT broker on one owner thread");
+    expect(broker.Start().ok(), "start UCRT broker before its native stream exists");
     broker.HandleSrand(77, Schema::Sc6UcrtLayout::rng_init_srand_return_rva,
         seed, &std::srand);
+    expect(broker.owner_thread_id() == 77,
+        "allowlisted native seed binds the broker's simulation thread");
     expect(broker.AcquireOwnership(77).ok(),
         "UCRT broker acquires only after an allowlisted seed");
     for (const auto value : expected)

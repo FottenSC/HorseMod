@@ -3453,7 +3453,8 @@ private:
                 "fp_x87_status_mismatches={} fp_mxcsr_status_mismatches={} "
                 "fp_before=0x{:04x}/0x{:04x}/0x{:08x} "
                 "fp_after=0x{:04x}/0x{:04x}/0x{:08x} "
-                "ucrt_mode={} ucrt_status={} ucrt_seeded={} ucrt_draws={} "
+                "ucrt_mode={} ucrt_status={} ucrt_owner_thread={} "
+                "ucrt_seeded={} ucrt_draws={} "
                 "ucrt_state=0x{:08x}\n"),
                 timeline.captured_frames,
                 timeline.repeat_requests,
@@ -3488,6 +3489,7 @@ private:
                 static_cast<unsigned int>(self->m_ucrt_rand_broker.mode()),
                 RC::to_generic_string(std::string(
                     Horse::Deterministic::failure_code_name(ucrt_status.code))),
+                self->m_ucrt_rand_broker.owner_thread_id(),
                 ucrt_image.seeded,
                 ucrt_image.draws,
                 ucrt_image.state);
@@ -4044,8 +4046,7 @@ public:
         }
         if (m_deterministic_config.trace)
         {
-            const auto ucrt_started = m_ucrt_rand_broker.Start(
-                ::GetCurrentThreadId());
+            const auto ucrt_started = m_ucrt_rand_broker.Start();
             if (!ucrt_started.ok())
             {
                 m_frame_fencepost_hook_status = ucrt_started;

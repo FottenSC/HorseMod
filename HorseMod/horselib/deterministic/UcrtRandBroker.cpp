@@ -4,12 +4,9 @@
 
 namespace Horse::Deterministic
 {
-Status UcrtRandBroker::Start(std::uint32_t owner_thread_id) noexcept
+Status UcrtRandBroker::Start() noexcept
 {
     Stop();
-    if (owner_thread_id == 0)
-        return Status::failure(FailureCode::InvalidConfiguration);
-    owner_thread_id_ = owner_thread_id;
     image_.algorithm_version = Schema::Sc6UcrtLayout::algorithm_version;
     image_.allowlist_version = Schema::Sc6UcrtLayout::allowlist_version;
     mode_ = UcrtRandBrokerMode::Observing;
@@ -93,6 +90,7 @@ void UcrtRandBroker::HandleSrand(std::uint32_t thread_id,
     {
         return;
     }
+    if (owner_thread_id_ == 0) owner_thread_id_ = thread_id;
     if (!RequireOwner(thread_id)) return;
     image_.state = seed;
     image_.draws = 0;
