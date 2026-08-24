@@ -157,13 +157,24 @@ void append_input_log(
     std::vector<std::byte>& output,
     const NativeFrameInputLogImage& input_log)
 {
-    append_bytes(output, input_log.scalars.data(), input_log.scalars.size());
+    constexpr std::size_t packed_row_size = sizeof(std::int32_t)
+        + sizeof(std::uint32_t) + sizeof(std::uint32_t) + sizeof(std::uint8_t);
+    const auto begin = output.size();
+    output.resize(begin + input_log.scalars.size()
+        + input_log.cache_rows.size() * packed_row_size);
+    auto* destination = output.data() + begin;
+    std::memcpy(destination, input_log.scalars.data(), input_log.scalars.size());
+    destination += input_log.scalars.size();
     for (const auto& row : input_log.cache_rows)
     {
-        append_bytes(output, &row.game_round, sizeof(row.game_round));
-        append_bytes(output, &row.frame_index, sizeof(row.frame_index));
-        append_bytes(output, &row.input_value, sizeof(row.input_value));
-        append_bytes(output, &row.filled, sizeof(row.filled));
+        std::memcpy(destination, &row.game_round, sizeof(row.game_round));
+        destination += sizeof(row.game_round);
+        std::memcpy(destination, &row.frame_index, sizeof(row.frame_index));
+        destination += sizeof(row.frame_index);
+        std::memcpy(destination, &row.input_value, sizeof(row.input_value));
+        destination += sizeof(row.input_value);
+        std::memcpy(destination, &row.filled, sizeof(row.filled));
+        destination += sizeof(row.filled);
     }
 }
 
@@ -1064,7 +1075,10 @@ std::vector<std::byte> NativeCandidateRegions::CanonicalBytes(
     const NativeCandidateImage& image)
 {
     std::vector<std::byte> output;
-    output.reserve(0x6100);
+    // The two MoveCommand images plus the packed InputLog cache already exceed
+    // the old 0x6100 guess. Reserve the measured schema-6 upper bound so normal
+    // capture never reallocates while serializing canonical state.
+    output.reserve(0xB000);
     append_bytes(output, &image.session_generation, sizeof(image.session_generation));
     append_bytes(output, &image.round_generation, sizeof(image.round_generation));
     append_frame_boundary(output, image.frame);

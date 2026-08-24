@@ -32,6 +32,7 @@ struct CandidateCheckpointCaptureStatus
     std::uint64_t capture_p99_ns{};
     std::uint64_t store_max_ns{};
     std::uint64_t store_p99_ns{};
+    CandidateAdapterPerformanceStatus adapter_performance{};
     NativeCandidateValidationDiagnostic validation{};
 };
 

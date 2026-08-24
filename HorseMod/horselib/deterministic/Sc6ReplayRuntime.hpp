@@ -40,6 +40,8 @@ struct ReplayTimelineStatus
     std::uint64_t batch_entry_capture_p99_ns{};
     std::uint64_t batch_entry_store_max_ns{};
     std::uint64_t batch_entry_store_p99_ns{};
+    CandidateAdapterPerformanceStatus checkpoint_adapter_performance{};
+    CandidateAdapterPerformanceStatus batch_entry_adapter_performance{};
     std::uint64_t repeat_requests{};
     std::uint64_t same_native_time_coordinates{};
     std::uint64_t cursor_mismatches{};

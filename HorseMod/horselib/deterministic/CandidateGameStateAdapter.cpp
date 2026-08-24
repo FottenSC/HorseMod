@@ -2,6 +2,8 @@
 
 #include "FloatingPointEnvironment.hpp"
 
+#include <chrono>
+
 namespace Horse::Deterministic
 {
 CandidateGameStateAdapter::CandidateGameStateAdapter(
@@ -58,6 +60,11 @@ Status CandidateGameStateAdapter::Configure(
 void CandidateGameStateAdapter::Reset() noexcept
 {
     binding_ = {};
+    typed_capture_timing_ = {};
+    local_capture_timing_ = {};
+    ucrt_capture_timing_ = {};
+    wind_capture_timing_ = {};
+    encode_timing_ = {};
     configured_ = false;
     bound_ = false;
 }
@@ -86,12 +93,22 @@ Status CandidateGameStateAdapter::capture_image(
 {
     ScopedFloatingPointEnvironment fp_scope;
     output = {};
+    const auto typed_begin = std::chrono::steady_clock::now();
     Status status = regions_.Capture(output.native);
+    const auto typed_end = std::chrono::steady_clock::now();
+    typed_capture_timing_.Record(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            typed_end - typed_begin).count()));
     if (status.ok())
     {
         HgCpuLocalImage local{};
+        const auto local_begin = std::chrono::steady_clock::now();
         status = hgcpu_.Capture(
             binding_.hgcpu_writer, binding_.hgcpu_context, local);
+        const auto local_end = std::chrono::steady_clock::now();
+        local_capture_timing_.Record(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                local_end - local_begin).count()));
         if (status.ok())
         {
             try { output.local_images.push_back(std::move(local)); }
@@ -100,10 +117,23 @@ Status CandidateGameStateAdapter::capture_image(
     }
     if (status.ok())
     {
+        const auto ucrt_begin = std::chrono::steady_clock::now();
         status = binding_.ucrt_broker->Capture(
             binding_.simulation_thread_id, output.ucrt);
+        const auto ucrt_end = std::chrono::steady_clock::now();
+        ucrt_capture_timing_.Record(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                ucrt_end - ucrt_begin).count()));
     }
-    if (status.ok()) status = binding_.wind_probe->Capture(output.wind);
+    if (status.ok())
+    {
+        const auto wind_begin = std::chrono::steady_clock::now();
+        status = binding_.wind_probe->Capture(output.wind);
+        const auto wind_end = std::chrono::steady_clock::now();
+        wind_capture_timing_.Record(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                wind_end - wind_begin).count()));
+    }
     const Status fp = fp_scope.Finish();
     return status.ok() ? fp : status;
 }
@@ -117,8 +147,26 @@ Status CandidateGameStateAdapter::Capture(
     CandidateCheckpointImage image{};
     const Status captured = capture_image(image);
     if (!captured.ok()) return captured;
-    return CandidateCheckpointCodec::Encode(
+    const auto encode_begin = std::chrono::steady_clock::now();
+    const Status encoded = CandidateCheckpointCodec::Encode(
         coordinate, binding_.context.battle_identity, image, output);
+    const auto encode_end = std::chrono::steady_clock::now();
+    encode_timing_.Record(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            encode_end - encode_begin).count()));
+    return encoded;
+}
+
+CandidateAdapterPerformanceStatus
+CandidateGameStateAdapter::performance_status() const noexcept
+{
+    return {
+        typed_capture_timing_.Status(),
+        local_capture_timing_.Status(),
+        ucrt_capture_timing_.Status(),
+        wind_capture_timing_.Status(),
+        encode_timing_.Status(),
+    };
 }
 
 Status CandidateGameStateAdapter::decode_and_preflight(

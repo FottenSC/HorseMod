@@ -3361,7 +3361,8 @@ private:
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] candidate checkpoint captured count={} generation={} "
                 "frame={} bytes={} wind_nodes={} capture_p99_us={} "
-                "capture_max_us={} store_p99_us={}\n"),
+                "capture_max_us={} store_p99_us={} typed_p99_us={} "
+                "local_p99_us={} wind_p99_us={} encode_p99_us={}\n"),
                 timeline.captured_checkpoints,
                 timeline.last_coordinate.generation,
                 timeline.last_coordinate.frame,
@@ -3369,7 +3370,11 @@ private:
                 timeline.checkpoint_wind_nodes,
                 timeline.checkpoint_capture_p99_ns / 1000,
                 timeline.checkpoint_capture_max_ns / 1000,
-                timeline.checkpoint_store_p99_ns / 1000);
+                timeline.checkpoint_store_p99_ns / 1000,
+                timeline.checkpoint_adapter_performance.typed_capture.p99_ns / 1000,
+                timeline.checkpoint_adapter_performance.local_capture.p99_ns / 1000,
+                timeline.checkpoint_adapter_performance.wind_capture.p99_ns / 1000,
+                timeline.checkpoint_adapter_performance.encode.p99_ns / 1000);
         }
         if (timeline.checkpoint_failure != Horse::Deterministic::FailureCode::None
             && !self->m_candidate_checkpoint_first_failure_logged.exchange(
@@ -3544,7 +3549,9 @@ private:
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] candidate batch-entry checkpoint captured count={} "
                 "generation={} frame={} bytes={} wind_nodes={} "
-                "capture_p99_us={} capture_max_us={} store_p99_us={}\n"),
+                "capture_p99_us={} capture_max_us={} store_p99_us={} "
+                "typed_p99_us={} local_p99_us={} wind_p99_us={} "
+                "encode_p99_us={}\n"),
                 timeline.captured_batch_entry_checkpoints,
                 timeline.last_coordinate.generation,
                 timeline.last_coordinate.frame,
@@ -3552,7 +3559,11 @@ private:
                 timeline.batch_entry_wind_nodes,
                 timeline.batch_entry_capture_p99_ns / 1000,
                 timeline.batch_entry_capture_max_ns / 1000,
-                timeline.batch_entry_store_p99_ns / 1000);
+                timeline.batch_entry_store_p99_ns / 1000,
+                timeline.batch_entry_adapter_performance.typed_capture.p99_ns / 1000,
+                timeline.batch_entry_adapter_performance.local_capture.p99_ns / 1000,
+                timeline.batch_entry_adapter_performance.wind_capture.p99_ns / 1000,
+                timeline.batch_entry_adapter_performance.encode.p99_ns / 1000);
         }
         if (timeline.batch_entry_checkpoint_failure
                 != Horse::Deterministic::FailureCode::None

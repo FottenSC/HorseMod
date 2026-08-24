@@ -59,6 +59,31 @@ histogram bucket. The next implementation step is phase-level timing followed
 by removal of the dominant bounded allocations/copies; the threshold is not
 relaxed.
 
+### Capture-path optimization evidence
+
+Dirty implementation work after `6412e08e` added fixed-size timing histograms
+for typed capture, native local capture, UCRT, wind, encoding, total capture,
+and store insertion. It then removed three measured costs without changing the
+captured contract:
+
+- packed the 1,024 InputLog rows into one pre-sized canonical buffer instead of
+  thousands of tiny vector insertions;
+- replaced per-checkpoint SHA provider opening and the second contiguous hash
+  input copy with direct fragment hashing through the Windows SHA-256
+  pseudo-provider;
+- advanced `HgCpuDirect` local-image format to serializer version 2 and replaced
+  byte-serial FNV with a word-at-a-time 64-bit local integrity checksum. This
+  checksum is local-only and remains excluded from peer canonical truth.
+
+Normal-render 600-frame replay-entry continued to pass after every step. On DLL
+SHA-256 `70A0CFF5890954090DCF8A13BDE7BCE97574D3380FF181974533F30E58106039`,
+landing capture reported 0.44 ms p99/max and every observed capture remained
+below 1 ms. Batch-entry reported 0.74 ms because its first and only cold CNG
+initialization sample took 0.735 ms; its encode phase fell from 0.54 ms on that
+first sample to 0.22 ms after initialization. A longer exact-commit workload is
+still required to establish steady p99 with enough samples; the cold maximum is
+retained and the 0.5 ms threshold is not relaxed.
+
 ## Remaining admission gate
 
 Repeat native-source coverage for every required matchup and correction phase.

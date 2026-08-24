@@ -228,6 +228,8 @@ Status Sc6ReplayRuntime::ObserveFrame(
         timeline_status_.checkpoint_capture_p99_ns = checkpoint_status.capture_p99_ns;
         timeline_status_.checkpoint_store_max_ns = checkpoint_status.store_max_ns;
         timeline_status_.checkpoint_store_p99_ns = checkpoint_status.store_p99_ns;
+        timeline_status_.checkpoint_adapter_performance =
+            checkpoint_status.adapter_performance;
         timeline_status_.checkpoint_failure = checkpoint.ok()
             ? FailureCode::None : checkpoint.code;
         timeline_status_.checkpoint_validation = checkpoint_status.validation;
@@ -315,6 +317,7 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     timeline_status_.batch_entry_capture_p99_ns = status.capture_p99_ns;
     timeline_status_.batch_entry_store_max_ns = status.store_max_ns;
     timeline_status_.batch_entry_store_p99_ns = status.store_p99_ns;
+    timeline_status_.batch_entry_adapter_performance = status.adapter_performance;
     timeline_status_.batch_entry_checkpoint_failure = captured.ok()
         ? FailureCode::None : captured.code;
     timeline_status_.batch_entry_checkpoint_validation = status.validation;

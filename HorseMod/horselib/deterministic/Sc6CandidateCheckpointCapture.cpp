@@ -578,6 +578,7 @@ Status Sc6CandidateCheckpointCapture::Capture(
     capture_status.capture_p99_ns = capture_timing.Percentile99();
     capture_status.store_max_ns = store_timing.maximum_ns;
     capture_status.store_p99_ns = store_timing.Percentile99();
+    capture_status.adapter_performance = adapter_->performance_status();
     if (!captured.ok())
     {
         capture_status.failure = captured.code;

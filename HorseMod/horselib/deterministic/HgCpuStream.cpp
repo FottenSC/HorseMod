@@ -1,5 +1,6 @@
 #include "HgCpuStream.hpp"
 
+#include <bit>
 #include <cstring>
 
 #if defined(_MSC_VER)
@@ -74,15 +75,33 @@ bool HgCpuStreamShim::ValidContext(const HgCpuGenerationContext& context) noexce
 
 std::uint64_t HgCpuStreamShim::Checksum(const HgCpuLocalImage& image) noexcept
 {
-    constexpr std::uint64_t offset = 14695981039346656037ull;
-    constexpr std::uint64_t prime = 1099511628211ull;
-    std::uint64_t hash = offset;
+    // Opaque images are commonly ~150 KiB and this check runs at capture and
+    // validation. Consume full machine words so integrity checking does not
+    // dominate the native serializer itself. This is an integrity checksum,
+    // not canonical truth or a peer-visible cryptographic digest.
+    constexpr std::uint64_t seed = 0x9E3779B185EBCA87ull;
+    constexpr std::uint64_t prime1 = 0xC2B2AE3D27D4EB4Full;
+    constexpr std::uint64_t prime2 = 0x165667B19E3779F9ull;
+    std::uint64_t hash = seed;
     const auto add = [&hash](const void* data, std::size_t size) {
         const auto* bytes = static_cast<const std::byte*>(data);
-        for (std::size_t i = 0; i < size; ++i)
+        while (size >= sizeof(std::uint64_t))
         {
-            hash ^= std::to_integer<std::uint8_t>(bytes[i]);
-            hash *= prime;
+            std::uint64_t word{};
+            std::memcpy(&word, bytes, sizeof(word));
+            word ^= seed;
+            word *= prime1;
+            word = std::rotl(word, 31);
+            word *= prime2;
+            hash ^= word;
+            hash = std::rotl(hash, 27) * prime1 + prime2;
+            bytes += sizeof(word);
+            size -= sizeof(word);
+        }
+        while (size-- != 0)
+        {
+            hash ^= std::to_integer<std::uint8_t>(*bytes++);
+            hash = std::rotl(hash, 11) * prime1;
         }
     };
     add(&image.serializer_id, sizeof(image.serializer_id));
@@ -90,6 +109,11 @@ std::uint64_t HgCpuStreamShim::Checksum(const HgCpuLocalImage& image) noexcept
     add(&image.context, sizeof(image.context));
     add(&image.cursor, sizeof(image.cursor));
     add(image.bytes.data(), image.bytes.size());
+    hash ^= hash >> 33;
+    hash *= 0xFF51AFD7ED558CCDull;
+    hash ^= hash >> 29;
+    hash *= 0xC4CEB9FE1A85EC53ull;
+    hash ^= hash >> 32;
     return hash;
 }
 

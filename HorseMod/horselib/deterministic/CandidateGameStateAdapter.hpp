@@ -5,6 +5,9 @@
 #include "NativeCandidateRegions.hpp"
 #include "StageWindGraphTransaction.hpp"
 
+#include <algorithm>
+#include <array>
+
 namespace Horse::Deterministic
 {
 using CandidateAdvanceFn = Status (*)(
@@ -33,6 +36,22 @@ struct CandidateAdapterBinding
     CandidateReconcileFn reconcile{};
 };
 
+struct CandidatePhaseTimingStatus
+{
+    std::uint64_t samples{};
+    std::uint64_t maximum_ns{};
+    std::uint64_t p99_ns{};
+};
+
+struct CandidateAdapterPerformanceStatus
+{
+    CandidatePhaseTimingStatus typed_capture{};
+    CandidatePhaseTimingStatus local_capture{};
+    CandidatePhaseTimingStatus ucrt_capture{};
+    CandidatePhaseTimingStatus wind_capture{};
+    CandidatePhaseTimingStatus encode{};
+};
+
 class CandidateGameStateAdapter final : public IGameStateAdapter
 {
 public:
@@ -54,8 +73,47 @@ public:
         const InputPair& inputs,
         bool suppress_ephemeral_presentation) noexcept override;
     Status ReconcilePresentation(FrameCoordinate coordinate) noexcept override;
+    [[nodiscard]] CandidateAdapterPerformanceStatus performance_status()
+        const noexcept;
 
 private:
+    struct PhaseTimingHistogram
+    {
+        static constexpr std::uint64_t bucket_width_ns = 10'000;
+        static constexpr std::size_t bucket_count = 502;
+
+        void Record(std::uint64_t nanoseconds) noexcept
+        {
+            const auto bucket = static_cast<std::size_t>(std::min<std::uint64_t>(
+                nanoseconds / bucket_width_ns, bucket_count - 1));
+            ++buckets[bucket];
+            ++samples;
+            if (nanoseconds > maximum_ns) maximum_ns = nanoseconds;
+        }
+
+        [[nodiscard]] CandidatePhaseTimingStatus Status() const noexcept
+        {
+            CandidatePhaseTimingStatus result{samples, maximum_ns, 0};
+            if (samples == 0) return result;
+            const std::uint64_t target = (samples * 99 + 99) / 100;
+            std::uint64_t cumulative{};
+            for (std::size_t index = 0; index < buckets.size(); ++index)
+            {
+                cumulative += buckets[index];
+                if (cumulative >= target)
+                {
+                    result.p99_ns = (index + 1) * bucket_width_ns;
+                    break;
+                }
+            }
+            return result;
+        }
+
+        std::array<std::uint64_t, bucket_count> buckets{};
+        std::uint64_t samples{};
+        std::uint64_t maximum_ns{};
+    };
+
     [[nodiscard]] bool context_matches(const NativeContext& context) const noexcept;
     Status capture_image(CandidateCheckpointImage& output) noexcept;
     Status decode_and_preflight(
@@ -66,6 +124,11 @@ private:
     NativeCandidateRegions& regions_;
     HgCpuStreamShim& hgcpu_;
     CandidateAdapterBinding binding_{};
+    PhaseTimingHistogram typed_capture_timing_{};
+    PhaseTimingHistogram local_capture_timing_{};
+    PhaseTimingHistogram ucrt_capture_timing_{};
+    PhaseTimingHistogram wind_capture_timing_{};
+    PhaseTimingHistogram encode_timing_{};
     bool configured_{};
     bool bound_{};
 };

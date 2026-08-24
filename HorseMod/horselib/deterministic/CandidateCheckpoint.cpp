@@ -177,30 +177,28 @@ Status decode_wind_local(
 bool hash_candidate(FrameCoordinate coordinate, std::uint64_t context_identity,
     std::span<const std::byte> canonical, CanonicalHash& output) noexcept
 {
-    std::vector<std::byte> input;
-    try
-    {
-        input.reserve(hash_domain.size() + sizeof(coordinate) +
-            sizeof(context_identity) + canonical.size());
-        append_range(input, hash_domain);
-        append(input, coordinate.generation);
-        append(input, coordinate.frame);
-        append(input, context_identity);
-        append_range(input, canonical);
-    }
-    catch (...) { return false; }
-
-    BCRYPT_ALG_HANDLE provider{};
-    if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(
-            &provider, BCRYPT_SHA256_ALGORITHM, nullptr, 0)))
+    BCRYPT_HASH_HANDLE hash{};
+    if (!BCRYPT_SUCCESS(BCryptCreateHash(
+            BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0)))
         return false;
-    const NTSTATUS status = BCryptHash(provider, nullptr, 0,
-        reinterpret_cast<PUCHAR>(input.data()),
-        static_cast<ULONG>(input.size()),
+    const auto add = [hash](const void* data, std::size_t size) noexcept {
+        return size <= std::numeric_limits<ULONG>::max()
+            && BCRYPT_SUCCESS(BCryptHashData(hash,
+                reinterpret_cast<PUCHAR>(const_cast<void*>(data)),
+                static_cast<ULONG>(size), 0));
+    };
+    // Hash the canonical domain in place. Building a second contiguous vector
+    // copied every typed byte solely to satisfy the one-shot BCrypt API.
+    const bool added = add(hash_domain.data(), hash_domain.size())
+        && add(&coordinate.generation, sizeof(coordinate.generation))
+        && add(&coordinate.frame, sizeof(coordinate.frame))
+        && add(&context_identity, sizeof(context_identity))
+        && add(canonical.data(), canonical.size());
+    const bool finished = added && BCRYPT_SUCCESS(BCryptFinishHash(hash,
         reinterpret_cast<PUCHAR>(output.data()),
-        static_cast<ULONG>(output.size()));
-    BCryptCloseAlgorithmProvider(provider, 0);
-    return BCRYPT_SUCCESS(status);
+        static_cast<ULONG>(output.size()), 0));
+    BCryptDestroyHash(hash);
+    return finished;
 }
 
 bool generations_match(FrameCoordinate coordinate,
