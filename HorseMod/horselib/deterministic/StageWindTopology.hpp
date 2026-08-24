@@ -40,6 +40,8 @@ struct StageWindNodeLayout
     std::uint32_t vtable_rva) noexcept;
 [[nodiscard]] std::size_t StageWindSemanticStateSize(
     const StageWindNodeLayout& layout) noexcept;
+[[nodiscard]] std::size_t StageWindDerivedStateSize(
+    const StageWindNodeLayout& layout) noexcept;
 
 struct StageWindNodeImage
 {
@@ -62,6 +64,9 @@ struct StageWindTopologyImage
 
     friend bool operator==(const StageWindTopologyImage&, const StageWindTopologyImage&) = default;
 };
+
+[[nodiscard]] bool ValidateStageWindTopologyImage(
+    const StageWindTopologyImage& image) noexcept;
 
 struct StageWindTopologyAddresses
 {

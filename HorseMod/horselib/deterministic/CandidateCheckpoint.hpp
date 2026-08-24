@@ -2,6 +2,7 @@
 
 #include "HgCpuStream.hpp"
 #include "NativeCandidateRegions.hpp"
+#include "StageWindTopology.hpp"
 #include "UcrtRandBroker.hpp"
 
 namespace Horse::Deterministic
@@ -13,6 +14,7 @@ struct CandidateCheckpointImage
     NativeCandidateImage native{};
     HgCpuLocalImage hgcpu{};
     UcrtRandBrokerImage ucrt{};
+    StageWindTopologyImage wind{};
 };
 
 class CandidateCheckpointCodec

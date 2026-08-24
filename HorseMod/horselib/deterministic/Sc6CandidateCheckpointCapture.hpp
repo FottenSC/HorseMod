@@ -5,6 +5,7 @@
 #include "Schema.hpp"
 #include "SnapshotStore.hpp"
 #include "StageWindTopology.hpp"
+#include "StageWindGraphTransaction.hpp"
 
 #include <memory>
 
@@ -49,6 +50,7 @@ public:
 
 private:
     class ProcessMemory;
+    class ProcessStageWindAllocator;
 
     Status bind(
         std::uintptr_t battle_manager,
@@ -69,6 +71,8 @@ private:
     std::unique_ptr<NativeCandidateRegions> regions_;
     std::unique_ptr<CallbackTopologyProbe> callback_probe_;
     std::unique_ptr<StageWindTopologyProbe> wind_probe_;
+    std::unique_ptr<ProcessStageWindAllocator> wind_allocator_;
+    std::unique_ptr<StageWindGraphTransaction> wind_transaction_;
     HgCpuStreamShim hgcpu_{};
     std::unique_ptr<CandidateGameStateAdapter> adapter_;
     UcrtRandBroker* ucrt_broker_{};

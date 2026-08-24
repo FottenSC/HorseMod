@@ -3,6 +3,7 @@
 #include "CandidateCheckpoint.hpp"
 #include "Interfaces.hpp"
 #include "NativeCandidateRegions.hpp"
+#include "StageWindGraphTransaction.hpp"
 
 namespace Horse::Deterministic
 {
@@ -22,6 +23,9 @@ struct CandidateAdapterBinding
     HgCpuExecFn hgcpu_writer{};
     HgCpuExecFn hgcpu_reader{};
     UcrtRandBroker* ucrt_broker{};
+    StageWindTopologyProbe* wind_probe{};
+    StageWindGraphTransaction* wind_transaction{};
+    StageWindTopologyAddresses wind_addresses{};
     std::uint32_t simulation_thread_id{};
     void* action_user{};
     CandidateAdvanceFn advance{};

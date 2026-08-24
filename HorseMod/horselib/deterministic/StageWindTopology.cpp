@@ -107,6 +107,32 @@ std::size_t StageWindSemanticStateSize(const StageWindNodeLayout& layout) noexce
     return total;
 }
 
+std::size_t StageWindDerivedStateSize(const StageWindNodeLayout& layout) noexcept
+{
+    std::size_t total{};
+    for (const auto range : layout.derived_ranges) total += range.size;
+    return total;
+}
+
+bool ValidateStageWindTopologyImage(const StageWindTopologyImage& image) noexcept
+{
+    if (image.generation == 0 || image.nodes.size() > max_wind_nodes) return false;
+    std::uint32_t active_bank{};
+    std::int32_t pending_count{};
+    std::memcpy(&active_bank, image.schedule_state.data(), sizeof(active_bank));
+    std::memcpy(&pending_count, image.schedule_state.data() + 4, sizeof(pending_count));
+    if (active_bank > 1 || pending_count < 0 || pending_count > 8) return false;
+    for (const auto& node : image.nodes)
+    {
+        const auto* layout = FindStageWindNodeLayout(node.kind);
+        if (layout == nullptr
+            || node.semantic_state.size() != StageWindSemanticStateSize(*layout)
+            || node.derived_state.size() != StageWindDerivedStateSize(*layout))
+            return false;
+    }
+    return true;
+}
+
 StageWindTopologyProbe::StageWindTopologyProbe(INativeMemory& memory) noexcept
     : memory_(memory)
 {

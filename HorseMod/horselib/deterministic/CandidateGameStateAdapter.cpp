@@ -30,6 +30,8 @@ Status CandidateGameStateAdapter::Configure(
         || binding.context.stage_identity == 0 || binding.hgcpu_writer == nullptr
         || binding.hgcpu_reader == nullptr || !regions_.IsBound()
         || binding.ucrt_broker == nullptr || binding.simulation_thread_id == 0
+        || binding.wind_probe == nullptr || binding.wind_transaction == nullptr
+        || binding.wind_addresses.generation != binding.context.generation
         || binding.ucrt_broker->owner_thread_id()
             != binding.simulation_thread_id
         || binding.hgcpu_context.schema_id != Schema::snapshot_schema_version
@@ -92,6 +94,7 @@ Status CandidateGameStateAdapter::capture_image(
         status = binding_.ucrt_broker->Capture(
             binding_.simulation_thread_id, output.ucrt);
     }
+    if (status.ok()) status = binding_.wind_probe->Capture(output.wind);
     const Status fp = fp_scope.Finish();
     return status.ok() ? fp : status;
 }
@@ -164,6 +167,9 @@ Status CandidateGameStateAdapter::restore_image(
         binding_.hgcpu_reader, binding_.hgcpu_context, image.hgcpu);
     if (status.ok()) status = regions_.RestoreTransactional(image.native);
     if (status.ok())
+        status = binding_.wind_transaction->Restore(
+            binding_.wind_addresses, image.wind);
+    if (status.ok())
     {
         status = binding_.ucrt_broker->Restore(
             binding_.simulation_thread_id, image.ucrt);
@@ -177,9 +183,11 @@ bool CandidateGameStateAdapter::undo_image(
     const Status ucrt = binding_.ucrt_broker->Restore(
         binding_.simulation_thread_id, image.ucrt);
     const Status native = regions_.RestoreTransactional(image.native);
+    const Status wind = binding_.wind_transaction->Restore(
+        binding_.wind_addresses, image.wind);
     const Status hgcpu = hgcpu_.Restore(
         binding_.hgcpu_reader, binding_.hgcpu_context, image.hgcpu);
-    return ucrt.ok() && native.ok() && hgcpu.ok();
+    return ucrt.ok() && native.ok() && wind.ok() && hgcpu.ok();
 }
 
 Status CandidateGameStateAdapter::RebuildDerivedState() noexcept
@@ -208,6 +216,7 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
             && observed.hgcpu.checksum == expected_image.hgcpu.checksum
             && observed.hgcpu.bytes == expected_image.hgcpu.bytes
             && observed.ucrt == expected_image.ucrt
+            && observed.wind == expected_image.wind
         ? Status::success()
         : Status::failure(FailureCode::RestoreVerificationFailed);
 }

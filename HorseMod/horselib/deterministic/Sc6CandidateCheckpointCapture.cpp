@@ -32,6 +32,8 @@ constexpr std::uintptr_t lfsr_rng_rva = 0x485EB30;
 constexpr std::uintptr_t xorshift_rng_rva = 0x470E2C8;
 constexpr std::uintptr_t wind_rng_rva = 0x470E2B0;
 constexpr std::uintptr_t wind_root_pointer_rva = 0x470E038;
+constexpr std::uintptr_t fmemory_malloc_rva = 0x4A61C0;
+constexpr std::uintptr_t fmemory_free_rva = 0x1F90000;
 constexpr std::ptrdiff_t input_filter_collection = 0x1210;
 constexpr std::size_t callback_entry_size = 0x40;
 constexpr std::size_t maximum_callback_entries = 64;
@@ -115,6 +117,47 @@ public:
         }
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
+};
+
+class Sc6CandidateCheckpointCapture::ProcessStageWindAllocator final
+    : public IStageWindAllocator
+{
+public:
+    ProcessStageWindAllocator(
+        std::uintptr_t image_base, std::uint32_t owner_thread_id) noexcept
+        : image_base_(image_base), owner_thread_id_(owner_thread_id)
+    {
+    }
+
+    std::uintptr_t Allocate(std::size_t size) noexcept override
+    {
+        if (GetCurrentThreadId() != owner_thread_id_
+            || (size != 0x130 && size != 0x180 && size != 0x1E0))
+            return 0;
+        using MallocFn = void* (__fastcall*)(std::size_t);
+        __try
+        {
+            return reinterpret_cast<std::uintptr_t>(
+                reinterpret_cast<MallocFn>(image_base_ + fmemory_malloc_rva)(size));
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+    }
+
+    void Free(std::uintptr_t address) noexcept override
+    {
+        if (address == 0 || GetCurrentThreadId() != owner_thread_id_) return;
+        using FreeFn = void (__fastcall*)(void*);
+        __try
+        {
+            reinterpret_cast<FreeFn>(image_base_ + fmemory_free_rva)(
+                reinterpret_cast<void*>(address));
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
+private:
+    std::uintptr_t image_base_{};
+    std::uint32_t owner_thread_id_{};
 };
 
 Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
@@ -271,6 +314,27 @@ Status Sc6CandidateCheckpointCapture::bind(
         {coordinate.generation * 2 - 1, coordinate.generation * 2},
         coordinate.generation,
     };
+    const StageWindTopologyAddresses wind_addresses{
+        image_base_, image_size_, image_base_ + wind_root_pointer_rva,
+        coordinate.generation};
+    const Status wind_status = wind_probe_->Bind(wind_addresses);
+    if (!wind_status.ok())
+    {
+        regions_->Invalidate();
+        return wind_status;
+    }
+    try
+    {
+        wind_allocator_ = std::make_unique<ProcessStageWindAllocator>(
+            image_base_, simulation_thread_id);
+        wind_transaction_ = std::make_unique<StageWindGraphTransaction>(
+            *memory_, *wind_allocator_);
+    }
+    catch (...)
+    {
+        ReleaseBinding();
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
     CandidateAdapterBinding adapter_binding{};
     adapter_binding.context = context;
     adapter_binding.hgcpu_context = {
@@ -286,26 +350,21 @@ Status Sc6CandidateCheckpointCapture::bind(
     adapter_binding.hgcpu_reader = reinterpret_cast<HgCpuExecFn>(
         image_base_ + hgcpu_reader_rva);
     adapter_binding.ucrt_broker = ucrt_broker_;
+    adapter_binding.wind_probe = wind_probe_.get();
+    adapter_binding.wind_transaction = wind_transaction_.get();
+    adapter_binding.wind_addresses = wind_addresses;
     adapter_binding.simulation_thread_id = simulation_thread_id;
     Status adapter_status = adapter_->Configure(adapter_binding);
     if (adapter_status.ok()) adapter_status = adapter_->BindContext(context);
     if (!adapter_status.ok())
     {
-        regions_->Invalidate();
+        ReleaseBinding();
         return adapter_status;
     }
     bound_manager_ = battle_manager;
     bound_move_dispatch_ = move_dispatch;
     bound_session_generation_ = session_generation;
     bound_round_generation_ = coordinate.generation;
-    const Status wind_status = wind_probe_->Bind({
-        image_base_, image_size_, image_base_ + wind_root_pointer_rva,
-        coordinate.generation});
-    if (!wind_status.ok())
-    {
-        ReleaseBinding();
-        return wind_status;
-    }
     CallbackTopology topology{};
     const Status callback_status = capture_callback_topology(topology);
     if (!callback_status.ok())
@@ -389,6 +448,8 @@ Status Sc6CandidateCheckpointCapture::Capture(
 void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 {
     adapter_->Reset();
+    wind_transaction_.reset();
+    wind_allocator_.reset();
     regions_->Invalidate();
     wind_probe_->Invalidate();
     bound_manager_ = 0;

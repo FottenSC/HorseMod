@@ -416,6 +416,15 @@ void test_candidate_checkpoint_codec()
         "capture checkpoint HgCpu image");
 
     CandidateCheckpointImage image{native, hgcpu, candidate_ucrt_image()};
+    image.wind.generation = native.round_generation;
+    const auto* ring_in_layout = FindStageWindNodeLayout(StageWindNodeKind::RingIn);
+    StageWindNodeImage ring_in{};
+    ring_in.kind = StageWindNodeKind::RingIn;
+    ring_in.semantic_state.assign(
+        StageWindSemanticStateSize(*ring_in_layout), std::byte{0xCC});
+    ring_in.derived_state.assign(
+        StageWindDerivedStateSize(*ring_in_layout), std::byte{0xDD});
+    image.wind.nodes.push_back(std::move(ring_in));
     Snapshot snapshot{};
     expect(CandidateCheckpointCodec::Encode({7, 30}, 0x9191, image, snapshot).ok(),
         "encode pointer-free candidate checkpoint");
@@ -435,6 +444,21 @@ void test_candidate_checkpoint_codec()
         "candidate checkpoint round-trips local HgCpu reconstruction image");
     expect(decoded.ucrt == image.ucrt,
         "candidate checkpoint round-trips value-only UCRT state");
+    expect(decoded.wind == image.wind,
+        "candidate checkpoint round-trips pointer-free wind state");
+
+    Snapshot corrupted_wind = snapshot;
+    const std::array derived_marker{
+        std::byte{0xDD}, std::byte{0xDD}, std::byte{0xDD}, std::byte{0xDD},
+        std::byte{0xDD}, std::byte{0xDD}, std::byte{0xDD}, std::byte{0xDD}};
+    const auto marker = std::search(corrupted_wind.bytes.begin(),
+        corrupted_wind.bytes.end(), derived_marker.begin(), derived_marker.end());
+    expect(marker != corrupted_wind.bytes.end(),
+        "checkpoint contains local wind-derived payload");
+    if (marker != corrupted_wind.bytes.end()) *marker ^= std::byte{1};
+    expect(CandidateCheckpointCodec::Decode(corrupted_wind, decoded).code
+            == FailureCode::CaptureFailed,
+        "checkpoint rejects corrupted non-canonical wind-derived bytes");
 
     Snapshot corrupted = snapshot;
     corrupted.bytes.back() ^= std::byte{1};
@@ -449,7 +473,37 @@ void test_candidate_checkpoint_codec()
         "checkpoint rejects native generation drift");
 }
 
-CandidateAdapterBinding candidate_binding(HgCpuExecFn reader)
+class EmptyStageWindAllocator final : public IStageWindAllocator
+{
+public:
+    std::uintptr_t Allocate(std::size_t) noexcept override { return 0; }
+    void Free(std::uintptr_t) noexcept override {}
+};
+
+struct CandidateWindFixture
+{
+    explicit CandidateWindFixture(Fixture& fixture)
+        : probe(fixture.memory), transaction(fixture.memory, allocator)
+    {
+        addresses = {Fixture::image_base, 0x4300000,
+            Fixture::memory_base + 0x1F000, 7};
+        root = Fixture::memory_base + 0x1E000;
+        fixture.memory.Set(addresses.root_pointer, root);
+        fixture.memory.Set(root, std::uintptr_t{});
+        fixture.memory.Set(root + 0x98, std::uint32_t{});
+        fixture.memory.Set(root + 0x9C, std::int32_t{});
+        expect(probe.Bind(addresses).ok(), "bind empty candidate wind fixture");
+    }
+
+    EmptyStageWindAllocator allocator;
+    StageWindTopologyProbe probe;
+    StageWindGraphTransaction transaction;
+    StageWindTopologyAddresses addresses{};
+    std::uintptr_t root{};
+};
+
+CandidateAdapterBinding candidate_binding(
+    HgCpuExecFn reader, CandidateWindFixture& wind)
 {
     prepare_candidate_ucrt_broker();
     CandidateAdapterBinding binding{};
@@ -458,6 +512,9 @@ CandidateAdapterBinding candidate_binding(HgCpuExecFn reader)
     binding.hgcpu_writer = &fake_hgcpu_writer;
     binding.hgcpu_reader = reader;
     binding.ucrt_broker = &candidate_ucrt_broker;
+    binding.wind_probe = &wind.probe;
+    binding.wind_transaction = &wind.transaction;
+    binding.wind_addresses = wind.addresses;
     binding.simulation_thread_id = candidate_thread_id;
     binding.reconcile = &noop_reconcile;
     return binding;
@@ -471,7 +528,8 @@ void test_candidate_adapter_restore_and_outer_undo()
     HgCpuStreamShim restored_hgcpu;
     CandidateGameStateAdapter restored_adapter{
         restored_fixture.regions, restored_hgcpu};
-    const auto restored_binding = candidate_binding(&fake_hgcpu_reader);
+    CandidateWindFixture restored_wind{restored_fixture};
+    const auto restored_binding = candidate_binding(&fake_hgcpu_reader, restored_wind);
     expect(restored_adapter.Configure(restored_binding).ok(),
         "configure candidate adapter restore fixture");
     InputTimeline restored_inputs{16};
@@ -514,7 +572,8 @@ void test_candidate_adapter_restore_and_outer_undo()
         "bind candidate adapter failure fixture");
     HgCpuStreamShim failed_hgcpu;
     CandidateGameStateAdapter failed_adapter{failed_fixture.regions, failed_hgcpu};
-    const auto failed_binding = candidate_binding(&flaky_hgcpu_reader);
+    CandidateWindFixture failed_wind{failed_fixture};
+    const auto failed_binding = candidate_binding(&flaky_hgcpu_reader, failed_wind);
     expect(failed_adapter.Configure(failed_binding).ok(),
         "configure candidate adapter failure fixture");
     InputTimeline failed_inputs{16};
@@ -547,7 +606,8 @@ void test_candidate_adapter_native_failure_undoes_hgcpu()
         "bind candidate adapter native-failure fixture");
     HgCpuStreamShim hgcpu;
     CandidateGameStateAdapter adapter{fixture.regions, hgcpu};
-    const auto binding = candidate_binding(&fake_hgcpu_reader);
+    CandidateWindFixture wind{fixture};
+    const auto binding = candidate_binding(&fake_hgcpu_reader, wind);
     expect(adapter.Configure(binding).ok(),
         "configure candidate adapter native-failure fixture");
     InputTimeline inputs{16};
@@ -1255,6 +1315,18 @@ void test_stage_wind_graph_restore_is_transactional()
             == FailureCode::CapacityExceeded
             && probe.Capture(restored).ok() && restored == target,
         "wind graph allocation failure is mutation-free");
+
+    StageWindTopologyImage invalid_schedule = target;
+    std::uint32_t invalid_bank = 2;
+    std::memcpy(invalid_schedule.schedule_state.data(), &invalid_bank,
+        sizeof(invalid_bank));
+    FixedStageWindAllocator unused_allocator{base + 0x38000};
+    StageWindGraphTransaction invalid_transaction{memory, unused_allocator};
+    expect(invalid_transaction.Restore(addresses, invalid_schedule).code
+            == FailureCode::RestorePreflightFailed
+            && unused_allocator.allocations.empty()
+            && probe.Capture(restored).ok() && restored == target,
+        "wind graph invalid callback-bank state fails before allocation or mutation");
 }
 }
 

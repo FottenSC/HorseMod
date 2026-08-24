@@ -18,14 +18,14 @@ namespace
 {
 constexpr std::array<std::byte, 8> magic{
     std::byte{'H'}, std::byte{'R'}, std::byte{'S'}, std::byte{'C'},
-    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{3}};
-constexpr std::uint32_t format_version = 3;
+    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{4}};
+constexpr std::uint32_t format_version = 4;
 constexpr std::array<std::byte, 20> hash_domain{
     std::byte{'H'}, std::byte{'o'}, std::byte{'r'}, std::byte{'s'},
     std::byte{'e'}, std::byte{'C'}, std::byte{'a'}, std::byte{'n'},
     std::byte{'d'}, std::byte{'i'}, std::byte{'d'}, std::byte{'a'},
     std::byte{'t'}, std::byte{'e'}, std::byte{'S'}, std::byte{'t'},
-    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{3}};
+    std::byte{'a'}, std::byte{'t'}, std::byte{'e'}, std::byte{4}};
 
 template <typename T>
 void append(std::vector<std::byte>& bytes, const T& value)
@@ -37,6 +37,17 @@ void append(std::vector<std::byte>& bytes, const T& value)
 void append_range(std::vector<std::byte>& output, std::span<const std::byte> bytes)
 {
     output.insert(output.end(), bytes.begin(), bytes.end());
+}
+
+std::uint64_t local_checksum(std::span<const std::byte> bytes) noexcept
+{
+    std::uint64_t hash = 1469598103934665603ull;
+    for (const auto value : bytes)
+    {
+        hash ^= std::to_integer<std::uint8_t>(value);
+        hash *= 1099511628211ull;
+    }
+    return hash;
 }
 
 void append_ucrt_canonical(
@@ -54,6 +65,31 @@ bool valid_ucrt_image(const UcrtRandBrokerImage& image) noexcept
     return image.seeded
         && image.algorithm_version == Schema::Sc6UcrtLayout::algorithm_version
         && image.allowlist_version == Schema::Sc6UcrtLayout::allowlist_version;
+}
+
+bool valid_wind_image(const StageWindTopologyImage& image) noexcept
+{
+    return ValidateStageWindTopologyImage(image);
+}
+
+void encode_wind_local(
+    const StageWindTopologyImage& image, std::vector<std::byte>& output)
+{
+    append(output, image.generation);
+    append_range(output, image.root_clock);
+    append_range(output, std::as_bytes(std::span{image.pending_callback_rvas}));
+    append_range(output, image.schedule_state);
+    append_range(output, image.schedule_params);
+    append_range(output, image.output_force);
+    append(output, static_cast<std::uint32_t>(image.nodes.size()));
+    for (const auto& node : image.nodes)
+    {
+        append(output, static_cast<std::uint8_t>(node.kind));
+        append(output, static_cast<std::uint32_t>(node.semantic_state.size()));
+        append(output, static_cast<std::uint32_t>(node.derived_state.size()));
+        append_range(output, node.semantic_state);
+        append_range(output, node.derived_state);
+    }
 }
 
 class Reader
@@ -90,6 +126,53 @@ private:
     std::span<const std::byte> bytes_;
     std::size_t cursor_{};
 };
+
+Status decode_wind_local(
+    std::span<const std::byte> bytes, StageWindTopologyImage& output) noexcept
+{
+    output = {};
+    Reader reader{bytes};
+    std::uint32_t count{};
+    if (!reader.Take(output.generation)
+        || !reader.TakeBytes(output.root_clock)
+        || !reader.TakeBytes(std::as_writable_bytes(
+            std::span{output.pending_callback_rvas}))
+        || !reader.TakeBytes(output.schedule_state)
+        || !reader.TakeBytes(output.schedule_params)
+        || !reader.TakeBytes(output.output_force)
+        || !reader.Take(count) || count > 64)
+        return Status::failure(FailureCode::CaptureFailed);
+    try { output.nodes.reserve(count); }
+    catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
+    for (std::uint32_t index = 0; index < count; ++index)
+    {
+        std::uint8_t kind{};
+        std::uint32_t semantic_size{}, derived_size{};
+        if (!reader.Take(kind)
+            || kind > static_cast<std::uint8_t>(StageWindNodeKind::ShockWave)
+            || !reader.Take(semantic_size) || !reader.Take(derived_size))
+            return Status::failure(FailureCode::CaptureFailed);
+        StageWindNodeImage node{};
+        node.kind = static_cast<StageWindNodeKind>(kind);
+        const auto* layout = FindStageWindNodeLayout(node.kind);
+        if (layout == nullptr || semantic_size != StageWindSemanticStateSize(*layout)
+            || derived_size != StageWindDerivedStateSize(*layout))
+            return Status::failure(FailureCode::IdentityMismatch);
+        const auto semantic = reader.TakeView(semantic_size);
+        const auto derived = reader.TakeView(derived_size);
+        if (semantic.size() != semantic_size || derived.size() != derived_size)
+            return Status::failure(FailureCode::CaptureFailed);
+        try
+        {
+            node.semantic_state.assign(semantic.begin(), semantic.end());
+            node.derived_state.assign(derived.begin(), derived.end());
+            output.nodes.push_back(std::move(node));
+        }
+        catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
+    }
+    return reader.Finished() && valid_wind_image(output)
+        ? Status::success() : Status::failure(FailureCode::CaptureFailed);
+}
 
 bool hash_candidate(FrameCoordinate coordinate, std::uint64_t context_identity,
     std::span<const std::byte> canonical, CanonicalHash& output) noexcept
@@ -129,7 +212,8 @@ bool generations_match(FrameCoordinate coordinate,
         && image.hgcpu.context.schema_id == Schema::snapshot_schema_version
         && image.hgcpu.context.session_generation == image.native.session_generation
         && image.hgcpu.context.round_generation == image.native.round_generation
-        && valid_ucrt_image(image.ucrt);
+        && image.wind.generation == image.native.round_generation
+        && valid_ucrt_image(image.ucrt) && valid_wind_image(image.wind);
 }
 }
 
@@ -152,16 +236,23 @@ Status CandidateCheckpointCodec::Encode(FrameCoordinate coordinate,
             return Status::failure(FailureCode::CapacityExceeded);
         std::vector<std::byte> canonical = native_canonical;
         append_ucrt_canonical(canonical, image.ucrt);
+        const auto wind_canonical = StageWindTopologyProbe::CanonicalBytes(image.wind);
+        append_range(canonical, wind_canonical);
+        std::vector<std::byte> wind_local;
+        encode_wind_local(image.wind, wind_local);
         output.coordinate = coordinate;
         output.context_identity = context_identity;
         if (!hash_candidate(coordinate, context_identity, canonical, output.canonical_hash))
             return Status::failure(FailureCode::CaptureFailed);
 
-        output.bytes.reserve(128 + canonical.size() + image.hgcpu.bytes.size());
+        output.bytes.reserve(128 + canonical.size() + wind_local.size()
+            + image.hgcpu.bytes.size());
         append_range(output.bytes, magic);
         append(output.bytes, format_version);
         append(output.bytes, Schema::snapshot_schema_version);
         append(output.bytes, static_cast<std::uint32_t>(native_canonical.size()));
+        append(output.bytes, static_cast<std::uint32_t>(wind_local.size()));
+        append(output.bytes, local_checksum(wind_local));
         append(output.bytes, image.ucrt.algorithm_version);
         append(output.bytes, image.ucrt.allowlist_version);
         append(output.bytes, image.ucrt.state);
@@ -177,6 +268,7 @@ Status CandidateCheckpointCodec::Encode(FrameCoordinate coordinate,
         append(output.bytes, static_cast<std::uint64_t>(image.hgcpu.cursor));
         append(output.bytes, image.hgcpu.checksum);
         append_range(output.bytes, native_canonical);
+        append_range(output.bytes, wind_local);
         append_range(output.bytes, image.hgcpu.bytes);
         return Status::success();
     }
@@ -196,6 +288,8 @@ Status CandidateCheckpointCodec::Decode(
     std::uint32_t observed_format{};
     std::uint32_t observed_schema{};
     std::uint32_t native_canonical_size{};
+    std::uint32_t wind_local_size{};
+    std::uint64_t wind_local_checksum{};
     std::uint8_t ucrt_seeded{};
     std::uint64_t hgcpu_size{};
     if (snapshot.coordinate.generation == 0 || snapshot.context_identity == 0
@@ -204,6 +298,8 @@ Status CandidateCheckpointCodec::Decode(
         || !reader.Take(observed_schema)
         || observed_schema != Schema::snapshot_schema_version
         || !reader.Take(native_canonical_size)
+        || !reader.Take(wind_local_size)
+        || !reader.Take(wind_local_checksum)
         || !reader.Take(output.ucrt.algorithm_version)
         || !reader.Take(output.ucrt.allowlist_version)
         || !reader.Take(output.ucrt.state)
@@ -225,8 +321,11 @@ Status CandidateCheckpointCodec::Decode(
     output.ucrt.seeded = ucrt_seeded != 0;
     output.hgcpu.cursor = static_cast<std::size_t>(hgcpu_size);
     const auto native_canonical = reader.TakeView(native_canonical_size);
+    const auto wind_local = reader.TakeView(wind_local_size);
     const auto hgcpu_bytes = reader.TakeView(output.hgcpu.cursor);
     if (native_canonical.size() != native_canonical_size
+        || wind_local.size() != wind_local_size
+        || local_checksum(wind_local) != wind_local_checksum
         || hgcpu_bytes.size() != output.hgcpu.cursor || !reader.Finished())
     {
         output = {};
@@ -255,7 +354,23 @@ Status CandidateCheckpointCodec::Decode(
     }
     const Status decoded = NativeCandidateRegions::DecodeCanonicalBytes(
         native_canonical, output.native);
-    if (!decoded.ok() || !generations_match(snapshot.coordinate, output)
+    const Status wind_decoded = decode_wind_local(wind_local, output.wind);
+    if (wind_decoded.ok())
+    {
+        try
+        {
+            const auto wind_canonical =
+                StageWindTopologyProbe::CanonicalBytes(output.wind);
+            append_range(canonical, wind_canonical);
+        }
+        catch (...)
+        {
+            output = {};
+            return Status::failure(FailureCode::CapacityExceeded);
+        }
+    }
+    if (!decoded.ok() || !wind_decoded.ok()
+        || !generations_match(snapshot.coordinate, output)
         || !HgCpuStreamShim::ValidateLocalImage(output.hgcpu)
         || !hash_candidate(snapshot.coordinate, snapshot.context_identity,
             canonical, verified_hash)

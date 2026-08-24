@@ -95,13 +95,6 @@ bool scatter_ranges(
     return true;
 }
 
-std::size_t range_bytes(std::span<const StageWindStateRange> ranges) noexcept
-{
-    std::size_t total{};
-    for (const auto range : ranges) total += range.size;
-    return total;
-}
-
 void free_all(IStageWindAllocator& allocator, std::span<const std::uintptr_t> nodes) noexcept
 {
     for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) allocator.Free(*it);
@@ -121,7 +114,7 @@ Status StageWindGraphTransaction::Restore(
     if (addresses.image_base == 0 || addresses.image_size == 0
         || addresses.root_pointer == 0 || addresses.generation == 0
         || target.generation != addresses.generation
-        || target.nodes.size() > max_nodes)
+        || !ValidateStageWindTopologyImage(target))
     {
         return Status::failure(FailureCode::RestorePreflightFailed);
     }
@@ -130,7 +123,7 @@ Status StageWindGraphTransaction::Restore(
         const auto* layout = FindStageWindNodeLayout(node.kind);
         if (layout == nullptr
             || node.semantic_state.size() != StageWindSemanticStateSize(*layout)
-            || node.derived_state.size() != range_bytes(layout->derived_ranges))
+            || node.derived_state.size() != StageWindDerivedStateSize(*layout))
             return Status::failure(FailureCode::RestorePreflightFailed);
     }
     for (const auto rva : target.pending_callback_rvas)

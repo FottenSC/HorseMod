@@ -315,6 +315,20 @@ touch their documented residue gaps. Structural tests now use a ring-in graph
 and prove that changing local matrices/travel values does not change canonical
 bytes, while restore still reproduces the complete captured local image.
 
+Candidate checkpoint format v4 now owns this wind image instead of discarding
+the probe result after logging. Its canonical SHA-256 domain appends only the
+pointer-free wind canonical bytes. The local payload separately serializes the
+derived bank and protects it with a bounded FNV-1a integrity checksum; corrupt
+local matrices therefore fail decoding without promoting them to peer
+authority. Decode validates the exact class layout, per-bank sizes, node count,
+generation, callback bank, and pending count. The real candidate adapter
+captures, transactionally restores, outer-undoes, and recaptures the wind image.
+Its SC6 allocator binding admits only the assembly-proven sizes `0x130`,
+`0x180`, and `0x1E0`, calls `FMemory_Malloc @ RVA 0x4A61C0` and
+`UE_FMemory_Free @ RVA 0x1F90000`, and refuses allocation away from the bound
+simulation thread. This path remains inactive with the production allowlist
+empty; live normal-render capture is required before any restore exercise.
+
 ## RNG and FP contract
 
 ### Explicit Lux RNG families
