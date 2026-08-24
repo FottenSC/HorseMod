@@ -99,6 +99,14 @@ bool CallNoParams(RC::Unreal::UObject* object, const wchar_t* name)
     return true;
 }
 
+bool EmulateTitleDecide()
+{
+    auto* input_util = RC::Unreal::UObjectGlobals::StaticFindObject<
+        RC::Unreal::UObject*>(nullptr, nullptr,
+            L"/Script/LuxorGame.Default__LuxInputUtil");
+    return CallNoParams(input_util, L"EmulateTitleDecide");
+}
+
 bool ChangeScene(RC::Unreal::UObject* manager, const wchar_t* tag)
 {
     auto* function = manager->GetFunctionByNameInChain(L"ChangeScene");
@@ -171,8 +179,9 @@ NavigationState ReplaySceneNavigator::Tick(std::string& detail)
     retry_frames_ = 0;
     if (scene_name.find("TitleScene") != std::string::npos)
     {
-        if (!CallNoParams(ObjectProperty(manager, L"CeBankManager"),
-                          L"TitleToMainMenu"))
+        if (!EmulateTitleDecide()
+            && !CallNoParams(ObjectProperty(manager, L"CeBankManager"),
+                             L"TitleToMainMenu"))
         {
             detail = "title_to_main_menu_failed";
             return NavigationState::Failed;
