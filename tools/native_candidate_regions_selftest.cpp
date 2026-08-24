@@ -8,6 +8,7 @@
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/SimulationSession.hpp"
 #include "deterministic/SnapshotStore.hpp"
+#include "deterministic/StageBreakListenerDiagnostics.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -752,6 +753,84 @@ void test_move_dispatch_partial_write_undoes_exactly()
     expect(fixture.memory.bytes() == before,
         "MoveDispatch partial write restores exact undo image");
 }
+
+void test_stage_break_listener_topology_is_value_only_and_bounded()
+{
+    constexpr std::uintptr_t base = 0x10000000;
+    constexpr std::size_t image_size = 0x20000;
+    FakeNativeMemory memory{base, 0x40000};
+    constexpr auto wall = base + 0x1000;
+    constexpr auto wall_emitter = wall + 0x3B0;
+    constexpr auto wall_vtable = base + 0x8000;
+    constexpr auto wall_callback = base + 0x9000;
+    memory.Set(wall + 0x450, std::int32_t{7});
+    memory.Set(wall_emitter + 0x40, std::uintptr_t{});
+    memory.Set(wall_emitter + 0x50, std::int32_t{1});
+    memory.Set(wall_emitter + 0x54, std::int32_t{1});
+    memory.Set(wall_emitter, wall_vtable);
+    memory.Set(wall_emitter + 0x20, std::uintptr_t{});
+    memory.Set(wall_emitter + 0x30, std::int32_t{1});
+    memory.Set(wall_vtable + 0x68, wall_callback);
+
+    constexpr auto barrier = base + 0x3000;
+    constexpr auto barrier_emitter = barrier + 0x390;
+    constexpr auto heap_entries = base + 0x12000;
+    constexpr auto listener_object = base + 0x15000;
+    constexpr auto barrier_vtable = base + 0x8100;
+    constexpr auto barrier_callback = base + 0x9100;
+    memory.Set(barrier + 0x420, std::int32_t{9});
+    memory.Set(barrier_emitter + 0x40, heap_entries);
+    memory.Set(barrier_emitter + 0x50, std::int32_t{2});
+    memory.Set(barrier_emitter + 0x54, std::int32_t{2});
+    memory.Set(heap_entries + 0x30, std::int32_t{});
+    memory.Set(heap_entries + 0x40 + 0x20, listener_object);
+    memory.Set(heap_entries + 0x40 + 0x30, std::int32_t{1});
+    memory.Set(listener_object, barrier_vtable);
+    memory.Set(barrier_vtable + 0x68, barrier_callback);
+
+    StageBreakListenerTopologyProbe probe{memory};
+    const std::array actors{
+        StageBreakActorRef{StageBreakActorKind::Wall, wall},
+        StageBreakActorRef{StageBreakActorKind::Barrier, barrier},
+    };
+    StageBreakListenerTopology topology{};
+    expect(probe.Capture(base, image_size, actors, topology).ok(),
+        "capture bounded stage-break listener topology");
+    expect(topology.actors.size() == 2 && topology.listeners.size() == 2,
+        "retain actors and only active listeners");
+    expect(topology.listeners[0].actor_id == 7
+            && topology.listeners[0].slot_index == 0
+            && topology.listeners[0].listener_vtable_rva == 0x8000
+            && topology.listeners[0].callback_rva == 0x9000,
+        "inline wall listener becomes module-relative values");
+    expect(topology.listeners[1].actor_id == 9
+            && topology.listeners[1].dispatch_order == 0
+            && topology.listeners[1].slot_index == 1
+            && topology.listeners[1].listener_vtable_rva == 0x8100
+            && topology.listeners[1].callback_rva == 0x9100,
+        "heap listener preserves reverse dispatch order without pointers");
+
+    const auto first_signature = topology.signature;
+    memory.Set(barrier_vtable + 0x68, base + 0x9200);
+    expect(probe.Capture(base, image_size, actors, topology).ok()
+            && topology.signature != first_signature,
+        "callback target drift changes the value-only signature");
+
+    const auto callback_drift_signature = topology.signature;
+    memory.Set(heap_entries + 0x40 + 0x30, std::int32_t{});
+    expect(probe.Capture(base, image_size, actors, topology).ok()
+            && topology.actors.size() == 2
+            && topology.listeners.size() == 1
+            && topology.signature != callback_drift_signature,
+        "actors with no active listeners remain visible in topology");
+
+    memory.Set(heap_entries + 0x40 + 0x30, std::int32_t{1});
+    memory.Set(barrier_vtable + 0x68, base + image_size + 0x100);
+    expect(probe.Capture(base, image_size, actors, topology).code
+            == FailureCode::IdentityMismatch
+            && topology.listeners.empty(),
+        "callback targets outside the executable image fail closed");
+}
 }
 
 int main()
@@ -769,6 +848,7 @@ int main()
     test_move_dispatch_phase_drift_is_atomic();
     test_move_dispatch_pending_phase_restore();
     test_move_dispatch_partial_write_undoes_exactly();
+    test_stage_break_listener_topology_is_value_only_and_bounded();
     if (failures == 0)
         std::cout << "NativeCandidateRegionsSelfTest passed\n";
     return failures == 0 ? 0 : 1;

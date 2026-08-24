@@ -115,6 +115,7 @@
 #include "horselib/deterministic/HgCpuRuntimeDiagnostics.hpp"
 #include "horselib/deterministic/Sc6ReplayRuntime.hpp"
 #include "horselib/deterministic/Schema.hpp"
+#include "horselib/deterministic/StageBreakListenerDiagnostics.hpp"
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
 // swap detour on IDXGISwapChain::Present.  This keeps Steam overlay
@@ -3177,7 +3178,10 @@ private:
         Horse::Deterministic::FailureCode::None};
     std::unique_ptr<Horse::Deterministic::HgCpuRuntimeDiagnostics>
         m_hgcpu_runtime_diagnostics;
+    std::unique_ptr<Horse::Deterministic::StageBreakListenerRuntimeDiagnostics>
+        m_stage_break_listener_diagnostics;
     bool m_hgcpu_diagnostic_failure_logged = false;
+    bool m_stage_break_listener_failure_logged = false;
     bool m_deterministic_config_present = false;
     Horse::Deterministic::Status m_replay_native_runtime_status{
         Horse::Deterministic::FailureCode::ContextUnavailable};
@@ -3229,6 +3233,81 @@ private:
         }
     }
 
+    static bool append_stage_break_actor_list(
+        const Horse::TArrHdr* list,
+        Horse::Deterministic::StageBreakActorKind kind,
+        std::array<Horse::Deterministic::StageBreakActorRef, 64>& output,
+        std::size_t& count) noexcept
+    {
+        __try
+        {
+            if (list == nullptr || list->Num == 0) return true;
+            if (list->Data == nullptr || list->Num < 0 || list->Max < list->Num
+                || list->Num > 64
+                || count + static_cast<std::size_t>(list->Num) > output.size())
+            {
+                return false;
+            }
+            auto* const* entries = static_cast<RC::Unreal::UObject* const*>(
+                list->Data);
+            for (std::int32_t index = 0; index < list->Num; ++index)
+            {
+                output[count++] = {
+                    kind, reinterpret_cast<std::uintptr_t>(entries[index])};
+            }
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    void observe_stage_break_listener_diagnostic(std::uint32_t frame) noexcept
+    {
+        if (!m_stage_break_listener_diagnostics
+            || m_stage_break_listener_diagnostics->complete())
+        {
+            return;
+        }
+        Horse::Deterministic::Status status = Horse::Deterministic::Status::failure(
+            Horse::Deterministic::FailureCode::ContextUnavailable);
+        Horse::Obj battle_manager = m_lux.battleManager();
+        Horse::Obj stage_manager = battle_manager
+            ? battle_manager.getObj(L"BattleStageActorManager") : Horse::Obj{};
+        if (!stage_manager) return;
+        std::array<Horse::Deterministic::StageBreakActorRef, 64> actors{};
+        std::size_t actor_count{};
+        const bool valid_lists = append_stage_break_actor_list(
+            stage_manager.getPtr<Horse::TArrHdr>(L"BreakableWallActorList"),
+            Horse::Deterministic::StageBreakActorKind::Wall, actors, actor_count)
+            && append_stage_break_actor_list(
+                stage_manager.getPtr<Horse::TArrHdr>(L"BarrierActorList"),
+                Horse::Deterministic::StageBreakActorKind::Barrier,
+                actors, actor_count);
+        if (!valid_lists)
+        {
+            status = Horse::Deterministic::Status::failure(
+                Horse::Deterministic::FailureCode::InvalidConfiguration);
+        }
+        else if (actor_count != 0)
+        {
+            status = m_stage_break_listener_diagnostics->Observe(
+                Horse::NativeBinding::imageBase(), frame,
+                std::span{actors.data(), actor_count});
+        }
+        if (!status.ok()
+            && status.code != Horse::Deterministic::FailureCode::ContextUnavailable
+            && !m_stage_break_listener_failure_logged)
+        {
+            m_stage_break_listener_failure_logged = true;
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] stage-break listener diagnostic failed: {}\n"),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(status.code))));
+        }
+    }
+
     static void on_frame_fencepost(
         void* user,
         const Horse::Deterministic::FrameFencepostObservation& observation) noexcept
@@ -3268,6 +3347,7 @@ private:
             return;
         }
         self->observe_hgcpu_diagnostic(observation.frame_counter);
+        self->observe_stage_break_listener_diagnostic(observation.frame_counter);
         const auto timeline = self->m_replay_native_runtime.timeline_status();
         const auto logged_checkpoints =
             self->m_candidate_checkpoint_logged_count.load(std::memory_order_acquire);
@@ -3557,8 +3637,11 @@ public:
                 / L"hgcpu_coverage_runtime.md";
             m_hgcpu_runtime_diagnostics = std::make_unique<
                 Horse::Deterministic::HgCpuRuntimeDiagnostics>(report_path);
+            m_stage_break_listener_diagnostics = std::make_unique<
+                Horse::Deterministic::StageBreakListenerRuntimeDiagnostics>(
+                    report_path.parent_path() / L"stage_break_listener_topology.md");
             Output::send<LogLevel::Default>(STR(
-                "[HorseMod] HgCpu runtime coverage diagnostic armed; "
+                "[HorseMod] deterministic runtime diagnostics armed; "
                 "stock simulation remains active\n"));
         }
         if (!deterministic_load.status.ok())
@@ -3747,6 +3830,8 @@ public:
 
         if (m_hgcpu_runtime_diagnostics)
             m_hgcpu_runtime_diagnostics->Finish();
+        if (m_stage_break_listener_diagnostics)
+            m_stage_break_listener_diagnostics->Finish();
 
         m_deterministic_hooks.Uninstall();
         if (m_deterministic_config.trace)

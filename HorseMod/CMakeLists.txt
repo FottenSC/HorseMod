@@ -52,6 +52,7 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/Sc6ReplayNativeBridge.cpp
     horselib/deterministic/SimulationSession.cpp
     horselib/deterministic/SnapshotStore.cpp
+    horselib/deterministic/StageBreakListenerDiagnostics.cpp
 )
 
 add_library(HorseDeterministicCore STATIC
