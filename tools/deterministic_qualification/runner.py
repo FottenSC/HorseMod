@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+from .artifacts import runner_sha256, sha256_file, source_identity
+from .process_control import close_game, find_game_pid, launch_game, wait_for_game
+from .report import write_report
+from .trace_parser import wait_for_boot_evidence
+
+
+ROOT = Path(__file__).resolve().parents[2]
+GAME_ROOT = Path(r"E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64")
+DEFAULT_DLL = GAME_ROOT / "ue4ss" / "Mods" / "HorseMod" / "dlls" / "main.dll"
+DEFAULT_CONFIG = GAME_ROOT / "ue4ss" / "Mods" / "HorseMod" / "dlls" / "rollback.ini"
+DEFAULT_LOG = GAME_ROOT / "ue4ss" / "UE4SS.log"
+DEFAULT_SCHEMA = ROOT / "build_cmake_LessEqual421__Shipping__Win64" / "HorseMod" / "generated" / "deterministic_contract.json"
+DEFAULT_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "boot-report.json"
+
+
+def required_file(path: Path, label: str) -> Path:
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"{label} not found: {resolved}")
+    return resolved
+
+
+def run_boot(args: argparse.Namespace) -> int:
+    dll = required_file(args.dll, "HorseMod DLL")
+    config = required_file(args.config, "deterministic config")
+    schema = required_file(args.schema, "generated schema")
+    executable = required_file(args.game_executable, "SoulcaliburVI executable")
+    identity = source_identity(ROOT)
+    if identity["dirty"]:
+        raise RuntimeError("source tree is dirty; boot evidence would not bind an immutable source state")
+
+    existing_pid = find_game_pid()
+    if existing_pid is not None:
+        raise RuntimeError("SoulcaliburVI is already running; refusing ambiguous boot evidence")
+    launch_game()
+    pid = wait_for_game(args.timeout)
+    try:
+        evidence = wait_for_boot_evidence(args.log, args.timeout)
+        if evidence.source_commit != identity["commit"]:
+            raise RuntimeError(
+                f"deployed DLL source {evidence.source_commit} does not match HEAD {identity['commit']}"
+            )
+    finally:
+        if not args.keep_game and find_game_pid() is not None:
+            close_game(pid)
+
+    report_data: dict[str, object] = {
+        "report_schema": 1,
+        "kind": "boot_probe",
+        "certifying": False,
+        "result": "pass",
+        "reason": "boot provenance and hook installation only; no battle or replay was exercised",
+        "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "source": identity,
+        "artifacts": {
+            "horsemod_dll": {"path": str(dll), "sha256": sha256_file(dll)},
+            "config": {"path": str(config), "sha256": sha256_file(config)},
+            "generated_schema": {"path": str(schema), "sha256": sha256_file(schema)},
+            "runner_sha256": runner_sha256(Path(__file__).resolve().parent),
+            "game_executable": {"path": str(executable), "sha256": sha256_file(executable)},
+        },
+        "runtime": {
+            "horsemod_version": evidence.version,
+            "reported_source_commit": evidence.source_commit,
+            "frame_fencepost_hook_armed": True,
+            "clean_exit_requested": not args.keep_game,
+        },
+    }
+    write_report(args.report, report_data)
+    print(json.dumps(report_data, indent=2, sort_keys=True))
+    print(f"report: {args.report.resolve()}")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Fail-closed HorseMod deterministic qualification runner"
+    )
+    subcommands = parser.add_subparsers(dest="command", required=True)
+    boot = subcommands.add_parser(
+        "boot", help="collect non-certifying DLL provenance and hook-install evidence"
+    )
+    boot.add_argument("--dll", type=Path, default=DEFAULT_DLL)
+    boot.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    boot.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
+    boot.add_argument("--log", type=Path, default=DEFAULT_LOG)
+    boot.add_argument("--game-executable", type=Path, default=GAME_ROOT / "SoulcaliburVI.exe")
+    boot.add_argument("--report", type=Path, default=DEFAULT_REPORT)
+    boot.add_argument("--timeout", type=float, default=60.0)
+    boot.add_argument("--keep-game", action="store_true")
+    boot.set_defaults(handler=run_boot)
+    return parser
+
+
+def main() -> int:
+    try:
+        args = build_parser().parse_args()
+        return int(args.handler(args))
+    except (FileNotFoundError, RuntimeError, TimeoutError, subprocess.SubprocessError) as error:
+        print(f"qualification failed: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
