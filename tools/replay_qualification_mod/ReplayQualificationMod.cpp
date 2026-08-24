@@ -348,12 +348,24 @@ private:
             return;
         if (!setup_assets_requested_)
         {
-            if (!CallNoParams(instance, L"ApplyReplayToBattleSetup")
-                || !SetReplayPath(GetBattleSetup(instance), request_.replay_path)
-                || !importer_.QueueStageMap(instance, replay_metadata_)
-                || !SetReplayPath(GetBattleSetup(instance), request_.replay_path))
+            if (!CallNoParams(instance, L"ApplyReplayToBattleSetup"))
             {
-                Fail("battle_setup_or_asset_request_failed");
+                Fail("apply_replay_to_battle_setup_failed");
+                return;
+            }
+            if (!SetReplayPath(GetBattleSetup(instance), request_.replay_path))
+            {
+                Fail("replay_path_before_asset_request_failed");
+                return;
+            }
+            if (!importer_.QueueStageMap(instance, replay_metadata_))
+            {
+                Fail("native_stage_map_request_failed");
+                return;
+            }
+            if (!SetReplayPath(GetBattleSetup(instance), request_.replay_path))
+            {
+                Fail("replay_path_after_asset_request_failed");
                 return;
             }
             setup_assets_requested_ = true;
