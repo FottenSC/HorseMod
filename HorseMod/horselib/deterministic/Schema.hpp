@@ -48,12 +48,15 @@ inline constexpr std::array<std::byte, 7> set_move_state_signature{
 namespace Sc6FrameLayout
 {
 inline constexpr std::uint16_t required_observation_read_mask = 0x0fff;
+inline constexpr std::uint16_t required_outer_tick_read_mask = 0x00ff;
 inline constexpr std::uintptr_t frame_counter_rva = 0x470d0c4;
 inline constexpr std::uintptr_t landing_fencepost_rva = 0x3fca60;
+inline constexpr std::uintptr_t outer_tick_rva = 0x3fbf30;
 inline constexpr std::ptrdiff_t manager_input_log = 0x478;
 inline constexpr std::ptrdiff_t manager_input_pair_array = 0x14a8;
 inline constexpr std::ptrdiff_t manager_active_player_count = 0x14b0;
 inline constexpr std::ptrdiff_t manager_repeat_pending = 0x1462;
+inline constexpr std::ptrdiff_t manager_main_state = 0x1461;
 inline constexpr std::ptrdiff_t manager_pending_move_state = 0x1463;
 inline constexpr std::ptrdiff_t manager_game_round_cursor = 0x1488;
 inline constexpr std::ptrdiff_t manager_game_time_cursor = 0x148c;
@@ -66,6 +69,11 @@ inline constexpr std::array<std::byte, 16> landing_fencepost_signature{
     std::byte{0xec}, std::byte{0x50}, std::byte{0x48}, std::byte{0x83},
     std::byte{0xb9}, std::byte{0x28}, std::byte{0x05}, std::byte{0x00},
     std::byte{0x00}, std::byte{0x00}, std::byte{0x4c}, std::byte{0x8b}};
+inline constexpr std::array<std::byte, 16> outer_tick_signature{
+    std::byte{0x40}, std::byte{0x53}, std::byte{0x48}, std::byte{0x83},
+    std::byte{0xec}, std::byte{0x30}, std::byte{0x48}, std::byte{0x8b},
+    std::byte{0xd9}, std::byte{0x0f}, std::byte{0x29}, std::byte{0x74},
+    std::byte{0x24}, std::byte{0x20}, std::byte{0x0f}, std::byte{0xb6}};
 }
 
 enum class RegionClass : std::uint8_t

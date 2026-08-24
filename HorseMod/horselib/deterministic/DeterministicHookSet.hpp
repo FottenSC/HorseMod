@@ -39,17 +39,46 @@ struct ReplayExitObservation
     std::uint32_t thread_id{};
 };
 
+struct OuterTickState
+{
+    std::uintptr_t input_log{};
+    std::uint32_t frame_counter{};
+    std::int32_t input_game_round{};
+    std::int32_t input_game_time{};
+    std::int32_t manager_game_round_cursor{};
+    std::uint32_t manager_game_time_cursor{};
+    std::uint8_t main_state{};
+    std::uint8_t round_state{};
+};
+
+struct OuterTickObservation
+{
+    std::uintptr_t battle_manager{};
+    std::uint32_t thread_id{};
+    float delta_seconds{};
+    OuterTickState before{};
+    OuterTickState after{};
+    std::uint32_t observed_coordinates{};
+    std::uint32_t repeat_pending_coordinates{};
+    std::uint32_t same_input_time_coordinates{};
+    std::uint16_t read_mask{};
+};
+
 using FrameFencepostCallback = void (*)(
     void* user,
     const FrameFencepostObservation& observation) noexcept;
 using ReplayExitCallback = void (*)(
     void* user,
     const ReplayExitObservation& observation) noexcept;
+using OuterTickCallback = void (*)(
+    void* user,
+    const OuterTickObservation& observation) noexcept;
 
 struct DeterministicHookCallbacks
 {
     void* user{};
     FrameFencepostCallback frame_fencepost{};
+    OuterTickCallback outer_tick{};
     ReplayExitCallback replay_exit{};
 };
 
@@ -70,24 +99,47 @@ public:
     [[nodiscard]] bool installed() const noexcept;
 
 private:
+    struct OuterTickCaptureContext
+    {
+        OuterTickObservation* observation{};
+        std::int32_t previous_game_round{};
+        std::int32_t previous_game_time{};
+        bool has_previous_coordinate{};
+    };
+
     using FrameFencepostFn = void (__fastcall*)(void* battle_manager);
+    using OuterTickFn = void (__fastcall*)(void* battle_manager, float delta_seconds);
     using ReplayPostTickFn = void (__fastcall*)(void* replay_state);
 
     static void __fastcall FrameFencepostDetour(void* battle_manager) noexcept;
+    static void __fastcall OuterTickDetour(
+        void* battle_manager, float delta_seconds) noexcept;
     static void __fastcall ReplayPostTickDetour(void* replay_state) noexcept;
     void EmitFrameFencepost(void* battle_manager) noexcept;
+    void CaptureOuterTickState(
+        void* battle_manager,
+        OuterTickState& state,
+        std::uint16_t& read_mask,
+        std::uint16_t frame_bit,
+        std::uint16_t state_bit,
+        std::uint16_t input_bit,
+        std::uint16_t cursor_bit) noexcept;
     void EmitReplayExit(void* replay_state) noexcept;
     void ClearState() noexcept;
 
     static std::atomic<DeterministicHookSet*> active_;
     static std::atomic<std::uint32_t> callbacks_in_flight_;
     static std::atomic<std::uint64_t> frame_fencepost_trampoline_global_;
+    static std::atomic<std::uint64_t> outer_tick_trampoline_global_;
     static std::atomic<std::uint64_t> replay_post_tick_trampoline_global_;
+    static thread_local OuterTickCaptureContext* active_outer_capture_;
 
     std::unique_ptr<PLH::x64Detour> frame_fencepost_detour_{};
     std::unique_ptr<PLH::x64Detour> replay_post_tick_detour_{};
+    std::unique_ptr<PLH::x64Detour> outer_tick_detour_{};
     std::uint64_t frame_fencepost_trampoline_{};
     std::uint64_t replay_post_tick_trampoline_{};
+    std::uint64_t outer_tick_trampoline_{};
     std::uintptr_t image_base_{};
     DeterministicHookCallbacks callbacks_{};
     std::atomic<bool> installed_{};

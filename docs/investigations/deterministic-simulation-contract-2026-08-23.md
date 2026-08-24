@@ -14,7 +14,11 @@ One deterministic coordinate is one completed call to `LuxBattle_PerFrameTick` (
 
 `LuxBattleManager_Tick_SimulationLoop_UpdateInputAndRoundState` (`0x1403FE520`) can invoke the per-frame traversal more than once during one outer manager tick. Native move-state 3 performs an early traversal with zero/default arguments, and manager state at `+0x1462` can repeat the inner traversal and post-frame phase without rebuilding the player input pairs. An adapter placed around the outer UE tick would therefore assign inputs and snapshots to the wrong native iteration.
 
-The admitted hook point must bracket each `LuxBattle_PerFrameTick` traversal and use the native frame/round identity described below. Hook installation is not authorized until all state regions reached by the traversal are admitted.
+The complete native batch envelope is `LuxBattleManager_Tick_MainStateMachine_At1461` (`0x1403FBF30`). In active main state 2 it calls the whole simulation-loop worker at `0x1403FE520` once, then performs round-over evaluation, online synchronization bookkeeping, and the parent `AActor_TickActor` lifecycle. Calling either `LuxBattle_PerFrameTick` or this outer tick once per external coordinate is therefore forbidden: the inner call omits the batch lifecycle, while repeated outer calls would incorrectly repeat that lifecycle.
+
+The replacement uses two complementary boundaries. The landing fencepost observes every completed deterministic coordinate and records its exact produced input pair. A signature-gated, read-only detour around `0x1403FBF30` observes the enclosing native batch before and after the original call, including `DeltaSeconds`, main/round state, input-log generation and time, manager cursors, and the global frame counter. The original outer function is still called exactly once by its native caller. This instrumentation may measure zero-, single-, multi-coordinate, and repeat-containing batches, but does not yet authorize synthetic advancement.
+
+The eventual adapter must replay recorded native batches through the complete outer lifecycle while reproducing the exact per-coordinate input sequence inside each batch. Exact batch records, including `DeltaSeconds`, must be generation-scoped. Hook installation for observation is fail-closed on the verified 16-byte function signature; restore or synthetic advancement remains unauthorized until all state regions reached by the traversal are admitted.
 
 ## Audited region: frame input log and produced input pairs
 

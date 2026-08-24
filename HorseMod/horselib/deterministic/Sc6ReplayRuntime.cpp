@@ -152,6 +152,85 @@ Status Sc6ReplayRuntime::ObserveFrame(
     return Status::success();
 }
 
+Status Sc6ReplayRuntime::ObserveOuterTick(
+    const OuterTickObservation& observation) noexcept
+{
+    if (timeline_status_.failure != FailureCode::None)
+        return Status::failure(timeline_status_.failure);
+    constexpr std::uint16_t state_reads = 0x33;
+    if ((observation.read_mask & state_reads) != state_reads)
+    {
+        timeline_status_.failure = FailureCode::ContextUnavailable;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (observation.before.main_state != 2)
+        return Status::success();
+    if (observation.read_mask
+        != Schema::Sc6FrameLayout::required_outer_tick_read_mask)
+    {
+        timeline_status_.failure = FailureCode::ContextUnavailable;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (timeline_thread_id_ != 0
+        && timeline_thread_id_ != observation.thread_id)
+    {
+        timeline_status_.failure = FailureCode::WrongThread;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (observation.after.frame_counter != observation.before.frame_counter
+        && timeline_manager_ != 0
+        && timeline_manager_ != observation.battle_manager)
+    {
+        timeline_status_.failure = FailureCode::IdentityMismatch;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (observation.after.frame_counter < observation.before.frame_counter)
+    {
+        timeline_status_.failure = FailureCode::AdvanceFailed;
+        return Status::failure(timeline_status_.failure);
+    }
+
+    const std::uint32_t coordinate_count =
+        observation.after.frame_counter - observation.before.frame_counter;
+    ++timeline_status_.native_batches;
+    if (coordinate_count == 0)
+        ++timeline_status_.zero_coordinate_batches;
+    if (coordinate_count > 1)
+        ++timeline_status_.multi_coordinate_batches;
+    if (coordinate_count > timeline_status_.maximum_coordinates_per_batch)
+        timeline_status_.maximum_coordinates_per_batch = coordinate_count;
+    timeline_status_.batch_repeat_coordinates +=
+        observation.repeat_pending_coordinates;
+    timeline_status_.batch_same_input_time_coordinates +=
+        observation.same_input_time_coordinates;
+
+    const bool same_input_generation =
+        observation.before.input_log == observation.after.input_log
+        && observation.before.input_game_round
+            == observation.after.input_game_round
+        && observation.after.input_game_time >= observation.before.input_game_time;
+    if (same_input_generation)
+    {
+        const auto input_delta = static_cast<std::uint32_t>(
+            observation.after.input_game_time
+            - observation.before.input_game_time);
+        if (input_delta > timeline_status_.maximum_input_delta_per_batch)
+            timeline_status_.maximum_input_delta_per_batch = input_delta;
+    }
+    else
+    {
+        ++timeline_status_.batch_input_generation_changes;
+    }
+    if (coordinate_count != observation.observed_coordinates
+        || (coordinate_count != 0 && timeline_status_.captured_frames != 0
+            && observation.after.frame_counter
+                != timeline_status_.last_coordinate.frame))
+    {
+        ++timeline_status_.batch_frame_accounting_mismatches;
+    }
+    return Status::success();
+}
+
 void Sc6ReplayRuntime::ObserveReplayExit() noexcept
 {
     timeline_manager_ = 0;

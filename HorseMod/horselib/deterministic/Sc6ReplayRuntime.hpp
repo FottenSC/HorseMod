@@ -27,6 +27,15 @@ struct ReplayTimelineStatus
     std::uint64_t repeat_requests{};
     std::uint64_t same_native_time_coordinates{};
     std::uint64_t cursor_mismatches{};
+    std::uint64_t native_batches{};
+    std::uint64_t zero_coordinate_batches{};
+    std::uint64_t multi_coordinate_batches{};
+    std::uint64_t batch_repeat_coordinates{};
+    std::uint64_t batch_same_input_time_coordinates{};
+    std::uint64_t batch_input_generation_changes{};
+    std::uint64_t batch_frame_accounting_mismatches{};
+    std::uint32_t maximum_coordinates_per_batch{};
+    std::uint32_t maximum_input_delta_per_batch{};
     std::uint32_t round_state_frame{};
     std::int32_t unpause_countdown{};
     std::uint8_t pending_move_state{};
@@ -45,6 +54,7 @@ public:
     [[nodiscard]] bool ready() const noexcept;
     [[nodiscard]] IReplayNativeBridge* bridge() noexcept;
     Status ObserveFrame(const FrameFencepostObservation& observation) noexcept;
+    Status ObserveOuterTick(const OuterTickObservation& observation) noexcept;
     void ObserveReplayExit() noexcept;
     [[nodiscard]] ReplayTimelineStatus timeline_status() const noexcept;
     [[nodiscard]] const InputTimeline& input_timeline() const noexcept;

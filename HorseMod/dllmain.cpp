@@ -3203,6 +3203,7 @@ private:
     bool m_replay_exit_first_observation_logged{};
     bool m_replay_exit_failure_logged{};
     std::atomic<std::uint64_t> m_candidate_checkpoint_logged_count{};
+    std::atomic<std::uint64_t> m_native_batch_evidence_logged_intervals{};
     std::atomic_bool m_candidate_checkpoint_first_failure_logged{};
 
     void observe_hgcpu_diagnostic(std::uint32_t frame) noexcept
@@ -3281,22 +3282,6 @@ private:
                 timeline.last_coordinate.frame,
                 timeline.checkpoint_bytes);
         }
-        if (self->m_deterministic_config.trace
-            && timeline.captured_frames != 0
-            && timeline.captured_frames % 600 == 0)
-        {
-            Output::send<LogLevel::Default>(STR(
-                "[HorseMod] native fencepost evidence frames={} repeats={} "
-                "same_time={} cursor_mismatches={} round_state_frame={} "
-                "unpause={} pending_move_state={}\n"),
-                timeline.captured_frames,
-                timeline.repeat_requests,
-                timeline.same_native_time_coordinates,
-                timeline.cursor_mismatches,
-                timeline.round_state_frame,
-                timeline.unpause_countdown,
-                static_cast<unsigned int>(timeline.pending_move_state));
-        }
         if (timeline.checkpoint_failure != Horse::Deterministic::FailureCode::None
             && !self->m_candidate_checkpoint_first_failure_logged.exchange(
                 true, std::memory_order_acq_rel))
@@ -3330,6 +3315,68 @@ private:
         {
             self->m_frame_fencepost_repeats.fetch_add(
                 1, std::memory_order_relaxed);
+        }
+    }
+
+    static void on_outer_tick(
+        void* user,
+        const Horse::Deterministic::OuterTickObservation& observation) noexcept
+    {
+        auto* self = static_cast<HorseMod*>(user);
+        if (self == nullptr)
+            return;
+        if (observation.thread_id
+            != self->m_frame_fencepost_expected_thread.load(
+                std::memory_order_acquire))
+        {
+            self->m_frame_fencepost_failure.store(
+                Horse::Deterministic::FailureCode::WrongThread,
+                std::memory_order_release);
+            return;
+        }
+        const auto status = self->m_replay_native_runtime.ObserveOuterTick(
+            observation);
+        if (!status.ok())
+        {
+            self->m_frame_fencepost_failure.store(
+                status.code, std::memory_order_release);
+            return;
+        }
+
+        const auto timeline = self->m_replay_native_runtime.timeline_status();
+        const std::uint64_t completed_intervals = timeline.captured_frames / 600;
+        std::uint64_t logged_intervals =
+            self->m_native_batch_evidence_logged_intervals.load(
+                std::memory_order_acquire);
+        if (self->m_deterministic_config.trace && completed_intervals != 0
+            && completed_intervals > logged_intervals
+            && self->m_native_batch_evidence_logged_intervals.compare_exchange_strong(
+                logged_intervals, completed_intervals,
+                std::memory_order_acq_rel))
+        {
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] native fencepost evidence frames={} repeats={} "
+                "same_time={} cursor_mismatches={} round_state_frame={} "
+                "unpause={} pending_move_state={} batches={} zero_batches={} "
+                "multi_batches={} batch_repeats={} batch_same_time={} max_batch={} "
+                "max_input_delta={} input_generation_changes={} "
+                "batch_accounting_mismatches={}\n"),
+                timeline.captured_frames,
+                timeline.repeat_requests,
+                timeline.same_native_time_coordinates,
+                timeline.cursor_mismatches,
+                timeline.round_state_frame,
+                timeline.unpause_countdown,
+                static_cast<unsigned int>(timeline.pending_move_state),
+                timeline.native_batches,
+                timeline.zero_coordinate_batches,
+                timeline.multi_coordinate_batches,
+                timeline.batch_repeat_coordinates,
+                timeline.batch_same_input_time_coordinates,
+                timeline.maximum_coordinates_per_batch,
+                timeline.maximum_input_delta_per_batch,
+                timeline.batch_input_generation_changes,
+                timeline.batch_frame_accounting_mismatches);
         }
     }
 
@@ -3827,7 +3874,8 @@ public:
                 0, std::memory_order_release);
             m_frame_fencepost_hook_status = m_deterministic_hooks.Install(
                 Horse::NativeBinding::imageBase(),
-                {this, &HorseMod::on_frame_fencepost, &HorseMod::on_replay_exit});
+                {this, &HorseMod::on_frame_fencepost, &HorseMod::on_outer_tick,
+                    &HorseMod::on_replay_exit});
             if (!m_frame_fencepost_hook_status.ok())
             {
                 const auto failure = Horse::Deterministic::failure_code_name(
@@ -7742,6 +7790,23 @@ private:
                         timeline.round_state_frame,
                         timeline.unpause_countdown,
                         static_cast<unsigned int>(timeline.pending_move_state));
+                    ImGui::TextDisabled(
+                        "Native batches: total=%llu zero=%llu multi=%llu "
+                        "repeat_coords=%llu same_time_coords=%llu max=%u input_delta_max=%u "
+                        "accounting_mismatch=%llu",
+                        static_cast<unsigned long long>(timeline.native_batches),
+                        static_cast<unsigned long long>(
+                            timeline.zero_coordinate_batches),
+                        static_cast<unsigned long long>(
+                            timeline.multi_coordinate_batches),
+                        static_cast<unsigned long long>(
+                            timeline.batch_repeat_coordinates),
+                        static_cast<unsigned long long>(
+                            timeline.batch_same_input_time_coordinates),
+                        timeline.maximum_coordinates_per_batch,
+                        timeline.maximum_input_delta_per_batch,
+                        static_cast<unsigned long long>(
+                            timeline.batch_frame_accounting_mismatches));
                     if (timeline.checkpoint_failure
                         != Horse::Deterministic::FailureCode::None)
                     {
