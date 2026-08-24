@@ -662,6 +662,46 @@ This proves installation and ordinary pass-through only. It does not certify an
 actual speculative wall/barrier event, confirmed presentation replay, or the
 other audio/camera/UI presentation families, so the owned seek still has no
 production caller.
+
+### Owned-batch battle-audio terminal (2026-08-24)
+
+Current-executable Ghidra evidence closes the battle-audio side effect beneath
+semantic listeners. `LuxBattleManager_DispatchBattleEventByClass @ 0x140519480`
+is called by contact, move, phase, subsystem, and stage-break listeners. It
+selects a shared audio player, appends current `Pan` and `Distance` parameters,
+applies transient cue metadata, and ends at
+`LuxAudio_RegisterActiveVoiceInstanceFromSharedPtr @ 0x14054F6D0`. The terminal
+allocates a UCRT-rand-derived live voice ID and publishes a native active-voice
+entry. The dispatcher's existing missing-route return is `0xFFFFFFFF`; callers
+already treat that value as “no voice” and do not insert a tracking identity.
+
+The formerly unnamed cue-metadata helper is now documented as
+`LUXBATTLE_ApplyCueMetadataByKey @ 0x1405112B0`. It resolves a CRI Atom cue entry,
+case-insensitively matches configured `0x28`-byte control rows and `0x30`-byte
+extended rows, and updates only the battle manager's transient audio-routing
+collections at `+0x390` and `+0x3A0`. Its current Ghidra audit has no plate or
+label issues and a 71.35% effective score; remaining deductions are dominated by
+register/SSA temporaries and the deliberately partial manager type. The program
+was saved through native MCP tools.
+
+`DeterministicHookSet` now signature-gates the dispatcher at RVA `0x519480`.
+Outside an owned resimulation batch it is exact pass-through. While
+`suppress_ephemeral_presentation` is active it returns `-1` without invoking the
+dispatcher. This preserves the enclosing gameplay listener/event work while
+preventing parameter-command allocation, transient audio-cache mutation, UCRT
+voice-ID draws, live voice publication, and native audio identities from
+escaping speculation. This is suppression, not journal replay: committing a
+value-only audio event exactly once remains required before presentation can be
+qualified.
+
+A bounded normal-render 600-frame replay-entry probe passed with the dispatcher
+hook installed and clean runner teardown. Diagnostic DLL SHA-256 was
+`70877850469D18AB0CF06D568FF69BF3DFFFC8C018CB766AA56D7D4F31ED2531`;
+the embedded committed source was `6229f246`, and the replay SHA-256 remained
+`95E12E394D35C13D5E0DD3DCE692F9E0A4022E2A84205A9EC75F2FA6726D7879`.
+The source was dirty only for this implementation under test. This proves
+signature admission, ordinary pass-through, and teardown; it does not yet prove
+suppression under an actual owned correction.
 | Replay/scene/disconnect | Close replay stop/order and earliest world/online invalidation signals | No identity survives transition/partial failure |
 | Hook teardown | Audit Horse shutdown only after target set is final | Admission gate, reverse removal, zero in-flight callbacks |
 

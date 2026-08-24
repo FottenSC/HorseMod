@@ -59,6 +59,7 @@ namespace Sc6FrameLayout
 inline constexpr std::uintptr_t stage_break_wall_handler_rva = 0x53d4b0;
 inline constexpr std::uintptr_t stage_break_barrier_handler_rva = 0x549f40;
 inline constexpr std::uintptr_t stage_break_dispatch_rva = 0x53d130;
+inline constexpr std::uintptr_t battle_audio_dispatch_rva = 0x519480;
 inline constexpr std::uint16_t required_observation_read_mask = 0x0fff;
 inline constexpr std::uint16_t required_outer_tick_read_mask = 0x00ff;
 inline constexpr std::uintptr_t frame_counter_rva = 0x470d0c4;
@@ -113,6 +114,14 @@ inline constexpr std::array<std::byte, 16> stage_break_dispatch_signature{
     std::byte{0xec}, std::byte{0x30}, std::byte{0xff}, std::byte{0x41},
     std::byte{0x64}, std::byte{0x48}, std::byte{0x8b}, std::byte{0xf1},
     std::byte{0x8b}, std::byte{0x41}, std::byte{0x50}, std::byte{0x48},
+};
+inline constexpr std::array<std::byte, 24> battle_audio_dispatch_signature{
+    std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+    std::byte{0x20}, std::byte{0x55}, std::byte{0x56}, std::byte{0x41},
+    std::byte{0x57}, std::byte{0x48}, std::byte{0x83}, std::byte{0xec},
+    std::byte{0x60}, std::byte{0x41}, std::byte{0x0f}, std::byte{0xb6},
+    std::byte{0xe8}, std::byte{0x4c}, std::byte{0x8b}, std::byte{0xfa},
+    std::byte{0x48}, std::byte{0x8b}, std::byte{0xd9}, std::byte{0x45},
 };
 }
 

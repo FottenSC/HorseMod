@@ -172,6 +172,8 @@ private:
     using StageBreakBarrierFn = void (__fastcall*)(void* actor, void* direction);
     using StageBreakDispatchFn = void (__fastcall*)(
         void* emitter, std::int32_t actor_id, void* location);
+    using BattleAudioDispatchFn = std::int32_t (__fastcall*)(
+        void* battle_manager, void* event_record, bool alternate_route);
 
     static void __fastcall FrameFencepostDetour(void* battle_manager) noexcept;
     static void __fastcall OuterTickDetour(
@@ -185,6 +187,9 @@ private:
         void* actor, void* direction) noexcept;
     static void __fastcall StageBreakDispatchDetour(
         void* emitter, std::int32_t actor_id, void* location) noexcept;
+    static std::int32_t __fastcall BattleAudioDispatchDetour(
+        void* battle_manager, void* event_record,
+        bool alternate_route) noexcept;
     static int __cdecl UcrtRandDetour() noexcept;
     static void __cdecl UcrtSrandDetour(unsigned int seed) noexcept;
     void EmitFrameFencepost(void* battle_manager) noexcept;
@@ -214,6 +219,7 @@ private:
     static std::atomic<std::uint64_t> stage_break_wall_trampoline_global_;
     static std::atomic<std::uint64_t> stage_break_barrier_trampoline_global_;
     static std::atomic<std::uint64_t> stage_break_dispatch_trampoline_global_;
+    static std::atomic<std::uint64_t> battle_audio_dispatch_trampoline_global_;
     static thread_local OuterTickCaptureContext* active_outer_capture_;
 
     std::unique_ptr<PLH::x64Detour> frame_fencepost_detour_{};
@@ -223,6 +229,7 @@ private:
     std::unique_ptr<PLH::x64Detour> stage_break_wall_detour_{};
     std::unique_ptr<PLH::x64Detour> stage_break_barrier_detour_{};
     std::unique_ptr<PLH::x64Detour> stage_break_dispatch_detour_{};
+    std::unique_ptr<PLH::x64Detour> battle_audio_dispatch_detour_{};
     std::uint64_t frame_fencepost_trampoline_{};
     std::uint64_t replay_post_tick_trampoline_{};
     std::uint64_t outer_tick_trampoline_{};
@@ -230,6 +237,7 @@ private:
     std::uint64_t stage_break_wall_trampoline_{};
     std::uint64_t stage_break_barrier_trampoline_{};
     std::uint64_t stage_break_dispatch_trampoline_{};
+    std::uint64_t battle_audio_dispatch_trampoline_{};
     std::uint64_t next_outer_batch_id_{};
     std::uintptr_t image_base_{};
     std::uintptr_t rand_iat_slot_{};
