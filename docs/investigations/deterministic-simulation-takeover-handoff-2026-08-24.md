@@ -471,6 +471,12 @@ continue the implementation rather than summarizing incompleteness as an endpoin
 
 ## Ready-to-send takeover prompt
 
+> **Superseded for new takeovers:** use
+> `docs/investigations/deterministic-simulation-outstanding-plan-2026-08-25.md`.
+> Its prompt starts from pushed tip `5d36624a` and includes the current forced
+> audio-identity failure. The older prompt below is retained only as historical
+> evidence.
+
 ```text
 Take over and finish HorseMod's deterministic simulation rewrite in E:\myMods.
 Start by reading E:\myMods\AGENTS.md,
