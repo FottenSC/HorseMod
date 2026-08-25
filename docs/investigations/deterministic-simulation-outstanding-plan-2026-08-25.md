@@ -1,9 +1,13 @@
 # Deterministic Simulation Rewrite — Outstanding Implementation Plan
 
-Date: 2026-08-25  
-Repository: `E:\myMods`  
-Branch: `codex/rollback-rewrite`  
-Required starting tip: `5d36624a8b5e0767898cb61e6bb41c0df3dd776b`  
+Date: 2026-08-25
+
+Repository: `E:\myMods`
+
+Branch: `codex/rollback-rewrite`
+
+Required implementation baseline: `5d36624a8b5e0767898cb61e6bb41c0df3dd776b`
+
 Remote: `origin/codex/rollback-rewrite`
 
 This document is the continuation plan for the unfinished portions of
@@ -26,8 +30,9 @@ Before editing, read these files completely:
 3. `E:\myMods\docs\investigations\deterministic-simulation-takeover-handoff-2026-08-24.md`
 4. This plan
 
-Fetch `origin/codex/rollback-rewrite`, verify that the local branch contains the
-required starting tip, and preserve the following unrelated dirty files exactly:
+Fetch the current tip of `origin/codex/rollback-rewrite`, verify that it contains
+the required implementation baseline, and preserve the following unrelated dirty
+files exactly:
 
 - `tools/moveset_parser/hgmotion_reference.py`
 - `tools/moveset_parser/luxformats.py`
@@ -361,7 +366,8 @@ Read E:\myMods\AGENTS.md,
 E:\myMods\docs\deterministic-simulation-goal.md,
 E:\myMods\docs\investigations\deterministic-simulation-takeover-handoff-2026-08-24.md,
 and E:\myMods\docs\investigations\deterministic-simulation-outstanding-plan-2026-08-25.md
-completely. Fetch origin/codex/rollback-rewrite and continue from tip 5d36624a.
+completely. Fetch and continue from the current tip of
+origin/codex/rollback-rewrite; it must contain implementation baseline 5d36624a.
 
 This is a continuous implementation assignment, not a request for another plan
 or status report. Start with Phase 1's battle-audio selector omission and keep
