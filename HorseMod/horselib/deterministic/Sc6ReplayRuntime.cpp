@@ -929,6 +929,13 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.repeat_pending_coordinates;
     envelope.same_input_time_coordinates =
         observation.same_input_time_coordinates;
+    envelope.stage_wall_calls = observation.stage_wall_calls;
+    envelope.stage_wall_hash = observation.stage_wall_hash;
+    envelope.stage_barrier_calls = observation.stage_barrier_calls;
+    envelope.stage_barrier_hash = observation.stage_barrier_hash;
+    envelope.stage_dispatch_calls = observation.stage_dispatch_calls;
+    envelope.stage_dispatch_hash = observation.stage_dispatch_hash;
+    envelope.stage_signature_failures = observation.stage_signature_failures;
     envelope.battle_audio_dispatches = observation.battle_audio_dispatches;
     envelope.battle_audio_route_hash = observation.battle_audio_route_hash;
     envelope.battle_audio_payload_hash = observation.battle_audio_payload_hash;
@@ -1233,6 +1240,23 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
         OwnedBatchReplayResult result{};
         Status status = hooks.ExecuteOwnedBatch(request, result);
         if (status.ok()
+            && (envelope->stage_signature_failures != 0
+                || result.stage_signature_failures != 0
+                || result.suppressed_stage_wall_calls
+                    != envelope->stage_wall_calls
+                || result.stage_wall_hash != envelope->stage_wall_hash
+                || result.suppressed_stage_barrier_calls
+                    != envelope->stage_barrier_calls
+                || result.stage_barrier_hash != envelope->stage_barrier_hash
+                || result.semantic_stage_dispatch_calls
+                    != envelope->stage_dispatch_calls
+                || result.stage_dispatch_hash != envelope->stage_dispatch_hash))
+        {
+            ++result.presentation_failures;
+            result.failure = FailureCode::PresentationFailed;
+            status = Status::failure(result.failure);
+        }
+        if (status.ok()
             && (result.suppressed_audio_source_calls
                     != envelope->battle_audio_source_calls
                 || result.suppressed_audio_source_hash
@@ -1438,6 +1462,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
 Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     FrameCoordinate target, DeterministicHookSet& hooks) noexcept
 {
+    const auto validation_begin = std::chrono::steady_clock::now();
     if (resume_validation_active_ || pending_batch_id_ != 0
         || timeline_status_.partial
         || timeline_status_.failure != FailureCode::None)
@@ -1590,6 +1615,13 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
         return restore_undo()
             ? status : Status::failure(FailureCode::UndoFailed);
 
+    timeline_status_.resumed_frames_verified = 0;
+    timeline_status_.last_seek_resimulation_coordinates =
+        plan.resimulation_coordinates;
+    timeline_status_.last_seek_validation_ns =
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - validation_begin).count());
     timeline_status_.last_coordinate = target;
     timeline_status_.resume_target = target;
     timeline_status_.resume_source_end = source_end;

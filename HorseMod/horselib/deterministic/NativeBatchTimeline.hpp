@@ -52,6 +52,13 @@ struct NativeBatchEnvelope
     std::uint32_t coordinate_count{};
     std::uint32_t repeat_pending_coordinates{};
     std::uint32_t same_input_time_coordinates{};
+    std::uint32_t stage_wall_calls{};
+    std::uint64_t stage_wall_hash{};
+    std::uint32_t stage_barrier_calls{};
+    std::uint64_t stage_barrier_hash{};
+    std::uint32_t stage_dispatch_calls{};
+    std::uint64_t stage_dispatch_hash{};
+    std::uint32_t stage_signature_failures{};
     std::uint32_t battle_audio_dispatches{};
     std::uint32_t battle_audio_route_hash{};
     std::uint32_t battle_audio_payload_hash{};

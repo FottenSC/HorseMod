@@ -61,11 +61,13 @@ using GetReplaySeekableRangeFn = bool (*)(
     std::uint64_t*, std::uint64_t*, std::uint64_t*);
 using GetReplaySimulationPhaseFn = bool (*)(
     std::int32_t*, std::int32_t*, std::uint32_t*, std::int32_t*);
+using GetReplaySeekMetricsFn = bool (*)(std::uint64_t*, std::uint64_t*);
 
 bool ResolveHorseModSeekApi(
     RequestReplaySeekFn& request, GetReplaySeekStatusFn& status,
     GetReplaySeekableRangeFn& range,
-    GetReplaySimulationPhaseFn& phase) noexcept
+    GetReplaySimulationPhaseFn& phase,
+    GetReplaySeekMetricsFn& metrics) noexcept
 {
     std::array<HMODULE, 512> modules{};
     DWORD required{};
@@ -88,13 +90,18 @@ bool ResolveHorseModSeekApi(
         const auto candidate_phase = reinterpret_cast<GetReplaySimulationPhaseFn>(
             GetProcAddress(modules[index],
                 "horsemod_get_replay_simulation_phase"));
+        const auto candidate_metrics = reinterpret_cast<GetReplaySeekMetricsFn>(
+            GetProcAddress(modules[index],
+                "horsemod_get_replay_seek_metrics"));
         if (candidate_request != nullptr && candidate_status != nullptr
-            && candidate_range != nullptr && candidate_phase != nullptr)
+            && candidate_range != nullptr && candidate_phase != nullptr
+            && candidate_metrics != nullptr)
         {
             request = candidate_request;
             status = candidate_status;
             range = candidate_range;
             phase = candidate_phase;
+            metrics = candidate_metrics;
             return true;
         }
     }
@@ -378,6 +385,12 @@ private:
         seek_range_generation_ = 0;
         seek_range_first_ = 0;
         seek_range_last_ = 0;
+        seek_history_verified_ = 0;
+        seek_completed_source_ = 0;
+        seek_validation_ns_ = 0;
+        seek_resimulation_coordinates_ = 0;
+        seek_resume_start_frame_ = 0;
+        seek_resume_observation_active_ = false;
         profile_attempts_ = 0;
         next_profile_attempt_ = {};
         state_ = State::Importing;
@@ -430,7 +443,9 @@ private:
 
     void PollLaunch()
     {
-        if (std::chrono::steady_clock::now() - started_ > std::chrono::seconds(140))
+        if (!battle_scene_observed_
+            && std::chrono::steady_clock::now() - started_
+                > std::chrono::seconds(140))
         {
             Fail("asset_wait_timeout");
             return;
@@ -466,8 +481,9 @@ private:
         GetReplaySeekStatusFn unused_status{};
         GetReplaySeekableRangeFn unused_range{};
         GetReplaySimulationPhaseFn get_phase{};
+        GetReplaySeekMetricsFn unused_metrics{};
         if (!ResolveHorseModSeekApi(unused_request, unused_status,
-                unused_range, get_phase))
+                unused_range, get_phase, unused_metrics))
         {
             Fail("horsemod_simulation_phase_api_unavailable");
             return;
@@ -495,7 +511,7 @@ private:
         if (advanced < request_.watch_frames) return;
         if (seek_index_ < request_.seek_percentages.size())
         {
-            PollSeekQualification();
+            PollSeekQualification(frame);
             return;
         }
         state_ = State::Launched;
@@ -506,20 +522,59 @@ private:
             request_.watch_frames);
     }
 
-    void PollSeekQualification()
+    void PollSeekQualification(std::uint32_t frame)
     {
         RequestReplaySeekFn request_seek{};
         GetReplaySeekStatusFn get_status{};
         GetReplaySeekableRangeFn get_range{};
         GetReplaySimulationPhaseFn get_phase{};
+        GetReplaySeekMetricsFn get_metrics{};
         if (!ResolveHorseModSeekApi(
-                request_seek, get_status, get_range, get_phase))
+                request_seek, get_status, get_range, get_phase, get_metrics))
         {
             Fail("horsemod_seek_api_unavailable");
             return;
         }
 
         const auto percentage = request_.seek_percentages[seek_index_];
+        if (seek_resume_observation_active_)
+        {
+            std::uint64_t unused_target{}, unused_source{}, unused_verified{};
+            std::uint16_t failure{};
+            if (get_status(&unused_target, &unused_source, &unused_verified,
+                    &failure) == 3)
+            {
+                Fail("horsemod_seek_live_resume_failed");
+                return;
+            }
+            if (frame < seek_resume_start_frame_)
+            {
+                Fail("horsemod_seek_live_resume_generation_changed");
+                return;
+            }
+            const std::uint64_t live_frames =
+                frame - seek_resume_start_frame_;
+            if (seek_history_verified_ + live_frames
+                < request_.watch_frames)
+            {
+                return;
+            }
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] strict seek passed percent={} "
+                "target={} source_end={} history_verified={} "
+                "live_resumed={} resume_total={} resim={} "
+                "validation_us={} index={}\n"),
+                percentage, requested_seek_target_, seek_completed_source_,
+                seek_history_verified_, live_frames,
+                seek_history_verified_ + live_frames,
+                seek_resimulation_coordinates_, seek_validation_ns_ / 1000,
+                seek_index_);
+            ++seek_index_;
+            seek_requested_ = false;
+            seek_resume_observation_active_ = false;
+            requested_seek_target_ = 0;
+            return;
+        }
         if (seek_requested_)
         {
             std::uint64_t observed_target{};
@@ -536,14 +591,49 @@ private:
             if (status == 1 && observed_target == requested_seek_target_
                 && source_end != 0)
             {
+                std::uint64_t validation_ns{}, resimulation_coordinates{};
+                if (!get_metrics(&validation_ns, &resimulation_coordinates))
+                {
+                    Fail("horsemod_seek_metrics_unavailable");
+                    return;
+                }
+                if (validation_ns > 500'000'000ull)
+                {
+                    Fail("horsemod_seek_validation_too_slow");
+                    return;
+                }
+                if (resimulation_coordinates > 29)
+                {
+                    Fail("horsemod_seek_resimulation_too_long");
+                    return;
+                }
+                if (verified >= request_.watch_frames)
+                {
+                    Output::send<LogLevel::Default>(STR(
+                        "[ReplayQualification] strict seek passed percent={} "
+                        "target={} source_end={} history_verified={} "
+                        "live_resumed=0 resume_total={} resim={} "
+                        "validation_us={} index={}\n"),
+                        percentage, observed_target, source_end, verified,
+                        verified, resimulation_coordinates,
+                        validation_ns / 1000, seek_index_);
+                    ++seek_index_;
+                    seek_requested_ = false;
+                    requested_seek_target_ = 0;
+                    return;
+                }
                 Output::send<LogLevel::Default>(STR(
-                    "[ReplayQualification] strict seek passed percent={} "
-                    "target={} source_end={} verified={} index={}\n"),
+                    "[ReplayQualification] strict seek historical prefix "
+                    "passed percent={} target={} source_end={} verified={} "
+                    "awaiting_live_frames={}\n"),
                     percentage, observed_target, source_end, verified,
-                    seek_index_);
-                ++seek_index_;
-                seek_requested_ = false;
-                requested_seek_target_ = 0;
+                    request_.watch_frames - verified);
+                seek_history_verified_ = verified;
+                seek_completed_source_ = source_end;
+                seek_validation_ns_ = validation_ns;
+                seek_resimulation_coordinates_ = resimulation_coordinates;
+                seek_resume_start_frame_ = frame;
+                seek_resume_observation_active_ = true;
             }
             return;
         }
@@ -690,6 +780,12 @@ private:
     std::uint64_t seek_range_generation_{};
     std::uint64_t seek_range_first_{};
     std::uint64_t seek_range_last_{};
+    std::uint64_t seek_history_verified_{};
+    std::uint64_t seek_completed_source_{};
+    std::uint64_t seek_validation_ns_{};
+    std::uint64_t seek_resimulation_coordinates_{};
+    std::uint32_t seek_resume_start_frame_{};
+    bool seek_resume_observation_active_{};
     std::uint8_t profile_attempts_{};
 };
 

@@ -149,6 +149,34 @@ bool CaptureCameraPublicationSignature(
     return true;
 }
 
+bool AppendStageSignature(std::int32_t actor_id, const void* payload,
+    std::size_t payload_size, std::uint64_t& sequence_hash) noexcept
+{
+    if (payload_size > 12 || (payload_size != 0 && payload == nullptr))
+        return false;
+    std::array<std::byte, 16> semantic{};
+    std::memcpy(semantic.data(), &actor_id, sizeof(actor_id));
+    __try
+    {
+        if (payload_size != 0)
+            std::memcpy(semantic.data() + sizeof(actor_id), payload,
+                payload_size);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+
+    constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+    constexpr std::uint64_t prime = 1099511628211ull;
+    auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
+    for (std::size_t index = 0; index < sizeof(actor_id) + payload_size;
+         ++index)
+    {
+        hash ^= std::to_integer<std::uint8_t>(semantic[index]);
+        hash *= prime;
+    }
+    sequence_hash = hash;
+    return true;
+}
+
 bool CaptureInputPairArray(void* argument, PlayerInput (&output)[2]) noexcept
 {
     std::uintptr_t data{};
@@ -1615,6 +1643,17 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
         : stage_break_wall_trampoline_global_.load(std::memory_order_acquire);
     const auto original = reinterpret_cast<StageBreakWallFn>(trampoline);
     auto* batch = active_outer_capture_;
+    std::int32_t actor_id{};
+    const std::uint8_t immediate_value = immediately ? 1 : 0;
+    const bool signature_ok = actor != nullptr
+        && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x450, actor_id);
+    if (batch != nullptr && batch->observation != nullptr)
+    {
+        ++batch->observation->stage_wall_calls;
+        if (!signature_ok || !AppendStageSignature(actor_id, &immediate_value,
+                sizeof(immediate_value), batch->observation->stage_wall_hash))
+            ++batch->observation->stage_signature_failures;
+    }
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
     if (!suppress)
@@ -1624,6 +1663,10 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
     else
     {
         ++batch->owned->result->suppressed_stage_wall_calls;
+        if (!signature_ok || !AppendStageSignature(actor_id, &immediate_value,
+                sizeof(immediate_value),
+                batch->owned->result->stage_wall_hash))
+            ++batch->owned->result->stage_signature_failures;
         std::array<std::array<std::byte, 8>, wall_presentation_fields.size()> saved{};
         std::size_t written{};
         if (!CaptureAndZeroFields(actor, wall_presentation_fields, saved, written))
@@ -1665,6 +1708,16 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
         : stage_break_barrier_trampoline_global_.load(std::memory_order_acquire);
     const auto original = reinterpret_cast<StageBreakBarrierFn>(trampoline);
     auto* batch = active_outer_capture_;
+    std::int32_t actor_id{};
+    const bool signature_ok = actor != nullptr && direction != nullptr
+        && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x420, actor_id);
+    if (batch != nullptr && batch->observation != nullptr)
+    {
+        ++batch->observation->stage_barrier_calls;
+        if (!signature_ok || !AppendStageSignature(actor_id, direction, 12,
+                batch->observation->stage_barrier_hash))
+            ++batch->observation->stage_signature_failures;
+    }
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
     if (!suppress)
@@ -1674,6 +1727,9 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
     else
     {
         ++batch->owned->result->suppressed_stage_barrier_calls;
+        if (!signature_ok || !AppendStageSignature(actor_id, direction, 12,
+                batch->owned->result->stage_barrier_hash))
+            ++batch->owned->result->stage_signature_failures;
         std::array<std::array<std::byte, 8>, barrier_presentation_fields.size()> saved{};
         std::size_t written{};
         if (!CaptureAndZeroFields(actor, barrier_presentation_fields, saved, written))
@@ -1715,6 +1771,14 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
         ? hooks->stage_break_dispatch_trampoline_
         : stage_break_dispatch_trampoline_global_.load(std::memory_order_acquire);
     const auto original = reinterpret_cast<StageBreakDispatchFn>(trampoline);
+    auto* batch = active_outer_capture_;
+    if (batch != nullptr && batch->observation != nullptr)
+    {
+        ++batch->observation->stage_dispatch_calls;
+        if (!AppendStageSignature(actor_id, location, 12,
+                batch->observation->stage_dispatch_hash))
+            ++batch->observation->stage_signature_failures;
+    }
     auto* context = active_presentation_mask;
     if (context == nullptr || !context->masked)
     {
@@ -1722,7 +1786,6 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
     }
     else if (!RestoreMaskContext(*context))
     {
-        auto* batch = active_outer_capture_;
         if (batch != nullptr && batch->owned != nullptr)
             ++batch->owned->result->presentation_failures;
         if (context->failure != nullptr)
@@ -1732,9 +1795,13 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
     }
     else
     {
-        auto* batch = active_outer_capture_;
         if (batch != nullptr && batch->owned != nullptr)
+        {
             ++batch->owned->result->semantic_stage_dispatch_calls;
+            if (!AppendStageSignature(actor_id, location, 12,
+                    batch->owned->result->stage_dispatch_hash))
+                ++batch->owned->result->stage_signature_failures;
+        }
         if (original != nullptr) original(emitter, actor_id, location);
         if (!ZeroMaskContext(*context))
         {

@@ -30,6 +30,8 @@ struct ReplayTimelineStatus
     std::uint64_t canonical_frames{};
     std::size_t canonical_hash_bytes{};
     std::uint64_t resumed_frames_verified{};
+    std::uint64_t last_seek_validation_ns{};
+    std::uint64_t last_seek_resimulation_coordinates{};
     std::size_t checkpoint_bytes{};
     std::size_t batch_entry_checkpoint_bytes{};
     std::size_t checkpoint_wind_nodes{};

@@ -3821,6 +3821,29 @@ private:
                 qualification.generation, qualification.first_frame,
                 kForcedQualificationCorrections);
         }
+        if (qualification.completed >= kForcedQualificationCorrections
+            && qualification.suppressed_stage_wall_calls == 0
+            && qualification.suppressed_stage_barrier_calls == 0)
+        {
+            const auto located = m_replay_native_runtime.batch_timeline()
+                .FindCoordinate(timeline.last_coordinate);
+            const auto* envelope = located.has_value()
+                ? m_replay_native_runtime.batch_timeline().GetBatch(
+                    located->batch_index)
+                : nullptr;
+            if (envelope == nullptr
+                || (envelope->stage_wall_calls == 0
+                    && envelope->stage_barrier_calls == 0))
+            {
+                return;
+            }
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] forced depth-7 qualification observed stage "
+                "workload frame={} wall={} barrier={} dispatch={}\n"),
+                timeline.last_coordinate.frame, envelope->stage_wall_calls,
+                envelope->stage_barrier_calls,
+                envelope->stage_dispatch_calls);
+        }
         if (timeline.last_coordinate.generation != qualification.generation)
         {
             qualification.failure =
@@ -3971,6 +3994,15 @@ private:
         ++qualification.completed;
         qualification.last_frame = timeline.last_coordinate.frame;
         if (qualification.completed < kForcedQualificationCorrections) return;
+        if (qualification.suppressed_stage_wall_calls == 0
+            && qualification.suppressed_stage_barrier_calls == 0)
+        {
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] forced depth-7 qualification baseline passed "
+                "completed={} frame={} awaiting_stage_workload=true\n"),
+                qualification.completed, qualification.last_frame);
+            return;
+        }
 
         const auto final_timeline = m_replay_native_runtime.timeline_status();
         const auto capture_performance =
@@ -4676,6 +4708,22 @@ public:
         native_time = timeline.native_time;
         round_state_frame = timeline.round_state_frame;
         unpause_countdown = timeline.unpause_countdown;
+        return true;
+    }
+
+    bool GetReplaySeekMetrics(
+        std::uint64_t& validation_ns,
+        std::uint64_t& resimulation_coordinates) const noexcept
+    {
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        if (timeline.resume_target.generation == 0
+            || timeline.last_seek_validation_ns == 0)
+        {
+            return false;
+        }
+        validation_ns = timeline.last_seek_validation_ns;
+        resimulation_coordinates =
+            timeline.last_seek_resimulation_coordinates;
         return true;
     }
 
@@ -9195,5 +9243,16 @@ extern "C"
             && round_state_frame != nullptr && unpause_countdown != nullptr
             && mod->GetReplaySimulationPhase(*native_round, *native_time,
                 *round_state_frame, *unpause_countdown);
+    }
+
+    HORSE_MOD_API bool horsemod_get_replay_seek_metrics(
+        std::uint64_t* validation_ns,
+        std::uint64_t* resimulation_coordinates)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && validation_ns != nullptr
+            && resimulation_coordinates != nullptr
+            && mod->GetReplaySeekMetrics(
+                *validation_ns, *resimulation_coordinates);
     }
 }
