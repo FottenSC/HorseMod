@@ -107,6 +107,48 @@ bool SafeWrite(std::uintptr_t address, const T& value) noexcept
     }
 }
 
+bool CaptureCameraPublicationSignature(
+    std::uintptr_t image_base, std::uint64_t& output) noexcept
+{
+    std::array<std::byte, Schema::Sc6FrameLayout::camera_frame_vectors_size>
+        vectors{};
+    std::uint32_t yaw_bits{};
+    std::uint32_t mode{};
+    if (image_base == 0
+        || !SafeRead(image_base
+                + Schema::Sc6FrameLayout::camera_frame_vectors_rva,
+            vectors)
+        || !SafeRead(image_base + Schema::Sc6FrameLayout::camera_yaw_turns_rva,
+            yaw_bits)
+        || !SafeRead(image_base + Schema::Sc6FrameLayout::camera_mode_rva,
+            mode))
+    {
+        return false;
+    }
+
+    constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+    constexpr std::uint64_t prime = 1099511628211ull;
+    auto hash = offset_basis;
+    const auto append = [&hash](const auto& value) noexcept {
+        constexpr std::uint64_t inner_prime = 1099511628211ull;
+        const auto* bytes = reinterpret_cast<const std::byte*>(&value);
+        for (std::size_t index = 0; index < sizeof(value); ++index)
+        {
+            hash ^= std::to_integer<std::uint8_t>(bytes[index]);
+            hash *= inner_prime;
+        }
+    };
+    for (const auto value : vectors)
+    {
+        hash ^= std::to_integer<std::uint8_t>(value);
+        hash *= prime;
+    }
+    append(yaw_bits);
+    append(mode);
+    output = hash;
+    return true;
+}
+
 bool CaptureInputPairArray(void* argument, PlayerInput (&output)[2]) noexcept
 {
     std::uintptr_t data{};
@@ -1231,6 +1273,12 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     {
         original(battle_manager, delta_seconds);
     }
+    if (hooks == nullptr
+        || !CaptureCameraPublicationSignature(
+            hooks->image_base_, observation.camera_publication_hash))
+    {
+        ++observation.camera_signature_failures;
+    }
     active_outer_capture_ = previous_capture;
     observation.fp_after = CaptureFloatingPointEnvironment();
     observation.fp_after_valid = true;
@@ -1407,6 +1455,14 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
     {
         original(reinterpret_cast<void*>(request.battle_manager),
             request.envelope->delta_seconds);
+        if (!CaptureCameraPublicationSignature(
+                image_base_, observation.camera_publication_hash))
+        {
+            ++observation.camera_signature_failures;
+        }
+        output.camera_publication_hash = observation.camera_publication_hash;
+        output.camera_signature_failures =
+            observation.camera_signature_failures;
         if (output.failure == FailureCode::None
             && !ConsumeBattleAudioJournal(*request.envelope, output))
         {

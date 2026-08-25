@@ -417,6 +417,13 @@ private:
             Fail(Horse::Qualification::import_failure_name(imported));
             return;
         }
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] replay metadata stage={} map={} "
+            "left_character={} right_character={}\n"),
+            metadata.stage_index,
+            metadata.stage_index > 0xff
+                ? metadata.stage_index & 0xff : metadata.stage_index,
+            metadata.left_character, metadata.right_character);
         state_ = State::WaitingForLaunch;
         WriteResult("waiting_for_launch", "none");
     }

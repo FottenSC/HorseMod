@@ -3241,6 +3241,8 @@ private:
         std::uint64_t suppressed_particle_finished_binds{};
         std::uint64_t unknown_particle_routes{};
         std::uint64_t verified_audio_batches{};
+        std::uint64_t verified_camera_batches{};
+        std::uint64_t camera_publication_mismatches{};
         std::uint64_t audio_sequence_mismatches{};
         std::uint64_t presentation_failures{};
         Horse::Deterministic::Snapshot expected_scratch{};
@@ -3960,6 +3962,9 @@ private:
         qualification.unknown_particle_routes +=
             result.unknown_particle_routes;
         qualification.verified_audio_batches += result.verified_audio_batches;
+        qualification.verified_camera_batches += result.verified_camera_batches;
+        qualification.camera_publication_mismatches +=
+            result.camera_publication_mismatches;
         qualification.audio_sequence_mismatches +=
             result.audio_sequence_mismatches;
         qualification.presentation_failures += result.presentation_failures;
@@ -3995,6 +4000,7 @@ private:
             "particle_spawn_suppressed={} particle_bind_suppressed={} "
             "particle_unknown_routes={} "
             "audio_batches_verified={} audio_sequence_mismatches={} "
+            "camera_batches_verified={} camera_publication_mismatches={} "
             "presentation_failures={} canonical_convergence=exact "
             "presentation_terminal_coverage=incomplete\n"),
             qualification.failure == Horse::Deterministic::FailureCode::None
@@ -4021,6 +4027,8 @@ private:
             qualification.unknown_particle_routes,
             qualification.verified_audio_batches,
             qualification.audio_sequence_mismatches,
+            qualification.verified_camera_batches,
+            qualification.camera_publication_mismatches,
             qualification.presentation_failures);
     }
 

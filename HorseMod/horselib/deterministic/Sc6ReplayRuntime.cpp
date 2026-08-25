@@ -955,6 +955,9 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     envelope.particle_spawn_hash = observation.particle_spawn_hash;
     envelope.particle_signature_failures =
         observation.particle_signature_failures;
+    envelope.camera_publication_hash = observation.camera_publication_hash;
+    envelope.camera_signature_failures =
+        observation.camera_signature_failures;
     envelope.battle_audio_remap_entry_values =
         observation.battle_audio_remap_entry_values;
     envelope.battle_audio_remap_entry_mask =
@@ -1236,6 +1239,18 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                     != envelope->battle_audio_source_hash))
         {
             ++result.audio_sequence_mismatches;
+            ++result.presentation_failures;
+            result.failure = FailureCode::PresentationFailed;
+            status = Status::failure(result.failure);
+        }
+        if (status.ok()
+            && (envelope->camera_signature_failures != 0
+                || result.camera_signature_failures != 0
+                || result.camera_publication_hash
+                    != envelope->camera_publication_hash))
+        {
+            ++result.camera_publication_mismatches;
+            ++result.presentation_failures;
             result.failure = FailureCode::PresentationFailed;
             status = Status::failure(result.failure);
         }
@@ -1267,6 +1282,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                     != envelope->battle_audio_remap_entry_values))
         {
             ++result.audio_sequence_mismatches;
+            ++result.presentation_failures;
             result.failure = FailureCode::PresentationFailed;
             status = Status::failure(result.failure);
         }
@@ -1290,6 +1306,11 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                 result.unknown_particle_routes;
             presentation_diagnostics->verified_audio_batches +=
                 result.audio_sequence_mismatches == 0 ? 1 : 0;
+            presentation_diagnostics->verified_camera_batches +=
+                result.camera_publication_mismatches == 0
+                    && result.camera_signature_failures == 0 ? 1 : 0;
+            presentation_diagnostics->camera_publication_mismatches +=
+                result.camera_publication_mismatches;
             presentation_diagnostics->audio_sequence_mismatches +=
                 result.audio_sequence_mismatches;
             presentation_diagnostics->presentation_failures +=

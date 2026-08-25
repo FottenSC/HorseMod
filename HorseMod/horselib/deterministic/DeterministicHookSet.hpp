@@ -95,6 +95,8 @@ struct OuterTickObservation
     std::uint32_t particle_spawn_calls{};
     std::uint64_t particle_spawn_hash{};
     std::uint32_t particle_signature_failures{};
+    std::uint64_t camera_publication_hash{};
+    std::uint32_t camera_signature_failures{};
     std::array<std::uint8_t, maximum_battle_audio_handlers>
         battle_audio_remap_entry_values{};
     std::uint8_t battle_audio_remap_entry_mask{};
@@ -174,6 +176,9 @@ struct OwnedBatchReplayResult
     std::uint64_t suppressed_particle_spawn_hash{};
     std::uint32_t suppressed_particle_finished_binds{};
     std::uint32_t unknown_particle_routes{};
+    std::uint64_t camera_publication_hash{};
+    std::uint32_t camera_signature_failures{};
+    std::uint32_t camera_publication_mismatches{};
     std::array<std::uint8_t, maximum_battle_audio_handlers>
         suppressed_audio_remap_entry_values{};
     std::uint8_t suppressed_audio_remap_entry_mask{};

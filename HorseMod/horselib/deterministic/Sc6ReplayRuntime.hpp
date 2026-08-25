@@ -168,6 +168,8 @@ struct OwnedCorrectionResult
     std::uint64_t suppressed_particle_finished_binds{};
     std::uint64_t unknown_particle_routes{};
     std::uint64_t verified_audio_batches{};
+    std::uint64_t verified_camera_batches{};
+    std::uint64_t camera_publication_mismatches{};
     std::uint64_t audio_sequence_mismatches{};
     std::uint64_t presentation_failures{};
     std::uint64_t undo_capture_ns{};
