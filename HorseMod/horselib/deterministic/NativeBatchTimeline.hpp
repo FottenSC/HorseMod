@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Types.hpp"
+#include "BattleAudioSelectorState.hpp"
 
 #include <optional>
 #include <span>
@@ -8,6 +9,30 @@
 
 namespace Horse::Deterministic
 {
+inline constexpr std::size_t maximum_battle_audio_journal_dispatches = 16;
+inline constexpr std::size_t maximum_battle_audio_journal_sources = 8;
+inline constexpr std::size_t maximum_battle_audio_journal_remaps = 8;
+
+struct BattleAudioDispatchJournalEntry
+{
+    std::array<std::byte, 18> semantic{};
+    std::uint8_t direct{};
+};
+
+struct BattleAudioSourceJournalEntry
+{
+    std::array<std::byte, 18> semantic{};
+};
+
+struct BattleAudioRemapJournalEntry
+{
+    std::uintptr_t handler{};
+    std::int32_t contact_type{};
+    std::int32_t before{};
+    std::int32_t result{};
+    std::int32_t after{};
+};
+
 struct NativeBatchEnvelope
 {
     std::uint64_t batch_id{};
@@ -31,11 +56,37 @@ struct NativeBatchEnvelope
     std::uint32_t battle_audio_route_hash{};
     std::uint32_t battle_audio_payload_hash{};
     std::uint32_t battle_audio_position_hash{};
+    std::uint32_t battle_audio_direct_dispatches{};
+    std::uint32_t battle_audio_direct_route_hash{};
+    std::uint32_t battle_audio_direct_payload_hash{};
+    std::uint32_t battle_audio_direct_position_hash{};
+    std::uint64_t battle_audio_direct_sequence_hash{};
+    std::uint32_t battle_audio_remap_calls{};
+    std::uint64_t battle_audio_remap_hash{};
+    std::uint32_t battle_audio_source_calls{};
+    std::uint64_t battle_audio_source_hash{};
+    std::uint32_t battle_audio_stop_all_calls{};
+    std::uint64_t battle_audio_stop_all_hash{};
+    std::uint32_t particle_spawn_calls{};
+    std::uint64_t particle_spawn_hash{};
+    std::uint32_t particle_signature_failures{};
+    std::array<std::uint8_t, maximum_battle_audio_handlers>
+        battle_audio_remap_entry_values{};
+    std::uint8_t battle_audio_remap_entry_mask{};
     std::uint8_t main_state_before{};
     std::uint8_t main_state_after{};
     std::uint8_t round_state_before{};
     std::uint8_t round_state_after{};
     bool input_generation_changed{};
+    std::array<BattleAudioDispatchJournalEntry,
+        maximum_battle_audio_journal_dispatches> battle_audio_journal{};
+    std::array<BattleAudioSourceJournalEntry,
+        maximum_battle_audio_journal_sources> battle_audio_source_journal{};
+    std::array<BattleAudioRemapJournalEntry,
+        maximum_battle_audio_journal_remaps> battle_audio_remap_journal{};
+    std::uint8_t battle_audio_journal_count{};
+    std::uint8_t battle_audio_source_journal_count{};
+    std::uint8_t battle_audio_remap_journal_count{};
 };
 
 struct NativeBatchCoordinate

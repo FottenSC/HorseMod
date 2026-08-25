@@ -2,14 +2,25 @@
 
 #include "Interfaces.hpp"
 
-#include <map>
 #include <compare>
+#include <memory>
 
 namespace Horse::Deterministic
 {
 class PresentationJournal final : public IPresentationJournal
 {
 public:
+    struct Statistics
+    {
+        std::uint64_t attempted{};
+        std::uint64_t recorded{};
+        std::uint64_t duplicates{};
+        std::uint64_t capacity_failures{};
+        std::uint64_t discarded{};
+        std::uint64_t committed{};
+        std::uint64_t publish_failures{};
+    };
+
     PresentationJournal(
         std::size_t maximum_events,
         std::size_t maximum_payload_bytes) noexcept;
@@ -22,6 +33,9 @@ public:
     void InvalidateGeneration(std::uint64_t generation) noexcept override;
 
     [[nodiscard]] std::size_t pending_count() const noexcept;
+    [[nodiscard]] std::size_t payload_bytes() const noexcept;
+    [[nodiscard]] std::size_t capacity() const noexcept;
+    [[nodiscard]] Statistics statistics() const noexcept;
 
 private:
     struct EventKey
@@ -33,10 +47,31 @@ private:
         friend constexpr auto operator<=>(const EventKey&, const EventKey&) = default;
     };
 
+    struct Slot
+    {
+        bool occupied{};
+        PresentationEvent event{};
+    };
+
+    struct Watermark
+    {
+        bool occupied{};
+        std::uint64_t generation{};
+        std::uint64_t frame{};
+    };
+
+    [[nodiscard]] Watermark* FindWatermark(std::uint64_t generation) noexcept;
+    [[nodiscard]] const Watermark* FindWatermark(
+        std::uint64_t generation) const noexcept;
+    [[nodiscard]] Watermark* EnsureWatermark(std::uint64_t generation) noexcept;
+    void ClearSlot(Slot& slot) noexcept;
+
     std::size_t maximum_events_{};
     std::size_t maximum_payload_bytes_{};
     std::size_t payload_bytes_{};
-    std::map<EventKey, PresentationEvent> pending_;
-    std::map<std::uint64_t, std::uint64_t> committed_through_;
+    std::size_t pending_count_{};
+    std::unique_ptr<Slot[]> slots_;
+    std::unique_ptr<Watermark[]> watermarks_;
+    Statistics statistics_{};
 };
 }

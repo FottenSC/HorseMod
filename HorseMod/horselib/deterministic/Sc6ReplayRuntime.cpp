@@ -933,6 +933,43 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     envelope.battle_audio_route_hash = observation.battle_audio_route_hash;
     envelope.battle_audio_payload_hash = observation.battle_audio_payload_hash;
     envelope.battle_audio_position_hash = observation.battle_audio_position_hash;
+    envelope.battle_audio_direct_dispatches =
+        observation.battle_audio_direct_dispatches;
+    envelope.battle_audio_direct_route_hash =
+        observation.battle_audio_direct_route_hash;
+    envelope.battle_audio_direct_payload_hash =
+        observation.battle_audio_direct_payload_hash;
+    envelope.battle_audio_direct_position_hash =
+        observation.battle_audio_direct_position_hash;
+    envelope.battle_audio_direct_sequence_hash =
+        observation.battle_audio_direct_sequence_hash;
+    envelope.battle_audio_remap_calls = observation.battle_audio_remap_calls;
+    envelope.battle_audio_remap_hash = observation.battle_audio_remap_hash;
+    envelope.battle_audio_source_calls = observation.battle_audio_source_calls;
+    envelope.battle_audio_source_hash = observation.battle_audio_source_hash;
+    envelope.battle_audio_stop_all_calls =
+        observation.battle_audio_stop_all_calls;
+    envelope.battle_audio_stop_all_hash =
+        observation.battle_audio_stop_all_hash;
+    envelope.particle_spawn_calls = observation.particle_spawn_calls;
+    envelope.particle_spawn_hash = observation.particle_spawn_hash;
+    envelope.particle_signature_failures =
+        observation.particle_signature_failures;
+    envelope.battle_audio_remap_entry_values =
+        observation.battle_audio_remap_entry_values;
+    envelope.battle_audio_remap_entry_mask =
+        observation.battle_audio_remap_entry_mask;
+    envelope.battle_audio_journal = observation.battle_audio_journal;
+    envelope.battle_audio_source_journal =
+        observation.battle_audio_source_journal;
+    envelope.battle_audio_remap_journal =
+        observation.battle_audio_remap_journal;
+    envelope.battle_audio_journal_count =
+        observation.battle_audio_journal_count;
+    envelope.battle_audio_source_journal_count =
+        observation.battle_audio_source_journal_count;
+    envelope.battle_audio_remap_journal_count =
+        observation.battle_audio_remap_journal_count;
     envelope.main_state_before = observation.before.main_state;
     envelope.main_state_after = observation.after.main_state;
     envelope.round_state_before = observation.before.round_state;
@@ -1193,6 +1230,16 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
         OwnedBatchReplayResult result{};
         Status status = hooks.ExecuteOwnedBatch(request, result);
         if (status.ok()
+            && (result.suppressed_audio_source_calls
+                    != envelope->battle_audio_source_calls
+                || result.suppressed_audio_source_hash
+                    != envelope->battle_audio_source_hash))
+        {
+            ++result.audio_sequence_mismatches;
+            result.failure = FailureCode::PresentationFailed;
+            status = Status::failure(result.failure);
+        }
+        if (status.ok()
             && (result.suppressed_audio_calls
                     != envelope->battle_audio_dispatches
                 || result.suppressed_audio_route_hash
@@ -1200,7 +1247,24 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                 || result.suppressed_audio_payload_hash
                     != envelope->battle_audio_payload_hash
                 || result.suppressed_audio_position_hash
-                    != envelope->battle_audio_position_hash))
+                    != envelope->battle_audio_position_hash
+                || result.suppressed_audio_remap_calls
+                    != envelope->battle_audio_remap_calls
+                || result.suppressed_audio_remap_hash
+                    != envelope->battle_audio_remap_hash
+                || result.suppressed_audio_stop_all_calls
+                    != envelope->battle_audio_stop_all_calls
+                || result.suppressed_audio_stop_all_hash
+                    != envelope->battle_audio_stop_all_hash
+                || result.suppressed_particle_spawn_calls
+                    != envelope->particle_spawn_calls
+                || result.suppressed_particle_spawn_hash
+                    != envelope->particle_spawn_hash
+                || result.unknown_particle_routes != 0
+                || result.suppressed_audio_remap_entry_mask
+                    != envelope->battle_audio_remap_entry_mask
+                || result.suppressed_audio_remap_entry_values
+                    != envelope->battle_audio_remap_entry_values))
         {
             ++result.audio_sequence_mismatches;
             result.failure = FailureCode::PresentationFailed;
@@ -1216,6 +1280,14 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                 result.semantic_stage_dispatch_calls;
             presentation_diagnostics->suppressed_audio_calls +=
                 result.suppressed_audio_calls;
+            presentation_diagnostics->suppressed_audio_stop_all_calls +=
+                result.suppressed_audio_stop_all_calls;
+            presentation_diagnostics->suppressed_particle_spawn_calls +=
+                result.suppressed_particle_spawn_calls;
+            presentation_diagnostics->suppressed_particle_finished_binds +=
+                result.suppressed_particle_finished_binds;
+            presentation_diagnostics->unknown_particle_routes +=
+                result.unknown_particle_routes;
             presentation_diagnostics->verified_audio_batches +=
                 result.audio_sequence_mismatches == 0 ? 1 : 0;
             presentation_diagnostics->audio_sequence_mismatches +=
@@ -1603,14 +1675,22 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         timeline_status_.last_coordinate, undo);
     output.undo_capture_ns = elapsed_ns(phase_begin, Clock::now());
     if (!status.ok()) return finish(status);
+    CandidateCheckpointImage undo_diagnostic_image{};
+    if (CandidateCheckpointCodec::Decode(undo, undo_diagnostic_image).ok())
+        output.undo_audio_selector =
+            undo_diagnostic_image.battle_audio_selector;
 
     const auto base = correction_snapshots.Load(plan.resimulation_base);
     if (!base.has_value())
         return finish(Status::failure(FailureCode::MissingSnapshot));
     CandidateCheckpointImage base_diagnostic_image{};
     if (CandidateCheckpointCodec::Decode(*base, base_diagnostic_image).ok())
+    {
         output.base_wind_graph = WindGraphDiagnostic(
             base_diagnostic_image.wind);
+        output.base_audio_selector =
+            base_diagnostic_image.battle_audio_selector;
+    }
 
     bool native_state_was_written = false;
     const auto record_primary_failure = [&](Status failure) noexcept {
@@ -1620,7 +1700,10 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     };
     const auto restore_undo = [&]() noexcept {
         if (!native_state_was_written) return true;
-        const Status undone = checkpoint_capture_.RestoreAndVerify(undo);
+        Status undone = checkpoint_capture_.RestoreAndVerify(undo);
+        const Status audio_undone =
+            checkpoint_capture_.RestoreBattleAudioSelectorForPresentation(undo);
+        if (undone.ok() && !audio_undone.ok()) undone = audio_undone;
         output.undo_failure = undone.code;
         output.undo_validation = checkpoint_capture_.restore_validation();
         output.undo_restored = undone.ok();
@@ -1873,6 +1956,17 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     {
         status = Status::failure(FailureCode::StateHashMismatch);
     }
+    if (!status.ok())
+    {
+        record_primary_failure(status);
+        if (!restore_undo()) status = Status::failure(FailureCode::UndoFailed);
+        return finish(status);
+    }
+
+    // Owned replay must not publish its historical presentation selector into
+    // the next authoritative tick. Reconcile it to the pre-correction image
+    // only after canonical convergence has been established.
+    status = checkpoint_capture_.RestoreBattleAudioSelectorForPresentation(undo);
     if (!status.ok())
     {
         record_primary_failure(status);

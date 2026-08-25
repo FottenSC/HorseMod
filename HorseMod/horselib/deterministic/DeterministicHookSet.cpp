@@ -32,10 +32,38 @@ std::atomic<std::uint64_t>
     DeterministicHookSet::battle_audio_dispatch_trampoline_global_{};
 std::atomic<std::uint64_t>
     DeterministicHookSet::battle_audio_remap_trampoline_global_{};
-std::atomic<std::uintptr_t>
-    DeterministicHookSet::observed_battle_audio_handler_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_contact_handler_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_phase_changed_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_tracking_remove_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_tracking_insert_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_tracking_rehash_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_blueprint_publish_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_register_voice_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_append_command_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_stop_all_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_append_parameter_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::particle_spawn_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::particle_finished_bind_trampoline_global_{};
+std::array<std::atomic<std::uintptr_t>, maximum_battle_audio_handlers>
+    DeterministicHookSet::observed_battle_audio_handlers_{};
+std::atomic<bool> DeterministicHookSet::battle_audio_handler_overflow_{};
 thread_local DeterministicHookSet::OuterTickCaptureContext*
     DeterministicHookSet::active_outer_capture_{};
+thread_local std::uint32_t active_battle_audio_source_depth{};
+thread_local std::uint32_t active_owned_battle_audio_source_depth{};
+thread_local std::uint32_t active_owned_audio_registration_depth{};
 
 namespace
 {
@@ -130,26 +158,116 @@ struct PresentationMaskContext
 
 thread_local PresentationMaskContext* active_presentation_mask{};
 
-bool AppendBattleAudioSignature(
-    const void* event_record, bool alternate_route,
+void __fastcall ShadowParticleStop(void*, std::uint8_t) noexcept
+{
+}
+
+struct ParticleShadowPool
+{
+    static constexpr std::size_t capacity = 32;
+    static constexpr std::size_t component_size = 0x980;
+    struct alignas(16) Slot
+    {
+        std::array<std::byte, component_size> bytes{};
+    };
+
+    ParticleShadowPool() noexcept
+    {
+        vtable.fill(nullptr);
+        vtable[0x360 / sizeof(void*)] =
+            reinterpret_cast<void*>(&ShadowParticleStop);
+    }
+
+    void Reset() noexcept { next = 0; }
+
+    void* Acquire() noexcept
+    {
+        if (next >= slots.size()) return nullptr;
+        auto& slot = slots[next++];
+        std::memset(slot.bytes.data(), 0, slot.bytes.size());
+        const auto table = reinterpret_cast<std::uintptr_t>(vtable.data());
+        std::memcpy(slot.bytes.data(), &table, sizeof(table));
+        return slot.bytes.data();
+    }
+
+    bool ContainsDelegate(const void* delegate) const noexcept
+    {
+        for (std::size_t index = 0; index < next; ++index)
+            if (delegate == slots[index].bytes.data() + 0x970) return true;
+        return false;
+    }
+
+    std::array<Slot, capacity> slots{};
+    std::array<void*, 128> vtable{};
+    std::size_t next{};
+};
+
+thread_local ParticleShadowPool particle_shadow_pool{};
+
+std::uint8_t ClassifyParticleRoute(
+    std::uintptr_t image_base, std::uintptr_t return_address) noexcept
+{
+    if (return_address == image_base + Schema::Sc6FrameLayout::particle_wall_return_rva)
+        return 1;
+    if (return_address == image_base
+            + Schema::Sc6FrameLayout::particle_barrier_hit_return_rva)
+        return 2;
+    if (return_address == image_base
+            + Schema::Sc6FrameLayout::particle_barrier_break_return_rva)
+        return 3;
+    if (return_address == image_base
+            + Schema::Sc6FrameLayout::particle_blueprint_return_rva)
+        return 4;
+    return 0;
+}
+
+bool AppendParticleSpawnSignature(std::uint8_t route, void* owner,
+    void* particle_system, const void* location, const void* rotation,
+    const void* scale, bool auto_activate, std::uint64_t& sequence_hash) noexcept
+{
+    if (route == 0 || owner == nullptr || particle_system == nullptr
+        || location == nullptr || rotation == nullptr || scale == nullptr)
+        return false;
+    std::array<std::byte, 46> semantic{};
+    semantic[0] = std::byte(route);
+    std::int32_t owner_id{};
+    std::uint32_t asset_internal_index{};
+    const auto owner_offset = route == 1 ? 0x450u
+        : (route == 2 || route == 3 ? 0x420u : 0u);
+    if ((owner_offset != 0
+            && !SafeRead(reinterpret_cast<std::uintptr_t>(owner) + owner_offset,
+                owner_id))
+        || !SafeRead(reinterpret_cast<std::uintptr_t>(particle_system) + 0x0c,
+            asset_internal_index))
+        return false;
+    std::memcpy(semantic.data() + 1, &owner_id, sizeof(owner_id));
+    std::memcpy(semantic.data() + 5, &asset_internal_index,
+        sizeof(asset_internal_index));
+    __try
+    {
+        std::memcpy(semantic.data() + 9, location, 12);
+        std::memcpy(semantic.data() + 21, rotation, 12);
+        std::memcpy(semantic.data() + 33, scale, 12);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    semantic[45] = std::byte(auto_activate ? 1 : 0);
+    constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+    constexpr std::uint64_t prime = 1099511628211ull;
+    auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
+    for (const auto value : semantic)
+    {
+        hash ^= std::to_integer<std::uint8_t>(value);
+        hash *= prime;
+    }
+    sequence_hash = hash;
+    return true;
+}
+
+bool AppendBattleAudioSemantic(
+    const std::array<std::byte, 18>& semantic,
     std::uint64_t& sequence_hash, std::uint32_t& route_hash,
     std::uint32_t& payload_hash, std::uint32_t& position_hash) noexcept
 {
-    // FLuxBattleEventRecord is a verified pointer-free 0x18-byte record. This
-    // dispatcher consumes event type, authored payload ID, and optional
-    // position/reserved payload. Its +0x14 class byte is not read; route is the
-    // separate third parameter. Exclude the unused class byte and both pads.
-    std::array<std::byte, 18> semantic{};
-    __try
-    {
-        if (event_record == nullptr) return false;
-        const auto* bytes = static_cast<const std::byte*>(event_record);
-        semantic[0] = bytes[0];
-        std::memcpy(semantic.data() + 1, bytes + 4, 16);
-        semantic[17] = static_cast<std::byte>(alternate_route ? 1 : 0);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-
     const auto append = [](std::uint64_t& destination,
                             const std::byte* bytes, std::size_t size) noexcept
     {
@@ -182,6 +300,188 @@ bool AppendBattleAudioSignature(
     append32(payload_hash, semantic.data() + 1, 4);
     append32(position_hash, semantic.data() + 5, 12);
     return true;
+}
+
+bool CaptureBattleAudioSemantic(
+    const void* event_record, bool alternate_route,
+    std::array<std::byte, 18>& semantic) noexcept
+{
+    __try
+    {
+        if (event_record == nullptr) return false;
+        const auto* bytes = static_cast<const std::byte*>(event_record);
+        semantic[0] = bytes[0];
+        std::memcpy(semantic.data() + 1, bytes + 4, 16);
+        semantic[17] = static_cast<std::byte>(alternate_route ? 1 : 0);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool AppendBattleAudioSignature(
+    const void* event_record, bool alternate_route,
+    std::uint64_t& sequence_hash, std::uint32_t& route_hash,
+    std::uint32_t& payload_hash, std::uint32_t& position_hash) noexcept
+{
+    std::array<std::byte, 18> semantic{};
+    return CaptureBattleAudioSemantic(event_record, alternate_route, semantic)
+        && AppendBattleAudioSemantic(semantic, sequence_hash, route_hash,
+            payload_hash, position_hash);
+}
+
+bool AppendBattleAudioRemapSignature(
+    void* handler, std::int32_t contact_type, std::int32_t before,
+    std::int32_t result, std::int32_t after,
+    std::uint64_t& sequence_hash) noexcept
+{
+    std::array<std::byte, sizeof(std::uintptr_t) + sizeof(std::int32_t) * 4>
+        semantic{};
+    auto* cursor = semantic.data();
+    const auto append_value = [&cursor](const auto& value) noexcept
+    {
+        std::memcpy(cursor, &value, sizeof(value));
+        cursor += sizeof(value);
+    };
+    const auto identity = reinterpret_cast<std::uintptr_t>(handler);
+    append_value(identity);
+    append_value(contact_type);
+    append_value(before);
+    append_value(result);
+    append_value(after);
+    constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+    constexpr std::uint64_t prime = 1099511628211ull;
+    auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
+    for (const auto value : semantic)
+    {
+        hash ^= std::to_integer<std::uint8_t>(value);
+        hash *= prime;
+    }
+    sequence_hash = hash;
+    return true;
+}
+
+bool AppendBattleAudioSourceSignature(
+    const void* event_record, std::uint64_t& sequence_hash) noexcept
+{
+    if (event_record == nullptr) return false;
+    std::array<std::byte, 18> semantic{};
+    __try
+    {
+        const auto* source = static_cast<const std::byte*>(event_record);
+        semantic[0] = source[0];
+        std::memcpy(semantic.data() + 1, source + 4, 16);
+        semantic[17] = source[0x14];
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+    constexpr std::uint64_t prime = 1099511628211ull;
+    auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
+    for (const auto value : semantic)
+    {
+        hash ^= std::to_integer<std::uint8_t>(value);
+        hash *= prime;
+    }
+    sequence_hash = hash;
+    return true;
+}
+
+bool CaptureBattleAudioSourceSemantic(
+    const void* event_record, std::array<std::byte, 18>& output) noexcept
+{
+    if (event_record == nullptr) return false;
+    __try
+    {
+        const auto* source = static_cast<const std::byte*>(event_record);
+        output[0] = source[0];
+        std::memcpy(output.data() + 1, source + 4, 16);
+        output[17] = source[0x14];
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool ConsumeBattleAudioJournal(
+    const NativeBatchEnvelope& envelope,
+    OwnedBatchReplayResult& output) noexcept
+{
+    if (envelope.particle_signature_failures != 0
+        || envelope.battle_audio_journal_count
+            != envelope.battle_audio_dispatches
+        || envelope.battle_audio_journal_count
+            > envelope.battle_audio_journal.size()
+        || envelope.battle_audio_source_journal_count
+            != envelope.battle_audio_source_calls
+        || envelope.battle_audio_source_journal_count
+            > envelope.battle_audio_source_journal.size()
+        || envelope.battle_audio_remap_journal_count
+            != envelope.battle_audio_remap_calls
+        || envelope.battle_audio_remap_journal_count
+            > envelope.battle_audio_remap_journal.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0;
+         index < envelope.battle_audio_journal_count; ++index)
+    {
+        const auto& entry = envelope.battle_audio_journal[index];
+        ++output.suppressed_audio_calls;
+        if (!AppendBattleAudioSemantic(entry.semantic,
+                output.suppressed_audio_sequence_hash,
+                output.suppressed_audio_route_hash,
+                output.suppressed_audio_payload_hash,
+                output.suppressed_audio_position_hash))
+        {
+            return false;
+        }
+    }
+    for (std::size_t index = 0;
+         index < envelope.battle_audio_source_journal_count; ++index)
+    {
+        ++output.suppressed_audio_source_calls;
+        constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+        constexpr std::uint64_t prime = 1099511628211ull;
+        auto hash = output.suppressed_audio_source_hash == 0
+            ? offset_basis : output.suppressed_audio_source_hash;
+        for (const auto value :
+            envelope.battle_audio_source_journal[index].semantic)
+        {
+            hash ^= std::to_integer<std::uint8_t>(value);
+            hash *= prime;
+        }
+        output.suppressed_audio_source_hash = hash;
+    }
+    for (std::size_t index = 0;
+         index < envelope.battle_audio_remap_journal_count; ++index)
+    {
+        const auto& entry = envelope.battle_audio_remap_journal[index];
+        ++output.suppressed_audio_remap_calls;
+        if (!AppendBattleAudioRemapSignature(
+                reinterpret_cast<void*>(entry.handler), entry.contact_type,
+                entry.before, entry.result, entry.after,
+                output.suppressed_audio_remap_hash))
+        {
+            return false;
+        }
+    }
+    output.suppressed_audio_remap_entry_mask =
+        envelope.battle_audio_remap_entry_mask;
+    output.suppressed_audio_remap_entry_values =
+        envelope.battle_audio_remap_entry_values;
+    return output.suppressed_audio_calls == envelope.battle_audio_dispatches
+        && output.suppressed_audio_route_hash == envelope.battle_audio_route_hash
+        && output.suppressed_audio_payload_hash == envelope.battle_audio_payload_hash
+        && output.suppressed_audio_position_hash == envelope.battle_audio_position_hash
+        && output.suppressed_audio_source_hash == envelope.battle_audio_source_hash
+        && output.suppressed_audio_remap_hash == envelope.battle_audio_remap_hash
+        && output.suppressed_audio_stop_all_calls
+            == envelope.battle_audio_stop_all_calls
+        && output.suppressed_audio_stop_all_hash
+            == envelope.battle_audio_stop_all_hash
+        && output.suppressed_particle_spawn_calls
+            == envelope.particle_spawn_calls
+        && output.suppressed_particle_spawn_hash
+            == envelope.particle_spawn_hash
+        && output.unknown_particle_routes == 0;
 }
 
 template <std::size_t Count>
@@ -272,13 +572,12 @@ constexpr std::array wall_presentation_fields{
     MaskedField{0x420, 8}, MaskedField{0x428, 8},
     MaskedField{0x430, 8}, MaskedField{0x438, 8},
     MaskedField{0x440, 8}, MaskedField{0x448, 8},
-    MaskedField{0x458, 8}, MaskedField{0x460, 8},
+    MaskedField{0x460, 8},
 };
 constexpr std::array barrier_presentation_fields{
     MaskedField{0x400, 8}, MaskedField{0x408, 8},
     MaskedField{0x410, 8}, MaskedField{0x418, 8},
     MaskedField{0x438, 4}, MaskedField{0x448, 4},
-    MaskedField{0x458, 4}, MaskedField{0x460, 8},
     MaskedField{0x470, 8}, MaskedField{0x478, 8},
 };
 constexpr DWORD presentation_mask_exception = 0xe0421001;
@@ -346,7 +645,55 @@ Status DeterministicHookSet::Install(
         || !SafeEqual(reinterpret_cast<const void*>(image_base
                 + Schema::Sc6FrameLayout::battle_audio_remap_rva),
             Schema::Sc6FrameLayout::battle_audio_remap_signature.data(),
-            Schema::Sc6FrameLayout::battle_audio_remap_signature.size()))
+            Schema::Sc6FrameLayout::battle_audio_remap_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_contact_handler_rva),
+            Schema::Sc6FrameLayout::battle_audio_contact_handler_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_contact_handler_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_phase_changed_rva),
+            Schema::Sc6FrameLayout::battle_audio_phase_changed_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_phase_changed_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_tracking_remove_rva),
+            Schema::Sc6FrameLayout::battle_audio_tracking_remove_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_tracking_remove_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_tracking_insert_rva),
+            Schema::Sc6FrameLayout::battle_audio_tracking_insert_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_tracking_insert_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_tracking_rehash_rva),
+            Schema::Sc6FrameLayout::battle_audio_tracking_rehash_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_tracking_rehash_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_blueprint_publish_rva),
+            Schema::Sc6FrameLayout::battle_audio_blueprint_publish_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_blueprint_publish_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_register_voice_rva),
+            Schema::Sc6FrameLayout::battle_audio_register_voice_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_register_voice_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_append_command_rva),
+            Schema::Sc6FrameLayout::battle_audio_append_command_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_append_command_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_stop_all_rva),
+            Schema::Sc6FrameLayout::battle_audio_stop_all_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_stop_all_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_append_parameter_rva),
+            Schema::Sc6FrameLayout::battle_audio_append_parameter_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_append_parameter_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::particle_spawn_rva),
+            Schema::Sc6FrameLayout::particle_spawn_signature.data(),
+            Schema::Sc6FrameLayout::particle_spawn_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::particle_finished_bind_rva),
+            Schema::Sc6FrameLayout::particle_finished_bind_signature.data(),
+            Schema::Sc6FrameLayout::particle_finished_bind_signature.size()))
     {
         return Status::failure(FailureCode::AdapterUnqualified);
     }
@@ -363,6 +710,18 @@ Status DeterministicHookSet::Install(
     stage_break_dispatch_trampoline_ = 0;
     battle_audio_dispatch_trampoline_ = 0;
     battle_audio_remap_trampoline_ = 0;
+    battle_audio_contact_handler_trampoline_ = 0;
+    battle_audio_phase_changed_trampoline_ = 0;
+    battle_audio_tracking_remove_trampoline_ = 0;
+    battle_audio_tracking_insert_trampoline_ = 0;
+    battle_audio_tracking_rehash_trampoline_ = 0;
+    battle_audio_blueprint_publish_trampoline_ = 0;
+    battle_audio_register_voice_trampoline_ = 0;
+    battle_audio_append_command_trampoline_ = 0;
+    battle_audio_stop_all_trampoline_ = 0;
+    battle_audio_append_parameter_trampoline_ = 0;
+    particle_spawn_trampoline_ = 0;
+    particle_finished_bind_trampoline_ = 0;
     frame_fencepost_detour_ = std::make_unique<PLH::x64Detour>(
         static_cast<std::uint64_t>(frame_target),
         reinterpret_cast<std::uint64_t>(&FrameFencepostDetour),
@@ -538,8 +897,186 @@ Status DeterministicHookSet::Install(
     }
     battle_audio_remap_trampoline_global_.store(
         battle_audio_remap_trampoline_, std::memory_order_release);
+    battle_audio_contact_handler_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_contact_handler_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioContactHandlerDetour),
+        &battle_audio_contact_handler_trampoline_);
+    if (!battle_audio_contact_handler_detour_->hook())
+    {
+        battle_audio_remap_detour_->unHook();
+        battle_audio_dispatch_detour_->unHook();
+        stage_break_dispatch_detour_->unHook();
+        stage_break_barrier_detour_->unHook();
+        stage_break_wall_detour_->unHook();
+        callback_executor_detour_->unHook();
+        outer_tick_detour_->unHook();
+        replay_post_tick_detour_->unHook();
+        frame_fencepost_detour_->unHook();
+        active_.store(nullptr, std::memory_order_release);
+        while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
+            std::this_thread::yield();
+        ClearState();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    battle_audio_contact_handler_trampoline_global_.store(
+        battle_audio_contact_handler_trampoline_, std::memory_order_release);
+    battle_audio_phase_changed_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_phase_changed_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioPhaseChangedDetour),
+        &battle_audio_phase_changed_trampoline_);
+    if (!battle_audio_phase_changed_detour_->hook())
+    {
+        battle_audio_contact_handler_detour_->unHook();
+        battle_audio_remap_detour_->unHook();
+        battle_audio_dispatch_detour_->unHook();
+        stage_break_dispatch_detour_->unHook();
+        stage_break_barrier_detour_->unHook();
+        stage_break_wall_detour_->unHook();
+        callback_executor_detour_->unHook();
+        outer_tick_detour_->unHook();
+        replay_post_tick_detour_->unHook();
+        frame_fencepost_detour_->unHook();
+        active_.store(nullptr, std::memory_order_release);
+        while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
+            std::this_thread::yield();
+        ClearState();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    battle_audio_phase_changed_trampoline_global_.store(
+        battle_audio_phase_changed_trampoline_, std::memory_order_release);
+    battle_audio_tracking_remove_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_tracking_remove_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioTrackingRemoveDetour),
+        &battle_audio_tracking_remove_trampoline_);
+    battle_audio_tracking_insert_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_tracking_insert_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioTrackingInsertDetour),
+        &battle_audio_tracking_insert_trampoline_);
+    battle_audio_tracking_rehash_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_tracking_rehash_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioTrackingRehashDetour),
+        &battle_audio_tracking_rehash_trampoline_);
+    battle_audio_blueprint_publish_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_blueprint_publish_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioBlueprintPublishDetour),
+        &battle_audio_blueprint_publish_trampoline_);
+    battle_audio_register_voice_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_register_voice_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioRegisterVoiceDetour),
+        &battle_audio_register_voice_trampoline_);
+    battle_audio_append_command_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_append_command_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioAppendCommandDetour),
+        &battle_audio_append_command_trampoline_);
+    battle_audio_stop_all_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_stop_all_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioStopAllDetour),
+        &battle_audio_stop_all_trampoline_);
+    battle_audio_append_parameter_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_append_parameter_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioAppendParameterDetour),
+        &battle_audio_append_parameter_trampoline_);
+    particle_spawn_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::particle_spawn_rva),
+        reinterpret_cast<std::uint64_t>(&ParticleSpawnDetour),
+        &particle_spawn_trampoline_);
+    particle_finished_bind_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::particle_finished_bind_rva),
+        reinterpret_cast<std::uint64_t>(&ParticleFinishedBindDetour),
+        &particle_finished_bind_trampoline_);
+    const bool remove_hooked = battle_audio_tracking_remove_detour_->hook();
+    const bool insert_hooked = remove_hooked
+        && battle_audio_tracking_insert_detour_->hook();
+    const bool rehash_hooked = insert_hooked
+        && battle_audio_tracking_rehash_detour_->hook();
+    const bool blueprint_hooked = rehash_hooked
+        && battle_audio_blueprint_publish_detour_->hook();
+    const bool register_hooked = blueprint_hooked
+        && battle_audio_register_voice_detour_->hook();
+    const bool command_hooked = register_hooked
+        && battle_audio_append_command_detour_->hook();
+    const bool stop_all_hooked = command_hooked
+        && battle_audio_stop_all_detour_->hook();
+    const bool parameter_hooked = stop_all_hooked
+        && battle_audio_append_parameter_detour_->hook();
+    const bool particle_spawn_hooked = parameter_hooked
+        && particle_spawn_detour_->hook();
+    const bool particle_bind_hooked = particle_spawn_hooked
+        && particle_finished_bind_detour_->hook();
+    if (!particle_bind_hooked)
+    {
+        if (particle_spawn_hooked) particle_spawn_detour_->unHook();
+        if (parameter_hooked) battle_audio_append_parameter_detour_->unHook();
+        if (stop_all_hooked) battle_audio_stop_all_detour_->unHook();
+        if (command_hooked) battle_audio_append_command_detour_->unHook();
+        if (register_hooked) battle_audio_register_voice_detour_->unHook();
+        if (blueprint_hooked) battle_audio_blueprint_publish_detour_->unHook();
+        if (rehash_hooked) battle_audio_tracking_rehash_detour_->unHook();
+        if (insert_hooked) battle_audio_tracking_insert_detour_->unHook();
+        if (remove_hooked) battle_audio_tracking_remove_detour_->unHook();
+        battle_audio_phase_changed_detour_->unHook();
+        battle_audio_contact_handler_detour_->unHook();
+        battle_audio_remap_detour_->unHook();
+        battle_audio_dispatch_detour_->unHook();
+        stage_break_dispatch_detour_->unHook();
+        stage_break_barrier_detour_->unHook();
+        stage_break_wall_detour_->unHook();
+        callback_executor_detour_->unHook();
+        outer_tick_detour_->unHook();
+        replay_post_tick_detour_->unHook();
+        frame_fencepost_detour_->unHook();
+        active_.store(nullptr, std::memory_order_release);
+        while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
+            std::this_thread::yield();
+        ClearState();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    battle_audio_tracking_remove_trampoline_global_.store(
+        battle_audio_tracking_remove_trampoline_, std::memory_order_release);
+    battle_audio_tracking_insert_trampoline_global_.store(
+        battle_audio_tracking_insert_trampoline_, std::memory_order_release);
+    battle_audio_tracking_rehash_trampoline_global_.store(
+        battle_audio_tracking_rehash_trampoline_, std::memory_order_release);
+    battle_audio_blueprint_publish_trampoline_global_.store(
+        battle_audio_blueprint_publish_trampoline_, std::memory_order_release);
+    battle_audio_register_voice_trampoline_global_.store(
+        battle_audio_register_voice_trampoline_, std::memory_order_release);
+    battle_audio_append_command_trampoline_global_.store(
+        battle_audio_append_command_trampoline_, std::memory_order_release);
+    battle_audio_stop_all_trampoline_global_.store(
+        battle_audio_stop_all_trampoline_, std::memory_order_release);
+    battle_audio_append_parameter_trampoline_global_.store(
+        battle_audio_append_parameter_trampoline_, std::memory_order_release);
+    particle_spawn_trampoline_global_.store(
+        particle_spawn_trampoline_, std::memory_order_release);
+    particle_finished_bind_trampoline_global_.store(
+        particle_finished_bind_trampoline_, std::memory_order_release);
     if (ucrt_broker_ != nullptr && !InstallUcrtIatHooks())
     {
+        particle_finished_bind_detour_->unHook();
+        particle_spawn_detour_->unHook();
+        battle_audio_append_parameter_detour_->unHook();
+        battle_audio_stop_all_detour_->unHook();
+        battle_audio_append_command_detour_->unHook();
+        battle_audio_register_voice_detour_->unHook();
+        battle_audio_blueprint_publish_detour_->unHook();
+        battle_audio_tracking_rehash_detour_->unHook();
+        battle_audio_tracking_insert_detour_->unHook();
+        battle_audio_tracking_remove_detour_->unHook();
+        battle_audio_phase_changed_detour_->unHook();
+        battle_audio_contact_handler_detour_->unHook();
         battle_audio_remap_detour_->unHook();
         battle_audio_dispatch_detour_->unHook();
         stage_break_dispatch_detour_->unHook();
@@ -567,6 +1104,29 @@ void DeterministicHookSet::Uninstall() noexcept
     }
     // Hooks are removed in the reverse of their installation order.
     UninstallUcrtIatHooks();
+    if (particle_finished_bind_detour_)
+        particle_finished_bind_detour_->unHook();
+    if (particle_spawn_detour_) particle_spawn_detour_->unHook();
+    if (battle_audio_append_parameter_detour_)
+        battle_audio_append_parameter_detour_->unHook();
+    if (battle_audio_stop_all_detour_)
+        battle_audio_stop_all_detour_->unHook();
+    if (battle_audio_append_command_detour_)
+        battle_audio_append_command_detour_->unHook();
+    if (battle_audio_register_voice_detour_)
+        battle_audio_register_voice_detour_->unHook();
+    if (battle_audio_blueprint_publish_detour_)
+        battle_audio_blueprint_publish_detour_->unHook();
+    if (battle_audio_tracking_rehash_detour_)
+        battle_audio_tracking_rehash_detour_->unHook();
+    if (battle_audio_tracking_insert_detour_)
+        battle_audio_tracking_insert_detour_->unHook();
+    if (battle_audio_tracking_remove_detour_)
+        battle_audio_tracking_remove_detour_->unHook();
+    if (battle_audio_phase_changed_detour_)
+        battle_audio_phase_changed_detour_->unHook();
+    if (battle_audio_contact_handler_detour_)
+        battle_audio_contact_handler_detour_->unHook();
     if (battle_audio_remap_detour_) battle_audio_remap_detour_->unHook();
     if (battle_audio_dispatch_detour_)
         battle_audio_dispatch_detour_->unHook();
@@ -597,9 +1157,44 @@ void DeterministicHookSet::Uninstall() noexcept
     ClearState();
 }
 
-std::uintptr_t DeterministicHookSet::ObservedBattleAudioHandler() noexcept
+std::uintptr_t DeterministicHookSet::ObservedBattleAudioHandler(
+    std::size_t index) noexcept
 {
-    return observed_battle_audio_handler_.load(std::memory_order_acquire);
+    return index < observed_battle_audio_handlers_.size()
+        ? observed_battle_audio_handlers_[index].load(std::memory_order_acquire)
+        : 0;
+}
+
+bool DeterministicHookSet::BattleAudioHandlerOverflowed() noexcept
+{
+    return battle_audio_handler_overflow_.load(std::memory_order_acquire);
+}
+
+Status DeterministicHookSet::RestoreBattleAudioRemapEntry(
+    const NativeBatchEnvelope& envelope,
+    OwnedBatchReplayResult&) noexcept
+{
+    const auto mask = envelope.battle_audio_remap_entry_mask;
+    if ((mask >> maximum_battle_audio_handlers) != 0
+        || battle_audio_handler_overflow_.load(std::memory_order_acquire))
+        return Status::failure(FailureCode::CapacityExceeded);
+    for (std::size_t index = 0; index < maximum_battle_audio_handlers; ++index)
+    {
+        if ((mask & (std::uint8_t{1} << index)) == 0) continue;
+        if (envelope.battle_audio_remap_entry_values[index] > 1)
+            return Status::failure(FailureCode::RestorePreflightFailed);
+        const auto handler = observed_battle_audio_handlers_[index].load(
+            std::memory_order_acquire);
+        std::uintptr_t vtable{};
+        std::int32_t current{};
+        if (handler == 0
+            || !SafeRead(handler, vtable)
+            || vtable != image_base_ + 0x326A6C8
+            || !SafeRead(handler + 0x3E0, current)
+            || current < 0 || current > 1)
+            return Status::failure(FailureCode::IdentityMismatch);
+    }
+    return Status::success();
 }
 
 void __fastcall DeterministicHookSet::OuterTickDetour(
@@ -631,6 +1226,7 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     OuterTickCaptureContext capture_context{&observation};
     OuterTickCaptureContext* previous_capture = active_outer_capture_;
     active_outer_capture_ = &capture_context;
+    particle_shadow_pool.Reset();
     if (original != nullptr)
     {
         original(battle_manager, delta_seconds);
@@ -795,6 +1391,13 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
     observation.delta_seconds = request.envelope->delta_seconds;
     observation.before = output.before;
     observation.read_mask = read_mask;
+    const Status audio_entry = RestoreBattleAudioRemapEntry(
+        *request.envelope, output);
+    if (!audio_entry.ok())
+    {
+        output.failure = audio_entry.code;
+        return audio_entry;
+    }
     OwnedBatchExecution execution{&request, &output};
     OuterTickCaptureContext capture_context{&observation};
     capture_context.owned = &execution;
@@ -804,6 +1407,13 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
     {
         original(reinterpret_cast<void*>(request.battle_manager),
             request.envelope->delta_seconds);
+        if (output.failure == FailureCode::None
+            && !ConsumeBattleAudioJournal(*request.envelope, output))
+        {
+            ++output.audio_sequence_mismatches;
+            ++output.presentation_failures;
+            output.failure = FailureCode::PresentationFailed;
+        }
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -883,6 +1493,8 @@ void __fastcall DeterministicHookSet::CallbackExecutorDetour(
         : callback_executor_trampoline_global_.load(std::memory_order_acquire);
     const auto original = reinterpret_cast<CallbackExecutorFn>(trampoline);
     auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
     const bool is_input_filter = hooks != nullptr && batch != nullptr
         && batch->observation != nullptr
         && reinterpret_cast<std::uintptr_t>(collection)
@@ -1102,19 +1714,29 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
     std::int32_t result = -1;
     if (suppress)
     {
-        ++batch->owned->result->suppressed_audio_calls;
-        if (!AppendBattleAudioSignature(event_record, alternate_route,
-                batch->owned->result->suppressed_audio_sequence_hash,
-                batch->owned->result->suppressed_audio_route_hash,
-                batch->owned->result->suppressed_audio_payload_hash,
-                batch->owned->result->suppressed_audio_position_hash))
-        {
-            ++batch->owned->result->presentation_failures;
-            batch->owned->result->failure = FailureCode::PresentationFailed;
-        }
+        // The enclosing source-frame journal is authoritative during owned
+        // resimulation. Natural re-emission is presentation-topology dependent
+        // and is discarded; the exact ordered journal is consumed after the
+        // outer simulation tick.
     }
     else if (batch != nullptr && batch->observation != nullptr)
     {
+        auto& observation = *batch->observation;
+        if (observation.battle_audio_journal_count
+                >= observation.battle_audio_journal.size()
+            || !CaptureBattleAudioSemantic(event_record, alternate_route,
+                observation.battle_audio_journal[
+                    observation.battle_audio_journal_count].semantic))
+        {
+            ++observation.battle_audio_signature_failures;
+        }
+        else
+        {
+            observation.battle_audio_journal[
+                observation.battle_audio_journal_count].direct =
+                active_battle_audio_source_depth == 0 ? 1 : 0;
+            ++observation.battle_audio_journal_count;
+        }
         ++batch->observation->battle_audio_dispatches;
         if (!AppendBattleAudioSignature(event_record, alternate_route,
                 batch->observation->battle_audio_sequence_hash,
@@ -1122,6 +1744,16 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
                 batch->observation->battle_audio_payload_hash,
                 batch->observation->battle_audio_position_hash))
             ++batch->observation->battle_audio_signature_failures;
+        if (active_battle_audio_source_depth == 0)
+        {
+            ++batch->observation->battle_audio_direct_dispatches;
+            if (!AppendBattleAudioSignature(event_record, alternate_route,
+                    batch->observation->battle_audio_direct_sequence_hash,
+                    batch->observation->battle_audio_direct_route_hash,
+                    batch->observation->battle_audio_direct_payload_hash,
+                    batch->observation->battle_audio_direct_position_hash))
+                ++batch->observation->battle_audio_signature_failures;
+        }
     }
     if (!suppress && original != nullptr)
         result = original(battle_manager, event_record, alternate_route);
@@ -1138,15 +1770,492 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
         ? hooks->battle_audio_remap_trampoline_
         : battle_audio_remap_trampoline_global_.load(
             std::memory_order_acquire);
+    std::size_t handler_slot = maximum_battle_audio_handlers;
     if (handler != nullptr)
-        observed_battle_audio_handler_.store(
-            reinterpret_cast<std::uintptr_t>(handler),
-            std::memory_order_release);
+    {
+        const auto identity = reinterpret_cast<std::uintptr_t>(handler);
+        bool admitted{};
+        for (std::size_t index = 0;
+             index < observed_battle_audio_handlers_.size(); ++index)
+        {
+            auto& slot = observed_battle_audio_handlers_[index];
+            auto observed = slot.load(std::memory_order_acquire);
+            if (observed == identity)
+            {
+                admitted = true;
+                handler_slot = index;
+                break;
+            }
+            if (observed == 0
+                && slot.compare_exchange_strong(observed, identity,
+                    std::memory_order_acq_rel, std::memory_order_acquire))
+            {
+                admitted = true;
+                handler_slot = index;
+                break;
+            }
+        }
+        if (!admitted)
+            battle_audio_handler_overflow_.store(true,
+                std::memory_order_release);
+    }
+    auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+    std::int32_t before{};
+    const bool before_valid = handler != nullptr
+        && SafeRead(reinterpret_cast<std::uintptr_t>(handler) + 0x3E0, before);
+    const bool mutates_selector = contact_type >= 8 && contact_type <= 11;
+    const auto handler_bit = handler_slot < maximum_battle_audio_handlers
+        ? std::uint8_t{1} << handler_slot : std::uint8_t{};
+    const bool first_owned_mutation = !suppress && mutates_selector && before_valid
+        && handler_slot < maximum_battle_audio_handlers
+        && batch != nullptr && batch->owned != nullptr
+        && (batch->owned->result->suppressed_audio_remap_entry_mask
+            & handler_bit) == 0;
     const auto original = reinterpret_cast<BattleAudioRemapFn>(trampoline);
-    const std::int32_t result = original != nullptr
+    std::int32_t result = !suppress && original != nullptr
         ? original(handler, contact_type) : 0;
+    std::int32_t after{};
+    bool after_valid = handler != nullptr
+        && SafeRead(reinterpret_cast<std::uintptr_t>(handler) + 0x3E0, after);
+    if (first_owned_mutation)
+    {
+        const auto& envelope = *batch->owned->request->envelope;
+        const auto expected_before = static_cast<std::int32_t>(
+            envelope.battle_audio_remap_entry_values[handler_slot]);
+        const auto expected_after = (expected_before + 1) % 2;
+        std::int32_t verified{};
+        const bool expected_entry =
+            (envelope.battle_audio_remap_entry_mask & handler_bit) != 0
+            && expected_before >= 0 && expected_before <= 1;
+        after_valid = expected_entry
+            && SafeWrite(reinterpret_cast<std::uintptr_t>(handler) + 0x3E0,
+                expected_after)
+            && SafeRead(reinterpret_cast<std::uintptr_t>(handler) + 0x3E0,
+                verified)
+            && verified == expected_after;
+        if (after_valid)
+        {
+            before = expected_before;
+            result = contact_type + expected_before;
+            after = expected_after;
+        }
+    }
+    if (batch != nullptr && batch->owned != nullptr)
+    {
+        // Consumed from the authoritative source-frame journal after the tick.
+    }
+    else if (batch != nullptr && batch->observation != nullptr)
+    {
+        auto& observation = *batch->observation;
+        if (observation.battle_audio_remap_journal_count
+            >= observation.battle_audio_remap_journal.size())
+        {
+            ++observation.battle_audio_signature_failures;
+        }
+        else
+        {
+            auto& entry = observation.battle_audio_remap_journal[
+                observation.battle_audio_remap_journal_count++];
+            entry.handler = reinterpret_cast<std::uintptr_t>(handler);
+            entry.contact_type = contact_type;
+            entry.before = before;
+            entry.result = result;
+            entry.after = after;
+        }
+        ++batch->observation->battle_audio_remap_calls;
+        if (mutates_selector && before_valid
+            && handler_slot < maximum_battle_audio_handlers
+            && (batch->observation->battle_audio_remap_entry_mask
+                & (std::uint8_t{1} << handler_slot)) == 0)
+        {
+            batch->observation->battle_audio_remap_entry_mask
+                |= std::uint8_t{1} << handler_slot;
+            batch->observation->battle_audio_remap_entry_values[handler_slot]
+                = static_cast<std::uint8_t>(before);
+        }
+        if (!before_valid || !after_valid
+            || !AppendBattleAudioRemapSignature(handler, contact_type, before,
+                result, after, batch->observation->battle_audio_remap_hash))
+        {
+            ++batch->observation->battle_audio_signature_failures;
+        }
+    }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
     return result;
+}
+
+void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
+    void* handler, void* event_record) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->battle_audio_contact_handler_trampoline_
+        : battle_audio_contact_handler_trampoline_global_.load(
+            std::memory_order_acquire);
+    auto* batch = active_outer_capture_;
+    bool suppress{};
+    if (batch != nullptr && batch->owned != nullptr)
+    {
+        suppress = batch->owned->request->suppress_ephemeral_presentation;
+    }
+    else if (batch != nullptr && batch->observation != nullptr)
+    {
+        auto& observation = *batch->observation;
+        if (observation.battle_audio_source_journal_count
+                >= observation.battle_audio_source_journal.size()
+            || !CaptureBattleAudioSourceSemantic(event_record,
+                observation.battle_audio_source_journal[
+                    observation.battle_audio_source_journal_count].semantic))
+        {
+            ++observation.battle_audio_signature_failures;
+        }
+        else
+        {
+            ++observation.battle_audio_source_journal_count;
+        }
+        ++batch->observation->battle_audio_source_calls;
+        if (!AppendBattleAudioSourceSignature(event_record,
+                batch->observation->battle_audio_source_hash))
+            ++batch->observation->battle_audio_signature_failures;
+    }
+    const auto original = reinterpret_cast<BattleAudioContactHandlerFn>(
+        trampoline);
+    if (original != nullptr && !suppress)
+    {
+        ++active_battle_audio_source_depth;
+        if (suppress) ++active_owned_battle_audio_source_depth;
+        original(handler, event_record);
+        if (suppress) --active_owned_battle_audio_source_depth;
+        --active_battle_audio_source_depth;
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+void __fastcall DeterministicHookSet::BattleAudioPhaseChangedDetour(
+    void* handler, void* phase_record) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->battle_audio_phase_changed_trampoline_
+        : battle_audio_phase_changed_trampoline_global_.load(
+            std::memory_order_acquire);
+    const auto original = reinterpret_cast<BattleAudioPhaseChangedFn>(
+        trampoline);
+    auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+    const auto address = reinterpret_cast<std::uintptr_t>(handler);
+    std::uint8_t deferred_log_requested{};
+    std::int32_t deferred_frame_counter{};
+    const bool captured = !suppress || (address != 0
+        && SafeRead(address + 0x3E4, deferred_log_requested)
+        && SafeRead(address + 0x3E8, deferred_frame_counter));
+    if (original != nullptr) original(handler, phase_record);
+    if (suppress && (!captured
+        || !SafeWrite(address + 0x3E4, deferred_log_requested)
+        || !SafeWrite(address + 0x3E8, deferred_frame_counter)))
+    {
+        ++batch->owned->result->presentation_failures;
+        batch->owned->result->failure = FailureCode::PresentationFailed;
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+std::uint64_t __fastcall DeterministicHookSet::BattleAudioTrackingRemoveDetour(
+    void* tracking_set, std::uint32_t key) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->battle_audio_tracking_remove_trampoline_
+        : battle_audio_tracking_remove_trampoline_global_.load(
+            std::memory_order_acquire);
+    auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation
+        && (IsObservedBattleAudioTrackingSet(tracking_set)
+            || active_owned_audio_registration_depth != 0);
+    if (suppress)
+    {
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        return 0;
+    }
+    const auto original = reinterpret_cast<BattleAudioTrackingRemoveFn>(
+        trampoline);
+    const auto result = original != nullptr ? original(tracking_set, key) : 0;
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return result;
+}
+
+std::int32_t* __fastcall DeterministicHookSet::BattleAudioTrackingInsertDetour(
+    void* tracking_set, std::int32_t* index, void* pair,
+    std::uint8_t* replaced) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->battle_audio_tracking_insert_trampoline_
+        : battle_audio_tracking_insert_trampoline_global_.load(
+            std::memory_order_acquire);
+    auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation
+        && IsObservedBattleAudioTrackingSet(tracking_set);
+    if (suppress)
+    {
+        if (index != nullptr) *index = -1;
+        if (replaced != nullptr) *replaced = 0;
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        return index;
+    }
+    const auto original = reinterpret_cast<BattleAudioTrackingInsertFn>(
+        trampoline);
+    auto* result = original != nullptr
+        ? original(tracking_set, index, pair, replaced) : index;
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return result;
+}
+
+void __fastcall DeterministicHookSet::BattleAudioTrackingRehashDetour(
+    void* tracking_set) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation
+        && IsObservedBattleAudioTrackingSet(tracking_set);
+    if (!suppress)
+    {
+        auto* hooks = active_.load(std::memory_order_acquire);
+        const auto trampoline = hooks != nullptr
+            ? hooks->battle_audio_tracking_rehash_trampoline_
+            : battle_audio_tracking_rehash_trampoline_global_.load(
+                std::memory_order_acquire);
+        const auto original = reinterpret_cast<BattleAudioTrackingRehashFn>(
+            trampoline);
+        if (original != nullptr) original(tracking_set);
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
+    void* handler, void* event_record) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    if (active_owned_battle_audio_source_depth != 0)
+    {
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        return;
+    }
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->battle_audio_blueprint_publish_trampoline_
+        : battle_audio_blueprint_publish_trampoline_global_.load(
+            std::memory_order_acquire);
+    const auto original = reinterpret_cast<BattleAudioBlueprintPublishFn>(
+        trampoline);
+    if (original != nullptr) original(handler, event_record);
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
+    void* shared_player, std::uint32_t cue_id, std::int32_t pitch_shift,
+    std::uint32_t flags) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->battle_audio_register_voice_trampoline_
+        : battle_audio_register_voice_trampoline_global_.load(
+            std::memory_order_acquire);
+    const auto original = reinterpret_cast<BattleAudioRegisterVoiceFn>(
+        trampoline);
+    auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+    std::uintptr_t owner{};
+    std::uint32_t active_state{};
+    const bool captured = !suppress || (shared_player != nullptr
+        && SafeRead(reinterpret_cast<std::uintptr_t>(shared_player), owner)
+        && owner != 0 && SafeRead(owner + 0x1C, active_state));
+    if (suppress) ++active_owned_audio_registration_depth;
+    const auto result = original != nullptr
+        ? original(shared_player, cue_id, pitch_shift, flags) : 0xffffffffu;
+    if (suppress) --active_owned_audio_registration_depth;
+    if (suppress && (!captured || !SafeWrite(owner + 0x1C, active_state)))
+    {
+        ++batch->owned->result->presentation_failures;
+        batch->owned->result->failure = FailureCode::PresentationFailed;
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return result;
+}
+
+void __fastcall DeterministicHookSet::BattleAudioAppendCommandDetour(
+    void* active_voice_owner, void* command_record) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+    if (!suppress)
+    {
+        auto* hooks = active_.load(std::memory_order_acquire);
+        const auto trampoline = hooks != nullptr
+            ? hooks->battle_audio_append_command_trampoline_
+            : battle_audio_append_command_trampoline_global_.load(
+                std::memory_order_acquire);
+        const auto original = reinterpret_cast<BattleAudioAppendCommandFn>(
+            trampoline);
+        if (original != nullptr) original(active_voice_owner, command_record);
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
+    void* active_voice_owner, std::uint8_t immediate) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* batch = active_outer_capture_;
+    constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+    constexpr std::uint64_t prime = 1099511628211ull;
+    if (batch != nullptr && batch->observation != nullptr)
+    {
+        ++batch->observation->battle_audio_stop_all_calls;
+        auto& hash = batch->observation->battle_audio_stop_all_hash;
+        if (hash == 0) hash = offset_basis;
+        hash ^= immediate;
+        hash *= prime;
+    }
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+    if (suppress)
+    {
+        ++batch->owned->result->suppressed_audio_stop_all_calls;
+        auto& hash = batch->owned->result->suppressed_audio_stop_all_hash;
+        if (hash == 0) hash = offset_basis;
+        hash ^= immediate;
+        hash *= prime;
+    }
+    else
+    {
+        auto* hooks = active_.load(std::memory_order_acquire);
+        const auto trampoline = hooks != nullptr
+            ? hooks->battle_audio_stop_all_trampoline_
+            : battle_audio_stop_all_trampoline_global_.load(
+                std::memory_order_acquire);
+        const auto original = reinterpret_cast<BattleAudioStopAllFn>(trampoline);
+        if (original != nullptr) original(active_voice_owner, immediate);
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+void __fastcall DeterministicHookSet::BattleAudioAppendParameterDetour(
+    void* shared_player, void* parameter_name, float value) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* batch = active_outer_capture_;
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+    if (!suppress)
+    {
+        auto* hooks = active_.load(std::memory_order_acquire);
+        const auto trampoline = hooks != nullptr
+            ? hooks->battle_audio_append_parameter_trampoline_
+            : battle_audio_append_parameter_trampoline_global_.load(
+                std::memory_order_acquire);
+        const auto original = reinterpret_cast<BattleAudioAppendParameterFn>(
+            trampoline);
+        if (original != nullptr) original(shared_player, parameter_name, value);
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
+    void* world_context, void* particle_system, const void* location,
+    const void* rotation, const void* scale, bool auto_activate) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->particle_spawn_trampoline_
+        : particle_spawn_trampoline_global_.load(std::memory_order_acquire);
+    const auto original = reinterpret_cast<ParticleSpawnFn>(trampoline);
+    auto* batch = active_outer_capture_;
+    const auto return_address = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+    const auto image_base = hooks != nullptr ? hooks->image_base_ : 0;
+    const auto route = ClassifyParticleRoute(image_base, return_address);
+    if (batch != nullptr && batch->observation != nullptr)
+    {
+        ++batch->observation->particle_spawn_calls;
+        if (!AppendParticleSpawnSignature(route, world_context, particle_system,
+                location, rotation, scale, auto_activate,
+                batch->observation->particle_spawn_hash))
+            ++batch->observation->particle_signature_failures;
+    }
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+    if (!suppress)
+    {
+        void* result = original != nullptr
+            ? original(world_context, particle_system, location, rotation,
+                scale, auto_activate)
+            : nullptr;
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        return result;
+    }
+
+    auto& result = *batch->owned->result;
+    ++result.suppressed_particle_spawn_calls;
+    const bool signature_ok = AppendParticleSpawnSignature(route,
+        world_context, particle_system, location, rotation, scale,
+        auto_activate, result.suppressed_particle_spawn_hash);
+    if (!signature_ok || route == 0 || route == 4)
+    {
+        ++result.unknown_particle_routes;
+        ++result.presentation_failures;
+        result.failure = FailureCode::PresentationFailed;
+    }
+    void* shadow = particle_shadow_pool.Acquire();
+    if (shadow == nullptr)
+    {
+        ++result.presentation_failures;
+        result.failure = FailureCode::CapacityExceeded;
+        // Preserve the non-null native contract while the owned batch fails
+        // closed; slot zero is already initialized after pool exhaustion.
+        shadow = particle_shadow_pool.slots[0].bytes.data();
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return shadow;
+}
+
+void __fastcall DeterministicHookSet::ParticleFinishedBindDetour(
+    void* delegate, void* owner, void* callback,
+    std::uint64_t callback_name) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* batch = active_outer_capture_;
+    const bool shadow = particle_shadow_pool.ContainsDelegate(delegate);
+    if (shadow && batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation)
+    {
+        ++batch->owned->result->suppressed_particle_finished_binds;
+    }
+    else
+    {
+        auto* hooks = active_.load(std::memory_order_acquire);
+        const auto trampoline = hooks != nullptr
+            ? hooks->particle_finished_bind_trampoline_
+            : particle_finished_bind_trampoline_global_.load(
+                std::memory_order_acquire);
+        const auto original = reinterpret_cast<ParticleFinishedBindFn>(trampoline);
+        if (original != nullptr) original(delegate, owner, callback, callback_name);
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
 
 int __cdecl DeterministicHookSet::UcrtRandDetour() noexcept
@@ -1520,8 +2629,51 @@ void DeterministicHookSet::EmitReplayExit(void* replay_state) noexcept
     callbacks_.replay_exit(callbacks_.user, observation);
 }
 
+bool DeterministicHookSet::IsObservedBattleAudioTrackingSet(
+    const void* tracking_set) noexcept
+{
+    constexpr std::uintptr_t tracking_lanes_offset = 0x3D0;
+    constexpr std::uintptr_t tracking_lane_count_offset = 0x3D8;
+    constexpr std::uintptr_t tracking_lane_stride = 0x50;
+    constexpr std::int32_t maximum_tracking_lanes = 16;
+    const auto candidate = reinterpret_cast<std::uintptr_t>(tracking_set);
+    if (candidate == 0) return false;
+    for (const auto& observed : observed_battle_audio_handlers_)
+    {
+        const auto handler = observed.load(std::memory_order_acquire);
+        std::uintptr_t lanes{};
+        std::int32_t count{};
+        if (handler == 0 || !SafeRead(handler + tracking_lanes_offset, lanes)
+            || !SafeRead(handler + tracking_lane_count_offset, count)
+            || lanes == 0 || count <= 0 || count > maximum_tracking_lanes
+            || candidate < lanes)
+        {
+            continue;
+        }
+        const auto delta = candidate - lanes;
+        if (delta % tracking_lane_stride == 0
+            && delta / tracking_lane_stride < static_cast<std::uintptr_t>(count))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void DeterministicHookSet::ClearState() noexcept
 {
+    battle_audio_append_parameter_detour_.reset();
+    particle_finished_bind_detour_.reset();
+    particle_spawn_detour_.reset();
+    battle_audio_stop_all_detour_.reset();
+    battle_audio_append_command_detour_.reset();
+    battle_audio_register_voice_detour_.reset();
+    battle_audio_blueprint_publish_detour_.reset();
+    battle_audio_tracking_rehash_detour_.reset();
+    battle_audio_tracking_insert_detour_.reset();
+    battle_audio_tracking_remove_detour_.reset();
+    battle_audio_contact_handler_detour_.reset();
+    battle_audio_phase_changed_detour_.reset();
     battle_audio_remap_detour_.reset();
     battle_audio_dispatch_detour_.reset();
     stage_break_dispatch_detour_.reset();
@@ -1540,6 +2692,18 @@ void DeterministicHookSet::ClearState() noexcept
     stage_break_dispatch_trampoline_ = 0;
     battle_audio_dispatch_trampoline_ = 0;
     battle_audio_remap_trampoline_ = 0;
+    battle_audio_contact_handler_trampoline_ = 0;
+    battle_audio_phase_changed_trampoline_ = 0;
+    battle_audio_tracking_remove_trampoline_ = 0;
+    battle_audio_tracking_insert_trampoline_ = 0;
+    battle_audio_tracking_rehash_trampoline_ = 0;
+    battle_audio_blueprint_publish_trampoline_ = 0;
+    battle_audio_register_voice_trampoline_ = 0;
+    battle_audio_append_command_trampoline_ = 0;
+    battle_audio_stop_all_trampoline_ = 0;
+    battle_audio_append_parameter_trampoline_ = 0;
+    particle_spawn_trampoline_ = 0;
+    particle_finished_bind_trampoline_ = 0;
     next_outer_batch_id_ = 0;
     replay_post_tick_trampoline_global_.store(0, std::memory_order_release);
     frame_fencepost_trampoline_global_.store(0, std::memory_order_release);
@@ -1552,7 +2716,32 @@ void DeterministicHookSet::ClearState() noexcept
         0, std::memory_order_release);
     battle_audio_remap_trampoline_global_.store(
         0, std::memory_order_release);
-    observed_battle_audio_handler_.store(0, std::memory_order_release);
+    battle_audio_contact_handler_trampoline_global_.store(
+        0, std::memory_order_release);
+    battle_audio_phase_changed_trampoline_global_.store(
+        0, std::memory_order_release);
+    battle_audio_tracking_remove_trampoline_global_.store(
+        0, std::memory_order_release);
+    battle_audio_tracking_insert_trampoline_global_.store(
+        0, std::memory_order_release);
+    battle_audio_tracking_rehash_trampoline_global_.store(
+        0, std::memory_order_release);
+    battle_audio_blueprint_publish_trampoline_global_.store(
+        0, std::memory_order_release);
+    battle_audio_register_voice_trampoline_global_.store(
+        0, std::memory_order_release);
+    battle_audio_append_command_trampoline_global_.store(
+        0, std::memory_order_release);
+    battle_audio_stop_all_trampoline_global_.store(
+        0, std::memory_order_release);
+    battle_audio_append_parameter_trampoline_global_.store(
+        0, std::memory_order_release);
+    particle_spawn_trampoline_global_.store(0, std::memory_order_release);
+    particle_finished_bind_trampoline_global_.store(
+        0, std::memory_order_release);
+    for (auto& handler : observed_battle_audio_handlers_)
+        handler.store(0, std::memory_order_release);
+    battle_audio_handler_overflow_.store(false, std::memory_order_release);
     rand_iat_slot_ = 0;
     srand_iat_slot_ = 0;
     image_base_ = 0;

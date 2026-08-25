@@ -313,8 +313,10 @@ Status CandidateGameStateAdapter::decode_and_preflight(
         return Status::failure(FailureCode::IllegalTransition);
     }
     Status status = regions_.PreflightRestore(output.native);
-    if (status.ok()) status = binding_.battle_audio_selector->PreflightRestore(
-        output.battle_audio_selector);
+    // Battle-audio alternation is presentation-handler state whose source
+    // boundary is a native outer batch, not a coordinate checkpoint. Its
+    // independently observed entry value is restored by DeterministicHookSet
+    // immediately before the corresponding owned batch executes.
     if (status.ok())
         status = binding_.move_dispatch->PreflightRestore(output.move_dispatch);
     return status;
@@ -367,9 +369,10 @@ Status CandidateGameStateAdapter::restore_image(
     if (status.ok())
     {
         const auto typed_begin = std::chrono::steady_clock::now();
-        status = binding_.battle_audio_selector->RestoreTransactional(
-            image.battle_audio_selector);
-        if (status.ok()) status = regions_.RestoreTransactional(image.native);
+        // Do not write the diagnostic battle-audio capture here. A coordinate
+        // may own several native batches, so the per-batch journal is the only
+        // qualified restore boundary for that selector.
+        status = regions_.RestoreTransactional(image.native);
         if (status.ok()) status = binding_.move_dispatch->RestoreTransactional(
             image.move_dispatch);
         if (status.ok()) status = binding_.secondary_events->RestoreTransactional(
@@ -414,9 +417,8 @@ bool CandidateGameStateAdapter::undo_image(
         image.local_images[0]);
     const Status motion = binding_.motion_banks->RestoreTransactional(
         image.local_images[1]);
-    const Status audio_selector =
-        binding_.battle_audio_selector->RestoreTransactional(
-            image.battle_audio_selector);
+    // The selector journal is replayed by the native-batch owner and therefore
+    // is intentionally absent from coordinate-level undo as well.
     const Status native = regions_.RestoreTransactional(image.native);
     const Status move_dispatch =
         binding_.move_dispatch->RestoreTransactional(image.move_dispatch);
@@ -428,7 +430,7 @@ bool CandidateGameStateAdapter::undo_image(
         binding_.wind_addresses, image.wind);
     const Status ucrt = binding_.ucrt_broker->Restore(
         binding_.simulation_thread_id, image.ucrt);
-    return hgcpu.ok() && motion.ok() && audio_selector.ok() && native.ok()
+    return hgcpu.ok() && motion.ok() && native.ok()
         && move_dispatch.ok()
         && secondary.ok()
         && chara_animation.ok()
@@ -465,20 +467,9 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
     // while producing the same typed gameplay state. Capture above still proves
     // that the current serializer is bounded and valid; verification compares
     // only pointer-free typed state and explicitly admitted value supplements.
-    const bool audio_selector_matches =
-        observed.battle_audio_selector.session_generation
-                == expected_image.battle_audio_selector.session_generation
-            && observed.battle_audio_selector.round_generation
-                == expected_image.battle_audio_selector.round_generation
-            && observed.battle_audio_selector.alternation
-                == expected_image.battle_audio_selector.alternation
-            // Observation is acquisition metadata, not restorable native state.
-            // Once the hook has discovered the handler, a checkpoint captured
-            // before that discovery legitimately verifies as observed.
-            && (!expected_image.battle_audio_selector.handler_observed
-                || observed.battle_audio_selector.handler_observed);
+    // Battle-audio selector identity is verified against each native-batch
+    // envelope during replay, rather than against this coordinate capture.
     return observed.native == expected_image.native
-            && audio_selector_matches
             && observed.move_dispatch == expected_image.move_dispatch
             && observed.secondary_events == expected_image.secondary_events
             && observed.chara_animation == expected_image.chara_animation

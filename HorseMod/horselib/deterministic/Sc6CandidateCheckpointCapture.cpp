@@ -22,9 +22,14 @@ namespace Horse::Deterministic
 {
 namespace
 {
-std::uintptr_t resolve_observed_battle_audio_handler(void*) noexcept
+std::uintptr_t resolve_observed_battle_audio_handler(
+    void*, std::size_t index) noexcept
 {
-    return DeterministicHookSet::ObservedBattleAudioHandler();
+    return DeterministicHookSet::ObservedBattleAudioHandler(index);
+}
+bool battle_audio_handler_overflowed(void*) noexcept
+{
+    return DeterministicHookSet::BattleAudioHandlerOverflowed();
 }
 constexpr std::uintptr_t fighter_roots_rva = 0x470DE90;
 constexpr std::uintptr_t effect_camera_pointer_rva = 0x470DEE8;
@@ -487,7 +492,8 @@ Status Sc6CandidateCheckpointCapture::bind(
     adapter_binding.simulation_thread_id = simulation_thread_id;
     const BattleAudioSelectorBinding audio_selector_binding{
         image_base_, image_size_, adapter_binding.hgcpu_context,
-        &resolve_observed_battle_audio_handler, nullptr};
+        &resolve_observed_battle_audio_handler,
+        &battle_audio_handler_overflowed, nullptr};
     Status adapter_status = battle_audio_selector_->Bind(
         audio_selector_binding);
     if (adapter_status.ok()) adapter_status = motion_banks_->Bind(
@@ -747,6 +753,19 @@ Status Sc6CandidateCheckpointCapture::RestoreAndVerify(
     if (status.ok()) status = adapter_->RebuildDerivedState();
     if (status.ok()) status = adapter_->VerifyRestoredState(snapshot);
     return status;
+}
+
+Status Sc6CandidateCheckpointCapture::RestoreBattleAudioSelectorForPresentation(
+    const Snapshot& snapshot) noexcept
+{
+    if (!regions_->IsBound() || bound_manager_ == 0
+        || snapshot.coordinate.generation != bound_round_generation_)
+        return Status::failure(FailureCode::GenerationMismatch);
+    CandidateCheckpointImage image{};
+    const Status decoded = CandidateCheckpointCodec::Decode(snapshot, image);
+    if (!decoded.ok()) return decoded;
+    return battle_audio_selector_->RestoreTransactional(
+        image.battle_audio_selector);
 }
 
 Status Sc6CandidateCheckpointCapture::RestoreInputLogForReplay(

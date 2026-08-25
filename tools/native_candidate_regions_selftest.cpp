@@ -580,9 +580,17 @@ Status noop_reconcile(void*, FrameCoordinate) noexcept
     return Status::success();
 }
 
-std::uintptr_t resolve_test_battle_audio_handler(void* user) noexcept
+std::uintptr_t resolve_test_battle_audio_handler(
+    void* user, std::size_t index) noexcept
 {
-    return user != nullptr ? *static_cast<std::uintptr_t*>(user) : 0;
+    return user != nullptr && index < maximum_battle_audio_handlers
+        ? (*static_cast<std::array<std::uintptr_t,
+            maximum_battle_audio_handlers>*>(user))[index] : 0;
+}
+
+bool test_battle_audio_handler_overflow(void*) noexcept
+{
+    return false;
 }
 
 void test_hgcpu_stream_contract()
@@ -659,8 +667,10 @@ void test_candidate_checkpoint_codec()
 
     CandidateCheckpointImage image{};
     image.native = native;
-    image.battle_audio_selector = {
-        native.session_generation, native.round_generation, 1, true};
+    image.battle_audio_selector.session_generation = native.session_generation;
+    image.battle_audio_selector.round_generation = native.round_generation;
+    image.battle_audio_selector.alternations[0] = 1;
+    image.battle_audio_selector.observed_count = 1;
     image.move_dispatch.generation = native.round_generation;
     image.move_dispatch.phase = MoveDispatchActionModeState{};
     image.local_images.push_back(hgcpu);
@@ -739,7 +749,7 @@ void test_candidate_checkpoint_codec()
         "candidate checkpoint round-trips pointer-free wind state");
 
     auto presentation_audio = image;
-    presentation_audio.battle_audio_selector.alternation = 0;
+    presentation_audio.battle_audio_selector.alternations[0] = 0;
     Snapshot presentation_audio_snapshot{};
     expect(CandidateCheckpointCodec::Encode(
             {7, 30}, 0x9191, presentation_audio,
@@ -1072,30 +1082,42 @@ void test_battle_audio_selector_is_generation_bound_and_transactional()
 {
     Fixture fixture;
     constexpr auto handler = Fixture::memory_base + 0x155000;
-    std::uintptr_t observed_handler = handler;
+    std::array<std::uintptr_t, maximum_battle_audio_handlers>
+        observed_handlers{handler};
     fixture.memory.Set(handler,
         Fixture::image_base + std::uintptr_t{0x326A6C8});
     fixture.memory.Set(handler + 0x3E0, std::int32_t{});
     BattleAudioSelectorState selector{fixture.memory};
     const BattleAudioSelectorBinding binding{
         Fixture::image_base, 0x5000000, hgcpu_context(),
-        &resolve_test_battle_audio_handler, &observed_handler};
+        &resolve_test_battle_audio_handler,
+        &test_battle_audio_handler_overflow, &observed_handlers};
     expect(selector.Bind(binding).ok(),
         "bind generation-scoped battle-audio selector state");
-    observed_handler = 0;
+    observed_handlers[0] = 0;
     BattleAudioSelectorImage undiscovered{};
     expect(selector.Capture(undiscovered).ok()
-            && !undiscovered.handler_observed
-            && undiscovered.alternation == 0,
+            && undiscovered.observed_count == 0
+            && undiscovered.alternations[0] == 0,
         "capture the deterministic initial selector before handler discovery");
-    observed_handler = handler;
+    observed_handlers[0] = handler;
+    observed_handlers[1] = handler + 0x800;
+    fixture.memory.Set(observed_handlers[1],
+        Fixture::image_base + std::uintptr_t{0x326A6C8});
     fixture.memory.Set(handler + 0x3E0, std::int32_t{1});
+    fixture.memory.Set(observed_handlers[1] + 0x3E0, std::int32_t{1});
     expect(selector.RestoreTransactional(undiscovered).ok(),
-        "restore a pre-discovery checkpoint after the handler becomes known");
+        "restore a pre-discovery checkpoint after multiple handlers become known");
+    std::int32_t second_restored{};
+    fixture.memory.Read(observed_handlers[1] + 0x3E0,
+        std::as_writable_bytes(std::span{&second_restored, 1}));
+    expect(second_restored == 0,
+        "pre-discovery restore initializes every later handler slot to zero");
     BattleAudioSelectorImage baseline{};
-    expect(selector.Capture(baseline).ok() && baseline.handler_observed
-            && baseline.alternation == 0,
-        "capture the observed two-state battle-audio selector");
+    expect(selector.Capture(baseline).ok() && baseline.observed_count == 2
+            && baseline.alternations[0] == 0
+            && baseline.alternations[1] == 0,
+        "capture the ordered set of battle-audio selectors");
 
     fixture.memory.Set(handler + 0x3E0, std::int32_t{1});
     expect(selector.RestoreTransactional(baseline).ok(),
@@ -1123,11 +1145,11 @@ void test_battle_audio_selector_is_generation_bound_and_transactional()
     expect(restored == 1,
         "battle-audio selector verification failure restores exact undo value");
 
-    observed_handler = handler + 0x800;
+    observed_handlers[0] = handler + 0x800;
     expect(selector.PreflightRestore(baseline).code
             == FailureCode::IdentityMismatch,
         "battle-audio selector rejects handler identity drift");
-    observed_handler = handler;
+    observed_handlers[0] = handler;
     fixture.memory.Set(handler, Fixture::image_base + std::uintptr_t{0x1234});
     selector.Reset();
     expect(selector.Bind(binding).ok()
@@ -1163,13 +1185,14 @@ struct CandidateWindFixture
             "bind candidate character-animation fixture");
         expect(move_dispatch.Bind(fixture.addresses.move_dispatch, 7).ok(),
             "bind candidate MoveDispatch fixture");
-        handler = Fixture::memory_base + 0x155000;
-        fixture.memory.Set(handler,
+        handlers[0] = Fixture::memory_base + 0x155000;
+        fixture.memory.Set(handlers[0],
             Fixture::image_base + std::uintptr_t{0x326A6C8});
-        fixture.memory.Set(handler + 0x3E0, std::int32_t{});
+        fixture.memory.Set(handlers[0] + 0x3E0, std::int32_t{});
         const BattleAudioSelectorBinding selector_binding{
             Fixture::image_base, 0x5000000, hgcpu_context(),
-            &resolve_test_battle_audio_handler, &handler};
+            &resolve_test_battle_audio_handler,
+            &test_battle_audio_handler_overflow, &handlers};
         expect(audio_selector.Bind(selector_binding).ok(),
             "bind candidate battle-audio selector fixture");
     }
@@ -1184,7 +1207,7 @@ struct CandidateWindFixture
     MoveDispatchState move_dispatch;
     StageWindTopologyAddresses addresses{};
     std::uintptr_t root{};
-    std::uintptr_t handler{};
+    std::array<std::uintptr_t, maximum_battle_audio_handlers> handlers{};
 };
 
 CandidateAdapterBinding candidate_binding(
@@ -2236,6 +2259,93 @@ void test_stage_wind_graph_restore_is_transactional()
             && probe.Capture(restored).ok() && restored == target,
         "wind graph invalid callback-bank state fails before allocation or mutation");
 }
+
+class RetryingPresentationSink final : public IPresentationSink
+{
+public:
+    Status Publish(const PresentationEvent& event) noexcept override
+    {
+        ++attempts;
+        if (fail_attempt != 0 && attempts == fail_attempt)
+            return Status::failure(FailureCode::PresentationFailed);
+        identities.push_back(event.identity);
+        return Status::success();
+    }
+
+    std::size_t attempts{};
+    std::size_t fail_attempt{};
+    std::vector<std::uint64_t> identities;
+};
+
+PresentationEvent presentation_event(
+    std::uint64_t generation, std::uint64_t frame,
+    std::uint64_t identity, std::uint16_t payload_size = 8)
+{
+    PresentationEvent event{};
+    event.coordinate = {generation, frame};
+    event.kind = 1;
+    event.identity = identity;
+    event.payload_size = payload_size;
+    event.payload[0] = std::byte(identity & 0xff);
+    return event;
+}
+
+void test_presentation_journal_is_bounded_and_retry_safe()
+{
+    PresentationJournal journal{3, 24};
+    expect(journal.capacity() == 3 && journal.pending_count() == 0
+            && journal.payload_bytes() == 0,
+        "presentation journal allocates a fixed slot budget up front");
+    expect(journal.Record(presentation_event(7, 11, 3)).ok()
+            && journal.Record(presentation_event(7, 10, 2)).ok()
+            && journal.Record(presentation_event(7, 10, 1)).ok(),
+        "presentation journal fills its fixed event and payload capacity");
+    expect(journal.Record(presentation_event(7, 12, 4)).code
+            == FailureCode::CapacityExceeded,
+        "presentation journal fails closed at fixed capacity");
+    expect(journal.Record(presentation_event(7, 10, 1)).ok()
+            && journal.pending_count() == 3,
+        "presentation journal suppresses a pending duplicate without growth");
+
+    RetryingPresentationSink sink{};
+    sink.fail_attempt = 2;
+    expect(journal.CommitThrough({7, 11}, sink).code
+            == FailureCode::PresentationFailed
+            && sink.identities == std::vector<std::uint64_t>{1}
+            && journal.pending_count() == 2,
+        "partial presentation failure commits only the successful prefix");
+    sink.fail_attempt = 0;
+    expect(journal.CommitThrough({7, 11}, sink).ok()
+            && sink.identities == std::vector<std::uint64_t>({1, 2, 3})
+            && journal.pending_count() == 0
+            && journal.payload_bytes() == 0,
+        "presentation retry resumes at the failed event without replaying prefix");
+    expect(journal.Record(presentation_event(7, 10, 9)).ok()
+            && journal.pending_count() == 0,
+        "committed frame watermark suppresses late speculative duplicates");
+
+    expect(journal.Record(presentation_event(8, 20, 5)).ok()
+            && journal.Record(presentation_event(8, 21, 6)).ok(),
+        "presentation journal accepts a new generation within fixed storage");
+    journal.DiscardFrom({8, 21});
+    expect(journal.pending_count() == 1 && journal.payload_bytes() == 8,
+        "presentation correction discards only the invalid suffix");
+    journal.InvalidateGeneration(8);
+    const auto stats = journal.statistics();
+    expect(journal.pending_count() == 0 && journal.payload_bytes() == 0
+            && stats.attempted == 8 && stats.recorded == 5
+            && stats.duplicates == 2 && stats.capacity_failures == 1
+            && stats.committed == 3 && stats.discarded == 2
+            && stats.publish_failures == 1,
+        "presentation journal exposes bounded lifecycle and retry counters");
+
+    PresentationJournal invalid{2,
+        2 * Schema::maximum_presentation_payload + 1};
+    expect(invalid.capacity() == 0
+            && invalid.Record(presentation_event(9, 1, 1)).code
+                == FailureCode::CapacityExceeded,
+        "invalid journal byte budgets cannot allocate or accept events");
+}
 }
 
 int main()
@@ -2263,6 +2373,7 @@ int main()
     test_callback_topology_is_generation_bound_and_pointer_free();
     test_stage_wind_topology_is_bounded_and_pointer_free();
     test_stage_wind_graph_restore_is_transactional();
+    test_presentation_journal_is_bounded_and_retry_safe();
     if (failures == 0)
         std::cout << "NativeCandidateRegionsSelfTest passed\n";
     return failures == 0 ? 0 : 1;

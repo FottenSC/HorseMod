@@ -149,6 +149,8 @@ struct OwnedCorrectionResult
     CanonicalHash final_hash{};
     CanonicalMoveDispatchDiagnostic expected_move_dispatch{};
     CanonicalMoveDispatchDiagnostic observed_move_dispatch{};
+    BattleAudioSelectorImage base_audio_selector{};
+    BattleAudioSelectorImage undo_audio_selector{};
     NativeCandidateValidationDiagnostic primary_validation{};
     NativeCandidateValidationDiagnostic undo_validation{};
     CandidateAdapterPerformanceStatus primary_performance{};
@@ -161,6 +163,10 @@ struct OwnedCorrectionResult
     std::uint64_t suppressed_stage_barrier_calls{};
     std::uint64_t semantic_stage_dispatch_calls{};
     std::uint64_t suppressed_audio_calls{};
+    std::uint64_t suppressed_audio_stop_all_calls{};
+    std::uint64_t suppressed_particle_spawn_calls{};
+    std::uint64_t suppressed_particle_finished_binds{};
+    std::uint64_t unknown_particle_routes{};
     std::uint64_t verified_audio_batches{};
     std::uint64_t audio_sequence_mismatches{};
     std::uint64_t presentation_failures{};

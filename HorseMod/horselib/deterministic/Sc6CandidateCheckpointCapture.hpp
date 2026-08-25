@@ -62,6 +62,8 @@ public:
         FrameCoordinate coordinate, Snapshot& output) noexcept;
     Status EnsureRestoreOwnership(std::uint32_t simulation_thread_id) noexcept;
     Status RestoreAndVerify(const Snapshot& snapshot) noexcept;
+    Status RestoreBattleAudioSelectorForPresentation(
+        const Snapshot& snapshot) noexcept;
     Status RestoreInputLogForReplay(const Snapshot& snapshot) noexcept;
     Status RestoreMoveDispatchMasksForReplay(
         const Snapshot& snapshot) noexcept;

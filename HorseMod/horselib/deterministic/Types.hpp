@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Schema.hpp"
+
 #include <array>
 #include <compare>
 #include <cstddef>
@@ -244,7 +246,8 @@ struct PresentationEvent
     FrameCoordinate coordinate{};
     std::uint32_t kind{};
     std::uint64_t identity{};
-    std::vector<std::byte> payload;
+    std::uint16_t payload_size{};
+    std::array<std::byte, Schema::maximum_presentation_payload> payload{};
 };
 
 struct NativeContext

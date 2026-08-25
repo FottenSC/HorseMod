@@ -77,7 +77,9 @@ bool valid_wind_image(const StageWindTopologyImage& image) noexcept
 }
 
 constexpr std::size_t battle_audio_selector_local_size =
-    sizeof(std::uint64_t) * 2 + sizeof(std::int32_t) + sizeof(std::uint8_t);
+    sizeof(std::uint64_t) * 2
+    + sizeof(std::int32_t) * maximum_battle_audio_handlers
+    + sizeof(std::uint8_t);
 
 std::array<std::byte, battle_audio_selector_local_size>
 encode_battle_audio_selector_local(const BattleAudioSelectorImage& image) noexcept
@@ -91,8 +93,8 @@ encode_battle_audio_selector_local(const BattleAudioSelectorImage& image) noexce
     };
     copy(image.session_generation);
     copy(image.round_generation);
-    copy(image.alternation);
-    copy(static_cast<std::uint8_t>(image.handler_observed));
+    for (const auto alternation : image.alternations) copy(alternation);
+    copy(image.observed_count);
     return output;
 }
 
@@ -205,18 +207,27 @@ Status decode_battle_audio_selector_local(std::span<const std::byte> bytes,
     if (bytes.size() != battle_audio_selector_local_size)
         return Status::failure(FailureCode::CaptureFailed);
     Reader reader{bytes};
-    std::uint8_t observed{};
     if (!reader.Take(output.session_generation)
-        || !reader.Take(output.round_generation)
-        || !reader.Take(output.alternation)
-        || !reader.Take(observed) || observed > 1 || !reader.Finished()
-        || output.session_generation == 0 || output.round_generation == 0
-        || output.alternation < 0 || output.alternation > 1)
+        || !reader.Take(output.round_generation))
     {
         output = {};
         return Status::failure(FailureCode::CaptureFailed);
     }
-    output.handler_observed = observed != 0;
+    for (auto& alternation : output.alternations)
+        if (!reader.Take(alternation))
+        {
+            output = {};
+            return Status::failure(FailureCode::CaptureFailed);
+        }
+    if (!reader.Take(output.observed_count) || !reader.Finished()
+        || output.session_generation == 0 || output.round_generation == 0
+        || output.observed_count > maximum_battle_audio_handlers
+        || std::any_of(output.alternations.begin(), output.alternations.end(),
+            [](std::int32_t value) { return value < 0 || value > 1; }))
+    {
+        output = {};
+        return Status::failure(FailureCode::CaptureFailed);
+    }
     return Status::success();
 }
 
@@ -294,8 +305,11 @@ bool generations_match(FrameCoordinate coordinate,
             == image.native.session_generation
         && image.battle_audio_selector.round_generation
             == image.native.round_generation
-        && image.battle_audio_selector.alternation >= 0
-        && image.battle_audio_selector.alternation <= 1
+        && image.battle_audio_selector.observed_count
+            <= maximum_battle_audio_handlers
+        && std::all_of(image.battle_audio_selector.alternations.begin(),
+            image.battle_audio_selector.alternations.end(),
+            [](std::int32_t value) { return value >= 0 && value <= 1; })
         && hgcpu.serializer_id == LocalSerializerId::HgCpuDirect
         && motion.serializer_id == LocalSerializerId::MotionBankTriples
         && hgcpu.context == motion.context

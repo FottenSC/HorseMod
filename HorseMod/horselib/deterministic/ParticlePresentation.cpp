@@ -32,21 +32,24 @@ bool zero(ParticleVector value) noexcept
     return value == ParticleVector{};
 }
 
-void write_u32(std::vector<std::byte>& bytes, std::size_t offset,
+void write_u32(std::array<std::byte, Schema::maximum_presentation_payload>& bytes,
+    std::size_t offset,
     std::uint32_t value) noexcept
 {
     for (std::size_t index = 0; index < 4; ++index)
         bytes[offset + index] = std::byte(value >> (index * 8));
 }
 
-void write_u64(std::vector<std::byte>& bytes, std::size_t offset,
+void write_u64(std::array<std::byte, Schema::maximum_presentation_payload>& bytes,
+    std::size_t offset,
     std::uint64_t value) noexcept
 {
     for (std::size_t index = 0; index < 8; ++index)
         bytes[offset + index] = std::byte(value >> (index * 8));
 }
 
-std::uint32_t read_u32(const std::vector<std::byte>& bytes,
+std::uint32_t read_u32(
+    const std::array<std::byte, Schema::maximum_presentation_payload>& bytes,
     std::size_t offset) noexcept
 {
     std::uint32_t value{};
@@ -56,7 +59,8 @@ std::uint32_t read_u32(const std::vector<std::byte>& bytes,
     return value;
 }
 
-std::uint64_t read_u64(const std::vector<std::byte>& bytes,
+std::uint64_t read_u64(
+    const std::array<std::byte, Schema::maximum_presentation_payload>& bytes,
     std::size_t offset) noexcept
 {
     std::uint64_t value{};
@@ -66,7 +70,9 @@ std::uint64_t read_u64(const std::vector<std::byte>& bytes,
     return value;
 }
 
-void write_vector(std::vector<std::byte>& bytes, std::size_t offset,
+void write_vector(
+    std::array<std::byte, Schema::maximum_presentation_payload>& bytes,
+    std::size_t offset,
     ParticleVector value) noexcept
 {
     write_u32(bytes, offset, std::bit_cast<std::uint32_t>(value.x));
@@ -74,7 +80,8 @@ void write_vector(std::vector<std::byte>& bytes, std::size_t offset,
     write_u32(bytes, offset + 8, std::bit_cast<std::uint32_t>(value.z));
 }
 
-ParticleVector read_vector(const std::vector<std::byte>& bytes,
+ParticleVector read_vector(
+    const std::array<std::byte, Schema::maximum_presentation_payload>& bytes,
     std::size_t offset) noexcept
 {
     return {
@@ -110,15 +117,8 @@ Status EncodeParticlePresentation(
     output = {};
     if (!valid_value(value))
         return Status::failure(FailureCode::InvalidConfiguration);
-    try
-    {
-        output.payload.assign(
-            Schema::particle_presentation_payload_size, std::byte{});
-    }
-    catch (...)
-    {
-        return Status::failure(FailureCode::CapacityExceeded);
-    }
+    output.payload_size = static_cast<std::uint16_t>(
+        Schema::particle_presentation_payload_size);
     output.coordinate = value.coordinate;
     output.kind = Schema::particle_presentation_event_kind;
     output.identity = value.event_logical_id;
@@ -144,7 +144,7 @@ Status DecodeParticlePresentation(
 {
     output = {};
     if (event.kind != Schema::particle_presentation_event_kind
-        || event.payload.size() != Schema::particle_presentation_payload_size
+        || event.payload_size != Schema::particle_presentation_payload_size
         || event.payload[0] != std::byte(
             Schema::particle_presentation_schema_version & 0xff)
         || event.payload[1] != std::byte(

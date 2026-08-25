@@ -3236,6 +3236,10 @@ private:
         std::uint64_t suppressed_stage_barrier_calls{};
         std::uint64_t semantic_stage_dispatch_calls{};
         std::uint64_t suppressed_audio_calls{};
+        std::uint64_t suppressed_audio_stop_all_calls{};
+        std::uint64_t suppressed_particle_spawn_calls{};
+        std::uint64_t suppressed_particle_finished_binds{};
+        std::uint64_t unknown_particle_routes{};
         std::uint64_t verified_audio_batches{};
         std::uint64_t audio_sequence_mismatches{};
         std::uint64_t presentation_failures{};
@@ -3863,6 +3867,11 @@ private:
                 "audio_route=0x{:08x}->0x{:08x} "
                 "audio_payload=0x{:08x}->0x{:08x} "
                 "audio_position=0x{:08x}->0x{:08x} "
+                "audio_remap={}/{} 0x{:016x}->0x{:016x} "
+                "audio_source={}/{} 0x{:016x}->0x{:016x} "
+                "audio_direct={}/{} "
+                "remap_entry=0x{:02x}:{}/{}->0x{:02x}:{}/{} "
+                "selector_base={}/{}/{}/{} selector_undo={}/{}/{}/{} "
                 "audio_sequence_mismatches={} presentation_failures={}\n"),
                 qualification.completed, timeline.last_coordinate.frame,
                 RC::to_generic_string(std::string(
@@ -3906,6 +3915,30 @@ private:
                 result.failed_batch_result.suppressed_audio_payload_hash,
                 result.failed_envelope.battle_audio_position_hash,
                 result.failed_batch_result.suppressed_audio_position_hash,
+                result.failed_envelope.battle_audio_remap_calls,
+                result.failed_batch_result.suppressed_audio_remap_calls,
+                result.failed_envelope.battle_audio_remap_hash,
+                result.failed_batch_result.suppressed_audio_remap_hash,
+                result.failed_envelope.battle_audio_source_calls,
+                result.failed_batch_result.suppressed_audio_source_calls,
+                result.failed_envelope.battle_audio_source_hash,
+                result.failed_batch_result.suppressed_audio_source_hash,
+                result.failed_envelope.battle_audio_direct_dispatches,
+                result.failed_batch_result.suppressed_audio_calls,
+                result.failed_envelope.battle_audio_remap_entry_mask,
+                result.failed_envelope.battle_audio_remap_entry_values[0],
+                result.failed_envelope.battle_audio_remap_entry_values[1],
+                result.failed_batch_result.suppressed_audio_remap_entry_mask,
+                result.failed_batch_result.suppressed_audio_remap_entry_values[0],
+                result.failed_batch_result.suppressed_audio_remap_entry_values[1],
+                result.base_audio_selector.observed_count,
+                result.base_audio_selector.alternations[0],
+                result.base_audio_selector.alternations[1],
+                result.base_audio_selector.round_generation,
+                result.undo_audio_selector.observed_count,
+                result.undo_audio_selector.alternations[0],
+                result.undo_audio_selector.alternations[1],
+                result.undo_audio_selector.round_generation,
                 result.failed_batch_result.audio_sequence_mismatches,
                 result.failed_batch_result.presentation_failures);
             return;
@@ -3918,6 +3951,14 @@ private:
         qualification.semantic_stage_dispatch_calls +=
             result.semantic_stage_dispatch_calls;
         qualification.suppressed_audio_calls += result.suppressed_audio_calls;
+        qualification.suppressed_audio_stop_all_calls +=
+            result.suppressed_audio_stop_all_calls;
+        qualification.suppressed_particle_spawn_calls +=
+            result.suppressed_particle_spawn_calls;
+        qualification.suppressed_particle_finished_binds +=
+            result.suppressed_particle_finished_binds;
+        qualification.unknown_particle_routes +=
+            result.unknown_particle_routes;
         qualification.verified_audio_batches += result.verified_audio_batches;
         qualification.audio_sequence_mismatches +=
             result.audio_sequence_mismatches;
@@ -3950,6 +3991,9 @@ private:
             "forced_history_bytes={}->{} "
             "stage_wall_suppressed={} stage_barrier_suppressed={} "
             "stage_semantic_dispatches={} audio_suppressed={} "
+            "audio_stop_all_suppressed={} "
+            "particle_spawn_suppressed={} particle_bind_suppressed={} "
+            "particle_unknown_routes={} "
             "audio_batches_verified={} audio_sequence_mismatches={} "
             "presentation_failures={} canonical_convergence=exact "
             "presentation_terminal_coverage=incomplete\n"),
@@ -3971,6 +4015,10 @@ private:
             qualification.suppressed_stage_barrier_calls,
             qualification.semantic_stage_dispatch_calls,
             qualification.suppressed_audio_calls,
+            qualification.suppressed_audio_stop_all_calls,
+            qualification.suppressed_particle_spawn_calls,
+            qualification.suppressed_particle_finished_binds,
+            qualification.unknown_particle_routes,
             qualification.verified_audio_batches,
             qualification.audio_sequence_mismatches,
             qualification.presentation_failures);
