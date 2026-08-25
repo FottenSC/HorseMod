@@ -11,17 +11,33 @@ set(HORSEMOD_GEKKONET_GIT_COMMIT
     "f21698d85367c8d97585cf7610897316c873681c"
     CACHE STRING "Immutable FottenSC/GekkoNet commit")
 if(HORSEMOD_BUILD_PINNED_GEKKONET)
-    include(FetchContent)
-    set(NO_ASIO_BUILD ON)
-    set(BUILD_DOCS OFF)
-    set(BUILD_SHARED_LIBS OFF)
-    FetchContent_Declare(
-        GekkoNet
-        GIT_REPOSITORY https://github.com/FottenSC/GekkoNet.git
-        GIT_TAG ${HORSEMOD_GEKKONET_GIT_COMMIT}
-        GIT_SHALLOW FALSE
+    set(HORSEMOD_GEKKONET_SOURCE_DIR
+        "${CMAKE_SOURCE_DIR}/third_party/GekkoNet")
+    if(NOT EXISTS "${HORSEMOD_GEKKONET_SOURCE_DIR}/GekkoLib/CMakeLists.txt")
+        message(FATAL_ERROR
+            "Pinned GekkoNet submodule is unavailable; run git submodule update --init")
+    endif()
+    find_package(Git REQUIRED)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD
+        WORKING_DIRECTORY "${HORSEMOD_GEKKONET_SOURCE_DIR}"
+        OUTPUT_VARIABLE HORSEMOD_GEKKONET_ACTUAL_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE HORSEMOD_GEKKONET_REV_PARSE_RESULT
     )
-    FetchContent_MakeAvailable(GekkoNet)
+    if(NOT HORSEMOD_GEKKONET_REV_PARSE_RESULT EQUAL 0
+        OR NOT HORSEMOD_GEKKONET_ACTUAL_COMMIT STREQUAL
+            HORSEMOD_GEKKONET_GIT_COMMIT)
+        message(FATAL_ERROR
+            "GekkoNet must be exactly ${HORSEMOD_GEKKONET_GIT_COMMIT}; found ${HORSEMOD_GEKKONET_ACTUAL_COMMIT}")
+    endif()
+    set(NO_ASIO_BUILD ON CACHE BOOL "Exclude GekkoNet ASIO transport" FORCE)
+    set(BUILD_DOCS OFF CACHE BOOL "Disable GekkoNet docs" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build GekkoNet statically" FORCE)
+    add_subdirectory(
+        "${HORSEMOD_GEKKONET_SOURCE_DIR}/GekkoLib"
+        "${CMAKE_BINARY_DIR}/third_party/GekkoNet"
+        EXCLUDE_FROM_ALL)
     if(TARGET GekkoNet AND MSVC)
         set_property(TARGET GekkoNet PROPERTY
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")

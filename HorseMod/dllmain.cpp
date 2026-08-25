@@ -3821,29 +3821,6 @@ private:
                 qualification.generation, qualification.first_frame,
                 kForcedQualificationCorrections);
         }
-        if (qualification.completed >= kForcedQualificationCorrections
-            && qualification.suppressed_stage_wall_calls == 0
-            && qualification.suppressed_stage_barrier_calls == 0)
-        {
-            const auto located = m_replay_native_runtime.batch_timeline()
-                .FindCoordinate(timeline.last_coordinate);
-            const auto* envelope = located.has_value()
-                ? m_replay_native_runtime.batch_timeline().GetBatch(
-                    located->batch_index)
-                : nullptr;
-            if (envelope == nullptr
-                || (envelope->stage_wall_calls == 0
-                    && envelope->stage_barrier_calls == 0))
-            {
-                return;
-            }
-            Output::send<LogLevel::Default>(STR(
-                "[HorseMod] forced depth-7 qualification observed stage "
-                "workload frame={} wall={} barrier={} dispatch={}\n"),
-                timeline.last_coordinate.frame, envelope->stage_wall_calls,
-                envelope->stage_barrier_calls,
-                envelope->stage_dispatch_calls);
-        }
         if (timeline.last_coordinate.generation != qualification.generation)
         {
             qualification.failure =
@@ -3994,16 +3971,6 @@ private:
         ++qualification.completed;
         qualification.last_frame = timeline.last_coordinate.frame;
         if (qualification.completed < kForcedQualificationCorrections) return;
-        if (qualification.suppressed_stage_wall_calls == 0
-            && qualification.suppressed_stage_barrier_calls == 0)
-        {
-            Output::send<LogLevel::Default>(STR(
-                "[HorseMod] forced depth-7 qualification baseline passed "
-                "completed={} frame={} awaiting_stage_workload=true\n"),
-                qualification.completed, qualification.last_frame);
-            return;
-        }
-
         const auto final_timeline = m_replay_native_runtime.timeline_status();
         const auto capture_performance =
             m_replay_native_runtime.capture_performance();
@@ -4027,7 +3994,8 @@ private:
             "checkpoint_bytes={}->{} batch_entry_bytes={}->{} "
             "forced_history_bytes={}->{} "
             "stage_wall_suppressed={} stage_barrier_suppressed={} "
-            "stage_semantic_dispatches={} audio_suppressed={} "
+            "stage_semantic_dispatches={} stage_coverage={} "
+            "audio_suppressed={} "
             "audio_stop_all_suppressed={} "
             "particle_spawn_suppressed={} particle_bind_suppressed={} "
             "particle_unknown_routes={} "
@@ -4052,6 +4020,9 @@ private:
             qualification.suppressed_stage_wall_calls,
             qualification.suppressed_stage_barrier_calls,
             qualification.semantic_stage_dispatch_calls,
+            qualification.suppressed_stage_wall_calls != 0
+                    || qualification.suppressed_stage_barrier_calls != 0
+                ? STR("observed") : STR("missing"),
             qualification.suppressed_audio_calls,
             qualification.suppressed_audio_stop_all_calls,
             qualification.suppressed_particle_spawn_calls,

@@ -2,3 +2,7 @@
 	path = tools/BlueprintToCpp
 	url = https://github.com/FottenSC/BlueprintToCpp.git
 	branch = horsemod-sc6-support
+[submodule "third_party/GekkoNet"]
+	path = third_party/GekkoNet
+	url = https://github.com/FottenSC/GekkoNet.git
+	branch = horsemod-deterministic-api
