@@ -33,6 +33,7 @@ file(GLOB_RECURSE SCVI_HEADERS
 )
 
 set(HORSEMOD_DETERMINISTIC_SOURCES
+    horselib/deterministic/BattleAudioSelectorState.cpp
     horselib/deterministic/CanonicalHashTimeline.cpp
     horselib/deterministic/CallbackTopology.cpp
     horselib/deterministic/CandidateCheckpoint.cpp

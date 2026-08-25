@@ -24,6 +24,7 @@ using CandidateReconcileFn = Status (*)(
 struct CandidateAdapterBinding
 {
     NativeContext context{};
+    BattleAudioSelectorState* battle_audio_selector{};
     HgCpuGenerationContext hgcpu_context{};
     HgCpuExecFn hgcpu_writer{};
     HgCpuExecFn hgcpu_reader{};
@@ -71,6 +72,7 @@ enum class CandidateCapturePhase : std::uint8_t
 {
     None,
     NativeTyped,
+    BattleAudioSelector,
     MoveDispatch,
     SecondaryEvents,
     CharaAnimation,
@@ -88,6 +90,7 @@ constexpr std::string_view candidate_capture_phase_name(
     {
     case CandidateCapturePhase::None: return "none";
     case CandidateCapturePhase::NativeTyped: return "native_typed";
+    case CandidateCapturePhase::BattleAudioSelector: return "battle_audio_selector";
     case CandidateCapturePhase::MoveDispatch: return "move_dispatch";
     case CandidateCapturePhase::SecondaryEvents: return "secondary_events";
     case CandidateCapturePhase::CharaAnimation: return "chara_animation";

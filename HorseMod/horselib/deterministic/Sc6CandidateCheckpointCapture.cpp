@@ -1,5 +1,7 @@
 #include "Sc6CandidateCheckpointCapture.hpp"
 
+#include "DeterministicHookSet.hpp"
+
 #include <chrono>
 
 #include "Schema.hpp"
@@ -20,6 +22,10 @@ namespace Horse::Deterministic
 {
 namespace
 {
+std::uintptr_t resolve_observed_battle_audio_handler(void*) noexcept
+{
+    return DeterministicHookSet::ObservedBattleAudioHandler();
+}
 constexpr std::uintptr_t fighter_roots_rva = 0x470DE90;
 constexpr std::uintptr_t effect_camera_pointer_rva = 0x470DEE8;
 constexpr std::uintptr_t camera_director_state_rva = 0x470E9F0;
@@ -180,6 +186,8 @@ private:
 Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
     : memory_(std::make_unique<ProcessMemory>()),
       regions_(std::make_unique<NativeCandidateRegions>(*memory_)),
+      battle_audio_selector_(
+          std::make_unique<BattleAudioSelectorState>(*memory_)),
       motion_banks_(std::make_unique<MotionBankSnapshot>(*memory_)),
       move_dispatch_(std::make_unique<MoveDispatchState>(*memory_)),
       secondary_events_(std::make_unique<SecondaryEventState>(*memory_)),
@@ -467,6 +475,7 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + hgcpu_writer_rva);
     adapter_binding.hgcpu_reader = reinterpret_cast<HgCpuExecFn>(
         image_base_ + hgcpu_reader_rva);
+    adapter_binding.battle_audio_selector = battle_audio_selector_.get();
     adapter_binding.motion_banks = motion_banks_.get();
     adapter_binding.move_dispatch = move_dispatch_.get();
     adapter_binding.secondary_events = secondary_events_.get();
@@ -476,7 +485,12 @@ Status Sc6CandidateCheckpointCapture::bind(
     adapter_binding.wind_transaction = wind_transaction_.get();
     adapter_binding.wind_addresses = wind_addresses;
     adapter_binding.simulation_thread_id = simulation_thread_id;
-    Status adapter_status = motion_banks_->Bind(
+    const BattleAudioSelectorBinding audio_selector_binding{
+        image_base_, image_size_, adapter_binding.hgcpu_context,
+        &resolve_observed_battle_audio_handler, nullptr};
+    Status adapter_status = battle_audio_selector_->Bind(
+        audio_selector_binding);
+    if (adapter_status.ok()) adapter_status = motion_banks_->Bind(
         fighter_roots, adapter_binding.hgcpu_context);
     if (adapter_status.ok()) adapter_status = move_dispatch_->Bind(
         move_dispatch, coordinate.generation);
@@ -795,6 +809,7 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
     wind_transaction_.reset();
     wind_allocator_.reset();
     regions_->Invalidate();
+    battle_audio_selector_->Reset();
     wind_probe_->Invalidate();
     bound_manager_ = 0;
     bound_move_dispatch_ = 0;

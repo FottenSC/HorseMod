@@ -823,6 +823,55 @@ the embedded committed source was `6229f246`, and the replay SHA-256 remained
 The source was dirty only for this implementation under test. This proves
 signature admission, ordinary pass-through, and teardown; it does not yet prove
 suppression under an actual owned correction.
+
+### Battle-audio selection contract and direct-caller inventory (2026-08-25)
+
+Current-executable Ghidra MCP analysis closes the stateful contact remap at
+`LuxMove_RemapAttackType_WithCounter @ 0x1403BA080`. Its corrected prototype is
+`int __fastcall (ALuxBattleSoundEventHandler_Partial *, int)`. For contact types
+6 through 14 it reads the handler-owned signed `int nContactTypeAlternation` at
+`+0x3E0`, includes the pre-increment value in the returned action type, and
+advances the field modulo two. Other contact types use the fixed jump-table
+mapping without touching the counter. The handler vtable-helper constructor at
+`0x1403ABF10` initializes the field to zero; no independent scalar reset or
+destruction writer exists. Handler lifetime replacement is therefore the
+invalidation boundary. The older `nSelectedPriority` field name was incorrect:
+`LuxMove_SelectHighestPriorityActionType @ 0x1403D32F0` writes the separate
+`playerModes` array at `+0x3C0`.
+
+All direct code callers of `LuxBattleManager_DispatchBattleEventByClass @
+0x140519480` were re-inventoried. Their authored payload inputs are:
+
+| Direct caller | Payload inputs | Classification and ownership |
+|---|---|---|
+| `LuxMove_OnBattlePhaseChanged @ 0x1403C43D0` | Phase callback value and fixed cue `0x14` | Canonical phase input plus immutable content; handler lifetime |
+| `HandleContactSoundEventForBattleSound @ 0x1403C63C0` | Source event class/type/position; immutable `voiceCueIds`; contact remap; stage-material lookup; two `playerModes`; player hit-effect preset; character style ID and alternate-contact flag | Source event and player/setup fields are canonical or immutable content. `+0x3E0` is the sole persistent presentation selector and is captured separately. Active voice IDs and tracking sets are terminal-only. |
+| `LuxMove_SendSubsystemCmd_Type50 @ 0x1403C5AE0` | Source command side, position, authored subtype, fixed command `0x32` | Canonical source command plus immutable constants |
+| `LuxMove_ComputeWeightedBodyPositionCmd @ 0x1403C7F00` | Source side, current weighted body-position rows, resolved player position, authored body-position cue `row + 0x8C` | Canonical source command and derived body-position result; temporary sets are derived scratch |
+| `LuxMove_DispatchCmdsFromByteArray_Type3 @ 0x1403C60B0` | Character byte array, immutable global remap tables, source command byte, player position | Immutable content plus canonical source command/player transform |
+| `LuxMove_SendAnimCmd_Type2_ByParams @ 0x1403C7A30` | Source player side and animation subtype mapped to fixed values `0x20..0x2C` | Canonical source command plus immutable mapping |
+| `LuxStage_RegisterBarrierActor_BattleEvent0x19 @ 0x140427490` | Callback payload and fixed event fields | Canonical stage callback payload; actor lifetime |
+| `HandleLuxBreakableWallStageEvent @ 0x140428EE0` | Wall ID lookup value and source position | Canonical stage state plus immutable wall mapping; temporary hash is derived scratch |
+| `FUN_1405509B0` | Source opcode mapped to fixed cues, or helper result for opcode `0x48` | Canonical source command plus immutable mapping/helper content |
+
+The checkpoint exception is a fixed 21-byte local image: session generation,
+round generation, the signed two-state selector, and handler-observation metadata.
+The native handler pointer is retained only as same-process validation identity;
+it never enters canonical hashes, peer messages, or portable state. A
+signature-gated detour observes the exact handler argument without changing the
+native call. Capture validates the handler vtable and the `0..1` invariant.
+Restore writes the selector transactionally before native typed images and before
+resimulated semantic listeners, verifies the write, and restores the exact undo
+value on failure. A checkpoint captured before the first handler observation
+represents the constructor value zero and can be restored once the handler is
+known. Round/session invalidation resets both the binding and observed identity.
+
+Ghidra structural work, variables, plate/PRE/EOL comments, and the corrected
+handler structure were saved through native MCP tools. The final completeness
+score for `0x1403BA080` is 92.0%; the remaining eight fixable points are
+register-only structural temporaries. Runtime qualification of this contract is
+still required; the ordered count/route/payload/position identity gate remains
+unchanged.
 | Replay/scene/disconnect | Close replay stop/order and earliest world/online invalidation signals | No identity survives transition/partial failure |
 | Hook teardown | Audit Horse shutdown only after target set is final | Admission gate, reverse removal, zero in-flight callbacks |
 

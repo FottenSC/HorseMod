@@ -26,8 +26,8 @@ void reset_checkpoint_image(CandidateCheckpointImage& output) noexcept
 }
 constexpr std::array<std::byte, 8> magic{
     std::byte{'H'}, std::byte{'R'}, std::byte{'S'}, std::byte{'C'},
-    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{10}};
-constexpr std::uint32_t format_version = 16;
+    std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{11}};
+constexpr std::uint32_t format_version = 17;
 constexpr std::array<std::byte, 20> hash_domain{
     std::byte{'H'}, std::byte{'o'}, std::byte{'r'}, std::byte{'s'},
     std::byte{'e'}, std::byte{'C'}, std::byte{'a'}, std::byte{'n'},
@@ -74,6 +74,26 @@ bool valid_ucrt_image(const UcrtRandBrokerImage& image) noexcept
 bool valid_wind_image(const StageWindTopologyImage& image) noexcept
 {
     return ValidateStageWindTopologyImage(image);
+}
+
+constexpr std::size_t battle_audio_selector_local_size =
+    sizeof(std::uint64_t) * 2 + sizeof(std::int32_t) + sizeof(std::uint8_t);
+
+std::array<std::byte, battle_audio_selector_local_size>
+encode_battle_audio_selector_local(const BattleAudioSelectorImage& image) noexcept
+{
+    std::array<std::byte, battle_audio_selector_local_size> output{};
+    auto* cursor = output.data();
+    const auto copy = [&cursor](const auto& value) noexcept
+    {
+        std::memcpy(cursor, &value, sizeof(value));
+        cursor += sizeof(value);
+    };
+    copy(image.session_generation);
+    copy(image.round_generation);
+    copy(image.alternation);
+    copy(static_cast<std::uint8_t>(image.handler_observed));
+    return output;
 }
 
 void encode_wind_local(
@@ -178,6 +198,28 @@ Status decode_wind_local(
         ? Status::success() : Status::failure(FailureCode::CaptureFailed);
 }
 
+Status decode_battle_audio_selector_local(std::span<const std::byte> bytes,
+    BattleAudioSelectorImage& output) noexcept
+{
+    output = {};
+    if (bytes.size() != battle_audio_selector_local_size)
+        return Status::failure(FailureCode::CaptureFailed);
+    Reader reader{bytes};
+    std::uint8_t observed{};
+    if (!reader.Take(output.session_generation)
+        || !reader.Take(output.round_generation)
+        || !reader.Take(output.alternation)
+        || !reader.Take(observed) || observed > 1 || !reader.Finished()
+        || output.session_generation == 0 || output.round_generation == 0
+        || output.alternation < 0 || output.alternation > 1)
+    {
+        output = {};
+        return Status::failure(FailureCode::CaptureFailed);
+    }
+    output.handler_observed = observed != 0;
+    return Status::success();
+}
+
 class ReusableSha256 final
 {
 public:
@@ -248,6 +290,12 @@ bool generations_match(FrameCoordinate coordinate,
     return coordinate.generation != 0
         && image.native.session_generation != 0
         && image.native.round_generation == coordinate.generation
+        && image.battle_audio_selector.session_generation
+            == image.native.session_generation
+        && image.battle_audio_selector.round_generation
+            == image.native.round_generation
+        && image.battle_audio_selector.alternation >= 0
+        && image.battle_audio_selector.alternation <= 1
         && hgcpu.serializer_id == LocalSerializerId::HgCpuDirect
         && motion.serializer_id == LocalSerializerId::MotionBankTriples
         && hgcpu.context == motion.context
@@ -364,6 +412,8 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         static thread_local std::vector<std::byte> wind_local;
         wind_local.clear();
         encode_wind_local(image.wind, wind_local);
+        const auto battle_audio_selector_local =
+            encode_battle_audio_selector_local(image.battle_audio_selector);
         output.coordinate = coordinate;
         output.context_identity = context_identity;
         LocalImageChecksum native_component_hasher;
@@ -486,7 +536,7 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         if (movable_image == nullptr)
             for (const auto& local : image.local_images)
                 local_bytes += local.bytes.size();
-        output.bytes.reserve(192 + canonical_size + wind_local.size()
+        output.bytes.reserve(224 + canonical_size + wind_local.size()
             + local_bytes);
         append_range(output.bytes, magic);
         append(output.bytes, format_version);
@@ -503,6 +553,9 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         append(output.bytes, local_checksum(animation_canonical));
         append(output.bytes, static_cast<std::uint32_t>(wind_local.size()));
         append(output.bytes, local_checksum(wind_local));
+        append(output.bytes, static_cast<std::uint32_t>(
+            battle_audio_selector_local.size()));
+        append(output.bytes, local_checksum(battle_audio_selector_local));
         append(output.bytes, image.ucrt.algorithm_version);
         append(output.bytes, image.ucrt.allowlist_version);
         append(output.bytes, image.ucrt.state);
@@ -534,6 +587,7 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         append_range(output.bytes, secondary_canonical);
         append_range(output.bytes, animation_canonical);
         append_range(output.bytes, wind_local);
+        append_range(output.bytes, battle_audio_selector_local);
         if (movable_image != nullptr)
             output.local_images.swap(movable_image->local_images);
         return Status::success();
@@ -562,6 +616,8 @@ Status CandidateCheckpointCodec::Decode(
     std::uint64_t animation_canonical_checksum{};
     std::uint32_t wind_local_size{};
     std::uint64_t wind_local_checksum{};
+    std::uint32_t battle_audio_selector_local_size_observed{};
+    std::uint64_t battle_audio_selector_local_checksum{};
     std::uint8_t ucrt_seeded{};
     std::uint8_t attached_local_storage{};
     std::uint32_t local_count{};
@@ -582,6 +638,10 @@ Status CandidateCheckpointCodec::Decode(
         || !reader.Take(animation_canonical_checksum)
         || !reader.Take(wind_local_size)
         || !reader.Take(wind_local_checksum)
+        || !reader.Take(battle_audio_selector_local_size_observed)
+        || battle_audio_selector_local_size_observed
+            != battle_audio_selector_local_size
+        || !reader.Take(battle_audio_selector_local_checksum)
         || !reader.Take(output.ucrt.algorithm_version)
         || !reader.Take(output.ucrt.allowlist_version)
         || !reader.Take(output.ucrt.state)
@@ -657,6 +717,8 @@ Status CandidateCheckpointCodec::Decode(
     const auto secondary_canonical = reader.TakeView(secondary_canonical_size);
     const auto animation_canonical = reader.TakeView(animation_canonical_size);
     const auto wind_local = reader.TakeView(wind_local_size);
+    const auto battle_audio_selector_local = reader.TakeView(
+        battle_audio_selector_local_size_observed);
     if (native_canonical.size() != native_canonical_size
         || move_dispatch_canonical.size() != move_dispatch_canonical_size
         || local_checksum(move_dispatch_canonical)
@@ -669,6 +731,10 @@ Status CandidateCheckpointCodec::Decode(
             != animation_canonical_checksum
         || wind_local.size() != wind_local_size
         || local_checksum(wind_local) != wind_local_checksum
+        || battle_audio_selector_local.size()
+            != battle_audio_selector_local_size_observed
+        || local_checksum(battle_audio_selector_local)
+            != battle_audio_selector_local_checksum
         || !reader.Finished())
     {
         reset_checkpoint_image(output);
@@ -695,6 +761,9 @@ Status CandidateCheckpointCodec::Decode(
     const Status animation_decoded = CharaAnimationState::DecodeCanonicalBytes(
         animation_canonical, output.chara_animation);
     const Status wind_decoded = decode_wind_local(wind_local, output.wind);
+    const Status battle_audio_selector_decoded =
+        decode_battle_audio_selector_local(
+            battle_audio_selector_local, output.battle_audio_selector);
     std::vector<std::byte> wind_canonical;
     if (wind_decoded.ok())
     {
@@ -710,7 +779,7 @@ Status CandidateCheckpointCodec::Decode(
     }
     if (!decoded.ok() || !move_dispatch_decoded.ok()
         || !secondary_decoded.ok() || !animation_decoded.ok()
-        || !wind_decoded.ok()
+        || !wind_decoded.ok() || !battle_audio_selector_decoded.ok()
         || !generations_match(snapshot.coordinate, output)
         || !valid_local_images(output, true)
         || !hash_candidate(snapshot.coordinate, snapshot.context_identity,

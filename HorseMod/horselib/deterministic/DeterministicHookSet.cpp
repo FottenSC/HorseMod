@@ -30,6 +30,10 @@ std::atomic<std::uint64_t>
     DeterministicHookSet::stage_break_dispatch_trampoline_global_{};
 std::atomic<std::uint64_t>
     DeterministicHookSet::battle_audio_dispatch_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_remap_trampoline_global_{};
+std::atomic<std::uintptr_t>
+    DeterministicHookSet::observed_battle_audio_handler_{};
 thread_local DeterministicHookSet::OuterTickCaptureContext*
     DeterministicHookSet::active_outer_capture_{};
 
@@ -338,7 +342,11 @@ Status DeterministicHookSet::Install(
         || !SafeEqual(reinterpret_cast<const void*>(image_base
                 + Schema::Sc6FrameLayout::battle_audio_dispatch_rva),
             Schema::Sc6FrameLayout::battle_audio_dispatch_signature.data(),
-            Schema::Sc6FrameLayout::battle_audio_dispatch_signature.size()))
+            Schema::Sc6FrameLayout::battle_audio_dispatch_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_remap_rva),
+            Schema::Sc6FrameLayout::battle_audio_remap_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_remap_signature.size()))
     {
         return Status::failure(FailureCode::AdapterUnqualified);
     }
@@ -354,6 +362,7 @@ Status DeterministicHookSet::Install(
     stage_break_barrier_trampoline_ = 0;
     stage_break_dispatch_trampoline_ = 0;
     battle_audio_dispatch_trampoline_ = 0;
+    battle_audio_remap_trampoline_ = 0;
     frame_fencepost_detour_ = std::make_unique<PLH::x64Detour>(
         static_cast<std::uint64_t>(frame_target),
         reinterpret_cast<std::uint64_t>(&FrameFencepostDetour),
@@ -506,8 +515,32 @@ Status DeterministicHookSet::Install(
     }
     battle_audio_dispatch_trampoline_global_.store(
         battle_audio_dispatch_trampoline_, std::memory_order_release);
+    battle_audio_remap_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::battle_audio_remap_rva),
+        reinterpret_cast<std::uint64_t>(&BattleAudioRemapDetour),
+        &battle_audio_remap_trampoline_);
+    if (!battle_audio_remap_detour_->hook())
+    {
+        battle_audio_dispatch_detour_->unHook();
+        stage_break_dispatch_detour_->unHook();
+        stage_break_barrier_detour_->unHook();
+        stage_break_wall_detour_->unHook();
+        callback_executor_detour_->unHook();
+        outer_tick_detour_->unHook();
+        replay_post_tick_detour_->unHook();
+        frame_fencepost_detour_->unHook();
+        active_.store(nullptr, std::memory_order_release);
+        while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
+            std::this_thread::yield();
+        ClearState();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    battle_audio_remap_trampoline_global_.store(
+        battle_audio_remap_trampoline_, std::memory_order_release);
     if (ucrt_broker_ != nullptr && !InstallUcrtIatHooks())
     {
+        battle_audio_remap_detour_->unHook();
         battle_audio_dispatch_detour_->unHook();
         stage_break_dispatch_detour_->unHook();
         stage_break_barrier_detour_->unHook();
@@ -534,6 +567,7 @@ void DeterministicHookSet::Uninstall() noexcept
     }
     // Hooks are removed in the reverse of their installation order.
     UninstallUcrtIatHooks();
+    if (battle_audio_remap_detour_) battle_audio_remap_detour_->unHook();
     if (battle_audio_dispatch_detour_)
         battle_audio_dispatch_detour_->unHook();
     if (stage_break_dispatch_detour_) stage_break_dispatch_detour_->unHook();
@@ -561,6 +595,11 @@ void DeterministicHookSet::Uninstall() noexcept
         std::this_thread::yield();
     }
     ClearState();
+}
+
+std::uintptr_t DeterministicHookSet::ObservedBattleAudioHandler() noexcept
+{
+    return observed_battle_audio_handler_.load(std::memory_order_acquire);
 }
 
 void __fastcall DeterministicHookSet::OuterTickDetour(
@@ -1090,6 +1129,26 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
     return result;
 }
 
+std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
+    void* handler, std::int32_t contact_type) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->battle_audio_remap_trampoline_
+        : battle_audio_remap_trampoline_global_.load(
+            std::memory_order_acquire);
+    if (handler != nullptr)
+        observed_battle_audio_handler_.store(
+            reinterpret_cast<std::uintptr_t>(handler),
+            std::memory_order_release);
+    const auto original = reinterpret_cast<BattleAudioRemapFn>(trampoline);
+    const std::int32_t result = original != nullptr
+        ? original(handler, contact_type) : 0;
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return result;
+}
+
 int __cdecl DeterministicHookSet::UcrtRandDetour() noexcept
 {
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
@@ -1463,6 +1522,7 @@ void DeterministicHookSet::EmitReplayExit(void* replay_state) noexcept
 
 void DeterministicHookSet::ClearState() noexcept
 {
+    battle_audio_remap_detour_.reset();
     battle_audio_dispatch_detour_.reset();
     stage_break_dispatch_detour_.reset();
     stage_break_barrier_detour_.reset();
@@ -1479,6 +1539,7 @@ void DeterministicHookSet::ClearState() noexcept
     stage_break_barrier_trampoline_ = 0;
     stage_break_dispatch_trampoline_ = 0;
     battle_audio_dispatch_trampoline_ = 0;
+    battle_audio_remap_trampoline_ = 0;
     next_outer_batch_id_ = 0;
     replay_post_tick_trampoline_global_.store(0, std::memory_order_release);
     frame_fencepost_trampoline_global_.store(0, std::memory_order_release);
@@ -1489,6 +1550,9 @@ void DeterministicHookSet::ClearState() noexcept
     stage_break_dispatch_trampoline_global_.store(0, std::memory_order_release);
     battle_audio_dispatch_trampoline_global_.store(
         0, std::memory_order_release);
+    battle_audio_remap_trampoline_global_.store(
+        0, std::memory_order_release);
+    observed_battle_audio_handler_.store(0, std::memory_order_release);
     rand_iat_slot_ = 0;
     srand_iat_slot_ = 0;
     image_base_ = 0;

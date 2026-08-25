@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BattleAudioSelectorState.hpp"
 #include "HgCpuStream.hpp"
 #include "CharaAnimationState.hpp"
 #include "NativeCandidateRegions.hpp"
@@ -15,6 +16,7 @@ namespace Horse::Deterministic
 struct CandidateCheckpointImage
 {
     NativeCandidateImage native{};
+    BattleAudioSelectorImage battle_audio_selector{};
     MoveDispatchImage move_dispatch{};
     std::vector<LocalReconstructionImage> local_images;
     UcrtRandBrokerImage ucrt{};

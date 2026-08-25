@@ -1,4 +1,5 @@
 #include "deterministic/CandidateCheckpoint.hpp"
+#include "deterministic/BattleAudioSelectorState.hpp"
 #include "deterministic/CallbackTopology.hpp"
 #include "deterministic/CharaAnimationState.hpp"
 #include "deterministic/CandidateGameStateAdapter.hpp"
@@ -579,6 +580,11 @@ Status noop_reconcile(void*, FrameCoordinate) noexcept
     return Status::success();
 }
 
+std::uintptr_t resolve_test_battle_audio_handler(void* user) noexcept
+{
+    return user != nullptr ? *static_cast<std::uintptr_t*>(user) : 0;
+}
+
 void test_hgcpu_stream_contract()
 {
     for (std::size_t i = 0; i < hgcpu_payload.size(); ++i)
@@ -653,6 +659,8 @@ void test_candidate_checkpoint_codec()
 
     CandidateCheckpointImage image{};
     image.native = native;
+    image.battle_audio_selector = {
+        native.session_generation, native.round_generation, 1, true};
     image.move_dispatch.generation = native.round_generation;
     image.move_dispatch.phase = MoveDispatchActionModeState{};
     image.local_images.push_back(hgcpu);
@@ -708,6 +716,8 @@ void test_candidate_checkpoint_codec()
         "decode candidate checkpoint");
     expect(decoded.native == native,
         "candidate checkpoint round-trips typed native image");
+    expect(decoded.battle_audio_selector == image.battle_audio_selector,
+        "candidate checkpoint round-trips local battle-audio selector state");
     expect(decoded.move_dispatch == image.move_dispatch,
         "candidate checkpoint round-trips MoveDispatch semantic state");
     expect(decoded.local_images.size() == 2
@@ -727,6 +737,17 @@ void test_candidate_checkpoint_codec()
         "candidate checkpoint round-trips value-only UCRT state");
     expect(decoded.wind == image.wind,
         "candidate checkpoint round-trips pointer-free wind state");
+
+    auto presentation_audio = image;
+    presentation_audio.battle_audio_selector.alternation = 0;
+    Snapshot presentation_audio_snapshot{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, presentation_audio,
+            presentation_audio_snapshot).ok()
+            && presentation_audio_snapshot.canonical_hash
+                == snapshot.canonical_hash
+            && presentation_audio_snapshot.bytes != snapshot.bytes,
+        "battle-audio selector remains local-restorable but excluded from canonical peer truth");
 
     auto presentation_wind = image;
     presentation_wind.wind.nodes.front().derived_state.front() ^= std::byte{1};
@@ -1047,10 +1068,82 @@ public:
     void Free(std::uintptr_t) noexcept override {}
 };
 
+void test_battle_audio_selector_is_generation_bound_and_transactional()
+{
+    Fixture fixture;
+    constexpr auto handler = Fixture::memory_base + 0x155000;
+    std::uintptr_t observed_handler = handler;
+    fixture.memory.Set(handler,
+        Fixture::image_base + std::uintptr_t{0x326A6C8});
+    fixture.memory.Set(handler + 0x3E0, std::int32_t{});
+    BattleAudioSelectorState selector{fixture.memory};
+    const BattleAudioSelectorBinding binding{
+        Fixture::image_base, 0x5000000, hgcpu_context(),
+        &resolve_test_battle_audio_handler, &observed_handler};
+    expect(selector.Bind(binding).ok(),
+        "bind generation-scoped battle-audio selector state");
+    observed_handler = 0;
+    BattleAudioSelectorImage undiscovered{};
+    expect(selector.Capture(undiscovered).ok()
+            && !undiscovered.handler_observed
+            && undiscovered.alternation == 0,
+        "capture the deterministic initial selector before handler discovery");
+    observed_handler = handler;
+    fixture.memory.Set(handler + 0x3E0, std::int32_t{1});
+    expect(selector.RestoreTransactional(undiscovered).ok(),
+        "restore a pre-discovery checkpoint after the handler becomes known");
+    BattleAudioSelectorImage baseline{};
+    expect(selector.Capture(baseline).ok() && baseline.handler_observed
+            && baseline.alternation == 0,
+        "capture the observed two-state battle-audio selector");
+
+    fixture.memory.Set(handler + 0x3E0, std::int32_t{1});
+    expect(selector.RestoreTransactional(baseline).ok(),
+        "restore battle-audio selector before semantic replay");
+    std::int32_t restored{};
+    fixture.memory.Read(handler + 0x3E0,
+        std::as_writable_bytes(std::span{&restored, 1}));
+    expect(restored == 0, "battle-audio selector restore writes exact value");
+
+    auto wrong_generation = baseline;
+    ++wrong_generation.round_generation;
+    expect(selector.PreflightRestore(wrong_generation).code
+            == FailureCode::GenerationMismatch,
+        "battle-audio selector rejects generation drift before mutation");
+
+    fixture.memory.Set(handler + 0x3E0, std::int32_t{1});
+    fixture.memory.CorruptAfterWrite(
+        1, handler + 0x3E0, std::byte{0x02});
+    expect(selector.RestoreTransactional(baseline).code
+            == FailureCode::RestoreVerificationFailed,
+        "battle-audio selector reports post-write verification failure");
+    fixture.memory.AllowWrites();
+    fixture.memory.Read(handler + 0x3E0,
+        std::as_writable_bytes(std::span{&restored, 1}));
+    expect(restored == 1,
+        "battle-audio selector verification failure restores exact undo value");
+
+    observed_handler = handler + 0x800;
+    expect(selector.PreflightRestore(baseline).code
+            == FailureCode::IdentityMismatch,
+        "battle-audio selector rejects handler identity drift");
+    observed_handler = handler;
+    fixture.memory.Set(handler, Fixture::image_base + std::uintptr_t{0x1234});
+    selector.Reset();
+    expect(selector.Bind(binding).ok()
+            && selector.Capture(baseline).code
+                == FailureCode::CapturePreflightFailed,
+        "battle-audio selector rejects an invalid handler vtable");
+    selector.Reset();
+    expect(selector.Capture(baseline).code == FailureCode::AdapterUnqualified,
+        "battle-audio selector lifecycle reset clears the binding");
+}
+
 struct CandidateWindFixture
 {
     explicit CandidateWindFixture(Fixture& fixture)
         : probe(fixture.memory), transaction(fixture.memory, allocator),
+          audio_selector(fixture.memory),
           motion(fixture.memory), secondary(fixture.memory),
           animation(fixture.memory), move_dispatch(fixture.memory)
     {
@@ -1070,17 +1163,28 @@ struct CandidateWindFixture
             "bind candidate character-animation fixture");
         expect(move_dispatch.Bind(fixture.addresses.move_dispatch, 7).ok(),
             "bind candidate MoveDispatch fixture");
+        handler = Fixture::memory_base + 0x155000;
+        fixture.memory.Set(handler,
+            Fixture::image_base + std::uintptr_t{0x326A6C8});
+        fixture.memory.Set(handler + 0x3E0, std::int32_t{});
+        const BattleAudioSelectorBinding selector_binding{
+            Fixture::image_base, 0x5000000, hgcpu_context(),
+            &resolve_test_battle_audio_handler, &handler};
+        expect(audio_selector.Bind(selector_binding).ok(),
+            "bind candidate battle-audio selector fixture");
     }
 
     EmptyStageWindAllocator allocator;
     StageWindTopologyProbe probe;
     StageWindGraphTransaction transaction;
+    BattleAudioSelectorState audio_selector;
     MotionBankSnapshot motion;
     SecondaryEventState secondary;
     CharaAnimationState animation;
     MoveDispatchState move_dispatch;
     StageWindTopologyAddresses addresses{};
     std::uintptr_t root{};
+    std::uintptr_t handler{};
 };
 
 CandidateAdapterBinding candidate_binding(
@@ -1089,6 +1193,7 @@ CandidateAdapterBinding candidate_binding(
     prepare_candidate_ucrt_broker();
     CandidateAdapterBinding binding{};
     binding.context = NativeContext{7, 11, {101, 102}, 201};
+    binding.battle_audio_selector = &wind.audio_selector;
     binding.hgcpu_context = hgcpu_context();
     binding.hgcpu_writer = &fake_hgcpu_writer;
     binding.hgcpu_reader = reader;
@@ -2140,6 +2245,7 @@ int main()
     test_motion_bank_snapshot_is_bounded_and_transactional();
     test_secondary_event_state_is_pointer_free_and_transactional();
     test_chara_animation_state_normalizes_sections_and_undoes_exactly();
+    test_battle_audio_selector_is_generation_bound_and_transactional();
     test_candidate_adapter_restore_and_outer_undo();
     test_candidate_adapter_native_failure_undoes_hgcpu();
     test_hgcpu_direct_source_coverage();

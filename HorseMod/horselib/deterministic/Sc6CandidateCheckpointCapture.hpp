@@ -161,6 +161,7 @@ private:
 
     std::unique_ptr<ProcessMemory> memory_;
     std::unique_ptr<NativeCandidateRegions> regions_;
+    std::unique_ptr<BattleAudioSelectorState> battle_audio_selector_;
     std::unique_ptr<MotionBankSnapshot> motion_banks_;
     std::unique_ptr<MoveDispatchState> move_dispatch_;
     std::unique_ptr<SecondaryEventState> secondary_events_;

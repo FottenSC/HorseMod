@@ -8,7 +8,7 @@
 namespace Horse::Deterministic::Schema
 {
 inline constexpr std::uint32_t protocol_version = 1;
-inline constexpr std::uint32_t snapshot_schema_version = 38;
+inline constexpr std::uint32_t snapshot_schema_version = 39;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::uint64_t checkpoint_interval = 30;
 inline constexpr std::uint32_t maximum_supported_native_batch_width = 12;
@@ -62,6 +62,7 @@ inline constexpr std::uintptr_t stage_break_wall_handler_rva = 0x53d4b0;
 inline constexpr std::uintptr_t stage_break_barrier_handler_rva = 0x549f40;
 inline constexpr std::uintptr_t stage_break_dispatch_rva = 0x53d130;
 inline constexpr std::uintptr_t battle_audio_dispatch_rva = 0x519480;
+inline constexpr std::uintptr_t battle_audio_remap_rva = 0x3ba080;
 inline constexpr std::uint16_t required_observation_read_mask = 0x3fff;
 inline constexpr std::uint16_t required_outer_tick_read_mask = 0x00ff;
 inline constexpr std::uintptr_t frame_counter_rva = 0x470d0c4;
@@ -129,6 +130,16 @@ inline constexpr std::array<std::byte, 24> battle_audio_dispatch_signature{
     std::byte{0x60}, std::byte{0x41}, std::byte{0x0f}, std::byte{0xb6},
     std::byte{0xe8}, std::byte{0x4c}, std::byte{0x8b}, std::byte{0xfa},
     std::byte{0x48}, std::byte{0x8b}, std::byte{0xd9}, std::byte{0x45},
+};
+inline constexpr std::array<std::byte, 32> battle_audio_remap_signature{
+    std::byte{0x8d}, std::byte{0x42}, std::byte{0xfa}, std::byte{0x44},
+    std::byte{0x8b}, std::byte{0xca}, std::byte{0x83}, std::byte{0xf8},
+    std::byte{0x0e}, std::byte{0x77}, std::byte{0x65}, std::byte{0x48},
+    std::byte{0x8d}, std::byte{0x15}, std::byte{0x6e}, std::byte{0x5f},
+    std::byte{0xc4}, std::byte{0xff}, std::byte{0x44}, std::byte{0x8b},
+    std::byte{0x84}, std::byte{0x82}, std::byte{0xf4}, std::byte{0xa0},
+    std::byte{0x3b}, std::byte{0x00}, std::byte{0x4c}, std::byte{0x03},
+    std::byte{0xc2}, std::byte{0x41}, std::byte{0xff}, std::byte{0xe0},
 };
 }
 
