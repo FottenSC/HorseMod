@@ -3239,6 +3239,7 @@ private:
         std::uint64_t semantic_stage_dispatch_calls{};
         std::uint64_t suppressed_audio_calls{};
         std::uint64_t suppressed_audio_stop_all_calls{};
+        std::uint64_t suppressed_audio_blueprint_calls{};
         std::uint64_t suppressed_particle_spawn_calls{};
         std::uint64_t suppressed_particle_finished_binds{};
         std::uint64_t unknown_particle_routes{};
@@ -3907,6 +3908,7 @@ private:
                 "audio_source={}/{} 0x{:016x}->0x{:016x} "
                 "audio_direct={}/{} 0x{:016x}->0x{:016x} "
                 "audio_stop_all={}/{} 0x{:016x}->0x{:016x} "
+                "audio_blueprint={}/{} 0x{:016x}->0x{:016x} "
                 "particle_spawn={}/{} 0x{:016x}->0x{:016x} "
                 "particle_unknown={} journal_failure_mask=0x{:x} "
                 "presentation_failure_mask=0x{:x} "
@@ -4005,6 +4007,10 @@ private:
                 result.failed_batch_result.suppressed_audio_stop_all_calls,
                 result.failed_envelope.battle_audio_stop_all_hash,
                 result.failed_batch_result.suppressed_audio_stop_all_hash,
+                result.failed_envelope.battle_audio_blueprint_calls,
+                result.failed_batch_result.suppressed_audio_blueprint_calls,
+                result.failed_envelope.battle_audio_blueprint_hash,
+                result.failed_batch_result.suppressed_audio_blueprint_hash,
                 result.failed_envelope.particle_spawn_calls,
                 result.failed_batch_result.suppressed_particle_spawn_calls,
                 result.failed_envelope.particle_spawn_hash,
@@ -4061,6 +4067,8 @@ private:
         qualification.suppressed_audio_calls += result.suppressed_audio_calls;
         qualification.suppressed_audio_stop_all_calls +=
             result.suppressed_audio_stop_all_calls;
+        qualification.suppressed_audio_blueprint_calls +=
+            result.suppressed_audio_blueprint_calls;
         qualification.suppressed_particle_spawn_calls +=
             result.suppressed_particle_spawn_calls;
         qualification.suppressed_particle_finished_binds +=
@@ -4104,6 +4112,7 @@ private:
             "stage_semantic_dispatches={} stage_coverage={} "
             "audio_suppressed={} "
             "audio_stop_all_suppressed={} "
+            "audio_blueprint_suppressed={} "
             "particle_spawn_suppressed={} particle_bind_suppressed={} "
             "particle_unknown_routes={} "
             "audio_batches_verified={} audio_sequence_mismatches={} "
@@ -4133,6 +4142,7 @@ private:
                 ? STR("observed") : STR("missing"),
             qualification.suppressed_audio_calls,
             qualification.suppressed_audio_stop_all_calls,
+            qualification.suppressed_audio_blueprint_calls,
             qualification.suppressed_particle_spawn_calls,
             qualification.suppressed_particle_finished_binds,
             qualification.unknown_particle_routes,

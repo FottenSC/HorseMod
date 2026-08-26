@@ -121,6 +121,9 @@ struct OuterTickObservation
     std::array<BattleAudioBlueprintJournalEntry,
         maximum_battle_audio_blueprint_journal_events>
         battle_audio_blueprint_journal{};
+    std::array<BattleAudioStopAllJournalEntry,
+        maximum_battle_audio_stop_all_journal_events>
+        battle_audio_stop_all_journal{};
     std::array<StagePresentationJournalEntry,
         maximum_stage_presentation_journal_events> stage_wall_journal{};
     std::array<StagePresentationJournalEntry,
@@ -133,6 +136,7 @@ struct OuterTickObservation
     std::uint8_t battle_audio_source_journal_count{};
     std::uint8_t battle_audio_remap_journal_count{};
     std::uint8_t battle_audio_blueprint_journal_count{};
+    std::uint8_t battle_audio_stop_all_journal_count{};
     std::uint8_t stage_wall_journal_count{};
     std::uint8_t stage_barrier_journal_count{};
     std::uint8_t stage_dispatch_journal_count{};
@@ -413,6 +417,8 @@ private:
     static std::atomic<std::uint64_t> particle_finished_bind_trampoline_global_;
     static std::array<std::atomic<std::uintptr_t>,
         maximum_battle_audio_handlers> observed_battle_audio_handlers_;
+    static std::array<std::atomic<std::uintptr_t>,
+        maximum_battle_audio_owner_slots> observed_battle_audio_owners_;
     static std::atomic<bool> battle_audio_handler_overflow_;
     static thread_local OuterTickCaptureContext* active_outer_capture_;
 

@@ -483,6 +483,10 @@ void test_native_batch_timeline_is_exact_and_bounded()
     first.battle_audio_blueprint_journal[0].semantic[0] = std::byte{0x4d};
     first.battle_audio_blueprint_journal[0].handler_slot = 1;
     first.battle_audio_blueprint_journal[0].direct = 1;
+    first.battle_audio_stop_all_calls = 1;
+    first.battle_audio_stop_all_journal_count = 1;
+    first.battle_audio_stop_all_journal[0].owner_slot = 2;
+    first.battle_audio_stop_all_journal[0].immediate = 1;
     first.particle_spawn_calls = 1;
     first.particle_spawn_journal_count = 1;
     first.particle_spawn_journal[0].semantic[0] = std::byte{3};
@@ -519,6 +523,12 @@ void test_native_batch_timeline_is_exact_and_bounded()
             && timeline.GetBatch(0)->battle_audio_blueprint_journal[0].direct
                 == 1,
         "batch storage preserves exact reflected battle-audio publications");
+    expect(timeline.GetBatch(0)->battle_audio_stop_all_journal_count == 1
+            && timeline.GetBatch(0)->battle_audio_stop_all_journal[0].owner_slot
+                == 2
+            && timeline.GetBatch(0)->battle_audio_stop_all_journal[0].immediate
+                == 1,
+        "batch storage preserves pointer-free stop-all owner identity");
 
     NativeBatchTimeline malformed_timeline{1, 1};
     NativeBatchEnvelope malformed{};

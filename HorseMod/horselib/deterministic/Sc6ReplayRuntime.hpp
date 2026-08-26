@@ -176,6 +176,7 @@ struct OwnedCorrectionResult
     std::uint64_t semantic_stage_dispatch_calls{};
     std::uint64_t suppressed_audio_calls{};
     std::uint64_t suppressed_audio_stop_all_calls{};
+    std::uint64_t suppressed_audio_blueprint_calls{};
     std::uint64_t suppressed_particle_spawn_calls{};
     std::uint64_t suppressed_particle_finished_binds{};
     std::uint64_t unknown_particle_routes{};

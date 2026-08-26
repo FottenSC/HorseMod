@@ -160,6 +160,10 @@ bool NativeBatchTimeline::Validate(
             != envelope.battle_audio_blueprint_calls
         || envelope.battle_audio_blueprint_journal_count
             > envelope.battle_audio_blueprint_journal.size()
+        || envelope.battle_audio_stop_all_journal_count
+            != envelope.battle_audio_stop_all_calls
+        || envelope.battle_audio_stop_all_journal_count
+            > envelope.battle_audio_stop_all_journal.size()
         || envelope.stage_wall_journal_count != envelope.stage_wall_calls
         || envelope.stage_wall_journal_count
             > envelope.stage_wall_journal.size()

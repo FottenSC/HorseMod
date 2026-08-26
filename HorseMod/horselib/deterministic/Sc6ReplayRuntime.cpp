@@ -1003,6 +1003,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_remap_journal;
     envelope.battle_audio_blueprint_journal =
         observation.battle_audio_blueprint_journal;
+    envelope.battle_audio_stop_all_journal =
+        observation.battle_audio_stop_all_journal;
     envelope.stage_wall_journal = observation.stage_wall_journal;
     envelope.stage_barrier_journal = observation.stage_barrier_journal;
     envelope.stage_dispatch_journal = observation.stage_dispatch_journal;
@@ -1015,6 +1017,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_remap_journal_count;
     envelope.battle_audio_blueprint_journal_count =
         observation.battle_audio_blueprint_journal_count;
+    envelope.battle_audio_stop_all_journal_count =
+        observation.battle_audio_stop_all_journal_count;
     envelope.stage_wall_journal_count = observation.stage_wall_journal_count;
     envelope.stage_barrier_journal_count =
         observation.stage_barrier_journal_count;
@@ -1416,6 +1420,8 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                 result.suppressed_audio_calls;
             presentation_diagnostics->suppressed_audio_stop_all_calls +=
                 result.suppressed_audio_stop_all_calls;
+            presentation_diagnostics->suppressed_audio_blueprint_calls +=
+                result.suppressed_audio_blueprint_calls;
             presentation_diagnostics->suppressed_particle_spawn_calls +=
                 result.suppressed_particle_spawn_calls;
             presentation_diagnostics->suppressed_particle_finished_binds +=
