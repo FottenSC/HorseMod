@@ -3184,6 +3184,43 @@ private:
         m_hgcpu_runtime_diagnostics;
     std::unique_ptr<Horse::Deterministic::StageBreakListenerRuntimeDiagnostics>
         m_stage_break_listener_diagnostics;
+    class StageBreakProcessMemory final
+        : public Horse::Deterministic::INativeMemory
+    {
+    public:
+        bool Read(std::uintptr_t address,
+            std::span<std::byte> destination) noexcept override
+        {
+            if (address == 0 || destination.empty()) return false;
+            __try
+            {
+                std::memcpy(destination.data(),
+                    reinterpret_cast<const void*>(address), destination.size());
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+        }
+
+        bool Write(std::uintptr_t,
+            std::span<const std::byte>) noexcept override
+        {
+            return false;
+        }
+    };
+    StageBreakProcessMemory m_stage_break_process_memory{};
+    Horse::Deterministic::StageBreakListenerTopologyProbe
+        m_stage_break_topology_probe{m_stage_break_process_memory};
+    Horse::Deterministic::StageBreakListenerTopology m_stage_break_topology{};
+    std::array<Horse::Deterministic::StageBreakActorRef,
+        Horse::Deterministic::StageBreakPresentationIdentityMap::maximum_actors>
+        m_stage_break_identity_actors{};
+    std::array<Horse::Deterministic::StageBreakParticleAssetRef,
+        Horse::Deterministic::StageBreakPresentationIdentityMap::maximum_assets>
+        m_stage_break_identity_assets{};
+    std::size_t m_stage_break_identity_actor_count{};
+    std::size_t m_stage_break_identity_asset_count{};
+    std::uint64_t m_stage_break_identity_generation{};
+    bool m_stage_break_identity_failure_logged{};
     bool m_hgcpu_diagnostic_failure_logged = false;
     bool m_stage_break_listener_failure_logged = false;
     bool m_deterministic_config_present = false;
@@ -4207,6 +4244,139 @@ private:
         }
     }
 
+    static bool loaded_image_size(
+        std::uintptr_t image_base, std::size_t& image_size) noexcept
+    {
+        image_size = 0;
+        if (image_base == 0) return false;
+        __try
+        {
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image_base);
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
+                image_base + static_cast<std::uintptr_t>(dos->e_lfanew));
+            if (dos->e_magic != IMAGE_DOS_SIGNATURE
+                || nt->Signature != IMAGE_NT_SIGNATURE
+                || nt->OptionalHeader.SizeOfImage == 0)
+                return false;
+            image_size = nt->OptionalHeader.SizeOfImage;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
+    void invalidate_stage_break_presentation_identity() noexcept
+    {
+        m_deterministic_hooks.InvalidateStageBreakPresentationIdentity();
+        m_stage_break_topology = {};
+        m_stage_break_identity_actors.fill({});
+        m_stage_break_identity_assets.fill({});
+        m_stage_break_identity_actor_count = 0;
+        m_stage_break_identity_asset_count = 0;
+        m_stage_break_identity_generation = 0;
+    }
+
+    void refresh_stage_break_presentation_identity(
+        std::uint64_t generation) noexcept
+    {
+        if (!m_deterministic_hooks.installed() || generation == 0) return;
+        Horse::Obj battle_manager = m_lux.battleManager();
+        Horse::Obj stage_manager = battle_manager
+            ? battle_manager.getObj(L"BattleStageActorManager") : Horse::Obj{};
+        if (!stage_manager) return;
+
+        std::array<Horse::Deterministic::StageBreakActorRef,
+            Horse::Deterministic::StageBreakPresentationIdentityMap::maximum_actors>
+            actors{};
+        std::size_t actor_count{};
+        const bool valid_lists = append_stage_break_actor_list(
+            stage_manager.getPtr<Horse::TArrHdr>(L"BreakableWallActorList"),
+            Horse::Deterministic::StageBreakActorKind::Wall, actors, actor_count)
+            && append_stage_break_actor_list(
+                stage_manager.getPtr<Horse::TArrHdr>(L"BarrierActorList"),
+                Horse::Deterministic::StageBreakActorKind::Barrier,
+                actors, actor_count);
+        if (!valid_lists || actor_count == 0) return;
+
+        const auto actors_match = [&]() noexcept {
+            if (generation != m_stage_break_identity_generation
+                || actor_count != m_stage_break_identity_actor_count)
+                return false;
+            for (std::size_t index = 0; index < actor_count; ++index)
+                if (actors[index].kind != m_stage_break_identity_actors[index].kind
+                    || actors[index].address
+                        != m_stage_break_identity_actors[index].address)
+                    return false;
+            return true;
+        };
+        if (!actors_match() && m_stage_break_identity_generation != 0)
+            invalidate_stage_break_presentation_identity();
+
+        std::array<Horse::Deterministic::StageBreakParticleAssetRef,
+            Horse::Deterministic::StageBreakPresentationIdentityMap::maximum_assets>
+            assets{};
+        std::size_t asset_count{};
+        auto status = Horse::Deterministic::CaptureStageBreakParticleAssets(
+            m_stage_break_process_memory,
+            std::span{actors.data(), actor_count}, assets, asset_count);
+        if (!status.ok())
+        {
+            invalidate_stage_break_presentation_identity();
+            return;
+        }
+        const auto assets_match = [&]() noexcept {
+            if (!actors_match() || asset_count != m_stage_break_identity_asset_count)
+                return false;
+            for (std::size_t index = 0; index < asset_count; ++index)
+            {
+                const auto& left = assets[index];
+                const auto& right = m_stage_break_identity_assets[index];
+                if (left.actor_address != right.actor_address
+                    || left.route != right.route
+                    || left.asset_ordinal != right.asset_ordinal
+                    || left.asset_address != right.asset_address)
+                    return false;
+            }
+            return true;
+        };
+        if (assets_match()) return;
+        if (m_stage_break_identity_generation != 0)
+            invalidate_stage_break_presentation_identity();
+
+        std::size_t image_size{};
+        const auto image_base = Horse::NativeBinding::imageBase();
+        if (!loaded_image_size(image_base, image_size)) return;
+        Horse::Deterministic::StageBreakListenerTopology topology{};
+        status = m_stage_break_topology_probe.Capture(image_base, image_size,
+            std::span{actors.data(), actor_count}, topology);
+        if (status.ok())
+        {
+            status = m_deterministic_hooks.BindStageBreakPresentationIdentity(
+                generation, std::span{actors.data(), actor_count}, topology,
+                std::span{assets.data(), asset_count});
+        }
+        if (!status.ok())
+        {
+            if (status.code
+                    != Horse::Deterministic::FailureCode::ContextUnavailable
+                && !m_stage_break_identity_failure_logged)
+            {
+                m_stage_break_identity_failure_logged = true;
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] stage-break presentation identity failed: {}\n"),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::failure_code_name(status.code))));
+            }
+            return;
+        }
+        m_stage_break_topology = topology;
+        m_stage_break_identity_actors = actors;
+        m_stage_break_identity_assets = assets;
+        m_stage_break_identity_actor_count = actor_count;
+        m_stage_break_identity_asset_count = asset_count;
+        m_stage_break_identity_generation = generation;
+        m_stage_break_identity_failure_logged = false;
+    }
+
     void observe_stage_break_listener_diagnostic(std::uint32_t frame) noexcept
     {
         if (!m_stage_break_listener_diagnostics
@@ -4375,6 +4545,8 @@ private:
         const auto timeline = self->m_replay_native_runtime.timeline_status();
         if (!timeline.resume_validation_active)
         {
+            self->refresh_stage_break_presentation_identity(
+                timeline.last_coordinate.generation);
             self->observe_hgcpu_diagnostic(observation.frame_counter);
             self->observe_stage_break_listener_diagnostic(
                 observation.frame_counter);
@@ -4740,6 +4912,7 @@ private:
         }
         self->m_frame_fencepost_manager.store(0, std::memory_order_release);
         self->m_frame_fencepost_last_frame.store(0, std::memory_order_release);
+        self->invalidate_stage_break_presentation_identity();
         self->m_replay_native_runtime.ObserveReplayExit();
         self->m_owned_correction_probe_index = 0;
         self->m_forced_correction_qualification = {};

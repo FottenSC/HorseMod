@@ -117,8 +117,8 @@ struct StagePresentationJournalEntry
 
 struct ParticleSpawnJournalEntry
 {
-    // route, owner actor ID, asset internal index, transform and activation.
-    std::array<std::byte, 46> semantic{};
+    // route, pointer-free owner and asset IDs, transform and activation.
+    std::array<std::byte, 54> semantic{};
 };
 
 struct NativeBatchEnvelope

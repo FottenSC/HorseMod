@@ -177,7 +177,7 @@ Status capture_actor(
             bound_callback_rva = static_cast<std::uint32_t>(
                 bound_callback - image_base);
         }
-        output.listeners.push_back({
+        if (!output.listeners.push_back({
             actor.kind,
             actor_id,
             actor_order,
@@ -186,7 +186,11 @@ Status capture_actor(
             static_cast<std::uint32_t>(vtable - image_base),
             static_cast<std::uint32_t>(callback - image_base),
             bound_callback_rva,
-        });
+        }))
+        {
+            failure.fault = StageBreakListenerProbeFault::CollectionBounds;
+            return Status::failure(FailureCode::CapacityExceeded);
+        }
     }
     return Status::success();
 }
@@ -263,8 +267,12 @@ Status StageBreakListenerTopologyProbe::Capture(
                     break;
                 }
             }
-            output.actors.push_back({actors[index].kind, actor_id,
-                static_cast<std::uint16_t>(index), repeated_reference_of});
+            if (!output.actors.push_back({actors[index].kind, actor_id,
+                    static_cast<std::uint16_t>(index), repeated_reference_of}))
+            {
+                output = {};
+                return Status::failure(FailureCode::CapacityExceeded);
+            }
         }
         const auto actor_count = static_cast<std::uint32_t>(output.actors.size());
         std::uint64_t signature = 1469598103934665603ull;

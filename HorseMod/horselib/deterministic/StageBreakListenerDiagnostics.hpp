@@ -2,15 +2,90 @@
 
 #include "NativeCandidateRegions.hpp"
 
+#include <array>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <memory>
 #include <span>
 #include <string_view>
-#include <vector>
 
 namespace Horse::Deterministic
 {
+template <typename T, std::size_t Capacity>
+class StageBreakFixedSequence final
+{
+public:
+    constexpr StageBreakFixedSequence() noexcept = default;
+    constexpr StageBreakFixedSequence(std::initializer_list<T> values) noexcept
+    {
+        *this = values;
+    }
+
+    constexpr StageBreakFixedSequence& operator=(
+        std::initializer_list<T> values) noexcept
+    {
+        clear();
+        for (const auto& value : values)
+        {
+            if (!push_back(value)) break;
+        }
+        return *this;
+    }
+
+    [[nodiscard]] constexpr bool push_back(const T& value) noexcept
+    {
+        if (size_ >= Capacity) return false;
+        values_[size_++] = value;
+        return true;
+    }
+    constexpr void clear() noexcept
+    {
+        values_.fill({});
+        size_ = 0;
+    }
+    constexpr void reserve(std::size_t) noexcept {}
+    [[nodiscard]] constexpr std::size_t size() const noexcept { return size_; }
+    [[nodiscard]] constexpr bool empty() const noexcept { return size_ == 0; }
+    [[nodiscard]] constexpr std::size_t capacity() const noexcept
+    {
+        return Capacity;
+    }
+    [[nodiscard]] constexpr T& operator[](std::size_t index) noexcept
+    {
+        return values_[index];
+    }
+    [[nodiscard]] constexpr const T& operator[](
+        std::size_t index) const noexcept
+    {
+        return values_[index];
+    }
+    [[nodiscard]] constexpr T* begin() noexcept { return values_.data(); }
+    [[nodiscard]] constexpr const T* begin() const noexcept
+    {
+        return values_.data();
+    }
+    [[nodiscard]] constexpr T* end() noexcept { return values_.data() + size_; }
+    [[nodiscard]] constexpr const T* end() const noexcept
+    {
+        return values_.data() + size_;
+    }
+
+    friend constexpr bool operator==(
+        const StageBreakFixedSequence& left,
+        const StageBreakFixedSequence& right) noexcept
+    {
+        if (left.size_ != right.size_) return false;
+        for (std::size_t index = 0; index < left.size_; ++index)
+            if (!(left.values_[index] == right.values_[index])) return false;
+        return true;
+    }
+
+private:
+    std::array<T, Capacity> values_{};
+    std::size_t size_{};
+};
+
 enum class StageBreakActorKind : std::uint8_t
 {
     Wall = 1,
@@ -56,9 +131,14 @@ struct StageBreakActorIdentity
 
 struct StageBreakListenerTopology
 {
+    static constexpr std::size_t maximum_actors = 64;
+    static constexpr std::size_t maximum_listeners_per_actor = 32;
+    static constexpr std::size_t maximum_listeners =
+        maximum_actors * maximum_listeners_per_actor;
+
     std::uint64_t signature{};
-    std::vector<StageBreakActorIdentity> actors;
-    std::vector<StageBreakListenerRecord> listeners;
+    StageBreakFixedSequence<StageBreakActorIdentity, maximum_actors> actors;
+    StageBreakFixedSequence<StageBreakListenerRecord, maximum_listeners> listeners;
 
     friend bool operator==(
         const StageBreakListenerTopology&,

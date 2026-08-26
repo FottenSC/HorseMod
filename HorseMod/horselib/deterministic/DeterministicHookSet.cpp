@@ -301,6 +301,7 @@ std::uint8_t ClassifyParticleRoute(
 bool CaptureParticleSpawnSemantic(std::uint8_t route, void* owner,
     void* particle_system, const void* location, const void* rotation,
     const void* scale, bool auto_activate,
+    const StageBreakPresentationIdentityMap* stage_identities,
     ParticleSpawnJournalEntry& output) noexcept
 {
     if (route == 0 || owner == nullptr || particle_system == nullptr
@@ -309,27 +310,48 @@ bool CaptureParticleSpawnSemantic(std::uint8_t route, void* owner,
     output = {};
     auto& semantic = output.semantic;
     semantic[0] = std::byte(route);
-    std::int32_t owner_id{};
-    std::uint32_t asset_internal_index{};
-    const auto owner_offset = route == 1 ? 0x450u
-        : (route == 2 || route == 3 ? 0x420u : 0u);
-    if ((owner_offset != 0
-            && !SafeRead(reinterpret_cast<std::uintptr_t>(owner) + owner_offset,
-                owner_id))
-        || !SafeRead(reinterpret_cast<std::uintptr_t>(particle_system) + 0x0c,
-            asset_internal_index))
-        return false;
+    std::uint64_t owner_id{};
+    std::uint64_t asset_id{};
+    if (route >= 1 && route <= 3)
+    {
+        if (stage_identities == nullptr || !stage_identities->bound()) return false;
+        const auto typed_route = route == 1 ? ParticleRoute::WallBreak
+            : (route == 2 ? ParticleRoute::BarrierHit
+                          : ParticleRoute::BarrierBreak);
+        StageBreakPresentationIdentity identity{};
+        if (!stage_identities->Resolve(stage_identities->generation(),
+                reinterpret_cast<std::uintptr_t>(owner), typed_route,
+                reinterpret_cast<std::uintptr_t>(particle_system), identity).ok())
+            return false;
+        owner_id = identity.owner_logical_id;
+        asset_id = identity.asset_logical_id;
+    }
+    else
+    {
+        // The Blueprint route is outside the stage actor map, but UObject
+        // internal indices are pointer-free and generation-local.
+        std::uint32_t owner_index{};
+        std::uint32_t asset_index{};
+        if (route != 4
+            || !SafeRead(reinterpret_cast<std::uintptr_t>(owner) + 0x0c,
+                owner_index)
+            || !SafeRead(reinterpret_cast<std::uintptr_t>(particle_system) + 0x0c,
+                asset_index)
+            || owner_index == 0 || asset_index == 0)
+            return false;
+        owner_id = owner_index;
+        asset_id = asset_index;
+    }
     std::memcpy(semantic.data() + 1, &owner_id, sizeof(owner_id));
-    std::memcpy(semantic.data() + 5, &asset_internal_index,
-        sizeof(asset_internal_index));
+    std::memcpy(semantic.data() + 9, &asset_id, sizeof(asset_id));
     __try
     {
-        std::memcpy(semantic.data() + 9, location, 12);
-        std::memcpy(semantic.data() + 21, rotation, 12);
-        std::memcpy(semantic.data() + 33, scale, 12);
+        std::memcpy(semantic.data() + 17, location, 12);
+        std::memcpy(semantic.data() + 29, rotation, 12);
+        std::memcpy(semantic.data() + 41, scale, 12);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-    semantic[45] = std::byte(auto_activate ? 1 : 0);
+    semantic[53] = std::byte(auto_activate ? 1 : 0);
     return true;
 }
 
@@ -1624,6 +1646,22 @@ std::uintptr_t DeterministicHookSet::ObservedBattleAudioHandler(
 bool DeterministicHookSet::BattleAudioHandlerOverflowed() noexcept
 {
     return battle_audio_handler_overflow_.load(std::memory_order_acquire);
+}
+
+Status DeterministicHookSet::BindStageBreakPresentationIdentity(
+    std::uint64_t generation,
+    std::span<const StageBreakActorRef> actors,
+    const StageBreakListenerTopology& topology,
+    std::span<const StageBreakParticleAssetRef> assets) noexcept
+{
+    if (!installed()) return Status::failure(FailureCode::IllegalTransition);
+    return stage_break_presentation_identity_.Bind(
+        generation, actors, topology, assets);
+}
+
+void DeterministicHookSet::InvalidateStageBreakPresentationIdentity() noexcept
+{
+    stage_break_presentation_identity_.Invalidate();
 }
 
 Status DeterministicHookSet::RestoreBattleAudioRemapEntry(
@@ -3572,7 +3610,9 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
     ParticleSpawnJournalEntry semantic{};
     const bool semantic_ok = CaptureParticleSpawnSemantic(route,
         world_context, particle_system, location, rotation, scale,
-        auto_activate, semantic);
+        auto_activate,
+        hooks != nullptr ? &hooks->stage_break_presentation_identity_ : nullptr,
+        semantic);
     if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
@@ -4073,6 +4113,7 @@ bool DeterministicHookSet::IsObservedBattleAudioTrackingSet(
 
 void DeterministicHookSet::ClearState() noexcept
 {
+    stage_break_presentation_identity_.Invalidate();
     battle_audio_append_parameter_detour_.reset();
     particle_finished_bind_detour_.reset();
     particle_spawn_detour_.reset();

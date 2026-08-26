@@ -4,6 +4,7 @@
 #include "BattleAudioSelectorState.hpp"
 #include "FloatingPointEnvironment.hpp"
 #include "NativeBatchTimeline.hpp"
+#include "StageBreakPresentationIdentity.hpp"
 #include "UcrtRandBroker.hpp"
 
 #include <atomic>
@@ -270,6 +271,12 @@ public:
     Status ExecuteOwnedBatch(
         const OwnedBatchReplayRequest& request,
         OwnedBatchReplayResult& output) noexcept;
+    Status BindStageBreakPresentationIdentity(
+        std::uint64_t generation,
+        std::span<const StageBreakActorRef> actors,
+        const StageBreakListenerTopology& topology,
+        std::span<const StageBreakParticleAssetRef> assets) noexcept;
+    void InvalidateStageBreakPresentationIdentity() noexcept;
 
 private:
     struct OwnedBatchExecution
@@ -485,6 +492,7 @@ private:
     UcrtSrandFn original_srand_{};
     UcrtRandBroker* ucrt_broker_{};
     DeterministicHookCallbacks callbacks_{};
+    StageBreakPresentationIdentityMap stage_break_presentation_identity_{};
     std::atomic<bool> installed_{};
 };
 }
