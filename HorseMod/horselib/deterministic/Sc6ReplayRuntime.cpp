@@ -696,6 +696,10 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         Schema::checkpoint_interval - 1);
     if (action == ResimulationBaseAction::Invalid)
     {
+        timeline_status_.identity_issue = 6;
+        timeline_status_.identity_expected = previous.captured == 0
+            ? 0 : previous.last_coordinate.frame;
+        timeline_status_.identity_observed = coordinate.frame;
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
     }
@@ -854,6 +858,9 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     {
         if (pending_batch_id_ == observation.batch_id)
         {
+            timeline_status_.identity_issue = 7;
+            timeline_status_.identity_expected = 0;
+            timeline_status_.identity_observed = pending_batch_id_;
             timeline_status_.failure = FailureCode::IdentityMismatch;
             return Status::failure(timeline_status_.failure);
         }
@@ -891,6 +898,9 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         && timeline_manager_ != 0
         && timeline_manager_ != observation.battle_manager)
     {
+        timeline_status_.identity_issue = 8;
+        timeline_status_.identity_expected = timeline_manager_;
+        timeline_status_.identity_observed = observation.battle_manager;
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
     }
@@ -917,6 +927,25 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         || coordinate_count != pending_batch_coordinates_.size()
         || pending_batch_id_ != observation.batch_id)
     {
+        if (observation.batch_id == 0)
+        {
+            timeline_status_.identity_issue = 9;
+            timeline_status_.identity_expected = 1;
+            timeline_status_.identity_observed = 0;
+        }
+        else if (coordinate_count != pending_batch_coordinates_.size())
+        {
+            timeline_status_.identity_issue = 10;
+            timeline_status_.identity_expected =
+                pending_batch_coordinates_.size();
+            timeline_status_.identity_observed = coordinate_count;
+        }
+        else
+        {
+            timeline_status_.identity_issue = 11;
+            timeline_status_.identity_expected = pending_batch_id_;
+            timeline_status_.identity_observed = observation.batch_id;
+        }
         timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
     }
