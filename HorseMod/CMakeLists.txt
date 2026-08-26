@@ -79,6 +79,7 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/StageBreakPresentationIdentity.cpp
     horselib/deterministic/StageWindGraphTransaction.cpp
     horselib/deterministic/StageWindTopology.cpp
+    horselib/deterministic/SteamP2PTransport.cpp
     horselib/deterministic/UcrtRandBroker.cpp
 )
 
@@ -232,6 +233,24 @@ endif()
 add_test(
     NAME OnlineCoordinatorSelfTest
     COMMAND $<TARGET_FILE:OnlineCoordinatorSelfTest>
+)
+
+add_executable(SteamP2PTransportSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/steam_p2p_transport_selftest.cpp
+)
+target_link_libraries(SteamP2PTransportSelfTest PRIVATE HorseDeterministicCore)
+target_compile_features(SteamP2PTransportSelfTest PRIVATE cxx_std_20)
+if(MSVC)
+    set_property(TARGET SteamP2PTransportSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+add_test(
+    NAME SteamP2PTransportSelfTest
+    COMMAND $<TARGET_FILE:SteamP2PTransportSelfTest>
+)
+set_tests_properties(SteamP2PTransportSelfTest PROPERTIES
+    LABELS "deterministic;online;fast"
+    TIMEOUT 60
 )
 set_tests_properties(OnlineCoordinatorSelfTest PROPERTIES
     LABELS "deterministic;online;fast"
