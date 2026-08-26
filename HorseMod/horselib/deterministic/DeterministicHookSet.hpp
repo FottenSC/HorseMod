@@ -205,6 +205,7 @@ struct OwnedBatchReplayResult
     std::uint64_t stage_dispatch_hash{};
     std::uint32_t stage_signature_failures{};
     std::uint32_t suppressed_audio_calls{};
+    std::uint32_t discarded_audio_calls{};
     std::uint64_t suppressed_audio_sequence_hash{};
     std::uint32_t suppressed_audio_route_hash{};
     std::uint32_t suppressed_audio_payload_hash{};

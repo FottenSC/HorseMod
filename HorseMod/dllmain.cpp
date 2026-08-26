@@ -3238,6 +3238,7 @@ private:
         std::uint64_t suppressed_stage_barrier_calls{};
         std::uint64_t semantic_stage_dispatch_calls{};
         std::uint64_t suppressed_audio_calls{};
+        std::uint64_t discarded_audio_calls{};
         std::uint64_t suppressed_audio_stop_all_calls{};
         std::uint64_t suppressed_audio_blueprint_calls{};
         std::uint64_t suppressed_particle_spawn_calls{};
@@ -4065,6 +4066,7 @@ private:
         qualification.semantic_stage_dispatch_calls +=
             result.semantic_stage_dispatch_calls;
         qualification.suppressed_audio_calls += result.suppressed_audio_calls;
+        qualification.discarded_audio_calls += result.discarded_audio_calls;
         qualification.suppressed_audio_stop_all_calls +=
             result.suppressed_audio_stop_all_calls;
         qualification.suppressed_audio_blueprint_calls +=
@@ -4110,7 +4112,7 @@ private:
             "forced_history_bytes={}->{} "
             "stage_wall_suppressed={} stage_barrier_suppressed={} "
             "stage_semantic_dispatches={} stage_coverage={} "
-            "audio_suppressed={} "
+            "audio_suppressed={} audio_discarded={} "
             "audio_stop_all_suppressed={} "
             "audio_blueprint_suppressed={} "
             "particle_spawn_suppressed={} particle_bind_suppressed={} "
@@ -4141,6 +4143,7 @@ private:
                     || qualification.suppressed_stage_barrier_calls != 0
                 ? STR("observed") : STR("missing"),
             qualification.suppressed_audio_calls,
+            qualification.discarded_audio_calls,
             qualification.suppressed_audio_stop_all_calls,
             qualification.suppressed_audio_blueprint_calls,
             qualification.suppressed_particle_spawn_calls,

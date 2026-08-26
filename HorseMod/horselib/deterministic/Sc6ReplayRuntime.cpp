@@ -1430,6 +1430,8 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                 result.semantic_stage_dispatch_calls;
             presentation_diagnostics->suppressed_audio_calls +=
                 result.suppressed_audio_calls;
+            presentation_diagnostics->discarded_audio_calls +=
+                result.discarded_audio_calls;
             presentation_diagnostics->suppressed_audio_stop_all_calls +=
                 result.suppressed_audio_stop_all_calls;
             presentation_diagnostics->suppressed_audio_blueprint_calls +=

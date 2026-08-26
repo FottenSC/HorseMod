@@ -2484,14 +2484,6 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
         std::array<std::byte, 18> semantic{};
         const bool direct = active_battle_audio_source_depth == 0;
         const std::size_t index = replay.suppressed_audio_calls;
-        if (!VerifyPresentationOrder(
-                PresentationEventFamily::BattleAudioDispatch,
-                static_cast<std::uint32_t>(index), envelope, replay))
-        {
-            ++replay.presentation_failures;
-            replay.presentation_failure_mask |= 1u << 12;
-            replay.failure = FailureCode::PresentationFailed;
-        }
         const bool captured = CaptureBattleAudioSemantic(
             event_record, alternate_route, semantic);
         if (index >= envelope.battle_audio_journal_count)
@@ -2500,6 +2492,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
             // presentation-local queues. This call has no source-frame journal
             // identity for the replayed batch, so discard it before mixed
             // dispatcher work and leave the ordered admitted sequence intact.
+            ++replay.discarded_audio_calls;
             callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
             return -1;
         }
@@ -2507,12 +2500,21 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
             || envelope.battle_audio_journal[index].semantic != semantic
             || envelope.battle_audio_journal[index].direct != (direct ? 1 : 0))
         {
+            ++replay.discarded_audio_calls;
             callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
             return -1;
         }
         else
         {
             expected_success = envelope.battle_audio_journal[index].succeeded;
+        }
+        if (!VerifyPresentationOrder(
+                PresentationEventFamily::BattleAudioDispatch,
+                static_cast<std::uint32_t>(index), envelope, replay))
+        {
+            ++replay.presentation_failures;
+            replay.presentation_failure_mask |= 1u << 12;
+            replay.failure = FailureCode::PresentationFailed;
         }
         ++replay.suppressed_audio_calls;
         if (!captured || !AppendBattleAudioSemantic(semantic,
@@ -2804,6 +2806,7 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                 event_record, semantic);
             if (index >= envelope.battle_audio_source_journal_count)
             {
+                ++replay.discarded_audio_calls;
                 callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
                 return;
             }
@@ -2811,6 +2814,7 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                 && envelope.battle_audio_source_journal[index].semantic == semantic;
             if (!source_valid)
             {
+                ++replay.discarded_audio_calls;
                 callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
                 return;
             }
@@ -2825,6 +2829,7 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                 || source.first_blueprint
                     != replay.suppressed_audio_blueprint_calls)
             {
+                ++replay.discarded_audio_calls;
                 callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
                 return;
             }
