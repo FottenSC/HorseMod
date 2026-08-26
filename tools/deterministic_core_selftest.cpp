@@ -453,7 +453,9 @@ void test_public_config_contract()
 void test_input_replacement_and_invalidation()
 {
     InputTimeline timeline{2};
-    expect(timeline.AppendAuthoritative({1, 0}, one_input(false)).ok(), "append predicted input");
+    expect(timeline.AppendAuthoritative({1, 1}, one_input(false)).ok(), "append predicted input");
+    expect(timeline.AppendAuthoritative({1, 0}, one_input(false)).ok(),
+        "append an earlier coordinate into reserved sorted storage");
     PlayerInput remote;
     remote.held = 7;
     expect(timeline.ReplacePredicted({1, 0}, 1, remote).ok(), "replace predicted input");
@@ -462,6 +464,9 @@ void test_input_replacement_and_invalidation()
     expect(
         timeline.ReplacePredicted({1, 0}, 1, remote).code == FailureCode::IdentityMismatch,
         "confirmed input cannot be rewritten");
+    expect(timeline.AppendAuthoritative({1, 2}, one_input(false)).code
+            == FailureCode::CapacityExceeded,
+        "reserved input capacity remains fail-closed");
     timeline.InvalidateGeneration(1);
     expect(!timeline.GetExact({1, 0}).has_value(), "input generation invalidated");
 }
@@ -682,6 +687,10 @@ void test_snapshot_capacity_is_atomic()
         "save later first generation resimulation base");
     expect(generations.Save({{2, 4}, 1, {}, {}}).ok(),
         "save second generation resimulation base");
+    expect(generations.FindExact({1, 21}) != nullptr
+            && generations.FindExact({1, 21})->coordinate
+                == FrameCoordinate{1, 21},
+        "non-copying exact lookup returns the retained snapshot");
     expect(!generations.NearestAtOrBefore({1, 2}).has_value(),
         "coordinate before first base remains uncovered");
     expect(generations.NearestAtOrBefore({1, 20})->coordinate
@@ -692,6 +701,10 @@ void test_snapshot_capacity_is_atomic()
         "nearest lookup selects an exact base");
     expect(!generations.NearestAtOrBefore({2, 3}).has_value(),
         "nearest lookup never crosses a generation boundary");
+    expect(generations.FindNearestAtOrBefore({1, 20}) != nullptr
+            && generations.FindNearestAtOrBefore({1, 20})->coordinate
+                == FrameCoordinate{1, 3},
+        "non-copying nearest lookup preserves generation-scoped ordering");
 
     SnapshotStore ring{1024 * 1024, 2, CapacityPolicy::EvictOldest};
     Snapshot ring_first{};

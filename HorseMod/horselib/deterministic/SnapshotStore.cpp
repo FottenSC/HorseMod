@@ -1,5 +1,6 @@
 #include "SnapshotStore.hpp"
 
+#include <algorithm>
 #include <utility>
 
 namespace Horse::Deterministic
@@ -12,6 +13,14 @@ SnapshotStore::SnapshotStore(
       maximum_entries_(maximum_entries),
       policy_(policy)
 {
+    try
+    {
+        snapshots_.reserve(maximum_entries_);
+    }
+    catch (...)
+    {
+        maximum_entries_ = 0;
+    }
 }
 
 std::size_t SnapshotStore::snapshot_cost(const Snapshot& snapshot) const noexcept
@@ -28,7 +37,7 @@ void SnapshotStore::erase_oldest() noexcept
     {
         return;
     }
-    bytes_used_ -= snapshot_cost(snapshots_.begin()->second);
+    bytes_used_ -= snapshot_cost(snapshots_.front());
     snapshots_.erase(snapshots_.begin());
 }
 
@@ -40,12 +49,17 @@ Status SnapshotStore::Save(Snapshot snapshot) noexcept
         return Status::failure(FailureCode::CapacityExceeded);
     }
 
-    const auto existing = snapshots_.find(snapshot.coordinate);
+    auto existing = std::lower_bound(snapshots_.begin(), snapshots_.end(),
+        snapshot.coordinate, [](const Snapshot& entry, FrameCoordinate value) {
+            return entry.coordinate < value;
+        });
+    const bool replacing = existing != snapshots_.end()
+        && existing->coordinate == snapshot.coordinate;
     const std::size_t replaced = existing == snapshots_.end()
         ? 0
-        : snapshot_cost(existing->second);
+        : (replacing ? snapshot_cost(*existing) : 0);
     const std::size_t effective_count = snapshots_.size()
-        - (existing == snapshots_.end() ? 0 : 1);
+        - (replacing ? 1 : 0);
 
     if (policy_ == CapacityPolicy::RejectNew
         && (bytes_used_ - replaced + incoming > maximum_bytes_
@@ -54,10 +68,15 @@ Status SnapshotStore::Save(Snapshot snapshot) noexcept
         return Status::failure(FailureCode::CapacityExceeded);
     }
 
-    if (existing != snapshots_.end())
+    if (replacing)
     {
         bytes_used_ -= replaced;
         snapshots_.erase(existing);
+        existing = std::lower_bound(snapshots_.begin(), snapshots_.end(),
+            snapshot.coordinate,
+            [](const Snapshot& entry, FrameCoordinate value) {
+                return entry.coordinate < value;
+            });
     }
 
     while (bytes_used_ + incoming > maximum_bytes_
@@ -70,45 +89,69 @@ Status SnapshotStore::Save(Snapshot snapshot) noexcept
         erase_oldest();
     }
 
+    existing = std::lower_bound(snapshots_.begin(), snapshots_.end(),
+        snapshot.coordinate, [](const Snapshot& entry, FrameCoordinate value) {
+            return entry.coordinate < value;
+        });
+    try
+    {
+        snapshots_.insert(existing, std::move(snapshot));
+    }
+    catch (...)
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
     bytes_used_ += incoming;
-    snapshots_.emplace(snapshot.coordinate, std::move(snapshot));
     return Status::success();
 }
 
 std::optional<Snapshot> SnapshotStore::Load(FrameCoordinate coordinate) const
 {
-    const auto found = snapshots_.find(coordinate);
-    return found == snapshots_.end()
-        ? std::nullopt
-        : std::optional<Snapshot>{found->second};
+    const auto* found = FindExact(coordinate);
+    return found == nullptr ? std::nullopt : std::optional<Snapshot>{*found};
 }
 
 std::optional<Snapshot> SnapshotStore::NearestAtOrBefore(
     FrameCoordinate coordinate) const
 {
-    auto found = snapshots_.upper_bound(coordinate);
+    const auto* found = FindNearestAtOrBefore(coordinate);
+    return found == nullptr ? std::nullopt : std::optional<Snapshot>{*found};
+}
+
+const Snapshot* SnapshotStore::FindExact(
+    FrameCoordinate coordinate) const noexcept
+{
+    const auto found = std::lower_bound(snapshots_.begin(), snapshots_.end(),
+        coordinate, [](const Snapshot& entry, FrameCoordinate value) {
+            return entry.coordinate < value;
+        });
+    return found != snapshots_.end() && found->coordinate == coordinate
+        ? &*found : nullptr;
+}
+
+const Snapshot* SnapshotStore::FindNearestAtOrBefore(
+    FrameCoordinate coordinate) const noexcept
+{
+    auto found = std::upper_bound(snapshots_.begin(), snapshots_.end(),
+        coordinate, [](FrameCoordinate value, const Snapshot& entry) {
+            return value < entry.coordinate;
+        });
     while (found != snapshots_.begin())
     {
         --found;
-        if (found->first.generation == coordinate.generation)
-        {
-            return found->second;
-        }
-        if (found->first.generation < coordinate.generation)
-        {
-            break;
-        }
+        if (found->coordinate.generation == coordinate.generation) return &*found;
+        if (found->coordinate.generation < coordinate.generation) break;
     }
-    return std::nullopt;
+    return nullptr;
 }
 
 void SnapshotStore::InvalidateGeneration(std::uint64_t generation) noexcept
 {
     for (auto it = snapshots_.begin(); it != snapshots_.end();)
     {
-        if (it->first.generation == generation)
+        if (it->coordinate.generation == generation)
         {
-            bytes_used_ -= snapshot_cost(it->second);
+            bytes_used_ -= snapshot_cost(*it);
             it = snapshots_.erase(it);
         }
         else
@@ -131,8 +174,8 @@ bool SnapshotStore::TakeOldestIfFull(Snapshot& output) noexcept
         return false;
     }
     auto oldest = snapshots_.begin();
-    bytes_used_ -= snapshot_cost(oldest->second);
-    output = std::move(oldest->second);
+    bytes_used_ -= snapshot_cost(*oldest);
+    output = std::move(*oldest);
     snapshots_.erase(oldest);
     return true;
 }

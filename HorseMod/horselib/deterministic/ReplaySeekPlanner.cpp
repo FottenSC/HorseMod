@@ -41,14 +41,14 @@ Status PlanReplaySeek(
         return Status::failure(FailureCode::IdentityMismatch);
     }
 
-    std::optional<Snapshot> base;
-    const auto exact = batch_entry_snapshots.Load(target);
-    if (exact.has_value() && landing_batch->exit_coordinate == target)
+    const Snapshot* base{};
+    const auto* exact = batch_entry_snapshots.FindExact(target);
+    if (exact != nullptr && landing_batch->exit_coordinate == target)
         base = exact;
     else
-        base = batch_entry_snapshots.NearestAtOrBefore(
+        base = batch_entry_snapshots.FindNearestAtOrBefore(
             landing_batch->entry_coordinate);
-    if (!base.has_value())
+    if (base == nullptr)
         return Status::failure(FailureCode::MissingSnapshot);
     if (base->coordinate.generation != target.generation
         || base->coordinate.frame > target.frame)
@@ -118,9 +118,9 @@ Status PlanReplayCorrection(
         batches.GetBatch(changed_membership->batch_index);
     if (changed_batch == nullptr)
         return Status::failure(FailureCode::IdentityMismatch);
-    const auto base = batch_entry_snapshots.NearestAtOrBefore(
+    const auto* base = batch_entry_snapshots.FindNearestAtOrBefore(
         changed_batch->entry_coordinate);
-    if (!base.has_value())
+    if (base == nullptr)
         return Status::failure(FailureCode::MissingSnapshot);
     if (base->coordinate.generation != current.generation
         || base->coordinate.frame > changed_batch->entry_coordinate.frame)

@@ -2,7 +2,7 @@
 
 #include "Interfaces.hpp"
 
-#include <map>
+#include <vector>
 
 namespace Horse::Deterministic
 {
@@ -26,7 +26,13 @@ public:
     [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
 
 private:
+    struct Entry
+    {
+        FrameCoordinate coordinate{};
+        InputPair inputs{};
+    };
+
     std::size_t maximum_entries_{};
-    std::map<FrameCoordinate, InputPair> entries_;
+    std::vector<Entry> entries_;
 };
 }

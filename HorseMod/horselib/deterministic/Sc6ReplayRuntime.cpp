@@ -510,9 +510,9 @@ Status Sc6ReplayRuntime::ObserveFrame(
         return Status::success();
     }
     ++timeline_status_.captured_frames;
-    const auto batch_entry = checkpoint_capture_.snapshots(
-        CandidateCheckpointRole::BatchEntry).NearestAtOrBefore(coordinate);
-    if (!batch_entry.has_value())
+    const auto* batch_entry = checkpoint_capture_.snapshots(
+        CandidateCheckpointRole::BatchEntry).FindNearestAtOrBefore(coordinate);
+    if (batch_entry == nullptr)
     {
         ++timeline_status_.coordinates_without_batch_entry_checkpoint;
     }
@@ -1311,8 +1311,8 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
 
         const bool capture_landing = landing_batch_index.has_value()
             && batch_index == *landing_batch_index;
-        const auto batch_entry = checkpoint_capture_.snapshots(
-            CandidateCheckpointRole::BatchEntry).Load(
+        const auto* batch_entry = checkpoint_capture_.snapshots(
+            CandidateCheckpointRole::BatchEntry).FindExact(
                 envelope->entry_coordinate);
         Status input_handoff{};
         if (preserve_first_entry_input_log
@@ -1320,7 +1320,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
         {
             input_handoff = Status::success();
         }
-        else if (batch_entry.has_value())
+        else if (batch_entry != nullptr)
         {
             input_handoff =
                 checkpoint_capture_.RestoreInputLogForReplay(*batch_entry);
@@ -1514,13 +1514,13 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
         {
             const NativeBatchEnvelope* next =
                 batch_timeline_.GetBatch(batch_index + 1);
-            const auto expected = next == nullptr
-                ? std::optional<Snapshot>{}
+            const auto* expected = next == nullptr
+                ? nullptr
                 : checkpoint_capture_.snapshots(
-                    CandidateCheckpointRole::BatchEntry).Load(
+                    CandidateCheckpointRole::BatchEntry).FindExact(
                         next->entry_coordinate);
             Snapshot observed{};
-            if (expected.has_value()
+            if (expected != nullptr
                 && checkpoint_capture_.CaptureTransient(
                     envelope->exit_coordinate, observed).ok())
             {
@@ -1664,9 +1664,9 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     status = checkpoint_capture_.CaptureTransient(
         timeline_status_.last_coordinate, undo);
     if (!status.ok()) return status;
-    const auto base = checkpoint_capture_.snapshots(
-        CandidateCheckpointRole::BatchEntry).Load(plan.resimulation_base);
-    if (!base.has_value())
+    const auto* base = checkpoint_capture_.snapshots(
+        CandidateCheckpointRole::BatchEntry).FindExact(plan.resimulation_base);
+    if (base == nullptr)
     {
         timeline_status_.identity_issue = 303;
         timeline_status_.identity_expected = plan.resimulation_base.frame;
@@ -1908,8 +1908,8 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         output.undo_audio_selector =
             undo_diagnostic_image.battle_audio_selector;
 
-    const auto base = correction_snapshots.Load(plan.resimulation_base);
-    if (!base.has_value())
+    const auto* base = correction_snapshots.FindExact(plan.resimulation_base);
+    if (base == nullptr)
         return finish(Status::failure(FailureCode::MissingSnapshot));
     CandidateCheckpointImage base_diagnostic_image{};
     if (CandidateCheckpointCodec::Decode(*base, base_diagnostic_image).ok())

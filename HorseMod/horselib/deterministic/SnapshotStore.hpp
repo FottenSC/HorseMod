@@ -2,7 +2,7 @@
 
 #include "Interfaces.hpp"
 
-#include <map>
+#include <vector>
 
 namespace Horse::Deterministic
 {
@@ -21,6 +21,10 @@ public:
         FrameCoordinate coordinate) const override;
     [[nodiscard]] std::optional<Snapshot> NearestAtOrBefore(
         FrameCoordinate coordinate) const override;
+    [[nodiscard]] const Snapshot* FindExact(
+        FrameCoordinate coordinate) const noexcept;
+    [[nodiscard]] const Snapshot* FindNearestAtOrBefore(
+        FrameCoordinate coordinate) const noexcept;
     void InvalidateGeneration(std::uint64_t generation) noexcept override;
     [[nodiscard]] std::size_t BytesUsed() const noexcept override;
     // Qualification ring helper: once the fixed entry capacity is warm,
@@ -37,6 +41,6 @@ private:
     std::size_t maximum_entries_{};
     CapacityPolicy policy_{CapacityPolicy::RejectNew};
     std::size_t bytes_used_{};
-    std::map<FrameCoordinate, Snapshot> snapshots_;
+    std::vector<Snapshot> snapshots_;
 };
 }
