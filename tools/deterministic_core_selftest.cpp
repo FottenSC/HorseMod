@@ -677,8 +677,9 @@ void test_snapshot_capacity_is_atomic()
     expect(store.BytesUsed() == bytes_before, "capacity rejection does not mutate store");
     expect(store.Load({1, 0}).has_value(), "original snapshot survives rejection");
     store.Clear();
-    expect(store.BytesUsed() == 0 && !store.Load({1, 0}).has_value(),
-        "snapshot store clear releases all generation history");
+    expect(store.BytesUsed() == sizeof(Snapshot)
+            && !store.Load({1, 0}).has_value(),
+        "snapshot store clear releases payload while retaining bounded slots");
 
     SnapshotStore generations{1024 * 1024, 8, CapacityPolicy::RejectNew};
     expect(generations.Save({{1, 3}, 1, {}, {}}).ok(),

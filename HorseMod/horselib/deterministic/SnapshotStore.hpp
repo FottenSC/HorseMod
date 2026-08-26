@@ -34,7 +34,8 @@ public:
     void Clear() noexcept;
 
 private:
-    [[nodiscard]] std::size_t snapshot_cost(const Snapshot& snapshot) const noexcept;
+    [[nodiscard]] std::size_t snapshot_dynamic_cost(
+        const Snapshot& snapshot) const noexcept;
     void erase_oldest() noexcept;
 
     std::size_t maximum_bytes_{};

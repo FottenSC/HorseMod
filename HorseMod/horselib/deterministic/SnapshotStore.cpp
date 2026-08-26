@@ -16,6 +16,7 @@ SnapshotStore::SnapshotStore(
     try
     {
         snapshots_.reserve(maximum_entries_);
+        bytes_used_ = snapshots_.capacity() * sizeof(Snapshot);
     }
     catch (...)
     {
@@ -23,11 +24,13 @@ SnapshotStore::SnapshotStore(
     }
 }
 
-std::size_t SnapshotStore::snapshot_cost(const Snapshot& snapshot) const noexcept
+std::size_t SnapshotStore::snapshot_dynamic_cost(
+    const Snapshot& snapshot) const noexcept
 {
-    std::size_t cost = sizeof(Snapshot) + snapshot.bytes.size();
+    std::size_t cost = snapshot.bytes.capacity()
+        + snapshot.local_images.capacity() * sizeof(LocalReconstructionImage);
     for (const auto& local : snapshot.local_images)
-        cost += sizeof(LocalReconstructionImage) + local.bytes.size();
+        cost += local.bytes.capacity();
     return cost;
 }
 
@@ -37,13 +40,13 @@ void SnapshotStore::erase_oldest() noexcept
     {
         return;
     }
-    bytes_used_ -= snapshot_cost(snapshots_.front());
+    bytes_used_ -= snapshot_dynamic_cost(snapshots_.front());
     snapshots_.erase(snapshots_.begin());
 }
 
 Status SnapshotStore::Save(Snapshot snapshot) noexcept
 {
-    const std::size_t incoming = snapshot_cost(snapshot);
+    const std::size_t incoming = snapshot_dynamic_cost(snapshot);
     if (incoming > maximum_bytes_ || maximum_entries_ == 0)
     {
         return Status::failure(FailureCode::CapacityExceeded);
@@ -57,7 +60,7 @@ Status SnapshotStore::Save(Snapshot snapshot) noexcept
         && existing->coordinate == snapshot.coordinate;
     const std::size_t replaced = existing == snapshots_.end()
         ? 0
-        : (replacing ? snapshot_cost(*existing) : 0);
+        : (replacing ? snapshot_dynamic_cost(*existing) : 0);
     const std::size_t effective_count = snapshots_.size()
         - (replacing ? 1 : 0);
 
@@ -151,7 +154,7 @@ void SnapshotStore::InvalidateGeneration(std::uint64_t generation) noexcept
     {
         if (it->coordinate.generation == generation)
         {
-            bytes_used_ -= snapshot_cost(*it);
+            bytes_used_ -= snapshot_dynamic_cost(*it);
             it = snapshots_.erase(it);
         }
         else
@@ -174,7 +177,7 @@ bool SnapshotStore::TakeOldestIfFull(Snapshot& output) noexcept
         return false;
     }
     auto oldest = snapshots_.begin();
-    bytes_used_ -= snapshot_cost(*oldest);
+    bytes_used_ -= snapshot_dynamic_cost(*oldest);
     output = std::move(*oldest);
     snapshots_.erase(oldest);
     return true;
@@ -183,6 +186,6 @@ bool SnapshotStore::TakeOldestIfFull(Snapshot& output) noexcept
 void SnapshotStore::Clear() noexcept
 {
     snapshots_.clear();
-    bytes_used_ = 0;
+    bytes_used_ = snapshots_.capacity() * sizeof(Snapshot);
 }
 }

@@ -130,7 +130,12 @@ private:
 
     static constexpr std::size_t checkpoint_memory_limit =
         Schema::replay_checkpoint_memory_budget / 2;
-    static constexpr std::size_t maximum_checkpoints_per_role = 32768;
+    // Every admitted SC6 checkpoint owns the fixed MotionBankTriples image.
+    // Derive the slot ceiling from that proven allocation floor so reserving
+    // heavyweight Snapshot objects cannot consume the payload budget itself.
+    static constexpr std::size_t maximum_checkpoints_per_role =
+        checkpoint_memory_limit
+        / (motion_bank_image_bytes + sizeof(Snapshot));
 
     struct TimingHistogram
     {
