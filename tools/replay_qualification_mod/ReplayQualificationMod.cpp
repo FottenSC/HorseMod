@@ -601,13 +601,9 @@ private:
 
     void PollSeekQualification(std::uint32_t frame)
     {
-        RequestReplaySeekFn request_seek{};
-        GetReplaySeekStatusFn get_status{};
-        GetReplaySeekableRangeFn get_range{};
-        GetReplaySimulationPhaseFn get_phase{};
-        GetReplaySeekMetricsFn get_metrics{};
-        if (!ResolveHorseModSeekApi(
-                request_seek, get_status, get_range, get_phase, get_metrics))
+        if (request_seek_ == nullptr
+            && !ResolveHorseModSeekApi(request_seek_, get_status_, get_range_,
+                get_phase_, get_metrics_))
         {
             Fail("horsemod_seek_api_unavailable");
             return;
@@ -618,7 +614,7 @@ private:
         {
             std::int32_t native_round{}, native_time{}, unpause_countdown{};
             std::uint32_t round_state_frame{};
-            if (!get_phase(&native_round, &native_time, &round_state_frame,
+            if (!get_phase_(&native_round, &native_time, &round_state_frame,
                     &unpause_countdown))
             {
                 Fail("horsemod_seek_resume_phase_unavailable");
@@ -640,7 +636,7 @@ private:
             seek_resume_last_round_state_frame_ = round_state_frame;
             std::uint64_t unused_target{}, unused_source{}, unused_verified{};
             std::uint16_t failure{};
-            if (get_status(&unused_target, &unused_source, &unused_verified,
+            if (get_status_(&unused_target, &unused_source, &unused_verified,
                     &failure) == 3)
             {
                 Fail("horsemod_seek_live_resume_failed");
@@ -703,7 +699,7 @@ private:
             std::uint64_t source_end{};
             std::uint64_t verified{};
             std::uint16_t failure{};
-            const auto status = get_status(
+            const auto status = get_status_(
                 &observed_target, &source_end, &verified, &failure);
             if (status == 3)
             {
@@ -714,7 +710,7 @@ private:
                 && source_end != 0)
             {
                 std::uint64_t validation_ns{}, resimulation_coordinates{};
-                if (!get_metrics(&validation_ns, &resimulation_coordinates))
+                if (!get_metrics_(&validation_ns, &resimulation_coordinates))
                 {
                     Fail("horsemod_seek_metrics_unavailable");
                     return;
@@ -746,7 +742,7 @@ private:
                 seek_resume_active_elapsed_us_ = 0;
                 std::int32_t native_round{}, native_time{}, unpause_countdown{};
                 std::uint32_t round_state_frame{};
-                if (!get_phase(&native_round, &native_time,
+                if (!get_phase_(&native_round, &native_time,
                         &round_state_frame, &unpause_countdown))
                 {
                     Fail("horsemod_seek_resume_phase_unavailable");
@@ -764,12 +760,12 @@ private:
         std::uint64_t generation{}, first{}, last{};
         std::int32_t native_round{}, native_time{}, unpause_countdown{};
         std::uint32_t round_state_frame{};
-        if (!get_range(&generation, &first, &last) || first >= last
+        if (!get_range_(&generation, &first, &last) || first >= last
             || last - first < request_.watch_frames)
         {
             return;
         }
-        if (!get_phase(&native_round, &native_time, &round_state_frame,
+        if (!get_phase_(&native_round, &native_time, &round_state_frame,
                 &unpause_countdown) || round_state_frame == 0)
         {
             return;
@@ -787,7 +783,7 @@ private:
         }
         const std::uint64_t target = seek_range_first_
             + (seek_range_last_ - seek_range_first_) * percentage / 100;
-        if (!request_seek(target))
+        if (!request_seek_(target))
         {
             Fail("horsemod_seek_request_rejected");
             return;
@@ -907,6 +903,11 @@ private:
     std::uint64_t seek_completed_source_{};
     std::uint64_t seek_validation_ns_{};
     std::uint64_t seek_resimulation_coordinates_{};
+    RequestReplaySeekFn request_seek_{};
+    GetReplaySeekStatusFn get_status_{};
+    GetReplaySeekableRangeFn get_range_{};
+    GetReplaySimulationPhaseFn get_phase_{};
+    GetReplaySeekMetricsFn get_metrics_{};
     std::uint32_t seek_resume_start_frame_{};
     std::uint64_t seek_resume_active_elapsed_us_{};
     std::uint32_t seek_resume_last_observed_frame_{};
