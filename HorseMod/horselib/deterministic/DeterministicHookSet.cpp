@@ -108,20 +108,19 @@ bool SafeWrite(std::uintptr_t address, const T& value) noexcept
 }
 
 bool CaptureCameraPublicationSignature(
-    std::uintptr_t image_base, std::uint64_t& output) noexcept
+    std::uintptr_t image_base, CameraPublicationState& state,
+    std::uint64_t& output) noexcept
 {
-    std::array<std::byte, Schema::Sc6FrameLayout::camera_frame_vectors_size>
-        vectors{};
-    std::uint32_t yaw_bits{};
-    std::uint32_t mode{};
+    static_assert(camera_publication_vector_bytes
+        == Schema::Sc6FrameLayout::camera_frame_vectors_size);
     if (image_base == 0
         || !SafeRead(image_base
                 + Schema::Sc6FrameLayout::camera_frame_vectors_rva,
-            vectors)
+            state.vectors)
         || !SafeRead(image_base + Schema::Sc6FrameLayout::camera_yaw_turns_rva,
-            yaw_bits)
+            state.yaw_bits)
         || !SafeRead(image_base + Schema::Sc6FrameLayout::camera_mode_rva,
-            mode))
+            state.mode))
     {
         return false;
     }
@@ -138,13 +137,13 @@ bool CaptureCameraPublicationSignature(
             hash *= inner_prime;
         }
     };
-    for (const auto value : vectors)
+    for (const auto value : state.vectors)
     {
         hash ^= std::to_integer<std::uint8_t>(value);
         hash *= prime;
     }
-    append(yaw_bits);
-    append(mode);
+    append(state.yaw_bits);
+    append(state.mode);
     output = hash;
     return true;
 }
@@ -474,6 +473,17 @@ bool ConsumeBattleAudioJournal(
     const NativeBatchEnvelope& envelope,
     OwnedBatchReplayResult& output) noexcept
 {
+    enum : std::uint32_t
+    {
+        journal_structure = 1u << 0,
+        dispatch_identity = 1u << 1,
+        direct_identity = 1u << 2,
+        source_identity = 1u << 3,
+        remap_identity = 1u << 4,
+        stop_all_identity = 1u << 5,
+        particle_identity = 1u << 6,
+        unknown_particle_route = 1u << 7,
+    };
     if (envelope.particle_signature_failures != 0
         || envelope.battle_audio_journal_count
             != envelope.battle_audio_dispatches
@@ -488,6 +498,7 @@ bool ConsumeBattleAudioJournal(
         || envelope.battle_audio_remap_journal_count
             > envelope.battle_audio_remap_journal.size())
     {
+        output.audio_journal_failure_mask |= journal_structure;
         return false;
     }
     for (std::size_t index = 0;
@@ -501,7 +512,26 @@ bool ConsumeBattleAudioJournal(
                 output.suppressed_audio_payload_hash,
                 output.suppressed_audio_position_hash))
         {
+            output.audio_journal_failure_mask |= dispatch_identity;
             return false;
+        }
+        if (entry.direct > 1)
+        {
+            output.audio_journal_failure_mask |= journal_structure;
+            return false;
+        }
+        if (entry.direct != 0)
+        {
+            ++output.suppressed_audio_direct_dispatches;
+            if (!AppendBattleAudioSemantic(entry.semantic,
+                    output.suppressed_audio_direct_sequence_hash,
+                    output.suppressed_audio_direct_route_hash,
+                    output.suppressed_audio_direct_payload_hash,
+                    output.suppressed_audio_direct_position_hash))
+            {
+                output.audio_journal_failure_mask |= direct_identity;
+                return false;
+            }
         }
     }
     for (std::size_t index = 0;
@@ -537,21 +567,47 @@ bool ConsumeBattleAudioJournal(
         envelope.battle_audio_remap_entry_mask;
     output.suppressed_audio_remap_entry_values =
         envelope.battle_audio_remap_entry_values;
-    return output.suppressed_audio_calls == envelope.battle_audio_dispatches
+    const bool dispatch_matches =
+        output.suppressed_audio_calls == envelope.battle_audio_dispatches
+        && output.suppressed_audio_sequence_hash
+            == envelope.battle_audio_sequence_hash
         && output.suppressed_audio_route_hash == envelope.battle_audio_route_hash
         && output.suppressed_audio_payload_hash == envelope.battle_audio_payload_hash
-        && output.suppressed_audio_position_hash == envelope.battle_audio_position_hash
-        && output.suppressed_audio_source_hash == envelope.battle_audio_source_hash
-        && output.suppressed_audio_remap_hash == envelope.battle_audio_remap_hash
-        && output.suppressed_audio_stop_all_calls
+        && output.suppressed_audio_position_hash == envelope.battle_audio_position_hash;
+    const bool direct_matches =
+        output.suppressed_audio_direct_dispatches
+            == envelope.battle_audio_direct_dispatches
+        && output.suppressed_audio_direct_sequence_hash
+            == envelope.battle_audio_direct_sequence_hash
+        && output.suppressed_audio_direct_route_hash
+            == envelope.battle_audio_direct_route_hash
+        && output.suppressed_audio_direct_payload_hash
+            == envelope.battle_audio_direct_payload_hash
+        && output.suppressed_audio_direct_position_hash
+            == envelope.battle_audio_direct_position_hash;
+    const bool source_matches =
+        output.suppressed_audio_source_calls == envelope.battle_audio_source_calls
+        && output.suppressed_audio_source_hash == envelope.battle_audio_source_hash;
+    const bool remap_matches =
+        output.suppressed_audio_remap_calls == envelope.battle_audio_remap_calls
+        && output.suppressed_audio_remap_hash == envelope.battle_audio_remap_hash;
+    const bool stop_all_matches =
+        output.suppressed_audio_stop_all_calls
             == envelope.battle_audio_stop_all_calls
         && output.suppressed_audio_stop_all_hash
-            == envelope.battle_audio_stop_all_hash
-        && output.suppressed_particle_spawn_calls
-            == envelope.particle_spawn_calls
-        && output.suppressed_particle_spawn_hash
-            == envelope.particle_spawn_hash
-        && output.unknown_particle_routes == 0;
+            == envelope.battle_audio_stop_all_hash;
+    const bool particle_matches =
+        output.suppressed_particle_spawn_calls == envelope.particle_spawn_calls
+        && output.suppressed_particle_spawn_hash == envelope.particle_spawn_hash;
+    if (!dispatch_matches) output.audio_journal_failure_mask |= dispatch_identity;
+    if (!direct_matches) output.audio_journal_failure_mask |= direct_identity;
+    if (!source_matches) output.audio_journal_failure_mask |= source_identity;
+    if (!remap_matches) output.audio_journal_failure_mask |= remap_identity;
+    if (!stop_all_matches) output.audio_journal_failure_mask |= stop_all_identity;
+    if (!particle_matches) output.audio_journal_failure_mask |= particle_identity;
+    if (output.unknown_particle_routes != 0)
+        output.audio_journal_failure_mask |= unknown_particle_route;
+    return output.audio_journal_failure_mask == 0;
 }
 
 template <std::size_t Count>
@@ -1303,7 +1359,8 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     }
     if (hooks == nullptr
         || !CaptureCameraPublicationSignature(
-            hooks->image_base_, observation.camera_publication_hash))
+            hooks->image_base_, observation.camera_publication,
+            observation.camera_publication_hash))
     {
         ++observation.camera_signature_failures;
     }
@@ -1484,11 +1541,13 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
         original(reinterpret_cast<void*>(request.battle_manager),
             request.envelope->delta_seconds);
         if (!CaptureCameraPublicationSignature(
-                image_base_, observation.camera_publication_hash))
+                image_base_, observation.camera_publication,
+                observation.camera_publication_hash))
         {
             ++observation.camera_signature_failures;
         }
         output.camera_publication_hash = observation.camera_publication_hash;
+        output.camera_publication = observation.camera_publication;
         output.camera_signature_failures =
             observation.camera_signature_failures;
         if (output.failure == FailureCode::None
@@ -1496,6 +1555,7 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
         {
             ++output.audio_sequence_mismatches;
             ++output.presentation_failures;
+            output.presentation_failure_mask |= 1u << 7;
             output.failure = FailureCode::PresentationFailed;
         }
     }
@@ -1673,6 +1733,7 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
         {
             RestoreFields(actor, wall_presentation_fields, saved, written);
             ++batch->owned->result->presentation_failures;
+            batch->owned->result->presentation_failure_mask |= 1u << 0;
             batch->owned->result->failure = FailureCode::PresentationFailed;
         }
         else
@@ -1692,6 +1753,7 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
             if (!RestoreFields(actor, wall_presentation_fields, saved, written))
             {
                 ++batch->owned->result->presentation_failures;
+                batch->owned->result->presentation_failure_mask |= 1u << 0;
                 batch->owned->result->failure = FailureCode::PresentationFailed;
             }
         }
@@ -1736,6 +1798,7 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
         {
             RestoreFields(actor, barrier_presentation_fields, saved, written);
             ++batch->owned->result->presentation_failures;
+            batch->owned->result->presentation_failure_mask |= 1u << 1;
             batch->owned->result->failure = FailureCode::PresentationFailed;
         }
         else
@@ -1755,6 +1818,7 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
             if (!RestoreFields(actor, barrier_presentation_fields, saved, written))
             {
                 ++batch->owned->result->presentation_failures;
+                batch->owned->result->presentation_failure_mask |= 1u << 1;
                 batch->owned->result->failure = FailureCode::PresentationFailed;
             }
         }
@@ -1787,7 +1851,10 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
     else if (!RestoreMaskContext(*context))
     {
         if (batch != nullptr && batch->owned != nullptr)
+        {
             ++batch->owned->result->presentation_failures;
+            batch->owned->result->presentation_failure_mask |= 1u << 2;
+        }
         if (context->failure != nullptr)
             *context->failure = FailureCode::PresentationFailed;
         callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -1807,7 +1874,10 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
         {
             RestoreMaskContext(*context);
             if (batch != nullptr && batch->owned != nullptr)
+            {
                 ++batch->owned->result->presentation_failures;
+                batch->owned->result->presentation_failure_mask |= 1u << 2;
+            }
             if (context->failure != nullptr)
                 *context->failure = FailureCode::PresentationFailed;
             callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -2083,6 +2153,7 @@ void __fastcall DeterministicHookSet::BattleAudioPhaseChangedDetour(
         || !SafeWrite(address + 0x3E8, deferred_frame_counter)))
     {
         ++batch->owned->result->presentation_failures;
+        batch->owned->result->presentation_failure_mask |= 1u << 3;
         batch->owned->result->failure = FailureCode::PresentationFailed;
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -2212,6 +2283,7 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     if (suppress && (!captured || !SafeWrite(owner + 0x1C, active_state)))
     {
         ++batch->owned->result->presentation_failures;
+        batch->owned->result->presentation_failure_mask |= 1u << 4;
         batch->owned->result->failure = FailureCode::PresentationFailed;
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -2341,12 +2413,14 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
     {
         ++result.unknown_particle_routes;
         ++result.presentation_failures;
+        result.presentation_failure_mask |= 1u << 5;
         result.failure = FailureCode::PresentationFailed;
     }
     void* shadow = particle_shadow_pool.Acquire();
     if (shadow == nullptr)
     {
         ++result.presentation_failures;
+        result.presentation_failure_mask |= 1u << 6;
         result.failure = FailureCode::CapacityExceeded;
         // Preserve the non-null native contract while the owned batch fails
         // closed; slot zero is already initialized after pool exhaustion.

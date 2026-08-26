@@ -12,6 +12,14 @@ namespace Horse::Deterministic
 inline constexpr std::size_t maximum_battle_audio_journal_dispatches = 16;
 inline constexpr std::size_t maximum_battle_audio_journal_sources = 8;
 inline constexpr std::size_t maximum_battle_audio_journal_remaps = 8;
+inline constexpr std::size_t camera_publication_vector_bytes = 0x60;
+
+struct CameraPublicationState
+{
+    std::array<std::byte, camera_publication_vector_bytes> vectors{};
+    std::uint32_t yaw_bits{};
+    std::uint32_t mode{};
+};
 
 struct BattleAudioDispatchJournalEntry
 {
@@ -60,6 +68,7 @@ struct NativeBatchEnvelope
     std::uint64_t stage_dispatch_hash{};
     std::uint32_t stage_signature_failures{};
     std::uint32_t battle_audio_dispatches{};
+    std::uint64_t battle_audio_sequence_hash{};
     std::uint32_t battle_audio_route_hash{};
     std::uint32_t battle_audio_payload_hash{};
     std::uint32_t battle_audio_position_hash{};
@@ -78,6 +87,7 @@ struct NativeBatchEnvelope
     std::uint64_t particle_spawn_hash{};
     std::uint32_t particle_signature_failures{};
     std::uint64_t camera_publication_hash{};
+    CameraPublicationState camera_publication{};
     std::uint32_t camera_signature_failures{};
     std::array<std::uint8_t, maximum_battle_audio_handlers>
         battle_audio_remap_entry_values{};

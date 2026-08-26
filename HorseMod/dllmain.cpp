@@ -3225,6 +3225,8 @@ private:
         static constexpr std::size_t bucket_count = 336;
         std::array<std::uint32_t, bucket_count> buckets{};
         std::uint32_t completed{};
+        std::uint32_t generation_transitions{};
+        std::uint64_t first_generation{};
         std::uint64_t generation{};
         std::uint64_t first_frame{};
         std::uint64_t last_frame{};
@@ -3249,6 +3251,7 @@ private:
         Horse::Deterministic::FailureCode failure{
             Horse::Deterministic::FailureCode::None};
         bool active{};
+        bool awaiting_generation_history{};
         bool reported{};
 
         void Record(std::uint64_t value) noexcept
@@ -3807,6 +3810,7 @@ private:
         if (!qualification.active)
         {
             qualification.active = true;
+            qualification.first_generation = timeline.last_coordinate.generation;
             qualification.generation = timeline.last_coordinate.generation;
             qualification.first_frame = timeline.last_coordinate.frame;
             qualification.checkpoint_bytes_begin = timeline.checkpoint_bytes;
@@ -3823,21 +3827,40 @@ private:
         }
         if (timeline.last_coordinate.generation != qualification.generation)
         {
-            qualification.failure =
-                Horse::Deterministic::FailureCode::GenerationMismatch;
+            ++qualification.generation_transitions;
+            qualification.generation = timeline.last_coordinate.generation;
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] forced depth-7 qualification continuing "
+                "after generation transition generation={} frame={} "
+                "completed={}\n"),
+                qualification.generation, timeline.last_coordinate.frame,
+                qualification.completed);
+            qualification.awaiting_generation_history = true;
+            return;
         }
+        const Horse::Deterministic::FrameCoordinate earliest{
+            timeline.last_coordinate.generation,
+            timeline.last_coordinate.frame - kForcedQualificationDepth + 1};
+        const auto correction_preflight =
+            m_replay_native_runtime.PreflightOwnedCorrection(earliest);
+        if (qualification.awaiting_generation_history
+            && !correction_preflight.ok())
+        {
+            return;
+        }
+        qualification.awaiting_generation_history = false;
         Horse::Deterministic::OwnedCorrectionResult result{};
         auto status = qualification.failure
                 == Horse::Deterministic::FailureCode::None
+                && correction_preflight.ok()
             ? m_replay_native_runtime.CaptureCurrentCanonical(
                 qualification.expected_scratch)
-            : Horse::Deterministic::Status::failure(qualification.failure);
+            : Horse::Deterministic::Status::failure(
+                qualification.failure
+                    != Horse::Deterministic::FailureCode::None
+                ? qualification.failure : correction_preflight.code);
         if (status.ok())
         {
-            const Horse::Deterministic::FrameCoordinate earliest{
-                timeline.last_coordinate.generation,
-                timeline.last_coordinate.frame
-                    - kForcedQualificationDepth + 1};
             status = m_replay_native_runtime.ExecuteOwnedCorrection(
                 earliest, qualification.expected_scratch.canonical_hash,
                 m_deterministic_hooks, result);
@@ -3865,13 +3888,26 @@ private:
                 "move_dispatch={:016x}/{:016x}->{:016x}/{:016x} "
                 "wind_node={} kind={}->{} semantic={} byte={}->{} "
                 "interbatch_mask=0x{:x} interbatch_batch={} "
+                "stage_wall={}/{} 0x{:016x}->0x{:016x} "
+                "stage_barrier={}/{} 0x{:016x}->0x{:016x} "
+                "stage_dispatch={}/{} 0x{:016x}->0x{:016x} "
+                "stage_signature_failures={}/{} "
+                "camera=0x{:016x}->0x{:016x} "
+                "camera_signature_failures={}/{} camera_mismatches={} "
+                "camera_diff={}@{} yaw=0x{:08x}->0x{:08x} "
+                "mode=0x{:08x}->0x{:08x} "
                 "audio_expected={} audio_observed={} "
+                "audio_sequence=0x{:016x}->0x{:016x} "
                 "audio_route=0x{:08x}->0x{:08x} "
                 "audio_payload=0x{:08x}->0x{:08x} "
                 "audio_position=0x{:08x}->0x{:08x} "
                 "audio_remap={}/{} 0x{:016x}->0x{:016x} "
                 "audio_source={}/{} 0x{:016x}->0x{:016x} "
-                "audio_direct={}/{} "
+                "audio_direct={}/{} 0x{:016x}->0x{:016x} "
+                "audio_stop_all={}/{} 0x{:016x}->0x{:016x} "
+                "particle_spawn={}/{} 0x{:016x}->0x{:016x} "
+                "particle_unknown={} journal_failure_mask=0x{:x} "
+                "presentation_failure_mask=0x{:x} "
                 "remap_entry=0x{:02x}:{}/{}->0x{:02x}:{}/{} "
                 "selector_base={}/{}/{}/{} selector_undo={}/{}/{}/{} "
                 "audio_sequence_mismatches={} presentation_failures={}\n"),
@@ -3909,8 +3945,35 @@ private:
                 result.observed_wind_difference_byte,
                 result.first_interbatch_difference_mask,
                 result.first_interbatch_difference_batch,
+                result.failed_envelope.stage_wall_calls,
+                result.failed_batch_result.suppressed_stage_wall_calls,
+                result.failed_envelope.stage_wall_hash,
+                result.failed_batch_result.stage_wall_hash,
+                result.failed_envelope.stage_barrier_calls,
+                result.failed_batch_result.suppressed_stage_barrier_calls,
+                result.failed_envelope.stage_barrier_hash,
+                result.failed_batch_result.stage_barrier_hash,
+                result.failed_envelope.stage_dispatch_calls,
+                result.failed_batch_result.semantic_stage_dispatch_calls,
+                result.failed_envelope.stage_dispatch_hash,
+                result.failed_batch_result.stage_dispatch_hash,
+                result.failed_envelope.stage_signature_failures,
+                result.failed_batch_result.stage_signature_failures,
+                result.failed_envelope.camera_publication_hash,
+                result.failed_batch_result.camera_publication_hash,
+                result.failed_envelope.camera_signature_failures,
+                result.failed_batch_result.camera_signature_failures,
+                result.failed_batch_result.camera_publication_mismatches,
+                result.failed_batch_result.camera_publication_difference_count,
+                result.failed_batch_result.first_camera_publication_difference,
+                result.failed_envelope.camera_publication.yaw_bits,
+                result.failed_batch_result.camera_publication.yaw_bits,
+                result.failed_envelope.camera_publication.mode,
+                result.failed_batch_result.camera_publication.mode,
                 result.failed_envelope.battle_audio_dispatches,
                 result.failed_batch_result.suppressed_audio_calls,
+                result.failed_envelope.battle_audio_sequence_hash,
+                result.failed_batch_result.suppressed_audio_sequence_hash,
                 result.failed_envelope.battle_audio_route_hash,
                 result.failed_batch_result.suppressed_audio_route_hash,
                 result.failed_envelope.battle_audio_payload_hash,
@@ -3926,7 +3989,20 @@ private:
                 result.failed_envelope.battle_audio_source_hash,
                 result.failed_batch_result.suppressed_audio_source_hash,
                 result.failed_envelope.battle_audio_direct_dispatches,
-                result.failed_batch_result.suppressed_audio_calls,
+                result.failed_batch_result.suppressed_audio_direct_dispatches,
+                result.failed_envelope.battle_audio_direct_sequence_hash,
+                result.failed_batch_result.suppressed_audio_direct_sequence_hash,
+                result.failed_envelope.battle_audio_stop_all_calls,
+                result.failed_batch_result.suppressed_audio_stop_all_calls,
+                result.failed_envelope.battle_audio_stop_all_hash,
+                result.failed_batch_result.suppressed_audio_stop_all_hash,
+                result.failed_envelope.particle_spawn_calls,
+                result.failed_batch_result.suppressed_particle_spawn_calls,
+                result.failed_envelope.particle_spawn_hash,
+                result.failed_batch_result.suppressed_particle_spawn_hash,
+                result.failed_batch_result.unknown_particle_routes,
+                result.failed_batch_result.audio_journal_failure_mask,
+                result.failed_batch_result.presentation_failure_mask,
                 result.failed_envelope.battle_audio_remap_entry_mask,
                 result.failed_envelope.battle_audio_remap_entry_values[0],
                 result.failed_envelope.battle_audio_remap_entry_values[1],
@@ -3989,7 +4065,8 @@ private:
         }
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] forced depth-7 qualification {} completed={} "
-            "generation={} frames={}-{} cycle_p99_us={} cycle_max_us={} "
+            "generations={}-{} transitions={} frames={}-{} "
+            "cycle_p99_us={} cycle_max_us={} "
             "capture_samples={} capture_p99_us={} capture_max_us={} "
             "checkpoint_bytes={}->{} batch_entry_bytes={}->{} "
             "forced_history_bytes={}->{} "
@@ -4005,7 +4082,8 @@ private:
             "presentation_terminal_coverage=incomplete\n"),
             qualification.failure == Horse::Deterministic::FailureCode::None
                 ? STR("passed") : STR("failed"),
-            qualification.completed, qualification.generation,
+            qualification.completed, qualification.first_generation,
+            qualification.generation, qualification.generation_transitions,
             qualification.first_frame, qualification.last_frame,
             p99 / 1000, qualification.maximum_ns / 1000,
             capture_performance.total_capture.samples,

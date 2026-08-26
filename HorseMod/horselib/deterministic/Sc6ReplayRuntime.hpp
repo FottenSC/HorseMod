@@ -270,6 +270,8 @@ public:
         const CanonicalHash& expected_final_hash,
         DeterministicHookSet& hooks,
         OwnedCorrectionResult& output) noexcept;
+    [[nodiscard]] Status PreflightOwnedCorrection(
+        FrameCoordinate earliest_changed) const noexcept;
 
 private:
     Status PrepareInitialGeneration(

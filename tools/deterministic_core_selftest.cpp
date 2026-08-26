@@ -731,7 +731,7 @@ void test_presentation_exactly_once()
 {
     PresentationJournal journal{4, 64};
     CountingSink sink;
-    PresentationEvent event{{1, 4}, 3, 44, {std::byte{1}}};
+    PresentationEvent event{{1, 4}, 3, 44, 1, {std::byte{1}}};
     expect(journal.Record(event).ok(), "record presentation event");
     expect(journal.Record(event).ok(), "deduplicate pending presentation event");
     expect(journal.CommitThrough({1, 4}, sink).ok(), "commit presentation event");
@@ -744,7 +744,7 @@ void test_presentation_exactly_once()
     for (std::uint64_t frame = 0; frame < 100; ++frame)
     {
         event.coordinate.frame = frame;
-        event.identity = frame;
+        event.identity = frame + 1;
         expect(bounded.Record(event).ok(), "record after prior event committed");
         expect(bounded.CommitThrough(event.coordinate, bounded_sink).ok(), "commit bounded event");
     }
@@ -769,7 +769,7 @@ void test_callsite_qualified_particle_values()
     PresentationEvent encoded{};
     expect(EncodeParticlePresentation(create, encoded).ok(),
         "encode a qualified static particle route");
-    expect(encoded.payload.size() == Schema::particle_presentation_payload_size
+    expect(encoded.payload_size == Schema::particle_presentation_payload_size
             && encoded.identity == create.event_logical_id,
         "particle encoding uses the generated schema and logical identity");
     ParticlePresentationValue decoded{};

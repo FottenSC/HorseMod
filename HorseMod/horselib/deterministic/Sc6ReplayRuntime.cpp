@@ -937,6 +937,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     envelope.stage_dispatch_hash = observation.stage_dispatch_hash;
     envelope.stage_signature_failures = observation.stage_signature_failures;
     envelope.battle_audio_dispatches = observation.battle_audio_dispatches;
+    envelope.battle_audio_sequence_hash =
+        observation.battle_audio_sequence_hash;
     envelope.battle_audio_route_hash = observation.battle_audio_route_hash;
     envelope.battle_audio_payload_hash = observation.battle_audio_payload_hash;
     envelope.battle_audio_position_hash = observation.battle_audio_position_hash;
@@ -963,6 +965,7 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     envelope.particle_signature_failures =
         observation.particle_signature_failures;
     envelope.camera_publication_hash = observation.camera_publication_hash;
+    envelope.camera_publication = observation.camera_publication;
     envelope.camera_signature_failures =
         observation.camera_signature_failures;
     envelope.battle_audio_remap_entry_values =
@@ -1273,6 +1276,18 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                 || result.camera_publication_hash
                     != envelope->camera_publication_hash))
         {
+            const auto* expected_camera = reinterpret_cast<const std::byte*>(
+                &envelope->camera_publication);
+            const auto* observed_camera = reinterpret_cast<const std::byte*>(
+                &result.camera_publication);
+            for (std::uint32_t index = 0;
+                 index < sizeof(CameraPublicationState); ++index)
+            {
+                if (expected_camera[index] == observed_camera[index]) continue;
+                if (result.first_camera_publication_difference == UINT32_MAX)
+                    result.first_camera_publication_difference = index;
+                ++result.camera_publication_difference_count;
+            }
             ++result.camera_publication_mismatches;
             ++result.presentation_failures;
             result.failure = FailureCode::PresentationFailed;
@@ -1287,6 +1302,16 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                     != envelope->battle_audio_payload_hash
                 || result.suppressed_audio_position_hash
                     != envelope->battle_audio_position_hash
+                || result.suppressed_audio_direct_dispatches
+                    != envelope->battle_audio_direct_dispatches
+                || result.suppressed_audio_direct_sequence_hash
+                    != envelope->battle_audio_direct_sequence_hash
+                || result.suppressed_audio_direct_route_hash
+                    != envelope->battle_audio_direct_route_hash
+                || result.suppressed_audio_direct_payload_hash
+                    != envelope->battle_audio_direct_payload_hash
+                || result.suppressed_audio_direct_position_hash
+                    != envelope->battle_audio_direct_position_hash
                 || result.suppressed_audio_remap_calls
                     != envelope->battle_audio_remap_calls
                 || result.suppressed_audio_remap_hash
@@ -1670,6 +1695,24 @@ bool Sc6ReplayRuntime::GetSeekableRange(
     first = range->first;
     last = range->second;
     return true;
+}
+
+Status Sc6ReplayRuntime::PreflightOwnedCorrection(
+    FrameCoordinate earliest_changed) const noexcept
+{
+    if (timeline_manager_ == 0 || pending_batch_id_ != 0
+        || timeline_status_.failure != FailureCode::None)
+    {
+        return Status::failure(FailureCode::IllegalTransition);
+    }
+    ReplayCorrectionPlan plan{};
+    const SnapshotStore& correction_snapshots =
+        forced_depth7_qualification_enabled_
+        ? forced_qualification_snapshots_
+        : checkpoint_capture_.snapshots(CandidateCheckpointRole::BatchEntry);
+    return PlanReplayCorrection(earliest_changed,
+        timeline_status_.last_coordinate, batch_timeline_,
+        correction_snapshots, Schema::checkpoint_interval - 1, plan);
 }
 
 Status Sc6ReplayRuntime::ExecuteOwnedCorrection(

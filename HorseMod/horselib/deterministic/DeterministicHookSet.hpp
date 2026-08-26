@@ -103,6 +103,7 @@ struct OuterTickObservation
     std::uint64_t particle_spawn_hash{};
     std::uint32_t particle_signature_failures{};
     std::uint64_t camera_publication_hash{};
+    CameraPublicationState camera_publication{};
     std::uint32_t camera_signature_failures{};
     std::array<std::uint8_t, maximum_battle_audio_handlers>
         battle_audio_remap_entry_values{};
@@ -177,6 +178,11 @@ struct OwnedBatchReplayResult
     std::uint32_t suppressed_audio_route_hash{};
     std::uint32_t suppressed_audio_payload_hash{};
     std::uint32_t suppressed_audio_position_hash{};
+    std::uint32_t suppressed_audio_direct_dispatches{};
+    std::uint64_t suppressed_audio_direct_sequence_hash{};
+    std::uint32_t suppressed_audio_direct_route_hash{};
+    std::uint32_t suppressed_audio_direct_payload_hash{};
+    std::uint32_t suppressed_audio_direct_position_hash{};
     std::uint32_t suppressed_audio_remap_calls{};
     std::uint64_t suppressed_audio_remap_hash{};
     std::uint32_t suppressed_audio_source_calls{};
@@ -188,12 +194,17 @@ struct OwnedBatchReplayResult
     std::uint32_t suppressed_particle_finished_binds{};
     std::uint32_t unknown_particle_routes{};
     std::uint64_t camera_publication_hash{};
+    CameraPublicationState camera_publication{};
     std::uint32_t camera_signature_failures{};
     std::uint32_t camera_publication_mismatches{};
+    std::uint32_t camera_publication_difference_count{};
+    std::uint32_t first_camera_publication_difference{UINT32_MAX};
     std::array<std::uint8_t, maximum_battle_audio_handlers>
         suppressed_audio_remap_entry_values{};
     std::uint8_t suppressed_audio_remap_entry_mask{};
     std::uint32_t audio_sequence_mismatches{};
+    std::uint32_t audio_journal_failure_mask{};
+    std::uint32_t presentation_failure_mask{};
     std::uint32_t presentation_failures{};
     bool landing_captured{};
 };
