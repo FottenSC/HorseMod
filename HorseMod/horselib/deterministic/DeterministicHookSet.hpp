@@ -177,6 +177,14 @@ struct DeterministicHookCallbacks
 
 using OwnedBatchLandingCaptureFn = Status (*)(
     void* user, FrameCoordinate coordinate) noexcept;
+using OwnedBatchCoordinateCaptureFn = Status (*)(
+    void* user, FrameCoordinate coordinate, std::uint32_t index) noexcept;
+
+enum class OwnedBatchPresentationMode : std::uint8_t
+{
+    VerifyRecorded,
+    CaptureCorrected,
+};
 
 struct OwnedBatchReplayRequest
 {
@@ -185,10 +193,16 @@ struct OwnedBatchReplayRequest
     const NativeBatchEnvelope* envelope{};
     std::span<const FrameCoordinate> coordinates{};
     std::span<const InputPair> inputs{};
+    std::span<InputPair> corrected_inputs{};
+    OuterTickObservation* corrected_observation{};
     std::uint32_t landing_offset{UINT32_MAX};
     void* landing_user{};
     OwnedBatchLandingCaptureFn capture_landing{};
+    void* coordinate_capture_user{};
+    OwnedBatchCoordinateCaptureFn capture_coordinate{};
     bool suppress_ephemeral_presentation{};
+    OwnedBatchPresentationMode presentation_mode{
+        OwnedBatchPresentationMode::VerifyRecorded};
 };
 
 struct OwnedBatchReplayResult

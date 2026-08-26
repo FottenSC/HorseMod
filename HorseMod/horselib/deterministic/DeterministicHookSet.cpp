@@ -1980,6 +1980,8 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
     OwnedBatchReplayResult& output) noexcept
 {
     output = {};
+    const bool capture_corrected = request.presentation_mode
+        == OwnedBatchPresentationMode::CaptureCorrected;
     constexpr std::uint16_t required_reads =
         Schema::Sc6FrameLayout::required_outer_tick_read_mask;
     if (!installed() || request.battle_manager == 0
@@ -1993,6 +1995,9 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
         || (request.landing_offset != UINT32_MAX
             && (request.landing_offset >= request.coordinates.size()
                 || request.capture_landing == nullptr))
+        || (capture_corrected
+            && (request.corrected_observation == nullptr
+                || request.corrected_inputs.size() != request.inputs.size()))
         || request.envelope->input_generation_changed
         || active_outer_capture_ != nullptr || outer_tick_trampoline_ == 0)
     {
@@ -2005,12 +2010,19 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
                 != request.envelope->entry_coordinate.generation
             || request.coordinates[index].frame
                 != request.envelope->entry_coordinate.frame + index + 1
-            || !request.inputs[index].post_filter_observed
+            || (!capture_corrected
+                && !request.inputs[index].post_filter_observed)
             || !request.inputs[index].source_rows_observed)
         {
             output.failure = FailureCode::IdentityMismatch;
             return Status::failure(output.failure);
         }
+    }
+    if (capture_corrected)
+    {
+        std::copy(request.inputs.begin(), request.inputs.end(),
+            request.corrected_inputs.begin());
+        *request.corrected_observation = {};
     }
 
     // The native input logger publishes the next game round/time between
@@ -2119,7 +2131,7 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
         output.camera_publication = observation.camera_publication;
         output.camera_signature_failures =
             observation.camera_signature_failures;
-        if (output.failure == FailureCode::None
+        if (!capture_corrected && output.failure == FailureCode::None
             && !CompleteBattleAudioJournal(*request.envelope, output))
         {
             ++output.audio_sequence_mismatches;
@@ -2127,7 +2139,7 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
             output.presentation_failure_mask |= 1u << 9;
             output.failure = FailureCode::PresentationFailed;
         }
-        if (output.failure == FailureCode::None
+        if (!capture_corrected && output.failure == FailureCode::None
             && !ConsumeBattleAudioJournal(*request.envelope, output))
         {
             ++output.audio_sequence_mismatches;
@@ -2154,6 +2166,20 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
     {
         output.failure = FailureCode::RestoreVerificationFailed;
         return Status::failure(output.failure);
+    }
+    observation.after = output.after;
+    if (capture_corrected)
+    {
+        if (observation.stage_signature_failures != 0
+            || observation.battle_audio_signature_failures != 0
+            || observation.particle_signature_failures != 0
+            || observation.camera_signature_failures != 0
+            || observation.presentation_order_failures != 0)
+        {
+            output.failure = FailureCode::PresentationFailed;
+            return Status::failure(output.failure);
+        }
+        *request.corrected_observation = observation;
     }
     return Status::success();
 }
@@ -2258,8 +2284,22 @@ void __fastcall DeterministicHookSet::CallbackExecutorDetour(
             auto& execution = *batch->owned;
             const auto index = execution.result->observed_coordinates;
             ++execution.result->filter_invocations;
-            if (index >= execution.request->inputs.size()
-                || after[0]
+            const bool capture_corrected = execution.request->presentation_mode
+                == OwnedBatchPresentationMode::CaptureCorrected;
+            if (index >= execution.request->inputs.size())
+            {
+                execution.result->failure = FailureCode::AdvanceFailed;
+            }
+            else if (capture_corrected)
+            {
+                auto& corrected = execution.request->corrected_inputs[index];
+                corrected.players[0] = before[0];
+                corrected.players[1] = before[1];
+                corrected.post_filter_players[0] = after[0];
+                corrected.post_filter_players[1] = after[1];
+                corrected.post_filter_observed = true;
+            }
+            else if (after[0]
                     != execution.request->inputs[index].post_filter_players[0]
                 || after[1]
                     != execution.request->inputs[index].post_filter_players[1])
@@ -2319,8 +2359,10 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
+        const bool verify = batch->owned->request->presentation_mode
+            == OwnedBatchPresentationMode::VerifyRecorded;
         const auto index = replay.suppressed_stage_wall_calls++;
-        if (!VerifyPresentationOrder(PresentationEventFamily::StageWall,
+        if (verify && !VerifyPresentationOrder(PresentationEventFamily::StageWall,
                 index, envelope, replay, batch->observation,
                 batch->frame_counter_address))
         {
@@ -2328,11 +2370,11 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
             replay.presentation_failure_mask |= 1u << 12;
             replay.failure = FailureCode::PresentationFailed;
         }
-        if (!semantic_ok || index >= envelope.stage_wall_journal_count
+        if (verify && (!semantic_ok || index >= envelope.stage_wall_journal_count
             || envelope.stage_wall_journal[index].payload_size
                 != semantic.payload_size
             || envelope.stage_wall_journal[index].semantic != semantic.semantic
-            || !AppendStageSemantic(semantic, replay.stage_wall_hash))
+            || !AppendStageSemantic(semantic, replay.stage_wall_hash)))
         {
             ++replay.stage_signature_failures;
         }
@@ -2417,8 +2459,10 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
+        const bool verify = batch->owned->request->presentation_mode
+            == OwnedBatchPresentationMode::VerifyRecorded;
         const auto index = replay.suppressed_stage_barrier_calls++;
-        if (!VerifyPresentationOrder(PresentationEventFamily::StageBarrier,
+        if (verify && !VerifyPresentationOrder(PresentationEventFamily::StageBarrier,
                 index, envelope, replay, batch->observation,
                 batch->frame_counter_address))
         {
@@ -2426,11 +2470,11 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
             replay.presentation_failure_mask |= 1u << 12;
             replay.failure = FailureCode::PresentationFailed;
         }
-        if (!semantic_ok || index >= envelope.stage_barrier_journal_count
+        if (verify && (!semantic_ok || index >= envelope.stage_barrier_journal_count
             || envelope.stage_barrier_journal[index].payload_size
                 != semantic.payload_size
             || envelope.stage_barrier_journal[index].semantic != semantic.semantic
-            || !AppendStageSemantic(semantic, replay.stage_barrier_hash))
+            || !AppendStageSemantic(semantic, replay.stage_barrier_hash)))
         {
             ++replay.stage_signature_failures;
         }
@@ -2526,8 +2570,10 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
         {
             auto& replay = *batch->owned->result;
             const auto& envelope = *batch->owned->request->envelope;
+            const bool verify = batch->owned->request->presentation_mode
+                == OwnedBatchPresentationMode::VerifyRecorded;
             const auto index = replay.semantic_stage_dispatch_calls++;
-            if (!VerifyPresentationOrder(PresentationEventFamily::StageDispatch,
+            if (verify && !VerifyPresentationOrder(PresentationEventFamily::StageDispatch,
                     index, envelope, replay, batch->observation,
                     batch->frame_counter_address))
             {
@@ -2535,12 +2581,12 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
                 replay.presentation_failure_mask |= 1u << 12;
                 replay.failure = FailureCode::PresentationFailed;
             }
-            if (!semantic_ok || index >= envelope.stage_dispatch_journal_count
+            if (verify && (!semantic_ok || index >= envelope.stage_dispatch_journal_count
                 || envelope.stage_dispatch_journal[index].payload_size
                     != semantic.payload_size
                 || envelope.stage_dispatch_journal[index].semantic
                     != semantic.semantic
-                || !AppendStageSemantic(semantic, replay.stage_dispatch_hash))
+                || !AppendStageSemantic(semantic, replay.stage_dispatch_hash)))
             {
                 ++replay.stage_signature_failures;
             }
@@ -2576,6 +2622,9 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
     auto* batch = active_outer_capture_;
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
+    const bool capture_corrected = suppress
+        && batch->owned->request->presentation_mode
+            == OwnedBatchPresentationMode::CaptureCorrected;
 
     // Preserve only the verified success/failure contract. A successful owned
     // call returns synthetic token zero; it never exposes an authoritative live
@@ -2583,7 +2632,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
     std::int32_t result = -1;
     std::size_t observed_journal_index = maximum_battle_audio_journal_dispatches;
     std::int32_t expected_success = -1;
-    if (suppress)
+    if (suppress && !capture_corrected)
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
@@ -2707,7 +2756,8 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
         ++replay.audio_sequence_mismatches;
         replay.audio_journal_failure_mask |= 1u << 1;
     }
-    if (!suppress && batch != nullptr && batch->observation != nullptr
+    if ((!suppress || capture_corrected)
+        && batch != nullptr && batch->observation != nullptr
         && observed_journal_index < batch->observation->battle_audio_journal_count)
     {
         batch->observation->battle_audio_journal[observed_journal_index].succeeded
@@ -2758,10 +2808,13 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
     auto* batch = active_outer_capture_;
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
+    const bool capture_corrected = suppress
+        && batch->owned->request->presentation_mode
+            == OwnedBatchPresentationMode::CaptureCorrected;
     const bool mutates_selector = contact_type >= 8 && contact_type <= 11;
     const auto handler_bit = handler_slot < maximum_battle_audio_handlers
         ? std::uint8_t{1} << handler_slot : std::uint8_t{};
-    if (suppress && mutates_selector && handler_bit != 0)
+    if (suppress && !capture_corrected && mutates_selector && handler_bit != 0)
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
@@ -2794,7 +2847,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
     std::int32_t after{};
     bool after_valid = handler != nullptr
         && SafeRead(reinterpret_cast<std::uintptr_t>(handler) + 0x3E0, after);
-    if (batch != nullptr && batch->owned != nullptr)
+    if (batch != nullptr && batch->owned != nullptr && !capture_corrected)
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
@@ -2897,11 +2950,15 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             std::memory_order_acquire);
     auto* batch = active_outer_capture_;
     bool suppress{};
+    bool capture_corrected{};
     std::size_t observed_source_index = maximum_battle_audio_journal_sources;
     if (batch != nullptr && batch->owned != nullptr)
     {
         suppress = batch->owned->request->suppress_ephemeral_presentation;
-        if (suppress)
+        capture_corrected = suppress
+            && batch->owned->request->presentation_mode
+                == OwnedBatchPresentationMode::CaptureCorrected;
+        if (suppress && !capture_corrected)
         {
             auto& replay = *batch->owned->result;
             const auto& envelope = *batch->owned->request->envelope;
@@ -3122,7 +3179,8 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             }
         }
     }
-    else if (batch != nullptr && batch->observation != nullptr)
+    if (batch != nullptr && batch->observation != nullptr
+        && (!suppress || capture_corrected))
     {
         auto& observation = *batch->observation;
         const auto source_index = observation.battle_audio_source_journal_count;
@@ -3164,7 +3222,7 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             batch->observation->battle_audio_signature_failure_mask |= 1u << 8;
         }
     }
-    if (suppress)
+    if (suppress && !capture_corrected)
     {
         callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
         return;
@@ -3397,8 +3455,10 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
+        const bool verify = batch->owned->request->presentation_mode
+            == OwnedBatchPresentationMode::VerifyRecorded;
         const auto index = replay.suppressed_audio_blueprint_calls++;
-        if (!VerifyPresentationOrder(
+        if (verify && !VerifyPresentationOrder(
                 PresentationEventFamily::BattleAudioBlueprint,
                 index, envelope, replay, batch->observation,
                 batch->frame_counter_address))
@@ -3407,7 +3467,8 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
             replay.presentation_failure_mask |= 1u << 12;
             replay.failure = FailureCode::PresentationFailed;
         }
-        if (!captured || index >= envelope.battle_audio_blueprint_journal_count
+        if (verify && (!captured
+            || index >= envelope.battle_audio_blueprint_journal_count
             || envelope.battle_audio_blueprint_journal[index].semantic
                 != semantic.semantic
             || envelope.battle_audio_blueprint_journal[index].handler_slot
@@ -3415,7 +3476,7 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
             || envelope.battle_audio_blueprint_journal[index].direct
                 != semantic.direct
             || !AppendBattleAudioBlueprintSemantic(
-                semantic, replay.suppressed_audio_blueprint_hash))
+                semantic, replay.suppressed_audio_blueprint_hash)))
         {
             ++replay.audio_sequence_mismatches;
             replay.audio_journal_failure_mask |= 1u << 8;
@@ -3526,6 +3587,8 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
+        const bool verify = batch->owned->request->presentation_mode
+            == OwnedBatchPresentationMode::VerifyRecorded;
         const auto owner_slot = ResolveBatchOwnerSlot(owner_identity,
             replay.suppressed_audio_stop_all_owner_identities,
             replay.suppressed_audio_stop_all_owner_identity_count);
@@ -3534,7 +3597,7 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
         const bool semantic_ok = owner_slot
             < replay.suppressed_audio_stop_all_owner_identities.size();
         const auto index = replay.suppressed_audio_stop_all_calls++;
-        if (!VerifyPresentationOrder(
+        if (verify && !VerifyPresentationOrder(
                 PresentationEventFamily::BattleAudioStopAll,
                 index, envelope, replay, batch->observation,
                 batch->frame_counter_address))
@@ -3543,14 +3606,14 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
             replay.presentation_failure_mask |= 1u << 12;
             replay.failure = FailureCode::PresentationFailed;
         }
-        if (!semantic_ok
+        if (verify && (!semantic_ok
             || index >= envelope.battle_audio_stop_all_journal_count
             || envelope.battle_audio_stop_all_journal[index].owner_slot
                 != semantic.owner_slot
             || envelope.battle_audio_stop_all_journal[index].control
                 != semantic.control
             || !AppendBattleAudioStopAllSemantic(
-                semantic, replay.suppressed_audio_stop_all_hash))
+                semantic, replay.suppressed_audio_stop_all_hash)))
         {
             ++replay.audio_sequence_mismatches;
             replay.audio_journal_failure_mask |= 1u << 5;
@@ -3649,8 +3712,10 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
 
     auto& result = *batch->owned->result;
     const auto& envelope = *batch->owned->request->envelope;
+    const bool verify = batch->owned->request->presentation_mode
+        == OwnedBatchPresentationMode::VerifyRecorded;
     const auto index = result.suppressed_particle_spawn_calls++;
-    if (!VerifyPresentationOrder(PresentationEventFamily::ParticleSpawn,
+    if (verify && !VerifyPresentationOrder(PresentationEventFamily::ParticleSpawn,
             index, envelope, result, batch->observation,
             batch->frame_counter_address))
     {
@@ -3658,11 +3723,11 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
         result.presentation_failure_mask |= 1u << 12;
         result.failure = FailureCode::PresentationFailed;
     }
-    const bool sequence_ok = semantic_ok
+    const bool sequence_ok = !verify || (semantic_ok
         && index < envelope.particle_spawn_journal_count
         && envelope.particle_spawn_journal[index].semantic == semantic.semantic
         && AppendParticleSpawnSemantic(
-            semantic, result.suppressed_particle_spawn_hash);
+            semantic, result.suppressed_particle_spawn_hash));
     if (!sequence_ok || route == 0 || route == 4)
     {
         ++result.unknown_particle_routes;
@@ -4010,6 +4075,14 @@ void DeterministicHookSet::EmitFrameFencepost(void* battle_manager) noexcept
                 execution.request->coordinates[index]);
             if (!captured.ok()) execution.result->failure = captured.code;
             else execution.result->landing_captured = true;
+        }
+        if (execution.result->failure == FailureCode::None
+            && execution.request->capture_coordinate != nullptr)
+        {
+            const Status captured = execution.request->capture_coordinate(
+                execution.request->coordinate_capture_user,
+                execution.request->coordinates[index], index);
+            if (!captured.ok()) execution.result->failure = captured.code;
         }
         ++execution.result->observed_coordinates;
         execution.invocations_for_coordinate = 0;
