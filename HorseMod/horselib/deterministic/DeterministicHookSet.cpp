@@ -756,8 +756,11 @@ bool ConsumeBattleAudioJournal(
     for (std::size_t index = 0;
          index < envelope.presentation_order_journal_count; ++index)
     {
-        if (envelope.presentation_order_journal[index].source_offset
-            >= envelope.coordinate_count)
+        const auto source_offset =
+            envelope.presentation_order_journal[index].source_offset;
+        if ((envelope.coordinate_count == 0 && source_offset != 0)
+            || (envelope.coordinate_count != 0
+                && source_offset >= envelope.coordinate_count))
         {
             output.audio_journal_failure_mask |= journal_structure;
             return false;

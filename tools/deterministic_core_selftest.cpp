@@ -566,6 +566,22 @@ void test_native_batch_timeline_is_exact_and_bounded()
             == FailureCode::IdentityMismatch,
         "batch storage rejects presentation outside its native coordinate span");
 
+    NativeBatchTimeline zero_width_timeline{1, 1};
+    NativeBatchEnvelope zero_width = first;
+    zero_width.batch_id = 1;
+    zero_width.entry_coordinate = {1, 2};
+    zero_width.exit_coordinate = zero_width.entry_coordinate;
+    zero_width.native_frame_before = 2;
+    zero_width.native_frame_after = 2;
+    zero_width.coordinate_count = 0;
+    expect(zero_width_timeline.Append(zero_width, {}).ok(),
+        "batch storage accepts offset zero presentation at a zero-width entry");
+    zero_width.presentation_order_journal[0].source_offset = 1;
+    NativeBatchTimeline invalid_zero_width_timeline{1, 1};
+    expect(invalid_zero_width_timeline.Append(zero_width, {}).code
+            == FailureCode::IdentityMismatch,
+        "batch storage rejects nonzero presentation offset in zero-width batch");
+
     NativeBatchTimeline malformed_timeline{1, 1};
     NativeBatchEnvelope malformed{};
     malformed.batch_id = 1;
