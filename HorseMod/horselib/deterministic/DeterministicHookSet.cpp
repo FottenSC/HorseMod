@@ -58,8 +58,6 @@ std::atomic<std::uint64_t>
     DeterministicHookSet::particle_finished_bind_trampoline_global_{};
 std::array<std::atomic<std::uintptr_t>, maximum_battle_audio_handlers>
     DeterministicHookSet::observed_battle_audio_handlers_{};
-std::array<std::atomic<std::uintptr_t>, maximum_battle_audio_owner_slots>
-    DeterministicHookSet::observed_battle_audio_owners_{};
 std::atomic<bool> DeterministicHookSet::battle_audio_handler_overflow_{};
 thread_local DeterministicHookSet::OuterTickCaptureContext*
     DeterministicHookSet::active_outer_capture_{};
@@ -446,10 +444,23 @@ bool AppendBattleAudioStopAllSemantic(
     auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
     hash ^= entry.owner_slot;
     hash *= prime;
-    hash ^= entry.immediate;
+    hash ^= entry.control;
     hash *= prime;
     sequence_hash = hash;
     return true;
+}
+
+template <std::size_t Capacity>
+std::size_t ResolveBatchOwnerSlot(std::uintptr_t identity,
+    std::array<std::uintptr_t, Capacity>& identities,
+    std::uint8_t& count) noexcept
+{
+    if (identity == 0 || count > identities.size()) return Capacity;
+    for (std::size_t index = 0; index < count; ++index)
+        if (identities[index] == identity) return index;
+    if (count >= identities.size()) return Capacity;
+    identities[count] = identity;
+    return count++;
 }
 
 bool AppendBattleAudioSignature(
@@ -738,8 +749,7 @@ bool ConsumeBattleAudioJournal(
          index < envelope.battle_audio_stop_all_journal_count; ++index)
     {
         const auto& entry = envelope.battle_audio_stop_all_journal[index];
-        if (entry.owner_slot >= maximum_battle_audio_owner_slots
-            || entry.immediate > 1)
+        if (entry.owner_slot >= maximum_battle_audio_stop_all_journal_events)
         {
             output.audio_journal_failure_mask |= journal_structure;
             return false;
@@ -3158,41 +3168,22 @@ void __fastcall DeterministicHookSet::BattleAudioAppendCommandDetour(
 }
 
 void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
-    void* active_voice_owner, std::uint8_t immediate) noexcept
+    void* active_voice_owner, std::uint8_t control) noexcept
 {
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
     auto* batch = active_outer_capture_;
-    std::size_t owner_slot = maximum_battle_audio_owner_slots;
-    if (batch != nullptr && active_voice_owner != nullptr)
-    {
-        const auto identity = reinterpret_cast<std::uintptr_t>(
-            active_voice_owner);
-        for (std::size_t index = 0;
-             index < observed_battle_audio_owners_.size(); ++index)
-        {
-            auto& slot = observed_battle_audio_owners_[index];
-            auto observed = slot.load(std::memory_order_acquire);
-            if (observed == identity)
-            {
-                owner_slot = index;
-                break;
-            }
-            if (observed == 0
-                && slot.compare_exchange_strong(observed, identity,
-                    std::memory_order_acq_rel, std::memory_order_acquire))
-            {
-                owner_slot = index;
-                break;
-            }
-        }
-    }
-    const BattleAudioStopAllJournalEntry semantic{
-        static_cast<std::uint8_t>(owner_slot), immediate};
-    const bool semantic_ok = owner_slot < maximum_battle_audio_owner_slots
-        && immediate <= 1;
+    const auto owner_identity = reinterpret_cast<std::uintptr_t>(
+        active_voice_owner);
     if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
+        const auto owner_slot = ResolveBatchOwnerSlot(owner_identity,
+            observation.battle_audio_stop_all_owner_identities,
+            observation.battle_audio_stop_all_owner_identity_count);
+        const BattleAudioStopAllJournalEntry semantic{
+            static_cast<std::uint8_t>(owner_slot), control};
+        const bool semantic_ok =
+            owner_slot < observation.battle_audio_stop_all_owner_identities.size();
         ++observation.battle_audio_stop_all_calls;
         if (!semantic_ok
             || observation.battle_audio_stop_all_journal_count
@@ -3215,13 +3206,20 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
+        const auto owner_slot = ResolveBatchOwnerSlot(owner_identity,
+            replay.suppressed_audio_stop_all_owner_identities,
+            replay.suppressed_audio_stop_all_owner_identity_count);
+        const BattleAudioStopAllJournalEntry semantic{
+            static_cast<std::uint8_t>(owner_slot), control};
+        const bool semantic_ok = owner_slot
+            < replay.suppressed_audio_stop_all_owner_identities.size();
         const auto index = replay.suppressed_audio_stop_all_calls++;
         if (!semantic_ok
             || index >= envelope.battle_audio_stop_all_journal_count
             || envelope.battle_audio_stop_all_journal[index].owner_slot
                 != semantic.owner_slot
-            || envelope.battle_audio_stop_all_journal[index].immediate
-                != semantic.immediate
+            || envelope.battle_audio_stop_all_journal[index].control
+                != semantic.control
             || !AppendBattleAudioStopAllSemantic(
                 semantic, replay.suppressed_audio_stop_all_hash))
         {
@@ -3240,7 +3238,7 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
             : battle_audio_stop_all_trampoline_global_.load(
                 std::memory_order_acquire);
         const auto original = reinterpret_cast<BattleAudioStopAllFn>(trampoline);
-        if (original != nullptr) original(active_voice_owner, immediate);
+        if (original != nullptr) original(active_voice_owner, control);
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
@@ -3850,8 +3848,6 @@ void DeterministicHookSet::ClearState() noexcept
         0, std::memory_order_release);
     for (auto& handler : observed_battle_audio_handlers_)
         handler.store(0, std::memory_order_release);
-    for (auto& owner : observed_battle_audio_owners_)
-        owner.store(0, std::memory_order_release);
     battle_audio_handler_overflow_.store(false, std::memory_order_release);
     rand_iat_slot_ = 0;
     srand_iat_slot_ = 0;

@@ -16,7 +16,6 @@ inline constexpr std::size_t maximum_battle_audio_journal_sources =
 inline constexpr std::size_t maximum_battle_audio_journal_remaps = 8;
 inline constexpr std::size_t maximum_battle_audio_blueprint_journal_events =
     maximum_battle_audio_journal_dispatches;
-inline constexpr std::size_t maximum_battle_audio_owner_slots = 16;
 inline constexpr std::size_t maximum_battle_audio_stop_all_journal_events = 8;
 inline constexpr std::size_t maximum_stage_presentation_journal_events = 8;
 inline constexpr std::size_t maximum_particle_presentation_journal_events = 16;
@@ -66,7 +65,7 @@ struct BattleAudioBlueprintJournalEntry
 struct BattleAudioStopAllJournalEntry
 {
     std::uint8_t owner_slot{};
-    std::uint8_t immediate{};
+    std::uint8_t control{};
 };
 
 // Ordered source-frame values for presentation families whose terminal calls

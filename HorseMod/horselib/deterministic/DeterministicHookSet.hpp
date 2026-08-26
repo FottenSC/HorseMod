@@ -137,6 +137,9 @@ struct OuterTickObservation
     std::uint8_t battle_audio_remap_journal_count{};
     std::uint8_t battle_audio_blueprint_journal_count{};
     std::uint8_t battle_audio_stop_all_journal_count{};
+    std::array<std::uintptr_t, maximum_battle_audio_stop_all_journal_events>
+        battle_audio_stop_all_owner_identities{};
+    std::uint8_t battle_audio_stop_all_owner_identity_count{};
     std::uint8_t stage_wall_journal_count{};
     std::uint8_t stage_barrier_journal_count{};
     std::uint8_t stage_dispatch_journal_count{};
@@ -214,6 +217,9 @@ struct OwnedBatchReplayResult
     std::uint64_t suppressed_audio_stop_all_hash{};
     std::uint32_t suppressed_audio_blueprint_calls{};
     std::uint64_t suppressed_audio_blueprint_hash{};
+    std::array<std::uintptr_t, maximum_battle_audio_stop_all_journal_events>
+        suppressed_audio_stop_all_owner_identities{};
+    std::uint8_t suppressed_audio_stop_all_owner_identity_count{};
     std::uint32_t suppressed_particle_spawn_calls{};
     std::uint64_t suppressed_particle_spawn_hash{};
     std::uint32_t suppressed_particle_finished_binds{};
@@ -354,7 +360,7 @@ private:
     static void __fastcall BattleAudioAppendCommandDetour(
         void* active_voice_owner, void* command_record) noexcept;
     static void __fastcall BattleAudioStopAllDetour(
-        void* active_voice_owner, std::uint8_t immediate) noexcept;
+        void* active_voice_owner, std::uint8_t control) noexcept;
     static void __fastcall BattleAudioAppendParameterDetour(
         void* shared_player, void* parameter_name, float value) noexcept;
     static void* __fastcall ParticleSpawnDetour(void* world_context,
@@ -417,8 +423,6 @@ private:
     static std::atomic<std::uint64_t> particle_finished_bind_trampoline_global_;
     static std::array<std::atomic<std::uintptr_t>,
         maximum_battle_audio_handlers> observed_battle_audio_handlers_;
-    static std::array<std::atomic<std::uintptr_t>,
-        maximum_battle_audio_owner_slots> observed_battle_audio_owners_;
     static std::atomic<bool> battle_audio_handler_overflow_;
     static thread_local OuterTickCaptureContext* active_outer_capture_;
 
