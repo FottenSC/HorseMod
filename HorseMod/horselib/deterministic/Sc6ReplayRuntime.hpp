@@ -61,6 +61,15 @@ struct ReplayTimelineStatus
     std::uint64_t batch_same_input_time_coordinates{};
     std::uint64_t batch_input_generation_changes{};
     std::uint64_t batch_frame_accounting_mismatches{};
+    std::uint64_t observed_stage_wall_calls{};
+    std::uint64_t observed_stage_barrier_calls{};
+    std::uint64_t observed_stage_dispatch_calls{};
+    std::uint64_t observed_battle_audio_dispatches{};
+    std::uint64_t observed_battle_audio_direct_dispatches{};
+    std::uint64_t observed_battle_audio_remap_calls{};
+    std::uint64_t observed_battle_audio_source_calls{};
+    std::uint64_t observed_battle_audio_stop_all_calls{};
+    std::uint64_t observed_particle_spawn_calls{};
     std::uint64_t fp_samples{};
     std::uint64_t fp_control_mismatches{};
     std::uint64_t fp_status_mismatches{};

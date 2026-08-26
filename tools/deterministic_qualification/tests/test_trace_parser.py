@@ -3,9 +3,41 @@ from pathlib import Path
 from tools.deterministic_qualification.trace_parser import (
     capture_log_offset,
     parse_forced_qualification_evidence,
+    parse_replay_seek_evidence,
+    parse_presentation_coverage_evidence,
     wait_for_boot_evidence,
     wait_for_replay_lifecycle_evidence,
 )
+
+
+def test_presentation_coverage_parser_is_source_bound() -> None:
+    text = (
+        "[HorseMod] ctor v1.0 source=" + "a" * 40 + "\n"
+        "[ReplayQualification] presentation source coverage stage_wall=1 "
+        "stage_barrier=2 stage_dispatch=3 audio=4 audio_direct=5 "
+        "audio_remap=6 audio_source=7 audio_stop_all=8 particle_spawn=9\n"
+    )
+    evidence = parse_presentation_coverage_evidence(text)
+    assert evidence is not None
+    assert evidence.stage_barrier == 2
+    assert evidence.audio_stop_all == 8
+    assert evidence.particle_spawn == 9
+
+
+def test_replay_seek_parser_requires_structured_rate_window() -> None:
+    text = (
+        "[HorseMod] ctor v2.0 source=" + "b" * 40 + "\n"
+        "[ReplayQualification] strict seek passed percent=10 target=1025 "
+        "source_end=1575 history_verified=550 live_resumed=120 "
+        "resume_total=670 resim=8 validation_us=4966 resume_window=120 "
+        "resume_elapsed_us=2050000 resume_tick_rate_milli=58536 index=0\n"
+    )
+    evidence = parse_replay_seek_evidence(text)
+    assert len(evidence) == 1
+    assert evidence[0].percentage == 10
+    assert evidence[0].resimulation_coordinates == 8
+    assert evidence[0].resume_window == 120
+    assert evidence[0].resume_tick_rate_milli == 58536
 
 
 def test_forced_qualification_parser_prefers_terminal_failure() -> None:

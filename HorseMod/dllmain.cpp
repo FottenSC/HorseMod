@@ -4849,6 +4849,23 @@ public:
         return true;
     }
 
+    bool GetReplayPresentationCoverage(
+        std::uint64_t* counts, std::size_t count) const noexcept
+    {
+        if (counts == nullptr || count < 9) return false;
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        counts[0] = timeline.observed_stage_wall_calls;
+        counts[1] = timeline.observed_stage_barrier_calls;
+        counts[2] = timeline.observed_stage_dispatch_calls;
+        counts[3] = timeline.observed_battle_audio_dispatches;
+        counts[4] = timeline.observed_battle_audio_direct_dispatches;
+        counts[5] = timeline.observed_battle_audio_remap_calls;
+        counts[6] = timeline.observed_battle_audio_source_calls;
+        counts[7] = timeline.observed_battle_audio_stop_all_calls;
+        counts[8] = timeline.observed_particle_spawn_calls;
+        return timeline.canonical_frames != 0;
+    }
+
     std::uint32_t GetReplaySeekStatus(
         std::uint64_t& target_frame,
         std::uint64_t& source_end_frame,
@@ -9376,5 +9393,13 @@ extern "C"
             && resimulation_coordinates != nullptr
             && mod->GetReplaySeekMetrics(
                 *validation_ns, *resimulation_coordinates);
+    }
+
+    HORSE_MOD_API bool horsemod_get_replay_presentation_coverage(
+        std::uint64_t* counts, std::size_t count)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr
+            && mod->GetReplayPresentationCoverage(counts, count);
     }
 }

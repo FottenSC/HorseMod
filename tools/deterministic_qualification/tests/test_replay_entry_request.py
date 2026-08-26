@@ -5,7 +5,7 @@ import pytest
 from tools.deterministic_qualification.replay_entry import create_request
 
 
-def test_seek_request_uses_bounded_version_three_contract(
+def test_seek_request_uses_bounded_version_four_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
@@ -18,9 +18,11 @@ def test_seek_request_uses_bounded_version_three_contract(
     ).read_text(encoding="utf-8")
 
     assert f"run_id={run_id}\n" in request
-    assert request.startswith("version=3\n")
+    assert request.startswith("version=4\n")
     assert "watch_frames=600\n" in request
-    assert request.endswith("seek_percentages=10,25,50,75\n")
+    assert "seek_percentages=10,25,50,75\n" in request
+    assert "min_resume_tick_rate_milli=58000\n" in request
+    assert request.endswith("resume_tick_window=120\n")
 
 
 def test_seek_request_rejects_endpoint_percentages(

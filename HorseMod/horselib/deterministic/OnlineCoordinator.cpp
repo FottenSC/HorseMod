@@ -544,8 +544,12 @@ Status OnlineCoordinator::handle_gameplay(const TransportMessage& message) noexc
         return Status::success();
     if (coordinate.generation != local_baseline_->generation)
         return Status::failure(FailureCode::GenerationMismatch);
-    for (const OnlineGameplayEvent& queued : gameplay_messages_)
+    for (std::size_t index = 0; index < gameplay_size_; ++index)
     {
+        const auto& slot = gameplay_messages_[
+            (gameplay_head_ + index) % gameplay_messages_.size()];
+        if (!slot) return Status::failure(FailureCode::IdentityMismatch);
+        const OnlineGameplayEvent& queued = *slot;
         if (queued == event) return Status::success();
         if (queued.index() == event.index())
         {
@@ -559,17 +563,27 @@ Status OnlineCoordinator::handle_gameplay(const TransportMessage& message) noexc
             }
         }
     }
-    if (gameplay_messages_.size() >= maximum_queued_gameplay_messages)
+    if (gameplay_size_ >= gameplay_messages_.size())
         return Status::failure(FailureCode::CapacityExceeded);
-    gameplay_messages_.push_back(std::move(event));
+    gameplay_messages_[(gameplay_head_ + gameplay_size_)
+        % gameplay_messages_.size()] = std::move(event);
+    ++gameplay_size_;
     return Status::success();
 }
 
 std::optional<OnlineGameplayEvent> OnlineCoordinator::PopGameplay() noexcept
 {
-    if (gameplay_messages_.empty()) return std::nullopt;
-    OnlineGameplayEvent message = gameplay_messages_.front();
-    gameplay_messages_.pop_front();
+    if (gameplay_size_ == 0) return std::nullopt;
+    auto& slot = gameplay_messages_[gameplay_head_];
+    if (!slot)
+    {
+        fail(FailureCode::IdentityMismatch);
+        return std::nullopt;
+    }
+    OnlineGameplayEvent message = std::move(*slot);
+    slot.reset();
+    gameplay_head_ = (gameplay_head_ + 1) % gameplay_messages_.size();
+    --gameplay_size_;
     return message;
 }
 
@@ -650,7 +664,9 @@ void OnlineCoordinator::try_finish_round_barrier() noexcept
     }
     required_generation_ = local_round_boundary_->next_generation;
     completed_round_boundary_ = local_round_boundary_;
-    gameplay_messages_.clear();
+    for (auto& message : gameplay_messages_) message.reset();
+    gameplay_head_ = 0;
+    gameplay_size_ = 0;
     local_baseline_.reset();
     remote_baseline_.reset();
     local_round_boundary_.reset();
@@ -714,7 +730,9 @@ void OnlineCoordinator::clear_session() noexcept
     remote_baseline_.reset();
     local_round_boundary_.reset();
     remote_round_boundary_.reset();
-    gameplay_messages_.clear();
+    for (auto& message : gameplay_messages_) message.reset();
+    gameplay_head_ = 0;
+    gameplay_size_ = 0;
     peer_hello_received_ = false;
     peer_hello_ack_received_ = false;
     peer_baseline_ack_received_ = false;

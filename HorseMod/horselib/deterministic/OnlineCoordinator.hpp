@@ -4,7 +4,6 @@
 
 #include <array>
 #include <cstdint>
-#include <deque>
 #include <optional>
 #include <variant>
 
@@ -152,7 +151,10 @@ private:
     std::optional<Baseline> remote_baseline_;
     std::optional<RoundBoundary> local_round_boundary_;
     std::optional<RoundBoundary> remote_round_boundary_;
-    std::deque<OnlineGameplayEvent> gameplay_messages_;
+    std::array<std::optional<OnlineGameplayEvent>,
+        maximum_queued_gameplay_messages> gameplay_messages_{};
+    std::size_t gameplay_head_{};
+    std::size_t gameplay_size_{};
     OnlineState state_{OnlineState::Disabled};
     FailureCode failure_{FailureCode::None};
     OnlineFailureDisposition disposition_{OnlineFailureDisposition::None};

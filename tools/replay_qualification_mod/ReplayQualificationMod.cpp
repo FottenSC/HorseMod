@@ -52,6 +52,8 @@ struct Request
     std::filesystem::path replay_path;
     std::uint32_t watch_frames{1};
     std::vector<std::uint32_t> seek_percentages{};
+    std::uint32_t min_resume_tick_rate_milli{58'000};
+    std::uint32_t resume_tick_window{120};
 };
 
 using RequestReplaySeekFn = bool (*)(std::uint64_t);
@@ -62,6 +64,7 @@ using GetReplaySeekableRangeFn = bool (*)(
 using GetReplaySimulationPhaseFn = bool (*)(
     std::int32_t*, std::int32_t*, std::uint32_t*, std::int32_t*);
 using GetReplaySeekMetricsFn = bool (*)(std::uint64_t*, std::uint64_t*);
+using GetReplayPresentationCoverageFn = bool (*)(std::uint64_t*, std::size_t);
 
 bool ResolveHorseModSeekApi(
     RequestReplaySeekFn& request, GetReplaySeekStatusFn& status,
@@ -106,6 +109,27 @@ bool ResolveHorseModSeekApi(
         }
     }
     return false;
+}
+
+GetReplayPresentationCoverageFn ResolveHorseModPresentationCoverageApi() noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+    {
+        return nullptr;
+    }
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate = reinterpret_cast<
+            GetReplayPresentationCoverageFn>(GetProcAddress(modules[index],
+                "horsemod_get_replay_presentation_coverage"));
+        if (candidate != nullptr) return candidate;
+    }
+    return nullptr;
 }
 
 std::filesystem::path QualificationRoot()
@@ -165,9 +189,11 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         }
     }
     if (!stream.eof() || !ValidRunId(fields["run_id"])
-        || (fields["version"] != "2" && fields["version"] != "3")
+        || (fields["version"] != "2" && fields["version"] != "3"
+            && fields["version"] != "4")
         || (fields["version"] == "2" && fields.size() != 4)
-        || (fields["version"] == "3" && fields.size() != 5))
+        || (fields["version"] == "3" && fields.size() != 5)
+        || (fields["version"] == "4" && fields.size() != 7))
     {
         return false;
     }
@@ -182,7 +208,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     }
     catch (...) { return false; }
     std::vector<std::uint32_t> percentages;
-    if (fields["version"] == "3")
+    if (fields["version"] == "3" || fields["version"] == "4")
     {
         std::string_view remaining = fields["seek_percentages"];
         while (!remaining.empty())
@@ -202,8 +228,27 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         }
         if (percentages.empty()) return false;
     }
+    std::uint32_t min_resume_tick_rate_milli = 58'000;
+    std::uint32_t resume_tick_window = 120;
+    if (fields["version"] == "4")
+    {
+        try
+        {
+            const auto rate = std::stoul(fields["min_resume_tick_rate_milli"]);
+            const auto window = std::stoul(fields["resume_tick_window"]);
+            if (rate < 1'000 || rate > 1'000'000
+                || window == 0 || window > 36'000)
+            {
+                return false;
+            }
+            min_resume_tick_rate_milli = static_cast<std::uint32_t>(rate);
+            resume_tick_window = static_cast<std::uint32_t>(window);
+        }
+        catch (...) { return false; }
+    }
     output = {fields["run_id"], std::filesystem::path(replay_path),
-        watch_frames, std::move(percentages)};
+        watch_frames, std::move(percentages), min_resume_tick_rate_milli,
+        resume_tick_window};
     return output.replay_path.is_absolute();
 }
 
@@ -514,6 +559,21 @@ private:
             PollSeekQualification(frame);
             return;
         }
+        const auto get_coverage = ResolveHorseModPresentationCoverageApi();
+        std::array<std::uint64_t, 9> coverage{};
+        if (get_coverage == nullptr
+            || !get_coverage(coverage.data(), coverage.size()))
+        {
+            Fail("horsemod_presentation_coverage_api_unavailable");
+            return;
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] presentation source coverage "
+            "stage_wall={} stage_barrier={} stage_dispatch={} "
+            "audio={} audio_direct={} audio_remap={} audio_source={} "
+            "audio_stop_all={} particle_spawn={}\n"),
+            coverage[0], coverage[1], coverage[2], coverage[3], coverage[4],
+            coverage[5], coverage[6], coverage[7], coverage[8]);
         state_ = State::Launched;
         WriteResult("launch_requested", "none");
         Output::send<LogLevel::Default>(STR(
@@ -554,20 +614,41 @@ private:
             }
             const std::uint64_t live_frames =
                 frame - seek_resume_start_frame_;
-            if (seek_history_verified_ + live_frames
-                < request_.watch_frames)
+            const auto required_live_frames = (std::max)(
+                static_cast<std::uint64_t>(request_.resume_tick_window),
+                request_.watch_frames > seek_history_verified_
+                    ? request_.watch_frames - seek_history_verified_ : 0ull);
+            if (live_frames < required_live_frames)
             {
+                return;
+            }
+            const auto elapsed = std::chrono::steady_clock::now()
+                - seek_resume_started_at_;
+            const auto elapsed_us = std::chrono::duration_cast<
+                std::chrono::microseconds>(elapsed).count();
+            if (elapsed_us <= 0)
+            {
+                Fail("horsemod_seek_resume_clock_invalid");
+                return;
+            }
+            const auto tick_rate_milli = live_frames * 1'000'000'000ull
+                / static_cast<std::uint64_t>(elapsed_us);
+            if (tick_rate_milli < request_.min_resume_tick_rate_milli)
+            {
+                Fail("horsemod_seek_live_resume_too_slow");
                 return;
             }
             Output::send<LogLevel::Default>(STR(
                 "[ReplayQualification] strict seek passed percent={} "
                 "target={} source_end={} history_verified={} "
                 "live_resumed={} resume_total={} resim={} "
-                "validation_us={} index={}\n"),
+                "validation_us={} resume_window={} resume_elapsed_us={} "
+                "resume_tick_rate_milli={} index={}\n"),
                 percentage, requested_seek_target_, seek_completed_source_,
                 seek_history_verified_, live_frames,
                 seek_history_verified_ + live_frames,
                 seek_resimulation_coordinates_, seek_validation_ns_ / 1000,
+                request_.resume_tick_window, elapsed_us, tick_rate_milli,
                 seek_index_);
             ++seek_index_;
             seek_requested_ = false;
@@ -607,32 +688,22 @@ private:
                     Fail("horsemod_seek_resimulation_too_long");
                     return;
                 }
-                if (verified >= request_.watch_frames)
-                {
-                    Output::send<LogLevel::Default>(STR(
-                        "[ReplayQualification] strict seek passed percent={} "
-                        "target={} source_end={} history_verified={} "
-                        "live_resumed=0 resume_total={} resim={} "
-                        "validation_us={} index={}\n"),
-                        percentage, observed_target, source_end, verified,
-                        verified, resimulation_coordinates,
-                        validation_ns / 1000, seek_index_);
-                    ++seek_index_;
-                    seek_requested_ = false;
-                    requested_seek_target_ = 0;
-                    return;
-                }
                 Output::send<LogLevel::Default>(STR(
                     "[ReplayQualification] strict seek historical prefix "
                     "passed percent={} target={} source_end={} verified={} "
-                    "awaiting_live_frames={}\n"),
+                    "awaiting_live_frames={} resume_rate_window={}\n"),
                     percentage, observed_target, source_end, verified,
-                    request_.watch_frames - verified);
+                    (std::max)(
+                        static_cast<std::uint64_t>(request_.resume_tick_window),
+                        request_.watch_frames > verified
+                            ? request_.watch_frames - verified : 0ull),
+                    request_.resume_tick_window);
                 seek_history_verified_ = verified;
                 seek_completed_source_ = source_end;
                 seek_validation_ns_ = validation_ns;
                 seek_resimulation_coordinates_ = resimulation_coordinates;
                 seek_resume_start_frame_ = frame;
+                seek_resume_started_at_ = std::chrono::steady_clock::now();
                 seek_resume_observation_active_ = true;
             }
             return;
@@ -785,6 +856,7 @@ private:
     std::uint64_t seek_validation_ns_{};
     std::uint64_t seek_resimulation_coordinates_{};
     std::uint32_t seek_resume_start_frame_{};
+    std::chrono::steady_clock::time_point seek_resume_started_at_{};
     bool seek_resume_observation_active_{};
     std::uint8_t profile_attempts_{};
 };

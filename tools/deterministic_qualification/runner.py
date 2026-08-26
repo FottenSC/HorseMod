@@ -26,7 +26,9 @@ from .trace_parser import (
     capture_log_offset,
     wait_for_boot_evidence,
     wait_for_forced_qualification_evidence,
+    wait_for_presentation_coverage_evidence,
     wait_for_replay_lifecycle_evidence,
+    wait_for_replay_seek_evidence,
 )
 
 
@@ -125,11 +127,14 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     run_id = ""
     pid: int | None = None
     forced = None
+    seeks = ()
+    presentation_coverage = None
     mods_root = GAME_ROOT / "ue4ss" / "Mods"
     with TemporaryReplayMod(replay_mod, mods_root):
         try:
             run_id = create_request(
-                replay, args.watch_frames, tuple(args.seek_percentages)
+                replay, args.watch_frames, tuple(args.seek_percentages),
+                args.min_resume_tick_rate, args.resume_tick_window,
             )
             log_start = capture_log_offset(args.log)
             launch_game()
@@ -142,6 +147,24 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             lifecycle = wait_for_replay_lifecycle_evidence(
                 args.log, args.timeout, guard, log_start
             )
+            presentation_coverage = wait_for_presentation_coverage_evidence(
+                args.log, args.timeout, guard, log_start
+            )
+            if args.seek_percentages:
+                seeks = wait_for_replay_seek_evidence(
+                    args.log, tuple(args.seek_percentages), args.timeout,
+                    guard, log_start,
+                )
+                for seek in seeks:
+                    if seek.resimulation_coordinates > 29:
+                        raise RuntimeError("strict replay seek exceeded 29 coordinates")
+                    if seek.validation_us > 500_000:
+                        raise RuntimeError("strict replay seek validation exceeded 0.5 seconds")
+                    if seek.resume_window < args.resume_tick_window:
+                        raise RuntimeError("strict replay seek resume window was too short")
+                    if seek.resume_tick_rate_milli < round(
+                            args.min_resume_tick_rate * 1000):
+                        raise RuntimeError("strict replay seek resume rate was too slow")
             if forced_depth7_requested:
                 forced = wait_for_forced_qualification_evidence(
                     args.log, args.timeout, guard, log_start
@@ -204,6 +227,35 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             "launch_requested": True,
             "watch_frames": args.watch_frames,
             "seek_percentages": args.seek_percentages,
+            "min_resume_tick_rate": args.min_resume_tick_rate,
+            "resume_tick_window": args.resume_tick_window,
+            "seeks": [
+                {
+                    "percentage": seek.percentage,
+                    "target": seek.target,
+                    "source_end": seek.source_end,
+                    "history_verified": seek.history_verified,
+                    "live_resumed": seek.live_resumed,
+                    "resume_total": seek.resume_total,
+                    "resimulation_coordinates": seek.resimulation_coordinates,
+                    "validation_us": seek.validation_us,
+                    "resume_window": seek.resume_window,
+                    "resume_elapsed_us": seek.resume_elapsed_us,
+                    "resume_tick_rate": seek.resume_tick_rate_milli / 1000.0,
+                }
+                for seek in seeks
+            ],
+            "presentation_source_coverage": {
+                "stage_wall": presentation_coverage.stage_wall,
+                "stage_barrier": presentation_coverage.stage_barrier,
+                "stage_dispatch": presentation_coverage.stage_dispatch,
+                "audio": presentation_coverage.audio,
+                "audio_direct": presentation_coverage.audio_direct,
+                "audio_remap": presentation_coverage.audio_remap,
+                "audio_source": presentation_coverage.audio_source,
+                "audio_stop_all": presentation_coverage.audio_stop_all,
+                "particle_spawn": presentation_coverage.particle_spawn,
+            },
             "frame_fencepost_observed": True,
             "temporary_mod_removed": True,
             "clean_exit_requested": True,
@@ -265,6 +317,18 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="*",
         default=[],
         help="after the baseline, strictly seek to these percentages in order",
+    )
+    replay.add_argument(
+        "--min-resume-tick-rate",
+        type=float,
+        default=58.0,
+        help="minimum live native replay tick rate after every seek",
+    )
+    replay.add_argument(
+        "--resume-tick-window",
+        type=int,
+        default=120,
+        help="minimum live native-frame window measured after every seek",
     )
     replay.add_argument(
         "--allow-dirty",

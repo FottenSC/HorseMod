@@ -1020,6 +1020,23 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         }
         return Status::success();
     }
+    timeline_status_.observed_stage_wall_calls += observation.stage_wall_calls;
+    timeline_status_.observed_stage_barrier_calls +=
+        observation.stage_barrier_calls;
+    timeline_status_.observed_stage_dispatch_calls +=
+        observation.stage_dispatch_calls;
+    timeline_status_.observed_battle_audio_dispatches +=
+        observation.battle_audio_dispatches;
+    timeline_status_.observed_battle_audio_direct_dispatches +=
+        observation.battle_audio_direct_dispatches;
+    timeline_status_.observed_battle_audio_remap_calls +=
+        observation.battle_audio_remap_calls;
+    timeline_status_.observed_battle_audio_source_calls +=
+        observation.battle_audio_source_calls;
+    timeline_status_.observed_battle_audio_stop_all_calls +=
+        observation.battle_audio_stop_all_calls;
+    timeline_status_.observed_particle_spawn_calls +=
+        observation.particle_spawn_calls;
     const Status stored = batch_timeline_.Append(
         envelope, pending_batch_coordinates_);
     pending_batch_id_ = 0;

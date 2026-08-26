@@ -24,6 +24,23 @@ FORCED_FAILURE_PATTERN = re.compile(
     r"\[HorseMod\] forced depth-7 qualification failed "
     r"completed=(?P<completed>\d+).*status=(?P<status>\S+)"
 )
+REPLAY_SEEK_PATTERN = re.compile(
+    r"\[ReplayQualification\] strict seek passed percent=(?P<percent>\d+) "
+    r"target=(?P<target>\d+) source_end=(?P<source>\d+) "
+    r"history_verified=(?P<history>\d+) live_resumed=(?P<live>\d+) "
+    r"resume_total=(?P<total>\d+) resim=(?P<resim>\d+) "
+    r"validation_us=(?P<validation>\d+) resume_window=(?P<window>\d+) "
+    r"resume_elapsed_us=(?P<elapsed>\d+) "
+    r"resume_tick_rate_milli=(?P<rate>\d+) index=(?P<index>\d+)"
+)
+PRESENTATION_COVERAGE_PATTERN = re.compile(
+    r"\[ReplayQualification\] presentation source coverage "
+    r"stage_wall=(?P<stage_wall>\d+) stage_barrier=(?P<stage_barrier>\d+) "
+    r"stage_dispatch=(?P<stage_dispatch>\d+) audio=(?P<audio>\d+) "
+    r"audio_direct=(?P<audio_direct>\d+) audio_remap=(?P<audio_remap>\d+) "
+    r"audio_source=(?P<audio_source>\d+) audio_stop_all=(?P<audio_stop>\d+) "
+    r"particle_spawn=(?P<particle>\d+)"
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +65,35 @@ class ForcedQualificationEvidence:
     presentation_terminal_coverage: str
     status: str
     line: str
+
+
+@dataclass(frozen=True)
+class ReplaySeekEvidence:
+    percentage: int
+    target: int
+    source_end: int
+    history_verified: int
+    live_resumed: int
+    resume_total: int
+    resimulation_coordinates: int
+    validation_us: int
+    resume_window: int
+    resume_elapsed_us: int
+    resume_tick_rate_milli: int
+    index: int
+
+
+@dataclass(frozen=True)
+class PresentationCoverageEvidence:
+    stage_wall: int
+    stage_barrier: int
+    stage_dispatch: int
+    audio: int
+    audio_direct: int
+    audio_remap: int
+    audio_source: int
+    audio_stop_all: int
+    particle_spawn: int
 
 
 @dataclass(frozen=True)
@@ -163,6 +209,102 @@ def wait_for_replay_lifecycle_evidence(
             return evidence
         time.sleep(0.5)
     raise TimeoutError("replay entry and frame-fencepost evidence did not appear")
+
+
+def parse_replay_seek_evidence(text: str) -> tuple[ReplaySeekEvidence, ...]:
+    source_matches = list(SOURCE_PATTERN.finditer(text))
+    if not source_matches:
+        return ()
+    current_boot = text[source_matches[-1].start():]
+    return tuple(
+        ReplaySeekEvidence(
+            percentage=int(match.group("percent")),
+            target=int(match.group("target")),
+            source_end=int(match.group("source")),
+            history_verified=int(match.group("history")),
+            live_resumed=int(match.group("live")),
+            resume_total=int(match.group("total")),
+            resimulation_coordinates=int(match.group("resim")),
+            validation_us=int(match.group("validation")),
+            resume_window=int(match.group("window")),
+            resume_elapsed_us=int(match.group("elapsed")),
+            resume_tick_rate_milli=int(match.group("rate")),
+            index=int(match.group("index")),
+        )
+        for match in REPLAY_SEEK_PATTERN.finditer(current_boot)
+    )
+
+
+def wait_for_replay_seek_evidence(
+    log_path: Path,
+    expected_percentages: tuple[int, ...],
+    timeout_seconds: float,
+    progress_guard: Callable[[], None] | None = None,
+    start_offset: LogCursor | int = 0,
+) -> tuple[ReplaySeekEvidence, ...]:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if progress_guard is not None:
+            progress_guard()
+        try:
+            evidence = parse_replay_seek_evidence(
+                _read_since(log_path, start_offset)
+            )
+        except OSError:
+            evidence = ()
+        if tuple(item.percentage for item in evidence) == expected_percentages \
+                and tuple(item.index for item in evidence) == tuple(
+                    range(len(expected_percentages))
+                ):
+            return evidence
+        time.sleep(0.25)
+    raise TimeoutError("strict replay seeks did not produce complete ordered evidence")
+
+
+def parse_presentation_coverage_evidence(
+    text: str,
+) -> PresentationCoverageEvidence | None:
+    source_matches = list(SOURCE_PATTERN.finditer(text))
+    if not source_matches:
+        return None
+    current_boot = text[source_matches[-1].start():]
+    matches = list(PRESENTATION_COVERAGE_PATTERN.finditer(current_boot))
+    if not matches:
+        return None
+    match = matches[-1]
+    return PresentationCoverageEvidence(
+        stage_wall=int(match.group("stage_wall")),
+        stage_barrier=int(match.group("stage_barrier")),
+        stage_dispatch=int(match.group("stage_dispatch")),
+        audio=int(match.group("audio")),
+        audio_direct=int(match.group("audio_direct")),
+        audio_remap=int(match.group("audio_remap")),
+        audio_source=int(match.group("audio_source")),
+        audio_stop_all=int(match.group("audio_stop")),
+        particle_spawn=int(match.group("particle")),
+    )
+
+
+def wait_for_presentation_coverage_evidence(
+    log_path: Path,
+    timeout_seconds: float,
+    progress_guard: Callable[[], None] | None = None,
+    start_offset: LogCursor | int = 0,
+) -> PresentationCoverageEvidence:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if progress_guard is not None:
+            progress_guard()
+        try:
+            evidence = parse_presentation_coverage_evidence(
+                _read_since(log_path, start_offset)
+            )
+        except OSError:
+            evidence = None
+        if evidence is not None:
+            return evidence
+        time.sleep(0.25)
+    raise TimeoutError("replay presentation source coverage did not appear")
 
 
 def parse_forced_qualification_evidence(

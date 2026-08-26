@@ -65,6 +65,8 @@ def create_request(
     replay_path: Path,
     watch_frames: int,
     seek_percentages: tuple[int, ...] = (),
+    min_resume_tick_rate: float = 58.0,
+    resume_tick_window: int = 120,
 ) -> str:
     if watch_frames < 1 or watch_frames > 36000:
         raise RuntimeError("watch frames must be between 1 and 36000")
@@ -81,9 +83,15 @@ def create_request(
     for percentage in seek_percentages:
         if percentage <= 0 or percentage >= 100:
             raise RuntimeError("seek percentages must be between 1 and 99")
-    version = 3 if seek_percentages else 2
+    if not 1.0 <= min_resume_tick_rate <= 1000.0:
+        raise RuntimeError("minimum resume tick rate must be between 1 and 1000")
+    if not 1 <= resume_tick_window <= 36000:
+        raise RuntimeError("resume tick window must be between 1 and 36000")
+    version = 4 if seek_percentages else 2
     seek_line = (
         "seek_percentages=" + ",".join(map(str, seek_percentages)) + "\n"
+        f"min_resume_tick_rate_milli={round(min_resume_tick_rate * 1000)}\n"
+        f"resume_tick_window={resume_tick_window}\n"
         if seek_percentages else ""
     )
     temporary.write_text(
