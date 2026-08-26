@@ -451,6 +451,45 @@ bool AppendBattleAudioStopAllSemantic(
 }
 
 template <std::size_t Capacity>
+bool AppendPresentationOrder(PresentationEventFamily family,
+    std::uint32_t family_index,
+    std::array<PresentationOrderEntry, Capacity>& journal,
+    std::uint8_t& count, std::uint64_t& sequence_hash) noexcept
+{
+    if (family_index > UINT8_MAX || count >= journal.size()) return false;
+    const PresentationOrderEntry entry{
+        family, static_cast<std::uint8_t>(family_index)};
+    journal[count++] = entry;
+    constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+    constexpr std::uint64_t prime = 1099511628211ull;
+    auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
+    hash ^= static_cast<std::uint8_t>(entry.family);
+    hash *= prime;
+    hash ^= entry.family_index;
+    hash *= prime;
+    sequence_hash = hash;
+    return true;
+}
+
+bool VerifyPresentationOrder(PresentationEventFamily family,
+    std::uint32_t family_index, const NativeBatchEnvelope& envelope,
+    OwnedBatchReplayResult& replay) noexcept
+{
+    const auto index = replay.suppressed_presentation_order_events++;
+    if (family_index > UINT8_MAX
+        || index >= envelope.presentation_order_journal_count)
+        return false;
+    const auto& expected = envelope.presentation_order_journal[index];
+    if (expected.family != family
+        || expected.family_index != static_cast<std::uint8_t>(family_index))
+        return false;
+    std::array<PresentationOrderEntry, 1> scratch{};
+    std::uint8_t count{};
+    return AppendPresentationOrder(family, family_index, scratch, count,
+        replay.suppressed_presentation_order_hash);
+}
+
+template <std::size_t Capacity>
 std::size_t ResolveBatchOwnerSlot(std::uintptr_t identity,
     std::array<std::uintptr_t, Capacity>& identities,
     std::uint8_t& count) noexcept
@@ -475,11 +514,11 @@ bool AppendBattleAudioSignature(
 }
 
 bool AppendBattleAudioRemapSignature(
-    void* handler, std::int32_t contact_type, std::int32_t before,
+    std::uint8_t handler_slot, std::int32_t contact_type, std::int32_t before,
     std::int32_t result, std::int32_t after,
     std::uint64_t& sequence_hash) noexcept
 {
-    std::array<std::byte, sizeof(std::uintptr_t) + sizeof(std::int32_t) * 4>
+    std::array<std::byte, sizeof(handler_slot) + sizeof(std::int32_t) * 4>
         semantic{};
     auto* cursor = semantic.data();
     const auto append_value = [&cursor](const auto& value) noexcept
@@ -487,8 +526,7 @@ bool AppendBattleAudioRemapSignature(
         std::memcpy(cursor, &value, sizeof(value));
         cursor += sizeof(value);
     };
-    const auto identity = reinterpret_cast<std::uintptr_t>(handler);
-    append_value(identity);
+    append_value(handler_slot);
     append_value(contact_type);
     append_value(before);
     append_value(result);
@@ -608,7 +646,16 @@ bool ConsumeBattleAudioJournal(
         particle_identity = 1u << 6,
         unknown_particle_route = 1u << 7,
         blueprint_identity = 1u << 8,
+        presentation_order_identity = 1u << 9,
     };
+    const auto expected_presentation_order =
+        static_cast<std::size_t>(envelope.battle_audio_dispatches)
+        + envelope.battle_audio_source_calls
+        + envelope.battle_audio_remap_calls
+        + envelope.battle_audio_blueprint_calls
+        + envelope.battle_audio_stop_all_calls
+        + envelope.stage_wall_calls + envelope.stage_barrier_calls
+        + envelope.stage_dispatch_calls + envelope.particle_spawn_calls;
     if (envelope.particle_signature_failures != 0
         || envelope.battle_audio_journal_count
             != envelope.battle_audio_dispatches
@@ -641,7 +688,12 @@ bool ConsumeBattleAudioJournal(
             > envelope.stage_dispatch_journal.size()
         || envelope.particle_spawn_journal_count != envelope.particle_spawn_calls
         || envelope.particle_spawn_journal_count
-            > envelope.particle_spawn_journal.size())
+            > envelope.particle_spawn_journal.size()
+        || envelope.presentation_order_failures != 0
+        || envelope.presentation_order_journal_count
+            != expected_presentation_order
+        || envelope.presentation_order_journal_count
+            > envelope.presentation_order_journal.size())
     {
         output.audio_journal_failure_mask |= journal_structure;
         return false;
@@ -725,7 +777,9 @@ bool ConsumeBattleAudioJournal(
     for (std::size_t index = 0; index < envelope.battle_audio_remap_journal_count;
          ++index)
     {
-        if (!source_remap[index]
+        if (envelope.battle_audio_remap_journal[index].handler_slot
+                >= maximum_battle_audio_handlers
+            || !source_remap[index]
             || !ValidateJournaledBattleAudioRemap(
                 envelope.battle_audio_remap_journal[index]))
         {
@@ -800,6 +854,11 @@ bool ConsumeBattleAudioJournal(
     const bool particle_matches =
         output.suppressed_particle_spawn_calls == envelope.particle_spawn_calls
         && output.suppressed_particle_spawn_hash == envelope.particle_spawn_hash;
+    const bool presentation_order_matches =
+        output.suppressed_presentation_order_events
+            == envelope.presentation_order_journal_count
+        && output.suppressed_presentation_order_hash
+            == envelope.presentation_order_hash;
     if (!dispatch_matches) output.audio_journal_failure_mask |= dispatch_identity;
     if (!direct_matches) output.audio_journal_failure_mask |= direct_identity;
     if (!source_matches) output.audio_journal_failure_mask |= source_identity;
@@ -808,6 +867,8 @@ bool ConsumeBattleAudioJournal(
     if (!blueprint_matches)
         output.audio_journal_failure_mask |= blueprint_identity;
     if (!particle_matches) output.audio_journal_failure_mask |= particle_identity;
+    if (!presentation_order_matches)
+        output.audio_journal_failure_mask |= presentation_order_identity;
     if (output.unknown_particle_routes != 0)
         output.audio_journal_failure_mask |= unknown_particle_route;
     return output.audio_journal_failure_mask == 0;
@@ -1578,22 +1639,16 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
             if (!ValidateJournaledBattleAudioRemap(entry)
                 || entry.contact_type != source_contact_type)
                 return false;
-            std::size_t handler_slot = maximum_battle_audio_handlers;
-            for (std::size_t slot = 0; slot < maximum_battle_audio_handlers; ++slot)
-            {
-                if (observed_battle_audio_handlers_[slot].load(
-                        std::memory_order_acquire) == entry.handler)
-                {
-                    handler_slot = slot;
-                    break;
-                }
-            }
-            if (handler_slot == maximum_battle_audio_handlers) return false;
+            const auto handler_slot = entry.handler_slot;
+            if (handler_slot >= maximum_battle_audio_handlers) return false;
+            const auto handler = observed_battle_audio_handlers_[handler_slot].load(
+                std::memory_order_acquire);
+            if (handler == 0) return false;
             const auto handler_bit = std::uint8_t{1} << handler_slot;
             const bool mutates = entry.contact_type >= 8
                 && entry.contact_type <= 11;
             std::int32_t current{};
-            if (!SafeRead(entry.handler + 0x3E0, current)
+            if (!SafeRead(handler + 0x3E0, current)
                 || current < 0 || current > 1)
                 return false;
             if (mutates
@@ -1607,23 +1662,23 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
                 output.suppressed_audio_remap_entry_values[handler_slot]
                     = static_cast<std::uint8_t>(entry.before);
                 if (current != entry.before
-                    && (!SafeWrite(entry.handler + 0x3E0, entry.before)
-                        || !SafeRead(entry.handler + 0x3E0, current)
+                    && (!SafeWrite(handler + 0x3E0, entry.before)
+                        || !SafeRead(handler + 0x3E0, current)
                         || current != entry.before))
                     return false;
             }
             else if (current != entry.before
-                && (!SafeWrite(entry.handler + 0x3E0, entry.before)
-                    || !SafeRead(entry.handler + 0x3E0, current)
+                && (!SafeWrite(handler + 0x3E0, entry.before)
+                    || !SafeRead(handler + 0x3E0, current)
                     || current != entry.before))
             {
                 return false;
             }
-            if (!SafeWrite(entry.handler + 0x3E0, entry.after)
-                || !SafeRead(entry.handler + 0x3E0, current)
+            if (!SafeWrite(handler + 0x3E0, entry.after)
+                || !SafeRead(handler + 0x3E0, current)
                 || current != entry.after
                 || !AppendBattleAudioRemapSignature(
-                    reinterpret_cast<void*>(entry.handler), entry.contact_type,
+                    entry.handler_slot, entry.contact_type,
                     entry.before, entry.result, entry.after,
                     output.suppressed_audio_remap_hash))
                 return false;
@@ -1716,6 +1771,15 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
     if (!consume_direct_blueprints_until(
             envelope.battle_audio_blueprint_journal_count))
         return false;
+    while (output.suppressed_presentation_order_events
+        < envelope.presentation_order_journal_count)
+    {
+        const auto& entry = envelope.presentation_order_journal[
+            output.suppressed_presentation_order_events];
+        if (!VerifyPresentationOrder(entry.family, entry.family_index,
+                envelope, output))
+            return false;
+    }
     return output.suppressed_audio_remap_calls
             == envelope.battle_audio_remap_journal_count
         && output.suppressed_audio_blueprint_calls
@@ -2120,7 +2184,13 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
     if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
+        const auto family_index = observation.stage_wall_calls;
         ++observation.stage_wall_calls;
+        if (!AppendPresentationOrder(PresentationEventFamily::StageWall,
+                family_index, observation.presentation_order_journal,
+                observation.presentation_order_journal_count,
+                observation.presentation_order_hash))
+            ++observation.presentation_order_failures;
         if (!semantic_ok || !AppendStageSemantic(
                 semantic, observation.stage_wall_hash)
             || observation.stage_wall_journal_count
@@ -2145,6 +2215,13 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
         const auto index = replay.suppressed_stage_wall_calls++;
+        if (!VerifyPresentationOrder(PresentationEventFamily::StageWall,
+                index, envelope, replay))
+        {
+            ++replay.presentation_failures;
+            replay.presentation_failure_mask |= 1u << 12;
+            replay.failure = FailureCode::PresentationFailed;
+        }
         if (!semantic_ok || index >= envelope.stage_wall_journal_count
             || envelope.stage_wall_journal[index].payload_size
                 != semantic.payload_size
@@ -2205,7 +2282,13 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
     if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
+        const auto family_index = observation.stage_barrier_calls;
         ++observation.stage_barrier_calls;
+        if (!AppendPresentationOrder(PresentationEventFamily::StageBarrier,
+                family_index, observation.presentation_order_journal,
+                observation.presentation_order_journal_count,
+                observation.presentation_order_hash))
+            ++observation.presentation_order_failures;
         if (!semantic_ok || !AppendStageSemantic(
                 semantic, observation.stage_barrier_hash)
             || observation.stage_barrier_journal_count
@@ -2230,6 +2313,13 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
         const auto index = replay.suppressed_stage_barrier_calls++;
+        if (!VerifyPresentationOrder(PresentationEventFamily::StageBarrier,
+                index, envelope, replay))
+        {
+            ++replay.presentation_failures;
+            replay.presentation_failure_mask |= 1u << 12;
+            replay.failure = FailureCode::PresentationFailed;
+        }
         if (!semantic_ok || index >= envelope.stage_barrier_journal_count
             || envelope.stage_barrier_journal[index].payload_size
                 != semantic.payload_size
@@ -2288,7 +2378,13 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
     if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
+        const auto family_index = observation.stage_dispatch_calls;
         ++observation.stage_dispatch_calls;
+        if (!AppendPresentationOrder(PresentationEventFamily::StageDispatch,
+                family_index, observation.presentation_order_journal,
+                observation.presentation_order_journal_count,
+                observation.presentation_order_hash))
+            ++observation.presentation_order_failures;
         if (!semantic_ok || !AppendStageSemantic(
                 semantic, observation.stage_dispatch_hash)
             || observation.stage_dispatch_journal_count
@@ -2326,6 +2422,13 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
             auto& replay = *batch->owned->result;
             const auto& envelope = *batch->owned->request->envelope;
             const auto index = replay.semantic_stage_dispatch_calls++;
+            if (!VerifyPresentationOrder(PresentationEventFamily::StageDispatch,
+                    index, envelope, replay))
+            {
+                ++replay.presentation_failures;
+                replay.presentation_failure_mask |= 1u << 12;
+                replay.failure = FailureCode::PresentationFailed;
+            }
             if (!semantic_ok || index >= envelope.stage_dispatch_journal_count
                 || envelope.stage_dispatch_journal[index].payload_size
                     != semantic.payload_size
@@ -2381,6 +2484,14 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
         std::array<std::byte, 18> semantic{};
         const bool direct = active_battle_audio_source_depth == 0;
         const std::size_t index = replay.suppressed_audio_calls;
+        if (!VerifyPresentationOrder(
+                PresentationEventFamily::BattleAudioDispatch,
+                static_cast<std::uint32_t>(index), envelope, replay))
+        {
+            ++replay.presentation_failures;
+            replay.presentation_failure_mask |= 1u << 12;
+            replay.failure = FailureCode::PresentationFailed;
+        }
         const bool captured = CaptureBattleAudioSemantic(
             event_record, alternate_route, semantic);
         if (index >= envelope.battle_audio_journal_count)
@@ -2428,6 +2539,13 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
     else if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
+        const auto family_index = observation.battle_audio_dispatches;
+        if (!AppendPresentationOrder(
+                PresentationEventFamily::BattleAudioDispatch, family_index,
+                observation.presentation_order_journal,
+                observation.presentation_order_journal_count,
+                observation.presentation_order_hash))
+            ++observation.presentation_order_failures;
         if (observation.battle_audio_journal_count
             >= observation.battle_audio_journal.size())
         {
@@ -2575,10 +2693,18 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
         const auto& envelope = *batch->owned->request->envelope;
         const std::size_t index = replay.suppressed_audio_remap_calls;
         const BattleAudioRemapJournalEntry observed{
-            reinterpret_cast<std::uintptr_t>(handler), contact_type,
+            static_cast<std::uint8_t>(handler_slot), contact_type,
             before, result, after};
+        if (!VerifyPresentationOrder(PresentationEventFamily::BattleAudioRemap,
+                static_cast<std::uint32_t>(index), envelope, replay))
+        {
+            ++replay.presentation_failures;
+            replay.presentation_failure_mask |= 1u << 12;
+            replay.failure = FailureCode::PresentationFailed;
+        }
         if (index >= envelope.battle_audio_remap_journal_count
-            || envelope.battle_audio_remap_journal[index].handler != observed.handler
+            || envelope.battle_audio_remap_journal[index].handler_slot
+                != observed.handler_slot
             || envelope.battle_audio_remap_journal[index].contact_type != observed.contact_type
             || envelope.battle_audio_remap_journal[index].before != observed.before
             || envelope.battle_audio_remap_journal[index].result != observed.result
@@ -2597,7 +2723,8 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
                 static_cast<std::uint8_t>(before);
         }
         if (!before_valid || !after_valid
-            || !AppendBattleAudioRemapSignature(handler, contact_type, before,
+            || !AppendBattleAudioRemapSignature(
+                static_cast<std::uint8_t>(handler_slot), contact_type, before,
                 result, after, replay.suppressed_audio_remap_hash))
         {
             replay.audio_journal_failure_mask |= 1u << 4;
@@ -2606,6 +2733,12 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
     else if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
+        const auto family_index = observation.battle_audio_remap_calls;
+        if (!AppendPresentationOrder(PresentationEventFamily::BattleAudioRemap,
+                family_index, observation.presentation_order_journal,
+                observation.presentation_order_journal_count,
+                observation.presentation_order_hash))
+            ++observation.presentation_order_failures;
         if (observation.battle_audio_remap_journal_count
             >= observation.battle_audio_remap_journal.size())
         {
@@ -2616,7 +2749,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
         {
             auto& entry = observation.battle_audio_remap_journal[
                 observation.battle_audio_remap_journal_count++];
-            entry.handler = reinterpret_cast<std::uintptr_t>(handler);
+            entry.handler_slot = static_cast<std::uint8_t>(handler_slot);
             entry.contact_type = contact_type;
             entry.before = before;
             entry.result = result;
@@ -2634,7 +2767,8 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
                 = static_cast<std::uint8_t>(before);
         }
         if (!before_valid || !after_valid
-            || !AppendBattleAudioRemapSignature(handler, contact_type, before,
+            || !AppendBattleAudioRemapSignature(
+                static_cast<std::uint8_t>(handler_slot), contact_type, before,
                 result, after, batch->observation->battle_audio_remap_hash))
         {
             ++batch->observation->battle_audio_signature_failures;
@@ -2681,7 +2815,12 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                 return;
             }
             const auto& source = envelope.battle_audio_source_journal[index];
-            if (source.first_dispatch != replay.suppressed_audio_calls
+            const auto order_begin = replay.suppressed_presentation_order_events;
+            if (source.first_presentation_order != order_begin
+                || !VerifyPresentationOrder(
+                    PresentationEventFamily::BattleAudioSource,
+                    static_cast<std::uint32_t>(index), envelope, replay)
+                || source.first_dispatch != replay.suppressed_audio_calls
                 || source.first_remap != replay.suppressed_audio_remap_calls
                 || source.first_blueprint
                     != replay.suppressed_audio_blueprint_calls)
@@ -2705,6 +2844,9 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                 const auto blueprint_end =
                     static_cast<std::size_t>(source.first_blueprint)
                     + source.blueprint_count;
+                const auto order_end =
+                    static_cast<std::size_t>(source.first_presentation_order)
+                    + source.presentation_order_count;
                 bool span_valid = source.first_dispatch
                         == replay.suppressed_audio_calls
                     && source.first_remap == replay.suppressed_audio_remap_calls
@@ -2713,7 +2855,12 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                     && dispatch_end <= envelope.battle_audio_journal_count
                     && remap_end <= envelope.battle_audio_remap_journal_count
                     && blueprint_end
-                        <= envelope.battle_audio_blueprint_journal_count;
+                        <= envelope.battle_audio_blueprint_journal_count
+                    && source.presentation_order_count != 0
+                    && order_end <= envelope.presentation_order_journal_count
+                    && source.presentation_order_count
+                        == 1u + source.dispatch_count + source.remap_count
+                            + source.blueprint_count;
                 std::int32_t source_contact_type{};
                 std::memcpy(&source_contact_type, semantic.data() + 1,
                     sizeof(source_contact_type));
@@ -2741,7 +2888,7 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                         handler_slot < maximum_battle_audio_handlers
                         ? std::uint8_t{1} << handler_slot : std::uint8_t{};
                     std::int32_t current{};
-                    span_valid = entry.handler == handler_identity
+                    span_valid = entry.handler_slot == handler_slot
                         && entry.contact_type == source_contact_type
                         && ValidateJournaledBattleAudioRemap(entry)
                         && handler_bit != 0
@@ -2783,7 +2930,8 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                         || !SafeWrite(handler_identity + 0x3E0, entry.after)
                         || !SafeRead(handler_identity + 0x3E0, current)
                         || current != entry.after
-                        || !AppendBattleAudioRemapSignature(handler,
+                        || !AppendBattleAudioRemapSignature(
+                            static_cast<std::uint8_t>(handler_slot),
                             entry.contact_type, entry.before, entry.result,
                             entry.after, replay.suppressed_audio_remap_hash))
                     {
@@ -2823,6 +2971,34 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                     if (!span_valid) break;
                     ++replay.suppressed_audio_blueprint_calls;
                 }
+                for (std::size_t order_index =
+                         static_cast<std::size_t>(
+                             source.first_presentation_order) + 1;
+                     span_valid && order_index < order_end; ++order_index)
+                {
+                    const auto& entry =
+                        envelope.presentation_order_journal[order_index];
+                    bool member{};
+                    switch (entry.family)
+                    {
+                    case PresentationEventFamily::BattleAudioDispatch:
+                        member = entry.family_index >= source.first_dispatch
+                            && entry.family_index < dispatch_end;
+                        break;
+                    case PresentationEventFamily::BattleAudioRemap:
+                        member = entry.family_index >= source.first_remap
+                            && entry.family_index < remap_end;
+                        break;
+                    case PresentationEventFamily::BattleAudioBlueprint:
+                        member = entry.family_index >= source.first_blueprint
+                            && entry.family_index < blueprint_end;
+                        break;
+                    default:
+                        break;
+                    }
+                    span_valid = member && VerifyPresentationOrder(entry.family,
+                        entry.family_index, envelope, replay);
+                }
                 if (!span_valid)
                 {
                     ++replay.audio_sequence_mismatches;
@@ -2854,6 +3030,15 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
         else
         {
             auto& source = observation.battle_audio_source_journal[source_index];
+            source.first_presentation_order =
+                observation.presentation_order_journal_count;
+            if (!AppendPresentationOrder(
+                    PresentationEventFamily::BattleAudioSource,
+                    observation.battle_audio_source_calls,
+                    observation.presentation_order_journal,
+                    observation.presentation_order_journal_count,
+                    observation.presentation_order_hash))
+                ++observation.presentation_order_failures;
             source.first_dispatch = observation.battle_audio_journal_count;
             source.first_remap = observation.battle_audio_remap_journal_count;
             source.first_blueprint =
@@ -2896,8 +3081,12 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             const auto blueprint_count =
                 observation.battle_audio_blueprint_journal_count
                 - source.first_blueprint;
+            const auto presentation_order_count =
+                observation.presentation_order_journal_count
+                - source.first_presentation_order;
             if (dispatch_count > UINT8_MAX || remap_count > UINT8_MAX
-                || blueprint_count > UINT8_MAX)
+                || blueprint_count > UINT8_MAX
+                || presentation_order_count > UINT8_MAX)
             {
                 ++observation.battle_audio_signature_failures;
                 observation.battle_audio_signature_failure_mask |= 1u << 9;
@@ -2908,6 +3097,8 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                 source.remap_count = static_cast<std::uint8_t>(remap_count);
                 source.blueprint_count =
                     static_cast<std::uint8_t>(blueprint_count);
+                source.presentation_order_count =
+                    static_cast<std::uint8_t>(presentation_order_count);
             }
         }
     }
@@ -3070,7 +3261,14 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
     if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
+        const auto family_index = observation.battle_audio_blueprint_calls;
         ++observation.battle_audio_blueprint_calls;
+        if (!AppendPresentationOrder(
+                PresentationEventFamily::BattleAudioBlueprint, family_index,
+                observation.presentation_order_journal,
+                observation.presentation_order_journal_count,
+                observation.presentation_order_hash))
+            ++observation.presentation_order_failures;
         if (!captured || observation.battle_audio_blueprint_journal_count
                 >= observation.battle_audio_blueprint_journal.size()
             || !AppendBattleAudioBlueprintSemantic(
@@ -3092,6 +3290,14 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
         const auto index = replay.suppressed_audio_blueprint_calls++;
+        if (!VerifyPresentationOrder(
+                PresentationEventFamily::BattleAudioBlueprint,
+                index, envelope, replay))
+        {
+            ++replay.presentation_failures;
+            replay.presentation_failure_mask |= 1u << 12;
+            replay.failure = FailureCode::PresentationFailed;
+        }
         if (!captured || index >= envelope.battle_audio_blueprint_journal_count
             || envelope.battle_audio_blueprint_journal[index].semantic
                 != semantic.semantic
@@ -3184,7 +3390,14 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
             static_cast<std::uint8_t>(owner_slot), control};
         const bool semantic_ok =
             owner_slot < observation.battle_audio_stop_all_owner_identities.size();
+        const auto family_index = observation.battle_audio_stop_all_calls;
         ++observation.battle_audio_stop_all_calls;
+        if (!AppendPresentationOrder(
+                PresentationEventFamily::BattleAudioStopAll, family_index,
+                observation.presentation_order_journal,
+                observation.presentation_order_journal_count,
+                observation.presentation_order_hash))
+            ++observation.presentation_order_failures;
         if (!semantic_ok
             || observation.battle_audio_stop_all_journal_count
                 >= observation.battle_audio_stop_all_journal.size()
@@ -3214,6 +3427,14 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
         const bool semantic_ok = owner_slot
             < replay.suppressed_audio_stop_all_owner_identities.size();
         const auto index = replay.suppressed_audio_stop_all_calls++;
+        if (!VerifyPresentationOrder(
+                PresentationEventFamily::BattleAudioStopAll,
+                index, envelope, replay))
+        {
+            ++replay.presentation_failures;
+            replay.presentation_failure_mask |= 1u << 12;
+            replay.failure = FailureCode::PresentationFailed;
+        }
         if (!semantic_ok
             || index >= envelope.battle_audio_stop_all_journal_count
             || envelope.battle_audio_stop_all_journal[index].owner_slot
@@ -3285,7 +3506,13 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
     if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
+        const auto family_index = observation.particle_spawn_calls;
         ++observation.particle_spawn_calls;
+        if (!AppendPresentationOrder(PresentationEventFamily::ParticleSpawn,
+                family_index, observation.presentation_order_journal,
+                observation.presentation_order_journal_count,
+                observation.presentation_order_hash))
+            ++observation.presentation_order_failures;
         if (!semantic_ok || !AppendParticleSpawnSemantic(
                 semantic, observation.particle_spawn_hash)
             || observation.particle_spawn_journal_count
@@ -3314,6 +3541,13 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
     auto& result = *batch->owned->result;
     const auto& envelope = *batch->owned->request->envelope;
     const auto index = result.suppressed_particle_spawn_calls++;
+    if (!VerifyPresentationOrder(PresentationEventFamily::ParticleSpawn,
+            index, envelope, result))
+    {
+        ++result.presentation_failures;
+        result.presentation_failure_mask |= 1u << 12;
+        result.failure = FailureCode::PresentationFailed;
+    }
     const bool sequence_ok = semantic_ok
         && index < envelope.particle_spawn_journal_count
         && envelope.particle_spawn_journal[index].semantic == semantic.semantic

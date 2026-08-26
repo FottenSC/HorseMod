@@ -23,7 +23,34 @@ inline constexpr std::size_t maximum_battle_audio_stop_all_journal_events =
     maximum_battle_audio_journal_dispatches;
 inline constexpr std::size_t maximum_stage_presentation_journal_events = 8;
 inline constexpr std::size_t maximum_particle_presentation_journal_events = 16;
+inline constexpr std::size_t maximum_presentation_order_events =
+    maximum_battle_audio_journal_dispatches
+    + maximum_battle_audio_journal_sources
+    + maximum_battle_audio_journal_remaps
+    + maximum_battle_audio_blueprint_journal_events
+    + maximum_battle_audio_stop_all_journal_events
+    + maximum_stage_presentation_journal_events * 3
+    + maximum_particle_presentation_journal_events;
 inline constexpr std::size_t camera_publication_vector_bytes = 0x60;
+
+enum class PresentationEventFamily : std::uint8_t
+{
+    BattleAudioDispatch = 1,
+    BattleAudioSource,
+    BattleAudioRemap,
+    BattleAudioBlueprint,
+    BattleAudioStopAll,
+    StageWall,
+    StageBarrier,
+    StageDispatch,
+    ParticleSpawn,
+};
+
+struct PresentationOrderEntry
+{
+    PresentationEventFamily family{};
+    std::uint8_t family_index{};
+};
 
 struct CameraPublicationState
 {
@@ -42,6 +69,8 @@ struct BattleAudioDispatchJournalEntry
 struct BattleAudioSourceJournalEntry
 {
     std::array<std::byte, 18> semantic{};
+    std::uint8_t first_presentation_order{};
+    std::uint8_t presentation_order_count{};
     std::uint8_t first_dispatch{};
     std::uint8_t dispatch_count{};
     std::uint8_t first_remap{};
@@ -52,7 +81,7 @@ struct BattleAudioSourceJournalEntry
 
 struct BattleAudioRemapJournalEntry
 {
-    std::uintptr_t handler{};
+    std::uint8_t handler_slot{};
     std::int32_t contact_type{};
     std::int32_t before{};
     std::int32_t result{};
@@ -138,6 +167,8 @@ struct NativeBatchEnvelope
     CameraPublicationState camera_publication{};
     NativeCameraSourceFrameImage camera_source_frame{};
     std::uint32_t camera_signature_failures{};
+    std::uint64_t presentation_order_hash{};
+    std::uint32_t presentation_order_failures{};
     std::array<std::uint8_t, maximum_battle_audio_handlers>
         battle_audio_remap_entry_values{};
     std::uint8_t battle_audio_remap_entry_mask{};
@@ -166,6 +197,8 @@ struct NativeBatchEnvelope
         maximum_stage_presentation_journal_events> stage_dispatch_journal{};
     std::array<ParticleSpawnJournalEntry,
         maximum_particle_presentation_journal_events> particle_spawn_journal{};
+    std::array<PresentationOrderEntry, maximum_presentation_order_events>
+        presentation_order_journal{};
     std::uint8_t battle_audio_journal_count{};
     std::uint8_t battle_audio_source_journal_count{};
     std::uint8_t battle_audio_remap_journal_count{};
@@ -175,6 +208,7 @@ struct NativeBatchEnvelope
     std::uint8_t stage_barrier_journal_count{};
     std::uint8_t stage_dispatch_journal_count{};
     std::uint8_t particle_spawn_journal_count{};
+    std::uint8_t presentation_order_journal_count{};
 };
 
 struct NativeBatchCoordinate

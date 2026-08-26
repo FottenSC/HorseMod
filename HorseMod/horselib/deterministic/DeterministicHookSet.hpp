@@ -107,6 +107,8 @@ struct OuterTickObservation
     std::uint64_t camera_publication_hash{};
     CameraPublicationState camera_publication{};
     std::uint32_t camera_signature_failures{};
+    std::uint64_t presentation_order_hash{};
+    std::uint32_t presentation_order_failures{};
     std::array<std::uint8_t, maximum_battle_audio_handlers>
         battle_audio_remap_entry_values{};
     std::uint8_t battle_audio_remap_entry_mask{};
@@ -132,6 +134,8 @@ struct OuterTickObservation
         maximum_stage_presentation_journal_events> stage_dispatch_journal{};
     std::array<ParticleSpawnJournalEntry,
         maximum_particle_presentation_journal_events> particle_spawn_journal{};
+    std::array<PresentationOrderEntry, maximum_presentation_order_events>
+        presentation_order_journal{};
     std::uint8_t battle_audio_journal_count{};
     std::uint8_t battle_audio_source_journal_count{};
     std::uint8_t battle_audio_remap_journal_count{};
@@ -144,6 +148,7 @@ struct OuterTickObservation
     std::uint8_t stage_barrier_journal_count{};
     std::uint8_t stage_dispatch_journal_count{};
     std::uint8_t particle_spawn_journal_count{};
+    std::uint8_t presentation_order_journal_count{};
     std::uint16_t read_mask{};
     bool fp_before_valid{};
     bool fp_after_valid{};
@@ -237,6 +242,8 @@ struct OwnedBatchReplayResult
     std::uint32_t audio_journal_failure_mask{};
     std::uint32_t presentation_failure_mask{};
     std::uint32_t presentation_failures{};
+    std::uint64_t suppressed_presentation_order_hash{};
+    std::uint32_t suppressed_presentation_order_events{};
     bool landing_captured{};
 };
 

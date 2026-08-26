@@ -491,6 +491,15 @@ void test_native_batch_timeline_is_exact_and_bounded()
     first.particle_spawn_journal_count = 1;
     first.particle_spawn_journal[0].semantic[0] = std::byte{3};
     first.particle_spawn_journal[0].semantic[5] = std::byte{0x7f};
+    first.presentation_order_journal_count = 4;
+    first.presentation_order_journal[0] = {
+        PresentationEventFamily::StageWall, 0};
+    first.presentation_order_journal[1] = {
+        PresentationEventFamily::BattleAudioBlueprint, 0};
+    first.presentation_order_journal[2] = {
+        PresentationEventFamily::ParticleSpawn, 0};
+    first.presentation_order_journal[3] = {
+        PresentationEventFamily::BattleAudioStopAll, 0};
     const std::array first_coordinates{
         FrameCoordinate{1, 1}, FrameCoordinate{1, 2}};
     expect(timeline.Append(first, first_coordinates).ok(),
@@ -529,6 +538,23 @@ void test_native_batch_timeline_is_exact_and_bounded()
             && timeline.GetBatch(0)->battle_audio_stop_all_journal[0].control
                 == 1,
         "batch storage preserves pointer-free stop-all owner identity");
+    expect(timeline.GetBatch(0)->presentation_order_journal_count == 4
+            && timeline.GetBatch(0)->presentation_order_journal[1].family
+                == PresentationEventFamily::BattleAudioBlueprint
+            && timeline.GetBatch(0)->presentation_order_journal[2].family
+                == PresentationEventFamily::ParticleSpawn,
+        "batch storage preserves exact cross-family presentation order");
+
+    NativeBatchTimeline duplicate_order_timeline{1, 2};
+    NativeBatchEnvelope duplicate_order = first;
+    duplicate_order.batch_id = 1;
+    duplicate_order.entry_coordinate = {};
+    duplicate_order.exit_coordinate = {1, 2};
+    duplicate_order.presentation_order_journal[3] = {
+        PresentationEventFamily::StageWall, 0};
+    expect(duplicate_order_timeline.Append(duplicate_order, first_coordinates).code
+            == FailureCode::IdentityMismatch,
+        "batch storage rejects duplicate cross-family ordinals");
 
     NativeBatchTimeline malformed_timeline{1, 1};
     NativeBatchEnvelope malformed{};

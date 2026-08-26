@@ -28,7 +28,10 @@ inline constexpr std::size_t replay_checkpoint_memory_budget =
     replay_timeline_memory_limit - replay_input_memory_budget
     - replay_native_batch_memory_budget - replay_canonical_hash_memory_budget;
 inline constexpr std::size_t replay_input_entry_budget = 128;
-inline constexpr std::size_t replay_native_batch_entry_budget = 14336;
+// NativeBatchEnvelope is currently 14,504 bytes after adding the bounded
+// cross-family presentation order journal. Leave a small fixed schema margin;
+// the aggregate native-batch allocation remains capped at 192 MiB.
+inline constexpr std::size_t replay_native_batch_entry_budget = 14848;
 inline constexpr std::size_t replay_native_batch_coordinate_budget = 32;
 inline constexpr std::size_t replay_round_image_size = 0xc0;
 inline constexpr std::uint32_t maximum_replay_round_images = 64;

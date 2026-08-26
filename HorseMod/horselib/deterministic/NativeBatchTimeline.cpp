@@ -154,8 +154,28 @@ bool NativeBatchTimeline::Validate(
     const NativeBatchEnvelope& envelope,
     std::span<const FrameCoordinate> coordinates) const noexcept
 {
+    const auto expected_presentation_order =
+        static_cast<std::size_t>(envelope.battle_audio_dispatches)
+        + envelope.battle_audio_source_calls
+        + envelope.battle_audio_remap_calls
+        + envelope.battle_audio_blueprint_calls
+        + envelope.battle_audio_stop_all_calls
+        + envelope.stage_wall_calls + envelope.stage_barrier_calls
+        + envelope.stage_dispatch_calls + envelope.particle_spawn_calls;
     if (envelope.batch_id == 0
         || envelope.coordinate_count != coordinates.size()
+        || envelope.battle_audio_journal_count
+            != envelope.battle_audio_dispatches
+        || envelope.battle_audio_journal_count
+            > envelope.battle_audio_journal.size()
+        || envelope.battle_audio_source_journal_count
+            != envelope.battle_audio_source_calls
+        || envelope.battle_audio_source_journal_count
+            > envelope.battle_audio_source_journal.size()
+        || envelope.battle_audio_remap_journal_count
+            != envelope.battle_audio_remap_calls
+        || envelope.battle_audio_remap_journal_count
+            > envelope.battle_audio_remap_journal.size()
         || envelope.battle_audio_blueprint_journal_count
             != envelope.battle_audio_blueprint_calls
         || envelope.battle_audio_blueprint_journal_count
@@ -178,10 +198,68 @@ bool NativeBatchTimeline::Validate(
         || envelope.particle_spawn_journal_count
             != envelope.particle_spawn_calls
         || envelope.particle_spawn_journal_count
-            > envelope.particle_spawn_journal.size())
+            > envelope.particle_spawn_journal.size()
+        || envelope.presentation_order_failures != 0
+        || envelope.presentation_order_journal_count
+            != expected_presentation_order
+        || envelope.presentation_order_journal_count
+            > envelope.presentation_order_journal.size())
     {
         return false;
     }
+    std::array<std::uint8_t, 9> next_family_index{};
+    for (std::size_t index = 0;
+         index < envelope.presentation_order_journal_count; ++index)
+    {
+        const auto& entry = envelope.presentation_order_journal[index];
+        const auto family = static_cast<std::uint8_t>(entry.family);
+        if (family == 0 || family > next_family_index.size()
+            || entry.family_index != next_family_index[family - 1]++)
+            return false;
+    }
+    for (std::size_t index = 0;
+         index < envelope.battle_audio_source_journal_count; ++index)
+    {
+        const auto& source = envelope.battle_audio_source_journal[index];
+        const auto begin = static_cast<std::size_t>(
+            source.first_presentation_order);
+        const auto end = begin + source.presentation_order_count;
+        if (source.presentation_order_count == 0
+            || source.presentation_order_count
+                != 1u + source.dispatch_count + source.remap_count
+                    + source.blueprint_count
+            || end > envelope.presentation_order_journal_count
+            || envelope.presentation_order_journal[begin].family
+                != PresentationEventFamily::BattleAudioSource
+            || envelope.presentation_order_journal[begin].family_index != index)
+            return false;
+        for (std::size_t order = begin + 1; order < end; ++order)
+        {
+            const auto& entry = envelope.presentation_order_journal[order];
+            const auto in_range = [](std::uint8_t value, std::uint8_t first,
+                                      std::uint8_t count) noexcept {
+                return value >= first
+                    && static_cast<std::size_t>(value)
+                        < static_cast<std::size_t>(first) + count;
+            };
+            if (!((entry.family == PresentationEventFamily::BattleAudioDispatch
+                        && in_range(entry.family_index, source.first_dispatch,
+                            source.dispatch_count))
+                    || (entry.family == PresentationEventFamily::BattleAudioRemap
+                        && in_range(entry.family_index, source.first_remap,
+                            source.remap_count))
+                    || (entry.family
+                            == PresentationEventFamily::BattleAudioBlueprint
+                        && in_range(entry.family_index, source.first_blueprint,
+                            source.blueprint_count))))
+                return false;
+        }
+    }
+    for (std::size_t index = 0;
+         index < envelope.battle_audio_remap_journal_count; ++index)
+        if (envelope.battle_audio_remap_journal[index].handler_slot
+            >= maximum_battle_audio_handlers)
+            return false;
     if (!batches_.empty()
         && (envelope.batch_id <= batches_.back().batch_id
             || (envelope.entry_coordinate != batches_.back().exit_coordinate
