@@ -435,6 +435,8 @@ private:
         seek_validation_ns_ = 0;
         seek_resimulation_coordinates_ = 0;
         seek_resume_start_frame_ = 0;
+        seek_resume_active_elapsed_us_ = 0;
+        seek_resume_last_round_state_frame_ = 0;
         seek_resume_observation_active_ = false;
         profile_attempts_ = 0;
         next_profile_attempt_ = {};
@@ -599,6 +601,26 @@ private:
         const auto percentage = request_.seek_percentages[seek_index_];
         if (seek_resume_observation_active_)
         {
+            std::int32_t native_round{}, native_time{}, unpause_countdown{};
+            std::uint32_t round_state_frame{};
+            if (!get_phase(&native_round, &native_time, &round_state_frame,
+                    &unpause_countdown))
+            {
+                Fail("horsemod_seek_resume_phase_unavailable");
+                return;
+            }
+            const auto now = std::chrono::steady_clock::now();
+            if (seek_resume_last_active_at_.time_since_epoch().count() != 0
+                && native_round == seek_resume_native_round_
+                && round_state_frame >= seek_resume_last_round_state_frame_)
+            {
+                seek_resume_active_elapsed_us_ +=
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        now - seek_resume_last_active_at_).count();
+            }
+            seek_resume_last_active_at_ = now;
+            seek_resume_native_round_ = native_round;
+            seek_resume_last_round_state_frame_ = round_state_frame;
             std::uint64_t unused_target{}, unused_source{}, unused_verified{};
             std::uint16_t failure{};
             if (get_status(&unused_target, &unused_source, &unused_verified,
@@ -621,10 +643,7 @@ private:
             {
                 return;
             }
-            const auto elapsed = std::chrono::steady_clock::now()
-                - seek_resume_started_at_;
-            const auto elapsed_us = std::chrono::duration_cast<
-                std::chrono::microseconds>(elapsed).count();
+            const auto elapsed_us = seek_resume_active_elapsed_us_;
             if (elapsed_us <= 0)
             {
                 Fail("horsemod_seek_resume_clock_invalid");
@@ -701,7 +720,18 @@ private:
                 seek_validation_ns_ = validation_ns;
                 seek_resimulation_coordinates_ = resimulation_coordinates;
                 seek_resume_start_frame_ = frame;
-                seek_resume_started_at_ = std::chrono::steady_clock::now();
+                seek_resume_active_elapsed_us_ = 0;
+                std::int32_t native_round{}, native_time{}, unpause_countdown{};
+                std::uint32_t round_state_frame{};
+                if (!get_phase(&native_round, &native_time,
+                        &round_state_frame, &unpause_countdown))
+                {
+                    Fail("horsemod_seek_resume_phase_unavailable");
+                    return;
+                }
+                seek_resume_last_active_at_ = std::chrono::steady_clock::now();
+                seek_resume_native_round_ = native_round;
+                seek_resume_last_round_state_frame_ = round_state_frame;
                 seek_resume_observation_active_ = true;
             }
             return;
@@ -854,7 +884,10 @@ private:
     std::uint64_t seek_validation_ns_{};
     std::uint64_t seek_resimulation_coordinates_{};
     std::uint32_t seek_resume_start_frame_{};
-    std::chrono::steady_clock::time_point seek_resume_started_at_{};
+    std::uint64_t seek_resume_active_elapsed_us_{};
+    std::chrono::steady_clock::time_point seek_resume_last_active_at_{};
+    std::int32_t seek_resume_native_round_{};
+    std::uint32_t seek_resume_last_round_state_frame_{};
     bool seek_resume_observation_active_{};
     std::uint8_t profile_attempts_{};
 };
