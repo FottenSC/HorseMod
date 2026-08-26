@@ -214,6 +214,7 @@ bool NativeBatchTimeline::Validate(
         const auto& entry = envelope.presentation_order_journal[index];
         const auto family = static_cast<std::uint8_t>(entry.family);
         if (family == 0 || family > next_family_index.size()
+            || entry.source_offset >= envelope.coordinate_count
             || entry.family_index != next_family_index[family - 1]++)
             return false;
     }

@@ -282,6 +282,7 @@ private:
     struct OuterTickCaptureContext
     {
         OuterTickObservation* observation{};
+        std::uintptr_t frame_counter_address{};
         std::int32_t previous_game_round{};
         std::int32_t previous_game_time{};
         bool has_previous_coordinate{};

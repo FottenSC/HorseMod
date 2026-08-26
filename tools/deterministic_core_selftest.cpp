@@ -556,6 +556,16 @@ void test_native_batch_timeline_is_exact_and_bounded()
             == FailureCode::IdentityMismatch,
         "batch storage rejects duplicate cross-family ordinals");
 
+    NativeBatchTimeline invalid_source_timeline{1, 2};
+    NativeBatchEnvelope invalid_source = first;
+    invalid_source.batch_id = 1;
+    invalid_source.entry_coordinate = {};
+    invalid_source.exit_coordinate = {1, 2};
+    invalid_source.presentation_order_journal[2].source_offset = 2;
+    expect(invalid_source_timeline.Append(invalid_source, first_coordinates).code
+            == FailureCode::IdentityMismatch,
+        "batch storage rejects presentation outside its native coordinate span");
+
     NativeBatchTimeline malformed_timeline{1, 1};
     NativeBatchEnvelope malformed{};
     malformed.batch_id = 1;

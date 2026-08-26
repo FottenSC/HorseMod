@@ -50,6 +50,9 @@ struct PresentationOrderEntry
 {
     PresentationEventFamily family{};
     std::uint8_t family_index{};
+    // Zero-based native coordinate within the enclosing outer batch. The
+    // source FrameCoordinate is entry_coordinate + source_offset + 1.
+    std::uint8_t source_offset{};
 };
 
 struct CameraPublicationState

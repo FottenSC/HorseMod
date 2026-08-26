@@ -452,13 +452,13 @@ bool AppendBattleAudioStopAllSemantic(
 
 template <std::size_t Capacity>
 bool AppendPresentationOrder(PresentationEventFamily family,
-    std::uint32_t family_index,
+    std::uint32_t family_index, std::uint8_t source_offset,
     std::array<PresentationOrderEntry, Capacity>& journal,
     std::uint8_t& count, std::uint64_t& sequence_hash) noexcept
 {
     if (family_index > UINT8_MAX || count >= journal.size()) return false;
     const PresentationOrderEntry entry{
-        family, static_cast<std::uint8_t>(family_index)};
+        family, static_cast<std::uint8_t>(family_index), source_offset};
     journal[count++] = entry;
     constexpr std::uint64_t offset_basis = 14695981039346656037ull;
     constexpr std::uint64_t prime = 1099511628211ull;
@@ -467,25 +467,80 @@ bool AppendPresentationOrder(PresentationEventFamily family,
     hash *= prime;
     hash ^= entry.family_index;
     hash *= prime;
+    hash ^= entry.source_offset;
+    hash *= prime;
     sequence_hash = hash;
     return true;
 }
 
+bool CapturePresentationSourceOffset(
+    const OuterTickObservation* observation,
+    std::uintptr_t frame_counter_address,
+    std::uint8_t& output) noexcept
+{
+    output = 0;
+    if (observation == nullptr || frame_counter_address == 0)
+        return false;
+    std::uint32_t current{};
+    if (!SafeRead(frame_counter_address, current)
+        || current < observation->before.frame_counter)
+        return false;
+    const auto offset = current - observation->before.frame_counter;
+    if (offset >= Schema::maximum_supported_native_batch_width
+        || offset > UINT8_MAX)
+        return false;
+    output = static_cast<std::uint8_t>(offset);
+    return true;
+}
+
+bool AppendObservedPresentationOrder(OuterTickObservation* observation,
+    std::uintptr_t frame_counter_address,
+    PresentationEventFamily family, std::uint32_t family_index) noexcept
+{
+    std::uint8_t source_offset{};
+    if (!CapturePresentationSourceOffset(
+            observation, frame_counter_address, source_offset))
+        return false;
+    return AppendPresentationOrder(family, family_index, source_offset,
+        observation->presentation_order_journal,
+        observation->presentation_order_journal_count,
+        observation->presentation_order_hash);
+}
+
 bool VerifyPresentationOrder(PresentationEventFamily family,
     std::uint32_t family_index, const NativeBatchEnvelope& envelope,
-    OwnedBatchReplayResult& replay) noexcept
+    OwnedBatchReplayResult& replay, const OuterTickObservation* observation,
+    std::uintptr_t frame_counter_address) noexcept
 {
     const auto index = replay.suppressed_presentation_order_events++;
     if (family_index > UINT8_MAX
         || index >= envelope.presentation_order_journal_count)
         return false;
     const auto& expected = envelope.presentation_order_journal[index];
+    std::uint8_t source_offset{};
     if (expected.family != family
-        || expected.family_index != static_cast<std::uint8_t>(family_index))
+        || expected.family_index != static_cast<std::uint8_t>(family_index)
+        || !CapturePresentationSourceOffset(observation,
+            frame_counter_address, source_offset)
+        || expected.source_offset != source_offset)
         return false;
     std::array<PresentationOrderEntry, 1> scratch{};
     std::uint8_t count{};
-    return AppendPresentationOrder(family, family_index, scratch, count,
+    return AppendPresentationOrder(family, family_index, source_offset,
+        scratch, count,
+        replay.suppressed_presentation_order_hash);
+}
+
+bool ReplayExpectedPresentationOrder(const NativeBatchEnvelope& envelope,
+    OwnedBatchReplayResult& replay) noexcept
+{
+    const auto index = replay.suppressed_presentation_order_events++;
+    if (index >= envelope.presentation_order_journal_count) return false;
+    const auto& expected = envelope.presentation_order_journal[index];
+    std::array<PresentationOrderEntry, 1> scratch{};
+    std::uint8_t count{};
+    return AppendPresentationOrder(expected.family, expected.family_index,
+        expected.source_offset, scratch, count,
         replay.suppressed_presentation_order_hash);
 }
 
@@ -697,6 +752,16 @@ bool ConsumeBattleAudioJournal(
     {
         output.audio_journal_failure_mask |= journal_structure;
         return false;
+    }
+    for (std::size_t index = 0;
+         index < envelope.presentation_order_journal_count; ++index)
+    {
+        if (envelope.presentation_order_journal[index].source_offset
+            >= envelope.coordinate_count)
+        {
+            output.audio_journal_failure_mask |= journal_structure;
+            return false;
+        }
     }
     for (std::size_t index = 0;
          index < envelope.battle_audio_journal_count; ++index)
@@ -1774,10 +1839,7 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
     while (output.suppressed_presentation_order_events
         < envelope.presentation_order_journal_count)
     {
-        const auto& entry = envelope.presentation_order_journal[
-            output.suppressed_presentation_order_events];
-        if (!VerifyPresentationOrder(entry.family, entry.family_index,
-                envelope, output))
+        if (!ReplayExpectedPresentationOrder(envelope, output))
             return false;
     }
     return output.suppressed_audio_remap_calls
@@ -1813,6 +1875,9 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
             hooks->callbacks_.user, observation);
     }
     OuterTickCaptureContext capture_context{&observation};
+    if (hooks != nullptr)
+        capture_context.frame_counter_address = hooks->image_base_
+            + Schema::Sc6FrameLayout::frame_counter_rva;
     OuterTickCaptureContext* previous_capture = active_outer_capture_;
     active_outer_capture_ = &capture_context;
     particle_shadow_pool.Reset();
@@ -1996,6 +2061,8 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
     }
     OwnedBatchExecution execution{&request, &output};
     OuterTickCaptureContext capture_context{&observation};
+    capture_context.frame_counter_address = image_base_
+        + Schema::Sc6FrameLayout::frame_counter_rva;
     capture_context.owned = &execution;
     active_outer_capture_ = &capture_context;
     const auto original = reinterpret_cast<OuterTickFn>(outer_tick_trampoline_);
@@ -2186,10 +2253,9 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
         auto& observation = *batch->observation;
         const auto family_index = observation.stage_wall_calls;
         ++observation.stage_wall_calls;
-        if (!AppendPresentationOrder(PresentationEventFamily::StageWall,
-                family_index, observation.presentation_order_journal,
-                observation.presentation_order_journal_count,
-                observation.presentation_order_hash))
+        if (!AppendObservedPresentationOrder(batch->observation,
+                batch->frame_counter_address, PresentationEventFamily::StageWall,
+                family_index))
             ++observation.presentation_order_failures;
         if (!semantic_ok || !AppendStageSemantic(
                 semantic, observation.stage_wall_hash)
@@ -2216,7 +2282,8 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
         const auto& envelope = *batch->owned->request->envelope;
         const auto index = replay.suppressed_stage_wall_calls++;
         if (!VerifyPresentationOrder(PresentationEventFamily::StageWall,
-                index, envelope, replay))
+                index, envelope, replay, batch->observation,
+                batch->frame_counter_address))
         {
             ++replay.presentation_failures;
             replay.presentation_failure_mask |= 1u << 12;
@@ -2284,10 +2351,9 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
         auto& observation = *batch->observation;
         const auto family_index = observation.stage_barrier_calls;
         ++observation.stage_barrier_calls;
-        if (!AppendPresentationOrder(PresentationEventFamily::StageBarrier,
-                family_index, observation.presentation_order_journal,
-                observation.presentation_order_journal_count,
-                observation.presentation_order_hash))
+        if (!AppendObservedPresentationOrder(batch->observation,
+                batch->frame_counter_address,
+                PresentationEventFamily::StageBarrier, family_index))
             ++observation.presentation_order_failures;
         if (!semantic_ok || !AppendStageSemantic(
                 semantic, observation.stage_barrier_hash)
@@ -2314,7 +2380,8 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
         const auto& envelope = *batch->owned->request->envelope;
         const auto index = replay.suppressed_stage_barrier_calls++;
         if (!VerifyPresentationOrder(PresentationEventFamily::StageBarrier,
-                index, envelope, replay))
+                index, envelope, replay, batch->observation,
+                batch->frame_counter_address))
         {
             ++replay.presentation_failures;
             replay.presentation_failure_mask |= 1u << 12;
@@ -2380,10 +2447,9 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
         auto& observation = *batch->observation;
         const auto family_index = observation.stage_dispatch_calls;
         ++observation.stage_dispatch_calls;
-        if (!AppendPresentationOrder(PresentationEventFamily::StageDispatch,
-                family_index, observation.presentation_order_journal,
-                observation.presentation_order_journal_count,
-                observation.presentation_order_hash))
+        if (!AppendObservedPresentationOrder(batch->observation,
+                batch->frame_counter_address,
+                PresentationEventFamily::StageDispatch, family_index))
             ++observation.presentation_order_failures;
         if (!semantic_ok || !AppendStageSemantic(
                 semantic, observation.stage_dispatch_hash)
@@ -2423,7 +2489,8 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
             const auto& envelope = *batch->owned->request->envelope;
             const auto index = replay.semantic_stage_dispatch_calls++;
             if (!VerifyPresentationOrder(PresentationEventFamily::StageDispatch,
-                    index, envelope, replay))
+                    index, envelope, replay, batch->observation,
+                    batch->frame_counter_address))
             {
                 ++replay.presentation_failures;
                 replay.presentation_failure_mask |= 1u << 12;
@@ -2510,7 +2577,8 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
         }
         if (!VerifyPresentationOrder(
                 PresentationEventFamily::BattleAudioDispatch,
-                static_cast<std::uint32_t>(index), envelope, replay))
+                static_cast<std::uint32_t>(index), envelope, replay,
+                batch->observation, batch->frame_counter_address))
         {
             ++replay.presentation_failures;
             replay.presentation_failure_mask |= 1u << 12;
@@ -2542,11 +2610,9 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
     {
         auto& observation = *batch->observation;
         const auto family_index = observation.battle_audio_dispatches;
-        if (!AppendPresentationOrder(
-                PresentationEventFamily::BattleAudioDispatch, family_index,
-                observation.presentation_order_journal,
-                observation.presentation_order_journal_count,
-                observation.presentation_order_hash))
+        if (!AppendObservedPresentationOrder(batch->observation,
+                batch->frame_counter_address,
+                PresentationEventFamily::BattleAudioDispatch, family_index))
             ++observation.presentation_order_failures;
         if (observation.battle_audio_journal_count
             >= observation.battle_audio_journal.size())
@@ -2698,7 +2764,8 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
             static_cast<std::uint8_t>(handler_slot), contact_type,
             before, result, after};
         if (!VerifyPresentationOrder(PresentationEventFamily::BattleAudioRemap,
-                static_cast<std::uint32_t>(index), envelope, replay))
+                static_cast<std::uint32_t>(index), envelope, replay,
+                batch->observation, batch->frame_counter_address))
         {
             ++replay.presentation_failures;
             replay.presentation_failure_mask |= 1u << 12;
@@ -2736,10 +2803,9 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
     {
         auto& observation = *batch->observation;
         const auto family_index = observation.battle_audio_remap_calls;
-        if (!AppendPresentationOrder(PresentationEventFamily::BattleAudioRemap,
-                family_index, observation.presentation_order_journal,
-                observation.presentation_order_journal_count,
-                observation.presentation_order_hash))
+        if (!AppendObservedPresentationOrder(batch->observation,
+                batch->frame_counter_address,
+                PresentationEventFamily::BattleAudioRemap, family_index))
             ++observation.presentation_order_failures;
         if (observation.battle_audio_remap_journal_count
             >= observation.battle_audio_remap_journal.size())
@@ -2823,7 +2889,8 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             if (source.first_presentation_order != order_begin
                 || !VerifyPresentationOrder(
                     PresentationEventFamily::BattleAudioSource,
-                    static_cast<std::uint32_t>(index), envelope, replay)
+                    static_cast<std::uint32_t>(index), envelope, replay,
+                    batch->observation, batch->frame_counter_address)
                 || source.first_dispatch != replay.suppressed_audio_calls
                 || source.first_remap != replay.suppressed_audio_remap_calls
                 || source.first_blueprint
@@ -3002,7 +3069,8 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                         break;
                     }
                     span_valid = member && VerifyPresentationOrder(entry.family,
-                        entry.family_index, envelope, replay);
+                        entry.family_index, envelope, replay,
+                        batch->observation, batch->frame_counter_address);
                 }
                 if (!span_valid)
                 {
@@ -3037,12 +3105,10 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             auto& source = observation.battle_audio_source_journal[source_index];
             source.first_presentation_order =
                 observation.presentation_order_journal_count;
-            if (!AppendPresentationOrder(
+            if (!AppendObservedPresentationOrder(batch->observation,
+                    batch->frame_counter_address,
                     PresentationEventFamily::BattleAudioSource,
-                    observation.battle_audio_source_calls,
-                    observation.presentation_order_journal,
-                    observation.presentation_order_journal_count,
-                    observation.presentation_order_hash))
+                    observation.battle_audio_source_calls))
                 ++observation.presentation_order_failures;
             source.first_dispatch = observation.battle_audio_journal_count;
             source.first_remap = observation.battle_audio_remap_journal_count;
@@ -3268,11 +3334,9 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
         auto& observation = *batch->observation;
         const auto family_index = observation.battle_audio_blueprint_calls;
         ++observation.battle_audio_blueprint_calls;
-        if (!AppendPresentationOrder(
-                PresentationEventFamily::BattleAudioBlueprint, family_index,
-                observation.presentation_order_journal,
-                observation.presentation_order_journal_count,
-                observation.presentation_order_hash))
+        if (!AppendObservedPresentationOrder(batch->observation,
+                batch->frame_counter_address,
+                PresentationEventFamily::BattleAudioBlueprint, family_index))
             ++observation.presentation_order_failures;
         if (!captured || observation.battle_audio_blueprint_journal_count
                 >= observation.battle_audio_blueprint_journal.size()
@@ -3297,7 +3361,8 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
         const auto index = replay.suppressed_audio_blueprint_calls++;
         if (!VerifyPresentationOrder(
                 PresentationEventFamily::BattleAudioBlueprint,
-                index, envelope, replay))
+                index, envelope, replay, batch->observation,
+                batch->frame_counter_address))
         {
             ++replay.presentation_failures;
             replay.presentation_failure_mask |= 1u << 12;
@@ -3397,11 +3462,9 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
             owner_slot < observation.battle_audio_stop_all_owner_identities.size();
         const auto family_index = observation.battle_audio_stop_all_calls;
         ++observation.battle_audio_stop_all_calls;
-        if (!AppendPresentationOrder(
-                PresentationEventFamily::BattleAudioStopAll, family_index,
-                observation.presentation_order_journal,
-                observation.presentation_order_journal_count,
-                observation.presentation_order_hash))
+        if (!AppendObservedPresentationOrder(batch->observation,
+                batch->frame_counter_address,
+                PresentationEventFamily::BattleAudioStopAll, family_index))
             ++observation.presentation_order_failures;
         if (!semantic_ok
             || observation.battle_audio_stop_all_journal_count
@@ -3434,7 +3497,8 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
         const auto index = replay.suppressed_audio_stop_all_calls++;
         if (!VerifyPresentationOrder(
                 PresentationEventFamily::BattleAudioStopAll,
-                index, envelope, replay))
+                index, envelope, replay, batch->observation,
+                batch->frame_counter_address))
         {
             ++replay.presentation_failures;
             replay.presentation_failure_mask |= 1u << 12;
@@ -3513,10 +3577,9 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
         auto& observation = *batch->observation;
         const auto family_index = observation.particle_spawn_calls;
         ++observation.particle_spawn_calls;
-        if (!AppendPresentationOrder(PresentationEventFamily::ParticleSpawn,
-                family_index, observation.presentation_order_journal,
-                observation.presentation_order_journal_count,
-                observation.presentation_order_hash))
+        if (!AppendObservedPresentationOrder(batch->observation,
+                batch->frame_counter_address,
+                PresentationEventFamily::ParticleSpawn, family_index))
             ++observation.presentation_order_failures;
         if (!semantic_ok || !AppendParticleSpawnSemantic(
                 semantic, observation.particle_spawn_hash)
@@ -3547,7 +3610,8 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
     const auto& envelope = *batch->owned->request->envelope;
     const auto index = result.suppressed_particle_spawn_calls++;
     if (!VerifyPresentationOrder(PresentationEventFamily::ParticleSpawn,
-            index, envelope, result))
+            index, envelope, result, batch->observation,
+            batch->frame_counter_address))
     {
         ++result.presentation_failures;
         result.presentation_failure_mask |= 1u << 12;
