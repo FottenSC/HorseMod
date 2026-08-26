@@ -4500,7 +4500,10 @@ private:
         std::uint64_t logged_intervals =
             self->m_native_batch_evidence_logged_intervals.load(
                 std::memory_order_acquire);
-        if (self->m_deterministic_config.trace && completed_intervals != 0
+        // Emit the full diagnostic once. Repeating this synchronous UE4SS log
+        // write inside later 600-frame qualification windows perturbs the very
+        // real-time pacing those windows certify.
+        if (self->m_deterministic_config.trace && completed_intervals == 1
             && completed_intervals > logged_intervals
             && self->m_native_batch_evidence_logged_intervals.compare_exchange_strong(
                 logged_intervals, completed_intervals,
