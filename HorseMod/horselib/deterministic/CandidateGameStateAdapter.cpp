@@ -339,6 +339,14 @@ Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
     CandidateCheckpointImage undo{};
     Status restored = capture_image(undo);
     const bool undo_captured = restored.ok();
+    if (undo_captured)
+    {
+        // Camera component internals are presentation-local and the decoded
+        // peer image leaves them untouched.  Exclude them from the enclosing
+        // undo transaction as well; restoring bytes that this transaction did
+        // not write is both unnecessary and unsafe for live camera objects.
+        undo.native.camera_components = {};
+    }
     if (restored.ok()) restored = restore_image(image);
     if (!restored.ok() && undo_captured && !undo_image(undo))
         restored = Status::failure(FailureCode::UndoFailed);
@@ -469,6 +477,13 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
     // only pointer-free typed state and explicitly admitted value supplements.
     // Battle-audio selector identity is verified against each native-batch
     // envelope during replay, rather than against this coordinate capture.
+    for (std::size_t index = 0;
+         index < expected_image.native.camera_components.size(); ++index)
+    {
+        if (expected_image.native.camera_components[index].present == 0)
+            observed.native.camera_components[index] =
+                expected_image.native.camera_components[index];
+    }
     return observed.native == expected_image.native
             && observed.move_dispatch == expected_image.move_dispatch
             && observed.secondary_events == expected_image.secondary_events

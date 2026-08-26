@@ -200,6 +200,14 @@ struct OwnedCorrectionResult
     std::array<std::uint32_t, 2> first_final_local_difference{
         UINT32_MAX, UINT32_MAX};
     std::array<std::uint32_t, 2> final_local_difference_count{};
+    HgCpuWriteSpan first_final_local_source{};
+    std::uint32_t first_camera_component_slot{UINT32_MAX};
+    std::uint32_t first_camera_component_difference{UINT32_MAX};
+    std::uint32_t camera_component_difference_count{};
+    std::uint8_t expected_camera_component_byte{};
+    std::uint8_t observed_camera_component_byte{};
+    std::uint32_t camera_component_vtable_rva{};
+    std::uint32_t camera_component_writer_rva{};
     HgCpuWriteSpan first_interbatch_local_source{};
     std::array<std::uintptr_t, 2> diagnostic_fighter_roots{};
     std::uintptr_t diagnostic_image_base{};
@@ -276,6 +284,7 @@ public:
 private:
     Status PrepareInitialGeneration(
         const OuterTickObservation& observation) noexcept;
+    Status CapturePendingCameraSource() noexcept;
     void RebaselineAfterIdentityDrift() noexcept;
     static void* ResolveReplayPlayer(void* user) noexcept;
     static void* ResolveBattleManager(void* user) noexcept;
@@ -350,6 +359,7 @@ private:
     std::uint64_t timeline_session_generation_{};
     std::uint64_t pending_batch_id_{};
     FrameCoordinate pending_batch_entry_{};
+    NativeCameraSourceFrameImage pending_camera_source_frame_{};
     std::vector<FrameCoordinate> pending_batch_coordinates_{};
     FrameCoordinate resume_target_{};
     FrameCoordinate resume_source_end_{};

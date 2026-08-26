@@ -1916,12 +1916,17 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
     {
         auto& observation = *batch->observation;
         if (observation.battle_audio_journal_count
-                >= observation.battle_audio_journal.size()
-            || !CaptureBattleAudioSemantic(event_record, alternate_route,
-                observation.battle_audio_journal[
-                    observation.battle_audio_journal_count].semantic))
+            >= observation.battle_audio_journal.size())
         {
             ++observation.battle_audio_signature_failures;
+            observation.battle_audio_signature_failure_mask |= 1u << 0;
+        }
+        else if (!CaptureBattleAudioSemantic(event_record, alternate_route,
+            observation.battle_audio_journal[
+                observation.battle_audio_journal_count].semantic))
+        {
+            ++observation.battle_audio_signature_failures;
+            observation.battle_audio_signature_failure_mask |= 1u << 1;
         }
         else
         {
@@ -1936,7 +1941,10 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
                 batch->observation->battle_audio_route_hash,
                 batch->observation->battle_audio_payload_hash,
                 batch->observation->battle_audio_position_hash))
+        {
             ++batch->observation->battle_audio_signature_failures;
+            batch->observation->battle_audio_signature_failure_mask |= 1u << 2;
+        }
         if (active_battle_audio_source_depth == 0)
         {
             ++batch->observation->battle_audio_direct_dispatches;
@@ -1945,7 +1953,10 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
                     batch->observation->battle_audio_direct_route_hash,
                     batch->observation->battle_audio_direct_payload_hash,
                     batch->observation->battle_audio_direct_position_hash))
+            {
                 ++batch->observation->battle_audio_signature_failures;
+                batch->observation->battle_audio_signature_failure_mask |= 1u << 3;
+            }
         }
     }
     if (!suppress && original != nullptr)
@@ -2046,6 +2057,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
             >= observation.battle_audio_remap_journal.size())
         {
             ++observation.battle_audio_signature_failures;
+            observation.battle_audio_signature_failure_mask |= 1u << 4;
         }
         else
         {
@@ -2073,6 +2085,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
                 result, after, batch->observation->battle_audio_remap_hash))
         {
             ++batch->observation->battle_audio_signature_failures;
+            batch->observation->battle_audio_signature_failure_mask |= 1u << 5;
         }
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -2098,12 +2111,17 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
     {
         auto& observation = *batch->observation;
         if (observation.battle_audio_source_journal_count
-                >= observation.battle_audio_source_journal.size()
-            || !CaptureBattleAudioSourceSemantic(event_record,
-                observation.battle_audio_source_journal[
-                    observation.battle_audio_source_journal_count].semantic))
+            >= observation.battle_audio_source_journal.size())
         {
             ++observation.battle_audio_signature_failures;
+            observation.battle_audio_signature_failure_mask |= 1u << 6;
+        }
+        else if (!CaptureBattleAudioSourceSemantic(event_record,
+            observation.battle_audio_source_journal[
+                observation.battle_audio_source_journal_count].semantic))
+        {
+            ++observation.battle_audio_signature_failures;
+            observation.battle_audio_signature_failure_mask |= 1u << 7;
         }
         else
         {
@@ -2112,7 +2130,10 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
         ++batch->observation->battle_audio_source_calls;
         if (!AppendBattleAudioSourceSignature(event_record,
                 batch->observation->battle_audio_source_hash))
+        {
             ++batch->observation->battle_audio_signature_failures;
+            batch->observation->battle_audio_signature_failure_mask |= 1u << 8;
+        }
     }
     const auto original = reinterpret_cast<BattleAudioContactHandlerFn>(
         trampoline);

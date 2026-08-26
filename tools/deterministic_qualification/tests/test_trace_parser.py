@@ -2,9 +2,39 @@ from pathlib import Path
 
 from tools.deterministic_qualification.trace_parser import (
     capture_log_offset,
+    parse_forced_qualification_evidence,
     wait_for_boot_evidence,
     wait_for_replay_lifecycle_evidence,
 )
+
+
+def test_forced_qualification_parser_prefers_terminal_failure() -> None:
+    text = (
+        "[HorseMod] ctor v2.0 source=" + "b" * 40 + "\n"
+        "[HorseMod] forced depth-7 qualification started generation=6\n"
+        "[HorseMod] forced depth-7 qualification failed completed=367 "
+        "frame=1355 status=presentation_failed primary=presentation_failed\n"
+    )
+    evidence = parse_forced_qualification_evidence(text)
+    assert evidence is not None
+    assert evidence.result == "failed"
+    assert evidence.completed == 367
+    assert evidence.status == "presentation_failed"
+
+
+def test_forced_qualification_parser_requires_exact_summary_fields() -> None:
+    text = (
+        "[HorseMod] ctor v2.0 source=" + "b" * 40 + "\n"
+        "[HorseMod] forced depth-7 qualification passed completed=600 "
+        "generations=6-7 canonical_convergence=exact "
+        "presentation_terminal_coverage=incomplete\n"
+    )
+    evidence = parse_forced_qualification_evidence(text)
+    assert evidence is not None
+    assert evidence.result == "passed"
+    assert evidence.completed == 600
+    assert evidence.canonical_convergence == "exact"
+    assert evidence.presentation_terminal_coverage == "incomplete"
 
 
 def test_waiters_ignore_complete_stale_sessions(tmp_path: Path) -> None:

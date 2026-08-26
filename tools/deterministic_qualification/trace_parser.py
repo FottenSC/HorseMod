@@ -15,6 +15,15 @@ REPLAY_ENTRY_PATTERN = re.compile(
 HOOK_ARMED_TEXT = "[HorseMod] deterministic lifecycle hooks armed"
 HOOK_FAILED_TEXT = "[HorseMod] frame-fencepost runtime proof unavailable"
 FRAME_OBSERVED_TEXT = "[HorseMod] frame-fencepost first observation"
+FORCED_SUMMARY_PATTERN = re.compile(
+    r"\[HorseMod\] forced depth-7 qualification (?P<result>passed|failed) "
+    r"completed=(?P<completed>\d+).*canonical_convergence=(?P<canonical>\S+) "
+    r"presentation_terminal_coverage=(?P<presentation>\S+)"
+)
+FORCED_FAILURE_PATTERN = re.compile(
+    r"\[HorseMod\] forced depth-7 qualification failed "
+    r"completed=(?P<completed>\d+).*status=(?P<status>\S+)"
+)
 
 
 @dataclass(frozen=True)
@@ -29,6 +38,16 @@ class ReplayLifecycleEvidence:
     source_commit: str
     native_import_ready: bool
     frame_observed_line: str
+
+
+@dataclass(frozen=True)
+class ForcedQualificationEvidence:
+    result: str
+    completed: int
+    canonical_convergence: str
+    presentation_terminal_coverage: str
+    status: str
+    line: str
 
 
 @dataclass(frozen=True)
@@ -144,3 +163,55 @@ def wait_for_replay_lifecycle_evidence(
             return evidence
         time.sleep(0.5)
     raise TimeoutError("replay entry and frame-fencepost evidence did not appear")
+
+
+def parse_forced_qualification_evidence(
+    text: str,
+) -> ForcedQualificationEvidence | None:
+    source_matches = list(SOURCE_PATTERN.finditer(text))
+    if not source_matches:
+        return None
+    current_boot = text[source_matches[-1].start():]
+    candidates: list[tuple[int, ForcedQualificationEvidence]] = []
+    for match in FORCED_SUMMARY_PATTERN.finditer(current_boot):
+        candidates.append((match.start(), ForcedQualificationEvidence(
+            result=match.group("result"),
+            completed=int(match.group("completed")),
+            canonical_convergence=match.group("canonical"),
+            presentation_terminal_coverage=match.group("presentation"),
+            status="none" if match.group("result") == "passed"
+                else "qualification_failed",
+            line=match.group(0),
+        )))
+    for match in FORCED_FAILURE_PATTERN.finditer(current_boot):
+        candidates.append((match.start(), ForcedQualificationEvidence(
+            result="failed",
+            completed=int(match.group("completed")),
+            canonical_convergence="not_reached",
+            presentation_terminal_coverage="not_reached",
+            status=match.group("status"),
+            line=match.group(0),
+        )))
+    return max(candidates, key=lambda item: item[0])[1] if candidates else None
+
+
+def wait_for_forced_qualification_evidence(
+    log_path: Path,
+    timeout_seconds: float,
+    progress_guard: Callable[[], None] | None = None,
+    start_offset: LogCursor | int = 0,
+) -> ForcedQualificationEvidence:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if progress_guard is not None:
+            progress_guard()
+        try:
+            evidence = parse_forced_qualification_evidence(
+                _read_since(log_path, start_offset)
+            )
+        except OSError:
+            evidence = None
+        if evidence is not None:
+            return evidence
+        time.sleep(0.25)
+    raise TimeoutError("forced depth-7 qualification did not reach a terminal result")

@@ -3884,6 +3884,8 @@ private:
                 "coordinates={} base={} final={} total_us={} "
                 "diff_mask=0x{:x} local_diff={} local_count={} "
                 "motion_diff={} motion_count={} input_scalars={}@{}={}->{} "
+                "camera_component={}:{} count={} byte={}->{} "
+                "class=0x{:08x}/0x{:08x} "
                 "input_cache={} rng_mask=0x{:x} wind_mask=0x{:x} "
                 "move_dispatch={:016x}/{:016x}->{:016x}/{:016x} "
                 "wind_node={} kind={}->{} semantic={} byte={}->{} "
@@ -3931,6 +3933,13 @@ private:
                 result.first_input_scalar_difference,
                 result.expected_input_scalar_word,
                 result.observed_input_scalar_word,
+                result.first_camera_component_slot,
+                result.first_camera_component_difference,
+                result.camera_component_difference_count,
+                result.expected_camera_component_byte,
+                result.observed_camera_component_byte,
+                result.camera_component_vtable_rva,
+                result.camera_component_writer_rva,
                 result.input_cache_difference_count,
                 result.rng_difference_mask, result.wind_difference_mask,
                 result.expected_move_dispatch[0],
@@ -4019,6 +4028,27 @@ private:
                 result.undo_audio_selector.round_generation,
                 result.failed_batch_result.audio_sequence_mismatches,
                 result.failed_batch_result.presentation_failures);
+            if (result.first_final_local_source.size != 0)
+            {
+                const auto source =
+                    result.first_final_local_source.source_address
+                    + (result.first_final_local_difference[0]
+                        - result.first_final_local_source.stream_offset);
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] forced qualification final HgCpu source "
+                    "address=0x{:x} span_stream={}/{} source_offset={} "
+                    "fighter_offsets={}/{} source_rva=0x{:x}\n"),
+                    source,
+                    result.first_final_local_source.stream_offset,
+                    result.first_final_local_source.size,
+                    result.first_final_local_difference[0]
+                        - result.first_final_local_source.stream_offset,
+                    static_cast<std::int64_t>(source
+                        - result.diagnostic_fighter_roots[0]),
+                    static_cast<std::int64_t>(source
+                        - result.diagnostic_fighter_roots[1]),
+                    source - result.diagnostic_image_base);
+            }
             return;
         }
         qualification.Record(result.total_ns);
@@ -4437,6 +4467,28 @@ private:
             observation);
         if (!status.ok())
         {
+            if (status.code == Horse::Deterministic::FailureCode::PresentationFailed
+                && observation.battle_audio_signature_failures != 0)
+            {
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] authoritative battle-audio capture failed "
+                    "batch={} frame={}->{} failures={} mask=0x{:x} "
+                    "dispatches={} journal={}/{} sources={} source_journal={}/{} "
+                    "remaps={} remap_journal={}/{}\n"),
+                    observation.batch_id, observation.before.frame_counter,
+                    observation.after.frame_counter,
+                    observation.battle_audio_signature_failures,
+                    observation.battle_audio_signature_failure_mask,
+                    observation.battle_audio_dispatches,
+                    observation.battle_audio_journal_count,
+                    observation.battle_audio_journal.size(),
+                    observation.battle_audio_source_calls,
+                    observation.battle_audio_source_journal_count,
+                    observation.battle_audio_source_journal.size(),
+                    observation.battle_audio_remap_calls,
+                    observation.battle_audio_remap_journal_count,
+                    observation.battle_audio_remap_journal.size());
+            }
             self->m_frame_fencepost_failure.store(
                 status.code, std::memory_order_release);
             return;
@@ -4642,6 +4694,27 @@ private:
 
         // This callback runs before Replay PostTick mutates camera, fighters,
         // or the queued world mode. Remove the observed native identity first.
+        auto& qualification = self->m_forced_correction_qualification;
+        if (self->m_deterministic_config.trace
+            && self->m_deterministic_config.forced_depth7_qualification
+            && qualification.active && !qualification.reported)
+        {
+            qualification.failure =
+                Horse::Deterministic::FailureCode::NativeLifecycleEnded;
+            qualification.reported = true;
+            self->m_frame_fencepost_failure.store(
+                qualification.failure, std::memory_order_release);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] forced depth-7 qualification failed "
+                "completed={} target={} generations={}-{} transitions={} "
+                "frames={}-{} awaiting_generation_history={} "
+                "status=native_lifecycle_ended reason=replay_exit\n"),
+                qualification.completed, kForcedQualificationCorrections,
+                qualification.first_generation, qualification.generation,
+                qualification.generation_transitions,
+                qualification.first_frame, qualification.last_frame,
+                qualification.awaiting_generation_history);
+        }
         self->m_frame_fencepost_manager.store(0, std::memory_order_release);
         self->m_frame_fencepost_last_frame.store(0, std::memory_order_release);
         self->m_replay_native_runtime.ObserveReplayExit();

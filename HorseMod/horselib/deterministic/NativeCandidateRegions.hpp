@@ -41,6 +41,7 @@ struct NativeCandidateAddresses
     std::uintptr_t stage_wind_emitter_list{};
     std::uintptr_t pending_hit_record{};
     std::uintptr_t pending_launcher_sync{};
+    std::uintptr_t camera_director{};
     std::uintptr_t camera_action_backing{};
     std::array<std::uintptr_t, 2> fighter_roots{};
     std::uint64_t session_generation{};
@@ -200,6 +201,9 @@ struct NativeSchedulerImage
 };
 
 inline constexpr std::size_t native_camera_action_count = 17;
+inline constexpr std::size_t native_camera_component_count = 16;
+inline constexpr std::size_t native_camera_component_common_bytes = 0x174;
+inline constexpr std::size_t native_camera_component_maximum_derived_bytes = 0x140;
 inline constexpr std::size_t native_stage_wind_emitter_max_count = 16;
 inline constexpr std::size_t native_stage_wind_emitter_state_size = 0xA8;
 
@@ -229,6 +233,54 @@ struct NativeCameraDistanceHistoryImage
         const NativeCameraDistanceHistoryImage&) = default;
 };
 
+enum class NativeCameraComponentSerialization : std::uint8_t
+{
+    None,
+    Base,
+    StateBuffer,
+    State,
+    CharaReference,
+    Attention,
+    Stay,
+    PlayerWatchActive,
+};
+
+// Pointer-free projection of the exact native component serializer fields.
+// PlayerWatchActive is selected by exact vtable, not by serializer writer: its
+// active director clone inherits the base writer while UpdatePlayerWatch owns
+// an additional scalar state machine through +0x2AC.
+struct NativeCameraComponentImage
+{
+    std::array<std::byte, native_camera_component_common_bytes> common{};
+    std::array<std::byte, native_camera_component_maximum_derived_bytes> derived{};
+    std::uint32_t vtable_rva{};
+    std::uint32_t writer_rva{};
+    std::uint16_t derived_size{};
+    std::int8_t tracked_chara_slot{-1};
+    NativeCameraComponentSerialization serialization{
+        NativeCameraComponentSerialization::None};
+    std::uint8_t present{};
+
+    friend bool operator==(
+        const NativeCameraComponentImage&,
+        const NativeCameraComponentImage&) = default;
+};
+
+// Presentation-local source image for the typed camera components consumed by
+// LuxEffectCamera during a native outer batch. It is journaled in the local
+// replay timeline and never enters a peer checkpoint or hash.
+struct NativeCameraSourceFrameImage
+{
+    std::uint64_t session_generation{};
+    std::uint64_t round_generation{};
+    std::array<NativeCameraComponentImage, native_camera_component_count>
+        components{};
+
+    friend bool operator==(
+        const NativeCameraSourceFrameImage&,
+        const NativeCameraSourceFrameImage&) = default;
+};
+
 inline constexpr std::size_t native_move_command_semantic_bytes = 0x2F2C;
 
 struct NativeCandidateImage
@@ -253,6 +305,8 @@ struct NativeCandidateImage
     // and therefore shared-LFSR admission.
     std::array<std::byte, 0x40> vm_freeze_record{};
     NativeStageWindEmitterListImage stage_wind_emitters{};
+    std::array<NativeCameraComponentImage, native_camera_component_count>
+        camera_components{};
     std::array<NativeCameraDistanceHistoryImage, native_camera_action_count>
         camera_distance_history{};
 
@@ -278,6 +332,10 @@ public:
         const NativeCandidateImage& image) noexcept;
     Status RestoreMoveDispatchMasksTransactional(
         const NativeCandidateImage& image) noexcept;
+    Status CaptureCameraSourceFrame(
+        NativeCameraSourceFrameImage& output) noexcept;
+    Status RestoreCameraSourceFrameTransactional(
+        const NativeCameraSourceFrameImage& image) noexcept;
     Status PrepareInputLogTransactional(
         const CanonicalInputDiagnostic& expected,
         const InputPair& input) noexcept;
@@ -308,6 +366,19 @@ private:
 
     struct BoundIdentities
     {
+        struct CameraComponentIdentity
+        {
+            std::uintptr_t object{};
+            std::uintptr_t vtable{};
+            std::uintptr_t writer{};
+            NativeCameraComponentSerialization serialization{
+                NativeCameraComponentSerialization::None};
+
+            friend bool operator==(
+                const CameraComponentIdentity&,
+                const CameraComponentIdentity&) = default;
+        };
+
         std::uintptr_t input_log{};
         std::uintptr_t input_log_class{};
         std::uintptr_t previous_input_array{};
@@ -319,6 +390,8 @@ private:
         std::array<std::uintptr_t, 6> pump{};
         std::array<SubVmIdentity, 2> sub_vms{};
         std::array<std::array<std::uintptr_t, 17>, 2> move_commands{};
+        std::array<CameraComponentIdentity, native_camera_component_count>
+            camera_components{};
         std::array<std::uintptr_t, native_camera_action_count> camera_vtables{};
         std::uintptr_t stage_wind_emitter_sentinel{};
         std::array<std::uintptr_t, native_stage_wind_emitter_max_count>
@@ -341,6 +414,11 @@ private:
     bool identities_match() noexcept;
     bool image_matches_binding(const NativeCandidateImage& image) const noexcept;
     bool capture_unchecked(NativeCandidateImage& output) noexcept;
+    bool capture_camera_component(
+        std::size_t index, NativeCameraComponentImage& output) noexcept;
+    bool write_camera_component(
+        std::size_t index, const NativeCameraComponentImage& image,
+        bool reverse) noexcept;
     bool write_forward(const NativeCandidateImage& image) noexcept;
     bool write_reverse(const NativeCandidateImage& image) noexcept;
 

@@ -25,6 +25,7 @@ from .report import write_report
 from .trace_parser import (
     capture_log_offset,
     wait_for_boot_evidence,
+    wait_for_forced_qualification_evidence,
     wait_for_replay_lifecycle_evidence,
 )
 
@@ -110,6 +111,10 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     schema = required_file(args.schema, "generated schema")
     executable = required_file(args.game_executable, "SoulcaliburVI executable")
     identity = source_identity(ROOT)
+    forced_depth7_requested = any(
+        line.strip().casefold() == "forced_depth7_qualification=true"
+        for line in config.read_text(encoding="utf-8").splitlines()
+    )
     if identity["dirty"] and not args.allow_dirty:
         raise RuntimeError(
             "source tree is dirty; replay-entry evidence would not bind an immutable source state"
@@ -119,6 +124,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
 
     run_id = ""
     pid: int | None = None
+    forced = None
     mods_root = GAME_ROOT / "ue4ss" / "Mods"
     with TemporaryReplayMod(replay_mod, mods_root):
         try:
@@ -136,6 +142,22 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             lifecycle = wait_for_replay_lifecycle_evidence(
                 args.log, args.timeout, guard, log_start
             )
+            if forced_depth7_requested:
+                forced = wait_for_forced_qualification_evidence(
+                    args.log, args.timeout, guard, log_start
+                )
+                if (forced.result != "passed" or forced.completed < 600
+                        or forced.canonical_convergence != "exact"):
+                    raise RuntimeError(
+                        "forced depth-7 qualification failed: "
+                        f"result={forced.result} completed={forced.completed} "
+                        f"status={forced.status}"
+                    )
+                if (args.require_presentation_coverage
+                        and forced.presentation_terminal_coverage != "complete"):
+                    raise RuntimeError(
+                        "forced depth-7 presentation terminal coverage is incomplete"
+                    )
             if boot.source_commit != identity["commit"]:
                 raise RuntimeError(
                     f"deployed HorseMod source {boot.source_commit} does not match HEAD {identity['commit']}"
@@ -185,6 +207,14 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             "frame_fencepost_observed": True,
             "temporary_mod_removed": True,
             "clean_exit_requested": True,
+            "forced_depth7": None if forced is None else {
+                "result": forced.result,
+                "completed": forced.completed,
+                "canonical_convergence": forced.canonical_convergence,
+                "presentation_terminal_coverage":
+                    forced.presentation_terminal_coverage,
+                "status": forced.status,
+            },
         },
     }
     write_report(args.report, report_data)
@@ -240,6 +270,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-dirty",
         action="store_true",
         help="permit explicitly non-certifying diagnostic evidence from a dirty tree",
+    )
+    replay.add_argument(
+        "--require-presentation-coverage",
+        action="store_true",
+        help="require complete forced-qualification presentation terminal coverage",
     )
     replay.set_defaults(handler=run_replay_entry)
     return parser

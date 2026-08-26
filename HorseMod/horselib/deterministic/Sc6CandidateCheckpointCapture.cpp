@@ -423,6 +423,7 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + stage_wind_emitter_list_rva,
         image_base_ + pending_hit_record_rva,
         image_base_ + pending_launcher_sync_rva,
+        camera_topology.camera_root,
         camera_topology.action_backing,
         fighter_roots,
         session_generation,
@@ -784,6 +785,22 @@ Status Sc6CandidateCheckpointCapture::RestoreMoveDispatchMasksForReplay(
     const Status decoded = CandidateCheckpointCodec::Decode(snapshot, image);
     if (!decoded.ok()) return decoded;
     return regions_->RestoreMoveDispatchMasksTransactional(image.native);
+}
+
+Status Sc6CandidateCheckpointCapture::CaptureCameraSourceFrame(
+    NativeCameraSourceFrameImage& output) noexcept
+{
+    if (!regions_->IsBound() || bound_manager_ == 0)
+        return Status::failure(FailureCode::GenerationMismatch);
+    return regions_->CaptureCameraSourceFrame(output);
+}
+
+Status Sc6CandidateCheckpointCapture::RestoreCameraSourceFrameForReplay(
+    const NativeCameraSourceFrameImage& image) noexcept
+{
+    if (!regions_->IsBound() || bound_manager_ == 0)
+        return Status::failure(FailureCode::GenerationMismatch);
+    return regions_->RestoreCameraSourceFrameTransactional(image);
 }
 
 Status Sc6CandidateCheckpointCapture::PrepareInputLogForReplay(
