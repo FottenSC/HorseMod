@@ -78,4 +78,14 @@ private:
     std::uint64_t generation_{};
     std::uint64_t topology_signature_{};
 };
+
+// Captures the configured particle templates from the verified SC6 wall and
+// barrier layouts. Output is bounded and pointer-bearing only until Bind()
+// converts it into generation-scoped logical identities.
+Status CaptureStageBreakParticleAssets(
+    INativeMemory& memory,
+    std::span<const StageBreakActorRef> actors,
+    std::array<StageBreakParticleAssetRef,
+        StageBreakPresentationIdentityMap::maximum_assets>& output,
+    std::size_t& output_count) noexcept;
 }

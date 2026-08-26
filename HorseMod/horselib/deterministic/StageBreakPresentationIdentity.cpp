@@ -52,6 +52,99 @@ bool valid_route(StageBreakActorKind kind, ParticleRoute route) noexcept
             && (route == ParticleRoute::BarrierHit
                 || route == ParticleRoute::BarrierBreak));
 }
+
+template <typename T>
+bool read_value(INativeMemory& memory, std::uintptr_t address, T& output) noexcept
+{
+    return memory.Read(address, std::as_writable_bytes(std::span{&output, 1}));
+}
+}
+
+Status CaptureStageBreakParticleAssets(
+    INativeMemory& memory,
+    std::span<const StageBreakActorRef> actors,
+    std::array<StageBreakParticleAssetRef,
+        StageBreakPresentationIdentityMap::maximum_assets>& output,
+    std::size_t& output_count) noexcept
+{
+    struct NativeArray
+    {
+        std::uintptr_t data{};
+        std::int32_t count{};
+        std::int32_t capacity{};
+    };
+    constexpr std::uintptr_t wall_particle_system = 0x458;
+    constexpr std::uintptr_t barrier_hit_systems = 0x450;
+    constexpr std::uintptr_t barrier_break_system = 0x460;
+
+    std::array<StageBreakParticleAssetRef,
+        StageBreakPresentationIdentityMap::maximum_assets> captured{};
+    std::size_t captured_count{};
+    if (actors.empty()
+        || actors.size() > StageBreakPresentationIdentityMap::maximum_actors)
+        return Status::failure(FailureCode::InvalidConfiguration);
+
+    const auto append = [&](std::uintptr_t actor, ParticleRoute route,
+                            std::uint16_t ordinal,
+                            std::uintptr_t asset) noexcept -> Status {
+        if (asset == 0) return Status::success();
+        if ((actor & 7) != 0 || (asset & 7) != 0)
+            return Status::failure(FailureCode::IdentityMismatch);
+        if (captured_count >= captured.size())
+            return Status::failure(FailureCode::CapacityExceeded);
+        captured[captured_count++] = {actor, route, ordinal, asset};
+        return Status::success();
+    };
+
+    for (const auto& actor : actors)
+    {
+        if (actor.address == 0 || (actor.address & 7) != 0)
+            return Status::failure(FailureCode::IdentityMismatch);
+        if (actor.kind == StageBreakActorKind::Wall)
+        {
+            std::uintptr_t asset{};
+            if (!read_value(memory, actor.address + wall_particle_system, asset))
+                return Status::failure(FailureCode::ContextUnavailable);
+            const auto status = append(
+                actor.address, ParticleRoute::WallBreak, 0, asset);
+            if (!status.ok()) return status;
+            continue;
+        }
+        if (actor.kind != StageBreakActorKind::Barrier)
+            return Status::failure(FailureCode::UnsupportedContent);
+
+        NativeArray hit_systems{};
+        if (!read_value(memory, actor.address + barrier_hit_systems, hit_systems)
+            || hit_systems.count < 0 || hit_systems.capacity < hit_systems.count
+            || hit_systems.count
+                > static_cast<std::int32_t>(captured.size() - captured_count)
+            || (hit_systems.count != 0
+                && (hit_systems.data == 0 || (hit_systems.data & 7) != 0)))
+        {
+            return Status::failure(FailureCode::ContextUnavailable);
+        }
+        for (std::int32_t index = 0; index < hit_systems.count; ++index)
+        {
+            std::uintptr_t asset{};
+            if (!read_value(memory,
+                    hit_systems.data + static_cast<std::uintptr_t>(index) * 8,
+                    asset))
+                return Status::failure(FailureCode::ContextUnavailable);
+            const auto status = append(actor.address, ParticleRoute::BarrierHit,
+                static_cast<std::uint16_t>(index), asset);
+            if (!status.ok()) return status;
+        }
+        std::uintptr_t break_asset{};
+        if (!read_value(
+                memory, actor.address + barrier_break_system, break_asset))
+            return Status::failure(FailureCode::ContextUnavailable);
+        const auto status = append(
+            actor.address, ParticleRoute::BarrierBreak, 0, break_asset);
+        if (!status.ok()) return status;
+    }
+    output = captured;
+    output_count = captured_count;
+    return Status::success();
 }
 
 Status StageBreakPresentationIdentityMap::Bind(

@@ -1975,6 +1975,80 @@ void test_stage_break_presentation_identity_is_generation_scoped()
         "invalid repeated-reference topology leaves the identity map unbound");
 }
 
+void test_stage_break_particle_asset_capture_is_bounded_and_atomic()
+{
+    constexpr std::uintptr_t base = 0x30000000;
+    constexpr std::uintptr_t wall = base + 0x1000;
+    constexpr std::uintptr_t barrier = base + 0x2000;
+    constexpr std::uintptr_t hit_array = base + 0x5000;
+    constexpr std::uintptr_t wall_asset = base + 0x7000;
+    constexpr std::uintptr_t hit_asset0 = base + 0x7100;
+    constexpr std::uintptr_t hit_asset1 = base + 0x7200;
+    constexpr std::uintptr_t break_asset = base + 0x7300;
+    struct NativeArray
+    {
+        std::uintptr_t data;
+        std::int32_t count;
+        std::int32_t capacity;
+    };
+
+    FakeNativeMemory memory{base, 0x10000};
+    memory.Set(wall + 0x458, wall_asset);
+    memory.Set(barrier + 0x450, NativeArray{hit_array, 3, 3});
+    memory.Set(hit_array, hit_asset0);
+    memory.Set(hit_array + 8, std::uintptr_t{});
+    memory.Set(hit_array + 16, hit_asset1);
+    memory.Set(barrier + 0x460, break_asset);
+    const std::array actors{
+        StageBreakActorRef{StageBreakActorKind::Wall, wall},
+        StageBreakActorRef{StageBreakActorKind::Barrier, barrier},
+    };
+    std::array<StageBreakParticleAssetRef,
+        StageBreakPresentationIdentityMap::maximum_assets> assets{};
+    std::size_t asset_count{};
+    expect(CaptureStageBreakParticleAssets(
+               memory, actors, assets, asset_count).ok()
+            && asset_count == 4
+            && assets[0].actor_address == wall
+            && assets[0].route == ParticleRoute::WallBreak
+            && assets[0].asset_ordinal == 0
+            && assets[0].asset_address == wall_asset
+            && assets[1].actor_address == barrier
+            && assets[1].route == ParticleRoute::BarrierHit
+            && assets[1].asset_ordinal == 0
+            && assets[1].asset_address == hit_asset0
+            && assets[2].route == ParticleRoute::BarrierHit
+            && assets[2].asset_ordinal == 2
+            && assets[2].asset_address == hit_asset1
+            && assets[3].route == ParticleRoute::BarrierBreak
+            && assets[3].asset_ordinal == 0
+            && assets[3].asset_address == break_asset,
+        "capture native stage-break assets with stable route ordinals");
+
+    const auto prior_assets = assets;
+    const auto prior_count = asset_count;
+    memory.Set(barrier + 0x450, NativeArray{hit_array, 4, 3});
+    const auto assets_unchanged = [&]() noexcept {
+        for (std::size_t index = 0; index < assets.size(); ++index)
+        {
+            if (assets[index].actor_address
+                    != prior_assets[index].actor_address
+                || assets[index].route != prior_assets[index].route
+                || assets[index].asset_ordinal
+                    != prior_assets[index].asset_ordinal
+                || assets[index].asset_address
+                    != prior_assets[index].asset_address)
+                return false;
+        }
+        return true;
+    };
+    expect(CaptureStageBreakParticleAssets(
+               memory, actors, assets, asset_count).code
+                == FailureCode::ContextUnavailable
+            && asset_count == prior_count && assets_unchanged(),
+        "malformed native asset arrays leave the prior binding unchanged");
+}
+
 Status resolve_fake_callback_owner(
     void*, std::int32_t object_index, std::int32_t serial_number,
     std::uint64_t& class_token) noexcept
@@ -2393,6 +2467,7 @@ int main()
     test_move_dispatch_partial_write_undoes_exactly();
     test_stage_break_listener_topology_is_value_only_and_bounded();
     test_stage_break_presentation_identity_is_generation_scoped();
+    test_stage_break_particle_asset_capture_is_bounded_and_atomic();
     test_callback_topology_is_generation_bound_and_pointer_free();
     test_stage_wind_topology_is_bounded_and_pointer_free();
     test_stage_wind_graph_restore_is_transactional();
