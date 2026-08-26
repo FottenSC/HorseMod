@@ -60,6 +60,8 @@ public:
         std::uint32_t simulation_thread_id) noexcept;
     Status CaptureTransient(
         FrameCoordinate coordinate, Snapshot& output) noexcept;
+    Status CaptureCanonical(
+        FrameCoordinate coordinate, Snapshot& output) noexcept;
     Status EnsureRestoreOwnership(std::uint32_t simulation_thread_id) noexcept;
     Status RestoreAndVerify(const Snapshot& snapshot) noexcept;
     Status RestoreBattleAudioSelectorForPresentation(

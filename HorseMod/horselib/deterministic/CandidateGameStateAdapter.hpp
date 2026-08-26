@@ -115,6 +115,8 @@ public:
     Status BindContext(const NativeContext& context) noexcept override;
     Status PreflightCapture(FrameCoordinate coordinate) noexcept override;
     Status Capture(FrameCoordinate coordinate, Snapshot& output) noexcept override;
+    Status CaptureCanonical(
+        FrameCoordinate coordinate, Snapshot& output) noexcept;
     Status PreflightRestore(const Snapshot& snapshot) noexcept override;
     Status Restore(const Snapshot& snapshot) noexcept override;
     Status RebuildDerivedState() noexcept override;
@@ -173,7 +175,8 @@ private:
     };
 
     [[nodiscard]] bool context_matches(const NativeContext& context) const noexcept;
-    Status capture_image(CandidateCheckpointImage& output) noexcept;
+    Status capture_image(
+        CandidateCheckpointImage& output, bool include_local = true) noexcept;
     Status decode_and_preflight(
         const Snapshot& snapshot, CandidateCheckpointImage& output) noexcept;
     Status restore_image(const CandidateCheckpointImage& image) noexcept;
@@ -197,6 +200,7 @@ private:
     PhaseTimingHistogram derived_repair_timing_{};
     PhaseTimingHistogram total_restore_timing_{};
     CandidateCheckpointImage capture_scratch_{};
+    CandidateCheckpointImage canonical_capture_scratch_{};
     CandidateCapturePhase last_capture_phase_{};
     bool configured_{};
     bool bound_{};

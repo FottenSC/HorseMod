@@ -80,6 +80,7 @@ void CandidateGameStateAdapter::Reset() noexcept
     derived_repair_timing_ = {};
     total_restore_timing_ = {};
     capture_scratch_ = {};
+    canonical_capture_scratch_ = {};
     last_capture_phase_ = CandidateCapturePhase::None;
     configured_ = false;
     bound_ = false;
@@ -105,14 +106,21 @@ Status CandidateGameStateAdapter::PreflightCapture(
 }
 
 Status CandidateGameStateAdapter::capture_image(
-    CandidateCheckpointImage& output) noexcept
+    CandidateCheckpointImage& output, bool include_local) noexcept
 {
     ScopedFloatingPointEnvironment fp_scope;
     auto local_images = std::move(output.local_images);
     output = {};
     output.local_images = std::move(local_images);
-    try { output.local_images.resize(2); }
-    catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
+    if (include_local)
+    {
+        try { output.local_images.resize(2); }
+        catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
+    }
+    else
+    {
+        output.local_images.clear();
+    }
     const auto typed_begin = std::chrono::steady_clock::now();
     last_capture_phase_ = CandidateCapturePhase::NativeTyped;
     Status status = regions_.Capture(output.native);
@@ -141,7 +149,7 @@ Status CandidateGameStateAdapter::capture_image(
     typed_capture_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             typed_end - typed_begin).count()));
-    if (status.ok())
+    if (status.ok() && include_local)
     {
         const auto local_begin = std::chrono::steady_clock::now();
         const auto hgcpu_begin = local_begin;
@@ -215,6 +223,39 @@ Status CandidateGameStateAdapter::Capture(
     last_capture_phase_ = CandidateCapturePhase::Encode;
     const Status encoded = CandidateCheckpointCodec::EncodeCaptured(
         coordinate, binding_.context.battle_identity, capture_scratch_, output);
+    const auto encode_end = std::chrono::steady_clock::now();
+    encode_timing_.Record(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            encode_end - encode_begin).count()));
+    total_capture_timing_.Record(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            encode_end - total_begin).count()));
+    if (encoded.ok()) last_capture_phase_ = CandidateCapturePhase::None;
+    return encoded;
+}
+
+Status CandidateGameStateAdapter::CaptureCanonical(
+    FrameCoordinate coordinate, Snapshot& output) noexcept
+{
+    const auto total_begin = std::chrono::steady_clock::now();
+    const Status preflight = PreflightCapture(coordinate);
+    if (!preflight.ok())
+    {
+        output = {};
+        const auto total_end = std::chrono::steady_clock::now();
+        total_capture_timing_.Record(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                total_end - total_begin).count()));
+        return preflight;
+    }
+    last_capture_phase_ = CandidateCapturePhase::None;
+    const Status captured = capture_image(canonical_capture_scratch_, false);
+    if (!captured.ok()) return captured;
+    const auto encode_begin = std::chrono::steady_clock::now();
+    last_capture_phase_ = CandidateCapturePhase::Encode;
+    const Status encoded = CandidateCheckpointCodec::EncodeCanonical(
+        coordinate, binding_.context.battle_identity,
+        canonical_capture_scratch_, output);
     const auto encode_end = std::chrono::steady_clock::now();
     encode_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(

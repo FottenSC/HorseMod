@@ -41,6 +41,15 @@ public:
         std::uint64_t context_identity,
         CandidateCheckpointImage& image,
         Snapshot& output) noexcept;
+    // Computes the exact same canonical identity and diagnostics as a full
+    // checkpoint without constructing a restorable payload. The caller may
+    // omit local reconstruction images because they are deliberately outside
+    // the canonical component set.
+    [[nodiscard]] static Status EncodeCanonical(
+        FrameCoordinate coordinate,
+        std::uint64_t context_identity,
+        const CandidateCheckpointImage& image,
+        Snapshot& output) noexcept;
     [[nodiscard]] static Status Decode(
         const Snapshot& snapshot,
         CandidateCheckpointImage& output) noexcept;
@@ -52,6 +61,7 @@ private:
         const CandidateCheckpointImage& image,
         CandidateCheckpointImage* movable_image,
         bool verify_local_checksum,
+        bool canonical_only,
         Snapshot& output) noexcept;
 };
 }

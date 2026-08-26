@@ -292,12 +292,9 @@ bool hash_candidate(FrameCoordinate coordinate, std::uint64_t context_identity,
         coordinate, context_identity, canonical_components, output);
 }
 
-bool generations_match(FrameCoordinate coordinate,
+bool canonical_generations_match(FrameCoordinate coordinate,
     const CandidateCheckpointImage& image) noexcept
 {
-    if (image.local_images.size() != 2) return false;
-    const auto& hgcpu = image.local_images[0];
-    const auto& motion = image.local_images[1];
     return coordinate.generation != 0
         && image.native.session_generation != 0
         && image.native.round_generation == coordinate.generation
@@ -310,14 +307,6 @@ bool generations_match(FrameCoordinate coordinate,
         && std::all_of(image.battle_audio_selector.alternations.begin(),
             image.battle_audio_selector.alternations.end(),
             [](std::int32_t value) { return value >= 0 && value <= 1; })
-        && hgcpu.serializer_id == LocalSerializerId::HgCpuDirect
-        && motion.serializer_id == LocalSerializerId::MotionBankTriples
-        && hgcpu.context == motion.context
-        && hgcpu.context.schema_id == Schema::snapshot_schema_version
-        && hgcpu.context.session_generation == image.native.session_generation
-        && hgcpu.context.round_generation == image.native.round_generation
-        && hgcpu.context.stage_generation != 0
-        && hgcpu.context.allocation_generation == image.native.round_generation
         && image.move_dispatch.generation == image.native.round_generation
         && image.secondary_events.round_generation
             == image.native.round_generation
@@ -327,6 +316,24 @@ bool generations_match(FrameCoordinate coordinate,
         && CharaAnimationState::Validate(image.chara_animation)
         && image.wind.generation == image.native.round_generation
         && valid_ucrt_image(image.ucrt) && valid_wind_image(image.wind);
+}
+
+bool generations_match(FrameCoordinate coordinate,
+    const CandidateCheckpointImage& image) noexcept
+{
+    if (!canonical_generations_match(coordinate, image)
+        || image.local_images.size() != 2)
+        return false;
+    const auto& hgcpu = image.local_images[0];
+    const auto& motion = image.local_images[1];
+    return hgcpu.serializer_id == LocalSerializerId::HgCpuDirect
+        && motion.serializer_id == LocalSerializerId::MotionBankTriples
+        && hgcpu.context == motion.context
+        && hgcpu.context.schema_id == Schema::snapshot_schema_version
+        && hgcpu.context.session_generation == image.native.session_generation
+        && hgcpu.context.round_generation == image.native.round_generation
+        && hgcpu.context.stage_generation != 0
+        && hgcpu.context.allocation_generation == image.native.round_generation;
 }
 
 bool valid_local_images(const CandidateCheckpointImage& image,
@@ -357,7 +364,7 @@ Status CandidateCheckpointCodec::Encode(FrameCoordinate coordinate,
     Snapshot& output) noexcept
 {
     return EncodeInternal(
-        coordinate, context_identity, image, nullptr, true, output);
+        coordinate, context_identity, image, nullptr, true, false, output);
 }
 
 Status CandidateCheckpointCodec::EncodeCaptured(FrameCoordinate coordinate,
@@ -365,13 +372,21 @@ Status CandidateCheckpointCodec::EncodeCaptured(FrameCoordinate coordinate,
     Snapshot& output) noexcept
 {
     return EncodeInternal(
-        coordinate, context_identity, image, &image, false, output);
+        coordinate, context_identity, image, &image, false, false, output);
+}
+
+Status CandidateCheckpointCodec::EncodeCanonical(FrameCoordinate coordinate,
+    std::uint64_t context_identity, const CandidateCheckpointImage& image,
+    Snapshot& output) noexcept
+{
+    return EncodeInternal(
+        coordinate, context_identity, image, nullptr, false, true, output);
 }
 
 Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
     std::uint64_t context_identity, const CandidateCheckpointImage& image,
     CandidateCheckpointImage* movable_image, bool verify_local_checksum,
-    Snapshot& output) noexcept
+    bool canonical_only, Snapshot& output) noexcept
 {
     auto reusable_bytes = std::move(output.bytes);
     auto reusable_local_images = std::move(output.local_images);
@@ -380,8 +395,12 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
     output.bytes.clear();
     if (movable_image != nullptr)
         output.local_images = std::move(reusable_local_images);
-    if (context_identity == 0 || !generations_match(coordinate, image)
-        || !valid_local_images(image, verify_local_checksum))
+    if (context_identity == 0
+        || !(canonical_only
+            ? canonical_generations_match(coordinate, image)
+            : generations_match(coordinate, image))
+        || (!canonical_only
+            && !valid_local_images(image, verify_local_checksum)))
     {
         return Status::failure(FailureCode::IdentityMismatch);
     }
@@ -545,6 +564,8 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         if (!hash_candidate(coordinate, context_identity,
                 canonical_components, output.canonical_hash))
             return Status::failure(FailureCode::CaptureFailed);
+
+        if (canonical_only) return Status::success();
 
         std::size_t local_bytes{};
         if (movable_image == nullptr)

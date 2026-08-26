@@ -714,6 +714,26 @@ void test_candidate_checkpoint_codec()
             && captured_snapshot.local_images.size() == 2
             && captured_snapshot.canonical_hash == snapshot.canonical_hash,
         "fresh-capture encoding externalizes local images without changing canonical truth");
+    auto canonical_image = image;
+    canonical_image.local_images.clear();
+    Snapshot canonical_snapshot{};
+    expect(CandidateCheckpointCodec::EncodeCanonical(
+            {7, 30}, 0x9191, canonical_image, canonical_snapshot).ok()
+            && canonical_snapshot.bytes.empty()
+            && canonical_snapshot.local_images.empty()
+            && canonical_snapshot.canonical_hash == snapshot.canonical_hash
+            && canonical_snapshot.canonical_components
+                == snapshot.canonical_components
+            && canonical_snapshot.canonical_native == snapshot.canonical_native
+            && canonical_snapshot.canonical_move_dispatch
+                == snapshot.canonical_move_dispatch
+            && canonical_snapshot.canonical_input == snapshot.canonical_input
+            && canonical_snapshot.canonical_wind_semantic
+                == snapshot.canonical_wind_semantic
+            && canonical_snapshot.canonical_wind == snapshot.canonical_wind
+            && canonical_snapshot.canonical_wind_node
+                == snapshot.canonical_wind_node,
+        "canonical-only encoding preserves exact identity without restore payloads");
     CandidateCheckpointImage decoded_captured{};
     expect(CandidateCheckpointCodec::Decode(
             captured_snapshot, decoded_captured).ok()

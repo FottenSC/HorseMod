@@ -692,6 +692,44 @@ Status Sc6CandidateCheckpointCapture::CaptureTransient(
     return captured;
 }
 
+Status Sc6CandidateCheckpointCapture::CaptureCanonical(
+    FrameCoordinate coordinate, Snapshot& output) noexcept
+{
+    transient_identity_issue_ = 0;
+    transient_identity_expected_ = 0;
+    transient_identity_observed_ = 0;
+    if (!regions_->IsBound() || bound_manager_ == 0
+        || coordinate.generation != bound_round_generation_)
+    {
+        output = {};
+        return Status::failure(FailureCode::GenerationMismatch);
+    }
+    CameraTopology camera_topology{};
+    const Status camera = capture_camera_topology(camera_topology);
+    if (!camera.ok() || camera_topology != bound_camera_topology_)
+    {
+        transient_identity_issue_ = 1;
+        transient_identity_expected_ = bound_camera_topology_.camera_root;
+        transient_identity_observed_ = camera_topology.camera_root;
+        return Status::failure(camera.ok()
+            ? FailureCode::IdentityMismatch : camera.code);
+    }
+    CallbackTopology callback_topology{};
+    const Status callbacks = capture_callback_topology(callback_topology);
+    if (!callbacks.ok() || callback_topology != bound_callback_topology_)
+    {
+        transient_identity_issue_ = 2;
+        transient_identity_expected_ = bound_callback_topology_.signature;
+        transient_identity_observed_ = callback_topology.signature;
+        return Status::failure(callbacks.ok()
+            ? FailureCode::IdentityMismatch : callbacks.code);
+    }
+    const Status captured = adapter_->CaptureCanonical(coordinate, output);
+    if (captured.code == FailureCode::IdentityMismatch)
+        transient_identity_issue_ = 3;
+    return captured;
+}
+
 CandidateCapturePhase
 Sc6CandidateCheckpointCapture::transient_capture_phase() const noexcept
 {

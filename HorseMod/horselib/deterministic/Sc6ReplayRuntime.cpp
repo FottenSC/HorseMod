@@ -428,7 +428,7 @@ Status Sc6ReplayRuntime::ObserveFrame(
             return Status::failure(timeline_status_.failure);
         }
         Snapshot observed{};
-        const Status captured = checkpoint_capture_.CaptureTransient(
+        const Status captured = checkpoint_capture_.CaptureCanonical(
             coordinate, observed);
         if (!captured.ok())
         {
@@ -559,8 +559,9 @@ Status Sc6ReplayRuntime::ObserveFrame(
         if (forced_depth7_qualification_enabled_)
             static_cast<void>(
                 forced_qualification_snapshots_.TakeOldestIfFull(canonical));
-        const Status captured = checkpoint_capture_.CaptureTransient(
-            coordinate, canonical);
+        const Status captured = forced_depth7_qualification_enabled_
+            ? checkpoint_capture_.CaptureTransient(coordinate, canonical)
+            : checkpoint_capture_.CaptureCanonical(coordinate, canonical);
         if (!captured.ok())
         {
             timeline_status_.canonical_capture_phase =
