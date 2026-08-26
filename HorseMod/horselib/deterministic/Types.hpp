@@ -244,6 +244,10 @@ struct Snapshot
 struct PresentationEvent
 {
     FrameCoordinate coordinate{};
+    // Exact authored order within the source frame. Identity names the
+    // semantic event; ordinal distinguishes legitimate repeated emissions and
+    // is the commit order after a correction.
+    std::uint32_t source_ordinal{};
     std::uint32_t kind{};
     std::uint64_t identity{};
     std::uint16_t payload_size{};

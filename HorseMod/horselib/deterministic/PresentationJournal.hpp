@@ -41,6 +41,7 @@ private:
     struct EventKey
     {
         FrameCoordinate coordinate{};
+        std::uint32_t source_ordinal{};
         std::uint32_t kind{};
         std::uint64_t identity{};
 
@@ -58,6 +59,7 @@ private:
         bool occupied{};
         std::uint64_t generation{};
         std::uint64_t frame{};
+        std::uint32_t source_ordinal{};
     };
 
     [[nodiscard]] Watermark* FindWatermark(std::uint64_t generation) noexcept;

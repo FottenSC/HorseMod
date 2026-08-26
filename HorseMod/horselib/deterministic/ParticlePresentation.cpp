@@ -93,7 +93,8 @@ ParticleVector read_vector(
 
 bool valid_value(const ParticlePresentationValue& value) noexcept
 {
-    if (value.coordinate.generation == 0 || !valid_route(value.route)
+    if (value.coordinate.generation == 0 || value.source_ordinal == 0
+        || !valid_route(value.route)
         || !valid_operation(value.operation) || value.owner_logical_id == 0
         || value.event_logical_id == 0 || value.effect_logical_id == 0)
     {
@@ -120,6 +121,7 @@ Status EncodeParticlePresentation(
     output.payload_size = static_cast<std::uint16_t>(
         Schema::particle_presentation_payload_size);
     output.coordinate = value.coordinate;
+    output.source_ordinal = value.source_ordinal;
     output.kind = Schema::particle_presentation_event_kind;
     output.identity = value.event_logical_id;
     output.payload[0] = std::byte(
@@ -155,6 +157,7 @@ Status DecodeParticlePresentation(
         return Status::failure(FailureCode::ProtocolMismatch);
     }
     output.coordinate = event.coordinate;
+    output.source_ordinal = event.source_ordinal;
     output.route = static_cast<ParticleRoute>(
         std::to_integer<std::uint8_t>(event.payload[2]));
     output.operation = static_cast<ParticleOperation>(

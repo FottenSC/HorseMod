@@ -31,6 +31,7 @@ struct ParticleVector
 struct ParticlePresentationValue
 {
     FrameCoordinate coordinate{};
+    std::uint32_t source_ordinal{};
     ParticleRoute route{};
     ParticleOperation operation{};
     // Logical IDs are stable value identifiers. Native addresses are forbidden.

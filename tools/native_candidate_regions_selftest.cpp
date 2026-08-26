@@ -2299,10 +2299,13 @@ public:
 
 PresentationEvent presentation_event(
     std::uint64_t generation, std::uint64_t frame,
-    std::uint64_t identity, std::uint16_t payload_size = 8)
+    std::uint64_t identity, std::uint16_t payload_size = 8,
+    std::uint32_t source_ordinal = 0)
 {
     PresentationEvent event{};
     event.coordinate = {generation, frame};
+    event.source_ordinal = source_ordinal == 0
+        ? static_cast<std::uint32_t>(identity) : source_ordinal;
     event.kind = 1;
     event.identity = identity;
     event.payload_size = payload_size;
@@ -2316,14 +2319,14 @@ void test_presentation_journal_is_bounded_and_retry_safe()
     expect(journal.capacity() == 3 && journal.pending_count() == 0
             && journal.payload_bytes() == 0,
         "presentation journal allocates a fixed slot budget up front");
-    expect(journal.Record(presentation_event(7, 11, 3)).ok()
-            && journal.Record(presentation_event(7, 10, 2)).ok()
-            && journal.Record(presentation_event(7, 10, 1)).ok(),
+    expect(journal.Record(presentation_event(7, 11, 3, 8, 1)).ok()
+            && journal.Record(presentation_event(7, 10, 10, 8, 2)).ok()
+            && journal.Record(presentation_event(7, 10, 90, 8, 1)).ok(),
         "presentation journal fills its fixed event and payload capacity");
     expect(journal.Record(presentation_event(7, 12, 4)).code
             == FailureCode::CapacityExceeded,
         "presentation journal fails closed at fixed capacity");
-    expect(journal.Record(presentation_event(7, 10, 1)).ok()
+    expect(journal.Record(presentation_event(7, 10, 90, 8, 1)).ok()
             && journal.pending_count() == 3,
         "presentation journal suppresses a pending duplicate without growth");
 
@@ -2331,16 +2334,16 @@ void test_presentation_journal_is_bounded_and_retry_safe()
     sink.fail_attempt = 2;
     expect(journal.CommitThrough({7, 11}, sink).code
             == FailureCode::PresentationFailed
-            && sink.identities == std::vector<std::uint64_t>{1}
+            && sink.identities == std::vector<std::uint64_t>{90}
             && journal.pending_count() == 2,
         "partial presentation failure commits only the successful prefix");
     sink.fail_attempt = 0;
     expect(journal.CommitThrough({7, 11}, sink).ok()
-            && sink.identities == std::vector<std::uint64_t>({1, 2, 3})
+            && sink.identities == std::vector<std::uint64_t>({90, 10, 3})
             && journal.pending_count() == 0
             && journal.payload_bytes() == 0,
-        "presentation retry resumes at the failed event without replaying prefix");
-    expect(journal.Record(presentation_event(7, 10, 9)).ok()
+        "presentation retry preserves authored order and resumes without replaying prefix");
+    expect(journal.Record(presentation_event(7, 10, 9, 8, 1)).ok()
             && journal.pending_count() == 0,
         "committed frame watermark suppresses late speculative duplicates");
 

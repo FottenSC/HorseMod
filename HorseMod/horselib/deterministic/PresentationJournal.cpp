@@ -34,15 +34,20 @@ PresentationJournal::PresentationJournal(
 Status PresentationJournal::Record(PresentationEvent event) noexcept
 {
     ++statistics_.attempted;
-    if (event.coordinate.generation == 0 || event.kind == 0
+    if (event.coordinate.generation == 0 || event.source_ordinal == 0
+        || event.kind == 0
         || event.identity == 0
         || event.payload_size > Schema::maximum_presentation_payload)
     {
         return Status::failure(FailureCode::InvalidConfiguration);
     }
-    const EventKey key{event.coordinate, event.kind, event.identity};
+    const EventKey key{event.coordinate, event.source_ordinal,
+        event.kind, event.identity};
     const auto* watermark = FindWatermark(event.coordinate.generation);
-    if (watermark != nullptr && event.coordinate.frame <= watermark->frame)
+    if (watermark != nullptr
+        && (event.coordinate.frame < watermark->frame
+            || (event.coordinate.frame == watermark->frame
+                && event.source_ordinal <= watermark->source_ordinal)))
     {
         ++statistics_.duplicates;
         return Status::success();
@@ -56,8 +61,8 @@ Status PresentationJournal::Record(PresentationEvent event) noexcept
             if (free_slot == nullptr) free_slot = &slot;
             continue;
         }
-        const EventKey existing{slot.event.coordinate, slot.event.kind,
-            slot.event.identity};
+        const EventKey existing{slot.event.coordinate,
+            slot.event.source_ordinal, slot.event.kind, slot.event.identity};
         if (existing == key)
         {
             ++statistics_.duplicates;
@@ -112,7 +117,8 @@ Status PresentationJournal::CommitThrough(
             {
                 continue;
             }
-            const EventKey key{coordinate, slot.event.kind, slot.event.identity};
+            const EventKey key{coordinate, slot.event.source_ordinal,
+                slot.event.kind, slot.event.identity};
             if (next == nullptr || key < next_key)
             {
                 next = &slot;
@@ -133,8 +139,16 @@ Status PresentationJournal::CommitThrough(
             ++statistics_.publish_failures;
             return published;
         }
-        watermark->frame = std::max(
-            watermark->frame, next->event.coordinate.frame);
+        if (next->event.coordinate.frame > watermark->frame)
+        {
+            watermark->frame = next->event.coordinate.frame;
+            watermark->source_ordinal = next->event.source_ordinal;
+        }
+        else
+        {
+            watermark->source_ordinal = (std::max)(
+                watermark->source_ordinal, next->event.source_ordinal);
+        }
         ClearSlot(*next);
         ++statistics_.committed;
     }
@@ -204,7 +218,7 @@ PresentationJournal::Watermark* PresentationJournal::EnsureWatermark(
     {
         if (!watermarks_[index].occupied)
         {
-            watermarks_[index] = {true, generation, 0};
+            watermarks_[index] = {true, generation, 0, 0};
             return &watermarks_[index];
         }
     }

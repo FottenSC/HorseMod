@@ -731,7 +731,13 @@ void test_presentation_exactly_once()
 {
     PresentationJournal journal{4, 64};
     CountingSink sink;
-    PresentationEvent event{{1, 4}, 3, 44, 1, {std::byte{1}}};
+    PresentationEvent event{};
+    event.coordinate = {1, 4};
+    event.source_ordinal = 1;
+    event.kind = 3;
+    event.identity = 44;
+    event.payload_size = 1;
+    event.payload[0] = std::byte{1};
     expect(journal.Record(event).ok(), "record presentation event");
     expect(journal.Record(event).ok(), "deduplicate pending presentation event");
     expect(journal.CommitThrough({1, 4}, sink).ok(), "commit presentation event");
@@ -755,6 +761,7 @@ void test_callsite_qualified_particle_values()
 {
     ParticlePresentationValue create{};
     create.coordinate = {1, 40};
+    create.source_ordinal = 1;
     create.route = ParticleRoute::BarrierHit;
     create.operation = ParticleOperation::Create;
     create.owner_logical_id = 17;
@@ -785,6 +792,7 @@ void test_callsite_qualified_particle_values()
 
     ParticlePresentationValue stop{};
     stop.coordinate = create.coordinate;
+    stop.source_ordinal = 2;
     stop.route = ParticleRoute::BarrierHit;
     stop.operation = ParticleOperation::Stop;
     stop.owner_logical_id = 17;
