@@ -4368,8 +4368,10 @@ private:
         }
         const auto logged_checkpoints =
             self->m_candidate_checkpoint_logged_count.load(std::memory_order_acquire);
-        if (self->m_deterministic_config.trace
-            && timeline.captured_checkpoints > logged_checkpoints)
+        const bool checkpoint_log_due = timeline.captured_checkpoints == 1
+            || timeline.captured_checkpoints / 30
+                > logged_checkpoints / 30;
+        if (self->m_deterministic_config.trace && checkpoint_log_due)
         {
             self->m_candidate_checkpoint_logged_count.store(
                 timeline.captured_checkpoints, std::memory_order_release);
@@ -4602,8 +4604,10 @@ private:
         const auto timeline = self->m_replay_native_runtime.timeline_status();
         const auto logged = self->m_candidate_batch_entry_logged_count.load(
             std::memory_order_acquire);
-        if (self->m_deterministic_config.trace
-            && timeline.captured_batch_entry_checkpoints > logged)
+        const bool batch_entry_log_due =
+            timeline.captured_batch_entry_checkpoints == 1
+            || timeline.captured_batch_entry_checkpoints / 50 > logged / 50;
+        if (self->m_deterministic_config.trace && batch_entry_log_due)
         {
             self->m_candidate_batch_entry_logged_count.store(
                 timeline.captured_batch_entry_checkpoints,
