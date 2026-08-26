@@ -4369,8 +4369,7 @@ private:
         const auto logged_checkpoints =
             self->m_candidate_checkpoint_logged_count.load(std::memory_order_acquire);
         const bool checkpoint_log_due = timeline.captured_checkpoints == 1
-            || timeline.captured_checkpoints / 30
-                > logged_checkpoints / 30;
+            && logged_checkpoints == 0;
         if (self->m_deterministic_config.trace && checkpoint_log_due)
         {
             self->m_candidate_checkpoint_logged_count.store(
@@ -4605,8 +4604,7 @@ private:
         const auto logged = self->m_candidate_batch_entry_logged_count.load(
             std::memory_order_acquire);
         const bool batch_entry_log_due =
-            timeline.captured_batch_entry_checkpoints == 1
-            || timeline.captured_batch_entry_checkpoints / 50 > logged / 50;
+            timeline.captured_batch_entry_checkpoints == 1 && logged == 0;
         if (self->m_deterministic_config.trace && batch_entry_log_due)
         {
             self->m_candidate_batch_entry_logged_count.store(
