@@ -997,12 +997,23 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_source_journal;
     envelope.battle_audio_remap_journal =
         observation.battle_audio_remap_journal;
+    envelope.stage_wall_journal = observation.stage_wall_journal;
+    envelope.stage_barrier_journal = observation.stage_barrier_journal;
+    envelope.stage_dispatch_journal = observation.stage_dispatch_journal;
+    envelope.particle_spawn_journal = observation.particle_spawn_journal;
     envelope.battle_audio_journal_count =
         observation.battle_audio_journal_count;
     envelope.battle_audio_source_journal_count =
         observation.battle_audio_source_journal_count;
     envelope.battle_audio_remap_journal_count =
         observation.battle_audio_remap_journal_count;
+    envelope.stage_wall_journal_count = observation.stage_wall_journal_count;
+    envelope.stage_barrier_journal_count =
+        observation.stage_barrier_journal_count;
+    envelope.stage_dispatch_journal_count =
+        observation.stage_dispatch_journal_count;
+    envelope.particle_spawn_journal_count =
+        observation.particle_spawn_journal_count;
     envelope.main_state_before = observation.before.main_state;
     envelope.main_state_after = observation.after.main_state;
     envelope.round_state_before = observation.before.round_state;

@@ -14,6 +14,8 @@ inline constexpr std::size_t maximum_battle_audio_journal_dispatches = 16;
 inline constexpr std::size_t maximum_battle_audio_journal_sources =
     maximum_battle_audio_journal_dispatches;
 inline constexpr std::size_t maximum_battle_audio_journal_remaps = 8;
+inline constexpr std::size_t maximum_stage_presentation_journal_events = 8;
+inline constexpr std::size_t maximum_particle_presentation_journal_events = 16;
 inline constexpr std::size_t camera_publication_vector_bytes = 0x60;
 
 struct CameraPublicationState
@@ -46,6 +48,21 @@ struct BattleAudioRemapJournalEntry
     std::int32_t before{};
     std::int32_t result{};
     std::int32_t after{};
+};
+
+// Ordered source-frame values for presentation families whose terminal calls
+// are suppressed during owned replay. These records contain logical native
+// values only; UObject and component addresses are deliberately excluded.
+struct StagePresentationJournalEntry
+{
+    std::array<std::byte, 16> semantic{};
+    std::uint8_t payload_size{};
+};
+
+struct ParticleSpawnJournalEntry
+{
+    // route, owner actor ID, asset internal index, transform and activation.
+    std::array<std::byte, 46> semantic{};
 };
 
 struct NativeBatchEnvelope
@@ -111,9 +128,21 @@ struct NativeBatchEnvelope
         maximum_battle_audio_journal_sources> battle_audio_source_journal{};
     std::array<BattleAudioRemapJournalEntry,
         maximum_battle_audio_journal_remaps> battle_audio_remap_journal{};
+    std::array<StagePresentationJournalEntry,
+        maximum_stage_presentation_journal_events> stage_wall_journal{};
+    std::array<StagePresentationJournalEntry,
+        maximum_stage_presentation_journal_events> stage_barrier_journal{};
+    std::array<StagePresentationJournalEntry,
+        maximum_stage_presentation_journal_events> stage_dispatch_journal{};
+    std::array<ParticleSpawnJournalEntry,
+        maximum_particle_presentation_journal_events> particle_spawn_journal{};
     std::uint8_t battle_audio_journal_count{};
     std::uint8_t battle_audio_source_journal_count{};
     std::uint8_t battle_audio_remap_journal_count{};
+    std::uint8_t stage_wall_journal_count{};
+    std::uint8_t stage_barrier_journal_count{};
+    std::uint8_t stage_dispatch_journal_count{};
+    std::uint8_t particle_spawn_journal_count{};
 };
 
 struct NativeBatchCoordinate

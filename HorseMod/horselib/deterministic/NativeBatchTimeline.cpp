@@ -155,7 +155,22 @@ bool NativeBatchTimeline::Validate(
     std::span<const FrameCoordinate> coordinates) const noexcept
 {
     if (envelope.batch_id == 0
-        || envelope.coordinate_count != coordinates.size())
+        || envelope.coordinate_count != coordinates.size()
+        || envelope.stage_wall_journal_count != envelope.stage_wall_calls
+        || envelope.stage_wall_journal_count
+            > envelope.stage_wall_journal.size()
+        || envelope.stage_barrier_journal_count
+            != envelope.stage_barrier_calls
+        || envelope.stage_barrier_journal_count
+            > envelope.stage_barrier_journal.size()
+        || envelope.stage_dispatch_journal_count
+            != envelope.stage_dispatch_calls
+        || envelope.stage_dispatch_journal_count
+            > envelope.stage_dispatch_journal.size()
+        || envelope.particle_spawn_journal_count
+            != envelope.particle_spawn_calls
+        || envelope.particle_spawn_journal_count
+            > envelope.particle_spawn_journal.size())
     {
         return false;
     }

@@ -148,28 +148,36 @@ bool CaptureCameraPublicationSignature(
     return true;
 }
 
-bool AppendStageSignature(std::int32_t actor_id, const void* payload,
-    std::size_t payload_size, std::uint64_t& sequence_hash) noexcept
+bool CaptureStageSemantic(std::int32_t actor_id, const void* payload,
+    std::size_t payload_size, StagePresentationJournalEntry& output) noexcept
 {
     if (payload_size > 12 || (payload_size != 0 && payload == nullptr))
         return false;
-    std::array<std::byte, 16> semantic{};
-    std::memcpy(semantic.data(), &actor_id, sizeof(actor_id));
+    output = {};
+    std::memcpy(output.semantic.data(), &actor_id, sizeof(actor_id));
     __try
     {
         if (payload_size != 0)
-            std::memcpy(semantic.data() + sizeof(actor_id), payload,
+            std::memcpy(output.semantic.data() + sizeof(actor_id), payload,
                 payload_size);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    output.payload_size = static_cast<std::uint8_t>(payload_size);
+    return true;
+}
 
+bool AppendStageSemantic(const StagePresentationJournalEntry& semantic,
+    std::uint64_t& sequence_hash) noexcept
+{
+    if (semantic.payload_size > 12) return false;
     constexpr std::uint64_t offset_basis = 14695981039346656037ull;
     constexpr std::uint64_t prime = 1099511628211ull;
     auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
-    for (std::size_t index = 0; index < sizeof(actor_id) + payload_size;
+    for (std::size_t index = 0;
+         index < sizeof(std::int32_t) + semantic.payload_size;
          ++index)
     {
-        hash ^= std::to_integer<std::uint8_t>(semantic[index]);
+        hash ^= std::to_integer<std::uint8_t>(semantic.semantic[index]);
         hash *= prime;
     }
     sequence_hash = hash;
@@ -290,14 +298,16 @@ std::uint8_t ClassifyParticleRoute(
     return 0;
 }
 
-bool AppendParticleSpawnSignature(std::uint8_t route, void* owner,
+bool CaptureParticleSpawnSemantic(std::uint8_t route, void* owner,
     void* particle_system, const void* location, const void* rotation,
-    const void* scale, bool auto_activate, std::uint64_t& sequence_hash) noexcept
+    const void* scale, bool auto_activate,
+    ParticleSpawnJournalEntry& output) noexcept
 {
     if (route == 0 || owner == nullptr || particle_system == nullptr
         || location == nullptr || rotation == nullptr || scale == nullptr)
         return false;
-    std::array<std::byte, 46> semantic{};
+    output = {};
+    auto& semantic = output.semantic;
     semantic[0] = std::byte(route);
     std::int32_t owner_id{};
     std::uint32_t asset_internal_index{};
@@ -320,10 +330,16 @@ bool AppendParticleSpawnSignature(std::uint8_t route, void* owner,
     }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     semantic[45] = std::byte(auto_activate ? 1 : 0);
+    return true;
+}
+
+bool AppendParticleSpawnSemantic(const ParticleSpawnJournalEntry& entry,
+    std::uint64_t& sequence_hash) noexcept
+{
     constexpr std::uint64_t offset_basis = 14695981039346656037ull;
     constexpr std::uint64_t prime = 1099511628211ull;
     auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
-    for (const auto value : semantic)
+    for (const auto value : entry.semantic)
     {
         hash ^= std::to_integer<std::uint8_t>(value);
         hash *= prime;
@@ -544,7 +560,19 @@ bool ConsumeBattleAudioJournal(
         || envelope.battle_audio_remap_journal_count
             != envelope.battle_audio_remap_calls
         || envelope.battle_audio_remap_journal_count
-            > envelope.battle_audio_remap_journal.size())
+            > envelope.battle_audio_remap_journal.size()
+        || envelope.stage_wall_journal_count != envelope.stage_wall_calls
+        || envelope.stage_wall_journal_count
+            > envelope.stage_wall_journal.size()
+        || envelope.stage_barrier_journal_count != envelope.stage_barrier_calls
+        || envelope.stage_barrier_journal_count
+            > envelope.stage_barrier_journal.size()
+        || envelope.stage_dispatch_journal_count != envelope.stage_dispatch_calls
+        || envelope.stage_dispatch_journal_count
+            > envelope.stage_dispatch_journal.size()
+        || envelope.particle_spawn_journal_count != envelope.particle_spawn_calls
+        || envelope.particle_spawn_journal_count
+            > envelope.particle_spawn_journal.size())
     {
         output.audio_journal_failure_mask |= journal_structure;
         return false;
@@ -1924,12 +1952,25 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
     const std::uint8_t immediate_value = immediately ? 1 : 0;
     const bool signature_ok = actor != nullptr
         && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x450, actor_id);
+    StagePresentationJournalEntry semantic{};
+    const bool semantic_ok = signature_ok && CaptureStageSemantic(actor_id,
+        &immediate_value, sizeof(immediate_value), semantic);
     if (batch != nullptr && batch->observation != nullptr)
     {
-        ++batch->observation->stage_wall_calls;
-        if (!signature_ok || !AppendStageSignature(actor_id, &immediate_value,
-                sizeof(immediate_value), batch->observation->stage_wall_hash))
+        auto& observation = *batch->observation;
+        ++observation.stage_wall_calls;
+        if (!semantic_ok || !AppendStageSemantic(
+                semantic, observation.stage_wall_hash)
+            || observation.stage_wall_journal_count
+                >= observation.stage_wall_journal.size())
+        {
             ++batch->observation->stage_signature_failures;
+        }
+        else
+        {
+            observation.stage_wall_journal[
+                observation.stage_wall_journal_count++] = semantic;
+        }
     }
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
@@ -1939,11 +1980,17 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
     }
     else
     {
-        ++batch->owned->result->suppressed_stage_wall_calls;
-        if (!signature_ok || !AppendStageSignature(actor_id, &immediate_value,
-                sizeof(immediate_value),
-                batch->owned->result->stage_wall_hash))
-            ++batch->owned->result->stage_signature_failures;
+        auto& replay = *batch->owned->result;
+        const auto& envelope = *batch->owned->request->envelope;
+        const auto index = replay.suppressed_stage_wall_calls++;
+        if (!semantic_ok || index >= envelope.stage_wall_journal_count
+            || envelope.stage_wall_journal[index].payload_size
+                != semantic.payload_size
+            || envelope.stage_wall_journal[index].semantic != semantic.semantic
+            || !AppendStageSemantic(semantic, replay.stage_wall_hash))
+        {
+            ++replay.stage_signature_failures;
+        }
         std::array<std::array<std::byte, 8>, wall_presentation_fields.size()> saved{};
         std::size_t written{};
         if (!CaptureAndZeroFields(actor, wall_presentation_fields, saved, written))
@@ -1990,12 +2037,25 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
     std::int32_t actor_id{};
     const bool signature_ok = actor != nullptr && direction != nullptr
         && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x420, actor_id);
+    StagePresentationJournalEntry semantic{};
+    const bool semantic_ok = signature_ok
+        && CaptureStageSemantic(actor_id, direction, 12, semantic);
     if (batch != nullptr && batch->observation != nullptr)
     {
-        ++batch->observation->stage_barrier_calls;
-        if (!signature_ok || !AppendStageSignature(actor_id, direction, 12,
-                batch->observation->stage_barrier_hash))
-            ++batch->observation->stage_signature_failures;
+        auto& observation = *batch->observation;
+        ++observation.stage_barrier_calls;
+        if (!semantic_ok || !AppendStageSemantic(
+                semantic, observation.stage_barrier_hash)
+            || observation.stage_barrier_journal_count
+                >= observation.stage_barrier_journal.size())
+        {
+            ++observation.stage_signature_failures;
+        }
+        else
+        {
+            observation.stage_barrier_journal[
+                observation.stage_barrier_journal_count++] = semantic;
+        }
     }
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
@@ -2005,10 +2065,17 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
     }
     else
     {
-        ++batch->owned->result->suppressed_stage_barrier_calls;
-        if (!signature_ok || !AppendStageSignature(actor_id, direction, 12,
-                batch->owned->result->stage_barrier_hash))
-            ++batch->owned->result->stage_signature_failures;
+        auto& replay = *batch->owned->result;
+        const auto& envelope = *batch->owned->request->envelope;
+        const auto index = replay.suppressed_stage_barrier_calls++;
+        if (!semantic_ok || index >= envelope.stage_barrier_journal_count
+            || envelope.stage_barrier_journal[index].payload_size
+                != semantic.payload_size
+            || envelope.stage_barrier_journal[index].semantic != semantic.semantic
+            || !AppendStageSemantic(semantic, replay.stage_barrier_hash))
+        {
+            ++replay.stage_signature_failures;
+        }
         std::array<std::array<std::byte, 8>, barrier_presentation_fields.size()> saved{};
         std::size_t written{};
         if (!CaptureAndZeroFields(actor, barrier_presentation_fields, saved, written))
@@ -2053,12 +2120,25 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
         : stage_break_dispatch_trampoline_global_.load(std::memory_order_acquire);
     const auto original = reinterpret_cast<StageBreakDispatchFn>(trampoline);
     auto* batch = active_outer_capture_;
+    StagePresentationJournalEntry semantic{};
+    const bool semantic_ok = CaptureStageSemantic(
+        actor_id, location, 12, semantic);
     if (batch != nullptr && batch->observation != nullptr)
     {
-        ++batch->observation->stage_dispatch_calls;
-        if (!AppendStageSignature(actor_id, location, 12,
-                batch->observation->stage_dispatch_hash))
-            ++batch->observation->stage_signature_failures;
+        auto& observation = *batch->observation;
+        ++observation.stage_dispatch_calls;
+        if (!semantic_ok || !AppendStageSemantic(
+                semantic, observation.stage_dispatch_hash)
+            || observation.stage_dispatch_journal_count
+                >= observation.stage_dispatch_journal.size())
+        {
+            ++observation.stage_signature_failures;
+        }
+        else
+        {
+            observation.stage_dispatch_journal[
+                observation.stage_dispatch_journal_count++] = semantic;
+        }
     }
     auto* context = active_presentation_mask;
     if (context == nullptr || !context->masked)
@@ -2081,10 +2161,18 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
     {
         if (batch != nullptr && batch->owned != nullptr)
         {
-            ++batch->owned->result->semantic_stage_dispatch_calls;
-            if (!AppendStageSignature(actor_id, location, 12,
-                    batch->owned->result->stage_dispatch_hash))
-                ++batch->owned->result->stage_signature_failures;
+            auto& replay = *batch->owned->result;
+            const auto& envelope = *batch->owned->request->envelope;
+            const auto index = replay.semantic_stage_dispatch_calls++;
+            if (!semantic_ok || index >= envelope.stage_dispatch_journal_count
+                || envelope.stage_dispatch_journal[index].payload_size
+                    != semantic.payload_size
+                || envelope.stage_dispatch_journal[index].semantic
+                    != semantic.semantic
+                || !AppendStageSemantic(semantic, replay.stage_dispatch_hash))
+            {
+                ++replay.stage_signature_failures;
+            }
         }
         if (original != nullptr) original(emitter, actor_id, location);
         if (!ZeroMaskContext(*context))
@@ -2888,13 +2976,26 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
     const auto return_address = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
     const auto image_base = hooks != nullptr ? hooks->image_base_ : 0;
     const auto route = ClassifyParticleRoute(image_base, return_address);
+    ParticleSpawnJournalEntry semantic{};
+    const bool semantic_ok = CaptureParticleSpawnSemantic(route,
+        world_context, particle_system, location, rotation, scale,
+        auto_activate, semantic);
     if (batch != nullptr && batch->observation != nullptr)
     {
-        ++batch->observation->particle_spawn_calls;
-        if (!AppendParticleSpawnSignature(route, world_context, particle_system,
-                location, rotation, scale, auto_activate,
-                batch->observation->particle_spawn_hash))
-            ++batch->observation->particle_signature_failures;
+        auto& observation = *batch->observation;
+        ++observation.particle_spawn_calls;
+        if (!semantic_ok || !AppendParticleSpawnSemantic(
+                semantic, observation.particle_spawn_hash)
+            || observation.particle_spawn_journal_count
+                >= observation.particle_spawn_journal.size())
+        {
+            ++observation.particle_signature_failures;
+        }
+        else
+        {
+            observation.particle_spawn_journal[
+                observation.particle_spawn_journal_count++] = semantic;
+        }
     }
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
@@ -2909,11 +3010,14 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
     }
 
     auto& result = *batch->owned->result;
-    ++result.suppressed_particle_spawn_calls;
-    const bool signature_ok = AppendParticleSpawnSignature(route,
-        world_context, particle_system, location, rotation, scale,
-        auto_activate, result.suppressed_particle_spawn_hash);
-    if (!signature_ok || route == 0 || route == 4)
+    const auto& envelope = *batch->owned->request->envelope;
+    const auto index = result.suppressed_particle_spawn_calls++;
+    const bool sequence_ok = semantic_ok
+        && index < envelope.particle_spawn_journal_count
+        && envelope.particle_spawn_journal[index].semantic == semantic.semantic
+        && AppendParticleSpawnSemantic(
+            semantic, result.suppressed_particle_spawn_hash);
+    if (!sequence_ok || route == 0 || route == 4)
     {
         ++result.unknown_particle_routes;
         ++result.presentation_failures;

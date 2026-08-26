@@ -474,6 +474,14 @@ void test_native_batch_timeline_is_exact_and_bounded()
     first.entry_coordinate = {};
     first.exit_coordinate = {1, 2};
     first.coordinate_count = 2;
+    first.stage_wall_calls = 1;
+    first.stage_wall_journal_count = 1;
+    first.stage_wall_journal[0].payload_size = 1;
+    first.stage_wall_journal[0].semantic[0] = std::byte{0x2a};
+    first.particle_spawn_calls = 1;
+    first.particle_spawn_journal_count = 1;
+    first.particle_spawn_journal[0].semantic[0] = std::byte{3};
+    first.particle_spawn_journal[0].semantic[5] = std::byte{0x7f};
     const std::array first_coordinates{
         FrameCoordinate{1, 1}, FrameCoordinate{1, 2}};
     expect(timeline.Append(first, first_coordinates).ok(),
@@ -486,6 +494,28 @@ void test_native_batch_timeline_is_exact_and_bounded()
     expect(timeline.GetBatch(0) != nullptr
             && timeline.GetBatch(0)->batch_id == 10,
         "batch lookup must return the stored envelope");
+    expect(timeline.GetBatch(0)->stage_wall_journal_count == 1
+            && timeline.GetBatch(0)->stage_wall_journal[0].payload_size == 1
+            && timeline.GetBatch(0)->stage_wall_journal[0].semantic[0]
+                == std::byte{0x2a}
+            && timeline.GetBatch(0)->particle_spawn_journal_count == 1
+            && timeline.GetBatch(0)->particle_spawn_journal[0].semantic[0]
+                == std::byte{3}
+            && timeline.GetBatch(0)->particle_spawn_journal[0].semantic[5]
+                == std::byte{0x7f},
+        "batch storage preserves ordered pointer-free presentation source values");
+
+    NativeBatchTimeline malformed_timeline{1, 1};
+    NativeBatchEnvelope malformed{};
+    malformed.batch_id = 1;
+    malformed.entry_coordinate = {1, 0};
+    malformed.exit_coordinate = {1, 1};
+    malformed.coordinate_count = 1;
+    malformed.particle_spawn_calls = 1;
+    const std::array malformed_coordinate{FrameCoordinate{1, 1}};
+    expect(malformed_timeline.Append(malformed, malformed_coordinate).code
+            == FailureCode::IdentityMismatch,
+        "batch storage rejects missing ordered presentation source values");
 
     NativeBatchEnvelope second{};
     second.batch_id = 12;
