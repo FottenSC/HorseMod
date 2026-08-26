@@ -439,6 +439,7 @@ private:
         seek_resume_last_observed_frame_ = 0;
         seek_resume_last_round_state_frame_ = 0;
         seek_resume_observation_active_ = false;
+        phase_wait_log_counter_ = 0;
         profile_attempts_ = 0;
         next_profile_attempt_ = {};
         state_ = State::Importing;
@@ -538,12 +539,25 @@ private:
         }
         std::int32_t native_round{}, native_time{}, unpause_countdown{};
         std::uint32_t round_state_frame{};
-        if (!get_phase(&native_round, &native_time, &round_state_frame,
-                &unpause_countdown)
-            || round_state_frame == 0 || unpause_countdown != 0)
+        const bool phase_available = get_phase(&native_round, &native_time,
+            &round_state_frame, &unpause_countdown);
+        if (!phase_available || round_state_frame == 0
+            || unpause_countdown != 0)
         {
+            if (++phase_wait_log_counter_ >= 120)
+            {
+                phase_wait_log_counter_ = 0;
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] waiting for active replay phase "
+                    "available={} frame={} round={} time={} "
+                    "round_state_frame={} unpause={}\n"),
+                    phase_available ? STR("yes") : STR("no"), frame,
+                    native_round, native_time, round_state_frame,
+                    unpause_countdown);
+            }
             return;
         }
+        phase_wait_log_counter_ = 0;
         if (!battle_scene_observed_)
         {
             battle_scene_observed_ = true;
@@ -900,6 +914,7 @@ private:
     std::int32_t seek_resume_native_round_{};
     std::uint32_t seek_resume_last_round_state_frame_{};
     bool seek_resume_observation_active_{};
+    std::uint16_t phase_wait_log_counter_{};
     std::uint8_t profile_attempts_{};
 };
 
