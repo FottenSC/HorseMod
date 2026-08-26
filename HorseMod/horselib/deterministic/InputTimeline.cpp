@@ -88,6 +88,23 @@ Status InputTimeline::ReplacePredicted(
     return Status::success();
 }
 
+Status InputTimeline::CompareExchange(
+    FrameCoordinate coordinate,
+    const InputPair& expected,
+    const InputPair& replacement) noexcept
+{
+    const auto found = std::lower_bound(entries_.begin(), entries_.end(),
+        coordinate, [](const Entry& entry, FrameCoordinate value) {
+            return entry.coordinate < value;
+        });
+    if (found == entries_.end() || found->coordinate != coordinate)
+        return Status::failure(FailureCode::MissingInput);
+    if (found->inputs != expected)
+        return Status::failure(FailureCode::IdentityMismatch);
+    found->inputs = replacement;
+    return Status::success();
+}
+
 void InputTimeline::InvalidateGeneration(std::uint64_t generation) noexcept
 {
     entries_.erase(std::remove_if(entries_.begin(), entries_.end(),

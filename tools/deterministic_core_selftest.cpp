@@ -88,6 +88,26 @@ void test_canonical_hash_timeline_is_immutable_and_bounded()
             && timeline.GetExact({1, 10})->wind_node == first_node
             && timeline.GetExact({1, 12}) == std::nullopt,
         "canonical timeline retains only the immutable bounded baseline");
+
+    const auto old_first = *timeline.GetExact({1, 10});
+    const auto old_second = *timeline.GetExact({1, 11});
+    auto new_first = old_first;
+    auto new_second = old_second;
+    new_first.hash[1] = std::byte{0x33};
+    new_second.hash[1] = std::byte{0x44};
+    const std::array expected{old_first, old_second};
+    const std::array replacement{new_first, new_second};
+    expect(timeline.ReplaceExactRange(expected, replacement).ok()
+            && timeline.GetExact({1, 10})->hash == new_first.hash
+            && timeline.GetExact({1, 11})->hash == new_second.hash,
+        "canonical timeline atomically replaces an exact corrected range");
+    auto stale = expected;
+    stale[1].hash[2] = std::byte{0x55};
+    expect(timeline.ReplaceExactRange(stale, expected).code
+            == FailureCode::StateHashMismatch
+            && timeline.GetExact({1, 10})->hash == new_first.hash
+            && timeline.GetExact({1, 11})->hash == new_second.hash,
+        "canonical corrected range rejects stale expectations without mutation");
 }
 
 enum class AdapterFailure
@@ -460,6 +480,16 @@ void test_input_replacement_and_invalidation()
     remote.held = 7;
     expect(timeline.ReplacePredicted({1, 0}, 1, remote).ok(), "replace predicted input");
     expect(timeline.GetExact({1, 0})->players[1].held == 7, "confirmed input stored");
+    const auto confirmed = *timeline.GetExact({1, 0});
+    auto corrected = confirmed;
+    corrected.post_filter_players[1].held = 9;
+    expect(timeline.CompareExchange({1, 0}, confirmed, corrected).ok()
+            && timeline.GetExact({1, 0})->post_filter_players[1].held == 9,
+        "input timeline atomically publishes corrected source-frame data");
+    expect(timeline.CompareExchange({1, 0}, confirmed, confirmed).code
+            == FailureCode::IdentityMismatch
+            && timeline.GetExact({1, 0})->post_filter_players[1].held == 9,
+        "input timeline rejects stale transactional undo");
     remote.held = 8;
     expect(
         timeline.ReplacePredicted({1, 0}, 1, remote).code == FailureCode::IdentityMismatch,

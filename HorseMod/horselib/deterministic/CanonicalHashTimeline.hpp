@@ -3,6 +3,7 @@
 #include "Types.hpp"
 
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace Horse::Deterministic
@@ -35,6 +36,9 @@ public:
         const CanonicalWindNodeDiagnostic& wind_node) noexcept;
     [[nodiscard]] std::optional<CanonicalHashEntry> GetExact(
         FrameCoordinate coordinate) const noexcept;
+    Status ReplaceExactRange(
+        std::span<const CanonicalHashEntry> expected,
+        std::span<const CanonicalHashEntry> replacement) noexcept;
     [[nodiscard]] std::optional<std::pair<FrameCoordinate, FrameCoordinate>>
     Range() const noexcept;
     void Clear() noexcept;

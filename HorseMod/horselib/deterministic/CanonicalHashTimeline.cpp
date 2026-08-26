@@ -72,6 +72,41 @@ std::optional<CanonicalHashEntry> CanonicalHashTimeline::GetExact(
         ? std::optional<CanonicalHashEntry>{*found} : std::nullopt;
 }
 
+Status CanonicalHashTimeline::ReplaceExactRange(
+    std::span<const CanonicalHashEntry> expected,
+    std::span<const CanonicalHashEntry> replacement) noexcept
+{
+    if (expected.empty() || expected.size() != replacement.size())
+        return Status::failure(FailureCode::InvalidConfiguration);
+    auto found = std::lower_bound(entries_.begin(), entries_.end(),
+        expected.front().coordinate,
+        [](const CanonicalHashEntry& entry, FrameCoordinate value) {
+            return entry.coordinate < value;
+        });
+    const auto first = static_cast<std::size_t>(found - entries_.begin());
+    if (first + expected.size() > entries_.size())
+        return Status::failure(FailureCode::MissingSnapshot);
+    for (std::size_t index = 0; index < expected.size(); ++index)
+    {
+        const auto& current = entries_[first + index];
+        if (current.coordinate != expected[index].coordinate
+            || current.coordinate != replacement[index].coordinate)
+            return Status::failure(FailureCode::IdentityMismatch);
+        if (current.hash != expected[index].hash
+            || current.components != expected[index].components
+            || current.native != expected[index].native
+            || current.move_dispatch != expected[index].move_dispatch
+            || current.input != expected[index].input
+            || current.wind_semantic != expected[index].wind_semantic
+            || current.wind != expected[index].wind
+            || current.wind_node != expected[index].wind_node)
+            return Status::failure(FailureCode::StateHashMismatch);
+    }
+    for (std::size_t index = 0; index < replacement.size(); ++index)
+        entries_[first + index] = replacement[index];
+    return Status::success();
+}
+
 std::optional<std::pair<FrameCoordinate, FrameCoordinate>>
 CanonicalHashTimeline::Range() const noexcept
 {

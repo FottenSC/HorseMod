@@ -20,6 +20,10 @@ public:
         FrameCoordinate coordinate,
         std::size_t player_index,
         const PlayerInput& confirmed_remote) noexcept override;
+    Status CompareExchange(
+        FrameCoordinate coordinate,
+        const InputPair& expected,
+        const InputPair& replacement) noexcept;
     void InvalidateGeneration(std::uint64_t generation) noexcept override;
     void Clear() noexcept;
 
