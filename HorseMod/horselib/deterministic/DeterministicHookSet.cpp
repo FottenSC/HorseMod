@@ -1255,6 +1255,10 @@ Status DeterministicHookSet::RestoreBattleAudioRemapEntry(
     if ((mask >> maximum_battle_audio_handlers) != 0
         || battle_audio_handler_overflow_.load(std::memory_order_acquire))
         return Status::failure(FailureCode::CapacityExceeded);
+    std::array<std::uintptr_t, maximum_battle_audio_handlers> handlers{};
+    std::array<std::int32_t, maximum_battle_audio_handlers> undo{};
+    std::array<std::int32_t, maximum_battle_audio_handlers> desired{};
+    std::size_t count{};
     for (std::size_t index = 0; index < maximum_battle_audio_handlers; ++index)
     {
         if ((mask & (std::uint8_t{1} << index)) == 0) continue;
@@ -1270,8 +1274,36 @@ Status DeterministicHookSet::RestoreBattleAudioRemapEntry(
             || !SafeRead(handler + 0x3E0, current)
             || current < 0 || current > 1)
             return Status::failure(FailureCode::IdentityMismatch);
+        handlers[count] = handler;
+        undo[count] = current;
+        desired[count] = static_cast<std::int32_t>(
+            envelope.battle_audio_remap_entry_values[index]);
+        ++count;
     }
-    return Status::success();
+    std::size_t written{};
+    for (; written < count; ++written)
+    {
+        std::int32_t observed{};
+        if (!SafeWrite(handlers[written] + 0x3E0, desired[written])
+            || !SafeRead(handlers[written] + 0x3E0, observed)
+            || observed != desired[written])
+        {
+            break;
+        }
+    }
+    if (written == count) return Status::success();
+
+    bool undone = true;
+    while (written != 0)
+    {
+        --written;
+        std::int32_t observed{};
+        undone = SafeWrite(handlers[written] + 0x3E0, undo[written])
+            && SafeRead(handlers[written] + 0x3E0, observed)
+            && observed == undo[written] && undone;
+    }
+    return Status::failure(undone
+        ? FailureCode::RestoreWriteFailed : FailureCode::UndoFailed);
 }
 
 void __fastcall DeterministicHookSet::OuterTickDetour(
