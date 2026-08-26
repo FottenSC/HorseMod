@@ -252,6 +252,9 @@ public:
         std::size_t batch_index) const noexcept;
     [[nodiscard]] const NativeBatchCoordinate* GetBatchCoordinate(
         std::size_t batch_index, std::uint32_t offset_in_batch) const noexcept;
+    Status ReplaceBatch(std::size_t batch_index,
+        const NativeBatchEnvelope& expected,
+        const NativeBatchEnvelope& replacement) noexcept;
     [[nodiscard]] bool CanAppendBatch(
         std::size_t coordinate_count) const noexcept;
     void Clear() noexcept;

@@ -105,6 +105,32 @@ Status InputTimeline::CompareExchange(
     return Status::success();
 }
 
+Status InputTimeline::CompareExchangeRange(
+    std::span<const FrameCoordinate> coordinates,
+    std::span<const InputPair> expected,
+    std::span<const InputPair> replacement) noexcept
+{
+    if (coordinates.empty() || coordinates.size() != expected.size()
+        || coordinates.size() != replacement.size())
+        return Status::failure(FailureCode::InvalidConfiguration);
+    auto found = std::lower_bound(entries_.begin(), entries_.end(),
+        coordinates.front(), [](const Entry& entry, FrameCoordinate value) {
+            return entry.coordinate < value;
+        });
+    const auto first = static_cast<std::size_t>(found - entries_.begin());
+    if (first + coordinates.size() > entries_.size())
+        return Status::failure(FailureCode::MissingInput);
+    for (std::size_t index = 0; index < coordinates.size(); ++index)
+    {
+        if (entries_[first + index].coordinate != coordinates[index]
+            || entries_[first + index].inputs != expected[index])
+            return Status::failure(FailureCode::IdentityMismatch);
+    }
+    for (std::size_t index = 0; index < coordinates.size(); ++index)
+        entries_[first + index].inputs = replacement[index];
+    return Status::success();
+}
+
 void InputTimeline::InvalidateGeneration(std::uint64_t generation) noexcept
 {
     entries_.erase(std::remove_if(entries_.begin(), entries_.end(),

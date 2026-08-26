@@ -3,6 +3,7 @@
 #include "Schema.hpp"
 
 #include <algorithm>
+#include <cstring>
 
 namespace Horse::Deterministic
 {
@@ -125,6 +126,90 @@ const NativeBatchCoordinate* NativeBatchTimeline::GetBatchCoordinate(
     return found != coordinates_.end() && found->batch_index == batch_index
             && found->offset_in_batch == offset_in_batch
         ? &*found : nullptr;
+}
+
+Status NativeBatchTimeline::ReplaceBatch(
+    std::size_t batch_index,
+    const NativeBatchEnvelope& expected,
+    const NativeBatchEnvelope& replacement) noexcept
+{
+    if (batch_index >= batches_.size())
+        return Status::failure(FailureCode::MissingSnapshot);
+    auto& current = batches_[batch_index];
+    if (std::memcmp(&current, &expected, sizeof(current)) != 0)
+        return Status::failure(FailureCode::IdentityMismatch);
+    const bool immutable_match =
+        replacement.batch_id == expected.batch_id
+        && replacement.entry_coordinate == expected.entry_coordinate
+        && replacement.exit_coordinate == expected.exit_coordinate
+        && replacement.delta_seconds == expected.delta_seconds
+        && replacement.native_frame_before == expected.native_frame_before
+        && replacement.native_frame_after == expected.native_frame_after
+        && replacement.input_round_before == expected.input_round_before
+        && replacement.input_round_after == expected.input_round_after
+        && replacement.input_time_before == expected.input_time_before
+        && replacement.input_time_after == expected.input_time_after
+        && replacement.manager_round_cursor_before
+            == expected.manager_round_cursor_before
+        && replacement.manager_round_cursor_after
+            == expected.manager_round_cursor_after
+        && replacement.manager_time_cursor_before
+            == expected.manager_time_cursor_before
+        && replacement.manager_time_cursor_after
+            == expected.manager_time_cursor_after
+        && replacement.coordinate_count == expected.coordinate_count
+        && replacement.main_state_before == expected.main_state_before
+        && replacement.main_state_after == expected.main_state_after
+        && replacement.round_state_before == expected.round_state_before
+        && replacement.round_state_after == expected.round_state_after
+        && replacement.input_generation_changed
+            == expected.input_generation_changed
+        && replacement.camera_source_frame == expected.camera_source_frame;
+    const auto expected_order =
+        static_cast<std::size_t>(replacement.battle_audio_dispatches)
+        + replacement.battle_audio_source_calls
+        + replacement.battle_audio_remap_calls
+        + replacement.battle_audio_blueprint_calls
+        + replacement.battle_audio_stop_all_calls
+        + replacement.stage_wall_calls + replacement.stage_barrier_calls
+        + replacement.stage_dispatch_calls + replacement.particle_spawn_calls;
+    if (!immutable_match || replacement.stage_signature_failures != 0
+        || replacement.particle_signature_failures != 0
+        || replacement.camera_signature_failures != 0
+        || replacement.presentation_order_failures != 0
+        || replacement.battle_audio_journal_count
+            != replacement.battle_audio_dispatches
+        || replacement.battle_audio_source_journal_count
+            != replacement.battle_audio_source_calls
+        || replacement.battle_audio_remap_journal_count
+            != replacement.battle_audio_remap_calls
+        || replacement.battle_audio_blueprint_journal_count
+            != replacement.battle_audio_blueprint_calls
+        || replacement.battle_audio_stop_all_journal_count
+            != replacement.battle_audio_stop_all_calls
+        || replacement.stage_wall_journal_count
+            != replacement.stage_wall_calls
+        || replacement.stage_barrier_journal_count
+            != replacement.stage_barrier_calls
+        || replacement.stage_dispatch_journal_count
+            != replacement.stage_dispatch_calls
+        || replacement.particle_spawn_journal_count
+            != replacement.particle_spawn_calls
+        || replacement.presentation_order_journal_count != expected_order
+        || expected_order > replacement.presentation_order_journal.size())
+        return Status::failure(FailureCode::IdentityMismatch);
+    std::array<std::uint8_t, 9> next_family_index{};
+    for (std::size_t index = 0; index < expected_order; ++index)
+    {
+        const auto& entry = replacement.presentation_order_journal[index];
+        const auto family = static_cast<std::uint8_t>(entry.family);
+        if (family == 0 || family > next_family_index.size()
+            || entry.source_offset > replacement.coordinate_count
+            || entry.family_index != next_family_index[family - 1]++)
+            return Status::failure(FailureCode::IdentityMismatch);
+    }
+    current = replacement;
+    return Status::success();
 }
 
 bool NativeBatchTimeline::CanAppendBatch(

@@ -490,6 +490,21 @@ void test_input_replacement_and_invalidation()
             == FailureCode::IdentityMismatch
             && timeline.GetExact({1, 0})->post_filter_players[1].held == 9,
         "input timeline rejects stale transactional undo");
+    const std::array coordinates{FrameCoordinate{1, 0}, FrameCoordinate{1, 1}};
+    const std::array expected_inputs{corrected, one_input(false)};
+    auto replacement_inputs = expected_inputs;
+    replacement_inputs[1].post_filter_players[0].held = 11;
+    expect(timeline.CompareExchangeRange(
+                coordinates, expected_inputs, replacement_inputs).ok()
+            && timeline.GetExact({1, 1})->post_filter_players[0].held == 11,
+        "input timeline atomically publishes a corrected range");
+    auto stale_inputs = expected_inputs;
+    stale_inputs[0].players[0].held = 99;
+    expect(timeline.CompareExchangeRange(
+                coordinates, stale_inputs, expected_inputs).code
+            == FailureCode::IdentityMismatch
+            && timeline.GetExact({1, 1})->post_filter_players[0].held == 11,
+        "input corrected range rejects stale expectations without mutation");
     remote.held = 8;
     expect(
         timeline.ReplacePredicted({1, 0}, 1, remote).code == FailureCode::IdentityMismatch,
@@ -579,6 +594,19 @@ void test_native_batch_timeline_is_exact_and_bounded()
             && timeline.GetBatch(0)->presentation_order_journal[2].family
                 == PresentationEventFamily::ParticleSpawn,
         "batch storage preserves exact cross-family presentation order");
+    const auto original_batch = *timeline.GetBatch(0);
+    auto corrected_batch = original_batch;
+    corrected_batch.stage_wall_journal[0].semantic[0] = std::byte{0x31};
+    expect(timeline.ReplaceBatch(0, original_batch, corrected_batch).ok()
+            && timeline.GetBatch(0)->stage_wall_journal[0].semantic[0]
+                == std::byte{0x31},
+        "native batch timeline replaces an exact corrected presentation batch");
+    auto invalid_replacement = corrected_batch;
+    invalid_replacement.presentation_order_journal_count = 3;
+    expect(timeline.ReplaceBatch(0, corrected_batch, invalid_replacement).code
+            == FailureCode::IdentityMismatch
+            && timeline.GetBatch(0)->presentation_order_journal_count == 4,
+        "native batch replacement rejects malformed presentation atomically");
 
     NativeBatchTimeline duplicate_order_timeline{1, 2};
     NativeBatchEnvelope duplicate_order = first;
