@@ -2,6 +2,7 @@
 
 #include "Interfaces.hpp"
 
+#include <memory>
 #include <vector>
 
 namespace Horse::Deterministic
@@ -34,14 +35,26 @@ public:
     void Clear() noexcept;
 
 private:
+    struct Entry
+    {
+        FrameCoordinate coordinate{};
+        std::size_t slot{};
+    };
+
     [[nodiscard]] std::size_t snapshot_dynamic_cost(
         const Snapshot& snapshot) const noexcept;
+    void release_entry(std::vector<Entry>::iterator entry) noexcept;
     void erase_oldest() noexcept;
+    void reset_free_slots() noexcept;
 
     std::size_t maximum_bytes_{};
     std::size_t maximum_entries_{};
     CapacityPolicy policy_{CapacityPolicy::RejectNew};
+    std::size_t fixed_bytes_{};
     std::size_t bytes_used_{};
-    std::vector<Snapshot> snapshots_;
+    std::unique_ptr<Snapshot[]> snapshots_;
+    std::unique_ptr<std::size_t[]> free_slots_;
+    std::size_t free_slot_count_{};
+    std::vector<Entry> entries_;
 };
 }

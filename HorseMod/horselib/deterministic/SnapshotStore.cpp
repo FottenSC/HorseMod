@@ -1,6 +1,8 @@
 #include "SnapshotStore.hpp"
 
 #include <algorithm>
+#include <new>
+#include <type_traits>
 #include <utility>
 
 namespace Horse::Deterministic
@@ -13,15 +15,46 @@ SnapshotStore::SnapshotStore(
       maximum_entries_(maximum_entries),
       policy_(policy)
 {
+    if (maximum_entries_ == 0
+        || maximum_entries_ > maximum_bytes_ / sizeof(Snapshot))
+    {
+        maximum_entries_ = 0;
+        return;
+    }
+    snapshots_.reset(new (std::nothrow) Snapshot[maximum_entries_]);
+    free_slots_.reset(new (std::nothrow) std::size_t[maximum_entries_]);
+    if (!snapshots_ || !free_slots_)
+    {
+        snapshots_.reset();
+        free_slots_.reset();
+        maximum_entries_ = 0;
+        return;
+    }
     try
     {
-        snapshots_.reserve(maximum_entries_);
-        bytes_used_ = snapshots_.capacity() * sizeof(Snapshot);
+        entries_.reserve(maximum_entries_);
     }
     catch (...)
     {
+        snapshots_.reset();
+        free_slots_.reset();
         maximum_entries_ = 0;
+        return;
     }
+    fixed_bytes_ = maximum_entries_
+        * (sizeof(Snapshot) + sizeof(std::size_t))
+        + entries_.capacity() * sizeof(Entry);
+    if (fixed_bytes_ > maximum_bytes_)
+    {
+        snapshots_.reset();
+        free_slots_.reset();
+        std::vector<Entry>{}.swap(entries_);
+        maximum_entries_ = 0;
+        fixed_bytes_ = 0;
+        return;
+    }
+    bytes_used_ = fixed_bytes_;
+    reset_free_slots();
 }
 
 std::size_t SnapshotStore::snapshot_dynamic_cost(
@@ -34,36 +67,44 @@ std::size_t SnapshotStore::snapshot_dynamic_cost(
     return cost;
 }
 
+void SnapshotStore::reset_free_slots() noexcept
+{
+    free_slot_count_ = maximum_entries_;
+    for (std::size_t index = 0; index < maximum_entries_; ++index)
+        free_slots_[index] = maximum_entries_ - index - 1;
+}
+
+void SnapshotStore::release_entry(
+    std::vector<Entry>::iterator entry) noexcept
+{
+    const auto slot = entry->slot;
+    bytes_used_ -= snapshot_dynamic_cost(snapshots_[slot]);
+    snapshots_[slot] = {};
+    free_slots_[free_slot_count_++] = slot;
+    entries_.erase(entry);
+}
+
 void SnapshotStore::erase_oldest() noexcept
 {
-    if (snapshots_.empty())
-    {
-        return;
-    }
-    bytes_used_ -= snapshot_dynamic_cost(snapshots_.front());
-    snapshots_.erase(snapshots_.begin());
+    if (!entries_.empty()) release_entry(entries_.begin());
 }
 
 Status SnapshotStore::Save(Snapshot snapshot) noexcept
 {
+    static_assert(std::is_nothrow_move_assignable_v<Snapshot>);
     const std::size_t incoming = snapshot_dynamic_cost(snapshot);
-    if (incoming > maximum_bytes_ || maximum_entries_ == 0)
-    {
+    if (maximum_entries_ == 0 || incoming > maximum_bytes_ - fixed_bytes_)
         return Status::failure(FailureCode::CapacityExceeded);
-    }
 
-    auto existing = std::lower_bound(snapshots_.begin(), snapshots_.end(),
-        snapshot.coordinate, [](const Snapshot& entry, FrameCoordinate value) {
+    auto existing = std::lower_bound(entries_.begin(), entries_.end(),
+        snapshot.coordinate, [](const Entry& entry, FrameCoordinate value) {
             return entry.coordinate < value;
         });
-    const bool replacing = existing != snapshots_.end()
+    const bool replacing = existing != entries_.end()
         && existing->coordinate == snapshot.coordinate;
-    const std::size_t replaced = existing == snapshots_.end()
-        ? 0
-        : (replacing ? snapshot_dynamic_cost(*existing) : 0);
-    const std::size_t effective_count = snapshots_.size()
-        - (replacing ? 1 : 0);
-
+    const std::size_t replaced = replacing
+        ? snapshot_dynamic_cost(snapshots_[existing->slot]) : 0;
+    const std::size_t effective_count = entries_.size() - (replacing ? 1 : 0);
     if (policy_ == CapacityPolicy::RejectNew
         && (bytes_used_ - replaced + incoming > maximum_bytes_
             || effective_count >= maximum_entries_))
@@ -71,37 +112,32 @@ Status SnapshotStore::Save(Snapshot snapshot) noexcept
         return Status::failure(FailureCode::CapacityExceeded);
     }
 
-    if (replacing)
-    {
-        bytes_used_ -= replaced;
-        snapshots_.erase(existing);
-        existing = std::lower_bound(snapshots_.begin(), snapshots_.end(),
-            snapshot.coordinate,
-            [](const Snapshot& entry, FrameCoordinate value) {
-                return entry.coordinate < value;
-            });
-    }
-
+    if (replacing) release_entry(existing);
     while (bytes_used_ + incoming > maximum_bytes_
-        || snapshots_.size() >= maximum_entries_)
+        || entries_.size() >= maximum_entries_)
     {
-        if (policy_ == CapacityPolicy::RejectNew || snapshots_.empty())
-        {
+        if (policy_ == CapacityPolicy::RejectNew || entries_.empty())
             return Status::failure(FailureCode::CapacityExceeded);
-        }
         erase_oldest();
     }
+    if (free_slot_count_ == 0)
+        return Status::failure(FailureCode::CapacityExceeded);
 
-    existing = std::lower_bound(snapshots_.begin(), snapshots_.end(),
-        snapshot.coordinate, [](const Snapshot& entry, FrameCoordinate value) {
+    const auto slot = free_slots_[--free_slot_count_];
+    snapshots_[slot] = std::move(snapshot);
+    const auto insertion = std::lower_bound(entries_.begin(), entries_.end(),
+        snapshots_[slot].coordinate,
+        [](const Entry& entry, FrameCoordinate value) {
             return entry.coordinate < value;
         });
     try
     {
-        snapshots_.insert(existing, std::move(snapshot));
+        entries_.insert(insertion, Entry{snapshots_[slot].coordinate, slot});
     }
     catch (...)
     {
+        snapshots_[slot] = {};
+        free_slots_[free_slot_count_++] = slot;
         return Status::failure(FailureCode::CapacityExceeded);
     }
     bytes_used_ += incoming;
@@ -124,25 +160,26 @@ std::optional<Snapshot> SnapshotStore::NearestAtOrBefore(
 const Snapshot* SnapshotStore::FindExact(
     FrameCoordinate coordinate) const noexcept
 {
-    const auto found = std::lower_bound(snapshots_.begin(), snapshots_.end(),
-        coordinate, [](const Snapshot& entry, FrameCoordinate value) {
+    const auto found = std::lower_bound(entries_.begin(), entries_.end(),
+        coordinate, [](const Entry& entry, FrameCoordinate value) {
             return entry.coordinate < value;
         });
-    return found != snapshots_.end() && found->coordinate == coordinate
-        ? &*found : nullptr;
+    return found != entries_.end() && found->coordinate == coordinate
+        ? &snapshots_[found->slot] : nullptr;
 }
 
 const Snapshot* SnapshotStore::FindNearestAtOrBefore(
     FrameCoordinate coordinate) const noexcept
 {
-    auto found = std::upper_bound(snapshots_.begin(), snapshots_.end(),
-        coordinate, [](FrameCoordinate value, const Snapshot& entry) {
+    auto found = std::upper_bound(entries_.begin(), entries_.end(),
+        coordinate, [](FrameCoordinate value, const Entry& entry) {
             return value < entry.coordinate;
         });
-    while (found != snapshots_.begin())
+    while (found != entries_.begin())
     {
         --found;
-        if (found->coordinate.generation == coordinate.generation) return &*found;
+        if (found->coordinate.generation == coordinate.generation)
+            return &snapshots_[found->slot];
         if (found->coordinate.generation < coordinate.generation) break;
     }
     return nullptr;
@@ -150,17 +187,15 @@ const Snapshot* SnapshotStore::FindNearestAtOrBefore(
 
 void SnapshotStore::InvalidateGeneration(std::uint64_t generation) noexcept
 {
-    for (auto it = snapshots_.begin(); it != snapshots_.end();)
+    for (auto entry = entries_.begin(); entry != entries_.end();)
     {
-        if (it->coordinate.generation == generation)
+        if (entry->coordinate.generation == generation)
         {
-            bytes_used_ -= snapshot_dynamic_cost(*it);
-            it = snapshots_.erase(it);
+            const auto index = static_cast<std::size_t>(entry - entries_.begin());
+            release_entry(entry);
+            entry = entries_.begin() + (std::min)(index, entries_.size());
         }
-        else
-        {
-            ++it;
-        }
+        else ++entry;
     }
 }
 
@@ -172,20 +207,22 @@ std::size_t SnapshotStore::BytesUsed() const noexcept
 bool SnapshotStore::TakeOldestIfFull(Snapshot& output) noexcept
 {
     if (policy_ != CapacityPolicy::EvictOldest
-        || snapshots_.size() < maximum_entries_ || snapshots_.empty())
-    {
+        || entries_.size() < maximum_entries_ || entries_.empty())
         return false;
-    }
-    auto oldest = snapshots_.begin();
-    bytes_used_ -= snapshot_dynamic_cost(*oldest);
-    output = std::move(*oldest);
-    snapshots_.erase(oldest);
+    const auto slot = entries_.front().slot;
+    bytes_used_ -= snapshot_dynamic_cost(snapshots_[slot]);
+    output = std::move(snapshots_[slot]);
+    snapshots_[slot] = {};
+    free_slots_[free_slot_count_++] = slot;
+    entries_.erase(entries_.begin());
     return true;
 }
 
 void SnapshotStore::Clear() noexcept
 {
-    snapshots_.clear();
-    bytes_used_ = snapshots_.capacity() * sizeof(Snapshot);
+    for (const auto& entry : entries_) snapshots_[entry.slot] = {};
+    entries_.clear();
+    reset_free_slots();
+    bytes_used_ = fixed_bytes_;
 }
 }

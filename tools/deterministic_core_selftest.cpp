@@ -668,16 +668,17 @@ void test_native_batch_timeline_is_exact_and_bounded()
 
 void test_snapshot_capacity_is_atomic()
 {
-    SnapshotStore store{sizeof(Snapshot) + 4, 1, CapacityPolicy::RejectNew};
+    SnapshotStore store{sizeof(Snapshot) + 64, 1, CapacityPolicy::RejectNew};
     Snapshot first{{1, 0}, 1, {}, {}, {}, {}, {}, {}, {}, std::vector<std::byte>(4)};
     Snapshot second{{1, 1}, 1, {}, {}, {}, {}, {}, {}, {}, std::vector<std::byte>(4)};
+    const auto reserved_bytes = store.BytesUsed();
     expect(store.Save(first).ok(), "save first snapshot");
     const auto bytes_before = store.BytesUsed();
     expect(store.Save(second).code == FailureCode::CapacityExceeded, "reject full snapshot store");
     expect(store.BytesUsed() == bytes_before, "capacity rejection does not mutate store");
     expect(store.Load({1, 0}).has_value(), "original snapshot survives rejection");
     store.Clear();
-    expect(store.BytesUsed() == sizeof(Snapshot)
+    expect(store.BytesUsed() == reserved_bytes
             && !store.Load({1, 0}).has_value(),
         "snapshot store clear releases payload while retaining bounded slots");
 
