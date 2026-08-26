@@ -14,6 +14,8 @@ inline constexpr std::size_t maximum_battle_audio_journal_dispatches = 16;
 inline constexpr std::size_t maximum_battle_audio_journal_sources =
     maximum_battle_audio_journal_dispatches;
 inline constexpr std::size_t maximum_battle_audio_journal_remaps = 8;
+inline constexpr std::size_t maximum_battle_audio_blueprint_journal_events =
+    maximum_battle_audio_journal_dispatches;
 inline constexpr std::size_t maximum_stage_presentation_journal_events = 8;
 inline constexpr std::size_t maximum_particle_presentation_journal_events = 16;
 inline constexpr std::size_t camera_publication_vector_bytes = 0x60;
@@ -39,6 +41,8 @@ struct BattleAudioSourceJournalEntry
     std::uint8_t dispatch_count{};
     std::uint8_t first_remap{};
     std::uint8_t remap_count{};
+    std::uint8_t first_blueprint{};
+    std::uint8_t blueprint_count{};
 };
 
 struct BattleAudioRemapJournalEntry
@@ -48,6 +52,13 @@ struct BattleAudioRemapJournalEntry
     std::int32_t before{};
     std::int32_t result{};
     std::int32_t after{};
+};
+
+struct BattleAudioBlueprintJournalEntry
+{
+    std::array<std::byte, 24> semantic{};
+    std::uint8_t handler_slot{};
+    std::uint8_t direct{};
 };
 
 // Ordered source-frame values for presentation families whose terminal calls
@@ -107,6 +118,8 @@ struct NativeBatchEnvelope
     std::uint64_t battle_audio_source_hash{};
     std::uint32_t battle_audio_stop_all_calls{};
     std::uint64_t battle_audio_stop_all_hash{};
+    std::uint32_t battle_audio_blueprint_calls{};
+    std::uint64_t battle_audio_blueprint_hash{};
     std::uint32_t particle_spawn_calls{};
     std::uint64_t particle_spawn_hash{};
     std::uint32_t particle_signature_failures{};
@@ -128,6 +141,9 @@ struct NativeBatchEnvelope
         maximum_battle_audio_journal_sources> battle_audio_source_journal{};
     std::array<BattleAudioRemapJournalEntry,
         maximum_battle_audio_journal_remaps> battle_audio_remap_journal{};
+    std::array<BattleAudioBlueprintJournalEntry,
+        maximum_battle_audio_blueprint_journal_events>
+        battle_audio_blueprint_journal{};
     std::array<StagePresentationJournalEntry,
         maximum_stage_presentation_journal_events> stage_wall_journal{};
     std::array<StagePresentationJournalEntry,
@@ -139,6 +155,7 @@ struct NativeBatchEnvelope
     std::uint8_t battle_audio_journal_count{};
     std::uint8_t battle_audio_source_journal_count{};
     std::uint8_t battle_audio_remap_journal_count{};
+    std::uint8_t battle_audio_blueprint_journal_count{};
     std::uint8_t stage_wall_journal_count{};
     std::uint8_t stage_barrier_journal_count{};
     std::uint8_t stage_dispatch_journal_count{};

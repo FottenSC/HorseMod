@@ -156,6 +156,10 @@ bool NativeBatchTimeline::Validate(
 {
     if (envelope.batch_id == 0
         || envelope.coordinate_count != coordinates.size()
+        || envelope.battle_audio_blueprint_journal_count
+            != envelope.battle_audio_blueprint_calls
+        || envelope.battle_audio_blueprint_journal_count
+            > envelope.battle_audio_blueprint_journal.size()
         || envelope.stage_wall_journal_count != envelope.stage_wall_calls
         || envelope.stage_wall_journal_count
             > envelope.stage_wall_journal.size()

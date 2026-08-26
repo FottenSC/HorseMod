@@ -478,6 +478,11 @@ void test_native_batch_timeline_is_exact_and_bounded()
     first.stage_wall_journal_count = 1;
     first.stage_wall_journal[0].payload_size = 1;
     first.stage_wall_journal[0].semantic[0] = std::byte{0x2a};
+    first.battle_audio_blueprint_calls = 1;
+    first.battle_audio_blueprint_journal_count = 1;
+    first.battle_audio_blueprint_journal[0].semantic[0] = std::byte{0x4d};
+    first.battle_audio_blueprint_journal[0].handler_slot = 1;
+    first.battle_audio_blueprint_journal[0].direct = 1;
     first.particle_spawn_calls = 1;
     first.particle_spawn_journal_count = 1;
     first.particle_spawn_journal[0].semantic[0] = std::byte{3};
@@ -504,6 +509,16 @@ void test_native_batch_timeline_is_exact_and_bounded()
             && timeline.GetBatch(0)->particle_spawn_journal[0].semantic[5]
                 == std::byte{0x7f},
         "batch storage preserves ordered pointer-free presentation source values");
+    expect(timeline.GetBatch(0)->battle_audio_blueprint_journal_count == 1
+            && timeline.GetBatch(0)->battle_audio_blueprint_journal[0]
+                    .semantic[0]
+                == std::byte{0x4d}
+            && timeline.GetBatch(0)->battle_audio_blueprint_journal[0]
+                    .handler_slot
+                == 1
+            && timeline.GetBatch(0)->battle_audio_blueprint_journal[0].direct
+                == 1,
+        "batch storage preserves exact reflected battle-audio publications");
 
     NativeBatchTimeline malformed_timeline{1, 1};
     NativeBatchEnvelope malformed{};
@@ -516,6 +531,14 @@ void test_native_batch_timeline_is_exact_and_bounded()
     expect(malformed_timeline.Append(malformed, malformed_coordinate).code
             == FailureCode::IdentityMismatch,
         "batch storage rejects missing ordered presentation source values");
+
+    NativeBatchTimeline malformed_blueprint_timeline{1, 1};
+    malformed.particle_spawn_calls = 0;
+    malformed.battle_audio_blueprint_calls = 1;
+    expect(malformed_blueprint_timeline.Append(
+               malformed, malformed_coordinate).code
+            == FailureCode::IdentityMismatch,
+        "batch storage rejects missing reflected battle-audio publications");
 
     NativeBatchEnvelope second{};
     second.batch_id = 12;

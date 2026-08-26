@@ -403,6 +403,38 @@ bool CaptureBattleAudioSemantic(
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
+bool CaptureBattleAudioBlueprintSemantic(
+    const void* event_record, std::array<std::byte, 24>& semantic) noexcept
+{
+    if (event_record == nullptr) return false;
+    __try
+    {
+        std::memcpy(semantic.data(), event_record, semantic.size());
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool AppendBattleAudioBlueprintSemantic(
+    const BattleAudioBlueprintJournalEntry& entry,
+    std::uint64_t& sequence_hash) noexcept
+{
+    constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+    constexpr std::uint64_t prime = 1099511628211ull;
+    auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
+    for (const auto value : entry.semantic)
+    {
+        hash ^= std::to_integer<std::uint8_t>(value);
+        hash *= prime;
+    }
+    hash ^= entry.handler_slot;
+    hash *= prime;
+    hash ^= entry.direct;
+    hash *= prime;
+    sequence_hash = hash;
+    return true;
+}
+
 bool AppendBattleAudioSignature(
     const void* event_record, bool alternate_route,
     std::uint64_t& sequence_hash, std::uint32_t& route_hash,
@@ -547,6 +579,7 @@ bool ConsumeBattleAudioJournal(
         stop_all_identity = 1u << 5,
         particle_identity = 1u << 6,
         unknown_particle_route = 1u << 7,
+        blueprint_identity = 1u << 8,
     };
     if (envelope.particle_signature_failures != 0
         || envelope.battle_audio_journal_count
@@ -561,6 +594,10 @@ bool ConsumeBattleAudioJournal(
             != envelope.battle_audio_remap_calls
         || envelope.battle_audio_remap_journal_count
             > envelope.battle_audio_remap_journal.size()
+        || envelope.battle_audio_blueprint_journal_count
+            != envelope.battle_audio_blueprint_calls
+        || envelope.battle_audio_blueprint_journal_count
+            > envelope.battle_audio_blueprint_journal.size()
         || envelope.stage_wall_journal_count != envelope.stage_wall_calls
         || envelope.stage_wall_journal_count
             > envelope.stage_wall_journal.size()
@@ -589,6 +626,8 @@ bool ConsumeBattleAudioJournal(
     }
     std::array<bool, maximum_battle_audio_journal_dispatches> source_dispatch{};
     std::array<bool, maximum_battle_audio_journal_remaps> source_remap{};
+    std::array<bool, maximum_battle_audio_blueprint_journal_events>
+        source_blueprint{};
     for (std::size_t source_index = 0;
          source_index < envelope.battle_audio_source_journal_count;
          ++source_index)
@@ -598,8 +637,13 @@ bool ConsumeBattleAudioJournal(
             + source.dispatch_count;
         const auto remap_end = static_cast<std::size_t>(source.first_remap)
             + source.remap_count;
+        const auto blueprint_end =
+            static_cast<std::size_t>(source.first_blueprint)
+            + source.blueprint_count;
         if (dispatch_end > envelope.battle_audio_journal_count
-            || remap_end > envelope.battle_audio_remap_journal_count)
+            || remap_end > envelope.battle_audio_remap_journal_count
+            || blueprint_end
+                > envelope.battle_audio_blueprint_journal_count)
         {
             output.audio_journal_failure_mask |= journal_structure;
             return false;
@@ -624,6 +668,17 @@ bool ConsumeBattleAudioJournal(
             }
             source_remap[index] = true;
         }
+        for (std::size_t index = source.first_blueprint;
+             index < blueprint_end; ++index)
+        {
+            if (source_blueprint[index]
+                || envelope.battle_audio_blueprint_journal[index].direct != 0)
+            {
+                output.audio_journal_failure_mask |= journal_structure;
+                return false;
+            }
+            source_blueprint[index] = true;
+        }
     }
     for (std::size_t index = 0; index < envelope.battle_audio_journal_count;
          ++index)
@@ -641,6 +696,18 @@ bool ConsumeBattleAudioJournal(
         if (!source_remap[index]
             || !ValidateJournaledBattleAudioRemap(
                 envelope.battle_audio_remap_journal[index]))
+        {
+            output.audio_journal_failure_mask |= journal_structure;
+            return false;
+        }
+    }
+    for (std::size_t index = 0;
+         index < envelope.battle_audio_blueprint_journal_count; ++index)
+    {
+        const auto& entry = envelope.battle_audio_blueprint_journal[index];
+        if (entry.handler_slot >= maximum_battle_audio_handlers
+            || entry.direct > 1
+            || ((entry.direct == 0) != source_blueprint[index]))
         {
             output.audio_journal_failure_mask |= journal_structure;
             return false;
@@ -683,6 +750,11 @@ bool ConsumeBattleAudioJournal(
             == envelope.battle_audio_stop_all_calls
         && output.suppressed_audio_stop_all_hash
             == envelope.battle_audio_stop_all_hash;
+    const bool blueprint_matches =
+        output.suppressed_audio_blueprint_calls
+            == envelope.battle_audio_blueprint_calls
+        && output.suppressed_audio_blueprint_hash
+            == envelope.battle_audio_blueprint_hash;
     const bool particle_matches =
         output.suppressed_particle_spawn_calls == envelope.particle_spawn_calls
         && output.suppressed_particle_spawn_hash == envelope.particle_spawn_hash;
@@ -691,6 +763,8 @@ bool ConsumeBattleAudioJournal(
     if (!source_matches) output.audio_journal_failure_mask |= source_identity;
     if (!remap_matches) output.audio_journal_failure_mask |= remap_identity;
     if (!stop_all_matches) output.audio_journal_failure_mask |= stop_all_identity;
+    if (!blueprint_matches)
+        output.audio_journal_failure_mask |= blueprint_identity;
     if (!particle_matches) output.audio_journal_failure_mask |= particle_identity;
     if (output.unknown_particle_routes != 0)
         output.audio_journal_failure_mask |= unknown_particle_route;
@@ -1425,7 +1499,9 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
         || output.suppressed_audio_source_calls
             > envelope.battle_audio_source_journal_count
         || output.suppressed_audio_remap_calls
-            > envelope.battle_audio_remap_journal_count)
+            > envelope.battle_audio_remap_journal_count
+        || output.suppressed_audio_blueprint_calls
+            > envelope.battle_audio_blueprint_journal_count)
         return false;
 
     const auto consume_source = [&](const BattleAudioSourceJournalEntry& source)
@@ -1435,10 +1511,17 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
             + source.dispatch_count;
         const auto remap_end = static_cast<std::size_t>(source.first_remap)
             + source.remap_count;
+        const auto blueprint_end =
+            static_cast<std::size_t>(source.first_blueprint)
+            + source.blueprint_count;
         if (source.first_dispatch != output.suppressed_audio_calls
             || source.first_remap != output.suppressed_audio_remap_calls
+            || source.first_blueprint
+                != output.suppressed_audio_blueprint_calls
             || dispatch_end > envelope.battle_audio_journal_count
-            || remap_end > envelope.battle_audio_remap_journal_count)
+            || remap_end > envelope.battle_audio_remap_journal_count
+            || blueprint_end
+                > envelope.battle_audio_blueprint_journal_count)
             return false;
         AppendBattleAudioSourceSemantic(
             source.semantic, output.suppressed_audio_source_hash);
@@ -1517,6 +1600,36 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
                 return false;
             ++output.suppressed_audio_calls;
         }
+        for (std::size_t blueprint_index = source.first_blueprint;
+             blueprint_index < blueprint_end; ++blueprint_index)
+        {
+            const auto& entry =
+                envelope.battle_audio_blueprint_journal[blueprint_index];
+            if (entry.direct != 0
+                || !AppendBattleAudioBlueprintSemantic(
+                    entry, output.suppressed_audio_blueprint_hash))
+                return false;
+            ++output.suppressed_audio_blueprint_calls;
+        }
+        return true;
+    };
+
+    const auto consume_direct_blueprints_until =
+        [&](std::size_t target) noexcept -> bool
+    {
+        if (target > envelope.battle_audio_blueprint_journal_count
+            || target < output.suppressed_audio_blueprint_calls)
+            return false;
+        while (output.suppressed_audio_blueprint_calls < target)
+        {
+            const auto& entry = envelope.battle_audio_blueprint_journal[
+                output.suppressed_audio_blueprint_calls];
+            if (entry.direct != 1
+                || !AppendBattleAudioBlueprintSemantic(
+                    entry, output.suppressed_audio_blueprint_hash))
+                return false;
+            ++output.suppressed_audio_blueprint_calls;
+        }
         return true;
     };
 
@@ -1531,7 +1644,9 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
                 output.suppressed_audio_source_calls];
             if (source.first_dispatch == output.suppressed_audio_calls)
             {
-                if (!consume_source(source)) return false;
+                if (!consume_direct_blueprints_until(source.first_blueprint)
+                    || !consume_source(source))
+                    return false;
                 continue;
             }
             if (source.first_dispatch < output.suppressed_audio_calls)
@@ -1556,8 +1671,13 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
         ++output.suppressed_audio_calls;
         ++output.suppressed_audio_direct_dispatches;
     }
+    if (!consume_direct_blueprints_until(
+            envelope.battle_audio_blueprint_journal_count))
+        return false;
     return output.suppressed_audio_remap_calls
-        == envelope.battle_audio_remap_journal_count;
+            == envelope.battle_audio_remap_journal_count
+        && output.suppressed_audio_blueprint_calls
+            == envelope.battle_audio_blueprint_journal_count;
 }
 
 void __fastcall DeterministicHookSet::OuterTickDetour(
@@ -2520,7 +2640,9 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             }
             const auto& source = envelope.battle_audio_source_journal[index];
             if (source.first_dispatch != replay.suppressed_audio_calls
-                || source.first_remap != replay.suppressed_audio_remap_calls)
+                || source.first_remap != replay.suppressed_audio_remap_calls
+                || source.first_blueprint
+                    != replay.suppressed_audio_blueprint_calls)
             {
                 callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
                 return;
@@ -2538,11 +2660,18 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                     + source.dispatch_count;
                 const auto remap_end = static_cast<std::size_t>(source.first_remap)
                     + source.remap_count;
+                const auto blueprint_end =
+                    static_cast<std::size_t>(source.first_blueprint)
+                    + source.blueprint_count;
                 bool span_valid = source.first_dispatch
                         == replay.suppressed_audio_calls
                     && source.first_remap == replay.suppressed_audio_remap_calls
+                    && source.first_blueprint
+                        == replay.suppressed_audio_blueprint_calls
                     && dispatch_end <= envelope.battle_audio_journal_count
-                    && remap_end <= envelope.battle_audio_remap_journal_count;
+                    && remap_end <= envelope.battle_audio_remap_journal_count
+                    && blueprint_end
+                        <= envelope.battle_audio_blueprint_journal_count;
                 std::int32_t source_contact_type{};
                 std::memcpy(&source_contact_type, semantic.data() + 1,
                     sizeof(source_contact_type));
@@ -2640,6 +2769,18 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                     }
                     ++replay.suppressed_audio_calls;
                 }
+                for (std::size_t blueprint_index = source.first_blueprint;
+                     span_valid && blueprint_index < blueprint_end;
+                     ++blueprint_index)
+                {
+                    const auto& entry =
+                        envelope.battle_audio_blueprint_journal[blueprint_index];
+                    span_valid = entry.direct == 0
+                        && AppendBattleAudioBlueprintSemantic(
+                            entry, replay.suppressed_audio_blueprint_hash);
+                    if (!span_valid) break;
+                    ++replay.suppressed_audio_blueprint_calls;
+                }
                 if (!span_valid)
                 {
                     ++replay.audio_sequence_mismatches;
@@ -2673,6 +2814,8 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             auto& source = observation.battle_audio_source_journal[source_index];
             source.first_dispatch = observation.battle_audio_journal_count;
             source.first_remap = observation.battle_audio_remap_journal_count;
+            source.first_blueprint =
+                observation.battle_audio_blueprint_journal_count;
             observed_source_index = source_index;
             ++observation.battle_audio_source_journal_count;
         }
@@ -2708,7 +2851,11 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                 - source.first_dispatch;
             const auto remap_count = observation.battle_audio_remap_journal_count
                 - source.first_remap;
-            if (dispatch_count > UINT8_MAX || remap_count > UINT8_MAX)
+            const auto blueprint_count =
+                observation.battle_audio_blueprint_journal_count
+                - source.first_blueprint;
+            if (dispatch_count > UINT8_MAX || remap_count > UINT8_MAX
+                || blueprint_count > UINT8_MAX)
             {
                 ++observation.battle_audio_signature_failures;
                 observation.battle_audio_signature_failure_mask |= 1u << 9;
@@ -2717,6 +2864,8 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             {
                 source.dispatch_count = static_cast<std::uint8_t>(dispatch_count);
                 source.remap_count = static_cast<std::uint8_t>(remap_count);
+                source.blueprint_count =
+                    static_cast<std::uint8_t>(blueprint_count);
             }
         }
     }
@@ -2836,11 +2985,6 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
     void* handler, void* event_record) noexcept
 {
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
-    if (active_owned_battle_audio_source_depth != 0)
-    {
-        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
-        return;
-    }
     auto* hooks = active_.load(std::memory_order_acquire);
     const auto trampoline = hooks != nullptr
         ? hooks->battle_audio_blueprint_publish_trampoline_
@@ -2848,7 +2992,85 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
             std::memory_order_acquire);
     const auto original = reinterpret_cast<BattleAudioBlueprintPublishFn>(
         trampoline);
-    if (original != nullptr) original(handler, event_record);
+    auto* batch = active_outer_capture_;
+    std::size_t handler_slot = maximum_battle_audio_handlers;
+    if (handler != nullptr)
+    {
+        const auto identity = reinterpret_cast<std::uintptr_t>(handler);
+        for (std::size_t index = 0;
+             index < observed_battle_audio_handlers_.size(); ++index)
+        {
+            auto& slot = observed_battle_audio_handlers_[index];
+            auto observed = slot.load(std::memory_order_acquire);
+            if (observed == identity)
+            {
+                handler_slot = index;
+                break;
+            }
+            if (observed == 0
+                && slot.compare_exchange_strong(observed, identity,
+                    std::memory_order_acq_rel, std::memory_order_acquire))
+            {
+                handler_slot = index;
+                break;
+            }
+        }
+        if (handler_slot == maximum_battle_audio_handlers)
+            battle_audio_handler_overflow_.store(
+                true, std::memory_order_release);
+    }
+    BattleAudioBlueprintJournalEntry semantic{};
+    semantic.handler_slot = static_cast<std::uint8_t>(handler_slot);
+    semantic.direct = active_battle_audio_source_depth == 0 ? 1 : 0;
+    const bool captured = handler_slot < maximum_battle_audio_handlers
+        && CaptureBattleAudioBlueprintSemantic(
+            event_record, semantic.semantic);
+    if (batch != nullptr && batch->observation != nullptr)
+    {
+        auto& observation = *batch->observation;
+        ++observation.battle_audio_blueprint_calls;
+        if (!captured || observation.battle_audio_blueprint_journal_count
+                >= observation.battle_audio_blueprint_journal.size()
+            || !AppendBattleAudioBlueprintSemantic(
+                semantic, observation.battle_audio_blueprint_hash))
+        {
+            ++observation.battle_audio_signature_failures;
+            observation.battle_audio_signature_failure_mask |= 1u << 10;
+        }
+        else
+        {
+            observation.battle_audio_blueprint_journal[
+                observation.battle_audio_blueprint_journal_count++] = semantic;
+        }
+    }
+    const bool suppress = batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+    if (suppress)
+    {
+        auto& replay = *batch->owned->result;
+        const auto& envelope = *batch->owned->request->envelope;
+        const auto index = replay.suppressed_audio_blueprint_calls++;
+        if (!captured || index >= envelope.battle_audio_blueprint_journal_count
+            || envelope.battle_audio_blueprint_journal[index].semantic
+                != semantic.semantic
+            || envelope.battle_audio_blueprint_journal[index].handler_slot
+                != semantic.handler_slot
+            || envelope.battle_audio_blueprint_journal[index].direct
+                != semantic.direct
+            || !AppendBattleAudioBlueprintSemantic(
+                semantic, replay.suppressed_audio_blueprint_hash))
+        {
+            ++replay.audio_sequence_mismatches;
+            replay.audio_journal_failure_mask |= 1u << 8;
+            ++replay.presentation_failures;
+            replay.presentation_failure_mask |= 1u << 10;
+            replay.failure = FailureCode::PresentationFailed;
+        }
+    }
+    else if (original != nullptr)
+    {
+        original(handler, event_record);
+    }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
 

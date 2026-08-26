@@ -99,6 +99,8 @@ struct OuterTickObservation
     std::uint64_t battle_audio_source_hash{};
     std::uint32_t battle_audio_stop_all_calls{};
     std::uint64_t battle_audio_stop_all_hash{};
+    std::uint32_t battle_audio_blueprint_calls{};
+    std::uint64_t battle_audio_blueprint_hash{};
     std::uint32_t particle_spawn_calls{};
     std::uint64_t particle_spawn_hash{};
     std::uint32_t particle_signature_failures{};
@@ -116,6 +118,9 @@ struct OuterTickObservation
         maximum_battle_audio_journal_sources> battle_audio_source_journal{};
     std::array<BattleAudioRemapJournalEntry,
         maximum_battle_audio_journal_remaps> battle_audio_remap_journal{};
+    std::array<BattleAudioBlueprintJournalEntry,
+        maximum_battle_audio_blueprint_journal_events>
+        battle_audio_blueprint_journal{};
     std::array<StagePresentationJournalEntry,
         maximum_stage_presentation_journal_events> stage_wall_journal{};
     std::array<StagePresentationJournalEntry,
@@ -127,6 +132,7 @@ struct OuterTickObservation
     std::uint8_t battle_audio_journal_count{};
     std::uint8_t battle_audio_source_journal_count{};
     std::uint8_t battle_audio_remap_journal_count{};
+    std::uint8_t battle_audio_blueprint_journal_count{};
     std::uint8_t stage_wall_journal_count{};
     std::uint8_t stage_barrier_journal_count{};
     std::uint8_t stage_dispatch_journal_count{};
@@ -202,6 +208,8 @@ struct OwnedBatchReplayResult
     std::uint64_t suppressed_audio_source_hash{};
     std::uint32_t suppressed_audio_stop_all_calls{};
     std::uint64_t suppressed_audio_stop_all_hash{};
+    std::uint32_t suppressed_audio_blueprint_calls{};
+    std::uint64_t suppressed_audio_blueprint_hash{};
     std::uint32_t suppressed_particle_spawn_calls{};
     std::uint64_t suppressed_particle_spawn_hash{};
     std::uint32_t suppressed_particle_finished_binds{};

@@ -979,6 +979,10 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_stop_all_calls;
     envelope.battle_audio_stop_all_hash =
         observation.battle_audio_stop_all_hash;
+    envelope.battle_audio_blueprint_calls =
+        observation.battle_audio_blueprint_calls;
+    envelope.battle_audio_blueprint_hash =
+        observation.battle_audio_blueprint_hash;
     envelope.particle_spawn_calls = observation.particle_spawn_calls;
     envelope.particle_spawn_hash = observation.particle_spawn_hash;
     envelope.particle_signature_failures =
@@ -997,6 +1001,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_source_journal;
     envelope.battle_audio_remap_journal =
         observation.battle_audio_remap_journal;
+    envelope.battle_audio_blueprint_journal =
+        observation.battle_audio_blueprint_journal;
     envelope.stage_wall_journal = observation.stage_wall_journal;
     envelope.stage_barrier_journal = observation.stage_barrier_journal;
     envelope.stage_dispatch_journal = observation.stage_dispatch_journal;
@@ -1007,6 +1013,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_source_journal_count;
     envelope.battle_audio_remap_journal_count =
         observation.battle_audio_remap_journal_count;
+    envelope.battle_audio_blueprint_journal_count =
+        observation.battle_audio_blueprint_journal_count;
     envelope.stage_wall_journal_count = observation.stage_wall_journal_count;
     envelope.stage_barrier_journal_count =
         observation.stage_barrier_journal_count;
@@ -1375,6 +1383,10 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                     != envelope->battle_audio_stop_all_calls
                 || result.suppressed_audio_stop_all_hash
                     != envelope->battle_audio_stop_all_hash
+                || result.suppressed_audio_blueprint_calls
+                    != envelope->battle_audio_blueprint_calls
+                || result.suppressed_audio_blueprint_hash
+                    != envelope->battle_audio_blueprint_hash
                 || result.suppressed_particle_spawn_calls
                     != envelope->particle_spawn_calls
                 || result.suppressed_particle_spawn_hash
