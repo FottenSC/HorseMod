@@ -4485,7 +4485,8 @@ private:
                     "[HorseMod] authoritative battle-audio capture failed "
                     "batch={} frame={}->{} failures={} mask=0x{:x} "
                     "dispatches={} journal={}/{} sources={} source_journal={}/{} "
-                    "remaps={} remap_journal={}/{}\n"),
+                    "remaps={} remap_journal={}/{} stop_all={} "
+                    "stop_all_journal={}/{} stop_all_owners={}\n"),
                     observation.batch_id, observation.before.frame_counter,
                     observation.after.frame_counter,
                     observation.battle_audio_signature_failures,
@@ -4498,7 +4499,11 @@ private:
                     observation.battle_audio_source_journal.size(),
                     observation.battle_audio_remap_calls,
                     observation.battle_audio_remap_journal_count,
-                    observation.battle_audio_remap_journal.size());
+                    observation.battle_audio_remap_journal.size(),
+                    observation.battle_audio_stop_all_calls,
+                    observation.battle_audio_stop_all_journal_count,
+                    observation.battle_audio_stop_all_journal.size(),
+                    observation.battle_audio_stop_all_owner_identity_count);
             }
             self->m_frame_fencepost_failure.store(
                 status.code, std::memory_order_release);
