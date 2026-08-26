@@ -1055,6 +1055,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_source_calls;
     timeline_status_.observed_battle_audio_stop_all_calls +=
         observation.battle_audio_stop_all_calls;
+    timeline_status_.observed_battle_audio_blueprint_calls +=
+        observation.battle_audio_blueprint_calls;
     timeline_status_.observed_particle_spawn_calls +=
         observation.particle_spawn_calls;
     const Status stored = batch_timeline_.Append(

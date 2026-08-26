@@ -15,13 +15,15 @@ def test_presentation_coverage_parser_is_source_bound() -> None:
         "[HorseMod] ctor v1.0 source=" + "a" * 40 + "\n"
         "[ReplayQualification] presentation source coverage stage_wall=1 "
         "stage_barrier=2 stage_dispatch=3 audio=4 audio_direct=5 "
-        "audio_remap=6 audio_source=7 audio_stop_all=8 particle_spawn=9\n"
+        "audio_remap=6 audio_source=7 audio_stop_all=8 "
+        "audio_blueprint=9 particle_spawn=10\n"
     )
     evidence = parse_presentation_coverage_evidence(text)
     assert evidence is not None
     assert evidence.stage_barrier == 2
     assert evidence.audio_stop_all == 8
-    assert evidence.particle_spawn == 9
+    assert evidence.audio_blueprint == 9
+    assert evidence.particle_spawn == 10
 
 
 def test_replay_seek_parser_requires_structured_rate_window() -> None:

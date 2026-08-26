@@ -254,6 +254,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                 "audio_remap": presentation_coverage.audio_remap,
                 "audio_source": presentation_coverage.audio_source,
                 "audio_stop_all": presentation_coverage.audio_stop_all,
+                "audio_blueprint": presentation_coverage.audio_blueprint,
                 "particle_spawn": presentation_coverage.particle_spawn,
             },
             "frame_fencepost_observed": True,

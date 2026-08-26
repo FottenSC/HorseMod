@@ -69,6 +69,7 @@ struct ReplayTimelineStatus
     std::uint64_t observed_battle_audio_remap_calls{};
     std::uint64_t observed_battle_audio_source_calls{};
     std::uint64_t observed_battle_audio_stop_all_calls{};
+    std::uint64_t observed_battle_audio_blueprint_calls{};
     std::uint64_t observed_particle_spawn_calls{};
     std::uint64_t fp_samples{};
     std::uint64_t fp_control_mismatches{};

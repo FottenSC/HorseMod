@@ -39,6 +39,7 @@ PRESENTATION_COVERAGE_PATTERN = re.compile(
     r"stage_dispatch=(?P<stage_dispatch>\d+) audio=(?P<audio>\d+) "
     r"audio_direct=(?P<audio_direct>\d+) audio_remap=(?P<audio_remap>\d+) "
     r"audio_source=(?P<audio_source>\d+) audio_stop_all=(?P<audio_stop>\d+) "
+    r"audio_blueprint=(?P<audio_blueprint>\d+) "
     r"particle_spawn=(?P<particle>\d+)"
 )
 
@@ -93,6 +94,7 @@ class PresentationCoverageEvidence:
     audio_remap: int
     audio_source: int
     audio_stop_all: int
+    audio_blueprint: int
     particle_spawn: int
 
 
@@ -281,6 +283,7 @@ def parse_presentation_coverage_evidence(
         audio_remap=int(match.group("audio_remap")),
         audio_source=int(match.group("audio_source")),
         audio_stop_all=int(match.group("audio_stop")),
+        audio_blueprint=int(match.group("audio_blueprint")),
         particle_spawn=int(match.group("particle")),
     )
 

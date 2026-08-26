@@ -577,7 +577,7 @@ private:
             return;
         }
         const auto get_coverage = ResolveHorseModPresentationCoverageApi();
-        std::array<std::uint64_t, 9> coverage{};
+        std::array<std::uint64_t, 10> coverage{};
         if (get_coverage == nullptr
             || !get_coverage(coverage.data(), coverage.size()))
         {
@@ -588,9 +588,9 @@ private:
             "[ReplayQualification] presentation source coverage "
             "stage_wall={} stage_barrier={} stage_dispatch={} "
             "audio={} audio_direct={} audio_remap={} audio_source={} "
-            "audio_stop_all={} particle_spawn={}\n"),
+            "audio_stop_all={} audio_blueprint={} particle_spawn={}\n"),
             coverage[0], coverage[1], coverage[2], coverage[3], coverage[4],
-            coverage[5], coverage[6], coverage[7], coverage[8]);
+            coverage[5], coverage[6], coverage[7], coverage[8], coverage[9]);
         state_ = State::Launched;
         WriteResult("launch_requested", "none");
         Output::send<LogLevel::Default>(STR(

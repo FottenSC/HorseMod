@@ -4857,7 +4857,7 @@ public:
     bool GetReplayPresentationCoverage(
         std::uint64_t* counts, std::size_t count) const noexcept
     {
-        if (counts == nullptr || count < 9) return false;
+        if (counts == nullptr || count < 10) return false;
         const auto timeline = m_replay_native_runtime.timeline_status();
         counts[0] = timeline.observed_stage_wall_calls;
         counts[1] = timeline.observed_stage_barrier_calls;
@@ -4867,7 +4867,8 @@ public:
         counts[5] = timeline.observed_battle_audio_remap_calls;
         counts[6] = timeline.observed_battle_audio_source_calls;
         counts[7] = timeline.observed_battle_audio_stop_all_calls;
-        counts[8] = timeline.observed_particle_spawn_calls;
+        counts[8] = timeline.observed_battle_audio_blueprint_calls;
+        counts[9] = timeline.observed_particle_spawn_calls;
         return timeline.canonical_frames != 0;
     }
 
