@@ -359,6 +359,9 @@ private:
     Status RestoreBattleAudioRemapEntry(
         const NativeBatchEnvelope& envelope,
         OwnedBatchReplayResult& output) noexcept;
+    bool CompleteBattleAudioJournal(
+        const NativeBatchEnvelope& envelope,
+        OwnedBatchReplayResult& output) noexcept;
     [[nodiscard]] static bool IsObservedBattleAudioTrackingSet(
         const void* tracking_set) noexcept;
     void ClearState() noexcept;

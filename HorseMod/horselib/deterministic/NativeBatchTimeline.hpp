@@ -27,11 +27,16 @@ struct BattleAudioDispatchJournalEntry
 {
     std::array<std::byte, 18> semantic{};
     std::uint8_t direct{};
+    std::uint8_t succeeded{};
 };
 
 struct BattleAudioSourceJournalEntry
 {
     std::array<std::byte, 18> semantic{};
+    std::uint8_t first_dispatch{};
+    std::uint8_t dispatch_count{};
+    std::uint8_t first_remap{};
+    std::uint8_t remap_count{};
 };
 
 struct BattleAudioRemapJournalEntry
