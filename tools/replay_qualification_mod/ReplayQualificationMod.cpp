@@ -616,8 +616,7 @@ private:
                 frame - seek_resume_start_frame_;
             const auto required_live_frames = (std::max)(
                 static_cast<std::uint64_t>(request_.resume_tick_window),
-                request_.watch_frames > seek_history_verified_
-                    ? request_.watch_frames - seek_history_verified_ : 0ull);
+                static_cast<std::uint64_t>(request_.watch_frames));
             if (live_frames < required_live_frames)
             {
                 return;
@@ -695,8 +694,7 @@ private:
                     percentage, observed_target, source_end, verified,
                     (std::max)(
                         static_cast<std::uint64_t>(request_.resume_tick_window),
-                        request_.watch_frames > verified
-                            ? request_.watch_frames - verified : 0ull),
+                        static_cast<std::uint64_t>(request_.watch_frames)),
                     request_.resume_tick_window);
                 seek_history_verified_ = verified;
                 seek_completed_source_ = source_end;
