@@ -390,6 +390,7 @@ Status Sc6ReplayRuntime::ObserveFrame(
                 | inputs.players[1].held;
         }
     }
+    const auto existing_input = input_timeline_.GetExact(coordinate);
     const Status appended = input_timeline_.AppendAuthoritative(coordinate, inputs);
     if (!appended.ok())
     {
@@ -397,6 +398,19 @@ Status Sc6ReplayRuntime::ObserveFrame(
         {
             timeline_status_.partial = true;
             return Status::success();
+        }
+        if (appended.code == FailureCode::IdentityMismatch
+            && existing_input.has_value())
+        {
+            timeline_status_.identity_issue = 12;
+            timeline_status_.identity_expected =
+                (static_cast<std::uint64_t>(
+                    existing_input->post_filter_players[0].held) << 32)
+                | existing_input->post_filter_players[1].held;
+            timeline_status_.identity_observed =
+                (static_cast<std::uint64_t>(inputs.post_filter_players[0].held)
+                    << 32)
+                | inputs.post_filter_players[1].held;
         }
         timeline_status_.failure = appended.code;
         return appended;

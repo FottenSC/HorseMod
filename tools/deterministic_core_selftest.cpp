@@ -561,10 +561,10 @@ void test_native_batch_timeline_is_exact_and_bounded()
     invalid_source.batch_id = 1;
     invalid_source.entry_coordinate = {};
     invalid_source.exit_coordinate = {1, 2};
-    invalid_source.presentation_order_journal[2].source_offset = 2;
+    invalid_source.presentation_order_journal[2].source_offset = 3;
     expect(invalid_source_timeline.Append(invalid_source, first_coordinates).code
             == FailureCode::IdentityMismatch,
-        "batch storage rejects presentation outside its native coordinate span");
+        "batch storage rejects presentation beyond its native coordinate span");
 
     NativeBatchTimeline zero_width_timeline{1, 1};
     NativeBatchEnvelope zero_width = first;

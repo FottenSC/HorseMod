@@ -50,10 +50,10 @@ struct PresentationOrderEntry
 {
     PresentationEventFamily family{};
     std::uint8_t family_index{};
-    // Zero-based native coordinate within the enclosing outer batch. For a
-    // batch that advances coordinates, the source FrameCoordinate is
-    // entry_coordinate + source_offset + 1. A zero-width presentation-only
-    // batch uses offset zero to name its entry coordinate.
+    // Exact native frame-counter delta from the enclosing batch entry. The
+    // source FrameCoordinate is entry_coordinate + source_offset. The valid
+    // range is inclusive because a terminal may publish after the last
+    // fencepost and therefore name the batch exit coordinate.
     std::uint8_t source_offset{};
 };
 
