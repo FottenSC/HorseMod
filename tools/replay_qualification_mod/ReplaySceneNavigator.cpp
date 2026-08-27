@@ -144,6 +144,25 @@ NavigationState ReplaySceneNavigator::Tick(
         last_scene_ = scene_name;
         retry_frames_ = 0;
     }
+    if (scene_name.find("TitleScene") != std::string::npos)
+    {
+        // Act on the first title callback. The title startup machine can enter
+        // a blocking modal before this post-tick hook receives 15 more frames.
+        // Drive the game-flow boundary directly so navigation does not depend
+        // on whichever title-state/modal currently owns input.
+        if ((retry_frames_++ % 60) != 0)
+        {
+            detail = scene_name;
+            return NavigationState::Waiting;
+        }
+        if (!ChangeScene(manager, L"replay_list"))
+        {
+            detail = "title_replay_list_failed";
+            return NavigationState::Failed;
+        }
+        detail = "title_replay_list_requested";
+        return NavigationState::Waiting;
+    }
     if (++retry_frames_ < 15)
     {
         detail = scene_name;
@@ -153,22 +172,6 @@ NavigationState ReplaySceneNavigator::Tick(
     if (scene_name.find("ReplaySetupScene") != std::string::npos)
     {
         detail = scene_name;
-        return NavigationState::Waiting;
-    }
-    if (scene_name.find("TitleScene") != std::string::npos)
-    {
-        // Drive the same game-flow boundary used after the main menu. Both
-        // EmulateTitleDecide and CeBankManager::TitleToMainMenu depend on the
-        // active title-state/modal owner; after an unclean prior exit they can
-        // acknowledge a quit path or block inside that state machine. The
-        // replay-list transition is owned by the game-flow manager and carries
-        // the normal inherited-data/delegate values assembled by ChangeScene.
-        if (!ChangeScene(manager, L"replay_list"))
-        {
-            detail = "title_replay_list_failed";
-            return NavigationState::Failed;
-        }
-        detail = "title_replay_list_requested";
         return NavigationState::Waiting;
     }
     if (scene_name.find("ReplayListScene") != std::string::npos
