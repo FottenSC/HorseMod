@@ -58,6 +58,20 @@ Status CandidateGameStateAdapter::Configure(
         return Status::failure(FailureCode::InvalidConfiguration);
     }
     binding_ = binding;
+    try
+    {
+        if (transaction_target_scratch_ == nullptr)
+            transaction_target_scratch_ =
+                std::make_unique<CandidateCheckpointImage>();
+        if (transaction_scratch_ == nullptr)
+            transaction_scratch_ =
+                std::make_unique<CandidateCheckpointImage>();
+    }
+    catch (...)
+    {
+        binding_ = {};
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
     configured_ = true;
     return Status::success();
 }
@@ -109,9 +123,6 @@ Status CandidateGameStateAdapter::capture_image(
     CandidateCheckpointImage& output, bool include_local) noexcept
 {
     ScopedFloatingPointEnvironment fp_scope;
-    auto local_images = std::move(output.local_images);
-    output = {};
-    output.local_images = std::move(local_images);
     if (include_local)
     {
         try { output.local_images.resize(2); }
@@ -331,7 +342,6 @@ Status CandidateGameStateAdapter::TraceLocalStreamOffset(
 Status CandidateGameStateAdapter::decode_and_preflight(
     const Snapshot& snapshot, CandidateCheckpointImage& output) noexcept
 {
-    output = {};
     if (!bound_ || snapshot.coordinate.generation != binding_.context.generation
         || snapshot.context_identity != binding_.context.battle_identity)
     {
@@ -366,19 +376,22 @@ Status CandidateGameStateAdapter::decode_and_preflight(
 Status CandidateGameStateAdapter::PreflightRestore(
     const Snapshot& snapshot) noexcept
 {
-    CandidateCheckpointImage image{};
-    return decode_and_preflight(snapshot, image);
+    if (transaction_target_scratch_ == nullptr)
+        return Status::failure(FailureCode::AdapterUnqualified);
+    return decode_and_preflight(snapshot, *transaction_target_scratch_);
 }
 
 Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
 {
     const auto total_begin = std::chrono::steady_clock::now();
-    CandidateCheckpointImage image{};
-    const Status preflight = decode_and_preflight(snapshot, image);
+    if (transaction_target_scratch_ == nullptr
+        || transaction_scratch_ == nullptr)
+        return Status::failure(FailureCode::AdapterUnqualified);
+    const Status preflight = decode_and_preflight(
+        snapshot, *transaction_target_scratch_);
     if (!preflight.ok()) return preflight;
     ScopedFloatingPointEnvironment fp_scope;
-    CandidateCheckpointImage undo{};
-    Status restored = capture_image(undo);
+    Status restored = capture_image(*transaction_scratch_);
     const bool undo_captured = restored.ok();
     if (undo_captured)
     {
@@ -386,10 +399,11 @@ Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
         // peer image leaves them untouched.  Exclude them from the enclosing
         // undo transaction as well; restoring bytes that this transaction did
         // not write is both unnecessary and unsafe for live camera objects.
-        undo.native.camera_components = {};
+        transaction_scratch_->native.camera_components = {};
     }
-    if (restored.ok()) restored = restore_image(image);
-    if (!restored.ok() && undo_captured && !undo_image(undo))
+    if (restored.ok()) restored = restore_image(*transaction_target_scratch_);
+    if (!restored.ok() && undo_captured
+        && !undo_image(*transaction_scratch_))
         restored = Status::failure(FailureCode::UndoFailed);
     const Status fp = fp_scope.Finish();
     const auto total_end = std::chrono::steady_clock::now();
@@ -505,11 +519,13 @@ Status CandidateGameStateAdapter::RebuildDerivedState() noexcept
 Status CandidateGameStateAdapter::VerifyRestoredState(
     const Snapshot& expected) noexcept
 {
-    CandidateCheckpointImage expected_image{};
-    const Status preflight = decode_and_preflight(expected, expected_image);
+    if (transaction_target_scratch_ == nullptr
+        || transaction_scratch_ == nullptr)
+        return Status::failure(FailureCode::AdapterUnqualified);
+    const Status preflight = decode_and_preflight(
+        expected, *transaction_target_scratch_);
     if (!preflight.ok()) return preflight;
-    CandidateCheckpointImage observed{};
-    const Status captured = capture_image(observed);
+    const Status captured = capture_image(*transaction_scratch_);
     if (!captured.ok()) return captured;
     // Opaque native streams are reconstruction inputs, not canonical truth.
     // A reader may rebuild pointer/derived bytes that serialize differently
@@ -519,18 +535,23 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
     // Battle-audio selector identity is verified against each native-batch
     // envelope during replay, rather than against this coordinate capture.
     for (std::size_t index = 0;
-         index < expected_image.native.camera_components.size(); ++index)
+         index < transaction_target_scratch_->native.camera_components.size();
+         ++index)
     {
-        if (expected_image.native.camera_components[index].present == 0)
-            observed.native.camera_components[index] =
-                expected_image.native.camera_components[index];
+        if (transaction_target_scratch_->native.camera_components[index].present
+            == 0)
+            transaction_scratch_->native.camera_components[index] =
+                transaction_target_scratch_->native.camera_components[index];
     }
-    return observed.native == expected_image.native
-            && observed.move_dispatch == expected_image.move_dispatch
-            && observed.secondary_events == expected_image.secondary_events
-            && observed.chara_animation == expected_image.chara_animation
-            && observed.ucrt == expected_image.ucrt
-            && observed.wind == expected_image.wind
+    return transaction_scratch_->native == transaction_target_scratch_->native
+            && transaction_scratch_->move_dispatch
+                == transaction_target_scratch_->move_dispatch
+            && transaction_scratch_->secondary_events
+                == transaction_target_scratch_->secondary_events
+            && transaction_scratch_->chara_animation
+                == transaction_target_scratch_->chara_animation
+            && transaction_scratch_->ucrt == transaction_target_scratch_->ucrt
+            && transaction_scratch_->wind == transaction_target_scratch_->wind
         ? Status::success()
         : Status::failure(FailureCode::RestoreVerificationFailed);
 }

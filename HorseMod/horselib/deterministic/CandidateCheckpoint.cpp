@@ -21,8 +21,22 @@ namespace
 {
 void reset_checkpoint_image(CandidateCheckpointImage& output) noexcept
 {
-    std::destroy_at(&output);
-    std::construct_at(&output);
+    auto local_images = std::move(output.local_images);
+    auto emitter_states = std::move(output.native.stage_wind_emitters.states);
+    auto move_sub_elements = std::move(output.move_dispatch.sub_elements);
+    std::vector<MoveDispatchPendingWindow> pending_windows;
+    if (auto* pending =
+            std::get_if<MoveDispatchPendingState>(&output.move_dispatch.phase))
+        pending_windows = std::move(pending->windows);
+    auto wind_nodes = std::move(output.wind.nodes);
+    output = {};
+    output.local_images = std::move(local_images);
+    output.native.stage_wind_emitters.states = std::move(emitter_states);
+    output.move_dispatch.sub_elements = std::move(move_sub_elements);
+    if (!pending_windows.empty() || pending_windows.capacity() != 0)
+        output.move_dispatch.phase = MoveDispatchPendingState{
+            std::move(pending_windows)};
+    output.wind.nodes = std::move(wind_nodes);
 }
 constexpr std::array<std::byte, 8> magic{
     std::byte{'H'}, std::byte{'R'}, std::byte{'S'}, std::byte{'C'},
@@ -156,7 +170,12 @@ private:
 Status decode_wind_local(
     std::span<const std::byte> bytes, StageWindTopologyImage& output) noexcept
 {
-    output = {};
+    output.generation = 0;
+    output.root_clock = {};
+    output.pending_callback_rvas = {};
+    output.schedule_state = {};
+    output.schedule_params = {};
+    output.output_force = {};
     Reader reader{bytes};
     std::uint32_t count{};
     if (!reader.Take(output.generation)
@@ -168,7 +187,7 @@ Status decode_wind_local(
         || !reader.TakeBytes(output.output_force)
         || !reader.Take(count) || count > 64)
         return Status::failure(FailureCode::CaptureFailed);
-    try { output.nodes.reserve(count); }
+    try { output.nodes.resize(count); }
     catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     for (std::uint32_t index = 0; index < count; ++index)
     {
@@ -178,7 +197,9 @@ Status decode_wind_local(
             || kind > static_cast<std::uint8_t>(StageWindNodeKind::ShockWave)
             || !reader.Take(semantic_size) || !reader.Take(derived_size))
             return Status::failure(FailureCode::CaptureFailed);
-        StageWindNodeImage node{};
+        auto& node = output.nodes[index];
+        node.semantic_state.clear();
+        node.derived_state.clear();
         node.kind = static_cast<StageWindNodeKind>(kind);
         const auto* layout = FindStageWindNodeLayout(node.kind);
         if (layout == nullptr || semantic_size != StageWindSemanticStateSize(*layout)
@@ -192,7 +213,6 @@ Status decode_wind_local(
         {
             node.semantic_state.assign(semantic.begin(), semantic.end());
             node.derived_state.assign(derived.begin(), derived.end());
-            output.nodes.push_back(std::move(node));
         }
         catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     }
@@ -708,11 +728,15 @@ Status CandidateCheckpointCodec::Decode(
         return Status::failure(FailureCode::CaptureFailed);
     }
     output.ucrt.seeded = ucrt_seeded != 0;
-    try { output.local_images.reserve(local_count); }
+    try { output.local_images.resize(local_count); }
     catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     for (std::uint32_t index = 0; index < local_count; ++index)
     {
-        LocalReconstructionImage local{};
+        auto& local = output.local_images[index];
+        auto local_bytes = std::move(local.bytes);
+        local = {};
+        local.bytes = std::move(local_bytes);
+        local.bytes.clear();
         std::uint32_t serializer_id{};
         std::uint64_t local_size{};
         if (!reader.Take(serializer_id)
@@ -748,7 +772,7 @@ Status CandidateCheckpointCodec::Decode(
                 const auto& attached = snapshot.local_images[index];
                 if (!same_local_metadata(local, attached))
                     return Status::failure(FailureCode::RestoreVerificationFailed);
-                local = attached;
+                local.bytes.assign(attached.bytes.begin(), attached.bytes.end());
             }
             else
             {
@@ -757,7 +781,6 @@ Status CandidateCheckpointCodec::Decode(
                     return Status::failure(FailureCode::CaptureFailed);
                 local.bytes.assign(local_bytes.begin(), local_bytes.end());
             }
-            output.local_images.push_back(std::move(local));
         }
         catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     }
@@ -791,10 +814,11 @@ Status CandidateCheckpointCodec::Decode(
         return Status::failure(FailureCode::CaptureFailed);
     }
     CanonicalHash verified_hash{};
-    std::vector<std::byte> ucrt_canonical;
+    static thread_local std::vector<std::byte> ucrt_canonical;
     try
     {
-        ucrt_canonical.reserve(32);
+        ucrt_canonical.clear();
+        if (ucrt_canonical.capacity() < 32) ucrt_canonical.reserve(32);
         append_ucrt_canonical(ucrt_canonical, output.ucrt);
     }
     catch (...)
@@ -814,7 +838,8 @@ Status CandidateCheckpointCodec::Decode(
     const Status battle_audio_selector_decoded =
         decode_battle_audio_selector_local(
             battle_audio_selector_local, output.battle_audio_selector);
-    std::vector<std::byte> wind_canonical;
+    static thread_local std::vector<std::byte> wind_canonical;
+    wind_canonical.clear();
     if (wind_decoded.ok())
     {
         try

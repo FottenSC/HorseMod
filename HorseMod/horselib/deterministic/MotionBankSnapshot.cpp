@@ -249,19 +249,17 @@ Status MotionBankSnapshot::RestoreTransactional(
     if (!ValidateLocalImage(image) || image.context != context_
         || !topology_matches())
         return Status::failure(FailureCode::RestorePreflightFailed);
-    LocalReconstructionImage undo{};
-    if (!capture_unchecked(undo).ok())
+    if (!capture_unchecked(undo_scratch_).ok())
         return Status::failure(FailureCode::CaptureFailed);
     if (write_unchecked(image))
     {
-        LocalReconstructionImage observed{};
-        if (capture_unchecked(observed).ok() && observed.bytes == image.bytes)
+        if (capture_unchecked(observed_scratch_).ok()
+            && observed_scratch_.bytes == image.bytes)
             return Status::success();
     }
-    const bool undone = write_unchecked(undo);
-    LocalReconstructionImage verified{};
-    if (!undone || !capture_unchecked(verified).ok()
-        || verified.bytes != undo.bytes)
+    const bool undone = write_unchecked(undo_scratch_);
+    if (!undone || !capture_unchecked(observed_scratch_).ok()
+        || observed_scratch_.bytes != undo_scratch_.bytes)
         return Status::failure(FailureCode::UndoFailed);
     return Status::failure(FailureCode::RestoreWriteFailed);
 }

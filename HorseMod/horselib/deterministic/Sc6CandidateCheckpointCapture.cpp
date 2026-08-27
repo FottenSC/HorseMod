@@ -199,7 +199,9 @@ Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
       chara_animation_(std::make_unique<CharaAnimationState>(*memory_)),
       callback_probe_(std::make_unique<CallbackTopologyProbe>(*memory_)),
       wind_probe_(std::make_unique<StageWindTopologyProbe>(*memory_)),
-      adapter_(std::make_unique<CandidateGameStateAdapter>(*regions_, hgcpu_))
+      adapter_(std::make_unique<CandidateGameStateAdapter>(*regions_, hgcpu_)),
+      auxiliary_decode_scratch_(
+          std::make_unique<CandidateCheckpointImage>())
 {
 }
 
@@ -800,29 +802,31 @@ Status Sc6CandidateCheckpointCapture::RestoreBattleAudioSelectorForPresentation(
     if (!regions_->IsBound() || bound_manager_ == 0
         || snapshot.coordinate.generation != bound_round_generation_)
         return Status::failure(FailureCode::GenerationMismatch);
-    CandidateCheckpointImage image{};
-    const Status decoded = CandidateCheckpointCodec::Decode(snapshot, image);
+    const Status decoded = CandidateCheckpointCodec::Decode(
+        snapshot, *auxiliary_decode_scratch_);
     if (!decoded.ok()) return decoded;
     return battle_audio_selector_->RestoreTransactional(
-        image.battle_audio_selector);
+        auxiliary_decode_scratch_->battle_audio_selector);
 }
 
 Status Sc6CandidateCheckpointCapture::RestoreInputLogForReplay(
     const Snapshot& snapshot) noexcept
 {
-    CandidateCheckpointImage image{};
-    const Status decoded = CandidateCheckpointCodec::Decode(snapshot, image);
+    const Status decoded = CandidateCheckpointCodec::Decode(
+        snapshot, *auxiliary_decode_scratch_);
     if (!decoded.ok()) return decoded;
-    return regions_->RestoreInputLogTransactional(image.native);
+    return regions_->RestoreInputLogTransactional(
+        auxiliary_decode_scratch_->native);
 }
 
 Status Sc6CandidateCheckpointCapture::RestoreMoveDispatchMasksForReplay(
     const Snapshot& snapshot) noexcept
 {
-    CandidateCheckpointImage image{};
-    const Status decoded = CandidateCheckpointCodec::Decode(snapshot, image);
+    const Status decoded = CandidateCheckpointCodec::Decode(
+        snapshot, *auxiliary_decode_scratch_);
     if (!decoded.ok()) return decoded;
-    return regions_->RestoreMoveDispatchMasksTransactional(image.native);
+    return regions_->RestoreMoveDispatchMasksTransactional(
+        auxiliary_decode_scratch_->native);
 }
 
 Status Sc6CandidateCheckpointCapture::CaptureCameraSourceFrame(

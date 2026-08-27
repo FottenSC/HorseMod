@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -444,6 +445,8 @@ private:
     NativeCandidateAddresses addresses_{};
     BoundIdentities identities_{};
     NativeCandidateValidationDiagnostic validation_diagnostic_{};
+    std::unique_ptr<NativeCandidateImage> restore_undo_scratch_{};
+    std::unique_ptr<NativeCandidateImage> restore_verification_scratch_{};
     bool bound_{};
 };
 }

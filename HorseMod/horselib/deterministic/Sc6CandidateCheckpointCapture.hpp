@@ -202,6 +202,7 @@ private:
         maximum_checkpoints_per_role, CapacityPolicy::RejectNew};
     Snapshot landing_capture_scratch_{};
     Snapshot batch_entry_capture_scratch_{};
+    std::unique_ptr<CandidateCheckpointImage> auxiliary_decode_scratch_{};
     CandidateCheckpointCaptureStatus landing_status_{};
     CandidateCheckpointCaptureStatus batch_entry_status_{};
     TimingHistogram landing_capture_timing_{};

@@ -9,6 +9,7 @@
 #include "Sc6CandidateCheckpointCapture.hpp"
 #include "Sc6ReplayNativeBridge.hpp"
 
+#include <memory>
 #include <optional>
 
 namespace Horse
@@ -449,6 +450,9 @@ private:
     Snapshot correction_verified_scratch_{};
     Snapshot correction_canonical_capture_scratch_{};
     Snapshot timeline_canonical_capture_scratch_{};
+    Snapshot diagnostic_snapshot_scratch_{};
+    std::unique_ptr<CandidateCheckpointImage> diagnostic_image_a_{};
+    std::unique_ptr<CandidateCheckpointImage> diagnostic_image_b_{};
     CorrectedReplayCapture corrected_replay_capture_{};
     NativeAudioPresentationController presentation_controller_{
         Schema::online_presentation_event_capacity,

@@ -12,8 +12,11 @@ namespace
 {
 void reset_native_candidate(NativeCandidateImage& output) noexcept
 {
-    std::destroy_at(&output);
-    std::construct_at(&output);
+    auto wind_emitter_states =
+        std::move(output.stage_wind_emitters.states);
+    output = {};
+    output.stage_wind_emitters.states = std::move(wind_emitter_states);
+    output.stage_wind_emitters.states.clear();
 }
 struct Range
 {
@@ -759,6 +762,19 @@ Status NativeCandidateRegions::Bind(const NativeCandidateAddresses& addresses) n
         validation_diagnostic_.issue = NativeCandidateValidationIssue::IdentityRead;
         Invalidate();
         return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    try
+    {
+        if (restore_undo_scratch_ == nullptr)
+            restore_undo_scratch_ = std::make_unique<NativeCandidateImage>();
+        if (restore_verification_scratch_ == nullptr)
+            restore_verification_scratch_ =
+                std::make_unique<NativeCandidateImage>();
+    }
+    catch (...)
+    {
+        Invalidate();
+        return Status::failure(FailureCode::CapacityExceeded);
     }
     bound_ = true;
     NativeCandidateImage ignored{};
@@ -1902,11 +1918,14 @@ Status NativeCandidateRegions::RestoreTransactional(
 {
     const auto preflight = PreflightRestore(image);
     if (!preflight.ok()) return preflight;
-    NativeCandidateImage undo{};
-    if (!capture_unchecked(undo)) return Status::failure(FailureCode::CaptureFailed);
+    if (restore_undo_scratch_ == nullptr
+        || restore_verification_scratch_ == nullptr)
+        return Status::failure(FailureCode::AdapterUnqualified);
+    if (!capture_unchecked(*restore_undo_scratch_))
+        return Status::failure(FailureCode::CaptureFailed);
     const bool wrote = write_forward(image);
-    NativeCandidateImage verification{};
-    const bool captured_verification = wrote && capture_unchecked(verification);
+    const bool captured_verification = wrote
+        && capture_unchecked(*restore_verification_scratch_);
     if (captured_verification)
     {
         // Decoded peer checkpoints intentionally omit presentation-local camera
@@ -1918,16 +1937,17 @@ Status NativeCandidateRegions::RestoreTransactional(
              index < image.camera_components.size(); ++index)
         {
             if (image.camera_components[index].present == 0)
-                verification.camera_components[index] =
+                restore_verification_scratch_->camera_components[index] =
                     image.camera_components[index];
         }
     }
-    const bool verified = captured_verification && verification == image;
+    const bool verified = captured_verification
+        && *restore_verification_scratch_ == image;
     if (verified) return Status::success();
-    if (!identities_match() || !write_reverse(undo))
+    if (!identities_match() || !write_reverse(*restore_undo_scratch_))
         return Status::failure(FailureCode::UndoFailed);
-    NativeCandidateImage undo_verification{};
-    if (!capture_unchecked(undo_verification) || undo_verification != undo)
+    if (!capture_unchecked(*restore_verification_scratch_)
+        || *restore_verification_scratch_ != *restore_undo_scratch_)
         return Status::failure(FailureCode::UndoFailed);
     return Status::failure(
         wrote ? FailureCode::RestoreVerificationFailed : FailureCode::RestoreWriteFailed);

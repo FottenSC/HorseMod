@@ -52,6 +52,8 @@ private:
     std::array<std::int32_t, 2> matrix_counts_{};
     std::array<std::array<BankTopology, 2>, 2> topology_{};
     LocalReconstructionGenerationContext context_{};
+    LocalReconstructionImage undo_scratch_{};
+    LocalReconstructionImage observed_scratch_{};
     bool bound_{};
 };
 }

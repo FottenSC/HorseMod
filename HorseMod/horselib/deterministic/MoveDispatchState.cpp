@@ -111,8 +111,11 @@ void MoveDispatchState::Invalidate() noexcept
 
 bool MoveDispatchState::capture_unchecked(MoveDispatchImage& output) noexcept
 {
-    output = {};
     output.generation = generation_;
+    output.frame_slot_index = 0;
+    output.sub_frame_index = 0;
+    output.saved_input_and_gates = 0;
+    output.completion_delay = 0;
     if (!read_value(memory_, object_ + 0x478, output.frame_slot_index)
         || !read_value(memory_, object_ + 0x47C, output.sub_frame_index)
         || !read_value(memory_, object_ + 0x490, output.saved_input_and_gates)
@@ -128,15 +131,17 @@ bool MoveDispatchState::capture_unchecked(MoveDispatchImage& output) noexcept
         {
             return false;
         }
-        MoveDispatchPendingState pending{};
-        pending.windows.resize(static_cast<std::size_t>(count));
+        if (!std::holds_alternative<MoveDispatchPendingState>(output.phase))
+            output.phase = MoveDispatchPendingState{};
+        auto& pending = std::get<MoveDispatchPendingState>(output.phase);
+        try { pending.windows.resize(static_cast<std::size_t>(count)); }
+        catch (...) { return false; }
         if (count != 0
             && !memory_.Read(identity_.pending_windows,
                 std::as_writable_bytes(std::span{pending.windows})))
         {
             return false;
         }
-        output.phase = std::move(pending);
     }
     else
     {
@@ -150,8 +155,12 @@ bool MoveDispatchState::capture_unchecked(MoveDispatchImage& output) noexcept
         }
         output.phase = state;
     }
-    output.sub_elements.resize(
-        static_cast<std::size_t>(identity_.sub_element_count));
+    try
+    {
+        output.sub_elements.resize(
+            static_cast<std::size_t>(identity_.sub_element_count));
+    }
+    catch (...) { return false; }
     for (std::size_t i = 0; i < output.sub_elements.size(); ++i)
     {
         const auto address = identity_.sub_elements + i * 0x20;
@@ -258,17 +267,17 @@ Status MoveDispatchState::RestoreTransactional(
 {
     const auto preflight = PreflightRestore(image);
     if (!preflight.ok()) return preflight;
-    MoveDispatchImage undo{};
-    if (!capture_unchecked(undo))
+    if (!capture_unchecked(restore_undo_scratch_))
         return Status::failure(FailureCode::CaptureFailed);
     const bool wrote = write_image(image, false);
-    MoveDispatchImage verification{};
-    if (wrote && capture_unchecked(verification) && verification == image)
+    if (wrote && capture_unchecked(restore_verification_scratch_)
+        && restore_verification_scratch_ == image)
         return Status::success();
-    if (!identity_matches(identity_) || !write_image(undo, true))
+    if (!identity_matches(identity_)
+        || !write_image(restore_undo_scratch_, true))
         return Status::failure(FailureCode::UndoFailed);
-    MoveDispatchImage undo_verification{};
-    if (!capture_unchecked(undo_verification) || undo_verification != undo)
+    if (!capture_unchecked(restore_verification_scratch_)
+        || restore_verification_scratch_ != restore_undo_scratch_)
         return Status::failure(FailureCode::UndoFailed);
     return Status::failure(
         wrote ? FailureCode::RestoreVerificationFailed
@@ -332,7 +341,11 @@ void MoveDispatchState::CanonicalBytes(
 Status MoveDispatchState::DecodeCanonicalBytes(
     std::span<const std::byte> bytes, MoveDispatchImage& output) noexcept
 {
-    output = {};
+    output.generation = 0;
+    output.frame_slot_index = 0;
+    output.sub_frame_index = 0;
+    output.saved_input_and_gates = 0;
+    output.completion_delay = 0;
     std::size_t cursor{};
     const auto take = [&](void* destination, std::size_t size) noexcept {
         if (cursor > bytes.size() || size > bytes.size() - cursor) return false;
@@ -369,7 +382,9 @@ Status MoveDispatchState::DecodeCanonicalBytes(
             std::uint32_t count{};
             if (!take(&count, sizeof(count)) || count > maximum_pending_windows)
                 return Status::failure(FailureCode::CaptureFailed);
-            MoveDispatchPendingState pending{};
+            if (!std::holds_alternative<MoveDispatchPendingState>(output.phase))
+                output.phase = MoveDispatchPendingState{};
+            auto& pending = std::get<MoveDispatchPendingState>(output.phase);
             pending.windows.resize(count);
             for (auto& window : pending.windows)
             {
@@ -383,7 +398,6 @@ Status MoveDispatchState::DecodeCanonicalBytes(
                     return Status::failure(FailureCode::CaptureFailed);
                 }
             }
-            output.phase = std::move(pending);
         }
         std::uint32_t element_count{};
         if (!take(&output.saved_input_and_gates,
@@ -407,7 +421,11 @@ Status MoveDispatchState::DecodeCanonicalBytes(
     }
     catch (...)
     {
-        output = {};
+        output.generation = 0;
+        output.sub_elements.clear();
+        if (auto* pending =
+                std::get_if<MoveDispatchPendingState>(&output.phase))
+            pending->windows.clear();
         return Status::failure(FailureCode::CapacityExceeded);
     }
     return cursor == bytes.size()

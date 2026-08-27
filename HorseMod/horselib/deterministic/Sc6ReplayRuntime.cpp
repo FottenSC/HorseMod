@@ -151,6 +151,16 @@ Status Sc6ReplayRuntime::Initialize(
         image_base + Schema::Sc6ReplayLayout::set_move_state_rva);
     resolvers.set_move_state_signature_valid = true;
     bridge_.emplace(resolvers);
+    try
+    {
+        diagnostic_image_a_ = std::make_unique<CandidateCheckpointImage>();
+        diagnostic_image_b_ = std::make_unique<CandidateCheckpointImage>();
+    }
+    catch (...)
+    {
+        Shutdown();
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
     return checkpoint_capture_.Initialize(image_base, ucrt_broker);
 }
 
@@ -167,6 +177,9 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     correction_verified_scratch_ = {};
     correction_canonical_capture_scratch_ = {};
     timeline_canonical_capture_scratch_ = {};
+    diagnostic_snapshot_scratch_ = {};
+    diagnostic_image_a_.reset();
+    diagnostic_image_b_.reset();
     checkpoint_capture_.Reset();
     timeline_status_ = {};
     timeline_manager_ = 0;
@@ -1829,13 +1842,15 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                 : checkpoint_capture_.snapshots(
                     CandidateCheckpointRole::BatchEntry).FindExact(
                         next->entry_coordinate);
-            Snapshot observed{};
+            Snapshot& observed = diagnostic_snapshot_scratch_;
             if (expected != nullptr
+                && diagnostic_image_a_ != nullptr
+                && diagnostic_image_b_ != nullptr
                 && checkpoint_capture_.CaptureTransient(
                     envelope->exit_coordinate, observed).ok())
             {
-                CandidateCheckpointImage expected_image{};
-                CandidateCheckpointImage observed_image{};
+                auto& expected_image = *diagnostic_image_a_;
+                auto& observed_image = *diagnostic_image_b_;
                 if (CandidateCheckpointCodec::Decode(
                         *expected, expected_image).ok()
                     && CandidateCheckpointCodec::Decode(
@@ -2225,21 +2240,23 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrectionInternal(
         timeline_status_.last_coordinate, undo);
     output.undo_capture_ns = elapsed_ns(phase_begin, Clock::now());
     if (!status.ok()) return finish(status);
-    CandidateCheckpointImage undo_diagnostic_image{};
-    if (CandidateCheckpointCodec::Decode(undo, undo_diagnostic_image).ok())
+    if (diagnostic_image_a_ != nullptr
+        && CandidateCheckpointCodec::Decode(
+            undo, *diagnostic_image_a_).ok())
         output.undo_audio_selector =
-            undo_diagnostic_image.battle_audio_selector;
+            diagnostic_image_a_->battle_audio_selector;
 
     const auto* base = correction_snapshots.FindExact(plan.resimulation_base);
     if (base == nullptr)
         return finish(Status::failure(FailureCode::MissingSnapshot));
-    CandidateCheckpointImage base_diagnostic_image{};
-    if (CandidateCheckpointCodec::Decode(*base, base_diagnostic_image).ok())
+    if (diagnostic_image_b_ != nullptr
+        && CandidateCheckpointCodec::Decode(
+            *base, *diagnostic_image_b_).ok())
     {
         output.base_wind_graph = WindGraphDiagnostic(
-            base_diagnostic_image.wind);
+            diagnostic_image_b_->wind);
         output.base_audio_selector =
-            base_diagnostic_image.battle_audio_selector;
+            diagnostic_image_b_->battle_audio_selector;
     }
 
     bool native_state_was_written = false;
@@ -2348,12 +2365,16 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrectionInternal(
         && (required_final_hash == nullptr
             || verified.coordinate != timeline_status_.last_coordinate
             || verified.canonical_hash != *required_final_hash);
-    CandidateCheckpointImage expected_image{};
-    CandidateCheckpointImage verified_image{};
     if (final_mismatch
-        && CandidateCheckpointCodec::Decode(undo, expected_image).ok()
-        && CandidateCheckpointCodec::Decode(verified, verified_image).ok())
+        && diagnostic_image_a_ != nullptr
+        && diagnostic_image_b_ != nullptr
+        && CandidateCheckpointCodec::Decode(
+            undo, *diagnostic_image_a_).ok()
+        && CandidateCheckpointCodec::Decode(
+            verified, *diagnostic_image_b_).ok())
     {
+        auto& expected_image = *diagnostic_image_a_;
+        auto& verified_image = *diagnostic_image_b_;
         output.expected_move_dispatch = undo.canonical_move_dispatch;
         output.observed_move_dispatch = verified.canonical_move_dispatch;
         output.undo_comparison_mask = CandidateDifferenceMask(

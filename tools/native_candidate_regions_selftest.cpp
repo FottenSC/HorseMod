@@ -790,6 +790,28 @@ void test_candidate_checkpoint_codec()
         "candidate checkpoint round-trips value-only UCRT state");
     expect(decoded.wind == image.wind,
         "candidate checkpoint round-trips pointer-free wind state");
+    const auto* local_storage = decoded.local_images.data();
+    const auto* hgcpu_storage = decoded.local_images[0].bytes.data();
+    const auto* motion_storage = decoded.local_images[1].bytes.data();
+    const auto* wind_node_storage = decoded.wind.nodes.data();
+    const auto* wind_semantic_storage =
+        decoded.wind.nodes[0].semantic_state.data();
+    const auto* wind_derived_storage =
+        decoded.wind.nodes[0].derived_state.data();
+    const auto* emitter_storage =
+        decoded.native.stage_wind_emitters.states.data();
+    expect(CandidateCheckpointCodec::Decode(snapshot, decoded).ok()
+            && decoded.local_images.data() == local_storage
+            && decoded.local_images[0].bytes.data() == hgcpu_storage
+            && decoded.local_images[1].bytes.data() == motion_storage
+            && decoded.wind.nodes.data() == wind_node_storage
+            && decoded.wind.nodes[0].semantic_state.data()
+                == wind_semantic_storage
+            && decoded.wind.nodes[0].derived_state.data()
+                == wind_derived_storage
+            && decoded.native.stage_wind_emitters.states.data()
+                == emitter_storage,
+        "repeated checkpoint decode reuses all bounded variable storage");
 
     auto changed_movevm_state = image;
     changed_movevm_state.native.movevm_state_shorts.fighters[0][25] ^= 1;

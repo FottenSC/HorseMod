@@ -111,6 +111,8 @@ private:
     std::uintptr_t object_{};
     std::uint64_t generation_{};
     Identity identity_{};
+    MoveDispatchImage restore_undo_scratch_{};
+    MoveDispatchImage restore_verification_scratch_{};
     bool bound_{};
 };
 }

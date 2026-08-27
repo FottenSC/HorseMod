@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <memory>
 
 namespace Horse::Deterministic
 {
@@ -201,6 +202,8 @@ private:
     PhaseTimingHistogram total_restore_timing_{};
     CandidateCheckpointImage capture_scratch_{};
     CandidateCheckpointImage canonical_capture_scratch_{};
+    std::unique_ptr<CandidateCheckpointImage> transaction_target_scratch_{};
+    std::unique_ptr<CandidateCheckpointImage> transaction_scratch_{};
     CandidateCapturePhase last_capture_phase_{};
     bool configured_{};
     bool bound_{};
