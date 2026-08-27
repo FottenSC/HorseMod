@@ -95,7 +95,8 @@ bool CallStringParam(RC::Unreal::UObject* owner, const wchar_t* name,
     if (owner == nullptr) return false;
     auto* function = owner->GetFunctionByNameInChain(name);
     if (function == nullptr) return false;
-    struct Params { RC::Unreal::FString value; } params{value};
+    struct Params { RC::Unreal::FString value; };
+    Params params{RC::Unreal::FString(value)};
     owner->ProcessEvent(function, &params);
     return true;
 }
