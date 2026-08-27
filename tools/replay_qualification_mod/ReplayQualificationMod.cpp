@@ -804,32 +804,21 @@ private:
         const auto now = std::chrono::steady_clock::now();
         if (!player_profiles_requested_)
         {
-            if (now < next_profile_attempt_) return;
-            ++profile_attempts_;
-            if (!importer_.RequestPlayerProfiles())
+            // Replay qualification does not need live online profile contents.
+            // The native request is asynchronous and its successful submission
+            // does not mean the two profile slots are ready; staging after a
+            // fixed delay can therefore enter ReplayBattleScene with no active
+            // replay phase. Populate the same bounded native profile values the
+            // existing failure fallback uses and avoid that external race.
+            if (!importer_.PopulateFallbackProfiles())
             {
-                if (profile_attempts_ >= 3)
-                {
-                    if (!importer_.PopulateFallbackProfiles())
-                    {
-                        Fail("player_profile_fallback_failed");
-                        return;
-                    }
-                    player_profiles_requested_ = true;
-                    player_profiles_requested_at_ =
-                        now - std::chrono::seconds(2);
-                    Output::send<LogLevel::Default>(STR(
-                        "[ReplayQualification] native profile service "
-                        "unavailable; staged bounded replay profiles\n"));
-                    return;
-                }
-                next_profile_attempt_ = now + std::chrono::seconds(1);
+                Fail("player_profile_fallback_failed");
                 return;
             }
             player_profiles_requested_ = true;
-            player_profiles_requested_at_ = now;
+            player_profiles_requested_at_ = now - std::chrono::seconds(2);
             Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] replay player profiles requested\n"));
+                "[ReplayQualification] staged bounded replay profiles\n"));
             return;
         }
         if (now - player_profiles_requested_at_ < std::chrono::seconds(2))
