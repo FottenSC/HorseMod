@@ -134,7 +134,11 @@ bool MoveDispatchState::capture_unchecked(MoveDispatchImage& output) noexcept
         if (!std::holds_alternative<MoveDispatchPendingState>(output.phase))
             output.phase = MoveDispatchPendingState{};
         auto& pending = std::get<MoveDispatchPendingState>(output.phase);
-        try { pending.windows.resize(static_cast<std::size_t>(count)); }
+        try
+        {
+            pending.windows.reserve(maximum_pending_windows);
+            pending.windows.resize(static_cast<std::size_t>(count));
+        }
         catch (...) { return false; }
         if (count != 0
             && !memory_.Read(identity_.pending_windows,
@@ -157,6 +161,7 @@ bool MoveDispatchState::capture_unchecked(MoveDispatchImage& output) noexcept
     }
     try
     {
+        output.sub_elements.reserve(maximum_sub_elements);
         output.sub_elements.resize(
             static_cast<std::size_t>(identity_.sub_element_count));
     }
@@ -400,6 +405,7 @@ Status MoveDispatchState::DecodeCanonicalBytes(
             if (!std::holds_alternative<MoveDispatchPendingState>(output.phase))
                 output.phase = MoveDispatchPendingState{};
             auto& pending = std::get<MoveDispatchPendingState>(output.phase);
+            pending.windows.reserve(maximum_pending_windows);
             pending.windows.resize(count);
             for (auto& window : pending.windows)
             {
@@ -423,6 +429,7 @@ Status MoveDispatchState::DecodeCanonicalBytes(
         {
             return Status::failure(FailureCode::CaptureFailed);
         }
+        output.sub_elements.reserve(maximum_sub_elements);
         output.sub_elements.resize(element_count);
         for (auto& element : output.sub_elements)
         {

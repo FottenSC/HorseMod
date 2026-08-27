@@ -198,6 +198,8 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
     output.schedule_params = {};
     output.output_force = {};
     if (!bound_) return Status::failure(FailureCode::AdapterUnqualified);
+    try { output.nodes.reserve(max_wind_nodes); }
+    catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     std::uintptr_t current_root{};
     if (!read_value(memory_, addresses_.root_pointer, current_root)
         || current_root != root_)
@@ -293,6 +295,18 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
         image.semantic_state.clear();
         image.derived_state.clear();
         image.kind = node_class->kind;
+        try
+        {
+            image.semantic_state.reserve(
+                StageWindSemanticStateSize(*node_class));
+            image.derived_state.reserve(
+                StageWindDerivedStateSize(*node_class));
+        }
+        catch (...)
+        {
+            output = {};
+            return Status::failure(FailureCode::CapacityExceeded);
+        }
         for (const auto range : common_ranges)
             if (!read_append(memory_, node + range.offset, range.size, image.semantic_state))
             {

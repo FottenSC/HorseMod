@@ -816,6 +816,12 @@ std::size_t NativeCandidateRegions::ScratchCapacityBytes() const noexcept
 bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noexcept
 {
     reset_native_candidate(output);
+    try
+    {
+        output.stage_wind_emitters.states.reserve(
+            native_stage_wind_emitter_max_count);
+    }
+    catch (...) { return false; }
     validation_diagnostic_ = {};
     output.session_generation = addresses_.session_generation;
     output.round_generation = addresses_.round_generation;
@@ -2424,7 +2430,12 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
         reset_native_candidate(output);
         return Status::failure(FailureCode::CaptureFailed);
     }
-    try { output.stage_wind_emitters.states.resize(emitter_count); }
+    try
+    {
+        output.stage_wind_emitters.states.reserve(
+            native_stage_wind_emitter_max_count);
+        output.stage_wind_emitters.states.resize(emitter_count);
+    }
     catch (...)
     {
         reset_native_candidate(output);

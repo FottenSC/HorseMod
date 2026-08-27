@@ -208,7 +208,11 @@ Status decode_wind_local(
         || !reader.TakeBytes(output.output_force)
         || !reader.Take(count) || count > 64)
         return Status::failure(FailureCode::CaptureFailed);
-    try { output.nodes.resize(count); }
+    try
+    {
+        output.nodes.reserve(64);
+        output.nodes.resize(count);
+    }
     catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     for (std::uint32_t index = 0; index < count; ++index)
     {
@@ -232,6 +236,8 @@ Status decode_wind_local(
             return Status::failure(FailureCode::CaptureFailed);
         try
         {
+            node.semantic_state.reserve(semantic_size);
+            node.derived_state.reserve(derived_size);
             node.semantic_state.assign(semantic.begin(), semantic.end());
             node.derived_state.assign(derived.begin(), derived.end());
         }
@@ -749,7 +755,11 @@ Status CandidateCheckpointCodec::Decode(
         return Status::failure(FailureCode::CaptureFailed);
     }
     output.ucrt.seeded = ucrt_seeded != 0;
-    try { output.local_images.resize(local_count); }
+    try
+    {
+        output.local_images.reserve(maximum_local_reconstruction_images);
+        output.local_images.resize(local_count);
+    }
     catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     for (std::uint32_t index = 0; index < local_count; ++index)
     {
@@ -788,6 +798,8 @@ Status CandidateCheckpointCodec::Decode(
         local.cursor = static_cast<std::size_t>(local_size);
         try
         {
+            local.bytes.reserve(index == 0
+                ? hgcpu_stream_capacity : motion_bank_image_bytes);
             if (attached_local_storage != 0)
             {
                 const auto& attached = snapshot.local_images[index];
