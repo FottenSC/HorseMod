@@ -3929,9 +3929,13 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     const bool verify_recorded = suppress
         && batch->owned->request->presentation_mode
             == OwnedBatchPresentationMode::VerifyRecorded;
-    const auto terminal_ordinal = verify_recorded
-        ? batch->owned->result->suppressed_audio_terminal_calls
-        : batch->observation->audio_terminal_calls;
+    std::uint32_t terminal_ordinal{};
+    if (owned_terminal)
+    {
+        terminal_ordinal = verify_recorded
+            ? batch->owned->result->suppressed_audio_terminal_calls
+            : batch->observation->audio_terminal_calls;
+    }
     const auto logical_id = owned_terminal
         ? MakeLogicalAudioPlaybackId(frame, terminal_ordinal)
         : audio_invalid_playback_id;
