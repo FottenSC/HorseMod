@@ -734,6 +734,21 @@ void test_candidate_checkpoint_codec()
             && canonical_snapshot.canonical_wind_node
                 == snapshot.canonical_wind_node,
         "canonical-only encoding preserves exact identity without restore payloads");
+    canonical_image.wind.nodes.clear();
+    Snapshot fresh_without_wind_node{};
+    expect(CandidateCheckpointCodec::EncodeCanonical(
+            {7, 31}, 0x9191, canonical_image, fresh_without_wind_node).ok()
+            && CandidateCheckpointCodec::EncodeCanonical(
+                {7, 31}, 0x9191, canonical_image, canonical_snapshot).ok()
+            && canonical_snapshot.canonical_hash
+                == fresh_without_wind_node.canonical_hash
+            && canonical_snapshot.canonical_wind
+                == fresh_without_wind_node.canonical_wind
+            && canonical_snapshot.canonical_wind_semantic
+                == fresh_without_wind_node.canonical_wind_semantic
+            && canonical_snapshot.canonical_wind_node
+                == fresh_without_wind_node.canonical_wind_node,
+        "reused canonical output clears variable wind diagnostic tails");
     CandidateCheckpointImage decoded_captured{};
     expect(CandidateCheckpointCodec::Decode(
             captured_snapshot, decoded_captured).ok()

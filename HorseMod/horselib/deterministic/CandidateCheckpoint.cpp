@@ -388,13 +388,28 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
     CandidateCheckpointImage* movable_image, bool verify_local_checksum,
     bool canonical_only, Snapshot& output) noexcept
 {
-    auto reusable_bytes = std::move(output.bytes);
-    auto reusable_local_images = std::move(output.local_images);
-    output = {};
-    output.bytes = std::move(reusable_bytes);
-    output.bytes.clear();
-    if (movable_image != nullptr)
-        output.local_images = std::move(reusable_local_images);
+    if (canonical_only)
+    {
+        // The canonical path overwrites every large fixed diagnostic below.
+        // Only the bounded wind diagnostics have a variable populated prefix,
+        // so clear those explicitly instead of zeroing the entire Snapshot on
+        // every live frame. Canonical scratch never owns restore payloads.
+        output.bytes.clear();
+        output.local_images.clear();
+        output.canonical_wind_semantic = {};
+        output.canonical_wind = {};
+        output.canonical_wind_node = {};
+    }
+    else
+    {
+        auto reusable_bytes = std::move(output.bytes);
+        auto reusable_local_images = std::move(output.local_images);
+        output = {};
+        output.bytes = std::move(reusable_bytes);
+        output.bytes.clear();
+        if (movable_image != nullptr)
+            output.local_images = std::move(reusable_local_images);
+    }
     if (context_identity == 0
         || !(canonical_only
             ? canonical_generations_match(coordinate, image)
