@@ -2030,6 +2030,24 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
         return true;
     };
 
+    const auto consume_terminals_until =
+        [&](std::size_t target) noexcept -> bool
+    {
+        if (target > envelope.audio_terminal_journal_count
+            || target < output.suppressed_audio_terminal_calls)
+            return false;
+        while (output.suppressed_audio_terminal_calls < target)
+        {
+            const auto& entry = envelope.audio_terminal_journal[
+                output.suppressed_audio_terminal_calls];
+            if (!AppendAudioTerminalSemantic(
+                    entry, output.suppressed_audio_terminal_hash))
+                return false;
+            ++output.suppressed_audio_terminal_calls;
+        }
+        return true;
+    };
+
     while (output.suppressed_audio_calls < envelope.battle_audio_journal_count
         || output.suppressed_audio_source_calls
             < envelope.battle_audio_source_journal_count)
@@ -2042,6 +2060,7 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
             if (source.first_dispatch == output.suppressed_audio_calls)
             {
                 if (!consume_direct_blueprints_until(source.first_blueprint)
+                    || !consume_terminals_until(source.first_terminal)
                     || !consume_source(source))
                     return false;
                 continue;
@@ -2069,7 +2088,8 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
         ++output.suppressed_audio_direct_dispatches;
     }
     if (!consume_direct_blueprints_until(
-            envelope.battle_audio_blueprint_journal_count))
+            envelope.battle_audio_blueprint_journal_count)
+        || !consume_terminals_until(envelope.audio_terminal_journal_count))
         return false;
     while (output.suppressed_presentation_order_events
         < envelope.presentation_order_journal_count)
