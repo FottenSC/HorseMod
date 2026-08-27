@@ -2029,6 +2029,7 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
 {
     constexpr std::uintptr_t cri_manager_slot_rva = 0x41492e8;
     constexpr std::size_t maximum_battle_players = 64;
+    audio_graph_failure_stage_ = 1;
     if (image_base_ == 0 || battle_manager == 0) return false;
 
     std::uintptr_t cri_manager{};
@@ -2043,10 +2044,12 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
         || !SafeRead(battle_manager + 0x520, battle_audio_manager)
         || battle_audio_manager == 0)
         return false;
+    audio_graph_failure_stage_ = 2;
 
     const std::uint64_t epoch = audio_graph_epoch_counter_ + 1;
     AudioOwnerResolver candidate;
     if (!candidate.BeginEpoch(epoch)) return false;
+    audio_graph_failure_stage_ = 3;
     std::array<std::uintptr_t, maximum_audio_owner_bindings> bound{};
     std::size_t bound_count{};
     const auto bind_unique = [&](std::uintptr_t owner,
@@ -2078,6 +2081,7 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
         || !SafeRead(bgm_state + 8, bgm_count)
         || bgm_count < 2 || bgm_count > 16)
         return false;
+    audio_graph_failure_stage_ = 4;
     for (std::uint8_t lane = 0; lane < 2; ++lane)
     {
         std::uintptr_t shared{};
@@ -2086,6 +2090,7 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
             || !bind_shared(shared, {AudioOwnerDomain::BgmLane, lane, 0}))
             return false;
     }
+    audio_graph_failure_stage_ = 5;
     std::uintptr_t shared{};
     if (!SafeRead(bgm_state + 0x10, shared)
         || !bind_shared(shared, {AudioOwnerDomain::Jingle, 0, 0})
@@ -2096,6 +2101,7 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
         || !SafeRead(active_context + 0x10, shared)
         || !bind_shared(shared, {AudioOwnerDomain::ActiveContextVoice, 0, 0}))
         return false;
+    audio_graph_failure_stage_ = 6;
 
     std::uintptr_t class_pairs{};
     std::int32_t class_count{};
@@ -2110,6 +2116,7 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
         || (class_count != 0 && class_pairs == 0)
         || (chara_count != 0 && chara_pairs == 0))
         return false;
+    audio_graph_failure_stage_ = 7;
     for (std::int32_t index = 0; index < class_count; ++index)
     {
         if (!SafeRead(class_pairs + static_cast<std::uintptr_t>(index) * 0x10,
@@ -2118,6 +2125,7 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
                 static_cast<std::uint8_t>(index), 0}))
             return false;
     }
+    audio_graph_failure_stage_ = 8;
     for (std::int32_t index = 0; index < chara_count; ++index)
     {
         if (!SafeRead(chara_pairs + static_cast<std::uintptr_t>(index) * 0x10,
@@ -2126,15 +2134,18 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
                 static_cast<std::uint8_t>(index), 0}))
             return false;
     }
+    audio_graph_failure_stage_ = 9;
     if (!SafeRead(battle_audio_manager + 0x420, shared)
         || !bind_shared(shared,
             {AudioOwnerDomain::BattleSharedPlayer, 0, 0})
         || !candidate.Seal(epoch))
         return false;
+    audio_graph_failure_stage_ = 10;
 
     if (audio_owner_resolver_.SameBindings(candidate))
     {
         audio_graph_battle_manager_ = battle_manager;
+        audio_graph_failure_stage_ = 0;
         return true;
     }
 
@@ -2146,6 +2157,7 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
     }
     audio_graph_epoch_counter_ = epoch;
     audio_graph_battle_manager_ = battle_manager;
+    audio_graph_failure_stage_ = 0;
     return true;
 }
 
@@ -2253,6 +2265,8 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
             static_cast<void>(hooks->PrepareAudioOwnerGraph(
                 reinterpret_cast<std::uintptr_t>(battle_manager)));
         }
+        observation.audio_owner_graph_failure_stage =
+            hooks->audio_graph_failure_stage_;
         hooks->callbacks_.outer_tick_prepare(
             hooks->callbacks_.user, observation);
         hooks->CaptureOuterTickState(
@@ -4760,6 +4774,7 @@ void DeterministicHookSet::ClearState() noexcept
     audio_playback_map_.Clear();
     audio_graph_battle_manager_ = 0;
     audio_graph_epoch_counter_ = 0;
+    audio_graph_failure_stage_ = 0;
     battle_audio_append_parameter_detour_.reset();
     particle_finished_bind_detour_.reset();
     particle_spawn_detour_.reset();

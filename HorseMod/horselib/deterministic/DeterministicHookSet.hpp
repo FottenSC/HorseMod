@@ -121,6 +121,7 @@ struct OuterTickObservation
     std::uintptr_t first_unresolved_audio_return_rva{};
     std::uint64_t audio_owner_graph_epoch{};
     std::uint32_t audio_owner_graph_bindings{};
+    std::uint32_t audio_owner_graph_failure_stage{};
     std::array<BattleAudioDispatchJournalEntry,
         maximum_battle_audio_journal_dispatches> battle_audio_journal{};
     std::array<BattleAudioSourceJournalEntry,
@@ -533,6 +534,7 @@ private:
     AudioPlaybackMap audio_playback_map_{};
     std::uintptr_t audio_graph_battle_manager_{};
     std::uint64_t audio_graph_epoch_counter_{};
+    std::uint32_t audio_graph_failure_stage_{};
     std::atomic<bool> installed_{};
 };
 }

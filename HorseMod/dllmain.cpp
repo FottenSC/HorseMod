@@ -4691,7 +4691,7 @@ private:
                     "remaps={} remap_journal={}/{} stop_all={} "
                     "stop_all_journal={}/{} stop_all_owners={} "
                     "unresolved_owner=0x{:x} caller_rva=0x{:x} "
-                    "owner_epoch={} owner_bindings={}\n"),
+                    "owner_epoch={} owner_bindings={} owner_stage={}\n"),
                     observation.batch_id, observation.before.frame_counter,
                     observation.after.frame_counter,
                     observation.battle_audio_signature_failures,
@@ -4712,7 +4712,8 @@ private:
                     observation.first_unresolved_audio_owner,
                     observation.first_unresolved_audio_return_rva,
                     observation.audio_owner_graph_epoch,
-                    observation.audio_owner_graph_bindings);
+                    observation.audio_owner_graph_bindings,
+                    observation.audio_owner_graph_failure_stage);
             }
             self->m_frame_fencepost_failure.store(
                 status.code, std::memory_order_release);
