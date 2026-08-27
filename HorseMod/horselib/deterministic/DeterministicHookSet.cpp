@@ -4101,9 +4101,35 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     {
         const AudioTerminalEvent event{AudioTerminalOperation::Create, owner,
             logical_id, cue_sheet_id, cue_id, playback_flags};
-        if (!owned_terminal || !event.valid()
-            || !hooks->audio_playback_map_.Insert(
-                hooks->audio_owner_resolver_.epoch(), owner, logical_id, result)
+        bool mapped = owned_terminal && event.valid()
+            && hooks->audio_playback_map_.Insert(
+                hooks->audio_owner_resolver_.epoch(), owner, logical_id, result);
+        if (!mapped && owned_terminal && event.valid())
+        {
+            // Logical/native mappings outlive the corresponding native voices.
+            // When the fixed-capacity map fills, consult each owner's embedded
+            // active-voice set and retire only entries the native lifecycle has
+            // already removed, then retry this exact mapping once.
+            using FindActiveVoiceFn = void* (__fastcall*)(void*, std::int32_t);
+            const auto find_active = reinterpret_cast<FindActiveVoiceFn>(
+                hooks->image_base_
+                + Schema::Sc6FrameLayout::battle_audio_find_active_voice_rva);
+            const auto epoch = hooks->audio_owner_resolver_.epoch();
+            hooks->audio_playback_map_.PruneInactive(epoch,
+                [&](AudioOwnerSelector mapped_owner,
+                    std::uint32_t native_id) noexcept
+                {
+                    std::uintptr_t mapped_owner_address{};
+                    return hooks->audio_owner_resolver_.ResolveOwner(
+                            epoch, mapped_owner, mapped_owner_address)
+                        && find_active(reinterpret_cast<void*>(
+                                mapped_owner_address + 0x38),
+                            static_cast<std::int32_t>(native_id)) != nullptr;
+                });
+            mapped = hooks->audio_playback_map_.Insert(
+                epoch, owner, logical_id, result);
+        }
+        if (!mapped
             || !RecordAudioTerminal(batch, event))
         {
             ++batch->observation->battle_audio_signature_failures;

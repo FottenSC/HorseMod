@@ -1417,6 +1417,18 @@ void test_audio_presentation_identities_are_epoch_bound()
     expect(playback.RemoveOne(7, class_player, logical)
             && !playback.NativeForLogical(7, class_player, logical, mapped),
         "audio playback map retires an exact stopped voice");
+    const auto inactive_logical = MakeLogicalAudioPlaybackId(124, 0);
+    const auto active_logical = MakeLogicalAudioPlaybackId(124, 1);
+    expect(playback.Insert(7, class_player, inactive_logical, 0x1235)
+            && playback.Insert(7, shared, active_logical, 0x1236)
+            && playback.PruneInactive(7,
+                [](AudioOwnerSelector, std::uint32_t native_id) noexcept
+                { return native_id == 0x1236; }) == 1
+            && !playback.NativeForLogical(
+                7, class_player, inactive_logical, mapped)
+            && playback.NativeForLogical(7, shared, active_logical, mapped)
+            && mapped == 0x1236,
+        "audio playback map prunes only native-lifecycle-inactive voices");
 }
 }
 

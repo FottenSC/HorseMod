@@ -78,6 +78,7 @@ inline constexpr std::uintptr_t battle_audio_tracking_insert_rva = 0x156bff0;
 inline constexpr std::uintptr_t battle_audio_tracking_rehash_rva = 0x3c9d00;
 inline constexpr std::uintptr_t battle_audio_blueprint_publish_rva = 0x979e00;
 inline constexpr std::uintptr_t battle_audio_register_voice_rva = 0x54f8b0;
+inline constexpr std::uintptr_t battle_audio_find_active_voice_rva = 0x1de5e00;
 inline constexpr std::uintptr_t battle_audio_append_command_rva = 0x5656d0;
 inline constexpr std::uintptr_t battle_audio_stop_all_rva = 0x560940;
 inline constexpr std::uintptr_t battle_audio_append_parameter_rva = 0x55b4b0;

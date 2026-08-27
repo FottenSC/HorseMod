@@ -311,6 +311,23 @@ public:
         return has_free;
     }
 
+    template <typename IsActive>
+    std::size_t PruneInactive(
+        std::uint64_t epoch, IsActive&& is_active) noexcept
+    {
+        if (epoch == 0 || epoch != epoch_) return 0;
+        std::size_t removed{};
+        for (auto& entry : entries_)
+        {
+            if (!entry.occupied
+                || is_active(entry.owner, entry.native_id))
+                continue;
+            entry = {};
+            ++removed;
+        }
+        return removed;
+    }
+
     [[nodiscard]] bool LogicalForNative(std::uint64_t epoch,
         AudioOwnerSelector owner, std::uint32_t native_id,
         std::uint32_t& output) const noexcept
