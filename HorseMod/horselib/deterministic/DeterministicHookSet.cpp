@@ -169,15 +169,29 @@ bool CaptureStageSemantic(std::int32_t actor_id, const void* payload,
 bool AppendStageSemantic(const StagePresentationJournalEntry& semantic,
     std::uint64_t& sequence_hash) noexcept
 {
-    if (semantic.payload_size > 12) return false;
+    if (semantic.payload_size > 12 || semantic.canonical_before_size > 12)
+        return false;
     constexpr std::uint64_t offset_basis = 14695981039346656037ull;
     constexpr std::uint64_t prime = 1099511628211ull;
     auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
+    const auto append = [&](const auto& value) noexcept {
+        const auto* bytes = reinterpret_cast<const std::byte*>(&value);
+        for (std::size_t index = 0; index < sizeof(value); ++index)
+        {
+            hash ^= std::to_integer<std::uint8_t>(bytes[index]);
+            hash *= prime;
+        }
+    };
+    append(semantic.owner_logical_id);
     for (std::size_t index = 0;
-         index < sizeof(std::int32_t) + semantic.payload_size;
-         ++index)
+         index < sizeof(std::int32_t) + semantic.payload_size; ++index)
     {
         hash ^= std::to_integer<std::uint8_t>(semantic.semantic[index]);
+        hash *= prime;
+    }
+    for (std::size_t index = 0; index < semantic.canonical_before_size; ++index)
+    {
+        hash ^= std::to_integer<std::uint8_t>(semantic.canonical_before[index]);
         hash *= prime;
     }
     sequence_hash = hash;
@@ -2851,8 +2865,34 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
     const bool signature_ok = actor != nullptr
         && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x450, actor_id);
     StagePresentationJournalEntry semantic{};
-    const bool semantic_ok = signature_ok && CaptureStageSemantic(actor_id,
-        &immediate_value, sizeof(immediate_value), semantic);
+    std::uint8_t break_state{};
+    float fade_timer{};
+    float fade_rate{};
+    const bool identity_ok = hooks != nullptr
+        && hooks->stage_break_presentation_identity_.ResolveActor(
+            hooks->stage_break_presentation_identity_.generation(),
+            reinterpret_cast<std::uintptr_t>(actor),
+            semantic.owner_logical_id).ok();
+    const bool canonical_ok = signature_ok
+        && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x468, break_state)
+        && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x46c, fade_timer)
+        && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x470, fade_rate);
+    const bool semantic_ok = identity_ok && canonical_ok
+        && CaptureStageSemantic(actor_id, &immediate_value,
+            sizeof(immediate_value), semantic);
+    if (semantic_ok)
+    {
+        std::memcpy(semantic.canonical_before.data(), &break_state,
+            sizeof(break_state));
+        std::memcpy(semantic.canonical_before.data() + 4, &fade_timer,
+            sizeof(fade_timer));
+        std::memcpy(semantic.canonical_before.data() + 8, &fade_rate,
+            sizeof(fade_rate));
+        semantic.canonical_before_size = 12;
+        semantic.first_particle = batch != nullptr && batch->observation != nullptr
+            ? batch->observation->particle_spawn_journal_count : 0;
+    }
+    std::size_t observed_stage_index = maximum_stage_presentation_journal_events;
     if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
@@ -2871,6 +2911,7 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
         }
         else
         {
+            observed_stage_index = observation.stage_wall_journal_count;
             observation.stage_wall_journal[
                 observation.stage_wall_journal_count++] = semantic;
         }
@@ -2900,6 +2941,12 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
             || envelope.stage_wall_journal[index].payload_size
                 != semantic.payload_size
             || envelope.stage_wall_journal[index].semantic != semantic.semantic
+            || envelope.stage_wall_journal[index].owner_logical_id
+                != semantic.owner_logical_id
+            || envelope.stage_wall_journal[index].canonical_before_size
+                != semantic.canonical_before_size
+            || envelope.stage_wall_journal[index].canonical_before
+                != semantic.canonical_before
             || !AppendStageSemantic(semantic, replay.stage_wall_hash)))
         {
             ++replay.stage_signature_failures;
@@ -2935,6 +2982,17 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
             }
         }
     }
+    if (batch != nullptr && batch->observation != nullptr
+        && observed_stage_index < batch->observation->stage_wall_journal_count)
+    {
+        auto& entry = batch->observation->stage_wall_journal[observed_stage_index];
+        const auto count = batch->observation->particle_spawn_journal_count
+            - entry.first_particle;
+        if (count > UINT8_MAX)
+            ++batch->observation->stage_signature_failures;
+        else
+            entry.particle_count = static_cast<std::uint8_t>(count);
+    }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
 
@@ -2951,8 +3009,25 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
     const bool signature_ok = actor != nullptr && direction != nullptr
         && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x420, actor_id);
     StagePresentationJournalEntry semantic{};
-    const bool semantic_ok = signature_ok
+    std::int32_t hit_count{};
+    const bool identity_ok = hooks != nullptr
+        && hooks->stage_break_presentation_identity_.ResolveActor(
+            hooks->stage_break_presentation_identity_.generation(),
+            reinterpret_cast<std::uintptr_t>(actor),
+            semantic.owner_logical_id).ok();
+    const bool canonical_ok = signature_ok
+        && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x468, hit_count);
+    const bool semantic_ok = identity_ok && canonical_ok
         && CaptureStageSemantic(actor_id, direction, 12, semantic);
+    if (semantic_ok)
+    {
+        std::memcpy(semantic.canonical_before.data(), &hit_count,
+            sizeof(hit_count));
+        semantic.canonical_before_size = sizeof(hit_count);
+        semantic.first_particle = batch != nullptr && batch->observation != nullptr
+            ? batch->observation->particle_spawn_journal_count : 0;
+    }
+    std::size_t observed_stage_index = maximum_stage_presentation_journal_events;
     if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
@@ -2971,6 +3046,7 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
         }
         else
         {
+            observed_stage_index = observation.stage_barrier_journal_count;
             observation.stage_barrier_journal[
                 observation.stage_barrier_journal_count++] = semantic;
         }
@@ -3000,6 +3076,12 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
             || envelope.stage_barrier_journal[index].payload_size
                 != semantic.payload_size
             || envelope.stage_barrier_journal[index].semantic != semantic.semantic
+            || envelope.stage_barrier_journal[index].owner_logical_id
+                != semantic.owner_logical_id
+            || envelope.stage_barrier_journal[index].canonical_before_size
+                != semantic.canonical_before_size
+            || envelope.stage_barrier_journal[index].canonical_before
+                != semantic.canonical_before
             || !AppendStageSemantic(semantic, replay.stage_barrier_hash)))
         {
             ++replay.stage_signature_failures;
@@ -3034,6 +3116,19 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
                 batch->owned->result->failure = FailureCode::PresentationFailed;
             }
         }
+    }
+    if (batch != nullptr && batch->observation != nullptr
+        && observed_stage_index
+            < batch->observation->stage_barrier_journal_count)
+    {
+        auto& entry = batch->observation->stage_barrier_journal[
+            observed_stage_index];
+        const auto count = batch->observation->particle_spawn_journal_count
+            - entry.first_particle;
+        if (count > UINT8_MAX)
+            ++batch->observation->stage_signature_failures;
+        else
+            entry.particle_count = static_cast<std::uint8_t>(count);
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }

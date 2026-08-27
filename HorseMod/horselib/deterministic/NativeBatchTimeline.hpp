@@ -121,8 +121,13 @@ struct BattleAudioStopAllJournalEntry
 // values only; UObject and component addresses are deliberately excluded.
 struct StagePresentationJournalEntry
 {
+    std::uint64_t owner_logical_id{};
     std::array<std::byte, 16> semantic{};
+    std::array<std::byte, 12> canonical_before{};
     std::uint8_t payload_size{};
+    std::uint8_t canonical_before_size{};
+    std::uint8_t first_particle{};
+    std::uint8_t particle_count{};
 };
 
 struct ParticleSpawnJournalEntry

@@ -392,6 +392,20 @@ bool NativeBatchTimeline::Validate(
     for (std::size_t index = 0;
          index < envelope.audio_terminal_journal_count; ++index)
         if (!envelope.audio_terminal_journal[index].valid()) return false;
+    const auto valid_stage = [&](const StagePresentationJournalEntry& entry,
+                                 std::uint8_t canonical_size) noexcept {
+        return entry.owner_logical_id != 0 && entry.payload_size <= 12
+            && entry.canonical_before_size == canonical_size
+            && static_cast<std::size_t>(entry.first_particle)
+                    + entry.particle_count
+                <= envelope.particle_spawn_journal_count;
+    };
+    for (std::size_t index = 0; index < envelope.stage_wall_journal_count;
+         ++index)
+        if (!valid_stage(envelope.stage_wall_journal[index], 12)) return false;
+    for (std::size_t index = 0; index < envelope.stage_barrier_journal_count;
+         ++index)
+        if (!valid_stage(envelope.stage_barrier_journal[index], 4)) return false;
     if (!batches_.empty()
         && (envelope.batch_id <= batches_.back().batch_id
             || (envelope.entry_coordinate != batches_.back().exit_coordinate

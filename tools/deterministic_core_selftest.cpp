@@ -543,7 +543,10 @@ void test_native_batch_timeline_is_exact_and_bounded()
     first.coordinate_count = 2;
     first.stage_wall_calls = 1;
     first.stage_wall_journal_count = 1;
+    first.stage_wall_journal[0].owner_logical_id = 0x1234;
     first.stage_wall_journal[0].payload_size = 1;
+    first.stage_wall_journal[0].canonical_before_size = 12;
+    first.stage_wall_journal[0].particle_count = 1;
     first.stage_wall_journal[0].semantic[0] = std::byte{0x2a};
     first.battle_audio_blueprint_calls = 1;
     first.battle_audio_blueprint_journal_count = 1;
