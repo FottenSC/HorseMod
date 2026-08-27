@@ -4161,6 +4161,16 @@ private:
         qualification.last_frame = timeline.last_coordinate.frame;
         if (qualification.completed < kForcedQualificationCorrections) return;
         const auto final_timeline = m_replay_native_runtime.timeline_status();
+        const auto presentation_commit =
+            m_replay_native_runtime.CommitPresentationThrough(
+                final_timeline.last_coordinate, m_deterministic_hooks);
+        const auto presentation_statistics =
+            m_replay_native_runtime.presentation_statistics();
+        const bool presentation_complete = presentation_commit.ok()
+            && m_replay_native_runtime.pending_presentation_events() == 0
+            && m_replay_native_runtime.presentation_payload_bytes() == 0
+            && presentation_statistics.capacity_failures == 0
+            && presentation_statistics.publish_failures == 0;
         const auto capture_performance =
             m_replay_native_runtime.capture_performance();
         const auto p99 = qualification.P99();
@@ -4169,7 +4179,15 @@ private:
                 <= 500'000
             && capture_performance.total_capture.maximum_ns <= 1'000'000;
         qualification.reported = true;
-        if (!performance_ok || !capture_ok)
+        if (!presentation_complete)
+        {
+            qualification.failure = presentation_commit.ok()
+                ? Horse::Deterministic::FailureCode::PresentationFailed
+                : presentation_commit.code;
+            m_frame_fencepost_failure.store(qualification.failure,
+                std::memory_order_release);
+        }
+        else if (!performance_ok || !capture_ok)
         {
             qualification.failure =
                 Horse::Deterministic::FailureCode::PerformanceBudgetExceeded;
@@ -4193,8 +4211,11 @@ private:
             "particle_unknown_routes={} "
             "audio_batches_verified={} audio_sequence_mismatches={} "
             "camera_batches_verified={} camera_publication_mismatches={} "
-            "presentation_failures={} canonical_convergence=exact "
-            "presentation_terminal_coverage=incomplete\n"),
+            "presentation_failures={} journal_attempted={} journal_recorded={} "
+            "journal_discarded={} journal_committed={} journal_duplicates={} "
+            "journal_capacity_failures={} journal_publish_failures={} "
+            "journal_pending={} journal_payload_bytes={} "
+            "canonical_convergence=exact presentation_terminal_coverage={}\n"),
             qualification.failure == Horse::Deterministic::FailureCode::None
                 ? STR("passed") : STR("failed"),
             qualification.completed, qualification.first_generation,
@@ -4228,7 +4249,17 @@ private:
             qualification.audio_sequence_mismatches,
             qualification.verified_camera_batches,
             qualification.camera_publication_mismatches,
-            qualification.presentation_failures);
+            qualification.presentation_failures,
+            presentation_statistics.attempted,
+            presentation_statistics.recorded,
+            presentation_statistics.discarded,
+            presentation_statistics.committed,
+            presentation_statistics.duplicates,
+            presentation_statistics.capacity_failures,
+            presentation_statistics.publish_failures,
+            m_replay_native_runtime.pending_presentation_events(),
+            m_replay_native_runtime.presentation_payload_bytes(),
+            presentation_complete ? STR("complete") : STR("incomplete"));
     }
 
     void observe_hgcpu_diagnostic(std::uint32_t frame) noexcept
@@ -4812,6 +4843,25 @@ private:
             if (!self->m_deterministic_config.forced_depth7_qualification)
                 self->service_owned_correction_probe();
         }
+        if (self->m_replay_native_runtime.presentation_ownership_enabled())
+        {
+            const auto after = self->m_replay_native_runtime.timeline_status();
+            const auto window = static_cast<std::uint64_t>(
+                self->m_deterministic_config.rollback_window);
+            if (after.last_coordinate.generation != 0
+                && after.last_coordinate.frame > window)
+            {
+                const Horse::Deterministic::FrameCoordinate confirmed{
+                    after.last_coordinate.generation,
+                    after.last_coordinate.frame - window};
+                const auto committed =
+                    self->m_replay_native_runtime.CommitPresentationThrough(
+                        confirmed, self->m_deterministic_hooks);
+                if (!committed.ok())
+                    self->m_frame_fencepost_failure.store(
+                        committed.code, std::memory_order_release);
+            }
+        }
     }
 
     static void on_outer_tick_begin(
@@ -4909,8 +4959,17 @@ private:
         const auto status = self->m_replay_native_runtime.PrepareResumeOuterTick(
             observation.battle_manager, observation.thread_id);
         if (!status.ok())
+        {
             self->m_frame_fencepost_failure.store(
                 status.code, std::memory_order_release);
+            return;
+        }
+        const auto presentation =
+            self->m_replay_native_runtime.PreparePresentationOuterTick(
+                self->m_deterministic_hooks);
+        if (!presentation.ok())
+            self->m_frame_fencepost_failure.store(
+                presentation.code, std::memory_order_release);
     }
 
     static void on_replay_exit(
@@ -5576,6 +5635,19 @@ public:
             }
             else
             {
+                if (m_deterministic_config.forced_depth7_qualification
+                    || m_deterministic_config.correction_probe)
+                {
+                    const auto presentation =
+                        m_replay_native_runtime.EnablePresentationOwnership();
+                    if (!presentation.ok())
+                    {
+                        m_frame_fencepost_hook_status = presentation;
+                        m_deterministic_hooks.Uninstall();
+                        m_ucrt_rand_broker.Stop();
+                        return;
+                    }
+                }
                 Output::send<LogLevel::Default>(STR(
                     "[HorseMod] deterministic lifecycle hooks armed; "
                     "stock simulation remains authoritative\n"));
