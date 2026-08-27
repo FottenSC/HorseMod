@@ -40,6 +40,7 @@ constexpr std::array<Range, 9> move_command_ranges{{
 }};
 constexpr std::array<std::size_t, 4> vfx_edge_diagnostic_offsets{
     0x4E8, 0x630, 0x510, 0x658};
+constexpr std::ptrdiff_t movevm_state_shorts_offset = 0x197C;
 constexpr std::size_t camera_action_stride = 0x3E0;
 constexpr std::size_t camera_distance_history_offset = 0x25C;
 constexpr std::uint32_t player_watch_camera_vtable_rva = 0x3E87EB0;
@@ -867,6 +868,17 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
                 return region_read_failed(static_cast<std::uint32_t>(50
                     + fighter * vfx_edge_diagnostic_offsets.size() + field));
             }
+        }
+    }
+    for (std::size_t fighter = 0;
+         fighter < output.movevm_state_shorts.fighters.size(); ++fighter)
+    {
+        if (!read_bytes(addresses_.fighter_roots[fighter]
+                + movevm_state_shorts_offset,
+            std::as_writable_bytes(std::span{
+                output.movevm_state_shorts.fighters[fighter]})))
+        {
+            return region_read_failed(static_cast<std::uint32_t>(58 + fighter));
         }
     }
     if (!read_bytes(addresses_.pump_state + 0x20, output.pump.lane_a)
@@ -2065,6 +2077,8 @@ void NativeCandidateRegions::CanonicalBytes(
     append_bytes(output, image.move_dispatch_masks.data(), sizeof(image.move_dispatch_masks));
     append_bytes(output, image.vfx_edges.fighters.data(),
         sizeof(image.vfx_edges.fighters));
+    append_bytes(output, image.movevm_state_shorts.fighters.data(),
+        sizeof(image.movevm_state_shorts.fighters));
     append_bytes(output, image.pump.lane_a.data(), image.pump.lane_a.size());
     append_bytes(output, image.pump.lane_b.data(), image.pump.lane_b.size());
     append_bytes(output, image.pump.controls.data(), image.pump.controls.size());
@@ -2170,6 +2184,9 @@ CanonicalNativeFingerprint NativeCandidateRegions::CanonicalFingerprint(
     append_bytes(bytes, image.vfx_edges.fighters.data(),
         sizeof(image.vfx_edges.fighters));
     output[29] = finish();
+    append_bytes(bytes, image.movevm_state_shorts.fighters.data(),
+        sizeof(image.movevm_state_shorts.fighters));
+    output[30] = finish();
     append_bytes(bytes, image.pump.lane_a.data(), image.pump.lane_a.size());
     append_bytes(bytes, image.pump.lane_b.data(), image.pump.lane_b.size());
     append_bytes(bytes, image.pump.controls.data(), image.pump.controls.size());
@@ -2296,6 +2313,8 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
             sizeof(output.move_dispatch_masks))
         || !take(output.vfx_edges.fighters.data(),
             sizeof(output.vfx_edges.fighters))
+        || !take(output.movevm_state_shorts.fighters.data(),
+            sizeof(output.movevm_state_shorts.fighters))
         || !take(output.pump.lane_a.data(), output.pump.lane_a.size())
         || !take(output.pump.lane_b.data(), output.pump.lane_b.size())
         || !take(output.pump.controls.data(), output.pump.controls.size()))

@@ -328,6 +328,14 @@ struct Fixture
         std::uintptr_t next_buffer = memory_base + 0xC0000;
         for (std::size_t player = 0; player < 2; ++player)
         {
+            for (std::size_t index = 0;
+                 index < native_movevm_state_short_count; ++index)
+            {
+                memory.Set(addresses.fighter_roots[player] + 0x197C
+                        + index * sizeof(std::uint16_t),
+                    static_cast<std::uint16_t>(
+                        0x100 * (player + 1) + index));
+            }
             memory.Set(addresses.fighter_roots[player] + 0x42550,
                 std::int32_t{768});
             for (std::size_t bank_index = 0; bank_index < 2; ++bank_index)
@@ -782,6 +790,18 @@ void test_candidate_checkpoint_codec()
         "candidate checkpoint round-trips value-only UCRT state");
     expect(decoded.wind == image.wind,
         "candidate checkpoint round-trips pointer-free wind state");
+
+    auto changed_movevm_state = image;
+    changed_movevm_state.native.movevm_state_shorts.fighters[0][25] ^= 1;
+    Snapshot changed_movevm_state_snapshot{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, changed_movevm_state,
+            changed_movevm_state_snapshot).ok()
+            && changed_movevm_state_snapshot.canonical_hash
+                != snapshot.canonical_hash
+            && changed_movevm_state_snapshot.canonical_native[30]
+                != snapshot.canonical_native[30],
+        "per-fighter MoveVM state shorts, including Tira behavior slot 25, are canonical truth");
 
     auto presentation_audio = image;
     presentation_audio.battle_audio_selector.alternations[0] = 0;

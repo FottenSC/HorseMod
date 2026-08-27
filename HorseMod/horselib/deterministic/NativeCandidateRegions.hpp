@@ -180,6 +180,23 @@ struct NativeVfxEdgeDiagnostic
         const NativeVfxEdgeDiagnostic&) = default;
 };
 
+inline constexpr std::size_t native_movevm_state_short_count = 240;
+
+// Pointer-free canonical projection of the complete per-character MoveVM
+// global-short bank at ALuxBattleChara+0x197C. The native HgCpuDirect archive
+// remains the sole restoration owner; this typed copy makes gameplay selectors
+// such as Tira's heavily used behavior/probability state immediately visible
+// to canonical hashes. The exact native field that names Tira's mood is still
+// kept distinct from this evidence-backed bank projection.
+struct NativeMoveVmStateShortImage
+{
+    std::array<std::array<std::uint16_t, native_movevm_state_short_count>, 2>
+        fighters{};
+
+    friend bool operator==(const NativeMoveVmStateShortImage&,
+        const NativeMoveVmStateShortImage&) = default;
+};
+
 struct NativeSubVmImage
 {
     std::uint32_t vtable_rva{};
@@ -292,6 +309,7 @@ struct NativeCandidateImage
     NativeFrameInputLogImage input_log{};
     std::array<std::uint64_t, 2> move_dispatch_masks{};
     NativeVfxEdgeDiagnostic vfx_edges{};
+    NativeMoveVmStateShortImage movevm_state_shorts{};
     NativePumpImage pump{};
     std::array<NativeSchedulerImage, 2> schedulers{};
     std::array<NativeSubVmImage, 2> sub_vms{};

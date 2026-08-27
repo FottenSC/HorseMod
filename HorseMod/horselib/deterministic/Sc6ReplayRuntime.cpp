@@ -120,6 +120,8 @@ std::uint64_t CandidateDifferenceMask(
     mark(19, expected.native.stage_wind_emitters
         != observed.native.stage_wind_emitters);
     mark(20, expected.move_dispatch != observed.move_dispatch);
+    mark(21, expected.native.movevm_state_shorts
+        != observed.native.movevm_state_shorts);
     return mask;
 }
 }
