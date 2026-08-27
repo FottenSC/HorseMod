@@ -79,6 +79,16 @@ RC::Unreal::UObject* CurrentScene(RC::Unreal::UObject* manager) noexcept
         && RC::Unreal::UObject::IsReal(*value) ? *value : nullptr;
 }
 
+bool CallNoParams(RC::Unreal::UObject* owner, const wchar_t* name)
+{
+    if (owner == nullptr) return false;
+    auto* function = owner->GetFunctionByNameInChain(name);
+    if (function == nullptr) return false;
+    std::byte params{};
+    owner->ProcessEvent(function, &params);
+    return true;
+}
+
 bool ChangeScene(RC::Unreal::UObject* owner, const wchar_t* tag)
 {
     auto* function = owner->GetFunctionByNameInChain(L"ChangeScene");
@@ -148,14 +158,14 @@ NavigationState ReplaySceneNavigator::Tick(
     {
         // Act on the first title callback. The title startup machine can enter
         // a blocking modal before this post-tick hook receives 15 more frames.
-        // Drive TitleScene's cooked `mainmenu` transition directly so
-        // navigation does not depend on whichever title-state/modal owns input.
+        // Invoke TitleScene's cooked ToMainmenu graph so its scene-owned
+        // ChangeScene call supplies the exact `mainmenu` transition contract.
         if ((retry_frames_++ % 60) != 0)
         {
             detail = scene_name;
             return NavigationState::Waiting;
         }
-        if (!ChangeScene(scene, L"mainmenu"))
+        if (!CallNoParams(scene, L"ToMainmenu"))
         {
             detail = "title_mainmenu_failed";
             return NavigationState::Failed;
