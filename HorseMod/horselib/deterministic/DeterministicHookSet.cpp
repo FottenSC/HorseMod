@@ -107,6 +107,78 @@ bool SafeWrite(std::uintptr_t address, const T& value) noexcept
     }
 }
 
+enum class AudioCreateAdmission : std::uint8_t
+{
+    Rejected,
+    Admitted,
+    Unresolved,
+};
+
+AudioCreateAdmission InspectAudioCreateAdmission(
+    std::uintptr_t image_base, std::uintptr_t voice_owner,
+    std::uint32_t cue_sheet_id, std::int32_t cue_id) noexcept
+{
+    // LuxAudio_RegisterActiveVoiceInstance rejects before allocating a voice
+    // unless the owner runtime, CRI manager, and locked cue-sheet table slot
+    // are all live. Mirror only that read-only prefix while speculative
+    // presentation is suppressed; an unavailable source call returns the
+    // native sentinel and never enters the confirmed presentation journal.
+    constexpr std::uintptr_t cri_manager_slot_rva = 0x41492e8;
+    std::uintptr_t runtime_handle{};
+    std::uintptr_t manager{};
+    if (cue_id < 0 || voice_owner == 0)
+        return AudioCreateAdmission::Rejected;
+    if (!SafeRead(voice_owner, runtime_handle))
+        return AudioCreateAdmission::Unresolved;
+    if (runtime_handle == 0)
+        return AudioCreateAdmission::Rejected;
+    if (!SafeRead(image_base + cri_manager_slot_rva, manager))
+        return AudioCreateAdmission::Unresolved;
+    if (manager == 0)
+        return AudioCreateAdmission::Rejected;
+
+    auto* const lock = reinterpret_cast<CRITICAL_SECTION*>(manager + 0x28);
+    bool locked{};
+    AudioCreateAdmission result = AudioCreateAdmission::Unresolved;
+    __try
+    {
+        if (!TryEnterCriticalSection(lock)) EnterCriticalSection(lock);
+        locked = true;
+        std::uintptr_t entries{};
+        std::uint32_t count{};
+        if (SafeRead(manager + 0x08, entries)
+            && SafeRead(manager + 0x10, count))
+        {
+            if (cue_sheet_id >= count || entries == 0)
+                result = AudioCreateAdmission::Rejected;
+            else
+            {
+                const auto slot = entries
+                    + static_cast<std::uintptr_t>(cue_sheet_id) * 0x10;
+                std::uintptr_t payload{};
+                std::uintptr_t reference_controller{};
+                std::int32_t strong_count{};
+                if (!SafeRead(slot, payload)
+                    || !SafeRead(slot + 0x08, reference_controller))
+                    result = AudioCreateAdmission::Unresolved;
+                else if (payload == 0 || reference_controller == 0)
+                    result = AudioCreateAdmission::Rejected;
+                else if (!SafeRead(reference_controller + 0x08, strong_count))
+                    result = AudioCreateAdmission::Unresolved;
+                else
+                    result = strong_count != 0
+                        ? AudioCreateAdmission::Admitted
+                        : AudioCreateAdmission::Rejected;
+            }
+        }
+    }
+    __finally
+    {
+        if (locked) LeaveCriticalSection(lock);
+    }
+    return result;
+}
+
 bool CaptureCameraPublicationSignature(
     std::uintptr_t image_base, CameraPublicationState& state,
     std::uint64_t& output) noexcept
@@ -1801,7 +1873,31 @@ Status DeterministicHookSet::CommitAudioTerminal(
                 return Status::success();
             if (!audio_playback_map_.CanInsert(
                     epoch, event.owner, event.logical_playback_id))
-                return Status::failure(FailureCode::CapacityExceeded);
+            {
+                // Native voices may finish without an explicit StopOne
+                // terminal. Retire only mappings whose voice has disappeared
+                // from the owner's native active-voice set, matching the
+                // authoritative register path below. The fixed map remains a
+                // hard bound when all mapped voices are genuinely active.
+                using FindActiveVoiceFn = void* (__fastcall*)(void*, std::int32_t);
+                const auto find_active = reinterpret_cast<FindActiveVoiceFn>(
+                    image_base_ + Schema::Sc6FrameLayout::
+                        battle_audio_find_active_voice_rva);
+                audio_playback_map_.PruneInactive(epoch,
+                    [&](AudioOwnerSelector mapped_owner,
+                        std::uint32_t native_id) noexcept
+                    {
+                        std::uintptr_t mapped_owner_address{};
+                        return audio_owner_resolver_.ResolveOwner(
+                                epoch, mapped_owner, mapped_owner_address)
+                            && find_active(reinterpret_cast<void*>(
+                                    mapped_owner_address + 0x38),
+                                static_cast<std::int32_t>(native_id)) != nullptr;
+                    });
+                if (!audio_playback_map_.CanInsert(
+                        epoch, event.owner, event.logical_playback_id))
+                    return Status::failure(FailureCode::CapacityExceeded);
+            }
             const auto original = reinterpret_cast<BattleAudioRegisterVoiceFn>(
                 battle_audio_register_voice_trampoline_);
             if (original == nullptr)
@@ -4431,6 +4527,24 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     }
     if (suppress)
     {
+        const auto admission = InspectAudioCreateAdmission(
+            hooks->image_base_,
+            reinterpret_cast<std::uintptr_t>(active_voice_owner),
+            cue_sheet_id, cue_id);
+        if (admission == AudioCreateAdmission::Rejected)
+        {
+            callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+            return audio_invalid_playback_id;
+        }
+        if (admission != AudioCreateAdmission::Admitted)
+        {
+            ++batch->observation->battle_audio_signature_failures;
+            batch->observation->battle_audio_signature_failure_mask |= 1u << 12;
+            if (batch->owned != nullptr)
+                batch->owned->result->failure = FailureCode::PresentationFailed;
+            callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+            return audio_invalid_playback_id;
+        }
         const AudioTerminalEvent event{AudioTerminalOperation::Create, owner,
             logical_id, cue_sheet_id, cue_id, playback_flags};
         if (!RecordAudioTerminal(batch, event) && batch->owned != nullptr)

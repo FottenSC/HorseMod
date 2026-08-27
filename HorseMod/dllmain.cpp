@@ -4166,20 +4166,39 @@ private:
                 final_timeline.last_coordinate, m_deterministic_hooks);
         const auto presentation_statistics =
             m_replay_native_runtime.presentation_statistics();
-        const bool presentation_complete = presentation_commit.ok()
+        const bool presentation_journal_complete = presentation_commit.ok()
             && m_replay_native_runtime.pending_presentation_events() == 0
             && m_replay_native_runtime.presentation_payload_bytes() == 0
-            && presentation_statistics.capacity_failures == 0
-            && presentation_statistics.publish_failures == 0;
+            && presentation_statistics.capacity_failures == 0;
+        const bool presentation_terminal_coverage =
+            presentation_journal_complete
+            && qualification.suppressed_audio_terminal_calls != 0
+            && qualification.suppressed_audio_blueprint_calls != 0
+            && qualification.verified_audio_batches != 0
+            && qualification.verified_camera_batches != 0
+            && qualification.suppressed_stage_wall_calls != 0
+            && qualification.suppressed_stage_barrier_calls != 0
+            && qualification.semantic_stage_dispatch_calls != 0
+            && qualification.suppressed_particle_spawn_calls != 0;
         const auto capture_performance =
             m_replay_native_runtime.capture_performance();
+        Horse::Deterministic::AudioTerminalEvent first_failed_audio{};
+        Horse::Deterministic::AudioTerminalEvent last_failed_audio{};
+        const bool first_failed_audio_decoded =
+            Horse::Deterministic::DecodeAudioPresentation(
+                presentation_statistics.first_failed_event,
+                first_failed_audio).ok();
+        const bool last_failed_audio_decoded =
+            Horse::Deterministic::DecodeAudioPresentation(
+                presentation_statistics.last_failed_event,
+                last_failed_audio).ok();
         const auto p99 = qualification.P99();
         const bool performance_ok = p99 < 16'670'000;
         const bool capture_ok = capture_performance.total_capture.p99_ns
                 <= 500'000
             && capture_performance.total_capture.maximum_ns <= 1'000'000;
         qualification.reported = true;
-        if (!presentation_complete)
+        if (!presentation_journal_complete)
         {
             qualification.failure = presentation_commit.ok()
                 ? Horse::Deterministic::FailureCode::PresentationFailed
@@ -4214,6 +4233,10 @@ private:
             "presentation_failures={} journal_attempted={} journal_recorded={} "
             "journal_discarded={} journal_committed={} journal_duplicates={} "
             "journal_capacity_failures={} journal_publish_failures={} "
+            "journal_first_publish_failure={} journal_first_failed_event={}:{}:{}:{}:0x{:x} "
+            "journal_first_failed_audio={}:{}:{}:{}:{}:{} "
+            "journal_last_publish_failure={} journal_last_failed_event={}:{}:{}:{}:0x{:x} "
+            "journal_last_failed_audio={}:{}:{}:{}:{}:{} "
             "journal_pending={} journal_payload_bytes={} "
             "canonical_convergence=exact presentation_terminal_coverage={}\n"),
             qualification.failure == Horse::Deterministic::FailureCode::None
@@ -4257,9 +4280,40 @@ private:
             presentation_statistics.duplicates,
             presentation_statistics.capacity_failures,
             presentation_statistics.publish_failures,
+            RC::to_generic_string(std::string(
+                Horse::Deterministic::failure_code_name(
+                    presentation_statistics.first_publish_failure))),
+            presentation_statistics.first_failed_event.coordinate.generation,
+            presentation_statistics.first_failed_event.coordinate.frame,
+            presentation_statistics.first_failed_event.source_ordinal,
+            presentation_statistics.first_failed_event.kind,
+            presentation_statistics.first_failed_event.identity,
+            first_failed_audio_decoded
+                ? static_cast<unsigned int>(first_failed_audio.operation) : 0,
+            first_failed_audio.logical_playback_id,
+            first_failed_audio.cue_sheet_id,
+            first_failed_audio.cue_id,
+            first_failed_audio.value,
+            first_failed_audio_decoded,
+            RC::to_generic_string(std::string(
+                Horse::Deterministic::failure_code_name(
+                    presentation_statistics.last_publish_failure))),
+            presentation_statistics.last_failed_event.coordinate.generation,
+            presentation_statistics.last_failed_event.coordinate.frame,
+            presentation_statistics.last_failed_event.source_ordinal,
+            presentation_statistics.last_failed_event.kind,
+            presentation_statistics.last_failed_event.identity,
+            last_failed_audio_decoded
+                ? static_cast<unsigned int>(last_failed_audio.operation) : 0,
+            last_failed_audio.logical_playback_id,
+            last_failed_audio.cue_sheet_id,
+            last_failed_audio.cue_id,
+            last_failed_audio.value,
+            last_failed_audio_decoded,
             m_replay_native_runtime.pending_presentation_events(),
             m_replay_native_runtime.presentation_payload_bytes(),
-            presentation_complete ? STR("complete") : STR("incomplete"));
+            presentation_terminal_coverage
+                ? STR("complete") : STR("incomplete"));
     }
 
     void observe_hgcpu_diagnostic(std::uint32_t frame) noexcept

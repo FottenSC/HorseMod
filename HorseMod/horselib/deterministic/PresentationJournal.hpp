@@ -20,6 +20,10 @@ public:
         std::uint64_t discarded{};
         std::uint64_t committed{};
         std::uint64_t publish_failures{};
+        FailureCode first_publish_failure{FailureCode::None};
+        PresentationEvent first_failed_event{};
+        FailureCode last_publish_failure{FailureCode::None};
+        PresentationEvent last_failed_event{};
     };
 
     PresentationJournal(

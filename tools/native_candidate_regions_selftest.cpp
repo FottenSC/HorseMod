@@ -2485,7 +2485,13 @@ void test_presentation_journal_is_bounded_and_retry_safe()
             && stats.attempted == 10 && stats.recorded == 7
             && stats.duplicates == 2 && stats.capacity_failures == 2
             && stats.committed == 3 && stats.discarded == 4
-            && stats.publish_failures == 1,
+            && stats.publish_failures == 1
+            && stats.first_publish_failure
+                == FailureCode::PresentationFailed
+            && stats.first_failed_event.identity == 10
+            && stats.last_publish_failure
+                == FailureCode::PresentationFailed
+            && stats.last_failed_event.identity == 10,
         "presentation journal exposes bounded lifecycle and retry counters");
 
     PresentationJournal invalid{2,

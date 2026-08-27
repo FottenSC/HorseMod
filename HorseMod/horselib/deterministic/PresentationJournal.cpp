@@ -197,6 +197,13 @@ Status PresentationJournal::CommitThrough(
         if (!published.ok())
         {
             ++statistics_.publish_failures;
+            if (statistics_.first_publish_failure == FailureCode::None)
+            {
+                statistics_.first_publish_failure = published.code;
+                statistics_.first_failed_event = next->event;
+            }
+            statistics_.last_publish_failure = published.code;
+            statistics_.last_failed_event = next->event;
             return published;
         }
         if (next->event.coordinate.frame > watermark->frame)
