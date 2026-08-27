@@ -2439,15 +2439,29 @@ void test_presentation_journal_is_bounded_and_retry_safe()
     expect(journal.Record(presentation_event(8, 20, 5)).ok()
             && journal.Record(presentation_event(8, 21, 6)).ok(),
         "presentation journal accepts a new generation within fixed storage");
+    const std::array oversized_replacement{
+        presentation_event(8, 21, 7, 16),
+        presentation_event(8, 22, 8, 16),
+        presentation_event(8, 23, 9, 16)};
+    expect(journal.ReplaceFrom({8, 21}, oversized_replacement).code
+            == FailureCode::CapacityExceeded
+            && journal.pending_count() == 2 && journal.payload_bytes() == 16,
+        "capacity failure leaves the original presentation suffix intact");
+    const std::array corrected_replacement{
+        presentation_event(8, 21, 60, 8),
+        presentation_event(8, 22, 70, 8)};
+    expect(journal.ReplaceFrom({8, 21}, corrected_replacement).ok()
+            && journal.pending_count() == 3 && journal.payload_bytes() == 24,
+        "correction atomically replaces a preflighted presentation suffix");
     journal.DiscardFrom({8, 21});
     expect(journal.pending_count() == 1 && journal.payload_bytes() == 8,
         "presentation correction discards only the invalid suffix");
     journal.InvalidateGeneration(8);
     const auto stats = journal.statistics();
     expect(journal.pending_count() == 0 && journal.payload_bytes() == 0
-            && stats.attempted == 8 && stats.recorded == 5
-            && stats.duplicates == 2 && stats.capacity_failures == 1
-            && stats.committed == 3 && stats.discarded == 2
+            && stats.attempted == 10 && stats.recorded == 7
+            && stats.duplicates == 2 && stats.capacity_failures == 2
+            && stats.committed == 3 && stats.discarded == 4
             && stats.publish_failures == 1,
         "presentation journal exposes bounded lifecycle and retry counters");
 

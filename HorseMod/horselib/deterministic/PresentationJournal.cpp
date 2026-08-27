@@ -34,20 +34,12 @@ PresentationJournal::PresentationJournal(
 Status PresentationJournal::Record(PresentationEvent event) noexcept
 {
     ++statistics_.attempted;
-    if (event.coordinate.generation == 0 || event.source_ordinal == 0
-        || event.kind == 0
-        || event.identity == 0
-        || event.payload_size > Schema::maximum_presentation_payload)
+    if (!Valid(event))
     {
         return Status::failure(FailureCode::InvalidConfiguration);
     }
-    const EventKey key{event.coordinate, event.source_ordinal,
-        event.kind, event.identity};
-    const auto* watermark = FindWatermark(event.coordinate.generation);
-    if (watermark != nullptr
-        && (event.coordinate.frame < watermark->frame
-            || (event.coordinate.frame == watermark->frame
-                && event.source_ordinal <= watermark->source_ordinal)))
+    const EventKey key = Key(event);
+    if (IsCommitted(event))
     {
         ++statistics_.duplicates;
         return Status::success();
@@ -61,8 +53,7 @@ Status PresentationJournal::Record(PresentationEvent event) noexcept
             if (free_slot == nullptr) free_slot = &slot;
             continue;
         }
-        const EventKey existing{slot.event.coordinate,
-            slot.event.source_ordinal, slot.event.kind, slot.event.identity};
+        const EventKey existing = Key(slot.event);
         if (existing == key)
         {
             ++statistics_.duplicates;
@@ -80,6 +71,75 @@ Status PresentationJournal::Record(PresentationEvent event) noexcept
     free_slot->occupied = true;
     ++pending_count_;
     ++statistics_.recorded;
+    return Status::success();
+}
+
+Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,
+    std::span<const PresentationEvent> replacement) noexcept
+{
+    if (coordinate.generation == 0)
+        return Status::failure(FailureCode::InvalidConfiguration);
+
+    std::size_t retained_count{};
+    std::size_t retained_payload{};
+    for (std::size_t index = 0; index < maximum_events_; ++index)
+    {
+        const auto& slot = slots_[index];
+        if (!slot.occupied) continue;
+        if (slot.event.coordinate.generation != coordinate.generation
+            || slot.event.coordinate.frame < coordinate.frame)
+        {
+            ++retained_count;
+            retained_payload += slot.event.payload_size;
+        }
+    }
+
+    std::size_t added_count{};
+    std::size_t added_payload{};
+    for (std::size_t index = 0; index < replacement.size(); ++index)
+    {
+        const auto& event = replacement[index];
+        if (!Valid(event)
+            || event.coordinate.generation != coordinate.generation
+            || event.coordinate.frame < coordinate.frame)
+            return Status::failure(FailureCode::InvalidConfiguration);
+        if (IsCommitted(event)) continue;
+        const EventKey key = Key(event);
+        bool duplicate{};
+        for (std::size_t slot_index = 0;
+             slot_index < maximum_events_; ++slot_index)
+        {
+            const auto& slot = slots_[slot_index];
+            if (!slot.occupied
+                || (slot.event.coordinate.generation == coordinate.generation
+                    && slot.event.coordinate.frame >= coordinate.frame))
+                continue;
+            if (Key(slot.event) == key)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+        for (std::size_t prior = 0; !duplicate && prior < index; ++prior)
+            duplicate = !IsCommitted(replacement[prior])
+                && Key(replacement[prior]) == key;
+        if (duplicate) continue;
+        ++added_count;
+        added_payload += event.payload_size;
+    }
+    if (retained_count + added_count > maximum_events_
+        || retained_payload + added_payload > maximum_payload_bytes_)
+    {
+        ++statistics_.capacity_failures;
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+
+    DiscardFrom(coordinate);
+    for (const auto& event : replacement)
+    {
+        const Status status = Record(event);
+        if (!status.ok()) return Status::failure(FailureCode::UndoFailed);
+    }
     return Status::success();
 }
 
@@ -223,6 +283,28 @@ PresentationJournal::Watermark* PresentationJournal::EnsureWatermark(
         }
     }
     return nullptr;
+}
+
+bool PresentationJournal::IsCommitted(const PresentationEvent& event) const noexcept
+{
+    const auto* watermark = FindWatermark(event.coordinate.generation);
+    return watermark != nullptr
+        && (event.coordinate.frame < watermark->frame
+            || (event.coordinate.frame == watermark->frame
+                && event.source_ordinal <= watermark->source_ordinal));
+}
+
+PresentationJournal::EventKey PresentationJournal::Key(
+    const PresentationEvent& event) noexcept
+{
+    return {event.coordinate, event.source_ordinal, event.kind, event.identity};
+}
+
+bool PresentationJournal::Valid(const PresentationEvent& event) noexcept
+{
+    return event.coordinate.generation != 0 && event.source_ordinal != 0
+        && event.kind != 0 && event.identity != 0
+        && event.payload_size <= Schema::maximum_presentation_payload;
 }
 
 void PresentationJournal::ClearSlot(Slot& slot) noexcept
