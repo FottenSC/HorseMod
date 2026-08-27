@@ -4752,6 +4752,36 @@ private:
                     observation.battle_audio_signature_failures,
                     observation.particle_signature_failures,
                     observation.presentation_order_failures);
+                const auto& batches =
+                    self->m_replay_native_runtime.batch_timeline();
+                const auto batch_count = batches.batch_count();
+                const auto* captured = batch_count != 0
+                    ? batches.GetBatch(batch_count - 1) : nullptr;
+                if (captured != nullptr
+                    && observation.presentation_order_journal_count != 0)
+                {
+                    Output::send<LogLevel::Warning>(STR(
+                        "[HorseMod] presentation journal envelope "
+                        "entry={}:{} exit={}:{} count={}\n"),
+                        captured->entry_coordinate.generation,
+                        captured->entry_coordinate.frame,
+                        captured->exit_coordinate.generation,
+                        captured->exit_coordinate.frame,
+                        captured->presentation_order_journal_count);
+                    for (std::size_t index = 0;
+                         index < captured->presentation_order_journal_count;
+                         ++index)
+                    {
+                        const auto& entry =
+                            captured->presentation_order_journal[index];
+                        Output::send<LogLevel::Warning>(STR(
+                            "[HorseMod] presentation journal order "
+                            "index={} family={} family_index={} offset={}\n"),
+                            index, static_cast<unsigned int>(entry.family),
+                            static_cast<unsigned int>(entry.family_index),
+                            static_cast<unsigned int>(entry.source_offset));
+                    }
+                }
             }
             if (status.code == Horse::Deterministic::FailureCode::PresentationFailed
                 && observation.battle_audio_signature_failures != 0)

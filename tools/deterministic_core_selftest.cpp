@@ -1084,6 +1084,18 @@ void test_native_audio_presentation_preserves_cross_family_order()
             == FailureCode::ProtocolMismatch
             && rejected.pending_count() == 0,
         "duplicate native terminal identities fail before journal mutation");
+
+    NativeBatchEnvelope transition = batch;
+    transition.exit_coordinate.generation = 5;
+    std::array<PresentationEvent, 4> transition_events{};
+    std::size_t transition_count{};
+    expect(BuildNativeAudioPresentation(
+            transition, transition_events, transition_count).ok()
+            && transition_count == 3
+            && transition_events[0].coordinate == FrameCoordinate{4, 101}
+            && transition_events[1].coordinate == FrameCoordinate{4, 101}
+            && transition_events[2].coordinate == FrameCoordinate{5, 102},
+        "round-fencepost batches assign source events to the observed generation split");
 }
 
 void test_native_audio_presentation_correction_is_atomic()

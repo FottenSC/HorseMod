@@ -12,10 +12,14 @@ Status BuildNativeAudioPresentation(const NativeBatchEnvelope& batch,
     std::span<PresentationEvent> output, std::size_t& output_count) noexcept
 {
     output_count = 0;
+    const bool generation_transition = batch.exit_coordinate.generation
+        != batch.entry_coordinate.generation;
     if (batch.entry_coordinate.generation == 0
-        || batch.exit_coordinate.generation
-            != batch.entry_coordinate.generation
-        || batch.exit_coordinate < batch.entry_coordinate
+        || batch.exit_coordinate.generation == 0
+        || (generation_transition
+            && batch.exit_coordinate.generation
+                != batch.entry_coordinate.generation + 1)
+        || batch.exit_coordinate.frame < batch.entry_coordinate.frame
         || batch.audio_terminal_calls != batch.audio_terminal_journal_count
         || batch.audio_terminal_journal_count
             > batch.audio_terminal_journal.size()
@@ -66,10 +70,20 @@ Status BuildNativeAudioPresentation(const NativeBatchEnvelope& batch,
                 > (std::numeric_limits<std::uint64_t>::max)()
                     - order.source_offset)
             return Status::failure(FailureCode::ProtocolMismatch);
-        const FrameCoordinate source{batch.entry_coordinate.generation,
-            batch.entry_coordinate.frame + order.source_offset};
-        if (source > batch.exit_coordinate)
+        const auto source_frame = batch.entry_coordinate.frame
+            + order.source_offset;
+        if (source_frame > batch.exit_coordinate.frame)
             return Status::failure(FailureCode::ProtocolMismatch);
+        // ObserveFrame advances the round generation at the native fencepost.
+        // In the one outer batch that straddles it, pre-fencepost events retain
+        // the entry generation while events at the exit frame belong to the
+        // new generation. Runtime evidence shows the split as offset 0 versus
+        // offset 1; no event may name an intermediate future generation.
+        const FrameCoordinate source{
+            generation_transition && source_frame == batch.exit_coordinate.frame
+                ? batch.exit_coordinate.generation
+                : batch.entry_coordinate.generation,
+            source_frame};
         Status status{};
         if (terminal)
         {
