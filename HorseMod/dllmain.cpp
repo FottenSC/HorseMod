@@ -3963,7 +3963,7 @@ private:
                 "stage_wall={}/{} 0x{:016x}->0x{:016x} "
                 "stage_barrier={}/{} 0x{:016x}->0x{:016x} "
                 "stage_dispatch={}/{} 0x{:016x}->0x{:016x} "
-                "stage_signature_failures={}/{} "
+                "stage_signature_failures={}/{} stage_journal_mask=0x{:x} "
                 "camera=0x{:016x}->0x{:016x} "
                 "camera_signature_failures={}/{} camera_mismatches={} "
                 "camera_diff={}@{} yaw=0x{:08x}->0x{:08x} "
@@ -4041,6 +4041,7 @@ private:
                 result.failed_batch_result.stage_dispatch_hash,
                 result.failed_envelope.stage_signature_failures,
                 result.failed_batch_result.stage_signature_failures,
+                result.failed_batch_result.stage_journal_failure_mask,
                 result.failed_envelope.camera_publication_hash,
                 result.failed_batch_result.camera_publication_hash,
                 result.failed_envelope.camera_signature_failures,
@@ -5050,6 +5051,25 @@ private:
         {
             self->m_frame_fencepost_failure.store(
                 status.code, std::memory_order_release);
+            const auto pending_terminal =
+                self->m_qualification_stage_terminal_request.exchange(
+                    0, std::memory_order_acq_rel);
+            if (pending_terminal != 0)
+            {
+                const auto failed =
+                    self->m_replay_native_runtime.timeline_status();
+                self->m_qualification_stage_terminal_status.store(
+                    3, std::memory_order_release);
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] qualification stage terminal blocked "
+                    "operation={} phase=outer_tick_begin status={} "
+                    "identity_issue={} expected=0x{:x} actual=0x{:x}\n"),
+                    pending_terminal,
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::failure_code_name(status.code))),
+                    failed.identity_issue, failed.identity_expected,
+                    failed.identity_observed);
+            }
             return;
         }
         const auto timeline = self->m_replay_native_runtime.timeline_status();
@@ -5145,12 +5165,51 @@ private:
         self->service_qualification_stage_terminal(observation);
     }
 
+    bool qualification_stage_runtime_ready() const noexcept
+    {
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        return timeline.failure == Horse::Deterministic::FailureCode::None
+            && timeline.last_coordinate.generation != 0
+            && timeline.last_coordinate.generation
+                == m_stage_break_identity_generation;
+    }
+
+    void log_qualification_stage_terminal(std::uint32_t operation,
+        bool invoked, std::uint32_t frame_before, std::uint32_t frame_after,
+        std::uint64_t batch_id) const noexcept
+    {
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] qualification stage terminal operation={} "
+            "status={} frame={}->{} batch={} runtime_status={} "
+            "identity_issue={} expected=0x{:x} actual=0x{:x}\n"), operation,
+            invoked ? STR("executed") : STR("failed"), frame_before,
+            frame_after, batch_id,
+            RC::to_generic_string(std::string(
+                Horse::Deterministic::failure_code_name(timeline.failure))),
+            timeline.identity_issue, timeline.identity_expected,
+            timeline.identity_observed);
+    }
+
+    void log_qualification_stage_actor_unresolved(std::uint32_t operation,
+        Horse::Deterministic::FailureCode failure,
+        std::uint64_t owner_logical_id) const noexcept
+    {
+        Output::send<LogLevel::Warning>(STR(
+            "[HorseMod] qualification stage actor unresolved "
+            "operation={} status={} owner={} generation={}\n"), operation,
+            RC::to_generic_string(std::string(
+                Horse::Deterministic::failure_code_name(failure))),
+            owner_logical_id, m_stage_break_identity_generation);
+    }
+
     void service_qualification_stage_terminal(
         const Horse::Deterministic::OuterTickObservation& observation) noexcept
     {
         const auto operation = m_qualification_stage_terminal_request.load(
             std::memory_order_acquire);
         if (operation == 0) return;
+        if (!qualification_stage_runtime_ready()) return;
         if (!m_deterministic_config.trace
             || !m_deterministic_config.forced_depth7_qualification
             || (operation != 1 && operation != 2)
@@ -5200,8 +5259,32 @@ private:
         }
         if (actor == nullptr) return;
 
+        std::uint64_t qualification_owner{};
+        const auto owner_status =
+            m_deterministic_hooks.ResolveQualificationStageActor(
+                reinterpret_cast<std::uintptr_t>(actor), qualification_owner);
+        if (!owner_status.ok())
+        {
+            log_qualification_stage_actor_unresolved(
+                operation, owner_status.code, qualification_owner);
+            m_qualification_stage_terminal_request.store(
+                0, std::memory_order_release);
+            m_qualification_stage_terminal_status.store(
+                3, std::memory_order_release);
+            return;
+        }
+
         const auto image_base = Horse::NativeBinding::imageBase();
         bool invoked{};
+        std::uint32_t frame_before{};
+        __try
+        {
+            frame_before = *reinterpret_cast<const std::uint32_t*>(
+                image_base
+                + Horse::Deterministic::Schema::Sc6FrameLayout::
+                    frame_counter_rva);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return; }
         __try
         {
             if (operation == 1)
@@ -5246,13 +5329,9 @@ private:
             0, std::memory_order_release);
         m_qualification_stage_terminal_status.store(
             invoked ? 2u : 3u, std::memory_order_release);
-        Output::send<LogLevel::Default>(STR(
-            "[HorseMod] qualification stage terminal operation={} "
-            "status={} frame={} batch={}\n"), operation,
-            invoked ? STR("executed") : STR("failed"),
+        log_qualification_stage_terminal(operation, invoked, frame_before,
             m_qualification_stage_terminal_frame.load(
-                std::memory_order_acquire),
-            observation.batch_id);
+                std::memory_order_acquire), observation.batch_id);
     }
 
     static void on_replay_exit(

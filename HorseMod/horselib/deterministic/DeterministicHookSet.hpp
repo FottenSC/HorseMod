@@ -238,6 +238,7 @@ struct OwnedBatchReplayResult
     std::uint64_t stage_barrier_hash{};
     std::uint64_t stage_dispatch_hash{};
     std::uint32_t stage_signature_failures{};
+    std::uint32_t stage_journal_failure_mask{};
     std::uint32_t suppressed_audio_calls{};
     std::uint32_t discarded_audio_calls{};
     std::uint64_t suppressed_audio_sequence_hash{};
@@ -313,6 +314,8 @@ public:
         std::span<const StageBreakParticleAssetRef> assets) noexcept;
     void InvalidateStageBreakPresentationIdentity() noexcept;
     Status MarkQualificationStageTerminal(std::uint32_t operation) noexcept;
+    Status ResolveQualificationStageActor(
+        std::uintptr_t actor, std::uint64_t& owner_logical_id) const noexcept;
     Status CommitAudioTerminal(
         const AudioTerminalEvent& event) noexcept;
     Status CommitAudioBlueprint(
@@ -451,6 +454,9 @@ private:
     Status RestoreBattleAudioRemapEntry(
         const NativeBatchEnvelope& envelope,
         OwnedBatchReplayResult& output) noexcept;
+    Status ExecuteQualificationStageTerminal(
+        const StagePresentationJournalEntry& event,
+        bool wall, std::uintptr_t actor) noexcept;
     bool CompleteBattleAudioJournal(
         const NativeBatchEnvelope& envelope,
         OwnedBatchReplayResult& output) noexcept;

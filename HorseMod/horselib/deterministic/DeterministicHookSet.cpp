@@ -1860,6 +1860,102 @@ Status DeterministicHookSet::MarkQualificationStageTerminal(
     return Status::success();
 }
 
+Status DeterministicHookSet::ResolveQualificationStageActor(
+    std::uintptr_t actor, std::uint64_t& owner_logical_id) const noexcept
+{
+    owner_logical_id = 0;
+    if (!installed() || active_outer_capture_ == nullptr || actor == 0)
+        return Status::failure(FailureCode::IllegalTransition);
+    const auto resolved = stage_break_presentation_identity_.ResolveActor(
+        stage_break_presentation_identity_.generation(), actor,
+        owner_logical_id);
+    if (!resolved.ok() || owner_logical_id == 0)
+        return Status::failure(resolved.ok()
+            ? FailureCode::IdentityMismatch : resolved.code);
+    return Status::success();
+}
+
+Status DeterministicHookSet::ExecuteQualificationStageTerminal(
+    const StagePresentationJournalEntry& event,
+    bool wall, std::uintptr_t actor) noexcept
+{
+    if (!installed() || active_outer_capture_ == nullptr || actor == 0)
+        return Status::failure(FailureCode::IllegalTransition);
+
+    if (wall)
+    {
+        if (event.canonical_before_size != 12 || event.payload_size != 1)
+            return Status::failure(FailureCode::InvalidConfiguration);
+        std::uint8_t undo_break{};
+        float undo_fade_timer{};
+        float undo_fade_rate{};
+        std::uint8_t source_break{};
+        float source_fade_timer{};
+        float source_fade_rate{};
+        std::memcpy(&source_break, event.canonical_before.data(), 1);
+        std::memcpy(&source_fade_timer,
+            event.canonical_before.data() + 4, sizeof(source_fade_timer));
+        std::memcpy(&source_fade_rate,
+            event.canonical_before.data() + 8, sizeof(source_fade_rate));
+        if (!SafeRead(actor + 0x468, undo_break)
+            || !SafeRead(actor + 0x46c, undo_fade_timer)
+            || !SafeRead(actor + 0x470, undo_fade_rate))
+            return Status::failure(FailureCode::CaptureFailed);
+        if (!SafeWrite(actor + 0x468, source_break)
+            || !SafeWrite(actor + 0x46c, source_fade_timer)
+            || !SafeWrite(actor + 0x470, source_fade_rate))
+        {
+            static_cast<void>(SafeWrite(actor + 0x468, undo_break));
+            static_cast<void>(SafeWrite(actor + 0x46c, undo_fade_timer));
+            static_cast<void>(SafeWrite(actor + 0x470, undo_fade_rate));
+            return Status::failure(FailureCode::RestoreWriteFailed);
+        }
+        bool restored{};
+        __try
+        {
+            const bool immediately = event.semantic[4] != std::byte{};
+            reinterpret_cast<StageBreakWallFn>(image_base_
+                + Schema::Sc6FrameLayout::stage_break_wall_handler_rva)(
+                    reinterpret_cast<void*>(actor), immediately);
+        }
+        __finally
+        {
+            restored = SafeWrite(actor + 0x468, undo_break)
+                && SafeWrite(actor + 0x46c, undo_fade_timer)
+                && SafeWrite(actor + 0x470, undo_fade_rate);
+        }
+        return restored ? Status::success()
+            : Status::failure(FailureCode::UndoFailed);
+    }
+
+    if (event.canonical_before_size != 4 || event.payload_size != 12)
+        return Status::failure(FailureCode::InvalidConfiguration);
+    std::int32_t undo_hit_count{};
+    std::int32_t source_hit_count{};
+    std::memcpy(&source_hit_count, event.canonical_before.data(),
+        sizeof(source_hit_count));
+    if (!SafeRead(actor + 0x468, undo_hit_count))
+        return Status::failure(FailureCode::CaptureFailed);
+    if (!SafeWrite(actor + 0x468, source_hit_count))
+        return Status::failure(FailureCode::RestoreWriteFailed);
+    std::array<std::byte, 12> direction{};
+    std::copy_n(event.semantic.begin() + 4, direction.size(),
+        direction.begin());
+    bool restored{};
+    __try
+    {
+        reinterpret_cast<StageBreakBarrierFn>(image_base_
+            + Schema::Sc6FrameLayout::stage_break_barrier_handler_rva)(
+                reinterpret_cast<void*>(actor), direction.data());
+    }
+    __finally
+    {
+        restored = SafeWrite(actor + 0x468, undo_hit_count);
+    }
+    return restored ? Status::success()
+        : Status::failure(FailureCode::UndoFailed);
+}
+
 Status DeterministicHookSet::CommitAudioTerminal(
     const AudioTerminalEvent& event) noexcept
 {
@@ -2964,21 +3060,11 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
                 {
                     output.failure = FailureCode::IdentityMismatch;
                 }
-                else if (wall)
-                {
-                    const bool immediately = event.semantic[4] != std::byte{};
-                    reinterpret_cast<StageBreakWallFn>(image_base_
-                        + Schema::Sc6FrameLayout::stage_break_wall_handler_rva)(
-                            reinterpret_cast<void*>(actor), immediately);
-                }
                 else
                 {
-                    std::array<std::byte, 12> position{};
-                    std::copy_n(event.semantic.begin() + 4, position.size(),
-                        position.begin());
-                    reinterpret_cast<StageBreakBarrierFn>(image_base_
-                        + Schema::Sc6FrameLayout::stage_break_barrier_handler_rva)(
-                            reinterpret_cast<void*>(actor), position.data());
+                    const auto terminal = ExecuteQualificationStageTerminal(
+                        event, wall, actor);
+                    if (!terminal.ok()) output.failure = terminal.code;
                 }
             }
         }
@@ -3192,7 +3278,10 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
     std::uint8_t break_state{};
     float fade_timer{};
     float fade_rate{};
-    const bool identity_ok = hooks != nullptr
+    const bool payload_ok = signature_ok
+        && CaptureStageSemantic(actor_id, &immediate_value,
+            sizeof(immediate_value), semantic);
+    const bool identity_ok = payload_ok && hooks != nullptr
         && hooks->stage_break_presentation_identity_.ResolveActor(
             hooks->stage_break_presentation_identity_.generation(),
             reinterpret_cast<std::uintptr_t>(actor),
@@ -3201,9 +3290,7 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
         && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x468, break_state)
         && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x46c, fade_timer)
         && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x470, fade_rate);
-    const bool semantic_ok = identity_ok && canonical_ok
-        && CaptureStageSemantic(actor_id, &immediate_value,
-            sizeof(immediate_value), semantic);
+    const bool semantic_ok = payload_ok && identity_ok && canonical_ok;
     if (semantic_ok)
     {
         std::memcpy(semantic.canonical_before.data(), &break_state,
@@ -3272,21 +3359,40 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
             if (verify && !VerifyPresentationOrder(
                     PresentationEventFamily::StageWall, index, envelope, replay,
                     batch->observation, batch->frame_counter_address))
+            {
+                replay.stage_journal_failure_mask |= 1u << 8;
                 fail_presentation(1u << 12);
-            if (verify && (!semantic_ok
-                || index >= envelope.stage_wall_journal_count
-                || envelope.stage_wall_journal[index].payload_size
-                    != semantic.payload_size
-                || envelope.stage_wall_journal[index].semantic
-                    != semantic.semantic
-                || envelope.stage_wall_journal[index].owner_logical_id
-                    != semantic.owner_logical_id
-                || envelope.stage_wall_journal[index].canonical_before_size
-                    != semantic.canonical_before_size
-                || envelope.stage_wall_journal[index].canonical_before
-                    != semantic.canonical_before
-                || !AppendStageSemantic(semantic, replay.stage_wall_hash)))
-                ++replay.stage_signature_failures;
+            }
+            if (verify)
+            {
+                std::uint32_t mismatch{};
+                if (!semantic_ok) mismatch |= 1u << 0;
+                if (index >= envelope.stage_wall_journal_count)
+                    mismatch |= 1u << 1;
+                if (index < envelope.stage_wall_journal_count)
+                {
+                    const auto& expected = envelope.stage_wall_journal[index];
+                    if (expected.payload_size != semantic.payload_size)
+                        mismatch |= 1u << 2;
+                    if (expected.semantic != semantic.semantic)
+                        mismatch |= 1u << 3;
+                    if (expected.owner_logical_id != semantic.owner_logical_id)
+                        mismatch |= 1u << 4;
+                    if (expected.canonical_before_size
+                        != semantic.canonical_before_size)
+                        mismatch |= 1u << 5;
+                    if (expected.canonical_before != semantic.canonical_before)
+                        mismatch |= 1u << 6;
+                }
+                if (mismatch == 0
+                    && !AppendStageSemantic(semantic, replay.stage_wall_hash))
+                    mismatch |= 1u << 7;
+                if (mismatch != 0)
+                {
+                    replay.stage_journal_failure_mask |= mismatch;
+                    ++replay.stage_signature_failures;
+                }
+            }
         }
         std::array<std::array<std::byte, 8>, wall_presentation_fields.size()> saved{};
         std::size_t written{};
@@ -3328,8 +3434,12 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
         && observed_stage_index < batch->observation->stage_wall_journal_count)
     {
         auto& entry = batch->observation->stage_wall_journal[observed_stage_index];
+        // Keep the journal as the typed pre-call value captured above; only the
+        // independently observed nested particle extent is completed after the
+        // native terminal returns.
+        entry = semantic;
         const auto count = batch->observation->particle_spawn_journal_count
-            - entry.first_particle;
+            - semantic.first_particle;
         if (count > UINT8_MAX)
             ++batch->observation->stage_signature_failures;
         else
@@ -3352,15 +3462,16 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
         && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x420, actor_id);
     StagePresentationJournalEntry semantic{};
     std::int32_t hit_count{};
-    const bool identity_ok = hooks != nullptr
+    const bool payload_ok = signature_ok
+        && CaptureStageSemantic(actor_id, direction, 12, semantic);
+    const bool identity_ok = payload_ok && hooks != nullptr
         && hooks->stage_break_presentation_identity_.ResolveActor(
             hooks->stage_break_presentation_identity_.generation(),
             reinterpret_cast<std::uintptr_t>(actor),
             semantic.owner_logical_id).ok();
     const bool canonical_ok = signature_ok
         && SafeRead(reinterpret_cast<std::uintptr_t>(actor) + 0x468, hit_count);
-    const bool semantic_ok = identity_ok && canonical_ok
-        && CaptureStageSemantic(actor_id, direction, 12, semantic);
+    const bool semantic_ok = payload_ok && identity_ok && canonical_ok;
     if (semantic_ok)
     {
         std::memcpy(semantic.canonical_before.data(), &hit_count,
@@ -3425,21 +3536,40 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
             if (verify && !VerifyPresentationOrder(
                     PresentationEventFamily::StageBarrier, index, envelope,
                     replay, batch->observation, batch->frame_counter_address))
+            {
+                replay.stage_journal_failure_mask |= 1u << 8;
                 fail_presentation(1u << 12);
-            if (verify && (!semantic_ok
-                || index >= envelope.stage_barrier_journal_count
-                || envelope.stage_barrier_journal[index].payload_size
-                    != semantic.payload_size
-                || envelope.stage_barrier_journal[index].semantic
-                    != semantic.semantic
-                || envelope.stage_barrier_journal[index].owner_logical_id
-                    != semantic.owner_logical_id
-                || envelope.stage_barrier_journal[index].canonical_before_size
-                    != semantic.canonical_before_size
-                || envelope.stage_barrier_journal[index].canonical_before
-                    != semantic.canonical_before
-                || !AppendStageSemantic(semantic, replay.stage_barrier_hash)))
-                ++replay.stage_signature_failures;
+            }
+            if (verify)
+            {
+                std::uint32_t mismatch{};
+                if (!semantic_ok) mismatch |= 1u << 0;
+                if (index >= envelope.stage_barrier_journal_count)
+                    mismatch |= 1u << 1;
+                if (index < envelope.stage_barrier_journal_count)
+                {
+                    const auto& expected = envelope.stage_barrier_journal[index];
+                    if (expected.payload_size != semantic.payload_size)
+                        mismatch |= 1u << 2;
+                    if (expected.semantic != semantic.semantic)
+                        mismatch |= 1u << 3;
+                    if (expected.owner_logical_id != semantic.owner_logical_id)
+                        mismatch |= 1u << 4;
+                    if (expected.canonical_before_size
+                        != semantic.canonical_before_size)
+                        mismatch |= 1u << 5;
+                    if (expected.canonical_before != semantic.canonical_before)
+                        mismatch |= 1u << 6;
+                }
+                if (mismatch == 0
+                    && !AppendStageSemantic(semantic, replay.stage_barrier_hash))
+                    mismatch |= 1u << 7;
+                if (mismatch != 0)
+                {
+                    replay.stage_journal_failure_mask |= mismatch;
+                    ++replay.stage_signature_failures;
+                }
+            }
         }
         std::array<std::array<std::byte, 8>, barrier_presentation_fields.size()> saved{};
         std::size_t written{};
@@ -3483,8 +3613,12 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
     {
         auto& entry = batch->observation->stage_barrier_journal[
             observed_stage_index];
+        // Match the wall contract: the journal owns the typed pre-call value,
+        // while only its nested particle extent is completed after the native
+        // terminal returns.
+        entry = semantic;
         const auto count = batch->observation->particle_spawn_journal_count
-            - entry.first_particle;
+            - semantic.first_particle;
         if (count > UINT8_MAX)
             ++batch->observation->stage_signature_failures;
         else

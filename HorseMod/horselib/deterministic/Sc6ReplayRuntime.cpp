@@ -645,6 +645,8 @@ Status Sc6ReplayRuntime::ObserveFrame(
         }
         if (!stored.ok())
         {
+            timeline_status_.identity_issue = 13;
+            timeline_status_.canonical_capture_failure_coordinate = coordinate;
             timeline_status_.failure = stored.code;
             return stored;
         }
@@ -654,6 +656,8 @@ Status Sc6ReplayRuntime::ObserveFrame(
                 forced_qualification_snapshots_.Save(std::move(canonical));
             if (!retained.ok())
             {
+                timeline_status_.identity_issue = 14;
+                timeline_status_.canonical_capture_failure_coordinate = coordinate;
                 timeline_status_.failure = retained.code;
                 return retained;
             }
