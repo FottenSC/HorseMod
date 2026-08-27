@@ -23,7 +23,6 @@ namespace
 {
 using InitPathFn = void* (__fastcall*)(void*);
 using DestroyPathFn = void (__fastcall*)(void*);
-using EmulateTitleDecideFn = void (__fastcall*)();
 
 struct DataTablePath
 {
@@ -42,14 +41,6 @@ struct NullScriptDelegate
 };
 static_assert(sizeof(NullScriptDelegate) == 0x10);
 
-struct NativeFKey
-{
-    std::uint64_t name{};
-    void* details{};
-    void* details_control{};
-};
-static_assert(sizeof(NativeFKey) == 0x18);
-
 struct ChangeSceneParams
 {
     RC::Unreal::FString transition_tag;
@@ -62,8 +53,6 @@ static_assert(sizeof(ChangeSceneParams) == 0x38);
 
 InitPathFn g_initialize_path{};
 DestroyPathFn g_destroy_path{};
-EmulateTitleDecideFn g_emulate_title_decide{};
-const NativeFKey* g_title_decide_key{};
 
 bool SignatureMatches(std::uintptr_t address,
                       const std::array<std::byte, 8>& expected) noexcept
@@ -112,32 +101,16 @@ bool CallStringParam(RC::Unreal::UObject* owner, const wchar_t* name,
     return true;
 }
 
-bool EmulateTitleDecide()
+bool CallIntParam(RC::Unreal::UObject* owner, const wchar_t* name,
+                  std::int32_t value)
 {
-    if (g_emulate_title_decide == nullptr) return false;
-    __try
-    {
-        g_emulate_title_decide();
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-}
-
-bool IsTitleDecideKeyReady() noexcept
-{
-    if (g_title_decide_key == nullptr) return false;
-    __try
-    {
-        return g_title_decide_key->name != 0
-            && g_title_decide_key->details != nullptr;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
+    if (owner == nullptr) return false;
+    auto* function = owner->GetFunctionByNameInChain(name);
+    if (function == nullptr) return false;
+    struct Params { std::int32_t value; };
+    Params params{value};
+    owner->ProcessEvent(function, &params);
+    return true;
 }
 
 std::string StringProperty(RC::Unreal::UObject* owner,
@@ -173,26 +146,16 @@ bool ReplaySceneNavigator::Bind(std::uintptr_t image_base) noexcept
     constexpr std::array<std::byte, 8> kDestroy{
         std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
         std::byte{0x08}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83}};
-    constexpr std::array<std::byte, 8> kEmulateTitleDecide{
-        std::byte{0x48}, std::byte{0x83}, std::byte{0xec}, std::byte{0x48},
-        std::byte{0x48}, std::byte{0x8b}, std::byte{0x05}, std::byte{0x45}};
     g_initialize_path = {};
     g_destroy_path = {};
-    g_emulate_title_decide = {};
-    g_title_decide_key = {};
     if (image_base == 0
         || !SignatureMatches(image_base + 0x2ed1370, kInit)
-        || !SignatureMatches(image_base + 0x2ed6a80, kDestroy)
-        || !SignatureMatches(image_base + 0x4b9e10, kEmulateTitleDecide))
+        || !SignatureMatches(image_base + 0x2ed6a80, kDestroy))
     {
         return false;
     }
     g_initialize_path = reinterpret_cast<InitPathFn>(image_base + 0x2ed1370);
     g_destroy_path = reinterpret_cast<DestroyPathFn>(image_base + 0x2ed6a80);
-    g_emulate_title_decide = reinterpret_cast<EmulateTitleDecideFn>(
-        image_base + 0x4b9e10);
-    g_title_decide_key = reinterpret_cast<const NativeFKey*>(
-        image_base + 0x42a2a60);
     return true;
 }
 
@@ -224,15 +187,18 @@ NavigationState ReplaySceneNavigator::Tick(
         last_scene_ = scene_name;
         retry_frames_ = 0;
         title_top_requested_ = false;
-        title_decide_requested_ = false;
+        title_user_forced_ = false;
     }
     if (scene_name.find("TitleScene") != std::string::npos)
     {
         // The cooked startup graph creates RefTitleMenu and MainBehavior before
         // ReadyToStart. Transitioning earlier tears down partially initialized
         // title state. Once both owners exist, take the exact Movie-to-Top state
-        // edge used by TitleMovieState's SkipMovie path. Top then owns sign-in
-        // and startup progression through the game's normal callbacks.
+        // edge used by TitleMovieState's SkipMovie path. Top registers its
+        // OnDecidedMainUser delegate and requests an unforced (-1) user. On the
+        // following tick, force logical user zero through that same manager API;
+        // native RequestDecideMainUser synchronously invokes the registered
+        // callback, so the cooked sign-in and StartUp graph retains ownership.
         RC::Unreal::UObject* behavior = ObjectProperty(scene, L"MainBehavior");
         if (ObjectProperty(scene, L"RefTitleMenu") == nullptr
             || behavior == nullptr)
@@ -251,20 +217,22 @@ NavigationState ReplaySceneNavigator::Tick(
         }
         RC::Unreal::UObject* machine = ObjectProperty(behavior, L"Machine");
         const std::string state = StringProperty(machine, L"CurrentStateCode");
-        if (state == "Top" && !title_decide_requested_ && retry_frames_++ > 0)
+        if (state == "Top" && !title_user_forced_ && retry_frames_++ > 0)
         {
-            if (!IsTitleDecideKeyReady())
+            RC::Unreal::UObject* signin_manager =
+                ObjectProperty(manager, L"SigninManager");
+            if (signin_manager == nullptr)
             {
-                detail = "title_state:Top:key_pending";
+                detail = "title_state:Top:signin_pending";
                 return NavigationState::Waiting;
             }
-            if (!EmulateTitleDecide())
+            if (!CallIntParam(signin_manager, L"RequestDecideMainUser", 0))
             {
-                detail = "title_top_decide_failed";
+                detail = "title_user_force_failed";
                 return NavigationState::Failed;
             }
-            title_decide_requested_ = true;
-            detail = "title_state:Top:decide_requested";
+            title_user_forced_ = true;
+            detail = "title_state:Top:user_forced";
             return NavigationState::Waiting;
         }
         detail = state.empty() ? "title_top_requested" : "title_state:" + state;
