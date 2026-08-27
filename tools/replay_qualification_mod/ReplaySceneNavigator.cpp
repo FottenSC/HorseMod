@@ -281,8 +281,38 @@ NavigationState ReplaySceneNavigator::Tick(
             detail = "title_state:Top:callback_forced";
             return NavigationState::Waiting;
         }
-        if (state == "Top" && retry_frames_ >= 32
+        if (state == "Top" && retry_frames_ >= 8
             && title_decide_stage_ == 3)
+        {
+            RC::Unreal::UObject* current_state =
+                ObjectProperty(machine, L"CurrentState");
+            if (!CallNoParam(current_state, L"OnDecidedTitle"))
+            {
+                detail = "title_decided_callback_pending";
+                return NavigationState::Waiting;
+            }
+            title_decide_stage_ = 4;
+            retry_frames_ = 0;
+            detail = "title_state:Top:decided_forced";
+            return NavigationState::Waiting;
+        }
+        if (state == "Top" && retry_frames_ >= 8
+            && title_decide_stage_ == 4)
+        {
+            RC::Unreal::UObject* current_state =
+                ObjectProperty(machine, L"CurrentState");
+            if (!CallNoParam(current_state, L"FinishFadeout"))
+            {
+                detail = "title_fade_callback_pending";
+                return NavigationState::Waiting;
+            }
+            title_decide_stage_ = 5;
+            retry_frames_ = 0;
+            detail = "title_state:Top:fade_forced";
+            return NavigationState::Waiting;
+        }
+        if (state == "Top" && retry_frames_ >= 32
+            && title_decide_stage_ == 5)
         {
             title_decide_stage_ = 0;
             retry_frames_ = 0;
