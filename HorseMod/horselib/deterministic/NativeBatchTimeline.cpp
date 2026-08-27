@@ -174,6 +174,7 @@ Status NativeBatchTimeline::ReplaceBatch(
         + replacement.battle_audio_remap_calls
         + replacement.battle_audio_blueprint_calls
         + replacement.battle_audio_stop_all_calls
+        + replacement.audio_terminal_calls
         + replacement.stage_wall_calls + replacement.stage_barrier_calls
         + replacement.stage_dispatch_calls + replacement.particle_spawn_calls;
     if (!immutable_match || replacement.stage_signature_failures != 0
@@ -190,6 +191,8 @@ Status NativeBatchTimeline::ReplaceBatch(
             != replacement.battle_audio_blueprint_calls
         || replacement.battle_audio_stop_all_journal_count
             != replacement.battle_audio_stop_all_calls
+        || replacement.audio_terminal_journal_count
+            != replacement.audio_terminal_calls
         || replacement.stage_wall_journal_count
             != replacement.stage_wall_calls
         || replacement.stage_barrier_journal_count
@@ -201,7 +204,9 @@ Status NativeBatchTimeline::ReplaceBatch(
         || replacement.presentation_order_journal_count != expected_order
         || expected_order > replacement.presentation_order_journal.size())
         return Status::failure(FailureCode::IdentityMismatch);
-    std::array<std::uint8_t, 9> next_family_index{};
+    std::array<std::uint8_t,
+        static_cast<std::size_t>(PresentationEventFamily::AudioTerminal)>
+        next_family_index{};
     for (std::size_t index = 0; index < expected_order; ++index)
     {
         const auto& entry = replacement.presentation_order_journal[index];
@@ -248,6 +253,7 @@ bool NativeBatchTimeline::Validate(
         + envelope.battle_audio_remap_calls
         + envelope.battle_audio_blueprint_calls
         + envelope.battle_audio_stop_all_calls
+        + envelope.audio_terminal_calls
         + envelope.stage_wall_calls + envelope.stage_barrier_calls
         + envelope.stage_dispatch_calls + envelope.particle_spawn_calls;
     if (envelope.batch_id == 0
@@ -272,6 +278,10 @@ bool NativeBatchTimeline::Validate(
             != envelope.battle_audio_stop_all_calls
         || envelope.battle_audio_stop_all_journal_count
             > envelope.battle_audio_stop_all_journal.size()
+        || envelope.audio_terminal_journal_count
+            != envelope.audio_terminal_calls
+        || envelope.audio_terminal_journal_count
+            > envelope.audio_terminal_journal.size()
         || envelope.stage_wall_journal_count != envelope.stage_wall_calls
         || envelope.stage_wall_journal_count
             > envelope.stage_wall_journal.size()
@@ -295,7 +305,9 @@ bool NativeBatchTimeline::Validate(
     {
         return false;
     }
-    std::array<std::uint8_t, 9> next_family_index{};
+    std::array<std::uint8_t,
+        static_cast<std::size_t>(PresentationEventFamily::AudioTerminal)>
+        next_family_index{};
     for (std::size_t index = 0;
          index < envelope.presentation_order_journal_count; ++index)
     {
@@ -351,6 +363,9 @@ bool NativeBatchTimeline::Validate(
         if (envelope.battle_audio_remap_journal[index].handler_slot
             >= maximum_battle_audio_handlers)
             return false;
+    for (std::size_t index = 0;
+         index < envelope.audio_terminal_journal_count; ++index)
+        if (!envelope.audio_terminal_journal[index].valid()) return false;
     if (!batches_.empty()
         && (envelope.batch_id <= batches_.back().batch_id
             || (envelope.entry_coordinate != batches_.back().exit_coordinate

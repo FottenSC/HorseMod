@@ -3277,6 +3277,7 @@ private:
         std::uint64_t suppressed_audio_calls{};
         std::uint64_t discarded_audio_calls{};
         std::uint64_t suppressed_audio_stop_all_calls{};
+        std::uint64_t suppressed_audio_terminal_calls{};
         std::uint64_t suppressed_audio_blueprint_calls{};
         std::uint64_t suppressed_particle_spawn_calls{};
         std::uint64_t suppressed_particle_finished_binds{};
@@ -4129,6 +4130,8 @@ private:
         qualification.discarded_audio_calls += result.discarded_audio_calls;
         qualification.suppressed_audio_stop_all_calls +=
             result.suppressed_audio_stop_all_calls;
+        qualification.suppressed_audio_terminal_calls +=
+            result.suppressed_audio_terminal_calls;
         qualification.suppressed_audio_blueprint_calls +=
             result.suppressed_audio_blueprint_calls;
         qualification.suppressed_particle_spawn_calls +=
@@ -4174,6 +4177,7 @@ private:
             "stage_semantic_dispatches={} stage_coverage={} "
             "audio_suppressed={} audio_discarded={} "
             "audio_stop_all_suppressed={} "
+            "audio_terminals_suppressed={} "
             "audio_blueprint_suppressed={} "
             "particle_spawn_suppressed={} particle_bind_suppressed={} "
             "particle_unknown_routes={} "
@@ -4205,6 +4209,7 @@ private:
             qualification.suppressed_audio_calls,
             qualification.discarded_audio_calls,
             qualification.suppressed_audio_stop_all_calls,
+            qualification.suppressed_audio_terminal_calls,
             qualification.suppressed_audio_blueprint_calls,
             qualification.suppressed_particle_spawn_calls,
             qualification.suppressed_particle_finished_binds,

@@ -1,4 +1,5 @@
 #include "deterministic/CanonicalHashTimeline.hpp"
+#include "deterministic/AudioPresentation.hpp"
 #include "deterministic/InputTimeline.hpp"
 #include "deterministic/Config.hpp"
 #include "deterministic/FloatingPointEnvironment.hpp"
@@ -537,11 +538,16 @@ void test_native_batch_timeline_is_exact_and_bounded()
     first.battle_audio_stop_all_journal_count = 1;
     first.battle_audio_stop_all_journal[0].owner_slot = 2;
     first.battle_audio_stop_all_journal[0].control = 1;
+    first.audio_terminal_calls = 1;
+    first.audio_terminal_journal_count = 1;
+    first.audio_terminal_journal[0] = {AudioTerminalOperation::StopAll,
+        {AudioOwnerDomain::BattleSharedPlayer, 0, 0},
+        audio_invalid_playback_id, 0, -1, 1};
     first.particle_spawn_calls = 1;
     first.particle_spawn_journal_count = 1;
     first.particle_spawn_journal[0].semantic[0] = std::byte{3};
     first.particle_spawn_journal[0].semantic[5] = std::byte{0x7f};
-    first.presentation_order_journal_count = 4;
+    first.presentation_order_journal_count = 5;
     first.presentation_order_journal[0] = {
         PresentationEventFamily::StageWall, 0};
     first.presentation_order_journal[1] = {
@@ -550,6 +556,8 @@ void test_native_batch_timeline_is_exact_and_bounded()
         PresentationEventFamily::ParticleSpawn, 0};
     first.presentation_order_journal[3] = {
         PresentationEventFamily::BattleAudioStopAll, 0};
+    first.presentation_order_journal[4] = {
+        PresentationEventFamily::AudioTerminal, 0};
     const std::array first_coordinates{
         FrameCoordinate{1, 1}, FrameCoordinate{1, 2}};
     expect(timeline.Append(first, first_coordinates).ok(),
@@ -586,9 +594,12 @@ void test_native_batch_timeline_is_exact_and_bounded()
             && timeline.GetBatch(0)->battle_audio_stop_all_journal[0].owner_slot
                 == 2
             && timeline.GetBatch(0)->battle_audio_stop_all_journal[0].control
-                == 1,
-        "batch storage preserves pointer-free stop-all owner identity");
-    expect(timeline.GetBatch(0)->presentation_order_journal_count == 4
+                == 1
+            && timeline.GetBatch(0)->audio_terminal_journal_count == 1
+            && timeline.GetBatch(0)->audio_terminal_journal[0].owner.domain
+                == AudioOwnerDomain::BattleSharedPlayer,
+        "batch storage preserves stable audio owner and terminal identity");
+    expect(timeline.GetBatch(0)->presentation_order_journal_count == 5
             && timeline.GetBatch(0)->presentation_order_journal[1].family
                 == PresentationEventFamily::BattleAudioBlueprint
             && timeline.GetBatch(0)->presentation_order_journal[2].family
@@ -602,10 +613,10 @@ void test_native_batch_timeline_is_exact_and_bounded()
                 == std::byte{0x31},
         "native batch timeline replaces an exact corrected presentation batch");
     auto invalid_replacement = corrected_batch;
-    invalid_replacement.presentation_order_journal_count = 3;
+    invalid_replacement.presentation_order_journal_count = 4;
     expect(timeline.ReplaceBatch(0, corrected_batch, invalid_replacement).code
             == FailureCode::IdentityMismatch
-            && timeline.GetBatch(0)->presentation_order_journal_count == 4,
+            && timeline.GetBatch(0)->presentation_order_journal_count == 5,
         "native batch replacement rejects malformed presentation atomically");
 
     NativeBatchTimeline duplicate_order_timeline{1, 2};
@@ -1331,6 +1342,50 @@ void test_ucrt_broker_is_callsite_and_thread_bound()
             && broker.failure() == FailureCode::WrongThread,
         "allowlisted callsite migration fails the broker terminally");
 }
+
+void test_audio_presentation_identities_are_epoch_bound()
+{
+    AudioOwnerResolver owners;
+    AudioPlaybackMap playback;
+    const AudioOwnerSelector class_player{
+        AudioOwnerDomain::BattleClassPlayer, 3, 0};
+    const AudioOwnerSelector shared{
+        AudioOwnerDomain::BattleSharedPlayer, 0, 0};
+    expect(owners.BeginEpoch(7) && owners.Bind(7, 0x1000, class_player)
+            && owners.Bind(7, 0x2000, shared) && owners.Seal(7),
+        "audio owner resolver seals one bounded lifecycle graph");
+    AudioOwnerSelector resolved{};
+    std::uintptr_t owner{};
+    expect(owners.Resolve(7, 0x1000, resolved) && resolved == class_player
+            && owners.ResolveOwner(7, shared, owner) && owner == 0x2000,
+        "audio owner resolver maps pointers only inside the current epoch");
+    expect(!owners.Resolve(8, 0x1000, resolved)
+            && !owners.Bind(7, 0x3000, {
+                AudioOwnerDomain::BattleClassPlayer, 4, 0}),
+        "audio owner resolver rejects stale epochs and post-seal mutation");
+
+    const auto logical = MakeLogicalAudioPlaybackId(123, 2);
+    expect(playback.BeginEpoch(7)
+            && playback.Insert(7, class_player, logical, 0x1234),
+        "audio playback map admits one logical-to-native binding");
+    std::uint32_t mapped{};
+    expect(playback.LogicalForNative(7, class_player, 0x1234, mapped)
+            && mapped == logical
+            && playback.NativeForLogical(7, class_player, logical, mapped)
+            && mapped == 0x1234,
+        "audio playback mapping is reversible for one stable owner");
+    expect(!playback.Insert(7, class_player, logical, 0x1235)
+            && !playback.LogicalForNative(8, class_player, 0x1234, mapped),
+        "audio playback map rejects aliases and stale epochs");
+    AudioOwnerResolver same;
+    expect(same.BeginEpoch(8) && same.Bind(8, 0x2000, shared)
+            && same.Bind(8, 0x1000, class_player) && same.Seal(8)
+            && owners.SameBindings(same),
+        "audio owner graph equality ignores epoch and insertion order");
+    expect(playback.RemoveOne(7, class_player, logical)
+            && !playback.NativeForLogical(7, class_player, logical, mapped),
+        "audio playback map retires an exact stopped voice");
+}
 }
 
 int main()
@@ -1352,6 +1407,7 @@ int main()
     test_transactional_restore_failures_undo();
     test_floating_point_environment_capture_is_raw_and_non_mutating();
     test_ucrt_broker_is_callsite_and_thread_bound();
+    test_audio_presentation_identities_are_epoch_bound();
     if (failures == 0)
     {
         std::cout << "DeterministicCoreSelfTest passed\n";

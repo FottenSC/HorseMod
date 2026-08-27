@@ -100,6 +100,8 @@ struct OuterTickObservation
     std::uint64_t battle_audio_source_hash{};
     std::uint32_t battle_audio_stop_all_calls{};
     std::uint64_t battle_audio_stop_all_hash{};
+    std::uint32_t audio_terminal_calls{};
+    std::uint64_t audio_terminal_hash{};
     std::uint32_t battle_audio_blueprint_calls{};
     std::uint64_t battle_audio_blueprint_hash{};
     std::uint32_t particle_spawn_calls{};
@@ -127,6 +129,8 @@ struct OuterTickObservation
     std::array<BattleAudioStopAllJournalEntry,
         maximum_battle_audio_stop_all_journal_events>
         battle_audio_stop_all_journal{};
+    std::array<AudioTerminalEvent, maximum_audio_terminal_journal_events>
+        audio_terminal_journal{};
     std::array<StagePresentationJournalEntry,
         maximum_stage_presentation_journal_events> stage_wall_journal{};
     std::array<StagePresentationJournalEntry,
@@ -142,6 +146,7 @@ struct OuterTickObservation
     std::uint8_t battle_audio_remap_journal_count{};
     std::uint8_t battle_audio_blueprint_journal_count{};
     std::uint8_t battle_audio_stop_all_journal_count{};
+    std::uint8_t audio_terminal_journal_count{};
     std::array<std::uintptr_t, maximum_battle_audio_stop_all_journal_events>
         battle_audio_stop_all_owner_identities{};
     std::uint8_t battle_audio_stop_all_owner_identity_count{};
@@ -236,6 +241,8 @@ struct OwnedBatchReplayResult
     std::uint64_t suppressed_audio_source_hash{};
     std::uint32_t suppressed_audio_stop_all_calls{};
     std::uint64_t suppressed_audio_stop_all_hash{};
+    std::uint32_t suppressed_audio_terminal_calls{};
+    std::uint64_t suppressed_audio_terminal_hash{};
     std::uint32_t suppressed_audio_blueprint_calls{};
     std::uint64_t suppressed_audio_blueprint_hash{};
     std::array<std::uintptr_t, maximum_battle_audio_stop_all_journal_events>
@@ -291,6 +298,8 @@ public:
         const StageBreakListenerTopology& topology,
         std::span<const StageBreakParticleAssetRef> assets) noexcept;
     void InvalidateStageBreakPresentationIdentity() noexcept;
+    Status CommitAudioTerminal(
+        const AudioTerminalEvent& event) noexcept;
 
 private:
     struct OwnedBatchExecution
@@ -340,14 +349,16 @@ private:
     using BattleAudioBlueprintPublishFn = void (__fastcall*)(
         void* handler, void* event_record);
     using BattleAudioRegisterVoiceFn = std::uint32_t (__fastcall*)(
-        void* shared_player, std::uint32_t cue_id, std::int32_t pitch_shift,
-        std::uint32_t flags);
+        void* active_voice_owner, std::uint32_t cue_sheet_id,
+        std::int32_t cue_id, std::uint32_t playback_flags);
     using BattleAudioAppendCommandFn = void (__fastcall*)(
         void* active_voice_owner, void* command_record);
     using BattleAudioStopAllFn = void (__fastcall*)(
         void* active_voice_owner, std::uint8_t immediate);
     using BattleAudioAppendParameterFn = void (__fastcall*)(
         void* shared_player, void* parameter_name, float value);
+    using BattleAudioAppendOwnerParameterFn = void (__fastcall*)(
+        void* active_voice_owner, void* parameter_name, float value);
     using ParticleSpawnFn = void* (__fastcall*)(void* world_context,
         void* particle_system, const void* location, const void* rotation,
         const void* scale, bool auto_activate);
@@ -385,8 +396,8 @@ private:
     static void __fastcall BattleAudioBlueprintPublishDetour(
         void* handler, void* event_record) noexcept;
     static std::uint32_t __fastcall BattleAudioRegisterVoiceDetour(
-        void* shared_player, std::uint32_t cue_id, std::int32_t pitch_shift,
-        std::uint32_t flags) noexcept;
+        void* active_voice_owner, std::uint32_t cue_sheet_id,
+        std::int32_t cue_id, std::uint32_t playback_flags) noexcept;
     static void __fastcall BattleAudioAppendCommandDetour(
         void* active_voice_owner, void* command_record) noexcept;
     static void __fastcall BattleAudioStopAllDetour(
@@ -422,6 +433,13 @@ private:
     bool CompleteBattleAudioJournal(
         const NativeBatchEnvelope& envelope,
         OwnedBatchReplayResult& output) noexcept;
+    [[nodiscard]] bool PrepareAudioOwnerGraph(
+        std::uintptr_t battle_manager) noexcept;
+    [[nodiscard]] bool ResolveAudioOwner(
+        std::uintptr_t owner, AudioOwnerSelector& selector) noexcept;
+    static bool RecordAudioTerminal(
+        OuterTickCaptureContext* batch,
+        const AudioTerminalEvent& event) noexcept;
     [[nodiscard]] static bool IsObservedBattleAudioTrackingSet(
         const void* tracking_set) noexcept;
     void ClearState() noexcept;
@@ -507,6 +525,10 @@ private:
     UcrtRandBroker* ucrt_broker_{};
     DeterministicHookCallbacks callbacks_{};
     StageBreakPresentationIdentityMap stage_break_presentation_identity_{};
+    AudioOwnerResolver audio_owner_resolver_{};
+    AudioPlaybackMap audio_playback_map_{};
+    std::uintptr_t audio_graph_battle_manager_{};
+    std::uint64_t audio_graph_epoch_counter_{};
     std::atomic<bool> installed_{};
 };
 }

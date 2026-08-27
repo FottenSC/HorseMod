@@ -472,6 +472,34 @@ bool AppendBattleAudioStopAllSemantic(
     return true;
 }
 
+bool AppendAudioTerminalSemantic(
+    const AudioTerminalEvent& event, std::uint64_t& sequence_hash) noexcept
+{
+    if (!event.valid()) return false;
+    constexpr std::uint64_t offset_basis = 14695981039346656037ull;
+    constexpr std::uint64_t prime = 1099511628211ull;
+    auto hash = sequence_hash == 0 ? offset_basis : sequence_hash;
+    const auto append = [&hash](const auto& value) noexcept {
+        constexpr std::uint64_t inner_prime = 1099511628211ull;
+        const auto* bytes = reinterpret_cast<const std::byte*>(&value);
+        for (std::size_t index = 0; index < sizeof(value); ++index)
+        {
+            hash ^= std::to_integer<std::uint8_t>(bytes[index]);
+            hash *= inner_prime;
+        }
+    };
+    append(event.operation);
+    append(event.owner.domain);
+    append(event.owner.index);
+    append(event.owner.scope_id);
+    append(event.logical_playback_id);
+    append(event.cue_sheet_id);
+    append(event.cue_id);
+    append(event.value);
+    sequence_hash = hash;
+    return true;
+}
+
 template <std::size_t Capacity>
 bool AppendPresentationOrder(PresentationEventFamily family,
     std::uint32_t family_index, std::uint8_t source_offset,
@@ -1165,6 +1193,10 @@ Status DeterministicHookSet::Install(
             Schema::Sc6FrameLayout::battle_audio_append_parameter_signature.data(),
             Schema::Sc6FrameLayout::battle_audio_append_parameter_signature.size())
         || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::battle_audio_append_parameter_owner_rva),
+            Schema::Sc6FrameLayout::battle_audio_append_parameter_owner_signature.data(),
+            Schema::Sc6FrameLayout::battle_audio_append_parameter_owner_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
                 + Schema::Sc6FrameLayout::particle_spawn_rva),
             Schema::Sc6FrameLayout::particle_spawn_signature.data(),
             Schema::Sc6FrameLayout::particle_spawn_signature.size())
@@ -1664,6 +1696,105 @@ void DeterministicHookSet::InvalidateStageBreakPresentationIdentity() noexcept
     stage_break_presentation_identity_.Invalidate();
 }
 
+Status DeterministicHookSet::CommitAudioTerminal(
+    const AudioTerminalEvent& event) noexcept
+{
+    if (!installed() || active_outer_capture_ != nullptr || !event.valid())
+        return Status::failure(FailureCode::IllegalTransition);
+    const auto epoch = audio_owner_resolver_.epoch();
+    std::uintptr_t owner{};
+    std::uint64_t runtime_handle{};
+    if (!audio_owner_resolver_.ResolveOwner(epoch, event.owner, owner)
+        || !SafeRead(owner, runtime_handle) || runtime_handle == 0)
+        return Status::failure(FailureCode::IdentityMismatch);
+
+    struct CommandRecord
+    {
+        std::uint32_t operation{};
+        std::uint32_t playback_id{};
+        std::uint32_t immediate{};
+        std::uint32_t reserved{};
+        std::uint64_t value{};
+    };
+    static_assert(sizeof(CommandRecord) == 0x18);
+
+    __try
+    {
+        switch (event.operation)
+        {
+        case AudioTerminalOperation::Create:
+        {
+            std::uint32_t existing{};
+            if (audio_playback_map_.NativeForLogical(
+                    epoch, event.owner, event.logical_playback_id, existing))
+                return Status::success();
+            if (!audio_playback_map_.CanInsert(
+                    epoch, event.owner, event.logical_playback_id))
+                return Status::failure(FailureCode::CapacityExceeded);
+            const auto original = reinterpret_cast<BattleAudioRegisterVoiceFn>(
+                battle_audio_register_voice_trampoline_);
+            if (original == nullptr)
+                return Status::failure(FailureCode::IllegalTransition);
+            const auto native_id = original(reinterpret_cast<void*>(owner),
+                event.cue_sheet_id, event.cue_id, event.value);
+            if (native_id == audio_invalid_playback_id)
+                return Status::failure(FailureCode::PresentationFailed);
+            if (!audio_playback_map_.Insert(epoch, event.owner,
+                    event.logical_playback_id, native_id))
+                return Status::failure(FailureCode::PresentationFailed);
+            return Status::success();
+        }
+        case AudioTerminalOperation::StopOne:
+        {
+            std::uint32_t native_id{};
+            if (!audio_playback_map_.NativeForLogical(epoch, event.owner,
+                    event.logical_playback_id, native_id))
+                return Status::failure(FailureCode::IdentityMismatch);
+            const auto original = reinterpret_cast<BattleAudioAppendCommandFn>(
+                battle_audio_append_command_trampoline_);
+            if (original == nullptr)
+                return Status::failure(FailureCode::IllegalTransition);
+            CommandRecord command{2, native_id, event.value, 0, 0};
+            original(reinterpret_cast<void*>(owner), &command);
+            static_cast<void>(audio_playback_map_.RemoveOne(
+                epoch, event.owner, event.logical_playback_id));
+            return Status::success();
+        }
+        case AudioTerminalOperation::StopAll:
+        {
+            const auto original = reinterpret_cast<BattleAudioStopAllFn>(
+                battle_audio_stop_all_trampoline_);
+            if (original == nullptr)
+                return Status::failure(FailureCode::IllegalTransition);
+            original(reinterpret_cast<void*>(owner),
+                static_cast<std::uint8_t>(event.value));
+            audio_playback_map_.RemoveOwner(epoch, event.owner);
+            return Status::success();
+        }
+        case AudioTerminalOperation::SetParameter:
+        {
+            const auto original =
+                reinterpret_cast<BattleAudioAppendOwnerParameterFn>(
+                    image_base_ + Schema::Sc6FrameLayout::
+                        battle_audio_append_parameter_owner_rva);
+            std::uint32_t value_bits = event.value;
+            float value{};
+            std::memcpy(&value, &value_bits, sizeof(value));
+            original(reinterpret_cast<void*>(owner),
+                reinterpret_cast<void*>(image_base_ + 0x406f060
+                    + static_cast<std::uintptr_t>(event.cue_sheet_id) * 0x10),
+                value);
+            return Status::success();
+        }
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return Status::failure(FailureCode::PresentationFailed);
+    }
+    return Status::failure(FailureCode::InvalidConfiguration);
+}
+
 Status DeterministicHookSet::RestoreBattleAudioRemapEntry(
     const NativeBatchEnvelope& envelope,
     OwnedBatchReplayResult&) noexcept
@@ -1708,7 +1839,9 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
         || output.suppressed_audio_remap_calls
             > envelope.battle_audio_remap_journal_count
         || output.suppressed_audio_blueprint_calls
-            > envelope.battle_audio_blueprint_journal_count)
+            > envelope.battle_audio_blueprint_journal_count
+        || output.suppressed_audio_terminal_calls
+            > envelope.audio_terminal_journal_count)
         return false;
 
     const auto consume_source = [&](const BattleAudioSourceJournalEntry& source)
@@ -1884,7 +2017,199 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
     return output.suppressed_audio_remap_calls
             == envelope.battle_audio_remap_journal_count
         && output.suppressed_audio_blueprint_calls
-            == envelope.battle_audio_blueprint_journal_count;
+            == envelope.battle_audio_blueprint_journal_count
+        && output.suppressed_audio_terminal_calls
+            == envelope.audio_terminal_journal_count
+        && output.suppressed_audio_terminal_hash
+            == envelope.audio_terminal_hash;
+}
+
+bool DeterministicHookSet::PrepareAudioOwnerGraph(
+    std::uintptr_t battle_manager) noexcept
+{
+    constexpr std::uintptr_t cri_manager_slot_rva = 0x41492e8;
+    constexpr std::size_t maximum_battle_players = 64;
+    if (image_base_ == 0 || battle_manager == 0) return false;
+
+    std::uintptr_t cri_manager{};
+    std::uintptr_t bgm_state{};
+    std::uintptr_t active_context{};
+    std::uintptr_t battle_audio_manager{};
+    if (!SafeRead(image_base_ + cri_manager_slot_rva, cri_manager)
+        || cri_manager == 0
+        || !SafeRead(cri_manager + 0x90, bgm_state) || bgm_state == 0
+        || !SafeRead(cri_manager + 0xa0, active_context)
+        || active_context == 0
+        || !SafeRead(battle_manager + 0x520, battle_audio_manager)
+        || battle_audio_manager == 0)
+        return false;
+
+    const std::uint64_t epoch = audio_graph_epoch_counter_ + 1;
+    AudioOwnerResolver candidate;
+    if (!candidate.BeginEpoch(epoch)) return false;
+    std::array<std::uintptr_t, maximum_audio_owner_bindings> bound{};
+    std::size_t bound_count{};
+    const auto bind_unique = [&](std::uintptr_t owner,
+                                 AudioOwnerSelector selector) noexcept {
+        if (owner == 0) return true;
+        for (std::size_t index = 0; index < bound_count; ++index)
+            if (bound[index] == owner) return true;
+        if (bound_count >= bound.size()
+            || !candidate.Bind(epoch, owner, selector))
+            return false;
+        bound[bound_count++] = owner;
+        return true;
+    };
+    const auto read_owner = [](std::uintptr_t shared_player,
+                               std::uintptr_t& owner) noexcept {
+        owner = 0;
+        return shared_player != 0 && SafeRead(shared_player, owner);
+    };
+    const auto bind_shared = [&](std::uintptr_t shared_player,
+                                 AudioOwnerSelector selector) noexcept {
+        if (shared_player == 0) return true;
+        std::uintptr_t owner{};
+        return read_owner(shared_player, owner) && bind_unique(owner, selector);
+    };
+
+    std::uintptr_t bgm_pairs{};
+    std::int32_t bgm_count{};
+    if (!SafeRead(bgm_state, bgm_pairs) || bgm_pairs == 0
+        || !SafeRead(bgm_state + 8, bgm_count)
+        || bgm_count < 2 || bgm_count > 16)
+        return false;
+    for (std::uint8_t lane = 0; lane < 2; ++lane)
+    {
+        std::uintptr_t shared{};
+        if (!SafeRead(bgm_pairs + static_cast<std::uintptr_t>(lane) * 0x10,
+                shared)
+            || !bind_shared(shared, {AudioOwnerDomain::BgmLane, lane, 0}))
+            return false;
+    }
+    std::uintptr_t shared{};
+    if (!SafeRead(bgm_state + 0x10, shared)
+        || !bind_shared(shared, {AudioOwnerDomain::Jingle, 0, 0})
+        || !SafeRead(bgm_state + 0x60, shared)
+        || !bind_shared(shared, {AudioOwnerDomain::BgmDirect, 0, 0})
+        || !SafeRead(active_context, shared)
+        || !bind_shared(shared, {AudioOwnerDomain::ActiveContextSe, 0, 0})
+        || !SafeRead(active_context + 0x10, shared)
+        || !bind_shared(shared, {AudioOwnerDomain::ActiveContextVoice, 0, 0}))
+        return false;
+
+    std::uintptr_t class_pairs{};
+    std::int32_t class_count{};
+    std::uintptr_t chara_pairs{};
+    std::int32_t chara_count{};
+    if (!SafeRead(battle_audio_manager + 0x400, class_pairs)
+        || !SafeRead(battle_audio_manager + 0x408, class_count)
+        || !SafeRead(battle_audio_manager + 0x410, chara_pairs)
+        || !SafeRead(battle_audio_manager + 0x418, chara_count)
+        || class_count < 0 || class_count > maximum_battle_players
+        || chara_count < 0 || chara_count > maximum_battle_players
+        || (class_count != 0 && class_pairs == 0)
+        || (chara_count != 0 && chara_pairs == 0))
+        return false;
+    for (std::int32_t index = 0; index < class_count; ++index)
+    {
+        if (!SafeRead(class_pairs + static_cast<std::uintptr_t>(index) * 0x10,
+                shared)
+            || !bind_shared(shared, {AudioOwnerDomain::BattleClassPlayer,
+                static_cast<std::uint8_t>(index), 0}))
+            return false;
+    }
+    for (std::int32_t index = 0; index < chara_count; ++index)
+    {
+        if (!SafeRead(chara_pairs + static_cast<std::uintptr_t>(index) * 0x10,
+                shared)
+            || !bind_shared(shared, {AudioOwnerDomain::BattleCharaPlayer,
+                static_cast<std::uint8_t>(index), 0}))
+            return false;
+    }
+    if (!SafeRead(battle_audio_manager + 0x420, shared)
+        || !bind_shared(shared,
+            {AudioOwnerDomain::BattleSharedPlayer, 0, 0})
+        || !candidate.Seal(epoch))
+        return false;
+
+    if (audio_owner_resolver_.SameBindings(candidate))
+    {
+        audio_graph_battle_manager_ = battle_manager;
+        return true;
+    }
+
+    audio_owner_resolver_ = candidate;
+    if (!audio_playback_map_.BeginEpoch(epoch))
+    {
+        audio_owner_resolver_.Clear();
+        return false;
+    }
+    audio_graph_epoch_counter_ = epoch;
+    audio_graph_battle_manager_ = battle_manager;
+    return true;
+}
+
+bool DeterministicHookSet::ResolveAudioOwner(
+    std::uintptr_t owner, AudioOwnerSelector& selector) noexcept
+{
+    const auto epoch = audio_owner_resolver_.epoch();
+    if (audio_owner_resolver_.Resolve(epoch, owner, selector)) return true;
+    auto* batch = active_outer_capture_;
+    if (batch == nullptr || batch->observation == nullptr
+        || !PrepareAudioOwnerGraph(batch->observation->battle_manager))
+        return false;
+    return audio_owner_resolver_.Resolve(
+        audio_owner_resolver_.epoch(), owner, selector);
+}
+
+bool DeterministicHookSet::RecordAudioTerminal(
+    OuterTickCaptureContext* batch,
+    const AudioTerminalEvent& event) noexcept
+{
+    if (batch == nullptr || batch->observation == nullptr || !event.valid())
+        return false;
+    auto& observation = *batch->observation;
+    const auto observed_index = observation.audio_terminal_calls++;
+    if (!AppendObservedPresentationOrder(&observation,
+            batch->frame_counter_address,
+            PresentationEventFamily::AudioTerminal, observed_index)
+        || observation.audio_terminal_journal_count
+            >= observation.audio_terminal_journal.size()
+        || !AppendAudioTerminalSemantic(event,
+            observation.audio_terminal_hash))
+    {
+        ++observation.battle_audio_signature_failures;
+        observation.battle_audio_signature_failure_mask |= 1u << 12;
+        return false;
+    }
+    observation.audio_terminal_journal[
+        observation.audio_terminal_journal_count++] = event;
+
+    if (batch->owned == nullptr
+        || !batch->owned->request->suppress_ephemeral_presentation)
+        return true;
+    auto& replay = *batch->owned->result;
+    const auto& envelope = *batch->owned->request->envelope;
+    const auto replay_index = replay.suppressed_audio_terminal_calls++;
+    const bool verify = batch->owned->request->presentation_mode
+        == OwnedBatchPresentationMode::VerifyRecorded;
+    if (!AppendAudioTerminalSemantic(event,
+            replay.suppressed_audio_terminal_hash)
+        || (verify && (!VerifyPresentationOrder(
+                PresentationEventFamily::AudioTerminal, replay_index,
+                envelope, replay, &observation,
+                batch->frame_counter_address)
+            || replay_index >= envelope.audio_terminal_journal_count
+            || envelope.audio_terminal_journal[replay_index] != event)))
+    {
+        ++replay.audio_sequence_mismatches;
+        replay.audio_journal_failure_mask |= 1u << 9;
+        ++replay.presentation_failures;
+        replay.presentation_failure_mask |= 1u << 13;
+        replay.failure = FailureCode::PresentationFailed;
+        return false;
+    }
+    return true;
 }
 
 void __fastcall DeterministicHookSet::OuterTickDetour(
@@ -1905,6 +2230,13 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     observation.fp_before_valid = true;
     if (hooks != nullptr)
     {
+        if (!hooks->audio_owner_resolver_.sealed()
+            || hooks->audio_graph_battle_manager_
+                != reinterpret_cast<std::uintptr_t>(battle_manager))
+        {
+            static_cast<void>(hooks->PrepareAudioOwnerGraph(
+                reinterpret_cast<std::uintptr_t>(battle_manager)));
+        }
         hooks->callbacks_.outer_tick_prepare(
             hooks->callbacks_.user, observation);
         hooks->CaptureOuterTickState(
@@ -3493,8 +3825,8 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
 }
 
 std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
-    void* shared_player, std::uint32_t cue_id, std::int32_t pitch_shift,
-    std::uint32_t flags) noexcept
+    void* active_voice_owner, std::uint32_t cue_sheet_id,
+    std::int32_t cue_id, std::uint32_t playback_flags) noexcept
 {
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
     auto* hooks = active_.load(std::memory_order_acquire);
@@ -3507,17 +3839,54 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     auto* batch = active_outer_capture_;
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
+    AudioOwnerSelector owner{};
+    std::uint32_t frame{};
+    const bool owned_terminal = batch != nullptr
+        && hooks != nullptr
+        && hooks->ResolveAudioOwner(
+            reinterpret_cast<std::uintptr_t>(active_voice_owner), owner)
+        && SafeRead(batch->frame_counter_address, frame)
+        && batch->observation != nullptr
+        && batch->observation->audio_terminal_calls
+            < audio_ordinals_per_frame;
+    const auto logical_id = owned_terminal
+        ? MakeLogicalAudioPlaybackId(frame,
+            batch->observation->audio_terminal_calls)
+        : audio_invalid_playback_id;
+    if (suppress && (!owned_terminal
+            || logical_id == audio_invalid_playback_id))
+    {
+        ++batch->observation->battle_audio_signature_failures;
+        batch->observation->battle_audio_signature_failure_mask |= 1u << 12;
+        batch->owned->result->failure = FailureCode::PresentationFailed;
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        return audio_invalid_playback_id;
+    }
     if (suppress)
     {
-        // Logical IDs preserve the dispatcher's native success path without
-        // publishing a CRI/active-voice identity or consuming terminal RNG.
-        const auto logical_id = 0x40000000u
-            | (batch->owned->result->suppressed_audio_calls & 0x00ffffffu);
+        const AudioTerminalEvent event{AudioTerminalOperation::Create, owner,
+            logical_id, cue_sheet_id, cue_id, playback_flags};
+        if (!RecordAudioTerminal(batch, event))
+            batch->owned->result->failure = FailureCode::PresentationFailed;
         callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
         return logical_id;
     }
     const auto result = original != nullptr
-        ? original(shared_player, cue_id, pitch_shift, flags) : 0xffffffffu;
+        ? original(active_voice_owner, cue_sheet_id, cue_id, playback_flags)
+        : audio_invalid_playback_id;
+    if (result != audio_invalid_playback_id && batch != nullptr)
+    {
+        const AudioTerminalEvent event{AudioTerminalOperation::Create, owner,
+            logical_id, cue_sheet_id, cue_id, playback_flags};
+        if (!owned_terminal || !event.valid()
+            || !hooks->audio_playback_map_.Insert(
+                hooks->audio_owner_resolver_.epoch(), owner, logical_id, result)
+            || !RecordAudioTerminal(batch, event))
+        {
+            ++batch->observation->battle_audio_signature_failures;
+            batch->observation->battle_audio_signature_failure_mask |= 1u << 12;
+        }
+    }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
     return result;
 }
@@ -3526,12 +3895,101 @@ void __fastcall DeterministicHookSet::BattleAudioAppendCommandDetour(
     void* active_voice_owner, void* command_record) noexcept
 {
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
     auto* batch = active_outer_capture_;
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
+    struct CommandRecord
+    {
+        std::uint32_t operation{};
+        std::uint32_t playback_id{};
+        std::uint32_t immediate{};
+        std::uint32_t reserved{};
+        std::uint64_t value{};
+    };
+    static_assert(sizeof(CommandRecord) == 0x18);
+    CommandRecord command{};
+    AudioOwnerSelector owner{};
+    bool represented = true;
+    AudioTerminalEvent event{};
+    if (batch != nullptr && hooks != nullptr
+        && SafeRead(reinterpret_cast<std::uintptr_t>(command_record), command)
+        && hooks->ResolveAudioOwner(
+            reinterpret_cast<std::uintptr_t>(active_voice_owner), owner))
+    {
+        if (command.operation == 1)
+        {
+            event = {AudioTerminalOperation::StopAll, owner,
+                audio_invalid_playback_id, 0, -1, command.immediate};
+        }
+        else if (command.operation == 2)
+        {
+            auto logical = command.playback_id;
+            if (IsNativeAudioPlaybackId(logical))
+            {
+                std::uint32_t mapped{};
+                if (hooks->audio_playback_map_.LogicalForNative(
+                        hooks->audio_owner_resolver_.epoch(), owner,
+                        logical, mapped))
+                    logical = mapped;
+                else
+                {
+                    std::uint32_t frame{};
+                    const auto ordinal = batch->observation
+                        ->audio_terminal_calls;
+                    const auto adopted = SafeRead(
+                            batch->frame_counter_address, frame)
+                        ? MakeLogicalAudioPlaybackId(frame, ordinal)
+                        : audio_invalid_playback_id;
+                    if (adopted == audio_invalid_playback_id
+                        || !hooks->audio_playback_map_.Insert(
+                            hooks->audio_owner_resolver_.epoch(), owner,
+                            adopted, logical))
+                        represented = false;
+                    else
+                        logical = adopted;
+                }
+            }
+            event = {AudioTerminalOperation::StopOne, owner, logical,
+                0, -1, command.immediate};
+        }
+        else if (command.operation != 0)
+        {
+            represented = false;
+        }
+        if (command.operation != 0
+            && (!represented || !event.valid()
+                || !RecordAudioTerminal(batch, event)))
+        {
+            ++batch->observation->battle_audio_signature_failures;
+            batch->observation->battle_audio_signature_failure_mask
+                |= 1u << 13;
+            if (suppress)
+                batch->owned->result->failure = FailureCode::PresentationFailed;
+        }
+        if (!suppress && represented && event.valid()
+            && command.operation == 1)
+        {
+            hooks->audio_playback_map_.RemoveOwner(
+                hooks->audio_owner_resolver_.epoch(), owner);
+        }
+        else if (!suppress && represented && event.valid()
+            && command.operation == 2)
+        {
+            static_cast<void>(hooks->audio_playback_map_.RemoveOne(
+                hooks->audio_owner_resolver_.epoch(), owner,
+                event.logical_playback_id));
+        }
+    }
+    else if (batch != nullptr && command_record != nullptr)
+    {
+        ++batch->observation->battle_audio_signature_failures;
+        batch->observation->battle_audio_signature_failure_mask |= 1u << 13;
+        if (suppress)
+            batch->owned->result->failure = FailureCode::PresentationFailed;
+    }
     if (!suppress)
     {
-        auto* hooks = active_.load(std::memory_order_acquire);
         const auto trampoline = hooks != nullptr
             ? hooks->battle_audio_append_command_trampoline_
             : battle_audio_append_command_trampoline_global_.load(
@@ -3547,6 +4005,7 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
     void* active_voice_owner, std::uint8_t control) noexcept
 {
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
     auto* batch = active_outer_capture_;
     const auto owner_identity = reinterpret_cast<std::uintptr_t>(
         active_voice_owner);
@@ -3583,6 +4042,26 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
     }
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
+    AudioOwnerSelector stable_owner{};
+    const AudioTerminalEvent terminal{
+        AudioTerminalOperation::StopAll, stable_owner,
+        audio_invalid_playback_id, 0, -1, control};
+    const bool stable_owner_ok = hooks != nullptr
+        && hooks->ResolveAudioOwner(owner_identity, stable_owner);
+    AudioTerminalEvent stable_terminal = terminal;
+    stable_terminal.owner = stable_owner;
+    // The normal terminal reaches AppendCommandRecord inside the native
+    // StopAll implementation, where the generic command detour records it.
+    // Suppressed resimulation skips that native call, so record the equivalent
+    // terminal here only on the suppressed path.
+    if (suppress
+        && (!stable_owner_ok || !RecordAudioTerminal(batch, stable_terminal)))
+    {
+        ++batch->observation->battle_audio_signature_failures;
+        batch->observation->battle_audio_signature_failure_mask |= 1u << 12;
+        if (suppress)
+            batch->owned->result->failure = FailureCode::PresentationFailed;
+    }
     if (suppress)
     {
         auto& replay = *batch->owned->result;
@@ -3624,13 +4103,15 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
     }
     else
     {
-        auto* hooks = active_.load(std::memory_order_acquire);
         const auto trampoline = hooks != nullptr
             ? hooks->battle_audio_stop_all_trampoline_
             : battle_audio_stop_all_trampoline_global_.load(
                 std::memory_order_acquire);
         const auto original = reinterpret_cast<BattleAudioStopAllFn>(trampoline);
         if (original != nullptr) original(active_voice_owner, control);
+        if (hooks != nullptr && stable_owner_ok)
+            hooks->audio_playback_map_.RemoveOwner(
+                hooks->audio_owner_resolver_.epoch(), stable_owner);
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
@@ -3639,12 +4120,62 @@ void __fastcall DeterministicHookSet::BattleAudioAppendParameterDetour(
     void* shared_player, void* parameter_name, float value) noexcept
 {
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
     auto* batch = active_outer_capture_;
     const bool suppress = batch != nullptr && batch->owned != nullptr
         && batch->owned->request->suppress_ephemeral_presentation;
+    struct FStringView
+    {
+        std::uintptr_t data{};
+        std::int32_t length{};
+        std::int32_t capacity{};
+    };
+    std::uintptr_t owner_identity{};
+    AudioOwnerSelector owner{};
+    FStringView requested{};
+    std::uint32_t parameter_index = UINT32_MAX;
+    constexpr std::uintptr_t parameter_table_rva = 0x406f060;
+    if (hooks != nullptr && shared_player != nullptr
+        && SafeRead(reinterpret_cast<std::uintptr_t>(shared_player),
+            owner_identity)
+        && hooks->ResolveAudioOwner(owner_identity, owner)
+        && SafeRead(reinterpret_cast<std::uintptr_t>(parameter_name), requested)
+        && requested.length >= 0 && requested.length <= 26
+        && requested.data != 0)
+    {
+        for (std::uint32_t index = 0; index < 25; ++index)
+        {
+            FStringView candidate{};
+            if (!SafeRead(hooks->image_base_ + parameter_table_rva
+                    + static_cast<std::uintptr_t>(index) * 0x10,
+                    candidate))
+                break;
+            if (candidate.length == requested.length && candidate.data != 0
+                && SafeEqual(reinterpret_cast<const void*>(candidate.data),
+                    reinterpret_cast<const void*>(requested.data),
+                    static_cast<std::size_t>(requested.length + 1)
+                        * sizeof(wchar_t)))
+            {
+                parameter_index = index;
+                break;
+            }
+        }
+    }
+    std::uint32_t value_bits{};
+    std::memcpy(&value_bits, &value, sizeof(value_bits));
+    const AudioTerminalEvent event{AudioTerminalOperation::SetParameter,
+        owner, audio_invalid_playback_id, parameter_index, -1, value_bits};
+    if (batch != nullptr
+        && (parameter_index == UINT32_MAX || !event.valid()
+            || !RecordAudioTerminal(batch, event)))
+    {
+        ++batch->observation->battle_audio_signature_failures;
+        batch->observation->battle_audio_signature_failure_mask |= 1u << 14;
+        if (suppress)
+            batch->owned->result->failure = FailureCode::PresentationFailed;
+    }
     if (!suppress)
     {
-        auto* hooks = active_.load(std::memory_order_acquire);
         const auto trampoline = hooks != nullptr
             ? hooks->battle_audio_append_parameter_trampoline_
             : battle_audio_append_parameter_trampoline_global_.load(
@@ -4187,6 +4718,10 @@ bool DeterministicHookSet::IsObservedBattleAudioTrackingSet(
 void DeterministicHookSet::ClearState() noexcept
 {
     stage_break_presentation_identity_.Invalidate();
+    audio_owner_resolver_.Clear();
+    audio_playback_map_.Clear();
+    audio_graph_battle_manager_ = 0;
+    audio_graph_epoch_counter_ = 0;
     battle_audio_append_parameter_detour_.reset();
     particle_finished_bind_detour_.reset();
     particle_spawn_detour_.reset();

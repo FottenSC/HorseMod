@@ -1035,6 +1035,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_stop_all_calls;
     envelope.battle_audio_stop_all_hash =
         observation.battle_audio_stop_all_hash;
+    envelope.audio_terminal_calls = observation.audio_terminal_calls;
+    envelope.audio_terminal_hash = observation.audio_terminal_hash;
     envelope.battle_audio_blueprint_calls =
         observation.battle_audio_blueprint_calls;
     envelope.battle_audio_blueprint_hash =
@@ -1064,6 +1066,7 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_blueprint_journal;
     envelope.battle_audio_stop_all_journal =
         observation.battle_audio_stop_all_journal;
+    envelope.audio_terminal_journal = observation.audio_terminal_journal;
     envelope.stage_wall_journal = observation.stage_wall_journal;
     envelope.stage_barrier_journal = observation.stage_barrier_journal;
     envelope.stage_dispatch_journal = observation.stage_dispatch_journal;
@@ -1080,6 +1083,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_blueprint_journal_count;
     envelope.battle_audio_stop_all_journal_count =
         observation.battle_audio_stop_all_journal_count;
+    envelope.audio_terminal_journal_count =
+        observation.audio_terminal_journal_count;
     envelope.stage_wall_journal_count = observation.stage_wall_journal_count;
     envelope.stage_barrier_journal_count =
         observation.stage_barrier_journal_count;
@@ -1122,6 +1127,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.battle_audio_source_calls;
     timeline_status_.observed_battle_audio_stop_all_calls +=
         observation.battle_audio_stop_all_calls;
+    timeline_status_.observed_audio_terminal_calls +=
+        observation.audio_terminal_calls;
     timeline_status_.observed_battle_audio_blueprint_calls +=
         observation.battle_audio_blueprint_calls;
     timeline_status_.observed_particle_spawn_calls +=
@@ -1332,6 +1339,8 @@ void Sc6ReplayRuntime::ApplyCorrectedPresentationObservation(
     envelope.battle_audio_source_hash = observation.battle_audio_source_hash;
     envelope.battle_audio_stop_all_calls = observation.battle_audio_stop_all_calls;
     envelope.battle_audio_stop_all_hash = observation.battle_audio_stop_all_hash;
+    envelope.audio_terminal_calls = observation.audio_terminal_calls;
+    envelope.audio_terminal_hash = observation.audio_terminal_hash;
     envelope.battle_audio_blueprint_calls = observation.battle_audio_blueprint_calls;
     envelope.battle_audio_blueprint_hash = observation.battle_audio_blueprint_hash;
     envelope.particle_spawn_calls = observation.particle_spawn_calls;
@@ -1352,6 +1361,7 @@ void Sc6ReplayRuntime::ApplyCorrectedPresentationObservation(
         observation.battle_audio_blueprint_journal;
     envelope.battle_audio_stop_all_journal =
         observation.battle_audio_stop_all_journal;
+    envelope.audio_terminal_journal = observation.audio_terminal_journal;
     envelope.stage_wall_journal = observation.stage_wall_journal;
     envelope.stage_barrier_journal = observation.stage_barrier_journal;
     envelope.stage_dispatch_journal = observation.stage_dispatch_journal;
@@ -1366,6 +1376,8 @@ void Sc6ReplayRuntime::ApplyCorrectedPresentationObservation(
         observation.battle_audio_blueprint_journal_count;
     envelope.battle_audio_stop_all_journal_count =
         observation.battle_audio_stop_all_journal_count;
+    envelope.audio_terminal_journal_count =
+        observation.audio_terminal_journal_count;
     envelope.stage_wall_journal_count = observation.stage_wall_journal_count;
     envelope.stage_barrier_journal_count = observation.stage_barrier_journal_count;
     envelope.stage_dispatch_journal_count = observation.stage_dispatch_journal_count;
@@ -1612,6 +1624,10 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                     != envelope->battle_audio_stop_all_calls
                 || result.suppressed_audio_stop_all_hash
                     != envelope->battle_audio_stop_all_hash
+                || result.suppressed_audio_terminal_calls
+                    != envelope->audio_terminal_calls
+                || result.suppressed_audio_terminal_hash
+                    != envelope->audio_terminal_hash
                 || result.suppressed_audio_blueprint_calls
                     != envelope->battle_audio_blueprint_calls
                 || result.suppressed_audio_blueprint_hash
@@ -1649,6 +1665,8 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                 result.discarded_audio_calls;
             presentation_diagnostics->suppressed_audio_stop_all_calls +=
                 result.suppressed_audio_stop_all_calls;
+            presentation_diagnostics->suppressed_audio_terminal_calls +=
+                result.suppressed_audio_terminal_calls;
             presentation_diagnostics->suppressed_audio_blueprint_calls +=
                 result.suppressed_audio_blueprint_calls;
             presentation_diagnostics->suppressed_particle_spawn_calls +=

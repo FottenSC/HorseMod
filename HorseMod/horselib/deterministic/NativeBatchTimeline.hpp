@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Types.hpp"
+#include "AudioPresentation.hpp"
 #include "BattleAudioSelectorState.hpp"
 #include "NativeCandidateRegions.hpp"
 
@@ -23,12 +24,14 @@ inline constexpr std::size_t maximum_battle_audio_stop_all_journal_events =
     maximum_battle_audio_journal_dispatches;
 inline constexpr std::size_t maximum_stage_presentation_journal_events = 8;
 inline constexpr std::size_t maximum_particle_presentation_journal_events = 16;
+inline constexpr std::size_t maximum_audio_terminal_journal_events = 32;
 inline constexpr std::size_t maximum_presentation_order_events =
     maximum_battle_audio_journal_dispatches
     + maximum_battle_audio_journal_sources
     + maximum_battle_audio_journal_remaps
     + maximum_battle_audio_blueprint_journal_events
     + maximum_battle_audio_stop_all_journal_events
+    + maximum_audio_terminal_journal_events
     + maximum_stage_presentation_journal_events * 3
     + maximum_particle_presentation_journal_events;
 inline constexpr std::size_t camera_publication_vector_bytes = 0x60;
@@ -44,6 +47,7 @@ enum class PresentationEventFamily : std::uint8_t
     StageBarrier,
     StageDispatch,
     ParticleSpawn,
+    AudioTerminal,
 };
 
 struct PresentationOrderEntry
@@ -163,6 +167,8 @@ struct NativeBatchEnvelope
     std::uint64_t battle_audio_source_hash{};
     std::uint32_t battle_audio_stop_all_calls{};
     std::uint64_t battle_audio_stop_all_hash{};
+    std::uint32_t audio_terminal_calls{};
+    std::uint64_t audio_terminal_hash{};
     std::uint32_t battle_audio_blueprint_calls{};
     std::uint64_t battle_audio_blueprint_hash{};
     std::uint32_t particle_spawn_calls{};
@@ -194,6 +200,8 @@ struct NativeBatchEnvelope
     std::array<BattleAudioStopAllJournalEntry,
         maximum_battle_audio_stop_all_journal_events>
         battle_audio_stop_all_journal{};
+    std::array<AudioTerminalEvent, maximum_audio_terminal_journal_events>
+        audio_terminal_journal{};
     std::array<StagePresentationJournalEntry,
         maximum_stage_presentation_journal_events> stage_wall_journal{};
     std::array<StagePresentationJournalEntry,
@@ -209,6 +217,7 @@ struct NativeBatchEnvelope
     std::uint8_t battle_audio_remap_journal_count{};
     std::uint8_t battle_audio_blueprint_journal_count{};
     std::uint8_t battle_audio_stop_all_journal_count{};
+    std::uint8_t audio_terminal_journal_count{};
     std::uint8_t stage_wall_journal_count{};
     std::uint8_t stage_barrier_journal_count{};
     std::uint8_t stage_dispatch_journal_count{};

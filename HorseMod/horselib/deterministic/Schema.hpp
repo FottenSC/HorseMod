@@ -28,10 +28,10 @@ inline constexpr std::size_t replay_checkpoint_memory_budget =
     replay_timeline_memory_limit - replay_input_memory_budget
     - replay_native_batch_memory_budget - replay_canonical_hash_memory_budget;
 inline constexpr std::size_t replay_input_entry_budget = 128;
-// NativeBatchEnvelope is currently 14,504 bytes after adding the bounded
-// cross-family presentation order journal. Leave a small fixed schema margin;
-// the aggregate native-batch allocation remains capped at 192 MiB.
-inline constexpr std::size_t replay_native_batch_entry_budget = 14848;
+// Leave a fixed schema margin for the bounded cross-family presentation and
+// audio-terminal journals. The aggregate native-batch allocation remains
+// capped at 192 MiB, so increasing this accounting ceiling reduces capacity.
+inline constexpr std::size_t replay_native_batch_entry_budget = 16384;
 inline constexpr std::size_t replay_native_batch_coordinate_budget = 32;
 inline constexpr std::size_t replay_round_image_size = 0xc0;
 inline constexpr std::uint32_t maximum_replay_round_images = 64;
@@ -73,10 +73,12 @@ inline constexpr std::uintptr_t battle_audio_tracking_remove_rva = 0xe0d1f0;
 inline constexpr std::uintptr_t battle_audio_tracking_insert_rva = 0x156bff0;
 inline constexpr std::uintptr_t battle_audio_tracking_rehash_rva = 0x3c9d00;
 inline constexpr std::uintptr_t battle_audio_blueprint_publish_rva = 0x979e00;
-inline constexpr std::uintptr_t battle_audio_register_voice_rva = 0x54f6d0;
+inline constexpr std::uintptr_t battle_audio_register_voice_rva = 0x54f8b0;
 inline constexpr std::uintptr_t battle_audio_append_command_rva = 0x5656d0;
 inline constexpr std::uintptr_t battle_audio_stop_all_rva = 0x560940;
 inline constexpr std::uintptr_t battle_audio_append_parameter_rva = 0x55b4b0;
+inline constexpr std::uintptr_t battle_audio_append_parameter_owner_rva =
+    0x55b4c0;
 inline constexpr std::uintptr_t particle_spawn_rva = 0x8a3920;
 inline constexpr std::uintptr_t particle_finished_bind_rva = 0x533f40;
 inline constexpr std::uintptr_t particle_wall_return_rva = 0x53d69f;
@@ -202,10 +204,10 @@ inline constexpr std::array<std::byte, 16> battle_audio_blueprint_publish_signat
     std::byte{0x48}, std::byte{0x83}, std::byte{0xec}, std::byte{0x48},
 };
 inline constexpr std::array<std::byte, 16> battle_audio_register_voice_signature{
-    std::byte{0x48}, std::byte{0x8b}, std::byte{0x09}, std::byte{0x48},
-    std::byte{0x85}, std::byte{0xc9}, std::byte{0x0f}, std::byte{0x85},
-    std::byte{0xd4}, std::byte{0x01}, std::byte{0x00}, std::byte{0x00},
-    std::byte{0x33}, std::byte{0xc0}, std::byte{0xc3}, std::byte{0xcc},
+    std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+    std::byte{0x10}, std::byte{0x48}, std::byte{0x89}, std::byte{0x74},
+    std::byte{0x24}, std::byte{0x18}, std::byte{0x48}, std::byte{0x89},
+    std::byte{0x7c}, std::byte{0x24}, std::byte{0x20}, std::byte{0x55},
 };
 inline constexpr std::array<std::byte, 16> battle_audio_append_command_signature{
     std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
@@ -224,6 +226,13 @@ inline constexpr std::array<std::byte, 16> battle_audio_append_parameter_signatu
     std::byte{0x85}, std::byte{0xc9}, std::byte{0x0f}, std::byte{0x85},
     std::byte{0x04}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
     std::byte{0xc3}, std::byte{0xcc}, std::byte{0xcc}, std::byte{0xcc},
+};
+inline constexpr std::array<std::byte, 16>
+    battle_audio_append_parameter_owner_signature{
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0xc4}, std::byte{0x48},
+        std::byte{0x89}, std::byte{0x70}, std::byte{0x20}, std::byte{0x57},
+        std::byte{0x48}, std::byte{0x83}, std::byte{0xec}, std::byte{0x60},
+        std::byte{0x48}, std::byte{0x83}, std::byte{0x39}, std::byte{0x00},
 };
 inline constexpr std::array<std::byte, 16> particle_spawn_signature{
     std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
