@@ -23,6 +23,7 @@ namespace
 {
 using InitPathFn = void* (__fastcall*)(void*);
 using DestroyPathFn = void (__fastcall*)(void*);
+using EmulateTitleDecideFn = void (__fastcall*)();
 
 struct DataTablePath
 {
@@ -53,6 +54,7 @@ static_assert(sizeof(ChangeSceneParams) == 0x38);
 
 InitPathFn g_initialize_path{};
 DestroyPathFn g_destroy_path{};
+EmulateTitleDecideFn g_emulate_title_decide{};
 
 bool SignatureMatches(std::uintptr_t address,
                       const std::array<std::byte, 8>& expected) noexcept
@@ -101,21 +103,18 @@ bool CallStringParam(RC::Unreal::UObject* owner, const wchar_t* name,
     return true;
 }
 
-bool CallNoParams(RC::Unreal::UObject* owner, const wchar_t* name)
-{
-    if (owner == nullptr) return false;
-    auto* function = owner->GetFunctionByNameInChain(name);
-    if (function == nullptr) return false;
-    owner->ProcessEvent(function, nullptr);
-    return true;
-}
-
 bool EmulateTitleDecide()
 {
-    auto* input_util = RC::Unreal::UObjectGlobals::StaticFindObject<
-        RC::Unreal::UObject*>(nullptr, nullptr,
-            L"/Script/LuxorGame.Default__LuxInputUtil");
-    return CallNoParams(input_util, L"EmulateTitleDecide");
+    if (g_emulate_title_decide == nullptr) return false;
+    __try
+    {
+        g_emulate_title_decide();
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
 }
 
 std::string StringProperty(RC::Unreal::UObject* owner,
@@ -151,16 +150,23 @@ bool ReplaySceneNavigator::Bind(std::uintptr_t image_base) noexcept
     constexpr std::array<std::byte, 8> kDestroy{
         std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
         std::byte{0x08}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83}};
+    constexpr std::array<std::byte, 8> kEmulateTitleDecide{
+        std::byte{0x48}, std::byte{0x83}, std::byte{0xec}, std::byte{0x48},
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0x05}, std::byte{0x45}};
     g_initialize_path = {};
     g_destroy_path = {};
+    g_emulate_title_decide = {};
     if (image_base == 0
         || !SignatureMatches(image_base + 0x2ed1370, kInit)
-        || !SignatureMatches(image_base + 0x2ed6a80, kDestroy))
+        || !SignatureMatches(image_base + 0x2ed6a80, kDestroy)
+        || !SignatureMatches(image_base + 0x4b9e10, kEmulateTitleDecide))
     {
         return false;
     }
     g_initialize_path = reinterpret_cast<InitPathFn>(image_base + 0x2ed1370);
     g_destroy_path = reinterpret_cast<DestroyPathFn>(image_base + 0x2ed6a80);
+    g_emulate_title_decide = reinterpret_cast<EmulateTitleDecideFn>(
+        image_base + 0x4b9e10);
     return true;
 }
 
