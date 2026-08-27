@@ -1964,6 +1964,19 @@ void test_stage_break_presentation_identity_is_generation_scoped()
             && hit_identity.owner_logical_id == break_identity.owner_logical_id
             && hit_identity.asset_logical_id != break_identity.asset_logical_id,
         "resolve route-qualified pointer-free owner and asset identities");
+    std::uint64_t resolved_owner{};
+    std::uintptr_t resolved_actor{};
+    std::uintptr_t resolved_asset{};
+    expect(identities.ResolveActor(11, barrier, resolved_owner).ok()
+            && resolved_owner == hit_identity.owner_logical_id
+            && identities.ResolveActorAddress(11, resolved_owner,
+                StageBreakActorKind::Barrier, resolved_actor).ok()
+            && resolved_actor == barrier
+            && identities.ResolveAssetAddress(11, resolved_owner,
+                hit_identity.asset_logical_id, ParticleRoute::BarrierHit,
+                resolved_actor, resolved_asset).ok()
+            && resolved_actor == barrier && resolved_asset == hit_asset,
+        "reverse logical stage identities only within their native generation");
     StageBreakPresentationIdentity rejected{};
     expect(identities.Resolve(12, barrier, ParticleRoute::BarrierHit,
                 hit_asset, rejected).code == FailureCode::GenerationMismatch
@@ -1971,6 +1984,16 @@ void test_stage_break_presentation_identity_is_generation_scoped()
             && identities.Resolve(11, barrier, ParticleRoute::WallBreak,
                 hit_asset, rejected).code == FailureCode::UnsupportedContent,
         "generation drift and cross-route aliases fail closed");
+    expect(identities.ResolveActorAddress(12, resolved_owner,
+                StageBreakActorKind::Barrier, resolved_actor).code
+                == FailureCode::GenerationMismatch
+            && resolved_actor == 0
+            && identities.ResolveAssetAddress(11, resolved_owner,
+                hit_identity.asset_logical_id, ParticleRoute::WallBreak,
+                resolved_actor, resolved_asset).code
+                == FailureCode::UnsupportedContent
+            && resolved_actor == 0 && resolved_asset == 0,
+        "reverse logical identity rejects generation and route drift");
 
     auto replacement_actors = actors;
     replacement_actors[1].address = 0x10004000;

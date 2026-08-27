@@ -44,6 +44,22 @@ public:
         ParticleRoute route,
         std::uintptr_t asset_address,
         StageBreakPresentationIdentity& output) const noexcept;
+    Status ResolveActor(
+        std::uint64_t generation,
+        std::uintptr_t actor_address,
+        std::uint64_t& owner_logical_id) const noexcept;
+    Status ResolveActorAddress(
+        std::uint64_t generation,
+        std::uint64_t owner_logical_id,
+        StageBreakActorKind kind,
+        std::uintptr_t& actor_address) const noexcept;
+    Status ResolveAssetAddress(
+        std::uint64_t generation,
+        std::uint64_t owner_logical_id,
+        std::uint64_t asset_logical_id,
+        ParticleRoute route,
+        std::uintptr_t& actor_address,
+        std::uintptr_t& asset_address) const noexcept;
 
     [[nodiscard]] bool bound() const noexcept { return generation_ != 0; }
     [[nodiscard]] std::uint64_t generation() const noexcept { return generation_; }

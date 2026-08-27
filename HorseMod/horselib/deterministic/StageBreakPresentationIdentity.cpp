@@ -313,4 +313,77 @@ Status StageBreakPresentationIdentityMap::Resolve(
     output = {match->owner_logical_id, match->logical_id};
     return Status::success();
 }
+
+Status StageBreakPresentationIdentityMap::ResolveActor(
+    std::uint64_t generation,
+    std::uintptr_t actor_address,
+    std::uint64_t& owner_logical_id) const noexcept
+{
+    owner_logical_id = 0;
+    if (generation_ == 0 || generation != generation_)
+        return Status::failure(FailureCode::GenerationMismatch);
+    const ActorEntry* match{};
+    for (std::size_t index = 0; index < actor_count_; ++index)
+    {
+        const auto& entry = actors_[index];
+        if (entry.address != actor_address) continue;
+        if (match != nullptr && match->logical_id != entry.logical_id)
+            return Status::failure(FailureCode::IdentityMismatch);
+        match = &entry;
+    }
+    if (match == nullptr)
+        return Status::failure(FailureCode::UnsupportedContent);
+    owner_logical_id = match->logical_id;
+    return Status::success();
+}
+
+Status StageBreakPresentationIdentityMap::ResolveActorAddress(
+    std::uint64_t generation,
+    std::uint64_t owner_logical_id,
+    StageBreakActorKind kind,
+    std::uintptr_t& actor_address) const noexcept
+{
+    actor_address = 0;
+    if (generation_ == 0 || generation != generation_)
+        return Status::failure(FailureCode::GenerationMismatch);
+    for (std::size_t index = 0; index < actor_count_; ++index)
+    {
+        const auto& entry = actors_[index];
+        if (entry.logical_id != owner_logical_id || entry.kind != kind)
+            continue;
+        if (actor_address != 0 && actor_address != entry.address)
+            return Status::failure(FailureCode::IdentityMismatch);
+        actor_address = entry.address;
+    }
+    return actor_address != 0 ? Status::success()
+        : Status::failure(FailureCode::UnsupportedContent);
+}
+
+Status StageBreakPresentationIdentityMap::ResolveAssetAddress(
+    std::uint64_t generation,
+    std::uint64_t owner_logical_id,
+    std::uint64_t asset_logical_id,
+    ParticleRoute route,
+    std::uintptr_t& actor_address,
+    std::uintptr_t& asset_address) const noexcept
+{
+    actor_address = 0;
+    asset_address = 0;
+    if (generation_ == 0 || generation != generation_)
+        return Status::failure(FailureCode::GenerationMismatch);
+    for (std::size_t index = 0; index < asset_count_; ++index)
+    {
+        const auto& entry = assets_[index];
+        if (entry.owner_logical_id != owner_logical_id
+            || entry.logical_id != asset_logical_id || entry.route != route)
+            continue;
+        if ((actor_address != 0 && actor_address != entry.actor_address)
+            || (asset_address != 0 && asset_address != entry.asset_address))
+            return Status::failure(FailureCode::IdentityMismatch);
+        actor_address = entry.actor_address;
+        asset_address = entry.asset_address;
+    }
+    return actor_address != 0 && asset_address != 0 ? Status::success()
+        : Status::failure(FailureCode::UnsupportedContent);
+}
 }
