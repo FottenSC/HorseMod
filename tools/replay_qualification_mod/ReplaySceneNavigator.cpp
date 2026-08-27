@@ -106,7 +106,7 @@ std::string StringProperty(RC::Unreal::UObject* owner,
     if (owner == nullptr) return {};
     auto* value = owner->GetValuePtrByPropertyNameInChain<RC::Unreal::FString>(
         name);
-    return value != nullptr ? RC::to_string(*value) : std::string{};
+    return value != nullptr ? RC::to_string(**value) : std::string{};
 }
 
 bool ChangeScene(RC::Unreal::UObject* owner, const wchar_t* tag)
