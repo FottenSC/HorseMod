@@ -4722,6 +4722,37 @@ private:
             observation);
         if (!status.ok())
         {
+            if (status.code == Horse::Deterministic::FailureCode::ProtocolMismatch
+                || status.code
+                    == Horse::Deterministic::FailureCode::UnsupportedContent)
+            {
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] presentation journal build failed status={} "
+                    "batch={} frame={}->{} order={} "
+                    "terminal={}/{} blueprint={}/{} wall={}/{} barrier={}/{} "
+                    "dispatch={}/{} particles={}/{} signatures={}/{}/{}/{}\n"),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::failure_code_name(status.code))),
+                    observation.batch_id, observation.before.frame_counter,
+                    observation.after.frame_counter,
+                    observation.presentation_order_journal_count,
+                    observation.audio_terminal_calls,
+                    observation.audio_terminal_journal_count,
+                    observation.battle_audio_blueprint_calls,
+                    observation.battle_audio_blueprint_journal_count,
+                    observation.stage_wall_calls,
+                    observation.stage_wall_journal_count,
+                    observation.stage_barrier_calls,
+                    observation.stage_barrier_journal_count,
+                    observation.stage_dispatch_calls,
+                    observation.stage_dispatch_journal_count,
+                    observation.particle_spawn_calls,
+                    observation.particle_spawn_journal_count,
+                    observation.stage_signature_failures,
+                    observation.battle_audio_signature_failures,
+                    observation.particle_signature_failures,
+                    observation.presentation_order_failures);
+            }
             if (status.code == Horse::Deterministic::FailureCode::PresentationFailed
                 && observation.battle_audio_signature_failures != 0)
             {
