@@ -1237,6 +1237,115 @@ Status Sc6ReplayRuntime::CaptureOwnedLanding(
         coordinate, *capture->output);
 }
 
+Status Sc6ReplayRuntime::CaptureCorrectedCoordinate(
+    void* user, FrameCoordinate coordinate, std::uint32_t index) noexcept
+{
+    auto* capture = static_cast<CorrectedCoordinateCapture*>(user);
+    if (capture == nullptr || capture->runtime == nullptr
+        || index >= capture->inputs.size())
+        return Status::failure(FailureCode::InvalidConfiguration);
+    auto& runtime = *capture->runtime;
+    auto& corrected = runtime.corrected_replay_capture_;
+    if (corrected.coordinate_count >= corrected.coordinates.size())
+        return Status::failure(FailureCode::CapacityExceeded);
+    const auto expected_canonical = runtime.canonical_timeline_.GetExact(
+        coordinate);
+    const auto expected_input = runtime.input_timeline_.GetExact(coordinate);
+    if (!expected_canonical.has_value() || !expected_input.has_value())
+        return Status::failure(FailureCode::MissingSnapshot);
+    Snapshot& snapshot = runtime.correction_canonical_capture_scratch_;
+    const Status captured = runtime.checkpoint_capture_.CaptureCanonical(
+        coordinate, snapshot);
+    if (!captured.ok()) return captured;
+    const auto target = corrected.coordinate_count++;
+    corrected.coordinates[target] = coordinate;
+    corrected.expected_inputs[target] = *expected_input;
+    corrected.replacement_inputs[target] = capture->inputs[index];
+    corrected.expected_canonical[target] = *expected_canonical;
+    corrected.replacement_canonical[target] = {
+        coordinate, snapshot.canonical_hash, snapshot.canonical_components,
+        snapshot.canonical_native, snapshot.canonical_move_dispatch,
+        snapshot.canonical_input, snapshot.canonical_wind_semantic,
+        snapshot.canonical_wind, snapshot.canonical_wind_node};
+    return Status::success();
+}
+
+void Sc6ReplayRuntime::ApplyCorrectedPresentationObservation(
+    NativeBatchEnvelope& envelope,
+    const OuterTickObservation& observation) noexcept
+{
+    envelope.repeat_pending_coordinates = observation.repeat_pending_coordinates;
+    envelope.same_input_time_coordinates = observation.same_input_time_coordinates;
+    envelope.stage_wall_calls = observation.stage_wall_calls;
+    envelope.stage_wall_hash = observation.stage_wall_hash;
+    envelope.stage_barrier_calls = observation.stage_barrier_calls;
+    envelope.stage_barrier_hash = observation.stage_barrier_hash;
+    envelope.stage_dispatch_calls = observation.stage_dispatch_calls;
+    envelope.stage_dispatch_hash = observation.stage_dispatch_hash;
+    envelope.stage_signature_failures = observation.stage_signature_failures;
+    envelope.battle_audio_dispatches = observation.battle_audio_dispatches;
+    envelope.battle_audio_sequence_hash = observation.battle_audio_sequence_hash;
+    envelope.battle_audio_route_hash = observation.battle_audio_route_hash;
+    envelope.battle_audio_payload_hash = observation.battle_audio_payload_hash;
+    envelope.battle_audio_position_hash = observation.battle_audio_position_hash;
+    envelope.battle_audio_direct_dispatches =
+        observation.battle_audio_direct_dispatches;
+    envelope.battle_audio_direct_route_hash =
+        observation.battle_audio_direct_route_hash;
+    envelope.battle_audio_direct_payload_hash =
+        observation.battle_audio_direct_payload_hash;
+    envelope.battle_audio_direct_position_hash =
+        observation.battle_audio_direct_position_hash;
+    envelope.battle_audio_direct_sequence_hash =
+        observation.battle_audio_direct_sequence_hash;
+    envelope.battle_audio_remap_calls = observation.battle_audio_remap_calls;
+    envelope.battle_audio_remap_hash = observation.battle_audio_remap_hash;
+    envelope.battle_audio_source_calls = observation.battle_audio_source_calls;
+    envelope.battle_audio_source_hash = observation.battle_audio_source_hash;
+    envelope.battle_audio_stop_all_calls = observation.battle_audio_stop_all_calls;
+    envelope.battle_audio_stop_all_hash = observation.battle_audio_stop_all_hash;
+    envelope.battle_audio_blueprint_calls = observation.battle_audio_blueprint_calls;
+    envelope.battle_audio_blueprint_hash = observation.battle_audio_blueprint_hash;
+    envelope.particle_spawn_calls = observation.particle_spawn_calls;
+    envelope.particle_spawn_hash = observation.particle_spawn_hash;
+    envelope.particle_signature_failures = observation.particle_signature_failures;
+    envelope.camera_publication_hash = observation.camera_publication_hash;
+    envelope.camera_publication = observation.camera_publication;
+    envelope.camera_signature_failures = observation.camera_signature_failures;
+    envelope.presentation_order_hash = observation.presentation_order_hash;
+    envelope.presentation_order_failures = observation.presentation_order_failures;
+    envelope.battle_audio_remap_entry_values =
+        observation.battle_audio_remap_entry_values;
+    envelope.battle_audio_remap_entry_mask = observation.battle_audio_remap_entry_mask;
+    envelope.battle_audio_journal = observation.battle_audio_journal;
+    envelope.battle_audio_source_journal = observation.battle_audio_source_journal;
+    envelope.battle_audio_remap_journal = observation.battle_audio_remap_journal;
+    envelope.battle_audio_blueprint_journal =
+        observation.battle_audio_blueprint_journal;
+    envelope.battle_audio_stop_all_journal =
+        observation.battle_audio_stop_all_journal;
+    envelope.stage_wall_journal = observation.stage_wall_journal;
+    envelope.stage_barrier_journal = observation.stage_barrier_journal;
+    envelope.stage_dispatch_journal = observation.stage_dispatch_journal;
+    envelope.particle_spawn_journal = observation.particle_spawn_journal;
+    envelope.presentation_order_journal = observation.presentation_order_journal;
+    envelope.battle_audio_journal_count = observation.battle_audio_journal_count;
+    envelope.battle_audio_source_journal_count =
+        observation.battle_audio_source_journal_count;
+    envelope.battle_audio_remap_journal_count =
+        observation.battle_audio_remap_journal_count;
+    envelope.battle_audio_blueprint_journal_count =
+        observation.battle_audio_blueprint_journal_count;
+    envelope.battle_audio_stop_all_journal_count =
+        observation.battle_audio_stop_all_journal_count;
+    envelope.stage_wall_journal_count = observation.stage_wall_journal_count;
+    envelope.stage_barrier_journal_count = observation.stage_barrier_journal_count;
+    envelope.stage_dispatch_journal_count = observation.stage_dispatch_journal_count;
+    envelope.particle_spawn_journal_count = observation.particle_spawn_journal_count;
+    envelope.presentation_order_journal_count =
+        observation.presentation_order_journal_count;
+}
+
 Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
     std::size_t first_batch_index,
     std::size_t final_batch_index,
@@ -1268,15 +1377,19 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
         first_interbatch_expected_wind_graph,
     OwnedCorrectionResult::WindGraphScheduleDiagnostic*
         first_interbatch_observed_wind_graph,
-    OwnedCorrectionResult* presentation_diagnostics) noexcept
+    OwnedCorrectionResult* presentation_diagnostics,
+    CorrectedReplayCapture* corrected) noexcept
 {
     if (first_batch_index > final_batch_index || generation == 0
-        || (landing_batch_index.has_value() && landing == nullptr))
+        || (landing_batch_index.has_value() && landing == nullptr)
+        || (corrected != nullptr && corrected != &corrected_replay_capture_))
     {
         return Status::failure(FailureCode::InvalidConfiguration);
     }
     if (replayed_coordinates != nullptr) *replayed_coordinates = 0;
     if (replayed_batches != nullptr) *replayed_batches = 0;
+    NativeCameraSourceFrameImage corrected_camera_source{};
+    bool corrected_camera_source_valid{};
 
     for (std::size_t batch_index = first_batch_index;
          batch_index <= final_batch_index; ++batch_index)
@@ -1335,9 +1448,12 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                 expected_entry->input, inputs[0]);
         }
         if (!input_handoff.ok()) return input_handoff;
+        const auto& camera_source = corrected != nullptr
+                && corrected_camera_source_valid
+            ? corrected_camera_source : envelope->camera_source_frame;
         const Status camera_handoff =
             checkpoint_capture_.RestoreCameraSourceFrameForReplay(
-                envelope->camera_source_frame);
+                camera_source);
         if (!camera_handoff.ok()) return camera_handoff;
         const auto expected_landing = capture_landing
             ? canonical_timeline_.GetExact(coordinates[landing_offset])
@@ -1345,6 +1461,12 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
         if (capture_landing && !expected_landing.has_value())
             return Status::failure(FailureCode::MissingSnapshot);
         OwnedLandingCapture landing_capture{&checkpoint_capture_, landing};
+        OuterTickObservation corrected_observation{};
+        std::array<InputPair,
+            Schema::maximum_supported_native_batch_width> corrected_inputs{};
+        CorrectedCoordinateCapture corrected_capture{
+            this, std::span{corrected_inputs.data(),
+                static_cast<std::size_t>(envelope->coordinate_count)}};
         OwnedBatchReplayRequest request{};
         request.battle_manager = timeline_manager_;
         request.owner_thread_id = timeline_thread_id_;
@@ -1354,6 +1476,17 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
         request.inputs = std::span{inputs.data(),
             static_cast<std::size_t>(envelope->coordinate_count)};
         request.suppress_ephemeral_presentation = true;
+        if (corrected != nullptr)
+        {
+            if (corrected->batch_count >= corrected->batch_indices.size())
+                return Status::failure(FailureCode::CapacityExceeded);
+            request.presentation_mode =
+                OwnedBatchPresentationMode::CaptureCorrected;
+            request.corrected_inputs = corrected_capture.inputs;
+            request.corrected_observation = &corrected_observation;
+            request.coordinate_capture_user = &corrected_capture;
+            request.capture_coordinate = CaptureCorrectedCoordinate;
+        }
         if (capture_landing)
         {
             request.landing_offset = landing_offset;
@@ -1362,7 +1495,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
         }
         OwnedBatchReplayResult result{};
         Status status = hooks.ExecuteOwnedBatch(request, result);
-        if (status.ok()
+        if (corrected == nullptr && status.ok()
             && (envelope->stage_signature_failures != 0
                 || result.stage_signature_failures != 0
                 || result.suppressed_stage_wall_calls
@@ -1379,7 +1512,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
             result.failure = FailureCode::PresentationFailed;
             status = Status::failure(result.failure);
         }
-        if (status.ok()
+        if (corrected == nullptr && status.ok()
             && (result.suppressed_audio_source_calls
                     != envelope->battle_audio_source_calls
                 || result.suppressed_audio_source_hash
@@ -1390,7 +1523,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
             result.failure = FailureCode::PresentationFailed;
             status = Status::failure(result.failure);
         }
-        if (status.ok()
+        if (corrected == nullptr && status.ok()
             && (envelope->camera_signature_failures != 0
                 || result.camera_signature_failures != 0
                 || result.camera_publication_hash
@@ -1413,7 +1546,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
             result.failure = FailureCode::PresentationFailed;
             status = Status::failure(result.failure);
         }
-        if (status.ok()
+        if (corrected == nullptr && status.ok()
             && (result.suppressed_audio_calls
                     != envelope->battle_audio_dispatches
                 || result.suppressed_audio_route_hash
@@ -1504,6 +1637,23 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
             if (failed_result != nullptr) *failed_result = result;
             return status.ok()
                 ? Status::failure(FailureCode::CaptureFailed) : status;
+        }
+        if (corrected != nullptr)
+        {
+            const auto target = corrected->batch_count++;
+            corrected->batch_indices[target] = batch_index;
+            corrected->expected_batches[target] = *envelope;
+            corrected->replacement_batches[target] = *envelope;
+            corrected->replacement_batches[target].camera_source_frame =
+                camera_source;
+            ApplyCorrectedPresentationObservation(
+                corrected->replacement_batches[target],
+                corrected_observation);
+            const Status captured_camera =
+                checkpoint_capture_.CaptureCameraSourceFrame(
+                    corrected_camera_source);
+            if (!captured_camera.ok()) return captured_camera;
+            corrected_camera_source_valid = true;
         }
         if (replayed_coordinates != nullptr)
             *replayed_coordinates += envelope->coordinate_count;
@@ -1853,6 +2003,17 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     DeterministicHookSet& hooks,
     OwnedCorrectionResult& output) noexcept
 {
+    return ExecuteOwnedCorrectionInternal(earliest_changed,
+        &expected_final_hash, hooks, output, nullptr);
+}
+
+Status Sc6ReplayRuntime::ExecuteOwnedCorrectionInternal(
+    FrameCoordinate earliest_changed,
+    const CanonicalHash* expected_final_hash,
+    DeterministicHookSet& hooks,
+    OwnedCorrectionResult& output,
+    CorrectedReplayCapture* corrected) noexcept
+{
     using Clock = std::chrono::steady_clock;
     const auto elapsed_ns = [](Clock::time_point begin,
                                 Clock::time_point end) noexcept {
@@ -1862,6 +2023,7 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     };
 
     output = {};
+    if (corrected != nullptr) corrected->Clear();
     output.earliest_changed = earliest_changed;
     output.final_coordinate = timeline_status_.last_coordinate;
     const auto total_begin = Clock::now();
@@ -1957,7 +2119,9 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         &output.replayed_batches, &output.failed_batch_index,
         &output.failed_envelope, &output.failed_batch_result,
         nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &output);
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &output,
+        corrected);
+
     output.resimulation_ns = elapsed_ns(phase_begin, Clock::now());
     if (output.first_interbatch_local_difference != UINT32_MAX)
     {
@@ -1981,14 +2145,25 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         timeline_status_.last_coordinate);
     const auto final_input = input_timeline_.GetExact(
         timeline_status_.last_coordinate);
-    if (!expected_final.has_value() || !final_input.has_value())
+    const CanonicalInputDiagnostic* final_input_image =
+        expected_final.has_value() ? &expected_final->input : nullptr;
+    const InputPair* final_input_pair =
+        final_input.has_value() ? &*final_input : nullptr;
+    if (corrected != nullptr && corrected->coordinate_count != 0)
+    {
+        final_input_image = &corrected->replacement_canonical[
+            corrected->coordinate_count - 1].input;
+        final_input_pair = &corrected->replacement_inputs[
+            corrected->coordinate_count - 1];
+    }
+    if (final_input_image == nullptr || final_input_pair == nullptr)
     {
         status = Status::failure(FailureCode::MissingInput);
     }
     else
     {
         status = checkpoint_capture_.PrepareInputLogForReplay(
-            expected_final->input, *final_input);
+            *final_input_image, *final_input_pair);
     }
     if (status.ok())
         status = checkpoint_capture_.RestoreMoveDispatchMasksForReplay(undo);
@@ -2005,9 +2180,14 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
         timeline_status_.last_coordinate, verified);
     output.verification_ns = elapsed_ns(phase_begin, Clock::now());
     output.final_hash = verified.canonical_hash;
+    const CanonicalHash* required_final_hash = expected_final_hash;
+    if (corrected != nullptr && corrected->coordinate_count != 0)
+        required_final_hash = &corrected->replacement_canonical[
+            corrected->coordinate_count - 1].hash;
     const bool final_mismatch = status.ok()
-        && (verified.coordinate != timeline_status_.last_coordinate
-            || verified.canonical_hash != expected_final_hash);
+        && (required_final_hash == nullptr
+            || verified.coordinate != timeline_status_.last_coordinate
+            || verified.canonical_hash != *required_final_hash);
     CandidateCheckpointImage expected_image{};
     CandidateCheckpointImage verified_image{};
     if (final_mismatch
@@ -2235,7 +2415,9 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     // Owned replay must not publish its historical presentation selector into
     // the next authoritative tick. Reconcile it to the pre-correction image
     // only after canonical convergence has been established.
-    status = checkpoint_capture_.RestoreBattleAudioSelectorForPresentation(undo);
+    status = corrected == nullptr
+        ? checkpoint_capture_.RestoreBattleAudioSelectorForPresentation(undo)
+        : Status::success();
     if (!status.ok())
     {
         record_primary_failure(status);
@@ -2246,6 +2428,117 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrection(
     output.converged = true;
     output.primary_performance = checkpoint_capture_.adapter_performance();
     return finish(Status::success());
+}
+
+Status Sc6ReplayRuntime::ApplyConfirmedRemoteInput(
+    FrameCoordinate coordinate,
+    std::size_t player_index,
+    const PlayerInput& confirmed_remote,
+    DeterministicHookSet& hooks,
+    OwnedCorrectionResult& output) noexcept
+{
+    output = {};
+    if (player_index >= 2 || coordinate.generation == 0
+        || coordinate.generation != timeline_status_.last_coordinate.generation
+        || coordinate > timeline_status_.last_coordinate)
+        return Status::failure(FailureCode::InvalidConfiguration);
+    const auto previous = input_timeline_.GetExact(coordinate);
+    if (!previous.has_value())
+        return Status::failure(FailureCode::MissingInput);
+    if (previous->remote_confirmed)
+    {
+        if (previous->players[player_index] != confirmed_remote)
+            return Status::failure(FailureCode::IdentityMismatch);
+        output.earliest_changed = coordinate;
+        output.final_coordinate = timeline_status_.last_coordinate;
+        const auto final = canonical_timeline_.GetExact(
+            timeline_status_.last_coordinate);
+        if (!final.has_value())
+            return Status::failure(FailureCode::MissingSnapshot);
+        output.final_hash = final->hash;
+        output.converged = true;
+        return Status::success();
+    }
+
+    InputPair proposed = *previous;
+    proposed.players[player_index] = confirmed_remote;
+    proposed.source_rows[player_index].input_value = confirmed_remote.held;
+    proposed.remote_confirmed = true;
+    proposed.post_filter_observed = false;
+    Status status = input_timeline_.CompareExchange(
+        coordinate, *previous, proposed);
+    if (!status.ok()) return status;
+
+    status = ExecuteOwnedCorrectionInternal(coordinate, nullptr, hooks,
+        output, &corrected_replay_capture_);
+    if (!status.ok())
+    {
+        const Status restored = input_timeline_.CompareExchange(
+            coordinate, proposed, *previous);
+        return restored.ok() ? status
+            : Status::failure(FailureCode::UndoFailed);
+    }
+
+    auto& corrected = corrected_replay_capture_;
+    std::size_t replaced_batches{};
+    bool canonical_replaced{};
+    for (; replaced_batches < corrected.batch_count; ++replaced_batches)
+    {
+        status = batch_timeline_.ReplaceBatch(
+            corrected.batch_indices[replaced_batches],
+            corrected.expected_batches[replaced_batches],
+            corrected.replacement_batches[replaced_batches]);
+        if (!status.ok()) break;
+    }
+    if (status.ok())
+    {
+        status = canonical_timeline_.ReplaceExactRange(
+            std::span{corrected.expected_canonical.data(),
+                corrected.coordinate_count},
+            std::span{corrected.replacement_canonical.data(),
+                corrected.coordinate_count});
+        canonical_replaced = status.ok();
+    }
+    if (status.ok())
+    {
+        status = input_timeline_.CompareExchangeRange(
+            std::span{corrected.coordinates.data(), corrected.coordinate_count},
+            std::span{corrected.expected_inputs.data(), corrected.coordinate_count},
+            std::span{corrected.replacement_inputs.data(),
+                corrected.coordinate_count});
+    }
+    if (status.ok()) return status;
+
+    if (canonical_replaced)
+    {
+        static_cast<void>(canonical_timeline_.ReplaceExactRange(
+            std::span{corrected.replacement_canonical.data(),
+                corrected.coordinate_count},
+            std::span{corrected.expected_canonical.data(),
+                corrected.coordinate_count}));
+    }
+    while (replaced_batches != 0)
+    {
+        --replaced_batches;
+        static_cast<void>(batch_timeline_.ReplaceBatch(
+            corrected.batch_indices[replaced_batches],
+            corrected.replacement_batches[replaced_batches],
+            corrected.expected_batches[replaced_batches]));
+    }
+    const Status input_restored = input_timeline_.CompareExchange(
+        coordinate, proposed, *previous);
+    Status native_restored = checkpoint_capture_.RestoreAndVerify(
+        correction_undo_scratch_);
+    const Status selector_restored =
+        checkpoint_capture_.RestoreBattleAudioSelectorForPresentation(
+            correction_undo_scratch_);
+    if (native_restored.ok() && !selector_restored.ok())
+        native_restored = selector_restored;
+    output.converged = false;
+    output.failure = status.code;
+    output.undo_restored = native_restored.ok();
+    return input_restored.ok() && native_restored.ok()
+        ? status : Status::failure(FailureCode::UndoFailed);
 }
 
 void* Sc6ReplayRuntime::ResolveReplayPlayer(void* user) noexcept

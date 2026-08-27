@@ -290,10 +290,53 @@ public:
         const CanonicalHash& expected_final_hash,
         DeterministicHookSet& hooks,
         OwnedCorrectionResult& output) noexcept;
+    Status ApplyConfirmedRemoteInput(
+        FrameCoordinate coordinate,
+        std::size_t player_index,
+        const PlayerInput& confirmed_remote,
+        DeterministicHookSet& hooks,
+        OwnedCorrectionResult& output) noexcept;
     [[nodiscard]] Status PreflightOwnedCorrection(
         FrameCoordinate earliest_changed) const noexcept;
 
 private:
+    static constexpr std::size_t maximum_owned_correction_coordinates = 64;
+    static constexpr std::size_t maximum_owned_correction_batches = 64;
+
+    struct CorrectedReplayCapture
+    {
+        std::array<FrameCoordinate,
+            maximum_owned_correction_coordinates> coordinates{};
+        std::array<InputPair,
+            maximum_owned_correction_coordinates> expected_inputs{};
+        std::array<InputPair,
+            maximum_owned_correction_coordinates> replacement_inputs{};
+        std::array<CanonicalHashEntry,
+            maximum_owned_correction_coordinates> expected_canonical{};
+        std::array<CanonicalHashEntry,
+            maximum_owned_correction_coordinates> replacement_canonical{};
+        std::array<std::size_t,
+            maximum_owned_correction_batches> batch_indices{};
+        std::array<NativeBatchEnvelope,
+            maximum_owned_correction_batches> expected_batches{};
+        std::array<NativeBatchEnvelope,
+            maximum_owned_correction_batches> replacement_batches{};
+        std::size_t coordinate_count{};
+        std::size_t batch_count{};
+
+        void Clear() noexcept
+        {
+            coordinate_count = 0;
+            batch_count = 0;
+        }
+    };
+
+    struct CorrectedCoordinateCapture
+    {
+        Sc6ReplayRuntime* runtime{};
+        std::span<InputPair> inputs{};
+    };
+
     Status PrepareInitialGeneration(
         const OuterTickObservation& observation) noexcept;
     Status CapturePendingCameraSource() noexcept;
@@ -305,6 +348,17 @@ private:
     static void* ResolveStage(void* user) noexcept;
     static Status CaptureOwnedLanding(
         void* user, FrameCoordinate coordinate) noexcept;
+    static Status CaptureCorrectedCoordinate(
+        void* user, FrameCoordinate coordinate, std::uint32_t index) noexcept;
+    static void ApplyCorrectedPresentationObservation(
+        NativeBatchEnvelope& envelope,
+        const OuterTickObservation& observation) noexcept;
+    Status ExecuteOwnedCorrectionInternal(
+        FrameCoordinate earliest_changed,
+        const CanonicalHash* expected_final_hash,
+        DeterministicHookSet& hooks,
+        OwnedCorrectionResult& output,
+        CorrectedReplayCapture* corrected) noexcept;
     Status ReplayOwnedBatchRange(
         std::size_t first_batch_index,
         std::size_t final_batch_index,
@@ -336,7 +390,8 @@ private:
             first_interbatch_expected_wind_graph = nullptr,
         OwnedCorrectionResult::WindGraphScheduleDiagnostic*
             first_interbatch_observed_wind_graph = nullptr,
-        OwnedCorrectionResult* presentation_diagnostics = nullptr) noexcept;
+        OwnedCorrectionResult* presentation_diagnostics = nullptr,
+        CorrectedReplayCapture* corrected = nullptr) noexcept;
 
     struct OwnedLandingCapture
     {
@@ -363,6 +418,8 @@ private:
         16u * 1024u * 1024u, 16, CapacityPolicy::EvictOldest};
     Snapshot correction_undo_scratch_{};
     Snapshot correction_verified_scratch_{};
+    Snapshot correction_canonical_capture_scratch_{};
+    CorrectedReplayCapture corrected_replay_capture_{};
     bool forced_depth7_qualification_enabled_{};
     ReplayTimelineStatus timeline_status_{};
     std::uintptr_t timeline_manager_{};

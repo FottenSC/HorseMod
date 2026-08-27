@@ -164,7 +164,10 @@ Status NativeBatchTimeline::ReplaceBatch(
         && replacement.round_state_after == expected.round_state_after
         && replacement.input_generation_changed
             == expected.input_generation_changed
-        && replacement.camera_source_frame == expected.camera_source_frame;
+        && replacement.camera_source_frame.session_generation
+            == expected.camera_source_frame.session_generation
+        && replacement.camera_source_frame.round_generation
+            == expected.camera_source_frame.round_generation;
     const auto expected_order =
         static_cast<std::size_t>(replacement.battle_audio_dispatches)
         + replacement.battle_audio_source_calls
