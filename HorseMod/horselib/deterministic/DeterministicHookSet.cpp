@@ -3098,8 +3098,17 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
         }
         if (!captured
             || envelope.battle_audio_journal[index].semantic != semantic
-            || envelope.battle_audio_journal[index].direct != (direct ? 1 : 0))
+            || envelope.battle_audio_journal[index].direct != (direct ? 1 : 0)
+            || !MatchesNextPresentationOrder(
+                PresentationEventFamily::BattleAudioDispatch,
+                static_cast<std::uint32_t>(index), envelope, replay,
+                batch->observation, batch->frame_counter_address))
         {
+            // Presentation-local dispatch queues survive gameplay checkpoint
+            // restore. A semantic match alone is insufficient because a stale
+            // direct call can match a later source-owned dispatch. Leave both
+            // cursors untouched unless this is the exact next source-frame
+            // presentation event.
             ++replay.discarded_audio_calls;
             callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
             return -1;
@@ -3950,7 +3959,26 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
         const auto& envelope = *batch->owned->request->envelope;
         const bool verify = batch->owned->request->presentation_mode
             == OwnedBatchPresentationMode::VerifyRecorded;
-        const auto index = replay.suppressed_audio_blueprint_calls++;
+        const auto index = replay.suppressed_audio_blueprint_calls;
+        if (verify && (!captured
+                || index >= envelope.battle_audio_blueprint_journal_count
+                || envelope.battle_audio_blueprint_journal[index].semantic
+                    != semantic.semantic
+                || envelope.battle_audio_blueprint_journal[index].handler_slot
+                    != semantic.handler_slot
+                || envelope.battle_audio_blueprint_journal[index].direct
+                    != semantic.direct
+                || !MatchesNextPresentationOrder(
+                    PresentationEventFamily::BattleAudioBlueprint,
+                    index, envelope, replay, batch->observation,
+                    batch->frame_counter_address)))
+        {
+            // As with direct dispatches, discard a stale presentation-local
+            // callback without advancing either journal cursor.
+            callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+            return;
+        }
+        ++replay.suppressed_audio_blueprint_calls;
         if (verify && !VerifyPresentationOrder(
                 PresentationEventFamily::BattleAudioBlueprint,
                 index, envelope, replay, batch->observation,
