@@ -435,7 +435,8 @@ private:
         seek_validation_ns_ = 0;
         seek_resimulation_coordinates_ = 0;
         seek_resume_start_frame_ = 0;
-        seek_resume_active_elapsed_us_ = 0;
+        seek_resume_rate_frames_ = 0;
+        seek_resume_rate_elapsed_us_ = 0;
         seek_resume_last_observed_frame_ = 0;
         seek_resume_last_round_state_frame_ = 0;
         seek_resume_observation_active_ = false;
@@ -626,9 +627,20 @@ private:
                 && native_round == seek_resume_native_round_
                 && round_state_frame >= seek_resume_last_round_state_frame_)
             {
-                seek_resume_active_elapsed_us_ +=
+                const auto elapsed_us = static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::microseconds>(
-                        now - seek_resume_last_active_at_).count();
+                        now - seek_resume_last_active_at_).count());
+                const auto advanced_frames = static_cast<std::uint64_t>(
+                    frame - seek_resume_last_observed_frame_);
+                if (seek_resume_rate_frames_ < request_.resume_tick_window)
+                {
+                    const auto accepted_frames = (std::min)(advanced_frames,
+                        static_cast<std::uint64_t>(request_.resume_tick_window)
+                            - seek_resume_rate_frames_);
+                    seek_resume_rate_frames_ += accepted_frames;
+                    seek_resume_rate_elapsed_us_ += elapsed_us
+                        * accepted_frames / advanced_frames;
+                }
             }
             seek_resume_last_active_at_ = now;
             seek_resume_last_observed_frame_ = frame;
@@ -656,21 +668,24 @@ private:
             {
                 return;
             }
-            const auto elapsed_us = seek_resume_active_elapsed_us_;
-            if (elapsed_us <= 0)
+            const auto elapsed_us = seek_resume_rate_elapsed_us_;
+            if (seek_resume_rate_frames_ < request_.resume_tick_window
+                || elapsed_us == 0)
             {
                 Fail("horsemod_seek_resume_clock_invalid");
                 return;
             }
-            const auto tick_rate_milli = live_frames * 1'000'000'000ull
+            const auto tick_rate_milli = seek_resume_rate_frames_
+                * 1'000'000'000ull
                 / static_cast<std::uint64_t>(elapsed_us);
             if (tick_rate_milli < request_.min_resume_tick_rate_milli)
             {
                 Output::send<LogLevel::Default>(STR(
                     "[ReplayQualification] strict seek live rate failed "
                     "percent={} live_resumed={} active_elapsed_us={} "
-                    "resume_tick_rate_milli={} minimum={}\n"),
-                    percentage, live_frames, elapsed_us, tick_rate_milli,
+                    "resume_window={} resume_tick_rate_milli={} minimum={}\n"),
+                    percentage, live_frames, elapsed_us,
+                    seek_resume_rate_frames_, tick_rate_milli,
                     request_.min_resume_tick_rate_milli);
                 Fail("horsemod_seek_live_resume_too_slow");
                 return;
@@ -739,7 +754,8 @@ private:
                 seek_validation_ns_ = validation_ns;
                 seek_resimulation_coordinates_ = resimulation_coordinates;
                 seek_resume_start_frame_ = frame;
-                seek_resume_active_elapsed_us_ = 0;
+                seek_resume_rate_frames_ = 0;
+                seek_resume_rate_elapsed_us_ = 0;
                 std::int32_t native_round{}, native_time{}, unpause_countdown{};
                 std::uint32_t round_state_frame{};
                 if (!get_phase_(&native_round, &native_time,
@@ -898,7 +914,8 @@ private:
     GetReplaySimulationPhaseFn get_phase_{};
     GetReplaySeekMetricsFn get_metrics_{};
     std::uint32_t seek_resume_start_frame_{};
-    std::uint64_t seek_resume_active_elapsed_us_{};
+    std::uint64_t seek_resume_rate_frames_{};
+    std::uint64_t seek_resume_rate_elapsed_us_{};
     std::uint32_t seek_resume_last_observed_frame_{};
     std::chrono::steady_clock::time_point seek_resume_last_active_at_{};
     std::int32_t seek_resume_native_round_{};
