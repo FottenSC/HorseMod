@@ -759,6 +759,7 @@ bool ConsumeBattleAudioJournal(
         + envelope.battle_audio_remap_calls
         + envelope.battle_audio_blueprint_calls
         + envelope.battle_audio_stop_all_calls
+        + envelope.audio_terminal_calls
         + envelope.stage_wall_calls + envelope.stage_barrier_calls
         + envelope.stage_dispatch_calls + envelope.particle_spawn_calls;
     if (envelope.particle_signature_failures != 0
@@ -782,6 +783,10 @@ bool ConsumeBattleAudioJournal(
             != envelope.battle_audio_stop_all_calls
         || envelope.battle_audio_stop_all_journal_count
             > envelope.battle_audio_stop_all_journal.size()
+        || envelope.audio_terminal_journal_count
+            != envelope.audio_terminal_calls
+        || envelope.audio_terminal_journal_count
+            > envelope.audio_terminal_journal.size()
         || envelope.stage_wall_journal_count != envelope.stage_wall_calls
         || envelope.stage_wall_journal_count
             > envelope.stage_wall_journal.size()
@@ -828,6 +833,7 @@ bool ConsumeBattleAudioJournal(
     std::array<bool, maximum_battle_audio_journal_remaps> source_remap{};
     std::array<bool, maximum_battle_audio_blueprint_journal_events>
         source_blueprint{};
+    std::array<bool, maximum_audio_terminal_journal_events> source_terminal{};
     for (std::size_t source_index = 0;
          source_index < envelope.battle_audio_source_journal_count;
          ++source_index)
@@ -840,10 +846,14 @@ bool ConsumeBattleAudioJournal(
         const auto blueprint_end =
             static_cast<std::size_t>(source.first_blueprint)
             + source.blueprint_count;
+        const auto terminal_end =
+            static_cast<std::size_t>(source.first_terminal)
+            + source.terminal_count;
         if (dispatch_end > envelope.battle_audio_journal_count
             || remap_end > envelope.battle_audio_remap_journal_count
             || blueprint_end
-                > envelope.battle_audio_blueprint_journal_count)
+                > envelope.battle_audio_blueprint_journal_count
+            || terminal_end > envelope.audio_terminal_journal_count)
         {
             output.audio_journal_failure_mask |= journal_structure;
             return false;
@@ -878,6 +888,16 @@ bool ConsumeBattleAudioJournal(
                 return false;
             }
             source_blueprint[index] = true;
+        }
+        for (std::size_t index = source.first_terminal;
+             index < terminal_end; ++index)
+        {
+            if (source_terminal[index])
+            {
+                output.audio_journal_failure_mask |= journal_structure;
+                return false;
+            }
+            source_terminal[index] = true;
         }
     }
     for (std::size_t index = 0; index < envelope.battle_audio_journal_count;
@@ -920,6 +940,15 @@ bool ConsumeBattleAudioJournal(
     {
         const auto& entry = envelope.battle_audio_stop_all_journal[index];
         if (entry.owner_slot >= maximum_battle_audio_stop_all_journal_events)
+        {
+            output.audio_journal_failure_mask |= journal_structure;
+            return false;
+        }
+    }
+    for (std::size_t index = 0;
+         index < envelope.audio_terminal_journal_count; ++index)
+    {
+        if (!envelope.audio_terminal_journal[index].valid())
         {
             output.audio_journal_failure_mask |= journal_structure;
             return false;
