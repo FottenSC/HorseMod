@@ -148,19 +148,19 @@ NavigationState ReplaySceneNavigator::Tick(
     {
         // Act on the first title callback. The title startup machine can enter
         // a blocking modal before this post-tick hook receives 15 more frames.
-        // Drive the game-flow boundary directly so navigation does not depend
-        // on whichever title-state/modal currently owns input.
+        // Drive TitleScene's cooked `mainmenu` transition directly so
+        // navigation does not depend on whichever title-state/modal owns input.
         if ((retry_frames_++ % 60) != 0)
         {
             detail = scene_name;
             return NavigationState::Waiting;
         }
-        if (!ChangeScene(manager, L"replay_list"))
+        if (!ChangeScene(manager, L"mainmenu"))
         {
-            detail = "title_replay_list_failed";
+            detail = "title_mainmenu_failed";
             return NavigationState::Failed;
         }
-        detail = "title_replay_list_requested";
+        detail = "title_mainmenu_requested";
         return NavigationState::Waiting;
     }
     if (++retry_frames_ < 15)
