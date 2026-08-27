@@ -79,9 +79,9 @@ RC::Unreal::UObject* CurrentScene(RC::Unreal::UObject* manager) noexcept
         && RC::Unreal::UObject::IsReal(*value) ? *value : nullptr;
 }
 
-bool ChangeScene(RC::Unreal::UObject* manager, const wchar_t* tag)
+bool ChangeScene(RC::Unreal::UObject* owner, const wchar_t* tag)
 {
-    auto* function = manager->GetFunctionByNameInChain(L"ChangeScene");
+    auto* function = owner->GetFunctionByNameInChain(L"ChangeScene");
     if (function == nullptr || g_initialize_path == nullptr
         || g_destroy_path == nullptr)
     {
@@ -89,7 +89,7 @@ bool ChangeScene(RC::Unreal::UObject* manager, const wchar_t* tag)
     }
     ChangeSceneParams params(tag);
     g_initialize_path(&params.inherited_data);
-    manager->ProcessEvent(function, &params);
+    owner->ProcessEvent(function, &params);
     g_destroy_path(&params.inherited_data);
     return true;
 }
@@ -155,7 +155,7 @@ NavigationState ReplaySceneNavigator::Tick(
             detail = scene_name;
             return NavigationState::Waiting;
         }
-        if (!ChangeScene(manager, L"mainmenu"))
+        if (!ChangeScene(scene, L"mainmenu"))
         {
             detail = "title_mainmenu_failed";
             return NavigationState::Failed;
