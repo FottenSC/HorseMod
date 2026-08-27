@@ -5,6 +5,7 @@
 #include "FloatingPointEnvironment.hpp"
 #include "NativeBatchTimeline.hpp"
 #include "StageBreakPresentationIdentity.hpp"
+#include "StagePresentation.hpp"
 #include "UcrtRandBroker.hpp"
 
 #include <atomic>
@@ -307,6 +308,8 @@ public:
         const AudioTerminalEvent& event) noexcept;
     Status CommitAudioBlueprint(
         const AudioBlueprintPresentationValue& value) noexcept;
+    Status CommitStagePresentation(
+        const StagePresentationValue& value) noexcept;
     Status ArmAudioPresentationCaptureForNextOuterTick() noexcept;
 
 private:

@@ -2,6 +2,7 @@
 
 #include "AudioPresentation.hpp"
 #include "DeterministicHookSet.hpp"
+#include "StagePresentation.hpp"
 
 namespace Horse::Deterministic
 {
@@ -20,6 +21,13 @@ Status Sc6PresentationSink::Publish(const PresentationEvent& event) noexcept
         const Status decoded = DecodeAudioBlueprintPresentation(event, value);
         if (!decoded.ok()) return decoded;
         return hooks_.CommitAudioBlueprint(value);
+    }
+    if (event.kind == Schema::stage_presentation_event_kind)
+    {
+        StagePresentationValue value{};
+        const Status decoded = DecodeStagePresentation(event, value);
+        if (!decoded.ok()) return decoded;
+        return hooks_.CommitStagePresentation(value);
     }
     return Status::failure(FailureCode::UnsupportedContent);
 }

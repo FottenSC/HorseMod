@@ -249,6 +249,15 @@ struct PresentationMaskContext
 
 thread_local PresentationMaskContext* active_presentation_mask{};
 
+struct StagePresentationCommitContext
+{
+    const StagePresentationValue* expected{};
+    std::size_t particle_index{};
+    FailureCode failure{FailureCode::None};
+};
+
+thread_local StagePresentationCommitContext* active_stage_commit{};
+
 void __fastcall ShadowParticleStop(void*, std::uint8_t) noexcept
 {
 }
@@ -1881,6 +1890,151 @@ Status DeterministicHookSet::CommitAudioBlueprint(
     }
 }
 
+Status DeterministicHookSet::CommitStagePresentation(
+    const StagePresentationValue& value) noexcept
+{
+    if (!installed() || active_outer_capture_ != nullptr
+        || active_stage_commit != nullptr)
+        return Status::failure(FailureCode::IllegalTransition);
+    const auto kind = value.operation == StagePresentationOperation::WallBroken
+        ? StageBreakActorKind::Wall
+        : value.operation == StagePresentationOperation::BarrierHit
+            ? StageBreakActorKind::Barrier
+            : StageBreakActorKind{};
+    std::uintptr_t actor{};
+    if (kind == StageBreakActorKind{}
+        || !stage_break_presentation_identity_.ResolveActorAddress(
+            value.coordinate.generation, value.owner_logical_id, kind,
+            actor).ok())
+        return Status::failure(FailureCode::IdentityMismatch);
+    std::int32_t expected_actor_id{};
+    std::memcpy(&expected_actor_id, value.source_semantic.data(),
+        sizeof(expected_actor_id));
+    std::int32_t observed_actor_id{};
+    const auto actor_id_offset = kind == StageBreakActorKind::Wall
+        ? std::uintptr_t{0x450} : std::uintptr_t{0x420};
+    if (!SafeRead(actor + actor_id_offset, observed_actor_id)
+        || observed_actor_id != expected_actor_id)
+        return Status::failure(FailureCode::IdentityMismatch);
+    for (std::size_t index = 0; index < value.particle_count; ++index)
+    {
+        const auto& semantic = value.particles[index].semantic;
+        const auto route_byte = std::to_integer<std::uint8_t>(semantic[0]);
+        const auto route = route_byte == 1 ? ParticleRoute::WallBreak
+            : route_byte == 2 ? ParticleRoute::BarrierHit
+            : route_byte == 3 ? ParticleRoute::BarrierBreak
+            : ParticleRoute{};
+        std::uint64_t owner_id{};
+        std::uint64_t asset_id{};
+        std::memcpy(&owner_id, semantic.data() + 1, sizeof(owner_id));
+        std::memcpy(&asset_id, semantic.data() + 9, sizeof(asset_id));
+        std::uintptr_t particle_actor{};
+        std::uintptr_t asset{};
+        if (route == ParticleRoute{} || owner_id != value.owner_logical_id
+            || !stage_break_presentation_identity_.ResolveAssetAddress(
+                value.coordinate.generation, owner_id, asset_id, route,
+                particle_actor, asset).ok()
+            || particle_actor != actor || asset == 0)
+            return Status::failure(FailureCode::IdentityMismatch);
+    }
+
+    StagePresentationCommitContext context{&value};
+    Status status = Status::success();
+    __try
+    {
+        active_stage_commit = &context;
+        if (kind == StageBreakActorKind::Wall)
+        {
+            std::uint8_t current_state{};
+            float current_timer{};
+            float current_rate{};
+            std::uint8_t before_state{};
+            float before_timer{};
+            float before_rate{};
+            std::memcpy(&before_state, value.canonical_before.data(), 1);
+            std::memcpy(&before_timer, value.canonical_before.data() + 4, 4);
+            std::memcpy(&before_rate, value.canonical_before.data() + 8, 4);
+            const bool immediate = value.source_semantic[4] != std::byte{};
+            const auto original = reinterpret_cast<StageBreakWallFn>(
+                stage_break_wall_trampoline_);
+            if (value.source_payload_size != 1
+                || value.canonical_before_size != 12 || before_state != 0
+                || original == nullptr
+                || !SafeRead(actor + 0x468, current_state)
+                || !SafeRead(actor + 0x46c, current_timer)
+                || !SafeRead(actor + 0x470, current_rate))
+                status = Status::failure(FailureCode::RestorePreflightFailed);
+            else
+            {
+                const bool staged = SafeWrite(actor + 0x468, before_state)
+                    && SafeWrite(actor + 0x46c, before_timer)
+                    && SafeWrite(actor + 0x470, before_rate);
+                if (!staged)
+                {
+                    static_cast<void>(SafeWrite(actor + 0x468, current_state));
+                    static_cast<void>(SafeWrite(actor + 0x46c, current_timer));
+                    static_cast<void>(SafeWrite(actor + 0x470, current_rate));
+                    status = Status::failure(FailureCode::RestoreWriteFailed);
+                }
+                else
+                {
+                    __try { original(reinterpret_cast<void*>(actor), immediate); }
+                    __finally
+                    {
+                        if (!SafeWrite(actor + 0x468, current_state)
+                            || !SafeWrite(actor + 0x46c, current_timer)
+                            || !SafeWrite(actor + 0x470, current_rate))
+                            status = Status::failure(
+                                FailureCode::RestoreWriteFailed);
+                    }
+                }
+            }
+        }
+        else
+        {
+            std::int32_t current_count{};
+            std::int32_t before_count{};
+            std::array<std::byte, 12> direction{};
+            std::memcpy(&before_count, value.canonical_before.data(), 4);
+            std::copy_n(value.source_semantic.begin() + 4, direction.size(),
+                direction.begin());
+            const auto original = reinterpret_cast<StageBreakBarrierFn>(
+                stage_break_barrier_trampoline_);
+            if (value.source_payload_size != 12
+                || value.canonical_before_size != 4 || before_count < 0
+                || original == nullptr
+                || !SafeRead(actor + 0x468, current_count))
+                status = Status::failure(FailureCode::RestorePreflightFailed);
+            else if (!SafeWrite(actor + 0x468, before_count))
+            {
+                static_cast<void>(SafeWrite(actor + 0x468, current_count));
+                status = Status::failure(FailureCode::RestoreWriteFailed);
+            }
+            else
+            {
+                __try { original(reinterpret_cast<void*>(actor), direction.data()); }
+                __finally
+                {
+                    if (!SafeWrite(actor + 0x468, current_count))
+                        status = Status::failure(FailureCode::RestoreWriteFailed);
+                }
+            }
+        }
+        active_stage_commit = nullptr;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        active_stage_commit = nullptr;
+        status = Status::failure(FailureCode::PresentationFailed);
+    }
+    if (!status.ok()) return status;
+    if (context.failure != FailureCode::None
+        || context.particle_index != value.particle_count)
+        return Status::failure(context.failure != FailureCode::None
+            ? context.failure : FailureCode::PresentationFailed);
+    return Status::success();
+}
+
 Status DeterministicHookSet::ArmAudioPresentationCaptureForNextOuterTick() noexcept
 {
     if (!installed() || active_outer_capture_ != nullptr)
@@ -3167,6 +3321,11 @@ void __fastcall DeterministicHookSet::StageBreakDispatchDetour(
             observation.stage_dispatch_journal[
                 observation.stage_dispatch_journal_count++] = semantic;
         }
+    }
+    if (active_stage_commit != nullptr)
+    {
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        return;
     }
     auto* context = active_presentation_mask;
     if (context == nullptr || !context->masked)
@@ -4632,6 +4791,27 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
         auto_activate,
         hooks != nullptr ? &hooks->stage_break_presentation_identity_ : nullptr,
         semantic);
+    if (active_stage_commit != nullptr)
+    {
+        auto& commit = *active_stage_commit;
+        if (!semantic_ok || commit.expected == nullptr
+            || commit.particle_index >= commit.expected->particle_count
+            || commit.expected->particles[commit.particle_index].semantic
+                != semantic.semantic)
+        {
+            commit.failure = FailureCode::PresentationFailed;
+            callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+            return nullptr;
+        }
+        ++commit.particle_index;
+        void* result = original != nullptr
+            ? original(world_context, particle_system, location, rotation,
+                scale, auto_activate)
+            : nullptr;
+        if (result == nullptr) commit.failure = FailureCode::PresentationFailed;
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        return result;
+    }
     if (batch != nullptr && batch->observation != nullptr)
     {
         auto& observation = *batch->observation;
