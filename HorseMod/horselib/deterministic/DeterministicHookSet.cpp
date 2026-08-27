@@ -4200,7 +4200,10 @@ void __fastcall DeterministicHookSet::BattleAudioAppendParameterDetour(
             if (candidate.length == requested.length && candidate.data != 0
                 && SafeEqual(reinterpret_cast<const void*>(candidate.data),
                     reinterpret_cast<const void*>(requested.data),
-                    static_cast<std::size_t>(requested.length + 1)
+                    // Native FString ArrayNum includes the terminating NUL.
+                    // Comparing one additional wchar_t reads beyond both
+                    // logical strings and rejects otherwise identical names.
+                    static_cast<std::size_t>(requested.length)
                         * sizeof(wchar_t)))
             {
                 parameter_index = index;
