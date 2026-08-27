@@ -1854,14 +1854,20 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
         const auto blueprint_end =
             static_cast<std::size_t>(source.first_blueprint)
             + source.blueprint_count;
+        const auto terminal_end =
+            static_cast<std::size_t>(source.first_terminal)
+            + source.terminal_count;
         if (source.first_dispatch != output.suppressed_audio_calls
             || source.first_remap != output.suppressed_audio_remap_calls
             || source.first_blueprint
                 != output.suppressed_audio_blueprint_calls
+            || source.first_terminal
+                != output.suppressed_audio_terminal_calls
             || dispatch_end > envelope.battle_audio_journal_count
             || remap_end > envelope.battle_audio_remap_journal_count
             || blueprint_end
-                > envelope.battle_audio_blueprint_journal_count)
+                > envelope.battle_audio_blueprint_journal_count
+            || terminal_end > envelope.audio_terminal_journal_count)
             return false;
         AppendBattleAudioSourceSemantic(
             source.semantic, output.suppressed_audio_source_hash);
@@ -1944,6 +1950,15 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
                     entry, output.suppressed_audio_blueprint_hash))
                 return false;
             ++output.suppressed_audio_blueprint_calls;
+        }
+        for (std::size_t terminal_index = source.first_terminal;
+             terminal_index < terminal_end; ++terminal_index)
+        {
+            if (!AppendAudioTerminalSemantic(
+                    envelope.audio_terminal_journal[terminal_index],
+                    output.suppressed_audio_terminal_hash))
+                return false;
+            ++output.suppressed_audio_terminal_calls;
         }
         return true;
     };
@@ -3352,7 +3367,9 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                 || source.first_dispatch != replay.suppressed_audio_calls
                 || source.first_remap != replay.suppressed_audio_remap_calls
                 || source.first_blueprint
-                    != replay.suppressed_audio_blueprint_calls)
+                    != replay.suppressed_audio_blueprint_calls
+                || source.first_terminal
+                    != replay.suppressed_audio_terminal_calls)
             {
                 ++replay.discarded_audio_calls;
                 callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -3377,6 +3394,9 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                 const auto order_end =
                     static_cast<std::size_t>(source.first_presentation_order)
                     + source.presentation_order_count;
+                const auto terminal_end =
+                    static_cast<std::size_t>(source.first_terminal)
+                    + source.terminal_count;
                 bool span_valid = source.first_dispatch
                         == replay.suppressed_audio_calls
                     && source.first_remap == replay.suppressed_audio_remap_calls
@@ -3386,11 +3406,12 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                     && remap_end <= envelope.battle_audio_remap_journal_count
                     && blueprint_end
                         <= envelope.battle_audio_blueprint_journal_count
+                    && terminal_end <= envelope.audio_terminal_journal_count
                     && source.presentation_order_count != 0
                     && order_end <= envelope.presentation_order_journal_count
                     && source.presentation_order_count
                         == 1u + source.dispatch_count + source.remap_count
-                            + source.blueprint_count;
+                            + source.blueprint_count + source.terminal_count;
                 std::int32_t source_contact_type{};
                 std::memcpy(&source_contact_type, semantic.data() + 1,
                     sizeof(source_contact_type));
@@ -3501,6 +3522,16 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                     if (!span_valid) break;
                     ++replay.suppressed_audio_blueprint_calls;
                 }
+                for (std::size_t terminal_index = source.first_terminal;
+                     span_valid && terminal_index < terminal_end;
+                     ++terminal_index)
+                {
+                    span_valid = AppendAudioTerminalSemantic(
+                        envelope.audio_terminal_journal[terminal_index],
+                        replay.suppressed_audio_terminal_hash);
+                    if (!span_valid) break;
+                    ++replay.suppressed_audio_terminal_calls;
+                }
                 for (std::size_t order_index =
                          static_cast<std::size_t>(
                              source.first_presentation_order) + 1;
@@ -3522,6 +3553,10 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                     case PresentationEventFamily::BattleAudioBlueprint:
                         member = entry.family_index >= source.first_blueprint
                             && entry.family_index < blueprint_end;
+                        break;
+                    case PresentationEventFamily::AudioTerminal:
+                        member = entry.family_index >= source.first_terminal
+                            && entry.family_index < terminal_end;
                         break;
                     default:
                         break;
@@ -3573,6 +3608,7 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             source.first_remap = observation.battle_audio_remap_journal_count;
             source.first_blueprint =
                 observation.battle_audio_blueprint_journal_count;
+            source.first_terminal = observation.audio_terminal_journal_count;
             observed_source_index = source_index;
             ++observation.battle_audio_source_journal_count;
         }
@@ -3611,11 +3647,15 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             const auto blueprint_count =
                 observation.battle_audio_blueprint_journal_count
                 - source.first_blueprint;
+            const auto terminal_count =
+                observation.audio_terminal_journal_count
+                - source.first_terminal;
             const auto presentation_order_count =
                 observation.presentation_order_journal_count
                 - source.first_presentation_order;
             if (dispatch_count > UINT8_MAX || remap_count > UINT8_MAX
                 || blueprint_count > UINT8_MAX
+                || terminal_count > UINT8_MAX
                 || presentation_order_count > UINT8_MAX)
             {
                 ++observation.battle_audio_signature_failures;
@@ -3627,6 +3667,8 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                 source.remap_count = static_cast<std::uint8_t>(remap_count);
                 source.blueprint_count =
                     static_cast<std::uint8_t>(blueprint_count);
+                source.terminal_count =
+                    static_cast<std::uint8_t>(terminal_count);
                 source.presentation_order_count =
                     static_cast<std::uint8_t>(presentation_order_count);
             }

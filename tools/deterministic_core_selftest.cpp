@@ -640,6 +640,38 @@ void test_native_batch_timeline_is_exact_and_bounded()
             == FailureCode::IdentityMismatch,
         "batch storage rejects presentation beyond its native coordinate span");
 
+    NativeBatchEnvelope source_terminal{};
+    source_terminal.batch_id = 1;
+    source_terminal.entry_coordinate = {};
+    source_terminal.exit_coordinate = {1, 1};
+    source_terminal.coordinate_count = 1;
+    source_terminal.battle_audio_source_calls = 1;
+    source_terminal.battle_audio_source_journal_count = 1;
+    source_terminal.battle_audio_source_journal[0].presentation_order_count = 2;
+    source_terminal.battle_audio_source_journal[0].terminal_count = 1;
+    source_terminal.audio_terminal_calls = 1;
+    source_terminal.audio_terminal_journal_count = 1;
+    source_terminal.audio_terminal_journal[0] = {
+        AudioTerminalOperation::SetParameter,
+        {AudioOwnerDomain::BattleSharedPlayer, 0, 0},
+        audio_invalid_playback_id, 1, -1, 0x3f800000};
+    source_terminal.presentation_order_journal_count = 2;
+    source_terminal.presentation_order_journal[0] = {
+        PresentationEventFamily::BattleAudioSource, 0};
+    source_terminal.presentation_order_journal[1] = {
+        PresentationEventFamily::AudioTerminal, 0};
+    const std::array source_terminal_coordinate{FrameCoordinate{1, 1}};
+    NativeBatchTimeline source_terminal_timeline{1, 1};
+    expect(source_terminal_timeline.Append(
+               source_terminal, source_terminal_coordinate).ok(),
+        "battle-audio source spans admit their nested stable terminals");
+    source_terminal.battle_audio_source_journal[0].first_terminal = 1;
+    NativeBatchTimeline malformed_source_terminal_timeline{1, 1};
+    expect(malformed_source_terminal_timeline.Append(
+               source_terminal, source_terminal_coordinate).code
+            == FailureCode::IdentityMismatch,
+        "battle-audio source spans reject terminal ranges outside the journal");
+
     NativeBatchTimeline zero_width_timeline{1, 1};
     NativeBatchEnvelope zero_width = first;
     zero_width.batch_id = 1;

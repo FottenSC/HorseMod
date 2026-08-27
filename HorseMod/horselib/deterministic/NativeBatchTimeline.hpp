@@ -86,6 +86,8 @@ struct BattleAudioSourceJournalEntry
     std::uint8_t remap_count{};
     std::uint8_t first_blueprint{};
     std::uint8_t blueprint_count{};
+    std::uint8_t first_terminal{};
+    std::uint8_t terminal_count{};
 };
 
 struct BattleAudioRemapJournalEntry
