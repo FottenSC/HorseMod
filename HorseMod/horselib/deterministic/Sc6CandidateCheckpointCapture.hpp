@@ -84,6 +84,11 @@ public:
         CandidateCheckpointRole role) const noexcept;
     [[nodiscard]] const SnapshotStore& snapshots(
         CandidateCheckpointRole role) const noexcept;
+    Status ReplaceCorrectionSnapshots(
+        std::span<Snapshot> landing_replacements,
+        std::span<const CanonicalHash> expected_landing_hashes,
+        std::span<Snapshot> batch_entry_replacements,
+        std::span<const CanonicalHash> expected_batch_entry_hashes) noexcept;
     [[nodiscard]] NativeCandidateValidationDiagnostic restore_validation()
         const noexcept;
     [[nodiscard]] CandidateAdapterPerformanceStatus adapter_performance()

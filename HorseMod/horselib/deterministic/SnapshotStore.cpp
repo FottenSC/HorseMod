@@ -1,6 +1,7 @@
 #include "SnapshotStore.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <new>
 #include <type_traits>
 #include <utility>
@@ -183,6 +184,65 @@ const Snapshot* SnapshotStore::FindNearestAtOrBefore(
         if (found->coordinate.generation < coordinate.generation) break;
     }
     return nullptr;
+}
+
+Status SnapshotStore::ValidateExactReplacement(
+    std::span<const Snapshot> replacements,
+    std::span<const CanonicalHash> expected_hashes) const noexcept
+{
+    if (replacements.size() != expected_hashes.size())
+        return Status::failure(FailureCode::InvalidConfiguration);
+    std::size_t removed{};
+    std::size_t incoming{};
+    FrameCoordinate previous{};
+    bool have_previous{};
+    for (std::size_t index = 0; index < replacements.size(); ++index)
+    {
+        const auto& replacement = replacements[index];
+        if (replacement.coordinate.generation == 0
+            || (have_previous && !(previous < replacement.coordinate)))
+            return Status::failure(FailureCode::InvalidConfiguration);
+        const auto found = std::lower_bound(entries_.begin(), entries_.end(),
+            replacement.coordinate,
+            [](const Entry& entry, FrameCoordinate value) {
+                return entry.coordinate < value;
+            });
+        if (found == entries_.end()
+            || found->coordinate != replacement.coordinate)
+            return Status::failure(FailureCode::MissingSnapshot);
+        const auto& current = snapshots_[found->slot];
+        if (current.canonical_hash != expected_hashes[index])
+            return Status::failure(FailureCode::IdentityMismatch);
+        const auto old_cost = snapshot_dynamic_cost(current);
+        const auto new_cost = snapshot_dynamic_cost(replacement);
+        if (removed > (std::numeric_limits<std::size_t>::max)() - old_cost
+            || incoming > (std::numeric_limits<std::size_t>::max)() - new_cost)
+            return Status::failure(FailureCode::CapacityExceeded);
+        removed += old_cost;
+        incoming += new_cost;
+        previous = replacement.coordinate;
+        have_previous = true;
+    }
+    if (incoming > maximum_bytes_ - (bytes_used_ - removed))
+        return Status::failure(FailureCode::CapacityExceeded);
+    return Status::success();
+}
+
+void SnapshotStore::CommitValidatedExactReplacement(
+    std::span<Snapshot> replacements) noexcept
+{
+    for (auto& replacement : replacements)
+    {
+        const auto found = std::lower_bound(entries_.begin(), entries_.end(),
+            replacement.coordinate,
+            [](const Entry& entry, FrameCoordinate value) {
+                return entry.coordinate < value;
+            });
+        const auto slot = found->slot;
+        bytes_used_ -= snapshot_dynamic_cost(snapshots_[slot]);
+        bytes_used_ += snapshot_dynamic_cost(replacement);
+        snapshots_[slot] = std::move(replacement);
+    }
 }
 
 void SnapshotStore::InvalidateGeneration(std::uint64_t generation) noexcept

@@ -740,6 +740,42 @@ void test_snapshot_capacity_is_atomic()
             && !store.Load({1, 0}).has_value(),
         "snapshot store clear releases payload while retaining bounded slots");
 
+    SnapshotStore transactional{1024 * 1024, 4, CapacityPolicy::RejectNew};
+    Snapshot old_a{};
+    old_a.coordinate = {7, 10};
+    old_a.canonical_hash.fill(std::byte{0x11});
+    old_a.bytes.resize(32, std::byte{0x21});
+    Snapshot old_b{};
+    old_b.coordinate = {7, 20};
+    old_b.canonical_hash.fill(std::byte{0x12});
+    old_b.bytes.resize(32, std::byte{0x22});
+    expect(transactional.Save(old_a).ok() && transactional.Save(old_b).ok(),
+        "seed corrected checkpoint transaction");
+    std::array<Snapshot, 2> replacements{old_a, old_b};
+    replacements[0].canonical_hash.fill(std::byte{0x31});
+    replacements[1].canonical_hash.fill(std::byte{0x32});
+    const std::array valid_hashes{old_a.canonical_hash, old_b.canonical_hash};
+    auto stale_hashes = valid_hashes;
+    stale_hashes[1].fill(std::byte{0x7f});
+    expect(transactional.ValidateExactReplacement(
+            replacements, stale_hashes).code == FailureCode::IdentityMismatch
+            && transactional.FindExact({7, 10})->canonical_hash
+                == old_a.canonical_hash
+            && transactional.FindExact({7, 20})->canonical_hash
+                == old_b.canonical_hash,
+        "stale corrected checkpoint range is rejected without mutation");
+    expect(transactional.ValidateExactReplacement(
+            replacements, valid_hashes).ok(),
+        "validate complete corrected checkpoint range before publication");
+    transactional.CommitValidatedExactReplacement(replacements);
+    CanonicalHash corrected_a{};
+    corrected_a.fill(std::byte{0x31});
+    CanonicalHash corrected_b{};
+    corrected_b.fill(std::byte{0x32});
+    expect(transactional.FindExact({7, 10})->canonical_hash == corrected_a
+            && transactional.FindExact({7, 20})->canonical_hash == corrected_b,
+        "publish corrected checkpoint range into immutable entry slots");
+
     SnapshotStore generations{1024 * 1024, 8, CapacityPolicy::RejectNew};
     expect(generations.Save({{1, 3}, 1, {}, {}}).ok(),
         "save first generation resimulation base");

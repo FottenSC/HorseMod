@@ -303,6 +303,9 @@ public:
 private:
     static constexpr std::size_t maximum_owned_correction_coordinates = 64;
     static constexpr std::size_t maximum_owned_correction_batches = 64;
+    static constexpr std::size_t maximum_owned_correction_checkpoints =
+        maximum_owned_correction_coordinates / (Schema::checkpoint_interval - 1)
+        + 2;
 
     struct CorrectedReplayCapture
     {
@@ -322,13 +325,25 @@ private:
             maximum_owned_correction_batches> expected_batches{};
         std::array<NativeBatchEnvelope,
             maximum_owned_correction_batches> replacement_batches{};
+        std::array<Snapshot,
+            maximum_owned_correction_checkpoints> replacement_landing{};
+        std::array<CanonicalHash,
+            maximum_owned_correction_checkpoints> expected_landing_hashes{};
+        std::array<Snapshot,
+            maximum_owned_correction_checkpoints> replacement_batch_entry{};
+        std::array<CanonicalHash,
+            maximum_owned_correction_checkpoints> expected_batch_entry_hashes{};
         std::size_t coordinate_count{};
         std::size_t batch_count{};
+        std::size_t landing_count{};
+        std::size_t batch_entry_count{};
 
         void Clear() noexcept
         {
             coordinate_count = 0;
             batch_count = 0;
+            landing_count = 0;
+            batch_entry_count = 0;
         }
     };
 

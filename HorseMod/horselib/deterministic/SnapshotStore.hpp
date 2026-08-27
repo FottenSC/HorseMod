@@ -3,6 +3,7 @@
 #include "Interfaces.hpp"
 
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace Horse::Deterministic
@@ -26,6 +27,14 @@ public:
         FrameCoordinate coordinate) const noexcept;
     [[nodiscard]] const Snapshot* FindNearestAtOrBefore(
         FrameCoordinate coordinate) const noexcept;
+    [[nodiscard]] Status ValidateExactReplacement(
+        std::span<const Snapshot> replacements,
+        std::span<const CanonicalHash> expected_hashes) const noexcept;
+    // Requires a successful ValidateExactReplacement on this same thread.
+    // Coordinates and entry slots are immutable, so committing only performs
+    // noexcept moves into the already-owned slots.
+    void CommitValidatedExactReplacement(
+        std::span<Snapshot> replacements) noexcept;
     void InvalidateGeneration(std::uint64_t generation) noexcept override;
     [[nodiscard]] std::size_t BytesUsed() const noexcept override;
     // Qualification ring helper: once the fixed entry capacity is warm,

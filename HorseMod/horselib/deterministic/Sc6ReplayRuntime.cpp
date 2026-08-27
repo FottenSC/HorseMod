@@ -1259,9 +1259,17 @@ Status Sc6ReplayRuntime::CaptureCorrectedCoordinate(
     const auto expected_input = runtime.input_timeline_.GetExact(coordinate);
     if (!expected_canonical.has_value() || !expected_input.has_value())
         return Status::failure(FailureCode::MissingSnapshot);
-    Snapshot& snapshot = runtime.correction_canonical_capture_scratch_;
-    const Status captured = runtime.checkpoint_capture_.CaptureCanonical(
-        coordinate, snapshot);
+    const auto* retained_landing = runtime.checkpoint_capture_.snapshots(
+        CandidateCheckpointRole::Landing).FindExact(coordinate);
+    if (retained_landing != nullptr
+        && corrected.landing_count >= corrected.replacement_landing.size())
+        return Status::failure(FailureCode::CapacityExceeded);
+    Snapshot& snapshot = retained_landing == nullptr
+        ? runtime.correction_canonical_capture_scratch_
+        : corrected.replacement_landing[corrected.landing_count];
+    const Status captured = retained_landing == nullptr
+        ? runtime.checkpoint_capture_.CaptureCanonical(coordinate, snapshot)
+        : runtime.checkpoint_capture_.CaptureTransient(coordinate, snapshot);
     if (!captured.ok()) return captured;
     const auto target = corrected.coordinate_count++;
     corrected.coordinates[target] = coordinate;
@@ -1273,6 +1281,12 @@ Status Sc6ReplayRuntime::CaptureCorrectedCoordinate(
         snapshot.canonical_native, snapshot.canonical_move_dispatch,
         snapshot.canonical_input, snapshot.canonical_wind_semantic,
         snapshot.canonical_wind, snapshot.canonical_wind_node};
+    if (retained_landing != nullptr)
+    {
+        corrected.expected_landing_hashes[corrected.landing_count] =
+            retained_landing->canonical_hash;
+        ++corrected.landing_count;
+    }
     return Status::success();
 }
 
@@ -1434,7 +1448,18 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
             CandidateCheckpointRole::BatchEntry).FindExact(
                 envelope->entry_coordinate);
         Status input_handoff{};
-        if (preserve_first_entry_input_log
+        if (corrected != nullptr && batch_index != first_batch_index)
+        {
+            if (corrected->coordinate_count == 0
+                || corrected->coordinates[corrected->coordinate_count - 1]
+                    != envelope->entry_coordinate)
+                return Status::failure(FailureCode::MissingSnapshot);
+            const auto corrected_entry = corrected->coordinate_count - 1;
+            input_handoff = checkpoint_capture_.PrepareInputLogForReplay(
+                corrected->replacement_canonical[corrected_entry].input,
+                corrected->replacement_inputs[corrected_entry]);
+        }
+        else if (preserve_first_entry_input_log
             && batch_index == first_batch_index)
         {
             input_handoff = Status::success();
@@ -1660,6 +1685,34 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                     corrected_camera_source);
             if (!captured_camera.ok()) return captured_camera;
             corrected_camera_source_valid = true;
+
+            if (corrected->coordinate_count == 0
+                || corrected->coordinates[corrected->coordinate_count - 1]
+                    != envelope->exit_coordinate)
+                return Status::failure(FailureCode::MissingSnapshot);
+            const auto corrected_exit = corrected->coordinate_count - 1;
+            const Status normalized_input =
+                checkpoint_capture_.PrepareInputLogForReplay(
+                    corrected->replacement_canonical[corrected_exit].input,
+                    corrected->replacement_inputs[corrected_exit]);
+            if (!normalized_input.ok()) return normalized_input;
+            const auto* retained_entry = checkpoint_capture_.snapshots(
+                CandidateCheckpointRole::BatchEntry).FindExact(
+                    envelope->exit_coordinate);
+            if (retained_entry != nullptr)
+            {
+                if (corrected->batch_entry_count
+                    >= corrected->replacement_batch_entry.size())
+                    return Status::failure(FailureCode::CapacityExceeded);
+                const auto checkpoint_index = corrected->batch_entry_count;
+                Status captured_entry = checkpoint_capture_.CaptureTransient(
+                    envelope->exit_coordinate,
+                    corrected->replacement_batch_entry[checkpoint_index]);
+                if (!captured_entry.ok()) return captured_entry;
+                corrected->expected_batch_entry_hashes[checkpoint_index] =
+                    retained_entry->canonical_hash;
+                ++corrected->batch_entry_count;
+            }
         }
         if (replayed_coordinates != nullptr)
             *replayed_coordinates += envelope->coordinate_count;
@@ -2488,6 +2541,7 @@ Status Sc6ReplayRuntime::ApplyConfirmedRemoteInput(
     auto& corrected = corrected_replay_capture_;
     std::size_t replaced_batches{};
     bool canonical_replaced{};
+    bool input_range_replaced{};
     for (; replaced_batches < corrected.batch_count; ++replaced_batches)
     {
         status = batch_timeline_.ReplaceBatch(
@@ -2512,9 +2566,31 @@ Status Sc6ReplayRuntime::ApplyConfirmedRemoteInput(
             std::span{corrected.expected_inputs.data(), corrected.coordinate_count},
             std::span{corrected.replacement_inputs.data(),
                 corrected.coordinate_count});
+        input_range_replaced = status.ok();
+    }
+    if (status.ok())
+    {
+        status = checkpoint_capture_.ReplaceCorrectionSnapshots(
+            std::span{corrected.replacement_landing.data(),
+                corrected.landing_count},
+            std::span{corrected.expected_landing_hashes.data(),
+                corrected.landing_count},
+            std::span{corrected.replacement_batch_entry.data(),
+                corrected.batch_entry_count},
+            std::span{corrected.expected_batch_entry_hashes.data(),
+                corrected.batch_entry_count});
     }
     if (status.ok()) return status;
 
+    if (input_range_replaced)
+    {
+        static_cast<void>(input_timeline_.CompareExchangeRange(
+            std::span{corrected.coordinates.data(), corrected.coordinate_count},
+            std::span{corrected.replacement_inputs.data(),
+                corrected.coordinate_count},
+            std::span{corrected.expected_inputs.data(),
+                corrected.coordinate_count}));
+    }
     if (canonical_replaced)
     {
         static_cast<void>(canonical_timeline_.ReplaceExactRange(

@@ -915,6 +915,24 @@ const SnapshotStore& Sc6CandidateCheckpointCapture::snapshots(
         ? landing_snapshots_ : batch_entry_snapshots_;
 }
 
+Status Sc6CandidateCheckpointCapture::ReplaceCorrectionSnapshots(
+    std::span<Snapshot> landing_replacements,
+    std::span<const CanonicalHash> expected_landing_hashes,
+    std::span<Snapshot> batch_entry_replacements,
+    std::span<const CanonicalHash> expected_batch_entry_hashes) noexcept
+{
+    Status status = landing_snapshots_.ValidateExactReplacement(
+        landing_replacements, expected_landing_hashes);
+    if (!status.ok()) return status;
+    status = batch_entry_snapshots_.ValidateExactReplacement(
+        batch_entry_replacements, expected_batch_entry_hashes);
+    if (!status.ok()) return status;
+    landing_snapshots_.CommitValidatedExactReplacement(landing_replacements);
+    batch_entry_snapshots_.CommitValidatedExactReplacement(
+        batch_entry_replacements);
+    return Status::success();
+}
+
 NativeCandidateValidationDiagnostic
 Sc6CandidateCheckpointCapture::restore_validation() const noexcept
 {
