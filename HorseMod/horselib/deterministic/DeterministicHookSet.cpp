@@ -3124,18 +3124,18 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
             }
         }
     }
+    if (original != nullptr)
+        result = original(battle_manager, event_record, alternate_route);
     if (suppress && !capture_corrected && expected_success >= 0)
     {
-        // Verification has already admitted the exact source-frame semantic
-        // and presentation-order entry above. Do not re-enter the live audio
-        // allocator against presentation-local queues that are intentionally
-        // outside deterministic restore; preserve only the journaled caller
-        // success contract. Tracking and command terminals are suppressed in
-        // this same owned batch, so no synthetic token escapes presentation.
+        // Re-enter the native dispatcher so deterministic source/remap logic
+        // and every ordered terminal hook still execute. Those terminal hooks
+        // suppress presentation-local allocation and queue mutation. The live
+        // dispatcher can consequently compute a different success value, so
+        // expose the admitted source-frame result to its simulation caller
+        // only after the complete nested route has been verified.
         result = expected_success != 0 ? 0 : -1;
     }
-    else if (original != nullptr)
-        result = original(battle_manager, event_record, alternate_route);
     if (suppress && expected_success >= 0
         && (result >= 0 ? 1 : 0) != expected_success)
     {

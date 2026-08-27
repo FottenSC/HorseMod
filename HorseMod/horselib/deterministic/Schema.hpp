@@ -31,7 +31,11 @@ inline constexpr std::size_t replay_input_entry_budget = 128;
 // Leave a fixed schema margin for the bounded cross-family presentation and
 // audio-terminal journals. The aggregate native-batch allocation remains
 // capped at 192 MiB, so increasing this accounting ceiling reduces capacity.
-inline constexpr std::size_t replay_native_batch_entry_budget = 16384;
+// The 64-entry audio-terminal journal and matching presentation-order lane add
+// 864 bytes over the former 32-entry bound. Keep the accounting ceiling at a
+// fixed 17 KiB; the aggregate allocation remains capped at 192 MiB and thus
+// admits fewer timeline batches rather than allowing unbounded growth.
+inline constexpr std::size_t replay_native_batch_entry_budget = 17408;
 inline constexpr std::size_t replay_native_batch_coordinate_budget = 32;
 inline constexpr std::size_t replay_round_image_size = 0xc0;
 inline constexpr std::uint32_t maximum_replay_round_images = 64;

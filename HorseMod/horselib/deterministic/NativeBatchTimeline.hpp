@@ -24,7 +24,11 @@ inline constexpr std::size_t maximum_battle_audio_stop_all_journal_events =
     maximum_battle_audio_journal_dispatches;
 inline constexpr std::size_t maximum_stage_presentation_journal_events = 8;
 inline constexpr std::size_t maximum_particle_presentation_journal_events = 16;
-inline constexpr std::size_t maximum_audio_terminal_journal_events = 32;
+// Logical playback IDs reserve six ordinal bits per native frame. Keep the
+// source-frame journal at the same verified bound so dense authored parameter
+// and voice batches cannot exhaust storage below the ID contract.
+inline constexpr std::size_t maximum_audio_terminal_journal_events =
+    audio_ordinals_per_frame;
 inline constexpr std::size_t maximum_presentation_order_events =
     maximum_battle_audio_journal_dispatches
     + maximum_battle_audio_journal_sources
