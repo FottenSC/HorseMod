@@ -185,9 +185,12 @@ NavigationState ReplaySceneNavigator::Tick(
     }
     if (scene_name.find("TitleScene") != std::string::npos)
     {
-        if (!EmulateTitleDecide()
-            && !CallNoParams(ObjectProperty(manager, L"CeBankManager"),
-                             L"TitleToMainMenu"))
+        // Prefer the explicit scene transition. EmulateTitleDecide acts on
+        // whichever title modal currently owns focus and can therefore select
+        // a quit/acknowledgement action after an unclean prior game exit.
+        if (!CallNoParams(ObjectProperty(manager, L"CeBankManager"),
+                          L"TitleToMainMenu")
+            && !EmulateTitleDecide())
         {
             detail = "title_to_main_menu_failed";
             return NavigationState::Failed;
