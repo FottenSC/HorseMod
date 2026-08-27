@@ -42,6 +42,14 @@ struct NullScriptDelegate
 };
 static_assert(sizeof(NullScriptDelegate) == 0x10);
 
+struct NativeFKey
+{
+    std::uint64_t name{};
+    void* details{};
+    void* details_control{};
+};
+static_assert(sizeof(NativeFKey) == 0x18);
+
 struct ChangeSceneParams
 {
     RC::Unreal::FString transition_tag;
@@ -55,6 +63,7 @@ static_assert(sizeof(ChangeSceneParams) == 0x38);
 InitPathFn g_initialize_path{};
 DestroyPathFn g_destroy_path{};
 EmulateTitleDecideFn g_emulate_title_decide{};
+const NativeFKey* g_title_decide_key{};
 
 bool SignatureMatches(std::uintptr_t address,
                       const std::array<std::byte, 8>& expected) noexcept
@@ -117,6 +126,20 @@ bool EmulateTitleDecide()
     }
 }
 
+bool IsTitleDecideKeyReady() noexcept
+{
+    if (g_title_decide_key == nullptr) return false;
+    __try
+    {
+        return g_title_decide_key->name != 0
+            && g_title_decide_key->details != nullptr;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
 std::string StringProperty(RC::Unreal::UObject* owner,
                            const wchar_t* name) noexcept
 {
@@ -156,6 +179,7 @@ bool ReplaySceneNavigator::Bind(std::uintptr_t image_base) noexcept
     g_initialize_path = {};
     g_destroy_path = {};
     g_emulate_title_decide = {};
+    g_title_decide_key = {};
     if (image_base == 0
         || !SignatureMatches(image_base + 0x2ed1370, kInit)
         || !SignatureMatches(image_base + 0x2ed6a80, kDestroy)
@@ -167,6 +191,8 @@ bool ReplaySceneNavigator::Bind(std::uintptr_t image_base) noexcept
     g_destroy_path = reinterpret_cast<DestroyPathFn>(image_base + 0x2ed6a80);
     g_emulate_title_decide = reinterpret_cast<EmulateTitleDecideFn>(
         image_base + 0x4b9e10);
+    g_title_decide_key = reinterpret_cast<const NativeFKey*>(
+        image_base + 0x42a2a60);
     return true;
 }
 
@@ -227,6 +253,11 @@ NavigationState ReplaySceneNavigator::Tick(
         const std::string state = StringProperty(machine, L"CurrentStateCode");
         if (state == "Top" && !title_decide_requested_ && retry_frames_++ > 0)
         {
+            if (!IsTitleDecideKeyReady())
+            {
+                detail = "title_state:Top:key_pending";
+                return NavigationState::Waiting;
+            }
             if (!EmulateTitleDecide())
             {
                 detail = "title_top_decide_failed";
