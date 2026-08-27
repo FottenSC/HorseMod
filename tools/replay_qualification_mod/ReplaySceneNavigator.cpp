@@ -106,8 +106,7 @@ bool CallNoParams(RC::Unreal::UObject* owner, const wchar_t* name)
     if (owner == nullptr) return false;
     auto* function = owner->GetFunctionByNameInChain(name);
     if (function == nullptr) return false;
-    std::byte params{};
-    owner->ProcessEvent(function, &params);
+    owner->ProcessEvent(function, nullptr);
     return true;
 }
 
