@@ -79,6 +79,16 @@ RC::Unreal::UObject* CurrentScene(RC::Unreal::UObject* manager) noexcept
         && RC::Unreal::UObject::IsReal(*value) ? *value : nullptr;
 }
 
+RC::Unreal::UObject* ObjectProperty(RC::Unreal::UObject* owner,
+                                    const wchar_t* name) noexcept
+{
+    if (owner == nullptr) return nullptr;
+    auto** value = owner->GetValuePtrByPropertyNameInChain<RC::Unreal::UObject*>(
+        name);
+    return value != nullptr && *value != nullptr
+        && RC::Unreal::UObject::IsReal(*value) ? *value : nullptr;
+}
+
 bool CallNoParams(RC::Unreal::UObject* owner, const wchar_t* name)
 {
     if (owner == nullptr) return false;
@@ -156,10 +166,16 @@ NavigationState ReplaySceneNavigator::Tick(
     }
     if (scene_name.find("TitleScene") != std::string::npos)
     {
-        // Act on the first title callback. The title startup machine can enter
-        // a blocking modal before this post-tick hook receives 15 more frames.
-        // Invoke TitleScene's cooked ToMainmenu graph so its scene-owned
-        // ChangeScene call supplies the exact `mainmenu` transition contract.
+        // The cooked startup graph creates RefTitleMenu and MainBehavior before
+        // ReadyToStart. Transitioning earlier tears down partially initialized
+        // title state. Once both owners exist, invoke the cooked ToMainmenu graph
+        // so its scene-owned ChangeScene call supplies the exact contract.
+        if (ObjectProperty(scene, L"RefTitleMenu") == nullptr
+            || ObjectProperty(scene, L"MainBehavior") == nullptr)
+        {
+            detail = "title_startup_pending";
+            return NavigationState::Waiting;
+        }
         if ((retry_frames_++ % 60) != 0)
         {
             detail = scene_name;
