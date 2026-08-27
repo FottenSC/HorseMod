@@ -208,8 +208,11 @@ NavigationState ReplaySceneNavigator::Tick(
         // OnDecidedMainUser delegate. Once the exact CurrentState object is
         // stable, invoke Top's own RequestDecideMainUser custom event to bind
         // that delegate and arm native capture, then force logical user zero
-        // through the native manager API. That API synchronously invokes the
-        // registered callback, preserving cooked sign-in/StartUp ownership.
+        // through the native manager API. That API normally invokes the
+        // registered callback synchronously. If Steam identity readiness makes
+        // the weak delegate a no-op, invoke its exact cooked target only after
+        // Top remains active for two seconds; both paths preserve the owned
+        // sign-in/StartUp graph.
         RC::Unreal::UObject* behavior = ObjectProperty(scene, L"MainBehavior");
         if (ObjectProperty(scene, L"RefTitleMenu") == nullptr
             || behavior == nullptr)
@@ -263,8 +266,23 @@ NavigationState ReplaySceneNavigator::Tick(
             detail = "title_state:Top:user_forced";
             return NavigationState::Waiting;
         }
-        if (state == "Top" && retry_frames_ >= 32
+        if (state == "Top" && retry_frames_ >= 8
             && title_decide_stage_ == 2)
+        {
+            RC::Unreal::UObject* current_state =
+                ObjectProperty(machine, L"CurrentState");
+            if (!CallNoParam(current_state, L"OnDecidedMainUser"))
+            {
+                detail = "title_decide_callback_pending";
+                return NavigationState::Waiting;
+            }
+            title_decide_stage_ = 3;
+            retry_frames_ = 0;
+            detail = "title_state:Top:callback_forced";
+            return NavigationState::Waiting;
+        }
+        if (state == "Top" && retry_frames_ >= 32
+            && title_decide_stage_ == 3)
         {
             title_decide_stage_ = 0;
             retry_frames_ = 0;
