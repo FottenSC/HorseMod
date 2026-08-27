@@ -1,10 +1,10 @@
 #include "StageWindGraphTransaction.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <limits>
 #include <span>
-#include <vector>
 
 namespace Horse::Deterministic
 {
@@ -21,23 +21,25 @@ bool read_value(INativeMemory& memory, std::uintptr_t address, T& output) noexce
 }
 
 template <typename T>
-void store(std::vector<std::byte>& bytes, std::size_t offset, const T& value)
+void store(std::span<std::byte> bytes, std::size_t offset, const T& value)
 {
     std::memcpy(bytes.data() + offset, &value, sizeof(value));
 }
 
 bool collect_existing_nodes(
     INativeMemory& memory, std::uintptr_t root, std::uintptr_t image_base,
-    std::size_t image_size, std::vector<std::uintptr_t>& output) noexcept
+    std::size_t image_size, std::array<std::uintptr_t, max_nodes>& output,
+    std::size_t& count) noexcept
 {
+    count = 0;
     std::uintptr_t node{};
     if (!read_value(memory, root, node)) return false;
     std::uintptr_t previous{};
     while (node != 0)
     {
-        if (output.size() == max_nodes) return false;
-        for (const auto visited : output)
-            if (visited == node) return false;
+        if (count == output.size()) return false;
+        for (std::size_t index = 0; index < count; ++index)
+            if (output[index] == node) return false;
         std::uintptr_t vtable{}, next{}, node_previous{}, node_root{};
         if (!read_value(memory, node, vtable)
             || !read_value(memory, node + 0x10, next)
@@ -51,7 +53,7 @@ bool collect_existing_nodes(
         {
             return false;
         }
-        output.push_back(node);
+        output[count++] = node;
         previous = node;
         node = next;
     }
@@ -59,7 +61,7 @@ bool collect_existing_nodes(
 }
 
 bool scatter_semantic_state(
-    std::vector<std::byte>& bytes, const StageWindNodeLayout& layout,
+    std::span<std::byte> bytes, const StageWindNodeLayout& layout,
     std::span<const std::byte> state) noexcept
 {
     if (state.size() != StageWindSemanticStateSize(layout)) return false;
@@ -79,7 +81,7 @@ bool scatter_semantic_state(
 }
 
 bool scatter_ranges(
-    std::vector<std::byte>& bytes, std::span<const StageWindStateRange> ranges,
+    std::span<std::byte> bytes, std::span<const StageWindStateRange> ranges,
     std::span<const std::byte> state) noexcept
 {
     std::size_t expected{};
@@ -99,6 +101,27 @@ bool scatter_ranges(
 void free_all(IStageWindAllocator& allocator, std::span<const std::uintptr_t> nodes) noexcept
 {
     for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) allocator.Free(*it);
+}
+
+bool build_node_bytes(
+    std::span<std::byte> bytes, const StageWindNodeLayout& layout,
+    const StageWindNodeImage& node, std::uintptr_t image_base,
+    std::uintptr_t root, std::uintptr_t previous,
+    std::uintptr_t next) noexcept
+{
+    if (bytes.size() != layout.allocation_size)
+        return false;
+    std::fill(bytes.begin(), bytes.end(), std::byte{});
+    const auto vtable = image_base + layout.vtable_rva;
+    store(bytes, 0x00, vtable);
+    store(bytes, 0x10, next);
+    store(bytes, 0x18, previous);
+    store(bytes, 0x28, root);
+    return scatter_semantic_state(bytes, layout, node.semantic_state)
+        && scatter_ranges(bytes, layout.derived_ranges,
+            std::span{node.derived_state}.subspan(common_derived_state_size))
+        && scatter_ranges(bytes, StageWindCommonDerivedRanges(),
+            std::span{node.derived_state}.first(common_derived_state_size));
 }
 }
 
@@ -137,53 +160,49 @@ Status StageWindGraphTransaction::Restore(
     std::array<std::byte, root_size> undo_root{};
     if (!memory_.Read(root, undo_root))
         return Status::failure(FailureCode::CaptureFailed);
-    std::vector<std::uintptr_t> old_nodes;
+    std::array<std::uintptr_t, max_nodes> old_nodes{};
+    std::size_t old_node_count{};
     if (!collect_existing_nodes(
-            memory_, root, addresses.image_base, addresses.image_size, old_nodes))
+            memory_, root, addresses.image_base, addresses.image_size,
+            old_nodes, old_node_count))
         return Status::failure(FailureCode::IdentityMismatch);
 
-    std::vector<std::uintptr_t> replacements;
-    replacements.reserve(target.nodes.size());
+    std::array<std::uintptr_t, max_nodes> replacements{};
+    std::size_t replacement_count{};
     for (const auto& node : target.nodes)
     {
         const auto* layout = FindStageWindNodeLayout(node.kind);
         const auto replacement = allocator_.Allocate(layout->allocation_size);
         if (replacement == 0)
         {
-            free_all(allocator_, replacements);
+            free_all(allocator_, std::span{replacements}.first(
+                replacement_count));
             return Status::failure(FailureCode::CapacityExceeded);
         }
-        replacements.push_back(replacement);
+        replacements[replacement_count++] = replacement;
     }
 
-    for (std::size_t index = 0; index < replacements.size(); ++index)
+    std::array<std::byte, 0x1E0> node_bytes{};
+    for (std::size_t index = 0; index < replacement_count; ++index)
     {
         const auto* layout = FindStageWindNodeLayout(target.nodes[index].kind);
-        std::vector<std::byte> bytes(layout->allocation_size);
-        const auto vtable = addresses.image_base + layout->vtable_rva;
-        const auto next = index + 1 < replacements.size() ? replacements[index + 1] : 0;
+        const auto next = index + 1 < replacement_count
+            ? replacements[index + 1] : 0;
         const auto previous = index == 0 ? 0 : replacements[index - 1];
-        store(bytes, 0x00, vtable);
-        store(bytes, 0x10, next);
-        store(bytes, 0x18, previous);
-        store(bytes, 0x28, root);
-        if (!scatter_semantic_state(bytes, *layout, target.nodes[index].semantic_state)
-            || !scatter_ranges(bytes, layout->derived_ranges,
-                std::span{target.nodes[index].derived_state}.subspan(
-                    common_derived_state_size))
-            || !scatter_ranges(bytes, StageWindCommonDerivedRanges(),
-                std::span{target.nodes[index].derived_state}.first(
-                    common_derived_state_size))
+        const auto bytes = std::span{node_bytes}.first(layout->allocation_size);
+        if (!build_node_bytes(bytes, *layout, target.nodes[index],
+                addresses.image_base, root, previous, next)
             || !memory_.Write(replacements[index], bytes))
         {
-            free_all(allocator_, replacements);
+            free_all(allocator_, std::span{replacements}.first(
+                replacement_count));
             return Status::failure(FailureCode::RestoreWriteFailed);
         }
     }
 
-    std::vector<std::byte> new_root(undo_root.begin(), undo_root.end());
-    const auto head = replacements.empty() ? 0 : replacements.front();
-    store(new_root, 0x00, head);
+    auto new_root = undo_root;
+    const auto head = replacement_count == 0 ? 0 : replacements.front();
+    store(std::span{new_root}, 0x00, head);
     std::memcpy(new_root.data() + 0x08, target.root_clock.data(), target.root_clock.size());
     std::array<std::uintptr_t, 16> callbacks{};
     for (std::size_t index = 0; index < callbacks.size(); ++index)
@@ -197,28 +216,43 @@ Status StageWindGraphTransaction::Restore(
     std::uintptr_t current_root{};
     if (!read_value(memory_, addresses.root_pointer, current_root) || current_root != root)
     {
-        free_all(allocator_, replacements);
+        free_all(allocator_, std::span{replacements}.first(replacement_count));
         return Status::failure(FailureCode::GenerationMismatch);
     }
     if (!memory_.Write(root, new_root))
     {
-        free_all(allocator_, replacements);
+        free_all(allocator_, std::span{replacements}.first(replacement_count));
         return Status::failure(FailureCode::RestoreWriteFailed);
     }
 
-    StageWindTopologyProbe verifier(memory_);
-    StageWindTopologyImage restored{};
-    const auto bind_status = verifier.Bind(addresses);
-    const auto verify_status = bind_status.ok() ? verifier.Capture(restored) : bind_status;
-    if (!verify_status.ok() || restored != target)
+    std::array<std::byte, root_size> verified_root{};
+    bool verified = memory_.Read(root, verified_root)
+        && verified_root == new_root;
+    std::array<std::byte, 0x1E0> verified_node{};
+    for (std::size_t index = 0; verified && index < replacement_count; ++index)
+    {
+        const auto* layout = FindStageWindNodeLayout(target.nodes[index].kind);
+        const auto next = index + 1 < replacement_count
+            ? replacements[index + 1] : 0;
+        const auto previous = index == 0 ? 0 : replacements[index - 1];
+        const auto expected = std::span{node_bytes}.first(
+            layout->allocation_size);
+        const auto observed = std::span{verified_node}.first(
+            layout->allocation_size);
+        verified = build_node_bytes(expected, *layout, target.nodes[index],
+                addresses.image_base, root, previous, next)
+            && memory_.Read(replacements[index], observed)
+            && std::equal(expected.begin(), expected.end(), observed.begin());
+    }
+    if (!verified)
     {
         if (!memory_.Write(root, undo_root))
             return Status::failure(FailureCode::UndoFailed);
-        free_all(allocator_, replacements);
+        free_all(allocator_, std::span{replacements}.first(replacement_count));
         return Status::failure(FailureCode::RestoreVerificationFailed);
     }
 
-    free_all(allocator_, old_nodes);
+    free_all(allocator_, std::span{old_nodes}.first(old_node_count));
     return Status::success();
 }
 }

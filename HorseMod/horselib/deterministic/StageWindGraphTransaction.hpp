@@ -12,9 +12,9 @@ public:
     virtual void Free(std::uintptr_t address) noexcept = 0;
 };
 
-// Structural transaction used to prove allocator-safe wind graph replacement.
-// It is intentionally not wired to SC6 until all non-canonical derived fields
-// have a verified rebuild/reconciliation contract.
+// Structural transaction for allocator-safe wind graph replacement. Restore
+// uses fixed stack scratch only; native node allocation remains delegated to
+// the game's verified allocator and no C++ heap allocation occurs per rewind.
 class StageWindGraphTransaction
 {
 public:
