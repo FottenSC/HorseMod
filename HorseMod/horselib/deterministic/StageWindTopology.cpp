@@ -74,7 +74,8 @@ bool read_append(
     std::vector<std::byte>& output) noexcept
 {
     const auto old_size = output.size();
-    output.resize(old_size + size);
+    try { output.resize(old_size + size); }
+    catch (...) { return false; }
     if (memory.Read(address, std::span{output}.subspan(old_size, size))) return true;
     output.resize(old_size);
     return false;
@@ -186,7 +187,16 @@ void StageWindTopologyProbe::Invalidate() noexcept
 
 Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
 {
-    output = {};
+    // Preserve the bounded node/vector capacities across live captures. The
+    // topology normally remains stable for a native generation; destroying the
+    // image here caused avoidable heap churn on every authoritative frame and
+    // every correction capture.
+    output.generation = 0;
+    output.root_clock = {};
+    output.pending_callback_rvas = {};
+    output.schedule_state = {};
+    output.schedule_params = {};
+    output.output_force = {};
     if (!bound_) return Status::failure(FailureCode::AdapterUnqualified);
     std::uintptr_t current_root{};
     if (!read_value(memory_, addresses_.root_pointer, current_root)
@@ -236,20 +246,21 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
 
     std::uintptr_t previous{};
     std::array<std::uintptr_t, max_wind_nodes> visited{};
+    std::size_t captured_node_count{};
     while (node != 0)
     {
-        if (output.nodes.size() == max_wind_nodes)
+        if (captured_node_count == max_wind_nodes)
         {
             output = {};
             return Status::failure(FailureCode::CapacityExceeded);
         }
-        if (std::find(visited.begin(), visited.begin() + output.nodes.size(), node)
-            != visited.begin() + output.nodes.size())
+        if (std::find(visited.begin(), visited.begin() + captured_node_count, node)
+            != visited.begin() + captured_node_count)
         {
             output = {};
             return Status::failure(FailureCode::IdentityMismatch);
         }
-        visited[output.nodes.size()] = node;
+        visited[captured_node_count] = node;
         std::uintptr_t vtable{}, next{}, node_previous{}, node_root{};
         if (!read_value(memory_, node, vtable)
             || !read_value(memory_, node + 0x10, next)
@@ -269,7 +280,18 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
             output = {};
             return Status::failure(FailureCode::AdapterUnqualified);
         }
-        StageWindNodeImage image{};
+        if (captured_node_count == output.nodes.size())
+        {
+            try { output.nodes.emplace_back(); }
+            catch (...)
+            {
+                output = {};
+                return Status::failure(FailureCode::CapacityExceeded);
+            }
+        }
+        auto& image = output.nodes[captured_node_count];
+        image.semantic_state.clear();
+        image.derived_state.clear();
         image.kind = node_class->kind;
         for (const auto range : common_ranges)
             if (!read_append(memory_, node + range.offset, range.size, image.semantic_state))
@@ -295,10 +317,11 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
                 output = {};
                 return Status::failure(FailureCode::CaptureFailed);
             }
-        output.nodes.push_back(std::move(image));
+        ++captured_node_count;
         previous = node;
         node = next;
     }
+    output.nodes.resize(captured_node_count);
     return Status::success();
 }
 

@@ -2233,6 +2233,20 @@ void test_stage_wind_topology_is_bounded_and_pointer_free()
             && image.nodes[1].kind == StageWindNodeKind::ShockWave
             && image.pending_callback_rvas[0] == 0x334430,
         "wind topology captures ordered value-only node classes and callback RVAs");
+    const auto* node_storage = image.nodes.data();
+    const auto* first_semantic_storage = image.nodes[0].semantic_state.data();
+    const auto* first_derived_storage = image.nodes[0].derived_state.data();
+    const auto node_capacity = image.nodes.capacity();
+    const auto semantic_capacity = image.nodes[0].semantic_state.capacity();
+    const auto derived_capacity = image.nodes[0].derived_state.capacity();
+    expect(probe.Capture(image).ok()
+            && image.nodes.data() == node_storage
+            && image.nodes.capacity() == node_capacity
+            && image.nodes[0].semantic_state.data() == first_semantic_storage
+            && image.nodes[0].semantic_state.capacity() == semantic_capacity
+            && image.nodes[0].derived_state.data() == first_derived_storage
+            && image.nodes[0].derived_state.capacity() == derived_capacity,
+        "repeated wind capture reuses every bounded topology buffer");
     const auto canonical = StageWindTopologyProbe::CanonicalBytes(image);
     expect(!contains_qword(canonical, root) && !contains_qword(canonical, first)
             && !contains_qword(canonical, second),
