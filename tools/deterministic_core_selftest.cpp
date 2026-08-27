@@ -1615,6 +1615,40 @@ void test_stage_presentation_is_pointer_free_and_composite()
     expect(DecodeStagePresentation(encoded, decoded).code
             == FailureCode::ProtocolMismatch,
         "stage presentation rejects copied or corrupted event identity");
+    NativeBatchEnvelope batch{};
+    batch.entry_coordinate = {9, 43};
+    batch.exit_coordinate = {9, 44};
+    batch.stage_barrier_calls = 1;
+    batch.stage_barrier_journal_count = 1;
+    auto& stage = batch.stage_barrier_journal[0];
+    stage.owner_logical_id = value.owner_logical_id;
+    stage.semantic = value.source_semantic;
+    stage.canonical_before = value.canonical_before;
+    stage.payload_size = value.source_payload_size;
+    stage.canonical_before_size = value.canonical_before_size;
+    stage.first_particle = 0;
+    stage.particle_count = 1;
+    batch.particle_spawn_calls = 1;
+    batch.particle_spawn_journal_count = 1;
+    batch.particle_spawn_journal[0].semantic = particle;
+    batch.presentation_order_journal_count = 2;
+    batch.presentation_order_journal[0] = {
+        PresentationEventFamily::StageBarrier, 0, 1};
+    batch.presentation_order_journal[1] = {
+        PresentationEventFamily::ParticleSpawn, 0, 1};
+    std::array<PresentationEvent, 2> built{};
+    std::size_t built_count{};
+    auto built_value = value;
+    built_value.source_ordinal = 1;
+    expect(BuildNativeAudioPresentation(batch, built, built_count).ok()
+            && built_count == 1
+            && DecodeStagePresentation(built[0], decoded).ok()
+            && decoded == built_value,
+        "native stage event atomically owns its nested particle publication");
+    batch.stage_barrier_journal[0].particle_count = 0;
+    expect(BuildNativeAudioPresentation(batch, built, built_count).code
+            == FailureCode::UnsupportedContent,
+        "unowned particle publication fails the native journal closed");
     value.particle_count = 3;
     expect(EncodeStagePresentation(value, encoded).code
             == FailureCode::InvalidConfiguration,
