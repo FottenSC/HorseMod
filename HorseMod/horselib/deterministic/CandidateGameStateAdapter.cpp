@@ -101,6 +101,8 @@ void CandidateGameStateAdapter::Reset() noexcept
     scratch_capacity_baseline_by_owner_ = {};
     scratch_capacity_high_water_by_owner_ = {};
     last_capture_phase_ = CandidateCapturePhase::None;
+    last_captured_movevm_short25_ = {};
+    last_captured_movevm_state_shorts_ = {};
     configured_ = false;
     bound_ = false;
 }
@@ -235,6 +237,14 @@ Status CandidateGameStateAdapter::Capture(
     last_capture_phase_ = CandidateCapturePhase::None;
     const Status captured = capture_image(capture_scratch_);
     if (!captured.ok()) return captured;
+    last_captured_movevm_state_shorts_ =
+        capture_scratch_.native.movevm_state_shorts;
+    for (std::size_t fighter = 0;
+         fighter < last_captured_movevm_short25_.size(); ++fighter)
+    {
+        last_captured_movevm_short25_[fighter] =
+            capture_scratch_.native.movevm_state_shorts.fighters[fighter][25];
+    }
     const auto encode_begin = std::chrono::steady_clock::now();
     last_capture_phase_ = CandidateCapturePhase::Encode;
     const Status encoded = CandidateCheckpointCodec::EncodeCaptured(
@@ -268,6 +278,14 @@ Status CandidateGameStateAdapter::CaptureCanonical(
     last_capture_phase_ = CandidateCapturePhase::None;
     const Status captured = capture_image(canonical_capture_scratch_, false);
     if (!captured.ok()) return captured;
+    last_captured_movevm_state_shorts_ =
+        canonical_capture_scratch_.native.movevm_state_shorts;
+    for (std::size_t fighter = 0;
+         fighter < last_captured_movevm_short25_.size(); ++fighter)
+    {
+        last_captured_movevm_short25_[fighter] = canonical_capture_scratch_
+            .native.movevm_state_shorts.fighters[fighter][25];
+    }
     const auto encode_begin = std::chrono::steady_clock::now();
     last_capture_phase_ = CandidateCapturePhase::Encode;
     const Status encoded = CandidateCheckpointCodec::EncodeCanonical(

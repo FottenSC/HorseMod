@@ -42,6 +42,21 @@ PRESENTATION_COVERAGE_PATTERN = re.compile(
     r"audio_blueprint=(?P<audio_blueprint>\d+) "
     r"particle_spawn=(?P<particle>\d+)"
 )
+GAMEPLAY_RNG_COVERAGE_PATTERN = re.compile(
+    r"\[ReplayQualification\] gameplay rng coverage "
+    r"xorshift_draws=(?P<draws>\d+) known_callers=0x(?P<known>[0-9a-f]+) "
+    r"unknown_callers=(?P<unknown>\d+) weighted_draws=(?P<weighted>\d+) "
+    r"if_draws=(?P<if_draws>\d+) short25_p0=(?P<short0>\d+) "
+    r"short25_p1=(?P<short1>\d+) "
+    r"probability_transition_batches=(?P<transitions>\d+) "
+    r"state_changes_p0=(?P<state0>\d+) state_changes_p1=(?P<state1>\d+) "
+    r"probability_state_mask_p0=(?P<mask0>[0-9a-f]{64}) "
+    r"probability_state_mask_p1=(?P<mask1>[0-9a-f]{64}) "
+    r"transition07_calls=(?P<transition07>\d+) "
+    r"tira_random_transitions=(?P<tira_transitions>\d+) "
+    r"tira_probability_batches=(?P<tira_batches>\d+) "
+    r"tira_targets=0x(?P<tira_targets>[0-9a-f]+)"
+)
 
 
 @dataclass(frozen=True)
@@ -96,6 +111,26 @@ class PresentationCoverageEvidence:
     audio_stop_all: int
     audio_blueprint: int
     particle_spawn: int
+
+
+@dataclass(frozen=True)
+class GameplayRngCoverageEvidence:
+    xorshift_draws: int
+    known_callers: int
+    unknown_callers: int
+    weighted_draws: int
+    if_draws: int
+    short25_p0: int
+    short25_p1: int
+    probability_transition_batches: int
+    state_changes_p0: int
+    state_changes_p1: int
+    probability_state_mask_p0: int
+    probability_state_mask_p1: int
+    transition07_calls: int
+    tira_random_transitions: int
+    tira_probability_batches: int
+    tira_targets: int
 
 
 @dataclass(frozen=True)
@@ -308,6 +343,59 @@ def wait_for_presentation_coverage_evidence(
             return evidence
         time.sleep(0.25)
     raise TimeoutError("replay presentation source coverage did not appear")
+
+
+def parse_gameplay_rng_coverage_evidence(
+    text: str,
+) -> GameplayRngCoverageEvidence | None:
+    source_matches = list(SOURCE_PATTERN.finditer(text))
+    if not source_matches:
+        return None
+    current_boot = text[source_matches[-1].start():]
+    matches = list(GAMEPLAY_RNG_COVERAGE_PATTERN.finditer(current_boot))
+    if not matches:
+        return None
+    match = matches[-1]
+    return GameplayRngCoverageEvidence(
+        xorshift_draws=int(match.group("draws")),
+        known_callers=int(match.group("known"), 16),
+        unknown_callers=int(match.group("unknown")),
+        weighted_draws=int(match.group("weighted")),
+        if_draws=int(match.group("if_draws")),
+        short25_p0=int(match.group("short0")),
+        short25_p1=int(match.group("short1")),
+        probability_transition_batches=int(match.group("transitions")),
+        state_changes_p0=int(match.group("state0")),
+        state_changes_p1=int(match.group("state1")),
+        probability_state_mask_p0=int(match.group("mask0"), 16),
+        probability_state_mask_p1=int(match.group("mask1"), 16),
+        transition07_calls=int(match.group("transition07")),
+        tira_random_transitions=int(match.group("tira_transitions")),
+        tira_probability_batches=int(match.group("tira_batches")),
+        tira_targets=int(match.group("tira_targets"), 16),
+    )
+
+
+def wait_for_gameplay_rng_coverage_evidence(
+    log_path: Path,
+    timeout_seconds: float,
+    progress_guard: Callable[[], None] | None = None,
+    start_offset: LogCursor | int = 0,
+) -> GameplayRngCoverageEvidence:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if progress_guard is not None:
+            progress_guard()
+        try:
+            evidence = parse_gameplay_rng_coverage_evidence(
+                _read_since(log_path, start_offset)
+            )
+        except OSError:
+            evidence = None
+        if evidence is not None:
+            return evidence
+        time.sleep(0.25)
+    raise TimeoutError("replay gameplay RNG coverage did not appear")
 
 
 def parse_forced_qualification_evidence(

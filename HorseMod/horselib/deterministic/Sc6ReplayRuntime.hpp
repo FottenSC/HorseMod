@@ -63,6 +63,20 @@ struct ReplayTimelineStatus
     std::uint64_t batch_same_input_time_coordinates{};
     std::uint64_t batch_input_generation_changes{};
     std::uint64_t batch_frame_accounting_mismatches{};
+    std::uint64_t observed_gameplay_xorshift_draws{};
+    std::uint64_t observed_gameplay_xorshift_known_callers{};
+    std::uint64_t observed_gameplay_xorshift_unknown_callers{};
+    std::uint64_t observed_gameplay_xorshift_weighted_draws{};
+    std::uint64_t observed_gameplay_xorshift_if_draws{};
+    std::uint64_t observed_movevm_transition_07_calls{};
+    std::uint64_t observed_tira_random_transition_calls{};
+    std::uint64_t observed_tira_probability_transition_batches{};
+    std::uint8_t observed_tira_random_transition_target_mask{};
+    std::array<std::uint64_t, 2> observed_movevm_short25_changes{};
+    std::array<std::uint64_t, 2> observed_movevm_state_changes{};
+    std::array<std::array<std::uint64_t, 4>, 2>
+        observed_probability_changed_state_short_masks{};
+    std::uint64_t observed_probability_transition_batches{};
     std::uint64_t observed_stage_wall_calls{};
     std::uint64_t observed_stage_barrier_calls{};
     std::uint64_t observed_stage_dispatch_calls{};
@@ -469,6 +483,12 @@ private:
     FrameCoordinate pending_batch_entry_{};
     NativeCameraSourceFrameImage pending_camera_source_frame_{};
     std::vector<FrameCoordinate> pending_batch_coordinates_{};
+    std::array<std::uint16_t, 2> last_movevm_short25_{};
+    NativeMoveVmStateShortImage last_movevm_state_shorts_{};
+    std::array<std::array<std::uint64_t, 4>, 2>
+        pending_movevm_state_short_change_masks_{};
+    std::uint8_t pending_movevm_short25_change_mask_{};
+    bool last_movevm_short25_valid_{};
     FrameCoordinate resume_target_{};
     FrameCoordinate resume_source_end_{};
     bool resume_validation_active_{};

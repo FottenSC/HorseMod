@@ -738,6 +738,22 @@ Sc6CandidateCheckpointCapture::transient_capture_phase() const noexcept
     return adapter_->last_capture_phase();
 }
 
+std::array<std::uint16_t, 2>
+Sc6CandidateCheckpointCapture::last_captured_movevm_short25() const noexcept
+{
+    return adapter_ == nullptr
+        ? std::array<std::uint16_t, 2>{}
+        : adapter_->last_captured_movevm_short25();
+}
+
+NativeMoveVmStateShortImage
+Sc6CandidateCheckpointCapture::last_captured_movevm_state_shorts() const noexcept
+{
+    return adapter_ == nullptr
+        ? NativeMoveVmStateShortImage{}
+        : adapter_->last_captured_movevm_state_shorts();
+}
+
 void Sc6CandidateCheckpointCapture::ResetCapturePerformanceWindow() noexcept
 {
     if (adapter_ != nullptr) adapter_->ResetCapturePerformanceWindow();

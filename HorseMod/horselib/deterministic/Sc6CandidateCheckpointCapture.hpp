@@ -100,6 +100,10 @@ public:
         const noexcept;
     void ResetCapturePerformanceWindow() noexcept;
     [[nodiscard]] CandidateCapturePhase transient_capture_phase() const noexcept;
+    [[nodiscard]] std::array<std::uint16_t, 2>
+    last_captured_movevm_short25() const noexcept;
+    [[nodiscard]] NativeMoveVmStateShortImage
+    last_captured_movevm_state_shorts() const noexcept;
     [[nodiscard]] CharaAnimationTopologyIssue
     transient_animation_topology_issue() const noexcept;
     [[nodiscard]] std::uintptr_t

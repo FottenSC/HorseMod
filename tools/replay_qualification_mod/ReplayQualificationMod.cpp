@@ -66,6 +66,7 @@ using GetReplaySimulationPhaseFn = bool (*)(
     std::int32_t*, std::int32_t*, std::uint32_t*, std::int32_t*);
 using GetReplaySeekMetricsFn = bool (*)(std::uint64_t*, std::uint64_t*);
 using GetReplayPresentationCoverageFn = bool (*)(std::uint64_t*, std::size_t);
+using GetReplayGameplayRngCoverageFn = bool (*)(std::uint64_t*, std::size_t);
 using RequestStageTerminalFn = bool (*)(std::uint32_t);
 using GetStageTerminalStatusFn = std::uint32_t (*)(std::uint32_t*);
 
@@ -130,6 +131,27 @@ GetReplayPresentationCoverageFn ResolveHorseModPresentationCoverageApi() noexcep
         const auto candidate = reinterpret_cast<
             GetReplayPresentationCoverageFn>(GetProcAddress(modules[index],
                 "horsemod_get_replay_presentation_coverage"));
+        if (candidate != nullptr) return candidate;
+    }
+    return nullptr;
+}
+
+GetReplayGameplayRngCoverageFn ResolveHorseModGameplayRngCoverageApi() noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+    {
+        return nullptr;
+    }
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate = reinterpret_cast<
+            GetReplayGameplayRngCoverageFn>(GetProcAddress(modules[index],
+                "horsemod_get_replay_gameplay_rng_coverage"));
         if (candidate != nullptr) return candidate;
     }
     return nullptr;
@@ -635,6 +657,33 @@ private:
             "audio_stop_all={} audio_blueprint={} particle_spawn={}\n"),
             coverage[0], coverage[1], coverage[2], coverage[3], coverage[4],
             coverage[5], coverage[6], coverage[7], coverage[8], coverage[9]);
+        const auto get_rng_coverage =
+            ResolveHorseModGameplayRngCoverageApi();
+        std::array<std::uint64_t, 22> rng_coverage{};
+        if (get_rng_coverage == nullptr
+            || !get_rng_coverage(rng_coverage.data(), rng_coverage.size()))
+        {
+            Fail("horsemod_gameplay_rng_coverage_api_unavailable");
+            return;
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] gameplay rng coverage "
+            "xorshift_draws={} known_callers=0x{:x} unknown_callers={} "
+            "weighted_draws={} if_draws={} short25_p0={} short25_p1={} "
+            "probability_transition_batches={} state_changes_p0={} "
+            "state_changes_p1={} probability_state_mask_p0="
+            "{:016x}{:016x}{:016x}{:016x} probability_state_mask_p1="
+            "{:016x}{:016x}{:016x}{:016x} transition07_calls={} "
+            "tira_random_transitions={} tira_probability_batches={} "
+            "tira_targets=0x{:x}\n"),
+            rng_coverage[0], rng_coverage[1], rng_coverage[2],
+            rng_coverage[3], rng_coverage[4], rng_coverage[5],
+            rng_coverage[6], rng_coverage[7], rng_coverage[8],
+            rng_coverage[9], rng_coverage[13], rng_coverage[12],
+            rng_coverage[11], rng_coverage[10], rng_coverage[17],
+            rng_coverage[16], rng_coverage[15], rng_coverage[14],
+            rng_coverage[18], rng_coverage[19], rng_coverage[20],
+            rng_coverage[21]);
         state_ = State::Launched;
         WriteResult("launch_requested", "none");
         Output::send<LogLevel::Default>(STR(

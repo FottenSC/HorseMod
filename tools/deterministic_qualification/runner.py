@@ -26,6 +26,7 @@ from .trace_parser import (
     capture_log_offset,
     wait_for_boot_evidence,
     wait_for_forced_qualification_evidence,
+    wait_for_gameplay_rng_coverage_evidence,
     wait_for_presentation_coverage_evidence,
     wait_for_replay_lifecycle_evidence,
     wait_for_replay_seek_evidence,
@@ -129,6 +130,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     forced = None
     seeks = ()
     presentation_coverage = None
+    gameplay_rng_coverage = None
     mods_root = GAME_ROOT / "ue4ss" / "Mods"
     with TemporaryReplayMod(replay_mod, mods_root):
         try:
@@ -151,6 +153,18 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             presentation_coverage = wait_for_presentation_coverage_evidence(
                 args.log, args.timeout, guard, log_start
             )
+            gameplay_rng_coverage = wait_for_gameplay_rng_coverage_evidence(
+                args.log, args.timeout, guard, log_start
+            )
+            if gameplay_rng_coverage.unknown_callers != 0:
+                raise RuntimeError("unverified gameplay xorshift caller observed")
+            if args.require_tira_probability_transition:
+                if (gameplay_rng_coverage.tira_probability_batches == 0
+                        or gameplay_rng_coverage.tira_random_transitions == 0
+                        or gameplay_rng_coverage.tira_targets == 0):
+                    raise RuntimeError(
+                        "authored Tira IF 0x007F transition was not observed"
+                    )
             if args.seek_percentages:
                 seeks = wait_for_replay_seek_evidence(
                     args.log, tuple(args.seek_percentages), args.timeout,
@@ -259,6 +273,29 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                 "audio_blueprint": presentation_coverage.audio_blueprint,
                 "particle_spawn": presentation_coverage.particle_spawn,
             },
+            "gameplay_rng_coverage": {
+                "xorshift_draws": gameplay_rng_coverage.xorshift_draws,
+                "known_callers": f"0x{gameplay_rng_coverage.known_callers:x}",
+                "unknown_callers": gameplay_rng_coverage.unknown_callers,
+                "weighted_draws": gameplay_rng_coverage.weighted_draws,
+                "if_draws": gameplay_rng_coverage.if_draws,
+                "short25_p0": gameplay_rng_coverage.short25_p0,
+                "short25_p1": gameplay_rng_coverage.short25_p1,
+                "probability_transition_batches":
+                    gameplay_rng_coverage.probability_transition_batches,
+                "state_changes_p0": gameplay_rng_coverage.state_changes_p0,
+                "state_changes_p1": gameplay_rng_coverage.state_changes_p1,
+                "probability_state_mask_p0":
+                    f"0x{gameplay_rng_coverage.probability_state_mask_p0:060x}",
+                "probability_state_mask_p1":
+                    f"0x{gameplay_rng_coverage.probability_state_mask_p1:060x}",
+                "transition07_calls": gameplay_rng_coverage.transition07_calls,
+                "tira_random_transitions":
+                    gameplay_rng_coverage.tira_random_transitions,
+                "tira_probability_batches":
+                    gameplay_rng_coverage.tira_probability_batches,
+                "tira_targets": f"0x{gameplay_rng_coverage.tira_targets:x}",
+            },
             "frame_fencepost_observed": True,
             "temporary_mod_removed": True,
             "clean_exit_requested": True,
@@ -348,6 +385,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--require-presentation-coverage",
         action="store_true",
         help="require complete forced-qualification presentation terminal coverage",
+    )
+    replay.add_argument(
+        "--require-tira-probability-transition",
+        action="store_true",
+        help=("require an IF 0x007F draw and Tira transition target "
+              "0x0153/0x0205 on the same native source frame"),
     )
     replay.set_defaults(handler=run_replay_entry)
     return parser

@@ -3,11 +3,38 @@ from pathlib import Path
 from tools.deterministic_qualification.trace_parser import (
     capture_log_offset,
     parse_forced_qualification_evidence,
+    parse_gameplay_rng_coverage_evidence,
     parse_replay_seek_evidence,
     parse_presentation_coverage_evidence,
     wait_for_boot_evidence,
     wait_for_replay_lifecycle_evidence,
 )
+
+
+def test_gameplay_rng_coverage_parser_is_source_bound() -> None:
+    text = (
+        "[HorseMod] ctor v1.0 source=" + "a" * 40 + "\n"
+        "[ReplayQualification] gameplay rng coverage xorshift_draws=42 "
+        "known_callers=0x123 unknown_callers=0 weighted_draws=3 "
+        "if_draws=4 short25_p0=5 short25_p1=6 "
+        "probability_transition_batches=2 state_changes_p0=7 "
+        "state_changes_p1=8 probability_state_mask_p0=" + "0" * 63 + "1 "
+        "probability_state_mask_p1=" + "0" * 62 + "20 "
+        "transition07_calls=9 tira_random_transitions=2 "
+        "tira_probability_batches=2 tira_targets=0x3\n"
+    )
+    evidence = parse_gameplay_rng_coverage_evidence(text)
+    assert evidence is not None
+    assert evidence.known_callers == 0x123
+    assert evidence.unknown_callers == 0
+    assert evidence.probability_transition_batches == 2
+    assert evidence.state_changes_p1 == 8
+    assert evidence.probability_state_mask_p0 == 1
+    assert evidence.probability_state_mask_p1 == 0x20
+    assert evidence.transition07_calls == 9
+    assert evidence.tira_random_transitions == 2
+    assert evidence.tira_probability_batches == 2
+    assert evidence.tira_targets == 3
 
 
 def test_presentation_coverage_parser_is_source_bound() -> None:

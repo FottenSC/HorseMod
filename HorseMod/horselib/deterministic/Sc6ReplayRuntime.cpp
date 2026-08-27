@@ -190,6 +190,11 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     pending_batch_entry_ = {};
     pending_camera_source_frame_ = {};
     pending_batch_coordinates_.clear();
+    last_movevm_short25_ = {};
+    last_movevm_state_shorts_ = {};
+    pending_movevm_state_short_change_masks_ = {};
+    pending_movevm_short25_change_mask_ = 0;
+    last_movevm_short25_valid_ = false;
     resume_target_ = {};
     resume_source_end_ = {};
     resume_validation_active_ = false;
@@ -650,6 +655,40 @@ Status Sc6ReplayRuntime::ObserveFrame(
             timeline_status_.failure = stored.code;
             return stored;
         }
+        const auto movevm_short25 =
+            checkpoint_capture_.last_captured_movevm_short25();
+        const auto movevm_state_shorts =
+            checkpoint_capture_.last_captured_movevm_state_shorts();
+        if (last_movevm_short25_valid_ && !new_generation)
+        {
+            for (std::size_t fighter = 0;
+                 fighter < movevm_short25.size(); ++fighter)
+            {
+                if (movevm_short25[fighter] == last_movevm_short25_[fighter])
+                    continue;
+                ++timeline_status_.observed_movevm_short25_changes[fighter];
+                pending_movevm_short25_change_mask_ |=
+                    static_cast<std::uint8_t>(1u << fighter);
+            }
+            for (std::size_t fighter = 0;
+                 fighter < movevm_state_shorts.fighters.size(); ++fighter)
+            {
+                for (std::size_t index = 0;
+                     index < movevm_state_shorts.fighters[fighter].size();
+                     ++index)
+                {
+                    if (movevm_state_shorts.fighters[fighter][index]
+                        == last_movevm_state_shorts_.fighters[fighter][index])
+                        continue;
+                    ++timeline_status_.observed_movevm_state_changes[fighter];
+                    pending_movevm_state_short_change_masks_[fighter]
+                        [index / 64] |= std::uint64_t{1} << (index % 64);
+                }
+            }
+        }
+        last_movevm_short25_ = movevm_short25;
+        last_movevm_state_shorts_ = movevm_state_shorts;
+        last_movevm_short25_valid_ = true;
         if (forced_depth7_qualification_enabled_)
         {
             const Status retained =
@@ -713,6 +752,8 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     pending_batch_id_ = observation.batch_id;
     pending_batch_entry_ = timeline_status_.last_coordinate;
     pending_camera_source_frame_ = {};
+    pending_movevm_short25_change_mask_ = 0;
+    pending_movevm_state_short_change_masks_ = {};
 
     // A resumed future reuses the immutable baseline checkpoints and batch
     // envelopes. Capturing a second batch-entry image here would both waste
@@ -883,6 +924,11 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     pending_batch_entry_ = {};
     pending_camera_source_frame_ = {};
     pending_batch_coordinates_.clear();
+    last_movevm_short25_ = {};
+    last_movevm_state_shorts_ = {};
+    pending_movevm_state_short_change_masks_ = {};
+    pending_movevm_short25_change_mask_ = 0;
+    last_movevm_short25_valid_ = false;
     resume_target_ = {};
     resume_source_end_ = {};
     resume_validation_active_ = false;
@@ -1036,6 +1082,34 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         observation.repeat_pending_coordinates;
     envelope.same_input_time_coordinates =
         observation.same_input_time_coordinates;
+    envelope.gameplay_xorshift_draws = observation.gameplay_xorshift_draws;
+    envelope.gameplay_xorshift_sequence_hash =
+        observation.gameplay_xorshift_sequence_hash;
+    envelope.gameplay_xorshift_known_callers =
+        observation.gameplay_xorshift_known_callers;
+    envelope.gameplay_xorshift_unknown_callers =
+        observation.gameplay_xorshift_unknown_callers;
+    envelope.gameplay_xorshift_weighted_draws =
+        observation.gameplay_xorshift_weighted_draws;
+    envelope.gameplay_xorshift_if_draws =
+        observation.gameplay_xorshift_if_draws;
+    envelope.gameplay_xorshift_weighted_source_mask =
+        observation.gameplay_xorshift_weighted_source_mask;
+    envelope.gameplay_xorshift_if_source_mask =
+        observation.gameplay_xorshift_if_source_mask;
+    envelope.movevm_transition_07_calls = observation.movevm_transition_07_calls;
+    envelope.movevm_transition_07_sequence_hash =
+        observation.movevm_transition_07_sequence_hash;
+    envelope.movevm_transition_07_signature_failures =
+        observation.movevm_transition_07_signature_failures;
+    envelope.tira_random_transition_calls =
+        observation.tira_random_transition_calls;
+    envelope.tira_random_transition_sequence_hash =
+        observation.tira_random_transition_sequence_hash;
+    envelope.tira_random_transition_source_mask =
+        observation.tira_random_transition_source_mask;
+    envelope.tira_random_transition_target_mask =
+        observation.tira_random_transition_target_mask;
     envelope.stage_wall_calls = observation.stage_wall_calls;
     envelope.stage_wall_hash = observation.stage_wall_hash;
     envelope.stage_barrier_calls = observation.stage_barrier_calls;
@@ -1146,6 +1220,60 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         }
         return Status::success();
     }
+    if (observation.gameplay_xorshift_unknown_callers != 0)
+    {
+        timeline_status_.observed_gameplay_xorshift_unknown_callers +=
+            observation.gameplay_xorshift_unknown_callers;
+        timeline_status_.failure = FailureCode::AdapterUnqualified;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (observation.movevm_transition_07_signature_failures != 0)
+    {
+        timeline_status_.failure = FailureCode::AdapterUnqualified;
+        return Status::failure(timeline_status_.failure);
+    }
+    timeline_status_.observed_gameplay_xorshift_draws +=
+        observation.gameplay_xorshift_draws;
+    timeline_status_.observed_gameplay_xorshift_known_callers |=
+        observation.gameplay_xorshift_known_callers;
+    timeline_status_.observed_gameplay_xorshift_weighted_draws +=
+        observation.gameplay_xorshift_weighted_draws;
+    timeline_status_.observed_gameplay_xorshift_if_draws +=
+        observation.gameplay_xorshift_if_draws;
+    timeline_status_.observed_movevm_transition_07_calls +=
+        observation.movevm_transition_07_calls;
+    timeline_status_.observed_tira_random_transition_calls +=
+        observation.tira_random_transition_calls;
+    timeline_status_.observed_tira_random_transition_target_mask |=
+        observation.tira_random_transition_target_mask;
+    if ((observation.gameplay_xorshift_if_source_mask
+            & observation.tira_random_transition_source_mask) != 0)
+    {
+        ++timeline_status_.observed_tira_probability_transition_batches;
+    }
+    const bool probability_draw =
+        observation.gameplay_xorshift_weighted_draws != 0
+        || observation.gameplay_xorshift_if_draws != 0;
+    bool movevm_state_changed{};
+    for (std::size_t fighter = 0;
+         fighter < pending_movevm_state_short_change_masks_.size(); ++fighter)
+    {
+        for (std::size_t word = 0;
+             word < pending_movevm_state_short_change_masks_[fighter].size();
+             ++word)
+        {
+            const auto changed =
+                pending_movevm_state_short_change_masks_[fighter][word];
+            movevm_state_changed = movevm_state_changed || changed != 0;
+            if (probability_draw)
+            {
+                timeline_status_.observed_probability_changed_state_short_masks
+                    [fighter][word] |= changed;
+            }
+        }
+    }
+    if (probability_draw && movevm_state_changed)
+        ++timeline_status_.observed_probability_transition_batches;
     timeline_status_.observed_stage_wall_calls += observation.stage_wall_calls;
     timeline_status_.observed_stage_barrier_calls +=
         observation.stage_barrier_calls;
@@ -1172,6 +1300,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     pending_batch_id_ = 0;
     pending_camera_source_frame_ = {};
     pending_batch_coordinates_.clear();
+    pending_movevm_short25_change_mask_ = 0;
+    pending_movevm_state_short_change_masks_ = {};
     if (!stored.ok())
     {
         if (stored.code == FailureCode::CapacityExceeded)
@@ -1254,6 +1384,11 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     pending_batch_entry_ = {};
     pending_camera_source_frame_ = {};
     pending_batch_coordinates_.clear();
+    last_movevm_short25_ = {};
+    last_movevm_state_shorts_ = {};
+    pending_movevm_state_short_change_masks_ = {};
+    pending_movevm_short25_change_mask_ = 0;
+    last_movevm_short25_valid_ = false;
     resume_target_ = {};
     resume_source_end_ = {};
     resume_validation_active_ = false;
@@ -1411,6 +1546,34 @@ void Sc6ReplayRuntime::ApplyCorrectedPresentationObservation(
 {
     envelope.repeat_pending_coordinates = observation.repeat_pending_coordinates;
     envelope.same_input_time_coordinates = observation.same_input_time_coordinates;
+    envelope.gameplay_xorshift_draws = observation.gameplay_xorshift_draws;
+    envelope.gameplay_xorshift_sequence_hash =
+        observation.gameplay_xorshift_sequence_hash;
+    envelope.gameplay_xorshift_known_callers =
+        observation.gameplay_xorshift_known_callers;
+    envelope.gameplay_xorshift_unknown_callers =
+        observation.gameplay_xorshift_unknown_callers;
+    envelope.gameplay_xorshift_weighted_draws =
+        observation.gameplay_xorshift_weighted_draws;
+    envelope.gameplay_xorshift_if_draws =
+        observation.gameplay_xorshift_if_draws;
+    envelope.gameplay_xorshift_weighted_source_mask =
+        observation.gameplay_xorshift_weighted_source_mask;
+    envelope.gameplay_xorshift_if_source_mask =
+        observation.gameplay_xorshift_if_source_mask;
+    envelope.movevm_transition_07_calls = observation.movevm_transition_07_calls;
+    envelope.movevm_transition_07_sequence_hash =
+        observation.movevm_transition_07_sequence_hash;
+    envelope.movevm_transition_07_signature_failures =
+        observation.movevm_transition_07_signature_failures;
+    envelope.tira_random_transition_calls =
+        observation.tira_random_transition_calls;
+    envelope.tira_random_transition_sequence_hash =
+        observation.tira_random_transition_sequence_hash;
+    envelope.tira_random_transition_source_mask =
+        observation.tira_random_transition_source_mask;
+    envelope.tira_random_transition_target_mask =
+        observation.tira_random_transition_target_mask;
     envelope.stage_wall_calls = observation.stage_wall_calls;
     envelope.stage_wall_hash = observation.stage_wall_hash;
     envelope.stage_barrier_calls = observation.stage_barrier_calls;

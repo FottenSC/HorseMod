@@ -56,6 +56,10 @@ std::atomic<std::uint64_t>
     DeterministicHookSet::particle_spawn_trampoline_global_{};
 std::atomic<std::uint64_t>
     DeterministicHookSet::particle_finished_bind_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::gameplay_xorshift96_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::movevm_transition_author_07_trampoline_global_{};
 std::array<std::atomic<std::uintptr_t>, maximum_battle_audio_handlers>
     DeterministicHookSet::observed_battle_audio_handlers_{};
 std::atomic<bool> DeterministicHookSet::battle_audio_handler_overflow_{};
@@ -67,6 +71,28 @@ thread_local std::uint32_t active_owned_audio_registration_depth{};
 
 namespace
 {
+// Complete direct-call surface verified in Ghidra for
+// LuxMoveVM_GetRandXorshift96Gameplay @ 0x14034F1F0. Values are return RVAs,
+// not call RVAs, so the detour can validate _ReturnAddress() without stack
+// walking. The stream is shared by gameplay and camera/effect consumers.
+constexpr std::array<std::uintptr_t, 61> gameplay_xorshift96_return_rvas{
+    0x34f915, 0x2ff9da, 0x303712, 0x33e39b, 0x342b82, 0x342cf3,
+    0x3037ea, 0x34e8a6, 0x2e58cd, 0x386fb4, 0x387094, 0x38c68c,
+    0x38c6dc, 0x327274, 0x3272ac, 0x3272db, 0x327302, 0x3273b4,
+    0x327a16, 0x327a4e, 0x327a7c, 0x327aaa, 0x327daf, 0x327f6a,
+    0x3280c6, 0x328494, 0x3284f7, 0x328556, 0x3285c3, 0x32861d,
+    0x328677, 0x3286d1, 0x32871a, 0x328763, 0x3287ce, 0x328817,
+    0x34f5e9, 0x350c96, 0x350cde, 0x351321, 0x380481, 0x3804d5,
+    0x3858a8, 0x385923, 0x3859a2, 0x385a24, 0x385aa3, 0x385b22,
+    0x3860c9, 0x386156, 0x3861f4, 0x38627f, 0x38f6bd, 0x2e58c8,
+    0x3725c2, 0x359bb5, 0x359d2e, 0x359d86, 0x359dde, 0x359e34,
+    0x359cbe,
+};
+
+constexpr std::uintptr_t gameplay_xorshift96_weighted_return_a = 0x2e58c8;
+constexpr std::uintptr_t gameplay_xorshift96_weighted_return_b = 0x2e58cd;
+constexpr std::uintptr_t gameplay_xorshift96_if_float_return = 0x34f5e9;
+
 bool SafeEqual(const void* left, const void* right, std::size_t size) noexcept
 {
     __try
@@ -1353,7 +1379,15 @@ Status DeterministicHookSet::Install(
         || !SafeEqual(reinterpret_cast<const void*>(image_base
                 + Schema::Sc6FrameLayout::particle_finished_bind_rva),
             Schema::Sc6FrameLayout::particle_finished_bind_signature.data(),
-            Schema::Sc6FrameLayout::particle_finished_bind_signature.size()))
+            Schema::Sc6FrameLayout::particle_finished_bind_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::gameplay_xorshift96_rva),
+            Schema::Sc6FrameLayout::gameplay_xorshift96_signature.data(),
+            Schema::Sc6FrameLayout::gameplay_xorshift96_signature.size())
+        || !SafeEqual(reinterpret_cast<const void*>(image_base
+                + Schema::Sc6FrameLayout::movevm_transition_author_07_rva),
+            Schema::Sc6FrameLayout::movevm_transition_author_07_signature.data(),
+            Schema::Sc6FrameLayout::movevm_transition_author_07_signature.size()))
     {
         return Status::failure(FailureCode::AdapterUnqualified);
     }
@@ -1382,6 +1416,8 @@ Status DeterministicHookSet::Install(
     battle_audio_append_parameter_trampoline_ = 0;
     particle_spawn_trampoline_ = 0;
     particle_finished_bind_trampoline_ = 0;
+    gameplay_xorshift96_trampoline_ = 0;
+    movevm_transition_author_07_trampoline_ = 0;
     frame_fencepost_detour_ = std::make_unique<PLH::x64Detour>(
         static_cast<std::uint64_t>(frame_target),
         reinterpret_cast<std::uint64_t>(&FrameFencepostDetour),
@@ -1752,6 +1788,59 @@ Status DeterministicHookSet::Install(
         ClearState();
         return Status::failure(FailureCode::AdapterUnqualified);
     }
+    gameplay_xorshift96_detour_ = std::make_unique<PLH::x64Detour>(
+        static_cast<std::uint64_t>(image_base
+            + Schema::Sc6FrameLayout::gameplay_xorshift96_rva),
+        reinterpret_cast<std::uint64_t>(&GameplayXorshift96Detour),
+        &gameplay_xorshift96_trampoline_);
+    if (!gameplay_xorshift96_detour_->hook())
+    {
+        UninstallUcrtIatHooks();
+        particle_finished_bind_detour_->unHook();
+        particle_spawn_detour_->unHook();
+        battle_audio_append_parameter_detour_->unHook();
+        battle_audio_stop_all_detour_->unHook();
+        battle_audio_append_command_detour_->unHook();
+        battle_audio_register_voice_detour_->unHook();
+        battle_audio_blueprint_publish_detour_->unHook();
+        battle_audio_tracking_rehash_detour_->unHook();
+        battle_audio_tracking_insert_detour_->unHook();
+        battle_audio_tracking_remove_detour_->unHook();
+        battle_audio_phase_changed_detour_->unHook();
+        battle_audio_contact_handler_detour_->unHook();
+        battle_audio_remap_detour_->unHook();
+        battle_audio_dispatch_detour_->unHook();
+        stage_break_dispatch_detour_->unHook();
+        stage_break_barrier_detour_->unHook();
+        stage_break_wall_detour_->unHook();
+        callback_executor_detour_->unHook();
+        outer_tick_detour_->unHook();
+        replay_post_tick_detour_->unHook();
+        frame_fencepost_detour_->unHook();
+        active_.store(nullptr, std::memory_order_release);
+        while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
+            std::this_thread::yield();
+        ClearState();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    gameplay_xorshift96_trampoline_global_.store(
+        gameplay_xorshift96_trampoline_, std::memory_order_release);
+    movevm_transition_author_07_detour_ =
+        std::make_unique<PLH::x64Detour>(
+            static_cast<std::uint64_t>(image_base
+                + Schema::Sc6FrameLayout::movevm_transition_author_07_rva),
+            reinterpret_cast<std::uint64_t>(&MoveVmTransitionAuthor07Detour),
+            &movevm_transition_author_07_trampoline_);
+    if (!movevm_transition_author_07_detour_->hook())
+    {
+        // Every earlier hook is live at this point. Reuse the normal reverse-
+        // order teardown instead of maintaining another partial cleanup list.
+        installed_.store(true, std::memory_order_release);
+        Uninstall();
+        return Status::failure(FailureCode::AdapterUnqualified);
+    }
+    movevm_transition_author_07_trampoline_global_.store(
+        movevm_transition_author_07_trampoline_, std::memory_order_release);
     installed_.store(true, std::memory_order_release);
     return Status::success();
 }
@@ -1763,6 +1852,10 @@ void DeterministicHookSet::Uninstall() noexcept
         return;
     }
     // Hooks are removed in the reverse of their installation order.
+    if (movevm_transition_author_07_detour_)
+        movevm_transition_author_07_detour_->unHook();
+    if (gameplay_xorshift96_detour_)
+        gameplay_xorshift96_detour_->unHook();
     UninstallUcrtIatHooks();
     if (particle_finished_bind_detour_)
         particle_finished_bind_detour_->unHook();
@@ -2780,6 +2873,161 @@ void RecordUnresolvedAudioOwner(OuterTickObservation& observation,
 }
 }
 
+std::uint32_t __fastcall
+DeterministicHookSet::GameplayXorshift96Detour() noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    DeterministicHookSet* hooks = active_.load(std::memory_order_acquire);
+    const std::uint64_t trampoline = hooks != nullptr
+        ? hooks->gameplay_xorshift96_trampoline_
+        : gameplay_xorshift96_trampoline_global_.load(
+            std::memory_order_acquire);
+    const auto original = reinterpret_cast<GameplayXorshift96Fn>(trampoline);
+    const auto return_address = reinterpret_cast<std::uintptr_t>(
+        _ReturnAddress());
+    const std::uint32_t result = original != nullptr ? original() : 0;
+
+    auto* batch = active_outer_capture_;
+    if (hooks != nullptr && batch != nullptr && batch->observation != nullptr)
+    {
+        auto& observation = *batch->observation;
+        const auto return_rva = return_address >= hooks->image_base_
+            ? return_address - hooks->image_base_ : 0;
+        ++observation.gameplay_xorshift_draws;
+        auto hash = observation.gameplay_xorshift_sequence_hash == 0
+            ? std::uint64_t{1469598103934665603ull}
+            : observation.gameplay_xorshift_sequence_hash;
+        const auto append = [&](const void* data, std::size_t size) noexcept {
+            const auto* bytes = static_cast<const std::uint8_t*>(data);
+            for (std::size_t index = 0; index < size; ++index)
+            {
+                hash ^= bytes[index];
+                hash *= 1099511628211ull;
+            }
+        };
+        append(&return_rva, sizeof(return_rva));
+        append(&result, sizeof(result));
+        observation.gameplay_xorshift_sequence_hash = hash;
+
+        const auto known = std::find(gameplay_xorshift96_return_rvas.begin(),
+            gameplay_xorshift96_return_rvas.end(), return_rva);
+        if (known == gameplay_xorshift96_return_rvas.end())
+        {
+            ++observation.gameplay_xorshift_unknown_callers;
+        }
+        else
+        {
+            observation.gameplay_xorshift_known_callers |=
+                std::uint64_t{1} << std::distance(
+                    gameplay_xorshift96_return_rvas.begin(), known);
+        }
+
+        const bool weighted =
+            return_rva == gameplay_xorshift96_weighted_return_a
+            || return_rva == gameplay_xorshift96_weighted_return_b;
+        const bool probability_if =
+            return_rva == gameplay_xorshift96_if_float_return;
+        if (weighted) ++observation.gameplay_xorshift_weighted_draws;
+        if (probability_if) ++observation.gameplay_xorshift_if_draws;
+
+        std::uint32_t frame{};
+        if (SafeRead(batch->frame_counter_address, frame)
+            && frame >= observation.before.frame_counter)
+        {
+            const auto offset = frame - observation.before.frame_counter;
+            if (offset <= Schema::maximum_supported_native_batch_width)
+            {
+                const auto bit = static_cast<std::uint16_t>(1u << offset);
+                if (weighted)
+                    observation.gameplay_xorshift_weighted_source_mask |= bit;
+                if (probability_if)
+                    observation.gameplay_xorshift_if_source_mask |= bit;
+            }
+        }
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return result;
+}
+
+void __fastcall DeterministicHookSet::MoveVmTransitionAuthor07Detour(
+    void* chara, std::int32_t argument_count,
+    std::uint16_t* arguments) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    DeterministicHookSet* hooks = active_.load(std::memory_order_acquire);
+    const std::uint64_t trampoline = hooks != nullptr
+        ? hooks->movevm_transition_author_07_trampoline_
+        : movevm_transition_author_07_trampoline_global_.load(
+            std::memory_order_acquire);
+    const auto original =
+        reinterpret_cast<MoveVmTransitionAuthor07Fn>(trampoline);
+
+    auto* batch = active_outer_capture_;
+    if (hooks != nullptr && batch != nullptr && batch->observation != nullptr)
+    {
+        auto& observation = *batch->observation;
+        std::uint16_t target{};
+        if (argument_count < 1 || argument_count > 6 || arguments == nullptr
+            || !SafeRead(reinterpret_cast<std::uintptr_t>(arguments), target))
+        {
+            ++observation.movevm_transition_07_signature_failures;
+        }
+        else
+        {
+            ++observation.movevm_transition_07_calls;
+            auto hash = observation.movevm_transition_07_sequence_hash == 0
+                ? std::uint64_t{1469598103934665603ull}
+                : observation.movevm_transition_07_sequence_hash;
+            const auto append = [&](const void* data, std::size_t size) noexcept {
+                const auto* bytes = static_cast<const std::uint8_t*>(data);
+                for (std::size_t index = 0; index < size; ++index)
+                {
+                    hash ^= bytes[index];
+                    hash *= 1099511628211ull;
+                }
+            };
+            append(&argument_count, sizeof(argument_count));
+            append(&target, sizeof(target));
+            observation.movevm_transition_07_sequence_hash = hash;
+
+            // Tira KHD slots 338/359 route IF 0x007F success to 0x0153;
+            // slots 356..358 route the authored five-percent success to
+            // 0x0205. Pair this target observation with the IF-draw source
+            // mask in Sc6ReplayRuntime; target identity alone is insufficient.
+            if (target == 0x0153 || target == 0x0205)
+            {
+                ++observation.tira_random_transition_calls;
+                auto tira_hash =
+                    observation.tira_random_transition_sequence_hash == 0
+                    ? std::uint64_t{1469598103934665603ull}
+                    : observation.tira_random_transition_sequence_hash;
+                const auto* bytes = reinterpret_cast<const std::uint8_t*>(&target);
+                for (std::size_t index = 0; index < sizeof(target); ++index)
+                {
+                    tira_hash ^= bytes[index];
+                    tira_hash *= 1099511628211ull;
+                }
+                observation.tira_random_transition_sequence_hash = tira_hash;
+                observation.tira_random_transition_target_mask |=
+                    static_cast<std::uint8_t>(target == 0x0153 ? 1u : 2u);
+
+                std::uint32_t frame{};
+                if (SafeRead(batch->frame_counter_address, frame)
+                    && frame >= observation.before.frame_counter)
+                {
+                    const auto offset = frame - observation.before.frame_counter;
+                    if (offset <= Schema::maximum_supported_native_batch_width)
+                        observation.tira_random_transition_source_mask |=
+                            static_cast<std::uint16_t>(1u << offset);
+                }
+            }
+        }
+    }
+
+    if (original != nullptr) original(chara, argument_count, arguments);
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
 void __fastcall DeterministicHookSet::OuterTickDetour(
     void* battle_manager, float delta_seconds) noexcept
 {
@@ -3083,6 +3331,70 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
         output.camera_publication = observation.camera_publication;
         output.camera_signature_failures =
             observation.camera_signature_failures;
+        output.gameplay_xorshift_draws =
+            observation.gameplay_xorshift_draws;
+        output.gameplay_xorshift_sequence_hash =
+            observation.gameplay_xorshift_sequence_hash;
+        output.gameplay_xorshift_known_callers =
+            observation.gameplay_xorshift_known_callers;
+        output.gameplay_xorshift_unknown_callers =
+            observation.gameplay_xorshift_unknown_callers;
+        output.gameplay_xorshift_weighted_draws =
+            observation.gameplay_xorshift_weighted_draws;
+        output.gameplay_xorshift_if_draws =
+            observation.gameplay_xorshift_if_draws;
+        output.gameplay_xorshift_weighted_source_mask =
+            observation.gameplay_xorshift_weighted_source_mask;
+        output.gameplay_xorshift_if_source_mask =
+            observation.gameplay_xorshift_if_source_mask;
+        output.movevm_transition_07_calls =
+            observation.movevm_transition_07_calls;
+        output.movevm_transition_07_sequence_hash =
+            observation.movevm_transition_07_sequence_hash;
+        output.movevm_transition_07_signature_failures =
+            observation.movevm_transition_07_signature_failures;
+        output.tira_random_transition_calls =
+            observation.tira_random_transition_calls;
+        output.tira_random_transition_sequence_hash =
+            observation.tira_random_transition_sequence_hash;
+        output.tira_random_transition_source_mask =
+            observation.tira_random_transition_source_mask;
+        output.tira_random_transition_target_mask =
+            observation.tira_random_transition_target_mask;
+        if (!capture_corrected && output.failure == FailureCode::None
+            && (output.gameplay_xorshift_draws
+                    != request.envelope->gameplay_xorshift_draws
+                || output.gameplay_xorshift_sequence_hash
+                    != request.envelope->gameplay_xorshift_sequence_hash
+                || output.gameplay_xorshift_known_callers
+                    != request.envelope->gameplay_xorshift_known_callers
+                || output.gameplay_xorshift_unknown_callers != 0
+                || request.envelope->gameplay_xorshift_unknown_callers != 0
+                || output.gameplay_xorshift_weighted_draws
+                    != request.envelope->gameplay_xorshift_weighted_draws
+                || output.gameplay_xorshift_if_draws
+                    != request.envelope->gameplay_xorshift_if_draws
+                || output.gameplay_xorshift_weighted_source_mask
+                    != request.envelope->gameplay_xorshift_weighted_source_mask
+                || output.gameplay_xorshift_if_source_mask
+                    != request.envelope->gameplay_xorshift_if_source_mask
+                || output.movevm_transition_07_calls
+                    != request.envelope->movevm_transition_07_calls
+                || output.movevm_transition_07_sequence_hash
+                    != request.envelope->movevm_transition_07_sequence_hash
+                || output.movevm_transition_07_signature_failures != 0
+                || request.envelope->movevm_transition_07_signature_failures != 0
+                || output.tira_random_transition_calls
+                    != request.envelope->tira_random_transition_calls
+                || output.tira_random_transition_sequence_hash
+                    != request.envelope->tira_random_transition_sequence_hash
+                || output.tira_random_transition_source_mask
+                    != request.envelope->tira_random_transition_source_mask
+                || output.tira_random_transition_target_mask
+                    != request.envelope->tira_random_transition_target_mask))
+        {
+            output.failure = FailureCode::StateHashMismatch;
+        }
         if (!capture_corrected && output.failure == FailureCode::None
             && !CompleteBattleAudioJournal(*request.envelope, output))
         {
@@ -5703,6 +6015,8 @@ void DeterministicHookSet::ClearState() noexcept
     audio_graph_battle_manager_ = 0;
     audio_graph_epoch_counter_ = 0;
     audio_graph_failure_stage_ = 0;
+    gameplay_xorshift96_detour_.reset();
+    movevm_transition_author_07_detour_.reset();
     battle_audio_append_parameter_detour_.reset();
     particle_finished_bind_detour_.reset();
     particle_spawn_detour_.reset();
@@ -5745,6 +6059,8 @@ void DeterministicHookSet::ClearState() noexcept
     battle_audio_append_parameter_trampoline_ = 0;
     particle_spawn_trampoline_ = 0;
     particle_finished_bind_trampoline_ = 0;
+    gameplay_xorshift96_trampoline_ = 0;
+    movevm_transition_author_07_trampoline_ = 0;
     next_outer_batch_id_ = 0;
     replay_post_tick_trampoline_global_.store(0, std::memory_order_release);
     frame_fencepost_trampoline_global_.store(0, std::memory_order_release);
@@ -5779,6 +6095,10 @@ void DeterministicHookSet::ClearState() noexcept
         0, std::memory_order_release);
     particle_spawn_trampoline_global_.store(0, std::memory_order_release);
     particle_finished_bind_trampoline_global_.store(
+        0, std::memory_order_release);
+    gameplay_xorshift96_trampoline_global_.store(
+        0, std::memory_order_release);
+    movevm_transition_author_07_trampoline_global_.store(
         0, std::memory_order_release);
     for (auto& handler : observed_battle_audio_handlers_)
         handler.store(0, std::memory_order_release);

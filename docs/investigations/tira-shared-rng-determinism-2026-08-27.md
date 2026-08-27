@@ -29,6 +29,14 @@ verified:
   authored percentage threshold. It consumes exactly one draw even when the
   threshold is outside the ordinary 0..100 range.
 
+HorseMod now detours the shared xorshift function under an exact executable
+signature and records every draw as the ordered pair `(direct caller return
+RVA, returned uint)`. The 61 direct call sites recovered in Ghidra form the
+closed admission set. Authoritative capture fails on any unknown caller, and
+owned verification requires the exact draw count, route/result sequence,
+caller mask, weighted/IF counts, and native source-frame masks. Camera, effect,
+intro, CPU, and gameplay consumers therefore remain in one ordered contract.
+
 `LuxMoveVM_GetRandU32 @ 0x14034F130` is not the same generator. It owns a
 25-word LFSR plus cursor. The deterministic candidate already captures and
 restores all 25 words and the between-draw cursor, in addition to the LCG,
@@ -51,6 +59,24 @@ before IF `0x007F` consumes it as the percentage threshold. Slots 356 through
 Tira actively couples character-specific MoveVM state and the shared gameplay
 xorshift stream. It does not, by itself, prove that index 25 is the sole native
 field named “mood.”
+
+The probability-success transition boundary is also closed in authored data:
+
+- slots 338 and 359 branch directly from IF `0x007F` success to
+  `TransitionAuthor_07` target `0x0153`;
+- slots 356, 357, and 358 branch directly from the five-percent IF `0x007F`
+  success to target `0x0205`;
+- `LuxMoveVM_OpcodeIf_07_TransitionAuthor @ 0x1402FCC10` has the verified
+  prototype `void(ALuxBattleChara_Partial*, int, ushort*)`, loads destination
+  lane 1, and tail-calls the shared variadic transition decoder. Its Ghidra
+  completeness score is 100.
+
+HorseMod signature-guards and observes that typed wrapper. Every call records
+the ordered `(argument count, target move ID)` sequence. Tira qualification
+requires target `0x0153` or `0x0205` on the same native source frame as the IF
+draw; target identity or generic state churn alone is not accepted. The full
+transition sequence is also compared during ordinary owned verification, so
+the Tira-specific gate does not weaken other characters' transition identity.
 
 UE reflection metadata gives two additional, distinct inputs:
 
@@ -88,7 +114,7 @@ correction.
 ## Remaining runtime gate
 
 A Tira workload is certifying only when it records an actual authored
-probability route/mood transition, performs real corrections across that route,
+probability-success transition, performs real corrections across that route,
 and reports:
 
 - exact xorshift96 landing state;
@@ -96,6 +122,14 @@ and reports:
 - no omitted camera/effect shared-stream draws;
 - exact subsequent move availability/selection;
 - exact peer-confirmed hashes in the paired Steam run.
+
+The four retained base-game recordings were swept with the new gate. They
+contained up to 11 IF draws, 12 weighted draws, and 226 transition-author calls
+in one replay, with zero unknown xorshift callers, but none produced the
+`0x0153`/`0x0205` success transition. They remain negative diagnostic evidence,
+not a substitute for a targeted current-build recording. The modular runner's
+`--require-tira-probability-transition` option fails closed when the authored
+success route is absent.
 
 Base-game Tira recordings retained under
 `ReplayExample/baseGameTiraReplays` are useful input workloads, but older Horse

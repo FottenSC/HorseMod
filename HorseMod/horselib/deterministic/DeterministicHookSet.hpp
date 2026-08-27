@@ -78,6 +78,21 @@ struct OuterTickObservation
     std::uint32_t observed_coordinates{};
     std::uint32_t repeat_pending_coordinates{};
     std::uint32_t same_input_time_coordinates{};
+    std::uint32_t gameplay_xorshift_draws{};
+    std::uint64_t gameplay_xorshift_sequence_hash{};
+    std::uint64_t gameplay_xorshift_known_callers{};
+    std::uint32_t gameplay_xorshift_unknown_callers{};
+    std::uint32_t gameplay_xorshift_weighted_draws{};
+    std::uint32_t gameplay_xorshift_if_draws{};
+    std::uint16_t gameplay_xorshift_weighted_source_mask{};
+    std::uint16_t gameplay_xorshift_if_source_mask{};
+    std::uint32_t movevm_transition_07_calls{};
+    std::uint64_t movevm_transition_07_sequence_hash{};
+    std::uint32_t movevm_transition_07_signature_failures{};
+    std::uint32_t tira_random_transition_calls{};
+    std::uint64_t tira_random_transition_sequence_hash{};
+    std::uint16_t tira_random_transition_source_mask{};
+    std::uint8_t tira_random_transition_target_mask{};
     std::uint32_t stage_wall_calls{};
     std::uint64_t stage_wall_hash{};
     std::uint32_t stage_barrier_calls{};
@@ -231,6 +246,21 @@ struct OwnedBatchReplayResult
     OuterTickState after{};
     std::uint32_t observed_coordinates{};
     std::uint32_t filter_invocations{};
+    std::uint32_t gameplay_xorshift_draws{};
+    std::uint64_t gameplay_xorshift_sequence_hash{};
+    std::uint64_t gameplay_xorshift_known_callers{};
+    std::uint32_t gameplay_xorshift_unknown_callers{};
+    std::uint32_t gameplay_xorshift_weighted_draws{};
+    std::uint32_t gameplay_xorshift_if_draws{};
+    std::uint16_t gameplay_xorshift_weighted_source_mask{};
+    std::uint16_t gameplay_xorshift_if_source_mask{};
+    std::uint32_t movevm_transition_07_calls{};
+    std::uint64_t movevm_transition_07_sequence_hash{};
+    std::uint32_t movevm_transition_07_signature_failures{};
+    std::uint32_t tira_random_transition_calls{};
+    std::uint64_t tira_random_transition_sequence_hash{};
+    std::uint16_t tira_random_transition_source_mask{};
+    std::uint8_t tira_random_transition_target_mask{};
     std::uint32_t suppressed_stage_wall_calls{};
     std::uint32_t suppressed_stage_barrier_calls{};
     std::uint32_t semantic_stage_dispatch_calls{};
@@ -388,6 +418,9 @@ private:
         const void* scale, bool auto_activate);
     using ParticleFinishedBindFn = void (__fastcall*)(void* delegate,
         void* owner, void* callback, std::uint64_t callback_name);
+    using GameplayXorshift96Fn = std::uint32_t (__fastcall*)();
+    using MoveVmTransitionAuthor07Fn = void (__fastcall*)(
+        void* chara, std::int32_t argument_count, std::uint16_t* arguments);
 
     static void __fastcall FrameFencepostDetour(void* battle_manager) noexcept;
     static void __fastcall OuterTickDetour(
@@ -433,6 +466,10 @@ private:
         const void* scale, bool auto_activate) noexcept;
     static void __fastcall ParticleFinishedBindDetour(void* delegate,
         void* owner, void* callback, std::uint64_t callback_name) noexcept;
+    static std::uint32_t __fastcall GameplayXorshift96Detour() noexcept;
+    static void __fastcall MoveVmTransitionAuthor07Detour(
+        void* chara, std::int32_t argument_count,
+        std::uint16_t* arguments) noexcept;
     static int __cdecl UcrtRandDetour() noexcept;
     static void __cdecl UcrtSrandDetour(unsigned int seed) noexcept;
     void EmitFrameFencepost(void* battle_manager) noexcept;
@@ -502,6 +539,9 @@ private:
     static std::atomic<std::uint64_t> battle_audio_append_parameter_trampoline_global_;
     static std::atomic<std::uint64_t> particle_spawn_trampoline_global_;
     static std::atomic<std::uint64_t> particle_finished_bind_trampoline_global_;
+    static std::atomic<std::uint64_t> gameplay_xorshift96_trampoline_global_;
+    static std::atomic<std::uint64_t>
+        movevm_transition_author_07_trampoline_global_;
     static std::array<std::atomic<std::uintptr_t>,
         maximum_battle_audio_handlers> observed_battle_audio_handlers_;
     static std::atomic<bool> battle_audio_handler_overflow_;
@@ -528,6 +568,8 @@ private:
     std::unique_ptr<PLH::x64Detour> battle_audio_append_parameter_detour_{};
     std::unique_ptr<PLH::x64Detour> particle_spawn_detour_{};
     std::unique_ptr<PLH::x64Detour> particle_finished_bind_detour_{};
+    std::unique_ptr<PLH::x64Detour> gameplay_xorshift96_detour_{};
+    std::unique_ptr<PLH::x64Detour> movevm_transition_author_07_detour_{};
     std::uint64_t frame_fencepost_trampoline_{};
     std::uint64_t replay_post_tick_trampoline_{};
     std::uint64_t outer_tick_trampoline_{};
@@ -549,6 +591,8 @@ private:
     std::uint64_t battle_audio_append_parameter_trampoline_{};
     std::uint64_t particle_spawn_trampoline_{};
     std::uint64_t particle_finished_bind_trampoline_{};
+    std::uint64_t gameplay_xorshift96_trampoline_{};
+    std::uint64_t movevm_transition_author_07_trampoline_{};
     std::uint64_t next_outer_batch_id_{};
     std::uintptr_t image_base_{};
     std::uintptr_t rand_iat_slot_{};

@@ -142,6 +142,16 @@ public:
     {
         return last_capture_phase_;
     }
+    [[nodiscard]] std::array<std::uint16_t, 2>
+    last_captured_movevm_short25() const noexcept
+    {
+        return last_captured_movevm_short25_;
+    }
+    [[nodiscard]] const NativeMoveVmStateShortImage&
+    last_captured_movevm_state_shorts() const noexcept
+    {
+        return last_captured_movevm_state_shorts_;
+    }
     Status TraceLocalStreamOffset(std::size_t stream_offset,
         HgCpuWriteSpan& output) noexcept;
 
@@ -227,6 +237,8 @@ private:
         CandidateAdapterPerformanceStatus::scratch_owner_count>
         scratch_capacity_high_water_by_owner_{};
     CandidateCapturePhase last_capture_phase_{};
+    std::array<std::uint16_t, 2> last_captured_movevm_short25_{};
+    NativeMoveVmStateShortImage last_captured_movevm_state_shorts_{};
     bool configured_{};
     bool bound_{};
 };

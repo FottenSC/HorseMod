@@ -105,6 +105,8 @@ inline constexpr std::uintptr_t battle_audio_append_parameter_owner_rva =
     0x55b4c0;
 inline constexpr std::uintptr_t particle_spawn_rva = 0x8a3920;
 inline constexpr std::uintptr_t particle_finished_bind_rva = 0x533f40;
+inline constexpr std::uintptr_t gameplay_xorshift96_rva = 0x34f1f0;
+inline constexpr std::uintptr_t movevm_transition_author_07_rva = 0x2fcc10;
 inline constexpr std::uintptr_t particle_wall_return_rva = 0x53d69f;
 inline constexpr std::uintptr_t particle_barrier_hit_return_rva = 0x54a1ef;
 inline constexpr std::uintptr_t particle_barrier_break_return_rva = 0x54a364;
@@ -159,6 +161,11 @@ inline constexpr std::array<std::byte, 18> stage_break_wall_handler_signature{
     std::byte{0x8b}, std::byte{0xec}, std::byte{0x48}, std::byte{0x83},
     std::byte{0xec}, std::byte{0x70},
 };
+inline constexpr std::array<std::byte, 16> gameplay_xorshift96_signature{
+    std::byte{0x8b}, std::byte{0x0d}, std::byte{0xd2}, std::byte{0xf0},
+    std::byte{0x3b}, std::byte{0x04}, std::byte{0x8b}, std::byte{0xd1},
+    std::byte{0x8b}, std::byte{0xc1}, std::byte{0xc1}, std::byte{0xe2},
+    std::byte{0x0c}, std::byte{0xc1}, std::byte{0xe8}, std::byte{0x06}};
 inline constexpr std::array<std::byte, 23> stage_break_barrier_handler_signature{
     std::byte{0x4c}, std::byte{0x8b}, std::byte{0xdc}, std::byte{0x49},
     std::byte{0x89}, std::byte{0x5b}, std::byte{0x18}, std::byte{0x49},
@@ -166,6 +173,12 @@ inline constexpr std::array<std::byte, 23> stage_break_barrier_handler_signature
     std::byte{0x49}, std::byte{0x8d}, std::byte{0x6b}, std::byte{0xa1},
     std::byte{0x48}, std::byte{0x81}, std::byte{0xec}, std::byte{0xc0},
     std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+};
+// LuxMoveVM_OpcodeIf_07_TransitionAuthor: MOV R9D,1; tail JMP decoder.
+inline constexpr std::array<std::byte, 11> movevm_transition_author_07_signature{
+    std::byte{0x41}, std::byte{0xb9}, std::byte{0x01}, std::byte{0x00},
+    std::byte{0x00}, std::byte{0x00}, std::byte{0xe9}, std::byte{0x15},
+    std::byte{0xfd}, std::byte{0xff}, std::byte{0xff},
 };
 inline constexpr std::array<std::byte, 16> stage_break_dispatch_signature{
     std::byte{0x40}, std::byte{0x56}, std::byte{0x48}, std::byte{0x83},

@@ -5560,6 +5560,35 @@ public:
         return timeline.canonical_frames != 0;
     }
 
+    bool GetReplayGameplayRngCoverage(
+        std::uint64_t* counts, std::size_t count) const noexcept
+    {
+        if (counts == nullptr || count < 22) return false;
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        counts[0] = timeline.observed_gameplay_xorshift_draws;
+        counts[1] = timeline.observed_gameplay_xorshift_known_callers;
+        counts[2] = timeline.observed_gameplay_xorshift_unknown_callers;
+        counts[3] = timeline.observed_gameplay_xorshift_weighted_draws;
+        counts[4] = timeline.observed_gameplay_xorshift_if_draws;
+        counts[5] = timeline.observed_movevm_short25_changes[0];
+        counts[6] = timeline.observed_movevm_short25_changes[1];
+        counts[7] = timeline.observed_probability_transition_batches;
+        counts[8] = timeline.observed_movevm_state_changes[0];
+        counts[9] = timeline.observed_movevm_state_changes[1];
+        for (std::size_t word = 0; word < 4; ++word)
+        {
+            counts[10 + word] = timeline
+                .observed_probability_changed_state_short_masks[0][word];
+            counts[14 + word] = timeline
+                .observed_probability_changed_state_short_masks[1][word];
+        }
+        counts[18] = timeline.observed_movevm_transition_07_calls;
+        counts[19] = timeline.observed_tira_random_transition_calls;
+        counts[20] = timeline.observed_tira_probability_transition_batches;
+        counts[21] = timeline.observed_tira_random_transition_target_mask;
+        return timeline.canonical_frames != 0;
+    }
+
     std::uint32_t GetReplaySeekStatus(
         std::uint64_t& target_frame,
         std::uint64_t& source_end_frame,
@@ -10112,6 +10141,14 @@ extern "C"
         auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
         return mod != nullptr
             && mod->GetReplayPresentationCoverage(counts, count);
+    }
+
+    HORSE_MOD_API bool horsemod_get_replay_gameplay_rng_coverage(
+        std::uint64_t* counts, std::size_t count)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr
+            && mod->GetReplayGameplayRngCoverage(counts, count);
     }
 
     HORSE_MOD_API bool horsemod_request_qualification_stage_terminal(
