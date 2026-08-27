@@ -3970,7 +3970,9 @@ private:
                 "audio_source={}/{} 0x{:016x}->0x{:016x} "
                 "audio_direct={}/{} 0x{:016x}->0x{:016x} "
                 "audio_stop_all={}/{} 0x{:016x}->0x{:016x} "
+                "audio_terminal={}/{} 0x{:016x}->0x{:016x} "
                 "audio_blueprint={}/{} 0x{:016x}->0x{:016x} "
+                "presentation_order={}/{} 0x{:016x}->0x{:016x} "
                 "particle_spawn={}/{} 0x{:016x}->0x{:016x} "
                 "particle_unknown={} journal_failure_mask=0x{:x} "
                 "presentation_failure_mask=0x{:x} "
@@ -4069,10 +4071,18 @@ private:
                 result.failed_batch_result.suppressed_audio_stop_all_calls,
                 result.failed_envelope.battle_audio_stop_all_hash,
                 result.failed_batch_result.suppressed_audio_stop_all_hash,
+                result.failed_envelope.audio_terminal_calls,
+                result.failed_batch_result.suppressed_audio_terminal_calls,
+                result.failed_envelope.audio_terminal_hash,
+                result.failed_batch_result.suppressed_audio_terminal_hash,
                 result.failed_envelope.battle_audio_blueprint_calls,
                 result.failed_batch_result.suppressed_audio_blueprint_calls,
                 result.failed_envelope.battle_audio_blueprint_hash,
                 result.failed_batch_result.suppressed_audio_blueprint_hash,
+                result.failed_envelope.presentation_order_journal_count,
+                result.failed_batch_result.suppressed_presentation_order_events,
+                result.failed_envelope.presentation_order_hash,
+                result.failed_batch_result.suppressed_presentation_order_hash,
                 result.failed_envelope.particle_spawn_calls,
                 result.failed_batch_result.suppressed_particle_spawn_calls,
                 result.failed_envelope.particle_spawn_hash,

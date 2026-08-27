@@ -3925,11 +3925,15 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     const bool owned_terminal = owner_resolved
         && SafeRead(batch->frame_counter_address, frame)
         && batch->observation != nullptr
-        && batch->observation->audio_terminal_calls
-            < audio_ordinals_per_frame;
+        && batch->observation->audio_terminal_calls < audio_ordinals_per_frame;
+    const bool verify_recorded = suppress
+        && batch->owned->request->presentation_mode
+            == OwnedBatchPresentationMode::VerifyRecorded;
+    const auto terminal_ordinal = verify_recorded
+        ? batch->owned->result->suppressed_audio_terminal_calls
+        : batch->observation->audio_terminal_calls;
     const auto logical_id = owned_terminal
-        ? MakeLogicalAudioPlaybackId(frame,
-            batch->observation->audio_terminal_calls)
+        ? MakeLogicalAudioPlaybackId(frame, terminal_ordinal)
         : audio_invalid_playback_id;
     if (suppress && (!owned_terminal
             || logical_id == audio_invalid_playback_id))
@@ -4013,8 +4017,12 @@ void __fastcall DeterministicHookSet::BattleAudioAppendCommandDetour(
                 else
                 {
                     std::uint32_t frame{};
-                    const auto ordinal = batch->observation
-                        ->audio_terminal_calls;
+                    const bool verify_recorded = suppress
+                        && batch->owned->request->presentation_mode
+                            == OwnedBatchPresentationMode::VerifyRecorded;
+                    const auto ordinal = verify_recorded
+                        ? batch->owned->result->suppressed_audio_terminal_calls
+                        : batch->observation->audio_terminal_calls;
                     const auto adopted = SafeRead(
                             batch->frame_counter_address, frame)
                         ? MakeLogicalAudioPlaybackId(frame, ordinal)
