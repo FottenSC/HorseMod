@@ -2,6 +2,7 @@
 
 #include "Schema.hpp"
 #include "Types.hpp"
+#include "BattleAudioSelectorState.hpp"
 
 #include <array>
 #include <cstddef>
@@ -140,6 +141,26 @@ static_assert(sizeof(AudioTerminalEvent) == 24);
 [[nodiscard]] Status DecodeAudioPresentation(
     const PresentationEvent& event,
     AudioTerminalEvent& output) noexcept;
+
+struct AudioBlueprintPresentationValue
+{
+    std::uint8_t handler_slot{};
+    bool direct{};
+    std::array<std::byte, 24> semantic{};
+
+    friend constexpr bool operator==(
+        const AudioBlueprintPresentationValue&,
+        const AudioBlueprintPresentationValue&) = default;
+};
+
+[[nodiscard]] Status EncodeAudioBlueprintPresentation(
+    FrameCoordinate coordinate,
+    std::uint32_t source_ordinal,
+    const AudioBlueprintPresentationValue& value,
+    PresentationEvent& output) noexcept;
+[[nodiscard]] Status DecodeAudioBlueprintPresentation(
+    const PresentationEvent& event,
+    AudioBlueprintPresentationValue& output) noexcept;
 
 class AudioOwnerResolver
 {

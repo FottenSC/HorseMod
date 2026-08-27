@@ -1,5 +1,6 @@
 #include "AudioPresentation.hpp"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 
@@ -70,6 +71,21 @@ std::uint64_t event_identity(FrameCoordinate coordinate,
     hash_value(hash, terminal.value);
     return hash == 0 ? 1 : hash;
 }
+
+std::uint64_t blueprint_identity(FrameCoordinate coordinate,
+    std::uint32_t source_ordinal,
+    const AudioBlueprintPresentationValue& value) noexcept
+{
+    std::uint64_t hash = 1469598103934665603ull;
+    hash_value(hash, coordinate.generation);
+    hash_value(hash, coordinate.frame);
+    hash_value(hash, source_ordinal);
+    hash_value(hash, value.handler_slot);
+    hash_value(hash, static_cast<std::uint8_t>(value.direct ? 1 : 0));
+    for (const auto byte : value.semantic)
+        hash_byte(hash, std::to_integer<std::uint8_t>(byte));
+    return hash == 0 ? 1 : hash;
+}
 }
 
 Status EncodeAudioPresentation(FrameCoordinate coordinate,
@@ -122,6 +138,53 @@ Status DecodeAudioPresentation(
     if (!output.valid()
         || event.identity != event_identity(
             event.coordinate, event.source_ordinal, output))
+        return Status::failure(FailureCode::ProtocolMismatch);
+    return Status::success();
+}
+
+Status EncodeAudioBlueprintPresentation(FrameCoordinate coordinate,
+    std::uint32_t source_ordinal,
+    const AudioBlueprintPresentationValue& value,
+    PresentationEvent& output) noexcept
+{
+    output = {};
+    if (coordinate.generation == 0 || source_ordinal == 0
+        || value.handler_slot >= maximum_battle_audio_handlers)
+        return Status::failure(FailureCode::InvalidConfiguration);
+    output.coordinate = coordinate;
+    output.source_ordinal = source_ordinal;
+    output.kind = Schema::audio_blueprint_presentation_event_kind;
+    output.identity = blueprint_identity(coordinate, source_ordinal, value);
+    output.payload_size = static_cast<std::uint16_t>(
+        Schema::audio_blueprint_presentation_payload_size);
+    write_u16(output.payload, 0,
+        Schema::audio_blueprint_presentation_schema_version);
+    output.payload[2] = std::byte(value.handler_slot);
+    output.payload[3] = std::byte(value.direct ? 1 : 0);
+    std::copy(value.semantic.begin(), value.semantic.end(),
+        output.payload.begin() + 4);
+    return Status::success();
+}
+
+Status DecodeAudioBlueprintPresentation(const PresentationEvent& event,
+    AudioBlueprintPresentationValue& output) noexcept
+{
+    output = {};
+    if (event.coordinate.generation == 0 || event.source_ordinal == 0
+        || event.kind != Schema::audio_blueprint_presentation_event_kind
+        || event.payload_size
+            != Schema::audio_blueprint_presentation_payload_size
+        || read_u16(event.payload, 0)
+            != Schema::audio_blueprint_presentation_schema_version
+        || event.payload[3] > std::byte{1})
+        return Status::failure(FailureCode::ProtocolMismatch);
+    output.handler_slot = std::to_integer<std::uint8_t>(event.payload[2]);
+    output.direct = event.payload[3] == std::byte{1};
+    std::copy_n(event.payload.begin() + 4, output.semantic.size(),
+        output.semantic.begin());
+    if (output.handler_slot >= maximum_battle_audio_handlers
+        || event.identity
+            != blueprint_identity(event.coordinate, event.source_ordinal, output))
         return Status::failure(FailureCode::ProtocolMismatch);
     return Status::success();
 }

@@ -305,6 +305,8 @@ public:
     void InvalidateStageBreakPresentationIdentity() noexcept;
     Status CommitAudioTerminal(
         const AudioTerminalEvent& event) noexcept;
+    Status CommitAudioBlueprint(
+        const AudioBlueprintPresentationValue& value) noexcept;
 
 private:
     struct OwnedBatchExecution

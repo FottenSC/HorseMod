@@ -1843,6 +1843,30 @@ Status DeterministicHookSet::CommitAudioTerminal(
     return Status::failure(FailureCode::InvalidConfiguration);
 }
 
+Status DeterministicHookSet::CommitAudioBlueprint(
+    const AudioBlueprintPresentationValue& value) noexcept
+{
+    if (!installed() || active_outer_capture_ != nullptr
+        || value.handler_slot >= observed_battle_audio_handlers_.size())
+        return Status::failure(FailureCode::IllegalTransition);
+    const auto handler = observed_battle_audio_handlers_[value.handler_slot].load(
+        std::memory_order_acquire);
+    const auto original = reinterpret_cast<BattleAudioBlueprintPublishFn>(
+        battle_audio_blueprint_publish_trampoline_);
+    if (handler == 0 || original == nullptr)
+        return Status::failure(FailureCode::IdentityMismatch);
+    __try
+    {
+        auto semantic = value.semantic;
+        original(reinterpret_cast<void*>(handler), semantic.data());
+        return Status::success();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return Status::failure(FailureCode::PresentationFailed);
+    }
+}
+
 Status DeterministicHookSet::RestoreBattleAudioRemapEntry(
     const NativeBatchEnvelope& envelope,
     OwnedBatchReplayResult&) noexcept

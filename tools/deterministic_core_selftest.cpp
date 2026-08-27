@@ -1053,21 +1053,28 @@ void test_native_audio_presentation_preserves_cross_family_order()
     batch.audio_terminal_journal[1] = {AudioTerminalOperation::StopOne,
         {AudioOwnerDomain::BattleSharedPlayer, 0, 0},
         MakeLogicalAudioPlaybackId(101, 0), 0, -1, 1};
-    batch.presentation_order_journal_count = 3;
+    batch.battle_audio_blueprint_calls = 1;
+    batch.battle_audio_blueprint_journal_count = 1;
+    batch.battle_audio_blueprint_journal[0].handler_slot = 2;
+    batch.battle_audio_blueprint_journal[0].direct = 1;
+    batch.battle_audio_blueprint_journal[0].semantic[7] = std::byte{0x51};
+    batch.presentation_order_journal_count = 4;
     batch.presentation_order_journal[0] = {
         PresentationEventFamily::BattleAudioSource, 0, 0};
     batch.presentation_order_journal[1] = {
         PresentationEventFamily::AudioTerminal, 0, 1};
     batch.presentation_order_journal[2] = {
+        PresentationEventFamily::BattleAudioBlueprint, 0, 1};
+    batch.presentation_order_journal[3] = {
         PresentationEventFamily::AudioTerminal, 1, 2};
 
     PresentationJournal journal{8, 512};
     expect(RecordNativeAudioPresentation(batch, journal).ok()
-            && journal.pending_count() == 2,
+            && journal.pending_count() == 3,
         "native audio terminals retain source frames and cross-family ordinals");
 
     NativeBatchEnvelope invalid = batch;
-    invalid.presentation_order_journal[2].family_index = 0;
+    invalid.presentation_order_journal[3].family_index = 0;
     PresentationJournal rejected{8, 512};
     expect(RecordNativeAudioPresentation(invalid, rejected).code
             == FailureCode::ProtocolMismatch
@@ -1547,6 +1554,23 @@ void test_audio_presentation_identities_are_epoch_bound()
     expect(DecodeAudioPresentation(encoded, decoded).code
             == FailureCode::ProtocolMismatch,
         "audio decoding rejects an identity copied across authored ordinals");
+
+    AudioBlueprintPresentationValue blueprint{};
+    blueprint.handler_slot = 2;
+    blueprint.direct = true;
+    blueprint.semantic[0] = std::byte{0x34};
+    blueprint.semantic[23] = std::byte{0x91};
+    expect(EncodeAudioBlueprintPresentation(
+            {7, 123}, 11, blueprint, encoded).ok(),
+        "audio Blueprint publication encodes as a pointer-free value");
+    AudioBlueprintPresentationValue decoded_blueprint{};
+    expect(DecodeAudioBlueprintPresentation(encoded, decoded_blueprint).ok()
+            && decoded_blueprint == blueprint,
+        "audio Blueprint publication round-trips its exact 24-byte semantic record");
+    encoded.payload[3] = std::byte{2};
+    expect(DecodeAudioBlueprintPresentation(encoded, decoded_blueprint).code
+            == FailureCode::ProtocolMismatch,
+        "audio Blueprint decoding rejects noncanonical direct flags");
 }
 }
 
