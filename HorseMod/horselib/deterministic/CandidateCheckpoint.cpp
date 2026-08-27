@@ -39,8 +39,7 @@ std::size_t CandidateCheckpointDynamicCapacity(
             * sizeof(MoveDispatchPendingWindow);
     bytes += image.move_dispatch.pending_windows_scratch.capacity()
         * sizeof(MoveDispatchPendingWindow);
-    for (const auto& node : image.wind.nodes.storage())
-        bytes += node.semantic_state.capacity() + node.derived_state.capacity();
+    bytes += image.wind.nodes.dynamic_capacity_bytes();
     return bytes;
 }
 
@@ -237,11 +236,7 @@ Status decode_wind_local(
             maximum_derived = (std::max)(maximum_derived,
                 StageWindDerivedStateSize(*layout));
         }
-        for (auto& slot : output.nodes.storage())
-        {
-            slot.semantic_state.reserve(maximum_semantic);
-            slot.derived_state.reserve(maximum_derived);
-        }
+        output.nodes.prepare_storage(maximum_semantic, maximum_derived);
         output.nodes.resize(count);
     }
     catch (...) { return Status::failure(FailureCode::CapacityExceeded); }

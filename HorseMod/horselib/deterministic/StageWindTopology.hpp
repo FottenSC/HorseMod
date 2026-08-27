@@ -69,6 +69,39 @@ public:
     using iterator = StageWindNodeImage*;
     using const_iterator = const StageWindNodeImage*;
 
+    StageWindNodeBuffer() = default;
+    StageWindNodeBuffer(const StageWindNodeBuffer& other)
+    {
+        *this = other;
+    }
+    StageWindNodeBuffer& operator=(const StageWindNodeBuffer& other)
+    {
+        if (this == &other) return *this;
+        std::size_t semantic_capacity = other.prepared_semantic_capacity_;
+        std::size_t derived_capacity = other.prepared_derived_capacity_;
+        if (semantic_capacity == 0 && derived_capacity == 0)
+            for (const auto& slot : other.nodes_)
+            {
+                semantic_capacity = (std::max)(semantic_capacity,
+                    slot.semantic_state.capacity());
+                derived_capacity = (std::max)(derived_capacity,
+                    slot.derived_state.capacity());
+            }
+        prepare_storage(semantic_capacity, derived_capacity);
+        size_ = other.size_;
+        for (std::size_t index = 0; index < size_; ++index)
+        {
+            nodes_[index].kind = other.nodes_[index].kind;
+            nodes_[index].semantic_state =
+                other.nodes_[index].semantic_state;
+            nodes_[index].derived_state =
+                other.nodes_[index].derived_state;
+        }
+        return *this;
+    }
+    StageWindNodeBuffer(StageWindNodeBuffer&&) noexcept = default;
+    StageWindNodeBuffer& operator=(StageWindNodeBuffer&&) noexcept = default;
+
     [[nodiscard]] std::size_t size() const noexcept { return size_; }
     [[nodiscard]] constexpr std::size_t capacity() const noexcept
     {
@@ -121,6 +154,37 @@ public:
         auto& destination = emplace_back();
         destination = std::move(value);
     }
+    void prepare_storage(
+        std::size_t semantic_capacity, std::size_t derived_capacity)
+    {
+        if (semantic_capacity <= prepared_semantic_capacity_
+            && derived_capacity <= prepared_derived_capacity_)
+            return;
+        for (auto& slot : nodes_)
+        {
+            slot.semantic_state.reserve(semantic_capacity);
+            slot.derived_state.reserve(derived_capacity);
+        }
+        prepared_semantic_capacity_ = semantic_capacity;
+        prepared_derived_capacity_ = derived_capacity;
+        prepared_dynamic_capacity_bytes_ = 0;
+        for (const auto& slot : nodes_)
+            prepared_dynamic_capacity_bytes_ += slot.semantic_state.capacity()
+                + slot.derived_state.capacity();
+    }
+    [[nodiscard]] std::size_t dynamic_capacity_bytes() const noexcept
+    {
+        if (prepared_semantic_capacity_ != 0
+            || prepared_derived_capacity_ != 0)
+        {
+            return prepared_dynamic_capacity_bytes_;
+        }
+        std::size_t bytes{};
+        for (const auto& slot : nodes_)
+            bytes += slot.semantic_state.capacity()
+                + slot.derived_state.capacity();
+        return bytes;
+    }
     [[nodiscard]] std::span<const StageWindNodeImage> storage() const noexcept
     {
         return nodes_;
@@ -140,6 +204,9 @@ public:
 private:
     std::array<StageWindNodeImage, stage_wind_max_nodes> nodes_{};
     std::size_t size_{};
+    std::size_t prepared_semantic_capacity_{};
+    std::size_t prepared_derived_capacity_{};
+    std::size_t prepared_dynamic_capacity_bytes_{};
 };
 
 struct StageWindTopologyImage

@@ -321,10 +321,12 @@ void CandidateGameStateAdapter::ResetCapturePerformanceWindow() noexcept
     ucrt_capture_timing_ = {};
     wind_capture_timing_ = {};
     encode_timing_ = {};
-    scratch_capacity_baseline_bytes_ = scratch_capacity_bytes();
+    scratch_capacity_baseline_by_owner_ = scratch_capacity_by_owner();
+    scratch_capacity_baseline_bytes_ = 0;
+    for (const auto bytes : scratch_capacity_baseline_by_owner_)
+        scratch_capacity_baseline_bytes_ += bytes;
     scratch_capacity_high_water_bytes_ = scratch_capacity_baseline_bytes_;
     scratch_capacity_growth_events_ = 0;
-    scratch_capacity_baseline_by_owner_ = scratch_capacity_by_owner();
     scratch_capacity_high_water_by_owner_ =
         scratch_capacity_baseline_by_owner_;
 }
@@ -371,7 +373,9 @@ CandidateGameStateAdapter::scratch_capacity_by_owner() const noexcept
 
 void CandidateGameStateAdapter::observe_scratch_capacity() noexcept
 {
-    const auto current = scratch_capacity_bytes();
+    const auto by_owner = scratch_capacity_by_owner();
+    std::size_t current{};
+    for (const auto bytes : by_owner) current += bytes;
     if (scratch_capacity_baseline_bytes_ == 0)
         scratch_capacity_baseline_bytes_ = current;
     if (current > scratch_capacity_high_water_bytes_)
@@ -380,7 +384,6 @@ void CandidateGameStateAdapter::observe_scratch_capacity() noexcept
             ++scratch_capacity_growth_events_;
         scratch_capacity_high_water_bytes_ = current;
     }
-    const auto by_owner = scratch_capacity_by_owner();
     for (std::size_t index = 0; index < by_owner.size(); ++index)
         scratch_capacity_high_water_by_owner_[index] = std::max(
             scratch_capacity_high_water_by_owner_[index], by_owner[index]);

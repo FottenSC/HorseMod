@@ -210,11 +210,7 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
             maximum_derived = (std::max)(maximum_derived,
                 StageWindDerivedStateSize(layout));
         }
-        for (auto& slot : output.nodes.storage())
-        {
-            slot.semantic_state.reserve(maximum_semantic);
-            slot.derived_state.reserve(maximum_derived);
-        }
+        output.nodes.prepare_storage(maximum_semantic, maximum_derived);
     }
     catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     std::uintptr_t current_root{};
