@@ -101,6 +101,24 @@ bool CallStringParam(RC::Unreal::UObject* owner, const wchar_t* name,
     return true;
 }
 
+bool CallNoParams(RC::Unreal::UObject* owner, const wchar_t* name)
+{
+    if (owner == nullptr) return false;
+    auto* function = owner->GetFunctionByNameInChain(name);
+    if (function == nullptr) return false;
+    std::byte params{};
+    owner->ProcessEvent(function, &params);
+    return true;
+}
+
+bool EmulateTitleDecide()
+{
+    auto* input_util = RC::Unreal::UObjectGlobals::StaticFindObject<
+        RC::Unreal::UObject*>(nullptr, nullptr,
+            L"/Script/LuxorGame.Default__LuxInputUtil");
+    return CallNoParams(input_util, L"EmulateTitleDecide");
+}
+
 std::string StringProperty(RC::Unreal::UObject* owner,
                            const wchar_t* name) noexcept
 {
@@ -175,6 +193,7 @@ NavigationState ReplaySceneNavigator::Tick(
         last_scene_ = scene_name;
         retry_frames_ = 0;
         title_top_requested_ = false;
+        title_decide_requested_ = false;
     }
     if (scene_name.find("TitleScene") != std::string::npos)
     {
@@ -201,6 +220,17 @@ NavigationState ReplaySceneNavigator::Tick(
         }
         RC::Unreal::UObject* machine = ObjectProperty(behavior, L"Machine");
         const std::string state = StringProperty(machine, L"CurrentStateCode");
+        if (state == "Top" && !title_decide_requested_ && retry_frames_++ > 0)
+        {
+            if (!EmulateTitleDecide())
+            {
+                detail = "title_top_decide_failed";
+                return NavigationState::Failed;
+            }
+            title_decide_requested_ = true;
+            detail = "title_state:Top:decide_requested";
+            return NavigationState::Waiting;
+        }
         detail = state.empty() ? "title_top_requested" : "title_state:" + state;
         return NavigationState::Waiting;
     }
