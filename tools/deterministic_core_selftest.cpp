@@ -13,6 +13,7 @@
 #include "deterministic/ReplaySeekPlanner.hpp"
 #include "deterministic/Sc6ReplayNativeBridge.hpp"
 #include "deterministic/SnapshotStore.hpp"
+#include "deterministic/StagePresentation.hpp"
 #include "deterministic/UcrtRandBroker.hpp"
 
 #include <cstring>
@@ -1575,6 +1576,50 @@ void test_audio_presentation_identities_are_epoch_bound()
             == FailureCode::ProtocolMismatch,
         "audio Blueprint decoding rejects noncanonical direct flags");
 }
+
+void test_stage_presentation_is_pointer_free_and_composite()
+{
+    StagePresentationValue value{};
+    value.coordinate = {9, 44};
+    value.source_ordinal = 7;
+    value.operation = StagePresentationOperation::BarrierHit;
+    value.owner_logical_id = 0x1122334455667788ull;
+    const std::int32_t actor_id = 4;
+    const std::int32_t hit_count = 2;
+    std::memcpy(value.source_semantic.data(), &actor_id, sizeof(actor_id));
+    const std::array<float, 3> direction{1.0f, -2.0f, 3.0f};
+    std::memcpy(value.source_semantic.data() + 4, direction.data(), 12);
+    std::memcpy(value.canonical_before.data(), &hit_count, sizeof(hit_count));
+    value.source_payload_size = 12;
+    value.canonical_before_size = 4;
+    value.particle_count = 1;
+    auto& particle = value.particles[0].semantic;
+    particle[0] = std::byte{1};
+    const std::uint64_t owner = value.owner_logical_id;
+    const std::uint64_t asset = 0x8877665544332211ull;
+    std::memcpy(particle.data() + 1, &owner, sizeof(owner));
+    std::memcpy(particle.data() + 9, &asset, sizeof(asset));
+    const std::array<float, 9> transform{
+        10.0f, 20.0f, 30.0f, 0.0f, 90.0f, 0.0f, 1.0f, 1.0f, 1.0f};
+    std::memcpy(particle.data() + 17, transform.data(), sizeof(transform));
+    particle[53] = std::byte{1};
+
+    PresentationEvent encoded{};
+    StagePresentationValue decoded{};
+    expect(EncodeStagePresentation(value, encoded).ok()
+            && encoded.kind == Schema::stage_presentation_event_kind
+            && DecodeStagePresentation(encoded, decoded).ok()
+            && decoded == value,
+        "stage presentation round-trips canonical pre-state and nested particles");
+    encoded.identity ^= 1;
+    expect(DecodeStagePresentation(encoded, decoded).code
+            == FailureCode::ProtocolMismatch,
+        "stage presentation rejects copied or corrupted event identity");
+    value.particle_count = 3;
+    expect(EncodeStagePresentation(value, encoded).code
+            == FailureCode::InvalidConfiguration,
+        "stage presentation fails closed above its static particle bound");
+}
 }
 
 int main()
@@ -1599,6 +1644,7 @@ int main()
     test_floating_point_environment_capture_is_raw_and_non_mutating();
     test_ucrt_broker_is_callsite_and_thread_bound();
     test_audio_presentation_identities_are_epoch_bound();
+    test_stage_presentation_is_pointer_free_and_composite();
     if (failures == 0)
     {
         std::cout << "DeterministicCoreSelfTest passed\n";

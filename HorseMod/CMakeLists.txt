@@ -80,6 +80,7 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/SnapshotStore.cpp
     horselib/deterministic/StageBreakListenerDiagnostics.cpp
     horselib/deterministic/StageBreakPresentationIdentity.cpp
+    horselib/deterministic/StagePresentation.cpp
     horselib/deterministic/StageWindGraphTransaction.cpp
     horselib/deterministic/StageWindTopology.cpp
     horselib/deterministic/SteamP2PTransport.cpp
