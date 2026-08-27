@@ -5,6 +5,7 @@
 #include "deterministic/FloatingPointEnvironment.hpp"
 #include "deterministic/NativeReplayMaterializer.hpp"
 #include "deterministic/NativeBatchTimeline.hpp"
+#include "deterministic/NativePresentationJournal.hpp"
 #include "deterministic/ParticlePresentation.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/ReplayCoordinator.hpp"
@@ -1024,6 +1025,41 @@ void test_presentation_exactly_once()
     expect(bounded_sink.count == 100, "committed-event dedup metadata stays bounded");
 }
 
+void test_native_audio_presentation_preserves_cross_family_order()
+{
+    NativeBatchEnvelope batch{};
+    batch.entry_coordinate = {4, 100};
+    batch.exit_coordinate = {4, 102};
+    batch.audio_terminal_calls = 2;
+    batch.audio_terminal_journal_count = 2;
+    batch.audio_terminal_journal[0] = {AudioTerminalOperation::Create,
+        {AudioOwnerDomain::BattleSharedPlayer, 0, 0},
+        MakeLogicalAudioPlaybackId(101, 0), 3, 19, 0};
+    batch.audio_terminal_journal[1] = {AudioTerminalOperation::StopOne,
+        {AudioOwnerDomain::BattleSharedPlayer, 0, 0},
+        MakeLogicalAudioPlaybackId(101, 0), 0, -1, 1};
+    batch.presentation_order_journal_count = 3;
+    batch.presentation_order_journal[0] = {
+        PresentationEventFamily::BattleAudioSource, 0, 0};
+    batch.presentation_order_journal[1] = {
+        PresentationEventFamily::AudioTerminal, 0, 1};
+    batch.presentation_order_journal[2] = {
+        PresentationEventFamily::AudioTerminal, 1, 2};
+
+    PresentationJournal journal{8, 512};
+    expect(RecordNativeAudioPresentation(batch, journal).ok()
+            && journal.pending_count() == 2,
+        "native audio terminals retain source frames and cross-family ordinals");
+
+    NativeBatchEnvelope invalid = batch;
+    invalid.presentation_order_journal[2].family_index = 0;
+    PresentationJournal rejected{8, 512};
+    expect(RecordNativeAudioPresentation(invalid, rejected).code
+            == FailureCode::ProtocolMismatch
+            && rejected.pending_count() == 0,
+        "duplicate native terminal identities fail before journal mutation");
+}
+
 void test_callsite_qualified_particle_values()
 {
     ParticlePresentationValue create{};
@@ -1429,6 +1465,31 @@ void test_audio_presentation_identities_are_epoch_bound()
             && playback.NativeForLogical(7, shared, active_logical, mapped)
             && mapped == 0x1236,
         "audio playback map prunes only native-lifecycle-inactive voices");
+
+    AudioTerminalEvent terminal{};
+    terminal.operation = AudioTerminalOperation::Create;
+    terminal.owner = class_player;
+    terminal.logical_playback_id = logical;
+    terminal.cue_sheet_id = 14;
+    terminal.cue_id = 77;
+    terminal.value = 0x3f000000u;
+    PresentationEvent encoded{};
+    expect(EncodeAudioPresentation({7, 123}, 9, terminal, encoded).ok()
+            && encoded.kind == Schema::audio_presentation_event_kind
+            && encoded.payload_size == Schema::audio_presentation_payload_size,
+        "audio terminal encodes as a bounded versioned presentation value");
+    AudioTerminalEvent decoded{};
+    expect(DecodeAudioPresentation(encoded, decoded).ok()
+            && decoded == terminal,
+        "audio presentation round-trips without native owner pointers");
+    const auto identity = encoded.identity;
+    expect(EncodeAudioPresentation({7, 123}, 10, terminal, encoded).ok()
+            && encoded.identity != identity,
+        "authored cross-family order contributes to stable audio identity");
+    encoded.identity = identity;
+    expect(DecodeAudioPresentation(encoded, decoded).code
+            == FailureCode::ProtocolMismatch,
+        "audio decoding rejects an identity copied across authored ordinals");
 }
 }
 
@@ -1442,6 +1503,7 @@ int main()
     test_resimulation_base_planning_respects_batch_width();
     test_batch_aware_replay_seek_planning();
     test_presentation_exactly_once();
+    test_native_audio_presentation_preserves_cross_family_order();
     test_callsite_qualified_particle_values();
     test_replay_checkpoint_seek_and_resume();
     test_cross_generation_seek_materializes_before_restore();

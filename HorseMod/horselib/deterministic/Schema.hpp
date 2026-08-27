@@ -16,6 +16,9 @@ inline constexpr std::uint32_t maximum_supported_native_batch_width = 12;
 inline constexpr std::uint16_t particle_presentation_schema_version = 1;
 inline constexpr std::uint32_t particle_presentation_event_kind = 1;
 inline constexpr std::size_t particle_presentation_payload_size = 68;
+inline constexpr std::uint16_t audio_presentation_schema_version = 1;
+inline constexpr std::uint32_t audio_presentation_event_kind = 2;
+inline constexpr std::size_t audio_presentation_payload_size = 24;
 inline constexpr std::size_t replay_timeline_memory_limit =
     512ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_input_memory_budget =

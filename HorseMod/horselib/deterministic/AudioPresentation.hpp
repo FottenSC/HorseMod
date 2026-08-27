@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Schema.hpp"
 #include "Types.hpp"
 
 #include <array>
@@ -127,6 +128,18 @@ struct AudioTerminalEvent
 };
 
 static_assert(sizeof(AudioTerminalEvent) == 24);
+
+// Converts an intercepted terminal operation into a versioned, pointer-free
+// presentation event. The event identity is derived from its source coordinate,
+// authored cross-family order and complete logical terminal payload.
+[[nodiscard]] Status EncodeAudioPresentation(
+    FrameCoordinate coordinate,
+    std::uint32_t source_ordinal,
+    const AudioTerminalEvent& terminal,
+    PresentationEvent& output) noexcept;
+[[nodiscard]] Status DecodeAudioPresentation(
+    const PresentationEvent& event,
+    AudioTerminalEvent& output) noexcept;
 
 class AudioOwnerResolver
 {

@@ -49,6 +49,7 @@ file(GLOB_RECURSE SCVI_HEADERS
 )
 
 set(HORSEMOD_DETERMINISTIC_SOURCES
+    horselib/deterministic/AudioPresentation.cpp
     horselib/deterministic/BattleAudioSelectorState.cpp
     horselib/deterministic/CanonicalHashTimeline.cpp
     horselib/deterministic/CallbackTopology.cpp
@@ -67,6 +68,7 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/InputTimeline.cpp
     horselib/deterministic/NativeBatchTimeline.cpp
     horselib/deterministic/NativeCandidateRegions.cpp
+    horselib/deterministic/NativePresentationJournal.cpp
     horselib/deterministic/OnlineCoordinator.cpp
     horselib/deterministic/ParticlePresentation.cpp
     horselib/deterministic/PresentationJournal.cpp
