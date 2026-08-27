@@ -53,6 +53,7 @@ struct CandidatePhaseTimingStatus
 
 struct CandidateAdapterPerformanceStatus
 {
+    static constexpr std::size_t scratch_owner_count = 7;
     CandidatePhaseTimingStatus total_capture{};
     CandidatePhaseTimingStatus typed_capture{};
     CandidatePhaseTimingStatus local_capture{};
@@ -70,6 +71,10 @@ struct CandidateAdapterPerformanceStatus
     std::size_t scratch_capacity_baseline_bytes{};
     std::size_t scratch_capacity_high_water_bytes{};
     std::uint64_t scratch_capacity_growth_events{};
+    std::array<std::size_t, scratch_owner_count>
+        scratch_capacity_baseline_by_owner{};
+    std::array<std::size_t, scratch_owner_count>
+        scratch_capacity_high_water_by_owner{};
 };
 
 enum class CandidateCapturePhase : std::uint8_t
@@ -186,6 +191,9 @@ private:
     Status restore_image(const CandidateCheckpointImage& image) noexcept;
     bool undo_image(const CandidateCheckpointImage& image) noexcept;
     [[nodiscard]] std::size_t scratch_capacity_bytes() const noexcept;
+    [[nodiscard]] std::array<std::size_t,
+        CandidateAdapterPerformanceStatus::scratch_owner_count>
+        scratch_capacity_by_owner() const noexcept;
     void observe_scratch_capacity() noexcept;
 
     NativeCandidateRegions& regions_;
@@ -212,6 +220,12 @@ private:
     std::size_t scratch_capacity_baseline_bytes_{};
     std::size_t scratch_capacity_high_water_bytes_{};
     std::uint64_t scratch_capacity_growth_events_{};
+    std::array<std::size_t,
+        CandidateAdapterPerformanceStatus::scratch_owner_count>
+        scratch_capacity_baseline_by_owner_{};
+    std::array<std::size_t,
+        CandidateAdapterPerformanceStatus::scratch_owner_count>
+        scratch_capacity_high_water_by_owner_{};
     CandidateCapturePhase last_capture_phase_{};
     bool configured_{};
     bool bound_{};

@@ -4240,6 +4240,10 @@ private:
             "cycle_p99_us={} cycle_max_us={} "
             "capture_samples={} capture_p99_us={} capture_max_us={} "
             "scratch_capacity_bytes={}->{} scratch_growth_events={} "
+            "scratch_owner_capture={}->{} scratch_owner_canonical={}->{} "
+            "scratch_owner_target={}->{} scratch_owner_transaction={}->{} "
+            "scratch_owner_regions={}->{} scratch_owner_motion={}->{} "
+            "scratch_owner_dispatch={}->{} "
             "checkpoint_bytes={}->{} batch_entry_bytes={}->{} "
             "forced_history_bytes={}->{} "
             "stage_wall_suppressed={} stage_barrier_suppressed={} "
@@ -4273,6 +4277,20 @@ private:
             capture_performance.scratch_capacity_baseline_bytes,
             capture_performance.scratch_capacity_high_water_bytes,
             capture_performance.scratch_capacity_growth_events,
+            capture_performance.scratch_capacity_baseline_by_owner[0],
+            capture_performance.scratch_capacity_high_water_by_owner[0],
+            capture_performance.scratch_capacity_baseline_by_owner[1],
+            capture_performance.scratch_capacity_high_water_by_owner[1],
+            capture_performance.scratch_capacity_baseline_by_owner[2],
+            capture_performance.scratch_capacity_high_water_by_owner[2],
+            capture_performance.scratch_capacity_baseline_by_owner[3],
+            capture_performance.scratch_capacity_high_water_by_owner[3],
+            capture_performance.scratch_capacity_baseline_by_owner[4],
+            capture_performance.scratch_capacity_high_water_by_owner[4],
+            capture_performance.scratch_capacity_baseline_by_owner[5],
+            capture_performance.scratch_capacity_high_water_by_owner[5],
+            capture_performance.scratch_capacity_baseline_by_owner[6],
+            capture_performance.scratch_capacity_high_water_by_owner[6],
             qualification.checkpoint_bytes_begin,
             final_timeline.checkpoint_bytes,
             qualification.batch_entry_bytes_begin,

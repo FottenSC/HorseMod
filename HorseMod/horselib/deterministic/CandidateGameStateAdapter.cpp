@@ -98,6 +98,8 @@ void CandidateGameStateAdapter::Reset() noexcept
     scratch_capacity_baseline_bytes_ = 0;
     scratch_capacity_high_water_bytes_ = 0;
     scratch_capacity_growth_events_ = 0;
+    scratch_capacity_baseline_by_owner_ = {};
+    scratch_capacity_high_water_by_owner_ = {};
     last_capture_phase_ = CandidateCapturePhase::None;
     configured_ = false;
     bound_ = false;
@@ -304,6 +306,8 @@ CandidateGameStateAdapter::performance_status() const noexcept
         scratch_capacity_baseline_bytes_,
         scratch_capacity_high_water_bytes_,
         scratch_capacity_growth_events_,
+        scratch_capacity_baseline_by_owner_,
+        scratch_capacity_high_water_by_owner_,
     };
 }
 
@@ -320,6 +324,9 @@ void CandidateGameStateAdapter::ResetCapturePerformanceWindow() noexcept
     scratch_capacity_baseline_bytes_ = scratch_capacity_bytes();
     scratch_capacity_high_water_bytes_ = scratch_capacity_baseline_bytes_;
     scratch_capacity_growth_events_ = 0;
+    scratch_capacity_baseline_by_owner_ = scratch_capacity_by_owner();
+    scratch_capacity_high_water_by_owner_ =
+        scratch_capacity_baseline_by_owner_;
 }
 
 std::size_t CandidateGameStateAdapter::scratch_capacity_bytes() const noexcept
@@ -339,6 +346,25 @@ std::size_t CandidateGameStateAdapter::scratch_capacity_bytes() const noexcept
     return bytes;
 }
 
+std::array<std::size_t,
+    CandidateAdapterPerformanceStatus::scratch_owner_count>
+CandidateGameStateAdapter::scratch_capacity_by_owner() const noexcept
+{
+    return {
+        CandidateCheckpointDynamicCapacity(capture_scratch_),
+        CandidateCheckpointDynamicCapacity(canonical_capture_scratch_),
+        transaction_target_scratch_ == nullptr ? 0
+            : CandidateCheckpointDynamicCapacity(*transaction_target_scratch_),
+        transaction_scratch_ == nullptr ? 0
+            : CandidateCheckpointDynamicCapacity(*transaction_scratch_),
+        regions_.ScratchCapacityBytes(),
+        binding_.motion_banks == nullptr ? 0
+            : binding_.motion_banks->ScratchCapacityBytes(),
+        binding_.move_dispatch == nullptr ? 0
+            : binding_.move_dispatch->ScratchCapacityBytes(),
+    };
+}
+
 void CandidateGameStateAdapter::observe_scratch_capacity() noexcept
 {
     const auto current = scratch_capacity_bytes();
@@ -350,6 +376,10 @@ void CandidateGameStateAdapter::observe_scratch_capacity() noexcept
             ++scratch_capacity_growth_events_;
         scratch_capacity_high_water_bytes_ = current;
     }
+    const auto by_owner = scratch_capacity_by_owner();
+    for (std::size_t index = 0; index < by_owner.size(); ++index)
+        scratch_capacity_high_water_by_owner_[index] = std::max(
+            scratch_capacity_high_water_by_owner_[index], by_owner[index]);
 }
 
 Status CandidateGameStateAdapter::TraceLocalStreamOffset(
