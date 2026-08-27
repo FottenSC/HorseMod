@@ -1867,6 +1867,18 @@ Status DeterministicHookSet::CommitAudioBlueprint(
     }
 }
 
+Status DeterministicHookSet::ArmAudioPresentationCaptureForNextOuterTick() noexcept
+{
+    if (!installed() || active_outer_capture_ != nullptr)
+        return Status::failure(FailureCode::IllegalTransition);
+    bool expected = false;
+    if (!suppress_audio_presentation_next_outer_tick_.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel,
+            std::memory_order_acquire))
+        return Status::failure(FailureCode::IllegalTransition);
+    return Status::success();
+}
+
 Status DeterministicHookSet::RestoreBattleAudioRemapEntry(
     const NativeBatchEnvelope& envelope,
     OwnedBatchReplayResult&) noexcept
@@ -2287,10 +2299,7 @@ bool DeterministicHookSet::RecordAudioTerminal(
 {
     if (batch == nullptr || batch->observation == nullptr || !event.valid())
         return false;
-    const bool verify = batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation
-        && batch->owned->request->presentation_mode
-            == OwnedBatchPresentationMode::VerifyRecorded;
+    const bool verify = IsOwnedPresentationVerification(batch);
     if (verify)
     {
         auto& replay = *batch->owned->result;
@@ -2351,6 +2360,29 @@ bool DeterministicHookSet::RecordAudioTerminal(
     return true;
 }
 
+bool DeterministicHookSet::IsOwnedPresentationSuppressed(
+    const OuterTickCaptureContext* batch) noexcept
+{
+    return batch != nullptr && batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation;
+}
+
+bool DeterministicHookSet::IsAudioPresentationSuppressed(
+    const OuterTickCaptureContext* batch) noexcept
+{
+    return IsOwnedPresentationSuppressed(batch)
+        || (batch != nullptr
+            && batch->suppress_speculative_audio_presentation);
+}
+
+bool DeterministicHookSet::IsOwnedPresentationVerification(
+    const OuterTickCaptureContext* batch) noexcept
+{
+    return IsOwnedPresentationSuppressed(batch)
+        && batch->owned->request->presentation_mode
+            == OwnedBatchPresentationMode::VerifyRecorded;
+}
+
 namespace
 {
 void RecordUnresolvedAudioOwner(OuterTickObservation& observation,
@@ -2404,8 +2436,13 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     }
     OuterTickCaptureContext capture_context{&observation};
     if (hooks != nullptr)
+    {
         capture_context.frame_counter_address = hooks->image_base_
             + Schema::Sc6FrameLayout::frame_counter_rva;
+        capture_context.suppress_speculative_audio_presentation =
+            hooks->suppress_audio_presentation_next_outer_tick_.exchange(
+                false, std::memory_order_acq_rel);
+    }
     OuterTickCaptureContext* previous_capture = active_outer_capture_;
     active_outer_capture_ = &capture_context;
     particle_shadow_pool.Reset();
@@ -3109,11 +3146,9 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
             std::memory_order_acquire);
     const auto original = reinterpret_cast<BattleAudioDispatchFn>(trampoline);
     auto* batch = active_outer_capture_;
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
-    const bool capture_corrected = suppress
-        && batch->owned->request->presentation_mode
-            == OwnedBatchPresentationMode::CaptureCorrected;
+    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool verify_recorded = IsOwnedPresentationVerification(batch);
+    const bool capture_corrected = suppress && !verify_recorded;
 
     // Preserve only the verified success/failure contract. A successful owned
     // call returns synthetic token zero; it never exposes an authoritative live
@@ -3121,7 +3156,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
     std::int32_t result = -1;
     std::size_t observed_journal_index = maximum_battle_audio_journal_dispatches;
     std::int32_t expected_success = -1;
-    if (suppress && !capture_corrected)
+    if (verify_recorded)
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
@@ -3247,7 +3282,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
     }
     if (original != nullptr)
         result = original(battle_manager, event_record, alternate_route);
-    if (suppress && !capture_corrected && expected_success >= 0)
+    if (verify_recorded && expected_success >= 0)
     {
         // Re-enter the native dispatcher so deterministic source/remap logic
         // and every ordered terminal hook still execute. Those terminal hooks
@@ -3257,7 +3292,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
         // only after the complete nested route has been verified.
         result = expected_success != 0 ? 0 : -1;
     }
-    if (suppress && expected_success >= 0
+    if (verify_recorded && expected_success >= 0
         && (result >= 0 ? 1 : 0) != expected_success)
     {
         auto& replay = *batch->owned->result;
@@ -3314,15 +3349,13 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
                 std::memory_order_release);
     }
     auto* batch = active_outer_capture_;
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
-    const bool capture_corrected = suppress
-        && batch->owned->request->presentation_mode
-            == OwnedBatchPresentationMode::CaptureCorrected;
+    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool verify_recorded = IsOwnedPresentationVerification(batch);
+    const bool capture_corrected = suppress && !verify_recorded;
     const bool mutates_selector = contact_type >= 8 && contact_type <= 11;
     const auto handler_bit = handler_slot < maximum_battle_audio_handlers
         ? std::uint8_t{1} << handler_slot : std::uint8_t{};
-    if (suppress && !capture_corrected && mutates_selector && handler_bit != 0)
+    if (verify_recorded && mutates_selector && handler_bit != 0)
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
@@ -3355,7 +3388,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
     std::int32_t after{};
     bool after_valid = handler != nullptr
         && SafeRead(reinterpret_cast<std::uintptr_t>(handler) + 0x3E0, after);
-    if (batch != nullptr && batch->owned != nullptr && !capture_corrected)
+    if (verify_recorded)
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
@@ -3457,18 +3490,13 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
         : battle_audio_contact_handler_trampoline_global_.load(
             std::memory_order_acquire);
     auto* batch = active_outer_capture_;
-    bool suppress{};
-    bool capture_corrected{};
+    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool verify_recorded = IsOwnedPresentationVerification(batch);
+    const bool capture_corrected = suppress && !verify_recorded;
     std::size_t observed_source_index = maximum_battle_audio_journal_sources;
-    if (batch != nullptr && batch->owned != nullptr)
+    if (verify_recorded)
     {
-        suppress = batch->owned->request->suppress_ephemeral_presentation;
-        capture_corrected = suppress
-            && batch->owned->request->presentation_mode
-                == OwnedBatchPresentationMode::CaptureCorrected;
-        if (suppress && !capture_corrected)
-        {
-            auto& replay = *batch->owned->result;
+        auto& replay = *batch->owned->result;
             const auto& envelope = *batch->owned->request->envelope;
             std::array<std::byte, 18> semantic{};
             const std::size_t index = replay.suppressed_audio_source_calls;
@@ -3716,7 +3744,6 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
                     replay.failure = FailureCode::PresentationFailed;
                 }
             }
-        }
     }
     if (batch != nullptr && batch->observation != nullptr
         && (!suppress || capture_corrected))
@@ -3762,7 +3789,7 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             batch->observation->battle_audio_signature_failure_mask |= 1u << 8;
         }
     }
-    if (suppress && !capture_corrected)
+    if (verify_recorded)
     {
         callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
         return;
@@ -3831,8 +3858,7 @@ void __fastcall DeterministicHookSet::BattleAudioPhaseChangedDetour(
     const auto original = reinterpret_cast<BattleAudioPhaseChangedFn>(
         trampoline);
     auto* batch = active_outer_capture_;
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
+    const bool suppress = IsAudioPresentationSuppressed(batch);
     const auto address = reinterpret_cast<std::uintptr_t>(handler);
     std::uint8_t deferred_log_requested{};
     std::int32_t deferred_frame_counter{};
@@ -3844,9 +3870,17 @@ void __fastcall DeterministicHookSet::BattleAudioPhaseChangedDetour(
         || !SafeWrite(address + 0x3E4, deferred_log_requested)
         || !SafeWrite(address + 0x3E8, deferred_frame_counter)))
     {
-        ++batch->owned->result->presentation_failures;
-        batch->owned->result->presentation_failure_mask |= 1u << 3;
-        batch->owned->result->failure = FailureCode::PresentationFailed;
+        if (batch->owned != nullptr)
+        {
+            ++batch->owned->result->presentation_failures;
+            batch->owned->result->presentation_failure_mask |= 1u << 3;
+            batch->owned->result->failure = FailureCode::PresentationFailed;
+        }
+        else if (batch->observation != nullptr)
+        {
+            ++batch->observation->battle_audio_signature_failures;
+            batch->observation->battle_audio_signature_failure_mask |= 1u << 15;
+        }
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
@@ -3861,8 +3895,7 @@ std::uint64_t __fastcall DeterministicHookSet::BattleAudioTrackingRemoveDetour(
         : battle_audio_tracking_remove_trampoline_global_.load(
             std::memory_order_acquire);
     auto* batch = active_outer_capture_;
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation
+    const bool suppress = IsAudioPresentationSuppressed(batch)
         && (IsObservedBattleAudioTrackingSet(tracking_set)
             || active_owned_audio_registration_depth != 0);
     if (suppress)
@@ -3888,8 +3921,7 @@ std::int32_t* __fastcall DeterministicHookSet::BattleAudioTrackingInsertDetour(
         : battle_audio_tracking_insert_trampoline_global_.load(
             std::memory_order_acquire);
     auto* batch = active_outer_capture_;
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation
+    const bool suppress = IsAudioPresentationSuppressed(batch)
         && IsObservedBattleAudioTrackingSet(tracking_set);
     if (suppress)
     {
@@ -3911,8 +3943,7 @@ void __fastcall DeterministicHookSet::BattleAudioTrackingRehashDetour(
 {
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
     auto* batch = active_outer_capture_;
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation
+    const bool suppress = IsAudioPresentationSuppressed(batch)
         && IsObservedBattleAudioTrackingSet(tracking_set);
     if (!suppress)
     {
@@ -3995,14 +4026,17 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
                 observation.battle_audio_blueprint_journal_count++] = semantic;
         }
     }
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
+    const bool suppress = IsAudioPresentationSuppressed(batch);
     if (suppress)
     {
+        const bool verify = IsOwnedPresentationVerification(batch);
+        if (!verify)
+        {
+            callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+            return;
+        }
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
-        const bool verify = batch->owned->request->presentation_mode
-            == OwnedBatchPresentationMode::VerifyRecorded;
         const auto index = replay.suppressed_audio_blueprint_calls;
         if (verify && (!captured
                 || index >= envelope.battle_audio_blueprint_journal_count
@@ -4070,8 +4104,7 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     const auto original = reinterpret_cast<BattleAudioRegisterVoiceFn>(
         trampoline);
     auto* batch = active_outer_capture_;
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
+    const bool suppress = IsAudioPresentationSuppressed(batch);
     AudioOwnerSelector owner{};
     std::uint32_t frame{};
     const bool owner_resolved = batch != nullptr
@@ -4087,9 +4120,7 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
         && SafeRead(batch->frame_counter_address, frame)
         && batch->observation != nullptr
         && batch->observation->audio_terminal_calls < audio_ordinals_per_frame;
-    const bool verify_recorded = suppress
-        && batch->owned->request->presentation_mode
-            == OwnedBatchPresentationMode::VerifyRecorded;
+    const bool verify_recorded = IsOwnedPresentationVerification(batch);
     std::uint32_t terminal_ordinal{};
     if (owned_terminal)
     {
@@ -4105,7 +4136,8 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     {
         ++batch->observation->battle_audio_signature_failures;
         batch->observation->battle_audio_signature_failure_mask |= 1u << 12;
-        batch->owned->result->failure = FailureCode::PresentationFailed;
+        if (batch->owned != nullptr)
+            batch->owned->result->failure = FailureCode::PresentationFailed;
         callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
         return audio_invalid_playback_id;
     }
@@ -4113,7 +4145,7 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     {
         const AudioTerminalEvent event{AudioTerminalOperation::Create, owner,
             logical_id, cue_sheet_id, cue_id, playback_flags};
-        if (!RecordAudioTerminal(batch, event))
+        if (!RecordAudioTerminal(batch, event) && batch->owned != nullptr)
             batch->owned->result->failure = FailureCode::PresentationFailed;
         callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
         return logical_id;
@@ -4170,8 +4202,7 @@ void __fastcall DeterministicHookSet::BattleAudioAppendCommandDetour(
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
     auto* hooks = active_.load(std::memory_order_acquire);
     auto* batch = active_outer_capture_;
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
+    const bool suppress = IsAudioPresentationSuppressed(batch);
     struct CommandRecord
     {
         std::uint32_t operation{};
@@ -4208,9 +4239,8 @@ void __fastcall DeterministicHookSet::BattleAudioAppendCommandDetour(
                 else
                 {
                     std::uint32_t frame{};
-                    const bool verify_recorded = suppress
-                        && batch->owned->request->presentation_mode
-                            == OwnedBatchPresentationMode::VerifyRecorded;
+                    const bool verify_recorded =
+                        IsOwnedPresentationVerification(batch);
                     const auto ordinal = verify_recorded
                         ? batch->owned->result->suppressed_audio_terminal_calls
                         : batch->observation->audio_terminal_calls;
@@ -4242,7 +4272,11 @@ void __fastcall DeterministicHookSet::BattleAudioAppendCommandDetour(
             batch->observation->battle_audio_signature_failure_mask
                 |= 1u << 13;
             if (suppress)
-                batch->owned->result->failure = FailureCode::PresentationFailed;
+            {
+                if (batch->owned != nullptr)
+                    batch->owned->result->failure =
+                        FailureCode::PresentationFailed;
+            }
         }
         if (!suppress && represented && event.valid()
             && command.operation == 1)
@@ -4269,7 +4303,10 @@ void __fastcall DeterministicHookSet::BattleAudioAppendCommandDetour(
         ++batch->observation->battle_audio_signature_failures;
         batch->observation->battle_audio_signature_failure_mask |= 1u << 13;
         if (suppress)
-            batch->owned->result->failure = FailureCode::PresentationFailed;
+        {
+            if (batch->owned != nullptr)
+                batch->owned->result->failure = FailureCode::PresentationFailed;
+        }
     }
     if (!suppress)
     {
@@ -4323,8 +4360,7 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
                 observation.battle_audio_stop_all_journal_count++] = semantic;
         }
     }
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
+    const bool suppress = IsAudioPresentationSuppressed(batch);
     AudioOwnerSelector stable_owner{};
     const AudioTerminalEvent terminal{
         AudioTerminalOperation::StopAll, stable_owner,
@@ -4347,15 +4383,14 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
                 hooks->audio_owner_resolver_);
         ++batch->observation->battle_audio_signature_failures;
         batch->observation->battle_audio_signature_failure_mask |= 1u << 12;
-        if (suppress)
+        if (batch->owned != nullptr)
             batch->owned->result->failure = FailureCode::PresentationFailed;
     }
-    if (suppress)
+    if (IsOwnedPresentationVerification(batch))
     {
         auto& replay = *batch->owned->result;
         const auto& envelope = *batch->owned->request->envelope;
-        const bool verify = batch->owned->request->presentation_mode
-            == OwnedBatchPresentationMode::VerifyRecorded;
+        constexpr bool verify = true;
         const auto owner_slot = ResolveBatchOwnerSlot(owner_identity,
             replay.suppressed_audio_stop_all_owner_identities,
             replay.suppressed_audio_stop_all_owner_identity_count);
@@ -4389,7 +4424,7 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
             replay.failure = FailureCode::PresentationFailed;
         }
     }
-    else
+    else if (!suppress)
     {
         const auto trampoline = hooks != nullptr
             ? hooks->battle_audio_stop_all_trampoline_
@@ -4410,8 +4445,7 @@ void __fastcall DeterministicHookSet::BattleAudioAppendParameterDetour(
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
     auto* hooks = active_.load(std::memory_order_acquire);
     auto* batch = active_outer_capture_;
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
+    const bool suppress = IsAudioPresentationSuppressed(batch);
     struct FStringView
     {
         std::uintptr_t data{};
@@ -4467,7 +4501,7 @@ void __fastcall DeterministicHookSet::BattleAudioAppendParameterDetour(
                 hooks->audio_owner_resolver_);
         ++batch->observation->battle_audio_signature_failures;
         batch->observation->battle_audio_signature_failure_mask |= 1u << 14;
-        if (suppress)
+        if (batch->owned != nullptr)
             batch->owned->result->failure = FailureCode::PresentationFailed;
     }
     if (!suppress)
@@ -5013,6 +5047,8 @@ bool DeterministicHookSet::IsObservedBattleAudioTrackingSet(
 
 void DeterministicHookSet::ClearState() noexcept
 {
+    suppress_audio_presentation_next_outer_tick_.store(
+        false, std::memory_order_release);
     stage_break_presentation_identity_.Invalidate();
     audio_owner_resolver_.Clear();
     audio_playback_map_.Clear();
