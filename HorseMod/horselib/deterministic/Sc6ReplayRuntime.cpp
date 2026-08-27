@@ -606,6 +606,12 @@ Status Sc6ReplayRuntime::ObserveFrame(
             : checkpoint_capture_.CaptureCanonical(coordinate, canonical);
         if (!captured.ok())
         {
+            timeline_status_.identity_issue =
+                100 + checkpoint_capture_.transient_identity_issue();
+            timeline_status_.identity_expected =
+                checkpoint_capture_.transient_identity_expected();
+            timeline_status_.identity_observed =
+                checkpoint_capture_.transient_identity_observed();
             timeline_status_.canonical_capture_phase =
                 checkpoint_capture_.transient_capture_phase();
             timeline_status_.canonical_animation_topology_issue =
