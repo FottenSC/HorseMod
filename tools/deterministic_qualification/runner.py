@@ -135,6 +135,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             run_id = create_request(
                 replay, args.watch_frames, tuple(args.seek_percentages),
                 args.min_resume_tick_rate, args.resume_tick_window,
+                args.stage_terminal,
             )
             log_start = capture_log_offset(args.log)
             launch_game()
@@ -226,6 +227,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             "native_replay_import_ready": lifecycle.native_import_ready,
             "launch_requested": True,
             "watch_frames": args.watch_frames,
+            "stage_terminal": args.stage_terminal,
             "seek_percentages": args.seek_percentages,
             "min_resume_tick_rate": args.min_resume_tick_rate,
             "resume_tick_window": args.resume_tick_window,
@@ -330,6 +332,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=120,
         help="minimum live native-frame window measured after every seek",
+    )
+    replay.add_argument(
+        "--stage-terminal",
+        choices=("wall", "barrier"),
+        help=("arm one qualification-only native stage terminal at the "
+              "authoritative source-frame boundary"),
     )
     replay.add_argument(
         "--allow-dirty",

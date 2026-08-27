@@ -191,6 +191,7 @@ struct NativeBatchEnvelope
     std::uint32_t camera_signature_failures{};
     std::uint64_t presentation_order_hash{};
     std::uint32_t presentation_order_failures{};
+    std::uint8_t qualification_stage_terminal_mask{};
     std::array<std::uint8_t, maximum_battle_audio_handlers>
         battle_audio_remap_entry_values{};
     std::uint8_t battle_audio_remap_entry_mask{};

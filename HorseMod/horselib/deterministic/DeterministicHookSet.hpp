@@ -161,6 +161,10 @@ struct OuterTickObservation
     std::uint8_t stage_dispatch_journal_count{};
     std::uint8_t particle_spawn_journal_count{};
     std::uint8_t presentation_order_journal_count{};
+    // Qualification-only typed source event marker. Bit 0 replays the first
+    // wall terminal; bit 1 replays the first barrier terminal during owned
+    // execution. Ordinary gameplay envelopes always leave this zero.
+    std::uint8_t qualification_stage_terminal_mask{};
     std::uint16_t read_mask{};
     bool fp_before_valid{};
     bool fp_after_valid{};
@@ -182,6 +186,10 @@ struct DeterministicHookCallbacks
     FrameFencepostCallback frame_fencepost{};
     OuterTickCallback outer_tick_prepare{};
     OuterTickCallback outer_tick_begin{};
+    // Runs after active_outer_capture_ is published and before the stock
+    // battle tick. Qualification-only source events must enter here so their
+    // native presentation terminals are journaled on an authoritative frame.
+    OuterTickCallback outer_tick_source{};
     OuterTickCallback outer_tick{};
     ReplayExitCallback replay_exit{};
 };
@@ -304,6 +312,7 @@ public:
         const StageBreakListenerTopology& topology,
         std::span<const StageBreakParticleAssetRef> assets) noexcept;
     void InvalidateStageBreakPresentationIdentity() noexcept;
+    Status MarkQualificationStageTerminal(std::uint32_t operation) noexcept;
     Status CommitAudioTerminal(
         const AudioTerminalEvent& event) noexcept;
     Status CommitAudioBlueprint(

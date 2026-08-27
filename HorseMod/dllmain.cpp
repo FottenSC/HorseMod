@@ -3221,6 +3221,12 @@ private:
     std::size_t m_stage_break_identity_asset_count{};
     std::uint64_t m_stage_break_identity_generation{};
     bool m_stage_break_identity_failure_logged{};
+    // Test-only request mailbox. Values: 1=wall Broken, 2=barrier Hit.
+    // The request is consumed only from on_outer_tick_source while the
+    // authoritative outer-capture context is active.
+    std::atomic<std::uint32_t> m_qualification_stage_terminal_request{};
+    std::atomic<std::uint32_t> m_qualification_stage_terminal_status{};
+    std::atomic<std::uint32_t> m_qualification_stage_terminal_frame{};
     bool m_hgcpu_diagnostic_failure_logged = false;
     bool m_stage_break_listener_failure_logged = false;
     bool m_deterministic_config_present = false;
@@ -5130,6 +5136,125 @@ private:
                 presentation.code, std::memory_order_release);
     }
 
+    static void on_outer_tick_source(
+        void* user,
+        const Horse::Deterministic::OuterTickObservation& observation) noexcept
+    {
+        auto* self = static_cast<HorseMod*>(user);
+        if (self == nullptr) return;
+        self->service_qualification_stage_terminal(observation);
+    }
+
+    void service_qualification_stage_terminal(
+        const Horse::Deterministic::OuterTickObservation& observation) noexcept
+    {
+        const auto operation = m_qualification_stage_terminal_request.load(
+            std::memory_order_acquire);
+        if (operation == 0) return;
+        if (!m_deterministic_config.trace
+            || !m_deterministic_config.forced_depth7_qualification
+            || (operation != 1 && operation != 2)
+            || m_stage_break_identity_generation == 0)
+        {
+            if (!m_deterministic_config.trace
+                || !m_deterministic_config.forced_depth7_qualification
+                || (operation != 1 && operation != 2))
+            {
+                m_qualification_stage_terminal_request.store(
+                    0, std::memory_order_release);
+                m_qualification_stage_terminal_status.store(
+                    3, std::memory_order_release);
+            }
+            return;
+        }
+
+        Horse::Obj battle_manager = m_lux.battleManager();
+        Horse::Obj stage_manager = battle_manager
+            ? battle_manager.getObj(L"BattleStageActorManager") : Horse::Obj{};
+        if (!stage_manager) return;
+        const wchar_t* list_name = operation == 1
+            ? L"BreakableWallActorList" : L"BarrierActorList";
+        const Horse::TArrHdr* list = stage_manager.getPtr<Horse::TArrHdr>(
+            list_name);
+        void* actor{};
+        __try
+        {
+            if (list == nullptr || list->Data == nullptr || list->Num < 1
+                || list->Max < list->Num || list->Num > 64)
+            {
+                return;
+            }
+            auto* const* actors = static_cast<void* const*>(list->Data);
+            for (std::int32_t index = 0; index < list->Num; ++index)
+            {
+                if (actors[index] != nullptr)
+                {
+                    actor = actors[index];
+                    break;
+                }
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            actor = nullptr;
+        }
+        if (actor == nullptr) return;
+
+        const auto image_base = Horse::NativeBinding::imageBase();
+        bool invoked{};
+        __try
+        {
+            if (operation == 1)
+            {
+                using WallBrokenFn = void (__fastcall*)(void*, bool);
+                reinterpret_cast<WallBrokenFn>(image_base + 0x53d4b0)(
+                    actor, false);
+            }
+            else
+            {
+                using BarrierHitFn = void (__fastcall*)(void*, void*);
+                std::array<float, 3> position{};
+                reinterpret_cast<BarrierHitFn>(image_base + 0x549f40)(
+                    actor, position.data());
+            }
+            invoked = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            invoked = false;
+        }
+        if (invoked && !m_deterministic_hooks.MarkQualificationStageTerminal(
+                operation).ok())
+        {
+            invoked = false;
+        }
+        std::uint32_t source_frame{};
+        __try
+        {
+            source_frame = *reinterpret_cast<const std::uint32_t*>(
+                image_base
+                + Horse::Deterministic::Schema::Sc6FrameLayout::
+                    frame_counter_rva);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            invoked = false;
+        }
+        m_qualification_stage_terminal_frame.store(
+            source_frame, std::memory_order_release);
+        m_qualification_stage_terminal_request.store(
+            0, std::memory_order_release);
+        m_qualification_stage_terminal_status.store(
+            invoked ? 2u : 3u, std::memory_order_release);
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] qualification stage terminal operation={} "
+            "status={} frame={} batch={}\n"), operation,
+            invoked ? STR("executed") : STR("failed"),
+            m_qualification_stage_terminal_frame.load(
+                std::memory_order_acquire),
+            observation.batch_id);
+    }
+
     static void on_replay_exit(
         void* user,
         const Horse::Deterministic::ReplayExitObservation& observation) noexcept
@@ -5256,6 +5381,37 @@ private:
         }
     }
 public:
+    bool RequestQualificationStageTerminal(std::uint32_t operation) noexcept
+    {
+        if (!m_deterministic_config.trace
+            || !m_deterministic_config.forced_depth7_qualification
+            || !m_deterministic_hooks.installed()
+            || (operation != 1 && operation != 2))
+        {
+            return false;
+        }
+        std::uint32_t expected{};
+        if (!m_qualification_stage_terminal_request.compare_exchange_strong(
+                expected, operation, std::memory_order_acq_rel))
+        {
+            return false;
+        }
+        m_qualification_stage_terminal_frame.store(0,
+            std::memory_order_release);
+        m_qualification_stage_terminal_status.store(1,
+            std::memory_order_release);
+        return true;
+    }
+
+    std::uint32_t GetQualificationStageTerminalStatus(
+        std::uint32_t& frame) const noexcept
+    {
+        frame = m_qualification_stage_terminal_frame.load(
+            std::memory_order_acquire);
+        return m_qualification_stage_terminal_status.load(
+            std::memory_order_acquire);
+    }
+
     bool RequestReplaySeek(std::uint64_t frame) noexcept
     {
         if (frame == UINT64_MAX) return false;
@@ -5779,7 +5935,9 @@ public:
                 Horse::NativeBinding::imageBase(),
                 {this, &HorseMod::on_frame_fencepost,
                     &HorseMod::on_outer_tick_prepare,
-                    &HorseMod::on_outer_tick_begin, &HorseMod::on_outer_tick,
+                    &HorseMod::on_outer_tick_begin,
+                    &HorseMod::on_outer_tick_source,
+                    &HorseMod::on_outer_tick,
                     &HorseMod::on_replay_exit},
                 &m_ucrt_rand_broker);
             if (!m_frame_fencepost_hook_status.ok())
@@ -9875,5 +10033,21 @@ extern "C"
         auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
         return mod != nullptr
             && mod->GetReplayPresentationCoverage(counts, count);
+    }
+
+    HORSE_MOD_API bool horsemod_request_qualification_stage_terminal(
+        std::uint32_t operation)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr
+            && mod->RequestQualificationStageTerminal(operation);
+    }
+
+    HORSE_MOD_API std::uint32_t
+    horsemod_get_qualification_stage_terminal_status(std::uint32_t* frame)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && frame != nullptr
+            ? mod->GetQualificationStageTerminalStatus(*frame) : 0;
     }
 }

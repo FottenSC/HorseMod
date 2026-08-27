@@ -36,3 +36,20 @@ def test_seek_request_rejects_endpoint_percentages(
         create_request(replay, 600, (0,))
     with pytest.raises(RuntimeError, match="between 1 and 99"):
         create_request(replay, 600, (100,))
+
+
+def test_stage_terminal_request_uses_typed_version_five_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    replay = tmp_path / "stage9.bin"
+    replay.write_bytes(b"ULX1test")
+
+    create_request(replay, 600, stage_terminal="wall")
+    request = (
+        tmp_path / "HorseMod" / "Qualification" / "replay_request.txt"
+    ).read_text(encoding="utf-8")
+
+    assert request.startswith("version=5\n")
+    assert "seek_percentages=\n" in request
+    assert request.endswith("stage_terminal=wall\n")

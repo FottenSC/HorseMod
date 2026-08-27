@@ -877,6 +877,13 @@ bool ConsumeBattleAudioJournal(
         + envelope.stage_wall_calls + envelope.stage_barrier_calls
         + envelope.stage_dispatch_calls + envelope.particle_spawn_calls;
     if (envelope.particle_signature_failures != 0
+        || (envelope.qualification_stage_terminal_mask != 0
+            && envelope.qualification_stage_terminal_mask != 1
+            && envelope.qualification_stage_terminal_mask != 2)
+        || (envelope.qualification_stage_terminal_mask == 1
+            && envelope.stage_wall_calls != 1)
+        || (envelope.qualification_stage_terminal_mask == 2
+            && envelope.stage_barrier_calls != 1)
         || envelope.battle_audio_journal_count
             != envelope.battle_audio_dispatches
         || envelope.battle_audio_journal_count
@@ -1839,6 +1846,20 @@ void DeterministicHookSet::InvalidateStageBreakPresentationIdentity() noexcept
     stage_break_presentation_identity_.Invalidate();
 }
 
+Status DeterministicHookSet::MarkQualificationStageTerminal(
+    std::uint32_t operation) noexcept
+{
+    auto* capture = active_outer_capture_;
+    if (!installed() || capture == nullptr || capture->owned != nullptr
+        || capture->observation == nullptr || (operation != 1 && operation != 2))
+        return Status::failure(FailureCode::IllegalTransition);
+    const auto mask = static_cast<std::uint8_t>(1u << (operation - 1));
+    if (capture->observation->qualification_stage_terminal_mask != 0)
+        return Status::failure(FailureCode::IllegalTransition);
+    capture->observation->qualification_stage_terminal_mask = mask;
+    return Status::success();
+}
+
 Status DeterministicHookSet::CommitAudioTerminal(
     const AudioTerminalEvent& event) noexcept
 {
@@ -2710,6 +2731,11 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     OuterTickCaptureContext* previous_capture = active_outer_capture_;
     active_outer_capture_ = &capture_context;
     particle_shadow_pool.Reset();
+    if (hooks != nullptr && hooks->callbacks_.outer_tick_source != nullptr)
+    {
+        hooks->callbacks_.outer_tick_source(
+            hooks->callbacks_.user, observation);
+    }
     if (original != nullptr)
     {
         original(battle_manager, delta_seconds);
@@ -2893,6 +2919,8 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
     observation.delta_seconds = request.envelope->delta_seconds;
     observation.before = output.before;
     observation.read_mask = read_mask;
+    observation.qualification_stage_terminal_mask =
+        request.envelope->qualification_stage_terminal_mask;
     const Status audio_entry = RestoreBattleAudioRemapEntry(
         *request.envelope, output);
     if (!audio_entry.ok())
@@ -2909,8 +2937,56 @@ Status DeterministicHookSet::ExecuteOwnedBatch(
     const auto original = reinterpret_cast<OuterTickFn>(outer_tick_trampoline_);
     __try
     {
-        original(reinterpret_cast<void*>(request.battle_manager),
-            request.envelope->delta_seconds);
+        const auto qualification_mask = request.envelope->
+            qualification_stage_terminal_mask;
+        if (qualification_mask != 0)
+        {
+            if ((qualification_mask != 1 && qualification_mask != 2)
+                || (qualification_mask == 1
+                    && request.envelope->stage_wall_journal_count != 1)
+                || (qualification_mask == 2
+                    && request.envelope->stage_barrier_journal_count != 1))
+            {
+                output.failure = FailureCode::InvalidConfiguration;
+            }
+            else
+            {
+                const bool wall = qualification_mask == 1;
+                const auto& event = wall
+                    ? request.envelope->stage_wall_journal[0]
+                    : request.envelope->stage_barrier_journal[0];
+                std::uintptr_t actor{};
+                const auto kind = wall ? StageBreakActorKind::Wall
+                                       : StageBreakActorKind::Barrier;
+                if (!stage_break_presentation_identity_.ResolveActorAddress(
+                        request.envelope->entry_coordinate.generation,
+                        event.owner_logical_id, kind, actor).ok())
+                {
+                    output.failure = FailureCode::IdentityMismatch;
+                }
+                else if (wall)
+                {
+                    const bool immediately = event.semantic[4] != std::byte{};
+                    reinterpret_cast<StageBreakWallFn>(image_base_
+                        + Schema::Sc6FrameLayout::stage_break_wall_handler_rva)(
+                            reinterpret_cast<void*>(actor), immediately);
+                }
+                else
+                {
+                    std::array<std::byte, 12> position{};
+                    std::copy_n(event.semantic.begin() + 4, position.size(),
+                        position.begin());
+                    reinterpret_cast<StageBreakBarrierFn>(image_base_
+                        + Schema::Sc6FrameLayout::stage_break_barrier_handler_rva)(
+                            reinterpret_cast<void*>(actor), position.data());
+                }
+            }
+        }
+        if (output.failure == FailureCode::None)
+        {
+            original(reinterpret_cast<void*>(request.battle_manager),
+                request.envelope->delta_seconds);
+        }
         if (!CaptureCameraPublicationSignature(
                 image_base_, observation.camera_publication,
                 observation.camera_publication_hash))

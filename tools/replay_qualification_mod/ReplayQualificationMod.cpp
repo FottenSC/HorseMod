@@ -54,6 +54,7 @@ struct Request
     std::vector<std::uint32_t> seek_percentages{};
     std::uint32_t min_resume_tick_rate_milli{58'000};
     std::uint32_t resume_tick_window{120};
+    std::uint32_t stage_terminal{};
 };
 
 using RequestReplaySeekFn = bool (*)(std::uint64_t);
@@ -65,6 +66,8 @@ using GetReplaySimulationPhaseFn = bool (*)(
     std::int32_t*, std::int32_t*, std::uint32_t*, std::int32_t*);
 using GetReplaySeekMetricsFn = bool (*)(std::uint64_t*, std::uint64_t*);
 using GetReplayPresentationCoverageFn = bool (*)(std::uint64_t*, std::size_t);
+using RequestStageTerminalFn = bool (*)(std::uint32_t);
+using GetStageTerminalStatusFn = std::uint32_t (*)(std::uint32_t*);
 
 bool ResolveHorseModSeekApi(
     RequestReplaySeekFn& request, GetReplaySeekStatusFn& status,
@@ -132,6 +135,34 @@ GetReplayPresentationCoverageFn ResolveHorseModPresentationCoverageApi() noexcep
     return nullptr;
 }
 
+bool ResolveHorseModStageTerminalApi(RequestStageTerminalFn& request,
+    GetStageTerminalStatusFn& status) noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+        return false;
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate_request = reinterpret_cast<RequestStageTerminalFn>(
+            GetProcAddress(modules[index],
+                "horsemod_request_qualification_stage_terminal"));
+        const auto candidate_status = reinterpret_cast<GetStageTerminalStatusFn>(
+            GetProcAddress(modules[index],
+                "horsemod_get_qualification_stage_terminal_status"));
+        if (candidate_request != nullptr && candidate_status != nullptr)
+        {
+            request = candidate_request;
+            status = candidate_status;
+            return true;
+        }
+    }
+    return false;
+}
+
 std::filesystem::path QualificationRoot()
 {
     std::wstring value(32768, L'\0');
@@ -190,10 +221,11 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     }
     if (!stream.eof() || !ValidRunId(fields["run_id"])
         || (fields["version"] != "2" && fields["version"] != "3"
-            && fields["version"] != "4")
+            && fields["version"] != "4" && fields["version"] != "5")
         || (fields["version"] == "2" && fields.size() != 4)
         || (fields["version"] == "3" && fields.size() != 5)
-        || (fields["version"] == "4" && fields.size() != 7))
+        || (fields["version"] == "4" && fields.size() != 7)
+        || (fields["version"] == "5" && fields.size() != 8))
     {
         return false;
     }
@@ -208,7 +240,8 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     }
     catch (...) { return false; }
     std::vector<std::uint32_t> percentages;
-    if (fields["version"] == "3" || fields["version"] == "4")
+    if (fields["version"] == "3" || fields["version"] == "4"
+        || fields["version"] == "5")
     {
         std::string_view remaining = fields["seek_percentages"];
         while (!remaining.empty())
@@ -226,11 +259,11 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
             if (comma == std::string_view::npos) break;
             remaining.remove_prefix(comma + 1);
         }
-        if (percentages.empty()) return false;
+        if (percentages.empty() && fields["version"] != "5") return false;
     }
     std::uint32_t min_resume_tick_rate_milli = 58'000;
     std::uint32_t resume_tick_window = 120;
-    if (fields["version"] == "4")
+    if (fields["version"] == "4" || fields["version"] == "5")
     {
         try
         {
@@ -246,9 +279,16 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         }
         catch (...) { return false; }
     }
+    std::uint32_t stage_terminal{};
+    if (fields["version"] == "5")
+    {
+        if (fields["stage_terminal"] == "wall") stage_terminal = 1;
+        else if (fields["stage_terminal"] == "barrier") stage_terminal = 2;
+        else return false;
+    }
     output = {fields["run_id"], std::filesystem::path(replay_path),
         watch_frames, std::move(percentages), min_resume_tick_rate_milli,
-        resume_tick_window};
+        resume_tick_window, stage_terminal};
     return output.replay_path.is_absolute();
 }
 
@@ -442,6 +482,8 @@ private:
         seek_resume_observation_active_ = false;
         phase_wait_log_counter_ = 0;
         profile_attempts_ = 0;
+        stage_terminal_requested_ = false;
+        stage_terminal_completed_ = false;
         next_profile_attempt_ = {};
         state_ = State::Importing;
         Output::send<LogLevel::Default>(STR(
@@ -570,6 +612,7 @@ private:
                 native_round, native_time, round_state_frame);
             return;
         }
+        if (request_.stage_terminal != 0 && !PollStageTerminal()) return;
         const std::uint32_t advanced = frame - initial_battle_frame_;
         if (advanced < request_.watch_frames) return;
         if (seek_index_ < request_.seek_percentages.size())
@@ -598,6 +641,43 @@ private:
             "[ReplayQualification] replay simulation frame advanced "
             "initial={} current={} watched={}\n"), initial_battle_frame_, frame,
             request_.watch_frames);
+    }
+
+    bool PollStageTerminal()
+    {
+        if (request_stage_terminal_ == nullptr
+            && !ResolveHorseModStageTerminalApi(
+                request_stage_terminal_, get_stage_terminal_status_))
+        {
+            Fail("horsemod_stage_terminal_api_unavailable");
+            return false;
+        }
+        if (!stage_terminal_requested_)
+        {
+            if (!request_stage_terminal_(request_.stage_terminal)) return false;
+            stage_terminal_requested_ = true;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] requested source-frame stage "
+                "terminal operation={}\n"), request_.stage_terminal);
+            return false;
+        }
+        std::uint32_t source_frame{};
+        const auto status = get_stage_terminal_status_(&source_frame);
+        if (status == 3)
+        {
+            Fail("horsemod_stage_terminal_failed");
+            return false;
+        }
+        if (status != 2) return false;
+        if (!stage_terminal_completed_)
+        {
+            stage_terminal_completed_ = true;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] source-frame stage terminal "
+                "completed operation={} frame={}\n"),
+                request_.stage_terminal, source_frame);
+        }
+        return true;
     }
 
     void PollSeekQualification(std::uint32_t frame)
@@ -913,6 +993,10 @@ private:
     GetReplaySeekableRangeFn get_range_{};
     GetReplaySimulationPhaseFn get_phase_{};
     GetReplaySeekMetricsFn get_metrics_{};
+    RequestStageTerminalFn request_stage_terminal_{};
+    GetStageTerminalStatusFn get_stage_terminal_status_{};
+    bool stage_terminal_requested_{};
+    bool stage_terminal_completed_{};
     std::uint32_t seek_resume_start_frame_{};
     std::uint64_t seek_resume_rate_frames_{};
     std::uint64_t seek_resume_rate_elapsed_us_{};

@@ -67,6 +67,7 @@ def create_request(
     seek_percentages: tuple[int, ...] = (),
     min_resume_tick_rate: float = 58.0,
     resume_tick_window: int = 120,
+    stage_terminal: str | None = None,
 ) -> str:
     if watch_frames < 1 or watch_frames > 36000:
         raise RuntimeError("watch frames must be between 1 and 36000")
@@ -87,16 +88,19 @@ def create_request(
         raise RuntimeError("minimum resume tick rate must be between 1 and 1000")
     if not 1 <= resume_tick_window <= 36000:
         raise RuntimeError("resume tick window must be between 1 and 36000")
-    version = 4 if seek_percentages else 2
+    if stage_terminal not in (None, "wall", "barrier"):
+        raise RuntimeError("stage terminal must be wall or barrier")
+    version = 5 if stage_terminal else (4 if seek_percentages else 2)
     seek_line = (
         "seek_percentages=" + ",".join(map(str, seek_percentages)) + "\n"
         f"min_resume_tick_rate_milli={round(min_resume_tick_rate * 1000)}\n"
         f"resume_tick_window={resume_tick_window}\n"
-        if seek_percentages else ""
+        if seek_percentages or stage_terminal else ""
     )
+    terminal_line = f"stage_terminal={stage_terminal}\n" if stage_terminal else ""
     temporary.write_text(
         f"version={version}\nrun_id={run_id}\nreplay_path={replay_text}\n"
-        f"watch_frames={watch_frames}\n{seek_line}",
+        f"watch_frames={watch_frames}\n{seek_line}{terminal_line}",
         encoding="utf-8",
     )
     os.replace(temporary, request)

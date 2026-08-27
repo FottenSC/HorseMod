@@ -1075,6 +1075,8 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     envelope.presentation_order_hash = observation.presentation_order_hash;
     envelope.presentation_order_failures =
         observation.presentation_order_failures;
+    envelope.qualification_stage_terminal_mask =
+        observation.qualification_stage_terminal_mask;
     envelope.battle_audio_remap_entry_values =
         observation.battle_audio_remap_entry_values;
     envelope.battle_audio_remap_entry_mask =
@@ -1439,6 +1441,8 @@ void Sc6ReplayRuntime::ApplyCorrectedPresentationObservation(
     envelope.camera_signature_failures = observation.camera_signature_failures;
     envelope.presentation_order_hash = observation.presentation_order_hash;
     envelope.presentation_order_failures = observation.presentation_order_failures;
+    envelope.qualification_stage_terminal_mask =
+        observation.qualification_stage_terminal_mask;
     envelope.battle_audio_remap_entry_values =
         observation.battle_audio_remap_entry_values;
     envelope.battle_audio_remap_entry_mask = observation.battle_audio_remap_entry_mask;
