@@ -5,6 +5,7 @@
 #include "deterministic/FloatingPointEnvironment.hpp"
 #include "deterministic/NativeReplayMaterializer.hpp"
 #include "deterministic/NativeBatchTimeline.hpp"
+#include "deterministic/NativeAudioPresentationController.hpp"
 #include "deterministic/NativePresentationJournal.hpp"
 #include "deterministic/ParticlePresentation.hpp"
 #include "deterministic/PresentationJournal.hpp"
@@ -225,6 +226,20 @@ public:
         return Status::success();
     }
     int count{};
+};
+
+class DecodingAudioSink final : public IPresentationSink
+{
+public:
+    Status Publish(const PresentationEvent& event) noexcept override
+    {
+        AudioTerminalEvent terminal{};
+        const Status status = DecodeAudioPresentation(event, terminal);
+        if (status.ok()) terminals.push_back(terminal);
+        return status;
+    }
+
+    std::vector<AudioTerminalEvent> terminals;
 };
 
 class FakeGenerationMaterializer final : public IReplayGenerationMaterializer
@@ -1060,6 +1075,48 @@ void test_native_audio_presentation_preserves_cross_family_order()
         "duplicate native terminal identities fail before journal mutation");
 }
 
+void test_native_audio_presentation_correction_is_atomic()
+{
+    NativeBatchEnvelope original{};
+    original.entry_coordinate = {4, 100};
+    original.exit_coordinate = {4, 102};
+    original.audio_terminal_calls = 2;
+    original.audio_terminal_journal_count = 2;
+    original.audio_terminal_journal[0] = {AudioTerminalOperation::Create,
+        {AudioOwnerDomain::BattleSharedPlayer, 0, 0},
+        MakeLogicalAudioPlaybackId(101, 0), 3, 19, 0};
+    original.audio_terminal_journal[1] = {AudioTerminalOperation::StopOne,
+        {AudioOwnerDomain::BattleSharedPlayer, 0, 0},
+        MakeLogicalAudioPlaybackId(101, 0), 0, -1, 1};
+    original.presentation_order_journal_count = 2;
+    original.presentation_order_journal[0] = {
+        PresentationEventFamily::AudioTerminal, 0, 1};
+    original.presentation_order_journal[1] = {
+        PresentationEventFamily::AudioTerminal, 1, 2};
+
+    NativeAudioPresentationController controller{8, 512, 8};
+    expect(controller.BeginGeneration(4).ok()
+            && controller.RecordSpeculative(original).ok(),
+        "audio controller records a bounded speculative native batch");
+    NativeBatchEnvelope corrected = original;
+    corrected.audio_terminal_journal[1] = {AudioTerminalOperation::StopAll,
+        {AudioOwnerDomain::BattleSharedPlayer, 0, 0},
+        audio_invalid_playback_id, 0, -1, 1};
+    const std::array corrected_batches{corrected};
+    expect(controller.ReplaceCorrected({4, 102}, corrected_batches).ok()
+            && controller.pending_count() == 2,
+        "audio correction retains the prefix and atomically replaces its suffix");
+    DecodingAudioSink sink;
+    expect(controller.CommitThrough({4, 102}, sink).ok()
+            && sink.terminals.size() == 2
+            && sink.terminals[0] == original.audio_terminal_journal[0]
+            && sink.terminals[1] == corrected.audio_terminal_journal[1],
+        "confirmed audio commit publishes the corrected authored sequence once");
+    controller.EndGeneration();
+    expect(controller.generation() == 0 && controller.pending_count() == 0,
+        "audio presentation lifecycle invalidates all generation-bound values");
+}
+
 void test_callsite_qualified_particle_values()
 {
     ParticlePresentationValue create{};
@@ -1504,6 +1561,7 @@ int main()
     test_batch_aware_replay_seek_planning();
     test_presentation_exactly_once();
     test_native_audio_presentation_preserves_cross_family_order();
+    test_native_audio_presentation_correction_is_atomic();
     test_callsite_qualified_particle_values();
     test_replay_checkpoint_seek_and_resume();
     test_cross_generation_seek_materializes_before_restore();
