@@ -219,6 +219,29 @@ Status decode_wind_local(
     try
     {
         output.nodes.reserve(64);
+        std::size_t maximum_semantic{};
+        std::size_t maximum_derived{};
+        constexpr std::array node_kinds{
+            StageWindNodeKind::Parallel,
+            StageWindNodeKind::RingOut,
+            StageWindNodeKind::RingIn,
+            StageWindNodeKind::ShockWave,
+        };
+        for (const auto kind : node_kinds)
+        {
+            const auto* layout = FindStageWindNodeLayout(kind);
+            if (layout == nullptr)
+                return Status::failure(FailureCode::AdapterUnqualified);
+            maximum_semantic = (std::max)(maximum_semantic,
+                StageWindSemanticStateSize(*layout));
+            maximum_derived = (std::max)(maximum_derived,
+                StageWindDerivedStateSize(*layout));
+        }
+        for (auto& slot : output.nodes.storage())
+        {
+            slot.semantic_state.reserve(maximum_semantic);
+            slot.derived_state.reserve(maximum_derived);
+        }
         output.nodes.resize(count);
     }
     catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
