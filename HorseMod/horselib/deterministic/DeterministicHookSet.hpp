@@ -310,7 +310,7 @@ public:
         const AudioBlueprintPresentationValue& value) noexcept;
     Status CommitStagePresentation(
         const StagePresentationValue& value) noexcept;
-    Status ArmAudioPresentationCaptureForNextOuterTick() noexcept;
+    Status ArmPresentationCaptureForNextOuterTick() noexcept;
 
 private:
     struct OwnedBatchExecution
@@ -331,7 +331,7 @@ private:
         PlayerInput post_filter_inputs[2]{};
         std::uint32_t input_filter_invocations{};
         bool input_filter_observed{};
-        bool suppress_speculative_audio_presentation{};
+        bool suppress_speculative_presentation{};
         OwnedBatchExecution* owned{};
     };
 
@@ -454,7 +454,7 @@ private:
         const AudioTerminalEvent& event) noexcept;
     [[nodiscard]] static bool IsOwnedPresentationSuppressed(
         const OuterTickCaptureContext* batch) noexcept;
-    [[nodiscard]] static bool IsAudioPresentationSuppressed(
+    [[nodiscard]] static bool IsPresentationSuppressed(
         const OuterTickCaptureContext* batch) noexcept;
     [[nodiscard]] static bool IsOwnedPresentationVerification(
         const OuterTickCaptureContext* batch) noexcept;
@@ -548,7 +548,7 @@ private:
     std::uintptr_t audio_graph_battle_manager_{};
     std::uint64_t audio_graph_epoch_counter_{};
     std::uint32_t audio_graph_failure_stage_{};
-    std::atomic<bool> suppress_audio_presentation_next_outer_tick_{};
+    std::atomic<bool> suppress_presentation_next_outer_tick_{};
     std::atomic<bool> installed_{};
 };
 }

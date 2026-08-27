@@ -2035,12 +2035,12 @@ Status DeterministicHookSet::CommitStagePresentation(
     return Status::success();
 }
 
-Status DeterministicHookSet::ArmAudioPresentationCaptureForNextOuterTick() noexcept
+Status DeterministicHookSet::ArmPresentationCaptureForNextOuterTick() noexcept
 {
     if (!installed() || active_outer_capture_ != nullptr)
         return Status::failure(FailureCode::IllegalTransition);
     bool expected = false;
-    if (!suppress_audio_presentation_next_outer_tick_.compare_exchange_strong(
+    if (!suppress_presentation_next_outer_tick_.compare_exchange_strong(
             expected, true, std::memory_order_acq_rel,
             std::memory_order_acquire))
         return Status::failure(FailureCode::IllegalTransition);
@@ -2535,12 +2535,12 @@ bool DeterministicHookSet::IsOwnedPresentationSuppressed(
         && batch->owned->request->suppress_ephemeral_presentation;
 }
 
-bool DeterministicHookSet::IsAudioPresentationSuppressed(
+bool DeterministicHookSet::IsPresentationSuppressed(
     const OuterTickCaptureContext* batch) noexcept
 {
     return IsOwnedPresentationSuppressed(batch)
         || (batch != nullptr
-            && batch->suppress_speculative_audio_presentation);
+            && batch->suppress_speculative_presentation);
 }
 
 bool DeterministicHookSet::IsOwnedPresentationVerification(
@@ -2607,8 +2607,8 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     {
         capture_context.frame_counter_address = hooks->image_base_
             + Schema::Sc6FrameLayout::frame_counter_rva;
-        capture_context.suppress_speculative_audio_presentation =
-            hooks->suppress_audio_presentation_next_outer_tick_.exchange(
+        capture_context.suppress_speculative_presentation =
+            hooks->suppress_presentation_next_outer_tick_.exchange(
                 false, std::memory_order_acq_rel);
     }
     OuterTickCaptureContext* previous_capture = active_outer_capture_;
@@ -2934,8 +2934,6 @@ void __fastcall DeterministicHookSet::CallbackExecutorDetour(
         : callback_executor_trampoline_global_.load(std::memory_order_acquire);
     const auto original = reinterpret_cast<CallbackExecutorFn>(trampoline);
     auto* batch = active_outer_capture_;
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
     const bool is_input_filter = hooks != nullptr && batch != nullptr
         && batch->observation != nullptr
         && reinterpret_cast<std::uintptr_t>(collection)
@@ -3070,69 +3068,87 @@ void __fastcall DeterministicHookSet::StageBreakWallDetour(
                 observation.stage_wall_journal_count++] = semantic;
         }
     }
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
+    const bool suppress = IsPresentationSuppressed(batch);
     if (!suppress)
     {
         if (original != nullptr) original(actor, immediately);
     }
     else
     {
-        auto& replay = *batch->owned->result;
-        const auto& envelope = *batch->owned->request->envelope;
-        const bool verify = batch->owned->request->presentation_mode
-            == OwnedBatchPresentationMode::VerifyRecorded;
-        const auto index = replay.suppressed_stage_wall_calls++;
-        if (verify && !VerifyPresentationOrder(PresentationEventFamily::StageWall,
-                index, envelope, replay, batch->observation,
-                batch->frame_counter_address))
+        FailureCode speculative_failure = FailureCode::None;
+        auto fail_presentation = [&](std::uint32_t mask) noexcept
         {
-            ++replay.presentation_failures;
-            replay.presentation_failure_mask |= 1u << 12;
-            replay.failure = FailureCode::PresentationFailed;
-        }
-        if (verify && (!semantic_ok || index >= envelope.stage_wall_journal_count
-            || envelope.stage_wall_journal[index].payload_size
-                != semantic.payload_size
-            || envelope.stage_wall_journal[index].semantic != semantic.semantic
-            || envelope.stage_wall_journal[index].owner_logical_id
-                != semantic.owner_logical_id
-            || envelope.stage_wall_journal[index].canonical_before_size
-                != semantic.canonical_before_size
-            || envelope.stage_wall_journal[index].canonical_before
-                != semantic.canonical_before
-            || !AppendStageSemantic(semantic, replay.stage_wall_hash)))
+            if (batch->owned != nullptr)
+            {
+                ++batch->owned->result->presentation_failures;
+                batch->owned->result->presentation_failure_mask |= mask;
+                batch->owned->result->failure = FailureCode::PresentationFailed;
+            }
+            else
+            {
+                ++batch->observation->stage_signature_failures;
+                speculative_failure = FailureCode::PresentationFailed;
+            }
+        };
+        if (batch->owned != nullptr)
         {
-            ++replay.stage_signature_failures;
+            auto& replay = *batch->owned->result;
+            const auto& envelope = *batch->owned->request->envelope;
+            const bool verify = batch->owned->request->presentation_mode
+                == OwnedBatchPresentationMode::VerifyRecorded;
+            const auto index = replay.suppressed_stage_wall_calls++;
+            if (verify && !VerifyPresentationOrder(
+                    PresentationEventFamily::StageWall, index, envelope, replay,
+                    batch->observation, batch->frame_counter_address))
+                fail_presentation(1u << 12);
+            if (verify && (!semantic_ok
+                || index >= envelope.stage_wall_journal_count
+                || envelope.stage_wall_journal[index].payload_size
+                    != semantic.payload_size
+                || envelope.stage_wall_journal[index].semantic
+                    != semantic.semantic
+                || envelope.stage_wall_journal[index].owner_logical_id
+                    != semantic.owner_logical_id
+                || envelope.stage_wall_journal[index].canonical_before_size
+                    != semantic.canonical_before_size
+                || envelope.stage_wall_journal[index].canonical_before
+                    != semantic.canonical_before
+                || !AppendStageSemantic(semantic, replay.stage_wall_hash)))
+                ++replay.stage_signature_failures;
         }
         std::array<std::array<std::byte, 8>, wall_presentation_fields.size()> saved{};
         std::size_t written{};
         if (!CaptureAndZeroFields(actor, wall_presentation_fields, saved, written))
         {
             RestoreFields(actor, wall_presentation_fields, saved, written);
-            ++batch->owned->result->presentation_failures;
-            batch->owned->result->presentation_failure_mask |= 1u << 0;
-            batch->owned->result->failure = FailureCode::PresentationFailed;
+            fail_presentation(1u << 0);
         }
         else
         {
             PresentationMaskContext context{actor,
                 wall_presentation_fields.data(), saved.data(), written, true,
-                &batch->owned->result->failure};
+                batch->owned != nullptr ? &batch->owned->result->failure
+                                        : &speculative_failure};
             auto* previous_mask = active_presentation_mask;
             active_presentation_mask = &context;
             __try { if (original != nullptr) original(actor, immediately); }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                if (batch->owned->result->failure == FailureCode::None)
-                    batch->owned->result->failure = FailureCode::AdvanceFailed;
+                if (batch->owned != nullptr)
+                {
+                    if (batch->owned->result->failure == FailureCode::None)
+                        batch->owned->result->failure = FailureCode::AdvanceFailed;
+                }
+                else
+                {
+                    ++batch->observation->stage_signature_failures;
+                    speculative_failure = FailureCode::AdvanceFailed;
+                }
             }
             active_presentation_mask = previous_mask;
             if (!RestoreFields(actor, wall_presentation_fields, saved, written))
             {
-                ++batch->owned->result->presentation_failures;
-                batch->owned->result->presentation_failure_mask |= 1u << 0;
-                batch->owned->result->failure = FailureCode::PresentationFailed;
+                fail_presentation(1u << 0);
             }
         }
     }
@@ -3205,69 +3221,87 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
                 observation.stage_barrier_journal_count++] = semantic;
         }
     }
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
+    const bool suppress = IsPresentationSuppressed(batch);
     if (!suppress)
     {
         if (original != nullptr) original(actor, direction);
     }
     else
     {
-        auto& replay = *batch->owned->result;
-        const auto& envelope = *batch->owned->request->envelope;
-        const bool verify = batch->owned->request->presentation_mode
-            == OwnedBatchPresentationMode::VerifyRecorded;
-        const auto index = replay.suppressed_stage_barrier_calls++;
-        if (verify && !VerifyPresentationOrder(PresentationEventFamily::StageBarrier,
-                index, envelope, replay, batch->observation,
-                batch->frame_counter_address))
+        FailureCode speculative_failure = FailureCode::None;
+        auto fail_presentation = [&](std::uint32_t mask) noexcept
         {
-            ++replay.presentation_failures;
-            replay.presentation_failure_mask |= 1u << 12;
-            replay.failure = FailureCode::PresentationFailed;
-        }
-        if (verify && (!semantic_ok || index >= envelope.stage_barrier_journal_count
-            || envelope.stage_barrier_journal[index].payload_size
-                != semantic.payload_size
-            || envelope.stage_barrier_journal[index].semantic != semantic.semantic
-            || envelope.stage_barrier_journal[index].owner_logical_id
-                != semantic.owner_logical_id
-            || envelope.stage_barrier_journal[index].canonical_before_size
-                != semantic.canonical_before_size
-            || envelope.stage_barrier_journal[index].canonical_before
-                != semantic.canonical_before
-            || !AppendStageSemantic(semantic, replay.stage_barrier_hash)))
+            if (batch->owned != nullptr)
+            {
+                ++batch->owned->result->presentation_failures;
+                batch->owned->result->presentation_failure_mask |= mask;
+                batch->owned->result->failure = FailureCode::PresentationFailed;
+            }
+            else
+            {
+                ++batch->observation->stage_signature_failures;
+                speculative_failure = FailureCode::PresentationFailed;
+            }
+        };
+        if (batch->owned != nullptr)
         {
-            ++replay.stage_signature_failures;
+            auto& replay = *batch->owned->result;
+            const auto& envelope = *batch->owned->request->envelope;
+            const bool verify = batch->owned->request->presentation_mode
+                == OwnedBatchPresentationMode::VerifyRecorded;
+            const auto index = replay.suppressed_stage_barrier_calls++;
+            if (verify && !VerifyPresentationOrder(
+                    PresentationEventFamily::StageBarrier, index, envelope,
+                    replay, batch->observation, batch->frame_counter_address))
+                fail_presentation(1u << 12);
+            if (verify && (!semantic_ok
+                || index >= envelope.stage_barrier_journal_count
+                || envelope.stage_barrier_journal[index].payload_size
+                    != semantic.payload_size
+                || envelope.stage_barrier_journal[index].semantic
+                    != semantic.semantic
+                || envelope.stage_barrier_journal[index].owner_logical_id
+                    != semantic.owner_logical_id
+                || envelope.stage_barrier_journal[index].canonical_before_size
+                    != semantic.canonical_before_size
+                || envelope.stage_barrier_journal[index].canonical_before
+                    != semantic.canonical_before
+                || !AppendStageSemantic(semantic, replay.stage_barrier_hash)))
+                ++replay.stage_signature_failures;
         }
         std::array<std::array<std::byte, 8>, barrier_presentation_fields.size()> saved{};
         std::size_t written{};
         if (!CaptureAndZeroFields(actor, barrier_presentation_fields, saved, written))
         {
             RestoreFields(actor, barrier_presentation_fields, saved, written);
-            ++batch->owned->result->presentation_failures;
-            batch->owned->result->presentation_failure_mask |= 1u << 1;
-            batch->owned->result->failure = FailureCode::PresentationFailed;
+            fail_presentation(1u << 1);
         }
         else
         {
             PresentationMaskContext context{actor,
                 barrier_presentation_fields.data(), saved.data(), written, true,
-                &batch->owned->result->failure};
+                batch->owned != nullptr ? &batch->owned->result->failure
+                                        : &speculative_failure};
             auto* previous_mask = active_presentation_mask;
             active_presentation_mask = &context;
             __try { if (original != nullptr) original(actor, direction); }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                if (batch->owned->result->failure == FailureCode::None)
-                    batch->owned->result->failure = FailureCode::AdvanceFailed;
+                if (batch->owned != nullptr)
+                {
+                    if (batch->owned->result->failure == FailureCode::None)
+                        batch->owned->result->failure = FailureCode::AdvanceFailed;
+                }
+                else
+                {
+                    ++batch->observation->stage_signature_failures;
+                    speculative_failure = FailureCode::AdvanceFailed;
+                }
             }
             active_presentation_mask = previous_mask;
             if (!RestoreFields(actor, barrier_presentation_fields, saved, written))
             {
-                ++batch->owned->result->presentation_failures;
-                batch->owned->result->presentation_failure_mask |= 1u << 1;
-                batch->owned->result->failure = FailureCode::PresentationFailed;
+                fail_presentation(1u << 1);
             }
         }
     }
@@ -3400,7 +3434,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
             std::memory_order_acquire);
     const auto original = reinterpret_cast<BattleAudioDispatchFn>(trampoline);
     auto* batch = active_outer_capture_;
-    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool suppress = IsPresentationSuppressed(batch);
     const bool verify_recorded = IsOwnedPresentationVerification(batch);
     const bool capture_corrected = suppress && !verify_recorded;
 
@@ -3603,7 +3637,7 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioRemapDetour(
                 std::memory_order_release);
     }
     auto* batch = active_outer_capture_;
-    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool suppress = IsPresentationSuppressed(batch);
     const bool verify_recorded = IsOwnedPresentationVerification(batch);
     const bool capture_corrected = suppress && !verify_recorded;
     const bool mutates_selector = contact_type >= 8 && contact_type <= 11;
@@ -3744,7 +3778,7 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
         : battle_audio_contact_handler_trampoline_global_.load(
             std::memory_order_acquire);
     auto* batch = active_outer_capture_;
-    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool suppress = IsPresentationSuppressed(batch);
     const bool verify_recorded = IsOwnedPresentationVerification(batch);
     const bool capture_corrected = suppress && !verify_recorded;
     std::size_t observed_source_index = maximum_battle_audio_journal_sources;
@@ -4112,7 +4146,7 @@ void __fastcall DeterministicHookSet::BattleAudioPhaseChangedDetour(
     const auto original = reinterpret_cast<BattleAudioPhaseChangedFn>(
         trampoline);
     auto* batch = active_outer_capture_;
-    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool suppress = IsPresentationSuppressed(batch);
     const auto address = reinterpret_cast<std::uintptr_t>(handler);
     std::uint8_t deferred_log_requested{};
     std::int32_t deferred_frame_counter{};
@@ -4149,7 +4183,7 @@ std::uint64_t __fastcall DeterministicHookSet::BattleAudioTrackingRemoveDetour(
         : battle_audio_tracking_remove_trampoline_global_.load(
             std::memory_order_acquire);
     auto* batch = active_outer_capture_;
-    const bool suppress = IsAudioPresentationSuppressed(batch)
+    const bool suppress = IsPresentationSuppressed(batch)
         && (IsObservedBattleAudioTrackingSet(tracking_set)
             || active_owned_audio_registration_depth != 0);
     if (suppress)
@@ -4175,7 +4209,7 @@ std::int32_t* __fastcall DeterministicHookSet::BattleAudioTrackingInsertDetour(
         : battle_audio_tracking_insert_trampoline_global_.load(
             std::memory_order_acquire);
     auto* batch = active_outer_capture_;
-    const bool suppress = IsAudioPresentationSuppressed(batch)
+    const bool suppress = IsPresentationSuppressed(batch)
         && IsObservedBattleAudioTrackingSet(tracking_set);
     if (suppress)
     {
@@ -4197,7 +4231,7 @@ void __fastcall DeterministicHookSet::BattleAudioTrackingRehashDetour(
 {
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
     auto* batch = active_outer_capture_;
-    const bool suppress = IsAudioPresentationSuppressed(batch)
+    const bool suppress = IsPresentationSuppressed(batch)
         && IsObservedBattleAudioTrackingSet(tracking_set);
     if (!suppress)
     {
@@ -4280,7 +4314,7 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
                 observation.battle_audio_blueprint_journal_count++] = semantic;
         }
     }
-    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool suppress = IsPresentationSuppressed(batch);
     if (suppress)
     {
         const bool verify = IsOwnedPresentationVerification(batch);
@@ -4358,7 +4392,7 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     const auto original = reinterpret_cast<BattleAudioRegisterVoiceFn>(
         trampoline);
     auto* batch = active_outer_capture_;
-    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool suppress = IsPresentationSuppressed(batch);
     AudioOwnerSelector owner{};
     std::uint32_t frame{};
     const bool owner_resolved = batch != nullptr
@@ -4456,7 +4490,7 @@ void __fastcall DeterministicHookSet::BattleAudioAppendCommandDetour(
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
     auto* hooks = active_.load(std::memory_order_acquire);
     auto* batch = active_outer_capture_;
-    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool suppress = IsPresentationSuppressed(batch);
     struct CommandRecord
     {
         std::uint32_t operation{};
@@ -4614,7 +4648,7 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
                 observation.battle_audio_stop_all_journal_count++] = semantic;
         }
     }
-    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool suppress = IsPresentationSuppressed(batch);
     AudioOwnerSelector stable_owner{};
     const AudioTerminalEvent terminal{
         AudioTerminalOperation::StopAll, stable_owner,
@@ -4699,7 +4733,7 @@ void __fastcall DeterministicHookSet::BattleAudioAppendParameterDetour(
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
     auto* hooks = active_.load(std::memory_order_acquire);
     auto* batch = active_outer_capture_;
-    const bool suppress = IsAudioPresentationSuppressed(batch);
+    const bool suppress = IsPresentationSuppressed(batch);
     struct FStringView
     {
         std::uintptr_t data{};
@@ -4834,8 +4868,7 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
                 observation.particle_spawn_journal_count++] = semantic;
         }
     }
-    const bool suppress = batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation;
+    const bool suppress = IsPresentationSuppressed(batch);
     if (!suppress)
     {
         void* result = original != nullptr
@@ -4846,37 +4879,53 @@ void* __fastcall DeterministicHookSet::ParticleSpawnDetour(
         return result;
     }
 
-    auto& result = *batch->owned->result;
-    const auto& envelope = *batch->owned->request->envelope;
-    const bool verify = batch->owned->request->presentation_mode
-        == OwnedBatchPresentationMode::VerifyRecorded;
-    const auto index = result.suppressed_particle_spawn_calls++;
-    if (verify && !VerifyPresentationOrder(PresentationEventFamily::ParticleSpawn,
-            index, envelope, result, batch->observation,
-            batch->frame_counter_address))
+    if (batch->owned != nullptr)
     {
-        ++result.presentation_failures;
-        result.presentation_failure_mask |= 1u << 12;
-        result.failure = FailureCode::PresentationFailed;
+        auto& result = *batch->owned->result;
+        const auto& envelope = *batch->owned->request->envelope;
+        const bool verify = batch->owned->request->presentation_mode
+            == OwnedBatchPresentationMode::VerifyRecorded;
+        const auto index = result.suppressed_particle_spawn_calls++;
+        if (verify && !VerifyPresentationOrder(
+                PresentationEventFamily::ParticleSpawn, index, envelope,
+                result, batch->observation, batch->frame_counter_address))
+        {
+            ++result.presentation_failures;
+            result.presentation_failure_mask |= 1u << 12;
+            result.failure = FailureCode::PresentationFailed;
+        }
+        const bool sequence_ok = !verify || (semantic_ok
+            && index < envelope.particle_spawn_journal_count
+            && envelope.particle_spawn_journal[index].semantic
+                == semantic.semantic
+            && AppendParticleSpawnSemantic(
+                semantic, result.suppressed_particle_spawn_hash));
+        if (!sequence_ok || route == 0 || route == 4)
+        {
+            ++result.unknown_particle_routes;
+            ++result.presentation_failures;
+            result.presentation_failure_mask |= 1u << 5;
+            result.failure = FailureCode::PresentationFailed;
+        }
     }
-    const bool sequence_ok = !verify || (semantic_ok
-        && index < envelope.particle_spawn_journal_count
-        && envelope.particle_spawn_journal[index].semantic == semantic.semantic
-        && AppendParticleSpawnSemantic(
-            semantic, result.suppressed_particle_spawn_hash));
-    if (!sequence_ok || route == 0 || route == 4)
+    else if (!semantic_ok || route == 0 || route == 4)
     {
-        ++result.unknown_particle_routes;
-        ++result.presentation_failures;
-        result.presentation_failure_mask |= 1u << 5;
-        result.failure = FailureCode::PresentationFailed;
+        ++batch->observation->particle_signature_failures;
     }
     void* shadow = particle_shadow_pool.Acquire();
     if (shadow == nullptr)
     {
-        ++result.presentation_failures;
-        result.presentation_failure_mask |= 1u << 6;
-        result.failure = FailureCode::CapacityExceeded;
+        if (batch->owned != nullptr)
+        {
+            auto& result = *batch->owned->result;
+            ++result.presentation_failures;
+            result.presentation_failure_mask |= 1u << 6;
+            result.failure = FailureCode::CapacityExceeded;
+        }
+        else
+        {
+            ++batch->observation->particle_signature_failures;
+        }
         // Preserve the non-null native contract while the owned batch fails
         // closed; slot zero is already initialized after pool exhaustion.
         shadow = particle_shadow_pool.slots[0].bytes.data();
@@ -4892,10 +4941,10 @@ void __fastcall DeterministicHookSet::ParticleFinishedBindDetour(
     callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
     auto* batch = active_outer_capture_;
     const bool shadow = particle_shadow_pool.ContainsDelegate(delegate);
-    if (shadow && batch != nullptr && batch->owned != nullptr
-        && batch->owned->request->suppress_ephemeral_presentation)
+    if (shadow && IsPresentationSuppressed(batch))
     {
-        ++batch->owned->result->suppressed_particle_finished_binds;
+        if (batch->owned != nullptr)
+            ++batch->owned->result->suppressed_particle_finished_binds;
     }
     else
     {
@@ -5322,7 +5371,7 @@ bool DeterministicHookSet::IsObservedBattleAudioTrackingSet(
 
 void DeterministicHookSet::ClearState() noexcept
 {
-    suppress_audio_presentation_next_outer_tick_.store(
+    suppress_presentation_next_outer_tick_.store(
         false, std::memory_order_release);
     stage_break_presentation_identity_.Invalidate();
     audio_owner_resolver_.Clear();

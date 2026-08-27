@@ -1,4 +1,5 @@
 #include "Sc6ReplayRuntime.hpp"
+#include "Sc6PresentationSink.hpp"
 
 #include "../HorseLib.hpp"
 
@@ -153,6 +154,8 @@ Status Sc6ReplayRuntime::Initialize(
 
 void Sc6ReplayRuntime::Shutdown() noexcept
 {
+    presentation_controller_.EndGeneration();
+    presentation_ownership_enabled_ = false;
     bridge_.reset();
     input_timeline_.Clear();
     batch_timeline_.Clear();
@@ -843,6 +846,7 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     correction_canonical_capture_scratch_ = {};
     timeline_canonical_capture_scratch_ = {};
     checkpoint_capture_.InvalidateHistory();
+    presentation_controller_.EndGeneration();
     timeline_status_ = {};
     timeline_status_.sessions = sessions;
     timeline_status_.generations = generations;
@@ -943,7 +947,10 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         timeline_status_.failure = FailureCode::AdapterUnqualified;
         return Status::failure(timeline_status_.failure);
     }
-    if (observation.battle_audio_signature_failures != 0
+    if (observation.stage_signature_failures != 0
+        || observation.battle_audio_signature_failures != 0
+        || observation.particle_signature_failures != 0
+        || observation.camera_signature_failures != 0
         || observation.presentation_order_failures != 0)
     {
         timeline_status_.failure = FailureCode::PresentationFailed;
@@ -1148,6 +1155,18 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
         timeline_status_.failure = stored.code;
         return stored;
     }
+    if (presentation_ownership_enabled_)
+    {
+        Status presentation = presentation_controller_.BeginGeneration(
+            envelope.entry_coordinate.generation);
+        if (presentation.ok())
+            presentation = presentation_controller_.RecordSpeculative(envelope);
+        if (!presentation.ok())
+        {
+            timeline_status_.failure = presentation.code;
+            return presentation;
+        }
+    }
     ++timeline_status_.native_batches;
     if (coordinate_count == 0)
         ++timeline_status_.zero_coordinate_batches;
@@ -1199,6 +1218,7 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     correction_canonical_capture_scratch_ = {};
     timeline_canonical_capture_scratch_ = {};
     checkpoint_capture_.InvalidateHistory();
+    presentation_controller_.EndGeneration();
     timeline_status_ = {};
     timeline_manager_ = 0;
     timeline_input_log_ = 0;
@@ -1214,6 +1234,59 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     checkpoint_capture_.ReleaseBinding();
     generation_rebaseline_pending_ = false;
     continuing_session_rebaseline_ = false;
+}
+
+Status Sc6ReplayRuntime::EnablePresentationOwnership() noexcept
+{
+    if (presentation_ownership_enabled_)
+        return Status::failure(FailureCode::IllegalTransition);
+    presentation_controller_.EndGeneration();
+    presentation_ownership_enabled_ = true;
+    return Status::success();
+}
+
+void Sc6ReplayRuntime::DisablePresentationOwnership() noexcept
+{
+    presentation_controller_.EndGeneration();
+    presentation_ownership_enabled_ = false;
+}
+
+Status Sc6ReplayRuntime::PreparePresentationOuterTick(
+    DeterministicHookSet& hooks) noexcept
+{
+    if (!presentation_ownership_enabled_)
+        return Status::success();
+    return hooks.ArmPresentationCaptureForNextOuterTick();
+}
+
+Status Sc6ReplayRuntime::CommitPresentationThrough(
+    FrameCoordinate confirmed, DeterministicHookSet& hooks) noexcept
+{
+    if (!presentation_ownership_enabled_)
+        return Status::failure(FailureCode::IllegalTransition);
+    Sc6PresentationSink sink{hooks};
+    return presentation_controller_.CommitThrough(confirmed, sink);
+}
+
+bool Sc6ReplayRuntime::presentation_ownership_enabled() const noexcept
+{
+    return presentation_ownership_enabled_;
+}
+
+std::size_t Sc6ReplayRuntime::pending_presentation_events() const noexcept
+{
+    return presentation_controller_.pending_count();
+}
+
+std::size_t Sc6ReplayRuntime::presentation_payload_bytes() const noexcept
+{
+    return presentation_controller_.payload_bytes();
+}
+
+PresentationJournal::Statistics
+Sc6ReplayRuntime::presentation_statistics() const noexcept
+{
+    return presentation_controller_.statistics();
 }
 
 ReplayTimelineStatus Sc6ReplayRuntime::timeline_status() const noexcept
@@ -2568,8 +2641,25 @@ Status Sc6ReplayRuntime::ApplyConfirmedRemoteInput(
     std::size_t replaced_batches{};
     bool canonical_replaced{};
     bool input_range_replaced{};
+    bool presentation_replaced{};
+    status = checkpoint_capture_.ValidateCorrectionSnapshots(
+        std::span{corrected.replacement_landing.data(), corrected.landing_count},
+        std::span{corrected.expected_landing_hashes.data(),
+            corrected.landing_count},
+        std::span{corrected.replacement_batch_entry.data(),
+            corrected.batch_entry_count},
+        std::span{corrected.expected_batch_entry_hashes.data(),
+            corrected.batch_entry_count});
+    if (status.ok() && presentation_ownership_enabled_)
+    {
+        status = presentation_controller_.ReplaceCorrected(coordinate,
+            std::span{corrected.replacement_batches.data(),
+                corrected.batch_count});
+        presentation_replaced = status.ok();
+    }
     for (; replaced_batches < corrected.batch_count; ++replaced_batches)
     {
+        if (!status.ok()) break;
         status = batch_timeline_.ReplaceBatch(
             corrected.batch_indices[replaced_batches],
             corrected.expected_batches[replaced_batches],
@@ -2633,6 +2723,13 @@ Status Sc6ReplayRuntime::ApplyConfirmedRemoteInput(
             corrected.replacement_batches[replaced_batches],
             corrected.expected_batches[replaced_batches]));
     }
+    bool presentation_restored = true;
+    if (presentation_replaced)
+    {
+        presentation_restored = presentation_controller_.ReplaceCorrected(
+            coordinate, std::span{corrected.expected_batches.data(),
+                corrected.batch_count}).ok();
+    }
     const Status input_restored = input_timeline_.CompareExchange(
         coordinate, proposed, *previous);
     Status native_restored = checkpoint_capture_.RestoreAndVerify(
@@ -2646,6 +2743,7 @@ Status Sc6ReplayRuntime::ApplyConfirmedRemoteInput(
     output.failure = status.code;
     output.undo_restored = native_restored.ok();
     return input_restored.ok() && native_restored.ok()
+            && presentation_restored
         ? status : Status::failure(FailureCode::UndoFailed);
 }
 

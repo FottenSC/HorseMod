@@ -3,6 +3,7 @@
 #include "CanonicalHashTimeline.hpp"
 #include "DeterministicHookSet.hpp"
 #include "InputTimeline.hpp"
+#include "NativeAudioPresentationController.hpp"
 #include "NativeBatchTimeline.hpp"
 #include "ReplaySeekPlanner.hpp"
 #include "Sc6CandidateCheckpointCapture.hpp"
@@ -275,6 +276,16 @@ public:
         std::uintptr_t battle_manager, std::uint32_t thread_id) noexcept;
     Status ObserveOuterTick(const OuterTickObservation& observation) noexcept;
     void ObserveReplayExit() noexcept;
+    Status EnablePresentationOwnership() noexcept;
+    void DisablePresentationOwnership() noexcept;
+    Status PreparePresentationOuterTick(DeterministicHookSet& hooks) noexcept;
+    Status CommitPresentationThrough(
+        FrameCoordinate confirmed, DeterministicHookSet& hooks) noexcept;
+    [[nodiscard]] bool presentation_ownership_enabled() const noexcept;
+    [[nodiscard]] std::size_t pending_presentation_events() const noexcept;
+    [[nodiscard]] std::size_t presentation_payload_bytes() const noexcept;
+    [[nodiscard]] PresentationJournal::Statistics presentation_statistics()
+        const noexcept;
     [[nodiscard]] ReplayTimelineStatus timeline_status() const noexcept;
     [[nodiscard]] const InputTimeline& input_timeline() const noexcept;
     [[nodiscard]] const NativeBatchTimeline& batch_timeline() const noexcept;
@@ -439,6 +450,10 @@ private:
     Snapshot correction_canonical_capture_scratch_{};
     Snapshot timeline_canonical_capture_scratch_{};
     CorrectedReplayCapture corrected_replay_capture_{};
+    NativeAudioPresentationController presentation_controller_{
+        Schema::online_presentation_event_capacity,
+        Schema::online_presentation_payload_budget,
+        Schema::maximum_correction_presentation_events};
     bool forced_depth7_qualification_enabled_{};
     bool corrected_input_qualification_enabled_{};
     ReplayTimelineStatus timeline_status_{};
@@ -456,6 +471,7 @@ private:
     bool resume_catchup_pending_{};
     bool generation_rebaseline_pending_{};
     bool continuing_session_rebaseline_{};
+    bool presentation_ownership_enabled_{};
 };
 }
 }

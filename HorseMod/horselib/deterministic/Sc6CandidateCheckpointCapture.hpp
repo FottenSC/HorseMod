@@ -89,6 +89,11 @@ public:
         std::span<const CanonicalHash> expected_landing_hashes,
         std::span<Snapshot> batch_entry_replacements,
         std::span<const CanonicalHash> expected_batch_entry_hashes) noexcept;
+    [[nodiscard]] Status ValidateCorrectionSnapshots(
+        std::span<const Snapshot> landing_replacements,
+        std::span<const CanonicalHash> expected_landing_hashes,
+        std::span<const Snapshot> batch_entry_replacements,
+        std::span<const CanonicalHash> expected_batch_entry_hashes) const noexcept;
     [[nodiscard]] NativeCandidateValidationDiagnostic restore_validation()
         const noexcept;
     [[nodiscard]] CandidateAdapterPerformanceStatus adapter_performance()

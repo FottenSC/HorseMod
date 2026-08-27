@@ -27,6 +27,14 @@ inline constexpr std::uint32_t stage_presentation_event_kind = 4;
 inline constexpr std::size_t stage_presentation_header_size = 44;
 inline constexpr std::size_t stage_presentation_particle_size = 54;
 inline constexpr std::size_t maximum_stage_particles_per_event = 2;
+// A speculative window is bounded independently from replay history. The
+// fixed journal can retain the worst observed per-batch presentation density
+// across the maximum supported rollback window without allocating after
+// activation; exhaustion fails the owned match closed.
+inline constexpr std::size_t online_presentation_event_capacity = 8192;
+inline constexpr std::size_t online_presentation_payload_budget =
+    online_presentation_event_capacity * maximum_presentation_payload;
+inline constexpr std::size_t maximum_correction_presentation_events = 8192;
 inline constexpr std::size_t replay_timeline_memory_limit =
     512ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_input_memory_budget =
