@@ -284,6 +284,21 @@ Status MoveDispatchState::RestoreTransactional(
               : FailureCode::RestoreWriteFailed);
 }
 
+std::size_t MoveDispatchState::ScratchCapacityBytes() const noexcept
+{
+    const auto capacity = [](const MoveDispatchImage& image) noexcept {
+        std::size_t bytes = image.sub_elements.capacity()
+            * sizeof(MoveDispatchSubElementState);
+        if (const auto* pending =
+                std::get_if<MoveDispatchPendingState>(&image.phase))
+            bytes += pending->windows.capacity()
+                * sizeof(MoveDispatchPendingWindow);
+        return bytes;
+    };
+    return capacity(restore_undo_scratch_)
+        + capacity(restore_verification_scratch_);
+}
+
 std::vector<std::byte> MoveDispatchState::CanonicalBytes(
     const MoveDispatchImage& image)
 {

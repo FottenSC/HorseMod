@@ -3291,6 +3291,7 @@ private:
         Horse::Deterministic::FailureCode failure{
             Horse::Deterministic::FailureCode::None};
         bool active{};
+        bool warmup_pending{};
         bool awaiting_generation_history{};
         bool reported{};
 
@@ -3873,6 +3874,7 @@ private:
         if (!qualification.active)
         {
             qualification.active = true;
+            qualification.warmup_pending = true;
             qualification.first_generation = timeline.last_coordinate.generation;
             qualification.generation = timeline.last_coordinate.generation;
             qualification.first_frame = timeline.last_coordinate.frame;
@@ -3881,10 +3883,9 @@ private:
                 timeline.batch_entry_checkpoint_bytes;
             qualification.forced_history_bytes_begin =
                 m_replay_native_runtime.forced_qualification_bytes();
-            m_replay_native_runtime.ResetCapturePerformanceWindow();
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] forced depth-7 qualification started "
-                "generation={} frame={} target={} normal_render=true\n"),
+                "generation={} frame={} warmup=1 target={} normal_render=true\n"),
                 qualification.generation, qualification.first_frame,
                 kForcedQualificationCorrections);
         }
@@ -4129,6 +4130,23 @@ private:
             }
             return;
         }
+        if (qualification.warmup_pending)
+        {
+            qualification.warmup_pending = false;
+            qualification.first_frame = timeline.last_coordinate.frame;
+            qualification.checkpoint_bytes_begin = timeline.checkpoint_bytes;
+            qualification.batch_entry_bytes_begin =
+                timeline.batch_entry_checkpoint_bytes;
+            qualification.forced_history_bytes_begin =
+                m_replay_native_runtime.forced_qualification_bytes();
+            m_replay_native_runtime.ResetCapturePerformanceWindow();
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] forced depth-7 qualification warmup complete "
+                "generation={} frame={} target={}\n"),
+                qualification.generation, timeline.last_coordinate.frame,
+                kForcedQualificationCorrections);
+            return;
+        }
         qualification.Record(result.total_ns);
         qualification.suppressed_stage_wall_calls +=
             result.suppressed_stage_wall_calls;
@@ -4196,7 +4214,10 @@ private:
         const bool performance_ok = p99 < 16'670'000;
         const bool capture_ok = capture_performance.total_capture.p99_ns
                 <= 500'000
-            && capture_performance.total_capture.maximum_ns <= 1'000'000;
+            && capture_performance.total_capture.maximum_ns <= 1'000'000
+            && capture_performance.scratch_capacity_growth_events == 0
+            && capture_performance.scratch_capacity_baseline_bytes
+                == capture_performance.scratch_capacity_high_water_bytes;
         qualification.reported = true;
         if (!presentation_journal_complete)
         {
@@ -4218,6 +4239,7 @@ private:
             "generations={}-{} transitions={} frames={}-{} "
             "cycle_p99_us={} cycle_max_us={} "
             "capture_samples={} capture_p99_us={} capture_max_us={} "
+            "scratch_capacity_bytes={}->{} scratch_growth_events={} "
             "checkpoint_bytes={}->{} batch_entry_bytes={}->{} "
             "forced_history_bytes={}->{} "
             "stage_wall_suppressed={} stage_barrier_suppressed={} "
@@ -4248,6 +4270,9 @@ private:
             capture_performance.total_capture.samples,
             capture_performance.total_capture.p99_ns / 1000,
             capture_performance.total_capture.maximum_ns / 1000,
+            capture_performance.scratch_capacity_baseline_bytes,
+            capture_performance.scratch_capacity_high_water_bytes,
+            capture_performance.scratch_capacity_growth_events,
             qualification.checkpoint_bytes_begin,
             final_timeline.checkpoint_bytes,
             qualification.batch_entry_bytes_begin,

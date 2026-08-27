@@ -79,6 +79,7 @@ public:
     Status Capture(MoveDispatchImage& output) noexcept;
     Status PreflightRestore(const MoveDispatchImage& image) noexcept;
     Status RestoreTransactional(const MoveDispatchImage& image) noexcept;
+    [[nodiscard]] std::size_t ScratchCapacityBytes() const noexcept;
 
     [[nodiscard]] static std::vector<std::byte> CanonicalBytes(
         const MoveDispatchImage& image);

@@ -801,6 +801,18 @@ Status NativeCandidateRegions::PreflightCapture() noexcept
     return Status::failure(FailureCode::IdentityMismatch);
 }
 
+std::size_t NativeCandidateRegions::ScratchCapacityBytes() const noexcept
+{
+    const auto capacity = [](const auto& image) noexcept {
+        return image == nullptr ? std::size_t{} :
+            image->stage_wind_emitters.states.capacity()
+                * sizeof(std::array<std::byte,
+                    native_stage_wind_emitter_state_size>);
+    };
+    return capacity(restore_undo_scratch_)
+        + capacity(restore_verification_scratch_);
+}
+
 bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noexcept
 {
     reset_native_candidate(output);

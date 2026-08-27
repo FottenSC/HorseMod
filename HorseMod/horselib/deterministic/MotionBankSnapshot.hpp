@@ -26,6 +26,11 @@ public:
     void Invalidate() noexcept;
     Status Capture(LocalReconstructionImage& output) noexcept;
     Status RestoreTransactional(const LocalReconstructionImage& image) noexcept;
+    [[nodiscard]] std::size_t ScratchCapacityBytes() const noexcept
+    {
+        return undo_scratch_.bytes.capacity()
+            + observed_scratch_.bytes.capacity();
+    }
 
     [[nodiscard]] static bool ValidateLocalImage(
         const LocalReconstructionImage& image) noexcept;

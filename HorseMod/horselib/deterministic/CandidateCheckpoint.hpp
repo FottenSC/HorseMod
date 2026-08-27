@@ -25,6 +25,9 @@ struct CandidateCheckpointImage
     StageWindTopologyImage wind{};
 };
 
+[[nodiscard]] std::size_t CandidateCheckpointDynamicCapacity(
+    const CandidateCheckpointImage& image) noexcept;
+
 class CandidateCheckpointCodec
 {
 public:

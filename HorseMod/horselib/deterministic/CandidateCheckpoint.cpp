@@ -17,6 +17,27 @@
 
 namespace Horse::Deterministic
 {
+std::size_t CandidateCheckpointDynamicCapacity(
+    const CandidateCheckpointImage& image) noexcept
+{
+    std::size_t bytes = image.local_images.capacity()
+        * sizeof(LocalReconstructionImage);
+    for (const auto& local : image.local_images)
+        bytes += local.bytes.capacity();
+    bytes += image.native.stage_wind_emitters.states.capacity()
+        * sizeof(std::array<std::byte, native_stage_wind_emitter_state_size>);
+    bytes += image.move_dispatch.sub_elements.capacity()
+        * sizeof(MoveDispatchSubElementState);
+    if (const auto* pending =
+            std::get_if<MoveDispatchPendingState>(&image.move_dispatch.phase))
+        bytes += pending->windows.capacity()
+            * sizeof(MoveDispatchPendingWindow);
+    bytes += image.wind.nodes.capacity() * sizeof(StageWindNodeImage);
+    for (const auto& node : image.wind.nodes)
+        bytes += node.semantic_state.capacity() + node.derived_state.capacity();
+    return bytes;
+}
+
 namespace
 {
 void reset_checkpoint_image(CandidateCheckpointImage& output) noexcept

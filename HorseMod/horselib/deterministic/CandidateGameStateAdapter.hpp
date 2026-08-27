@@ -67,6 +67,9 @@ struct CandidateAdapterPerformanceStatus
     CandidatePhaseTimingStatus ucrt_restore{};
     CandidatePhaseTimingStatus derived_repair{};
     CandidatePhaseTimingStatus total_restore{};
+    std::size_t scratch_capacity_baseline_bytes{};
+    std::size_t scratch_capacity_high_water_bytes{};
+    std::uint64_t scratch_capacity_growth_events{};
 };
 
 enum class CandidateCapturePhase : std::uint8_t
@@ -182,6 +185,8 @@ private:
         const Snapshot& snapshot, CandidateCheckpointImage& output) noexcept;
     Status restore_image(const CandidateCheckpointImage& image) noexcept;
     bool undo_image(const CandidateCheckpointImage& image) noexcept;
+    [[nodiscard]] std::size_t scratch_capacity_bytes() const noexcept;
+    void observe_scratch_capacity() noexcept;
 
     NativeCandidateRegions& regions_;
     HgCpuStreamShim& hgcpu_;
@@ -204,6 +209,9 @@ private:
     CandidateCheckpointImage canonical_capture_scratch_{};
     std::unique_ptr<CandidateCheckpointImage> transaction_target_scratch_{};
     std::unique_ptr<CandidateCheckpointImage> transaction_scratch_{};
+    std::size_t scratch_capacity_baseline_bytes_{};
+    std::size_t scratch_capacity_high_water_bytes_{};
+    std::uint64_t scratch_capacity_growth_events_{};
     CandidateCapturePhase last_capture_phase_{};
     bool configured_{};
     bool bound_{};

@@ -344,6 +344,7 @@ public:
         const noexcept { return validation_diagnostic_; }
 
     Status PreflightCapture() noexcept;
+    [[nodiscard]] std::size_t ScratchCapacityBytes() const noexcept;
     Status Capture(NativeCandidateImage& output) noexcept;
     Status PreflightRestore(const NativeCandidateImage& image) noexcept;
     Status RestoreTransactional(const NativeCandidateImage& image) noexcept;

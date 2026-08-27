@@ -95,6 +95,9 @@ void CandidateGameStateAdapter::Reset() noexcept
     total_restore_timing_ = {};
     capture_scratch_ = {};
     canonical_capture_scratch_ = {};
+    scratch_capacity_baseline_bytes_ = 0;
+    scratch_capacity_high_water_bytes_ = 0;
+    scratch_capacity_growth_events_ = 0;
     last_capture_phase_ = CandidateCapturePhase::None;
     configured_ = false;
     bound_ = false;
@@ -241,6 +244,7 @@ Status CandidateGameStateAdapter::Capture(
     total_capture_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             encode_end - total_begin).count()));
+    observe_scratch_capacity();
     if (encoded.ok()) last_capture_phase_ = CandidateCapturePhase::None;
     return encoded;
 }
@@ -274,6 +278,7 @@ Status CandidateGameStateAdapter::CaptureCanonical(
     total_capture_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             encode_end - total_begin).count()));
+    observe_scratch_capacity();
     if (encoded.ok()) last_capture_phase_ = CandidateCapturePhase::None;
     return encoded;
 }
@@ -296,6 +301,9 @@ CandidateGameStateAdapter::performance_status() const noexcept
         ucrt_restore_timing_.Status(),
         derived_repair_timing_.Status(),
         total_restore_timing_.Status(),
+        scratch_capacity_baseline_bytes_,
+        scratch_capacity_high_water_bytes_,
+        scratch_capacity_growth_events_,
     };
 }
 
@@ -309,6 +317,39 @@ void CandidateGameStateAdapter::ResetCapturePerformanceWindow() noexcept
     ucrt_capture_timing_ = {};
     wind_capture_timing_ = {};
     encode_timing_ = {};
+    scratch_capacity_baseline_bytes_ = scratch_capacity_bytes();
+    scratch_capacity_high_water_bytes_ = scratch_capacity_baseline_bytes_;
+    scratch_capacity_growth_events_ = 0;
+}
+
+std::size_t CandidateGameStateAdapter::scratch_capacity_bytes() const noexcept
+{
+    std::size_t bytes = CandidateCheckpointDynamicCapacity(capture_scratch_)
+        + CandidateCheckpointDynamicCapacity(canonical_capture_scratch_)
+        + regions_.ScratchCapacityBytes();
+    if (transaction_target_scratch_ != nullptr)
+        bytes += CandidateCheckpointDynamicCapacity(
+            *transaction_target_scratch_);
+    if (transaction_scratch_ != nullptr)
+        bytes += CandidateCheckpointDynamicCapacity(*transaction_scratch_);
+    if (binding_.motion_banks != nullptr)
+        bytes += binding_.motion_banks->ScratchCapacityBytes();
+    if (binding_.move_dispatch != nullptr)
+        bytes += binding_.move_dispatch->ScratchCapacityBytes();
+    return bytes;
+}
+
+void CandidateGameStateAdapter::observe_scratch_capacity() noexcept
+{
+    const auto current = scratch_capacity_bytes();
+    if (scratch_capacity_baseline_bytes_ == 0)
+        scratch_capacity_baseline_bytes_ = current;
+    if (current > scratch_capacity_high_water_bytes_)
+    {
+        if (scratch_capacity_high_water_bytes_ != 0)
+            ++scratch_capacity_growth_events_;
+        scratch_capacity_high_water_bytes_ = current;
+    }
 }
 
 Status CandidateGameStateAdapter::TraceLocalStreamOffset(
@@ -410,6 +451,7 @@ Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
     total_restore_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             total_end - total_begin).count()));
+    observe_scratch_capacity();
     return restored.ok() ? fp : restored;
 }
 
@@ -527,6 +569,7 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
     if (!preflight.ok()) return preflight;
     const Status captured = capture_image(*transaction_scratch_);
     if (!captured.ok()) return captured;
+    observe_scratch_capacity();
     // Opaque native streams are reconstruction inputs, not canonical truth.
     // A reader may rebuild pointer/derived bytes that serialize differently
     // while producing the same typed gameplay state. Capture above still proves
