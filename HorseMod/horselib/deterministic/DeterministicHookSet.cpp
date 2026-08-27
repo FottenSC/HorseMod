@@ -3438,18 +3438,29 @@ void __fastcall DeterministicHookSet::BattleAudioContactHandlerDetour(
             const auto& source = envelope.battle_audio_source_journal[index];
             const auto order_begin = replay.suppressed_presentation_order_events;
             if (source.first_presentation_order != order_begin
-                || !VerifyPresentationOrder(
-                    PresentationEventFamily::BattleAudioSource,
-                    static_cast<std::uint32_t>(index), envelope, replay,
-                    batch->observation, batch->frame_counter_address)
                 || source.first_dispatch != replay.suppressed_audio_calls
                 || source.first_remap != replay.suppressed_audio_remap_calls
                 || source.first_blueprint
                     != replay.suppressed_audio_blueprint_calls
                 || source.first_terminal
-                    != replay.suppressed_audio_terminal_calls)
+                    != replay.suppressed_audio_terminal_calls
+                || !MatchesNextPresentationOrder(
+                    PresentationEventFamily::BattleAudioSource,
+                    static_cast<std::uint32_t>(index), envelope, replay,
+                    batch->observation, batch->frame_counter_address))
             {
                 ++replay.discarded_audio_calls;
+                callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+                return;
+            }
+            if (!VerifyPresentationOrder(
+                    PresentationEventFamily::BattleAudioSource,
+                    static_cast<std::uint32_t>(index), envelope, replay,
+                    batch->observation, batch->frame_counter_address))
+            {
+                ++replay.presentation_failures;
+                replay.presentation_failure_mask |= 1u << 12;
+                replay.failure = FailureCode::PresentationFailed;
                 callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
                 return;
             }
