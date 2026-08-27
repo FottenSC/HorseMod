@@ -197,6 +197,12 @@ void Sc6ReplayRuntime::SetForcedDepth7QualificationEnabled(
     correction_verified_scratch_ = {};
 }
 
+void Sc6ReplayRuntime::SetCorrectedInputQualificationEnabled(
+    bool enabled) noexcept
+{
+    corrected_input_qualification_enabled_ = enabled;
+}
+
 std::size_t Sc6ReplayRuntime::forced_qualification_bytes() const noexcept
 {
     return forced_qualification_snapshots_.BytesUsed();
@@ -2445,7 +2451,7 @@ Status Sc6ReplayRuntime::ApplyConfirmedRemoteInput(
     const auto previous = input_timeline_.GetExact(coordinate);
     if (!previous.has_value())
         return Status::failure(FailureCode::MissingInput);
-    if (previous->remote_confirmed)
+    if (previous->remote_confirmed && !corrected_input_qualification_enabled_)
     {
         if (previous->players[player_index] != confirmed_remote)
             return Status::failure(FailureCode::IdentityMismatch);

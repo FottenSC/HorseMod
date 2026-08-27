@@ -3546,9 +3546,9 @@ private:
 
     void service_owned_correction_probe() noexcept
     {
-        static constexpr std::array<std::uint64_t, 3> depths{1, 6, 11};
-        static constexpr std::array<std::uint64_t, 3> trigger_frames{
-            180, 270, 330};
+        static constexpr std::array<std::uint64_t, 4> depths{1, 6, 11, 7};
+        static constexpr std::array<std::uint64_t, 4> trigger_frames{
+            180, 270, 330, 390};
         if (!m_deterministic_config.trace
             || !m_deterministic_config.correction_probe
             || m_owned_correction_probe_index >= depths.size())
@@ -3565,16 +3565,39 @@ private:
             return;
         }
 
-        Horse::Deterministic::Snapshot expected{};
-        auto status = m_replay_native_runtime.CaptureCurrentCanonical(expected);
+        Horse::Deterministic::Status status{};
         Horse::Deterministic::OwnedCorrectionResult result{};
-        if (status.ok())
+        const Horse::Deterministic::FrameCoordinate earliest{
+            timeline.last_coordinate.generation,
+            timeline.last_coordinate.frame - depths[index] + 1};
+        if (index + 1 == depths.size())
         {
-            const Horse::Deterministic::FrameCoordinate earliest{
-                timeline.last_coordinate.generation,
-                timeline.last_coordinate.frame - depths[index] + 1};
-            status = m_replay_native_runtime.ExecuteOwnedCorrection(
-                earliest, expected.canonical_hash, m_deterministic_hooks, result);
+            const auto input = m_replay_native_runtime.input_timeline().GetExact(
+                earliest);
+            if (!input.has_value())
+            {
+                status = Horse::Deterministic::Status::failure(
+                    Horse::Deterministic::FailureCode::MissingInput);
+            }
+            else
+            {
+                auto corrected = input->players[1];
+                corrected.held ^= 1u;
+                corrected.rising ^= 1u;
+                status = m_replay_native_runtime.ApplyConfirmedRemoteInput(
+                    earliest, 1, corrected, m_deterministic_hooks, result);
+            }
+        }
+        else
+        {
+            Horse::Deterministic::Snapshot expected{};
+            status = m_replay_native_runtime.CaptureCurrentCanonical(expected);
+            if (status.ok())
+            {
+                status = m_replay_native_runtime.ExecuteOwnedCorrection(
+                    earliest, expected.canonical_hash,
+                    m_deterministic_hooks, result);
+            }
         }
         if (!status.ok())
         {
@@ -5117,6 +5140,8 @@ public:
         m_deterministic_config = deterministic_load.config;
         m_replay_native_runtime.SetForcedDepth7QualificationEnabled(
             m_deterministic_config.forced_depth7_qualification);
+        m_replay_native_runtime.SetCorrectedInputQualificationEnabled(
+            m_deterministic_config.correction_probe);
         if (deterministic_load.status.ok() && m_deterministic_config.trace)
         {
             const auto report_path = deterministic_config_path.parent_path()

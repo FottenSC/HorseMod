@@ -260,6 +260,7 @@ public:
 
     [[nodiscard]] bool ready() const noexcept;
     void SetForcedDepth7QualificationEnabled(bool enabled) noexcept;
+    void SetCorrectedInputQualificationEnabled(bool enabled) noexcept;
     [[nodiscard]] std::size_t forced_qualification_bytes() const noexcept;
     void ResetCapturePerformanceWindow() noexcept;
     [[nodiscard]] CandidateAdapterPerformanceStatus capture_performance()
@@ -421,6 +422,7 @@ private:
     Snapshot correction_canonical_capture_scratch_{};
     CorrectedReplayCapture corrected_replay_capture_{};
     bool forced_depth7_qualification_enabled_{};
+    bool corrected_input_qualification_enabled_{};
     ReplayTimelineStatus timeline_status_{};
     std::uintptr_t timeline_manager_{};
     std::uintptr_t timeline_input_log_{};
