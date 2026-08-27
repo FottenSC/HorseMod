@@ -23,5 +23,6 @@ private:
     std::string last_scene_{};
     std::uint32_t retry_frames_{};
     bool title_top_requested_{};
+    std::uint8_t title_decide_stage_{};
 };
 }

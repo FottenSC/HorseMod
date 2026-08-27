@@ -113,6 +113,15 @@ bool CallIntParam(RC::Unreal::UObject* owner, const wchar_t* name,
     return true;
 }
 
+bool CallNoParam(RC::Unreal::UObject* owner, const wchar_t* name)
+{
+    if (owner == nullptr) return false;
+    auto* function = owner->GetFunctionByNameInChain(name);
+    if (function == nullptr) return false;
+    owner->ProcessEvent(function, nullptr);
+    return true;
+}
+
 std::string StringProperty(RC::Unreal::UObject* owner,
                            const wchar_t* name) noexcept
 {
@@ -187,20 +196,20 @@ NavigationState ReplaySceneNavigator::Tick(
         last_scene_ = scene_name;
         retry_frames_ = 0;
         title_top_requested_ = false;
+        title_decide_stage_ = 0;
     }
     if (scene_name.find("TitleScene") != std::string::npos)
     {
         // The cooked startup graph creates RefTitleMenu and MainBehavior before
         // ReadyToStart. Transitioning earlier tears down partially initialized
         // title state. Once both owners exist, take the exact Movie-to-Top state
-        // edge used by TitleMovieState's SkipMovie path. Top registers its
-        // OnDecidedMainUser delegate and requests an unforced (-1) user. On the
-        // after Top has had time to finish OnEntry, force logical user zero
-        // through that same manager API. The state code becomes visible before
-        // the cooked graph necessarily registers its delegate, so retry at a
-        // low cadence only while Top remains active. Native
-        // RequestDecideMainUser synchronously invokes the registered callback,
-        // allowing the cooked sign-in and StartUp graph to retain ownership.
+        // edge used by TitleMovieState's SkipMovie path. The state code becomes
+        // visible before Top's cooked OnEntry graph necessarily registers its
+        // OnDecidedMainUser delegate. Once the exact CurrentState object is
+        // stable, invoke Top's own RequestDecideMainUser custom event to bind
+        // that delegate and arm native capture, then force logical user zero
+        // through the native manager API. That API synchronously invokes the
+        // registered callback, preserving cooked sign-in/StartUp ownership.
         RC::Unreal::UObject* behavior = ObjectProperty(scene, L"MainBehavior");
         if (ObjectProperty(scene, L"RefTitleMenu") == nullptr
             || behavior == nullptr)
@@ -220,7 +229,22 @@ NavigationState ReplaySceneNavigator::Tick(
         RC::Unreal::UObject* machine = ObjectProperty(behavior, L"Machine");
         const std::string state = StringProperty(machine, L"CurrentStateCode");
         if (state == "Top" && ++retry_frames_ >= 8
-            && (retry_frames_ % 8) == 0)
+            && title_decide_stage_ == 0)
+        {
+            RC::Unreal::UObject* current_state =
+                ObjectProperty(machine, L"CurrentState");
+            if (!CallNoParam(current_state, L"RequestDecideMainUser"))
+            {
+                detail = "title_decide_rearm_pending";
+                return NavigationState::Waiting;
+            }
+            title_decide_stage_ = 1;
+            retry_frames_ = 0;
+            detail = "title_state:Top:decide_rearmed";
+            return NavigationState::Waiting;
+        }
+        if (state == "Top" && retry_frames_ >= 2
+            && title_decide_stage_ == 1)
         {
             RC::Unreal::UObject* signin_manager =
                 ObjectProperty(manager, L"SigninManager");
@@ -234,7 +258,17 @@ NavigationState ReplaySceneNavigator::Tick(
                 detail = "title_user_force_failed";
                 return NavigationState::Failed;
             }
+            title_decide_stage_ = 2;
+            retry_frames_ = 0;
             detail = "title_state:Top:user_forced";
+            return NavigationState::Waiting;
+        }
+        if (state == "Top" && retry_frames_ >= 32
+            && title_decide_stage_ == 2)
+        {
+            title_decide_stage_ = 0;
+            retry_frames_ = 0;
+            detail = "title_state:Top:decide_retry";
             return NavigationState::Waiting;
         }
         detail = state.empty() ? "title_top_requested" : "title_state:" + state;
