@@ -206,6 +206,12 @@ public:
 
     [[nodiscard]] std::uint64_t epoch() const noexcept { return epoch_; }
     [[nodiscard]] bool sealed() const noexcept { return sealed_; }
+    [[nodiscard]] std::size_t binding_count() const noexcept
+    {
+        std::size_t count{};
+        for (const auto& entry : entries_) count += entry.occupied ? 1u : 0u;
+        return count;
+    }
 
     [[nodiscard]] bool SameBindings(
         const AudioOwnerResolver& other) const noexcept

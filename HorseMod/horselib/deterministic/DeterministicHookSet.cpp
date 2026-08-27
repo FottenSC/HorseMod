@@ -2212,6 +2212,22 @@ bool DeterministicHookSet::RecordAudioTerminal(
     return true;
 }
 
+namespace
+{
+void RecordUnresolvedAudioOwner(OuterTickObservation& observation,
+    std::uintptr_t image_base, std::uintptr_t owner,
+    std::uintptr_t return_address, const AudioOwnerResolver& resolver) noexcept
+{
+    if (observation.first_unresolved_audio_owner != 0) return;
+    observation.first_unresolved_audio_owner = owner;
+    observation.first_unresolved_audio_return_rva =
+        return_address >= image_base ? return_address - image_base : 0;
+    observation.audio_owner_graph_epoch = resolver.epoch();
+    observation.audio_owner_graph_bindings =
+        static_cast<std::uint32_t>(resolver.binding_count());
+}
+}
+
 void __fastcall DeterministicHookSet::OuterTickDetour(
     void* battle_manager, float delta_seconds) noexcept
 {
@@ -3841,10 +3857,16 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
         && batch->owned->request->suppress_ephemeral_presentation;
     AudioOwnerSelector owner{};
     std::uint32_t frame{};
-    const bool owned_terminal = batch != nullptr
+    const bool owner_resolved = batch != nullptr
         && hooks != nullptr
         && hooks->ResolveAudioOwner(
-            reinterpret_cast<std::uintptr_t>(active_voice_owner), owner)
+            reinterpret_cast<std::uintptr_t>(active_voice_owner), owner);
+    if (batch != nullptr && hooks != nullptr && !owner_resolved)
+        RecordUnresolvedAudioOwner(*batch->observation, hooks->image_base_,
+            reinterpret_cast<std::uintptr_t>(active_voice_owner),
+            reinterpret_cast<std::uintptr_t>(_ReturnAddress()),
+            hooks->audio_owner_resolver_);
+    const bool owned_terminal = owner_resolved
         && SafeRead(batch->frame_counter_address, frame)
         && batch->observation != nullptr
         && batch->observation->audio_terminal_calls
@@ -3983,6 +4005,12 @@ void __fastcall DeterministicHookSet::BattleAudioAppendCommandDetour(
     }
     else if (batch != nullptr && command_record != nullptr)
     {
+        if (hooks != nullptr)
+            RecordUnresolvedAudioOwner(*batch->observation,
+                hooks->image_base_,
+                reinterpret_cast<std::uintptr_t>(active_voice_owner),
+                reinterpret_cast<std::uintptr_t>(_ReturnAddress()),
+                hooks->audio_owner_resolver_);
         ++batch->observation->battle_audio_signature_failures;
         batch->observation->battle_audio_signature_failure_mask |= 1u << 13;
         if (suppress)
@@ -4057,6 +4085,11 @@ void __fastcall DeterministicHookSet::BattleAudioStopAllDetour(
     if (suppress
         && (!stable_owner_ok || !RecordAudioTerminal(batch, stable_terminal)))
     {
+        if (hooks != nullptr && !stable_owner_ok)
+            RecordUnresolvedAudioOwner(*batch->observation,
+                hooks->image_base_, owner_identity,
+                reinterpret_cast<std::uintptr_t>(_ReturnAddress()),
+                hooks->audio_owner_resolver_);
         ++batch->observation->battle_audio_signature_failures;
         batch->observation->battle_audio_signature_failure_mask |= 1u << 12;
         if (suppress)
@@ -4169,6 +4202,11 @@ void __fastcall DeterministicHookSet::BattleAudioAppendParameterDetour(
         && (parameter_index == UINT32_MAX || !event.valid()
             || !RecordAudioTerminal(batch, event)))
     {
+        if (hooks != nullptr && !owner.valid())
+            RecordUnresolvedAudioOwner(*batch->observation,
+                hooks->image_base_, owner_identity,
+                reinterpret_cast<std::uintptr_t>(_ReturnAddress()),
+                hooks->audio_owner_resolver_);
         ++batch->observation->battle_audio_signature_failures;
         batch->observation->battle_audio_signature_failure_mask |= 1u << 14;
         if (suppress)

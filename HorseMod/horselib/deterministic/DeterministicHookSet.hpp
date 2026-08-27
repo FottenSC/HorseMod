@@ -117,6 +117,10 @@ struct OuterTickObservation
     std::uint8_t battle_audio_remap_entry_mask{};
     std::uint32_t battle_audio_signature_failures{};
     std::uint32_t battle_audio_signature_failure_mask{};
+    std::uintptr_t first_unresolved_audio_owner{};
+    std::uintptr_t first_unresolved_audio_return_rva{};
+    std::uint64_t audio_owner_graph_epoch{};
+    std::uint32_t audio_owner_graph_bindings{};
     std::array<BattleAudioDispatchJournalEntry,
         maximum_battle_audio_journal_dispatches> battle_audio_journal{};
     std::array<BattleAudioSourceJournalEntry,

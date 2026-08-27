@@ -4689,7 +4689,9 @@ private:
                     "batch={} frame={}->{} failures={} mask=0x{:x} "
                     "dispatches={} journal={}/{} sources={} source_journal={}/{} "
                     "remaps={} remap_journal={}/{} stop_all={} "
-                    "stop_all_journal={}/{} stop_all_owners={}\n"),
+                    "stop_all_journal={}/{} stop_all_owners={} "
+                    "unresolved_owner=0x{:x} caller_rva=0x{:x} "
+                    "owner_epoch={} owner_bindings={}\n"),
                     observation.batch_id, observation.before.frame_counter,
                     observation.after.frame_counter,
                     observation.battle_audio_signature_failures,
@@ -4706,7 +4708,11 @@ private:
                     observation.battle_audio_stop_all_calls,
                     observation.battle_audio_stop_all_journal_count,
                     observation.battle_audio_stop_all_journal.size(),
-                    observation.battle_audio_stop_all_owner_identity_count);
+                    observation.battle_audio_stop_all_owner_identity_count,
+                    observation.first_unresolved_audio_owner,
+                    observation.first_unresolved_audio_return_rva,
+                    observation.audio_owner_graph_epoch,
+                    observation.audio_owner_graph_bindings);
             }
             self->m_frame_fencepost_failure.store(
                 status.code, std::memory_order_release);
