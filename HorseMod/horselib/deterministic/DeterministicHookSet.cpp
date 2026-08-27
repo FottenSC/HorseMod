@@ -581,6 +581,25 @@ bool VerifyPresentationOrder(PresentationEventFamily family,
         replay.suppressed_presentation_order_hash);
 }
 
+bool MatchesNextPresentationOrder(PresentationEventFamily family,
+    std::uint32_t family_index, const NativeBatchEnvelope& envelope,
+    const OwnedBatchReplayResult& replay,
+    const OuterTickObservation* observation,
+    std::uintptr_t frame_counter_address) noexcept
+{
+    const auto index = replay.suppressed_presentation_order_events;
+    if (family_index > UINT8_MAX
+        || index >= envelope.presentation_order_journal_count)
+        return false;
+    const auto& expected = envelope.presentation_order_journal[index];
+    std::uint8_t source_offset{};
+    return expected.family == family
+        && expected.family_index == static_cast<std::uint8_t>(family_index)
+        && CapturePresentationSourceOffset(
+            observation, frame_counter_address, source_offset)
+        && expected.source_offset == source_offset;
+}
+
 bool ReplayExpectedPresentationOrder(const NativeBatchEnvelope& envelope,
     OwnedBatchReplayResult& replay) noexcept
 {
@@ -2224,6 +2243,28 @@ bool DeterministicHookSet::RecordAudioTerminal(
 {
     if (batch == nullptr || batch->observation == nullptr || !event.valid())
         return false;
+    const bool verify = batch->owned != nullptr
+        && batch->owned->request->suppress_ephemeral_presentation
+        && batch->owned->request->presentation_mode
+            == OwnedBatchPresentationMode::VerifyRecorded;
+    if (verify)
+    {
+        auto& replay = *batch->owned->result;
+        const auto& envelope = *batch->owned->request->envelope;
+        const auto replay_index = replay.suppressed_audio_terminal_calls;
+        // Presentation-local audio queues survive checkpoint restore. Admit
+        // only an exact next source-frame terminal; stale calls are discarded
+        // without consuming either ordered cursor. CompleteBattleAudioJournal
+        // later supplies a missing suffix only from independently verified
+        // source spans, and ConsumeBattleAudioJournal rechecks the full hash.
+        if (replay_index >= envelope.audio_terminal_journal_count
+            || envelope.audio_terminal_journal[replay_index] != event
+            || !MatchesNextPresentationOrder(
+                PresentationEventFamily::AudioTerminal, replay_index,
+                envelope, replay, batch->observation,
+                batch->frame_counter_address))
+            return true;
+    }
     auto& observation = *batch->observation;
     const auto observed_index = observation.audio_terminal_calls++;
     if (!AppendObservedPresentationOrder(&observation,
@@ -2247,8 +2288,6 @@ bool DeterministicHookSet::RecordAudioTerminal(
     auto& replay = *batch->owned->result;
     const auto& envelope = *batch->owned->request->envelope;
     const auto replay_index = replay.suppressed_audio_terminal_calls++;
-    const bool verify = batch->owned->request->presentation_mode
-        == OwnedBatchPresentationMode::VerifyRecorded;
     if (!AppendAudioTerminalSemantic(event,
             replay.suppressed_audio_terminal_hash)
         || (verify && (!VerifyPresentationOrder(
