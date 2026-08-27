@@ -9,7 +9,7 @@ namespace Horse::Deterministic
 {
 namespace
 {
-constexpr std::size_t max_wind_nodes = 64;
+constexpr std::size_t max_wind_nodes = stage_wind_max_nodes;
 
 constexpr std::array common_ranges{
     StageWindStateRange{0x20, 0x02},
@@ -198,7 +198,24 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
     output.schedule_params = {};
     output.output_force = {};
     if (!bound_) return Status::failure(FailureCode::AdapterUnqualified);
-    try { output.nodes.reserve(max_wind_nodes); }
+    try
+    {
+        output.nodes.reserve(max_wind_nodes);
+        std::size_t maximum_semantic{};
+        std::size_t maximum_derived{};
+        for (const auto& layout : classes)
+        {
+            maximum_semantic = (std::max)(maximum_semantic,
+                StageWindSemanticStateSize(layout));
+            maximum_derived = (std::max)(maximum_derived,
+                StageWindDerivedStateSize(layout));
+        }
+        for (auto& slot : output.nodes.storage())
+        {
+            slot.semantic_state.reserve(maximum_semantic);
+            slot.derived_state.reserve(maximum_derived);
+        }
+    }
     catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     std::uintptr_t current_root{};
     if (!read_value(memory_, addresses_.root_pointer, current_root)

@@ -65,8 +65,22 @@ struct MoveDispatchImage
     std::uint32_t saved_input_and_gates{};
     std::int32_t completion_delay{};
     std::vector<MoveDispatchSubElementState> sub_elements;
+    // Capacity owner for the inactive variant. It prevents action/pending
+    // phase transitions from destroying and reallocating the bounded window
+    // storage; it has no serialized or canonical meaning.
+    std::vector<MoveDispatchPendingWindow> pending_windows_scratch;
 
-    friend bool operator==(const MoveDispatchImage&, const MoveDispatchImage&) = default;
+    friend bool operator==(const MoveDispatchImage& a,
+        const MoveDispatchImage& b) noexcept
+    {
+        return a.generation == b.generation
+            && a.frame_slot_index == b.frame_slot_index
+            && a.sub_frame_index == b.sub_frame_index
+            && a.phase == b.phase
+            && a.saved_input_and_gates == b.saved_input_and_gates
+            && a.completion_delay == b.completion_delay
+            && a.sub_elements == b.sub_elements;
+    }
 };
 
 class MoveDispatchState

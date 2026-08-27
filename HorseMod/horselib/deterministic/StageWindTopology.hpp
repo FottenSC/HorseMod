@@ -2,10 +2,13 @@
 
 #include "NativeCandidateRegions.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace Horse::Deterministic
@@ -54,6 +57,91 @@ struct StageWindNodeImage
     friend bool operator==(const StageWindNodeImage&, const StageWindNodeImage&) = default;
 };
 
+inline constexpr std::size_t stage_wind_max_nodes = 64;
+
+// Fixed slot ownership keeps each node's variable-sized byte buffers alive
+// when the native topology temporarily shrinks. The active prefix retains the
+// vector-like API used by serialization and restore code, while later node
+// re-entry cannot allocate a fresh outer container or discard warmed buffers.
+class StageWindNodeBuffer
+{
+public:
+    using iterator = StageWindNodeImage*;
+    using const_iterator = const StageWindNodeImage*;
+
+    [[nodiscard]] std::size_t size() const noexcept { return size_; }
+    [[nodiscard]] constexpr std::size_t capacity() const noexcept
+    {
+        return stage_wind_max_nodes;
+    }
+    [[nodiscard]] bool empty() const noexcept { return size_ == 0; }
+    [[nodiscard]] iterator begin() noexcept { return nodes_.data(); }
+    [[nodiscard]] const_iterator begin() const noexcept { return nodes_.data(); }
+    [[nodiscard]] iterator end() noexcept { return nodes_.data() + size_; }
+    [[nodiscard]] const_iterator end() const noexcept
+    {
+        return nodes_.data() + size_;
+    }
+    [[nodiscard]] StageWindNodeImage* data() noexcept { return nodes_.data(); }
+    [[nodiscard]] const StageWindNodeImage* data() const noexcept
+    {
+        return nodes_.data();
+    }
+    [[nodiscard]] StageWindNodeImage& operator[](std::size_t index) noexcept
+    {
+        return nodes_[index];
+    }
+    [[nodiscard]] const StageWindNodeImage& operator[](
+        std::size_t index) const noexcept
+    {
+        return nodes_[index];
+    }
+    [[nodiscard]] StageWindNodeImage& front() noexcept { return nodes_.front(); }
+    [[nodiscard]] const StageWindNodeImage& front() const noexcept
+    {
+        return nodes_.front();
+    }
+    void clear() noexcept { size_ = 0; }
+    void reserve(std::size_t count) const
+    {
+        if (count > capacity()) throw std::length_error("stage wind node capacity");
+    }
+    void resize(std::size_t count)
+    {
+        reserve(count);
+        size_ = count;
+    }
+    StageWindNodeImage& emplace_back()
+    {
+        resize(size_ + 1);
+        return nodes_[size_ - 1];
+    }
+    void push_back(StageWindNodeImage value)
+    {
+        auto& destination = emplace_back();
+        destination = std::move(value);
+    }
+    [[nodiscard]] std::span<const StageWindNodeImage> storage() const noexcept
+    {
+        return nodes_;
+    }
+    [[nodiscard]] std::span<StageWindNodeImage> storage() noexcept
+    {
+        return nodes_;
+    }
+
+    friend bool operator==(
+        const StageWindNodeBuffer& a, const StageWindNodeBuffer& b) noexcept
+    {
+        return a.size_ == b.size_
+            && std::equal(a.begin(), a.end(), b.begin());
+    }
+
+private:
+    std::array<StageWindNodeImage, stage_wind_max_nodes> nodes_{};
+    std::size_t size_{};
+};
+
 struct StageWindTopologyImage
 {
     std::uint64_t generation{};
@@ -62,7 +150,7 @@ struct StageWindTopologyImage
     std::array<std::byte, 16> schedule_state{};
     std::array<std::byte, 16> schedule_params{};
     std::array<std::byte, 48> output_force{};
-    std::vector<StageWindNodeImage> nodes;
+    StageWindNodeBuffer nodes;
 
     friend bool operator==(const StageWindTopologyImage&, const StageWindTopologyImage&) = default;
 };

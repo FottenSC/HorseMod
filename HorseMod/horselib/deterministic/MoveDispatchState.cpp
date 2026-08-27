@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <span>
+#include <utility>
 
 namespace Horse::Deterministic
 {
@@ -132,7 +133,8 @@ bool MoveDispatchState::capture_unchecked(MoveDispatchImage& output) noexcept
             return false;
         }
         if (!std::holds_alternative<MoveDispatchPendingState>(output.phase))
-            output.phase = MoveDispatchPendingState{};
+            output.phase = MoveDispatchPendingState{
+                std::move(output.pending_windows_scratch)};
         auto& pending = std::get<MoveDispatchPendingState>(output.phase);
         try
         {
@@ -149,6 +151,9 @@ bool MoveDispatchState::capture_unchecked(MoveDispatchImage& output) noexcept
     }
     else
     {
+        if (auto* pending =
+                std::get_if<MoveDispatchPendingState>(&output.phase))
+            output.pending_windows_scratch = std::move(pending->windows);
         MoveDispatchActionModeState state{};
         if (!read_value(memory_, object_ + 0x480, state.action_mode)
             || !read_value(memory_, object_ + 0x484, state.frame_counter)
@@ -298,6 +303,8 @@ std::size_t MoveDispatchState::ScratchCapacityBytes() const noexcept
                 std::get_if<MoveDispatchPendingState>(&image.phase))
             bytes += pending->windows.capacity()
                 * sizeof(MoveDispatchPendingWindow);
+        bytes += image.pending_windows_scratch.capacity()
+            * sizeof(MoveDispatchPendingWindow);
         return bytes;
     };
     return capacity(restore_undo_scratch_)
@@ -386,6 +393,9 @@ Status MoveDispatchState::DecodeCanonicalBytes(
     {
         if (phase == 0)
         {
+            if (auto* pending =
+                    std::get_if<MoveDispatchPendingState>(&output.phase))
+                output.pending_windows_scratch = std::move(pending->windows);
             MoveDispatchActionModeState state{};
             if (!take(&state.action_mode, sizeof(state.action_mode))
                 || !take(&state.frame_counter, sizeof(state.frame_counter))
@@ -403,7 +413,8 @@ Status MoveDispatchState::DecodeCanonicalBytes(
             if (!take(&count, sizeof(count)) || count > maximum_pending_windows)
                 return Status::failure(FailureCode::CaptureFailed);
             if (!std::holds_alternative<MoveDispatchPendingState>(output.phase))
-                output.phase = MoveDispatchPendingState{};
+                output.phase = MoveDispatchPendingState{
+                    std::move(output.pending_windows_scratch)};
             auto& pending = std::get<MoveDispatchPendingState>(output.phase);
             pending.windows.reserve(maximum_pending_windows);
             pending.windows.resize(count);

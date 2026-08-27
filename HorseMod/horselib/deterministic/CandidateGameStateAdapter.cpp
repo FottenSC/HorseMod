@@ -331,7 +331,8 @@ void CandidateGameStateAdapter::ResetCapturePerformanceWindow() noexcept
 
 std::size_t CandidateGameStateAdapter::scratch_capacity_bytes() const noexcept
 {
-    std::size_t bytes = CandidateCheckpointDynamicCapacity(capture_scratch_)
+    std::size_t bytes = CandidateCheckpointDynamicCapacity(
+            capture_scratch_, false)
         + CandidateCheckpointDynamicCapacity(canonical_capture_scratch_)
         + regions_.ScratchCapacityBytes();
     if (transaction_target_scratch_ != nullptr)
@@ -351,7 +352,10 @@ std::array<std::size_t,
 CandidateGameStateAdapter::scratch_capacity_by_owner() const noexcept
 {
     return {
-        CandidateCheckpointDynamicCapacity(capture_scratch_),
+        // Attached local images are outbound Snapshot payload ownership that
+        // EncodeCaptured swaps through this object; they are not adapter
+        // scratch and may legitimately arrive from a reused store slot.
+        CandidateCheckpointDynamicCapacity(capture_scratch_, false),
         CandidateCheckpointDynamicCapacity(canonical_capture_scratch_),
         transaction_target_scratch_ == nullptr ? 0
             : CandidateCheckpointDynamicCapacity(*transaction_target_scratch_),

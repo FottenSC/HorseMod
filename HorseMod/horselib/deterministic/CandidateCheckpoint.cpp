@@ -18,12 +18,17 @@
 namespace Horse::Deterministic
 {
 std::size_t CandidateCheckpointDynamicCapacity(
-    const CandidateCheckpointImage& image) noexcept
+    const CandidateCheckpointImage& image,
+    bool include_attached_local_images) noexcept
 {
-    std::size_t bytes = image.local_images.capacity()
-        * sizeof(LocalReconstructionImage);
-    for (const auto& local : image.local_images)
-        bytes += local.bytes.capacity();
+    std::size_t bytes{};
+    if (include_attached_local_images)
+    {
+        bytes += image.local_images.capacity()
+            * sizeof(LocalReconstructionImage);
+        for (const auto& local : image.local_images)
+            bytes += local.bytes.capacity();
+    }
     bytes += image.native.stage_wind_emitters.states.capacity()
         * sizeof(std::array<std::byte, native_stage_wind_emitter_state_size>);
     bytes += image.move_dispatch.sub_elements.capacity()
@@ -32,8 +37,9 @@ std::size_t CandidateCheckpointDynamicCapacity(
             std::get_if<MoveDispatchPendingState>(&image.move_dispatch.phase))
         bytes += pending->windows.capacity()
             * sizeof(MoveDispatchPendingWindow);
-    bytes += image.wind.nodes.capacity() * sizeof(StageWindNodeImage);
-    for (const auto& node : image.wind.nodes)
+    bytes += image.move_dispatch.pending_windows_scratch.capacity()
+        * sizeof(MoveDispatchPendingWindow);
+    for (const auto& node : image.wind.nodes.storage())
         bytes += node.semantic_state.capacity() + node.derived_state.capacity();
     return bytes;
 }
@@ -49,14 +55,16 @@ void reset_checkpoint_image(CandidateCheckpointImage& output) noexcept
     if (auto* pending =
             std::get_if<MoveDispatchPendingState>(&output.move_dispatch.phase))
         pending_windows = std::move(pending->windows);
+    else
+        pending_windows =
+            std::move(output.move_dispatch.pending_windows_scratch);
     auto wind_nodes = std::move(output.wind.nodes);
     output = {};
     output.local_images = std::move(local_images);
     output.native.stage_wind_emitters.states = std::move(emitter_states);
     output.move_dispatch.sub_elements = std::move(move_sub_elements);
-    if (!pending_windows.empty() || pending_windows.capacity() != 0)
-        output.move_dispatch.phase = MoveDispatchPendingState{
-            std::move(pending_windows)};
+    output.move_dispatch.pending_windows_scratch =
+        std::move(pending_windows);
     output.wind.nodes = std::move(wind_nodes);
 }
 constexpr std::array<std::byte, 8> magic{
