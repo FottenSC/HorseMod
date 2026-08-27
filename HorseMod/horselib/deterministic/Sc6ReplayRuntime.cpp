@@ -160,6 +160,8 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     forced_qualification_snapshots_.Clear();
     correction_undo_scratch_ = {};
     correction_verified_scratch_ = {};
+    correction_canonical_capture_scratch_ = {};
+    timeline_canonical_capture_scratch_ = {};
     checkpoint_capture_.Reset();
     timeline_status_ = {};
     timeline_manager_ = 0;
@@ -195,6 +197,8 @@ void Sc6ReplayRuntime::SetForcedDepth7QualificationEnabled(
     forced_qualification_snapshots_.Clear();
     correction_undo_scratch_ = {};
     correction_verified_scratch_ = {};
+    correction_canonical_capture_scratch_ = {};
+    timeline_canonical_capture_scratch_ = {};
 }
 
 void Sc6ReplayRuntime::SetCorrectedInputQualificationEnabled(
@@ -447,7 +451,7 @@ Status Sc6ReplayRuntime::ObserveFrame(
             timeline_status_.failure = FailureCode::MissingSnapshot;
             return Status::failure(timeline_status_.failure);
         }
-        Snapshot observed{};
+        Snapshot& observed = timeline_canonical_capture_scratch_;
         const Status captured = checkpoint_capture_.CaptureCanonical(
             coordinate, observed);
         if (!captured.ok())
@@ -575,7 +579,7 @@ Status Sc6ReplayRuntime::ObserveFrame(
     }
     if (!generation_rebaseline_pending_)
     {
-        Snapshot canonical{};
+        Snapshot& canonical = timeline_canonical_capture_scratch_;
         if (forced_depth7_qualification_enabled_)
             static_cast<void>(
                 forced_qualification_snapshots_.TakeOldestIfFull(canonical));
@@ -836,6 +840,8 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     forced_qualification_snapshots_.Clear();
     correction_undo_scratch_ = {};
     correction_verified_scratch_ = {};
+    correction_canonical_capture_scratch_ = {};
+    timeline_canonical_capture_scratch_ = {};
     checkpoint_capture_.InvalidateHistory();
     timeline_status_ = {};
     timeline_status_.sessions = sessions;
@@ -1183,6 +1189,8 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     forced_qualification_snapshots_.Clear();
     correction_undo_scratch_ = {};
     correction_verified_scratch_ = {};
+    correction_canonical_capture_scratch_ = {};
+    timeline_canonical_capture_scratch_ = {};
     checkpoint_capture_.InvalidateHistory();
     timeline_status_ = {};
     timeline_manager_ = 0;

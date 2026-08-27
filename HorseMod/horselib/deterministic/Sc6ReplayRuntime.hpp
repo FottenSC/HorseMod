@@ -435,6 +435,7 @@ private:
     Snapshot correction_undo_scratch_{};
     Snapshot correction_verified_scratch_{};
     Snapshot correction_canonical_capture_scratch_{};
+    Snapshot timeline_canonical_capture_scratch_{};
     CorrectedReplayCapture corrected_replay_capture_{};
     bool forced_depth7_qualification_enabled_{};
     bool corrected_input_qualification_enabled_{};
