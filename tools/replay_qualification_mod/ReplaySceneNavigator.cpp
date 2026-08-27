@@ -187,7 +187,6 @@ NavigationState ReplaySceneNavigator::Tick(
         last_scene_ = scene_name;
         retry_frames_ = 0;
         title_top_requested_ = false;
-        title_user_forced_ = false;
     }
     if (scene_name.find("TitleScene") != std::string::npos)
     {
@@ -196,9 +195,12 @@ NavigationState ReplaySceneNavigator::Tick(
         // title state. Once both owners exist, take the exact Movie-to-Top state
         // edge used by TitleMovieState's SkipMovie path. Top registers its
         // OnDecidedMainUser delegate and requests an unforced (-1) user. On the
-        // following tick, force logical user zero through that same manager API;
-        // native RequestDecideMainUser synchronously invokes the registered
-        // callback, so the cooked sign-in and StartUp graph retains ownership.
+        // after Top has had time to finish OnEntry, force logical user zero
+        // through that same manager API. The state code becomes visible before
+        // the cooked graph necessarily registers its delegate, so retry at a
+        // low cadence only while Top remains active. Native
+        // RequestDecideMainUser synchronously invokes the registered callback,
+        // allowing the cooked sign-in and StartUp graph to retain ownership.
         RC::Unreal::UObject* behavior = ObjectProperty(scene, L"MainBehavior");
         if (ObjectProperty(scene, L"RefTitleMenu") == nullptr
             || behavior == nullptr)
@@ -217,7 +219,8 @@ NavigationState ReplaySceneNavigator::Tick(
         }
         RC::Unreal::UObject* machine = ObjectProperty(behavior, L"Machine");
         const std::string state = StringProperty(machine, L"CurrentStateCode");
-        if (state == "Top" && !title_user_forced_ && retry_frames_++ > 0)
+        if (state == "Top" && ++retry_frames_ >= 8
+            && (retry_frames_ % 8) == 0)
         {
             RC::Unreal::UObject* signin_manager =
                 ObjectProperty(manager, L"SigninManager");
@@ -231,7 +234,6 @@ NavigationState ReplaySceneNavigator::Tick(
                 detail = "title_user_force_failed";
                 return NavigationState::Failed;
             }
-            title_user_forced_ = true;
             detail = "title_state:Top:user_forced";
             return NavigationState::Waiting;
         }

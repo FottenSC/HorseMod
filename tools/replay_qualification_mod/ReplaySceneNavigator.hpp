@@ -23,6 +23,5 @@ private:
     std::string last_scene_{};
     std::uint32_t retry_frames_{};
     bool title_top_requested_{};
-    bool title_user_forced_{};
 };
 }
