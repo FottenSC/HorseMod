@@ -79,34 +79,6 @@ RC::Unreal::UObject* CurrentScene(RC::Unreal::UObject* manager) noexcept
         && RC::Unreal::UObject::IsReal(*value) ? *value : nullptr;
 }
 
-RC::Unreal::UObject* ObjectProperty(RC::Unreal::UObject* owner,
-                                    const wchar_t* name) noexcept
-{
-    if (owner == nullptr) return nullptr;
-    auto** value = owner->GetValuePtrByPropertyNameInChain<RC::Unreal::UObject*>(
-        name);
-    return value != nullptr && *value != nullptr
-        && RC::Unreal::UObject::IsReal(*value) ? *value : nullptr;
-}
-
-bool CallNoParams(RC::Unreal::UObject* object, const wchar_t* name)
-{
-    if (object == nullptr) return false;
-    auto* function = object->GetFunctionByNameInChain(name);
-    if (function == nullptr) return false;
-    std::byte params{};
-    object->ProcessEvent(function, &params);
-    return true;
-}
-
-bool EmulateTitleDecide()
-{
-    auto* input_util = RC::Unreal::UObjectGlobals::StaticFindObject<
-        RC::Unreal::UObject*>(nullptr, nullptr,
-            L"/Script/LuxorGame.Default__LuxInputUtil");
-    return CallNoParams(input_util, L"EmulateTitleDecide");
-}
-
 bool ChangeScene(RC::Unreal::UObject* manager, const wchar_t* tag)
 {
     auto* function = manager->GetFunctionByNameInChain(L"ChangeScene");
@@ -185,17 +157,18 @@ NavigationState ReplaySceneNavigator::Tick(
     }
     if (scene_name.find("TitleScene") != std::string::npos)
     {
-        // Prefer the explicit scene transition. EmulateTitleDecide acts on
-        // whichever title modal currently owns focus and can therefore select
-        // a quit/acknowledgement action after an unclean prior game exit.
-        if (!CallNoParams(ObjectProperty(manager, L"CeBankManager"),
-                          L"TitleToMainMenu")
-            && !EmulateTitleDecide())
+        // Drive the same game-flow boundary used after the main menu. Both
+        // EmulateTitleDecide and CeBankManager::TitleToMainMenu depend on the
+        // active title-state/modal owner; after an unclean prior exit they can
+        // acknowledge a quit path or block inside that state machine. The
+        // replay-list transition is owned by the game-flow manager and carries
+        // the normal inherited-data/delegate values assembled by ChangeScene.
+        if (!ChangeScene(manager, L"replay_list"))
         {
-            detail = "title_to_main_menu_failed";
+            detail = "title_replay_list_failed";
             return NavigationState::Failed;
         }
-        detail = "title_to_main_menu_requested";
+        detail = "title_replay_list_requested";
         return NavigationState::Waiting;
     }
     if (scene_name.find("ReplayListScene") != std::string::npos
