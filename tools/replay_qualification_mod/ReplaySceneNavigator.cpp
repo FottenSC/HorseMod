@@ -89,14 +89,24 @@ RC::Unreal::UObject* ObjectProperty(RC::Unreal::UObject* owner,
         && RC::Unreal::UObject::IsReal(*value) ? *value : nullptr;
 }
 
-bool CallNoParams(RC::Unreal::UObject* owner, const wchar_t* name)
+bool CallStringParam(RC::Unreal::UObject* owner, const wchar_t* name,
+                     const wchar_t* value)
 {
     if (owner == nullptr) return false;
     auto* function = owner->GetFunctionByNameInChain(name);
     if (function == nullptr) return false;
-    std::byte params{};
+    struct Params { RC::Unreal::FString value; } params{value};
     owner->ProcessEvent(function, &params);
     return true;
+}
+
+std::string StringProperty(RC::Unreal::UObject* owner,
+                           const wchar_t* name) noexcept
+{
+    if (owner == nullptr) return {};
+    auto* value = owner->GetValuePtrByPropertyNameInChain<RC::Unreal::FString>(
+        name);
+    return value != nullptr ? RC::to_string(*value) : std::string{};
 }
 
 bool ChangeScene(RC::Unreal::UObject* owner, const wchar_t* tag)
@@ -163,30 +173,34 @@ NavigationState ReplaySceneNavigator::Tick(
     {
         last_scene_ = scene_name;
         retry_frames_ = 0;
+        title_top_requested_ = false;
     }
     if (scene_name.find("TitleScene") != std::string::npos)
     {
         // The cooked startup graph creates RefTitleMenu and MainBehavior before
         // ReadyToStart. Transitioning earlier tears down partially initialized
-        // title state. Once both owners exist, invoke the cooked ToMainmenu graph
-        // so its scene-owned ChangeScene call supplies the exact contract.
+        // title state. Once both owners exist, take the exact Movie-to-Top state
+        // edge used by TitleMovieState's SkipMovie path. Top then owns sign-in
+        // and startup progression through the game's normal callbacks.
+        RC::Unreal::UObject* behavior = ObjectProperty(scene, L"MainBehavior");
         if (ObjectProperty(scene, L"RefTitleMenu") == nullptr
-            || ObjectProperty(scene, L"MainBehavior") == nullptr)
+            || behavior == nullptr)
         {
             detail = "title_startup_pending";
             return NavigationState::Waiting;
         }
-        if ((retry_frames_++ % 60) != 0)
+        if (!title_top_requested_)
         {
-            detail = scene_name;
-            return NavigationState::Waiting;
+            if (!CallStringParam(behavior, L"ChangeState", L"Top"))
+            {
+                detail = "title_top_failed";
+                return NavigationState::Failed;
+            }
+            title_top_requested_ = true;
         }
-        if (!CallNoParams(scene, L"ToMainmenu"))
-        {
-            detail = "title_mainmenu_failed";
-            return NavigationState::Failed;
-        }
-        detail = "title_mainmenu_requested";
+        RC::Unreal::UObject* machine = ObjectProperty(behavior, L"Machine");
+        const std::string state = StringProperty(machine, L"CurrentStateCode");
+        detail = state.empty() ? "title_top_requested" : "title_state:" + state;
         return NavigationState::Waiting;
     }
     if (++retry_frames_ < 15)
