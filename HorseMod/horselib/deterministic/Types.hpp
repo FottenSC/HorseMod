@@ -203,7 +203,7 @@ struct CanonicalInputDiagnostic
 using CanonicalWindSemanticDiagnostic = std::array<std::uint64_t, 32>;
 // Wind-only mismatch localization: schedule, callback queue, then semantic and
 // derived fingerprints for up to eight bounded nodes.
-using CanonicalWindFingerprint = std::array<std::uint64_t, 18>;
+using CanonicalWindFingerprint = std::array<std::uint64_t, 20>;
 
 // Narrow runtime diagnostic for the first bounded wind node. These values are
 // already part of the canonical semantic image; keeping them alongside the

@@ -715,6 +715,8 @@ void test_candidate_checkpoint_codec()
         "capture checkpoint character-animation state");
     image.ucrt = candidate_ucrt_image();
     image.wind.generation = native.round_generation;
+    image.wind.root_clock[0] = std::byte{0x31};
+    image.wind.schedule_params[15] = std::byte{0x7A};
     const auto* ring_in_layout = FindStageWindNodeLayout(StageWindNodeKind::RingIn);
     StageWindNodeImage ring_in{};
     ring_in.kind = StageWindNodeKind::RingIn;
@@ -729,6 +731,9 @@ void test_candidate_checkpoint_codec()
     expect(!snapshot.bytes.empty()
             && snapshot.canonical_hash != CanonicalHash{},
         "checkpoint contains versioned payload and canonical component hash");
+    expect(snapshot.canonical_wind[18] != 0
+            && snapshot.canonical_wind[19] != 0,
+        "checkpoint exposes root-clock and schedule-parameter wind diagnostics");
     Snapshot captured_snapshot{};
     auto captured_image = image;
     expect(CandidateCheckpointCodec::EncodeCaptured(

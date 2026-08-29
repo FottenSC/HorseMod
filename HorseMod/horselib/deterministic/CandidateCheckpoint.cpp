@@ -653,6 +653,8 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
             image.wind.pending_callback_rvas}));
         output.canonical_wind[1] ^= static_cast<std::uint64_t>(
             image.wind.nodes.size()) << 32;
+        output.canonical_wind[18] = local_checksum(image.wind.root_clock);
+        output.canonical_wind[19] = local_checksum(image.wind.schedule_params);
         const auto wind_node_count = (std::min)(
             std::size_t{8}, image.wind.nodes.size());
         for (std::size_t index = 0; index < wind_node_count; ++index)

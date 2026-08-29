@@ -1672,7 +1672,7 @@ private:
             "frame={} sha256={}\n"), canonical_generation, canonical_frame,
             RC::to_generic_string(canonical_hex.str()));
         const auto get_components = ResolveHorseModCanonicalComponentsApi();
-        std::array<std::uint64_t, 6> canonical_components{};
+        std::array<std::uint64_t, 66> canonical_components{};
         if (get_components != nullptr
             && get_components(canonical_components.data(),
                 canonical_components.size()))
@@ -1684,6 +1684,48 @@ private:
                 canonical_components[0], canonical_components[1],
                 canonical_components[2], canonical_components[3],
                 canonical_components[4], canonical_components[5]);
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] final wind components "
+                "schedule=0x{:016x} callbacks=0x{:016x} "
+                "semantic0=0x{:016x} semantic1=0x{:016x} "
+                "semantic2=0x{:016x} semantic3=0x{:016x} "
+                "semantic4=0x{:016x} semantic5=0x{:016x} "
+                "semantic6=0x{:016x} semantic7=0x{:016x} "
+                "derived0=0x{:016x} derived1=0x{:016x} "
+                "derived2=0x{:016x} derived3=0x{:016x} "
+                "derived4=0x{:016x} derived5=0x{:016x} "
+                "derived6=0x{:016x} derived7=0x{:016x} "
+                "root=0x{:016x} params=0x{:016x}\n"),
+                canonical_components[6], canonical_components[7],
+                canonical_components[8], canonical_components[9],
+                canonical_components[10], canonical_components[11],
+                canonical_components[12], canonical_components[13],
+                canonical_components[14], canonical_components[15],
+                canonical_components[16], canonical_components[17],
+                canonical_components[18], canonical_components[19],
+                canonical_components[20], canonical_components[21],
+                canonical_components[22], canonical_components[23],
+                canonical_components[24], canonical_components[25]);
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] final wind node0 "
+                "chunks=0x{:016x},0x{:016x},0x{:016x},0x{:016x},"
+                "0x{:016x},0x{:016x},0x{:016x},0x{:016x},"
+                "0x{:016x},0x{:016x},0x{:016x},0x{:016x},"
+                "0x{:016x},0x{:016x},0x{:016x},0x{:016x} "
+                "life=0x{:08x} tick={} prepared={} active={} "
+                "step=0x{:08x} repeat={} kind={} present={}\n"),
+                canonical_components[26], canonical_components[27],
+                canonical_components[28], canonical_components[29],
+                canonical_components[30], canonical_components[31],
+                canonical_components[32], canonical_components[33],
+                canonical_components[34], canonical_components[35],
+                canonical_components[36], canonical_components[37],
+                canonical_components[38], canonical_components[39],
+                canonical_components[40], canonical_components[41],
+                canonical_components[58], canonical_components[59],
+                canonical_components[60], canonical_components[61],
+                canonical_components[62], canonical_components[63],
+                canonical_components[64], canonical_components[65]);
         }
         state_ = State::Launched;
         WriteResult("launch_requested", "none");

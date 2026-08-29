@@ -272,6 +272,23 @@ public:
         components[0] = snapshot.context_identity;
         std::copy(snapshot.canonical_components.begin(),
             snapshot.canonical_components.end(), components + 1);
+        if (count >= 66)
+        {
+            std::copy(snapshot.canonical_wind.begin(),
+                snapshot.canonical_wind.end(), components + 6);
+            std::copy(snapshot.canonical_wind_semantic.begin(),
+                snapshot.canonical_wind_semantic.end(), components + 26);
+            components[58] = snapshot.canonical_wind_node.life_bits;
+            components[59] = static_cast<std::uint32_t>(
+                snapshot.canonical_wind_node.oscillator_tick);
+            components[60] = snapshot.canonical_wind_node.prepared;
+            components[61] = snapshot.canonical_wind_node.active;
+            components[62] = snapshot.canonical_wind_node.frame_step_bits;
+            components[63] = static_cast<std::uint32_t>(
+                snapshot.canonical_wind_node.repeat_count);
+            components[64] = snapshot.canonical_wind_node.kind;
+            components[65] = snapshot.canonical_wind_node.present;
+        }
         return true;
     }
 
