@@ -218,15 +218,10 @@ public:
     bool GetReplaySimulationPhase(
         std::int32_t& native_round, std::int32_t& native_time,
         std::uint32_t& round_state_frame,
-        std::int32_t& unpause_countdown) const noexcept
+        std::int32_t& unpause_countdown) noexcept
     {
-        const auto& timeline = m_replay_native_runtime.timeline_status_view();
-        if (timeline.canonical_frames == 0) return false;
-        native_round = timeline.native_round;
-        native_time = timeline.native_time;
-        round_state_frame = timeline.round_state_frame;
-        unpause_countdown = timeline.unpause_countdown;
-        return true;
+        return m_replay_native_runtime.ObserveCurrentSimulationPhase(
+            native_round, native_time, round_state_frame, unpause_countdown);
     }
 
     bool GetReplaySeekMetrics(

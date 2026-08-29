@@ -334,6 +334,13 @@ public:
     // The caller must consume fields immediately and never retain this reference.
     [[nodiscard]] const ReplayTimelineStatus& timeline_status_view()
         const noexcept;
+    // Observer-only live phase read. This resolves and reads native battle
+    // state but cannot install hooks, write game memory, arm transport, or
+    // enable deterministic ownership.
+    [[nodiscard]] bool ObserveCurrentSimulationPhase(
+        std::int32_t& native_round, std::int32_t& native_time,
+        std::uint32_t& round_state_frame,
+        std::int32_t& unpause_countdown) noexcept;
     [[nodiscard]] const InputTimeline& input_timeline() const noexcept;
     [[nodiscard]] const NativeBatchTimeline& batch_timeline() const noexcept;
     [[nodiscard]] Status PlanSeek(

@@ -2,6 +2,7 @@
 #include "Sc6PresentationSink.hpp"
 
 #include "../HorseLib.hpp"
+#include "../SafeMemoryRead.hpp"
 
 #include <Windows.h>
 

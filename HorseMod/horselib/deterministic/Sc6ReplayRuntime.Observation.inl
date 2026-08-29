@@ -84,6 +84,38 @@ IReplayNativeBridge* Sc6ReplayRuntime::bridge() noexcept
     return bridge_ ? &*bridge_ : nullptr;
 }
 
+bool Sc6ReplayRuntime::ObserveCurrentSimulationPhase(
+    std::int32_t& native_round, std::int32_t& native_time,
+    std::uint32_t& round_state_frame,
+    std::int32_t& unpause_countdown) noexcept
+{
+    const Obj battle_manager = lux_.battleManager();
+    if (!battle_manager) return false;
+
+    const auto manager = reinterpret_cast<const std::byte*>(
+        battle_manager.raw());
+    void* input_log{};
+    if (!SafeReadPtr(manager + Schema::Sc6FrameLayout::manager_input_log,
+            &input_log)
+        || input_log == nullptr
+        || !SafeReadInt32(static_cast<const std::byte*>(input_log)
+                + Schema::Sc6FrameLayout::input_log_game_round,
+            &native_round)
+        || !SafeReadInt32(static_cast<const std::byte*>(input_log)
+                + Schema::Sc6FrameLayout::input_log_game_time,
+            &native_time)
+        || !SafeReadUInt32(manager
+                + Schema::Sc6FrameLayout::manager_round_state_frame,
+            &round_state_frame)
+        || !SafeReadInt32(manager
+                + Schema::Sc6FrameLayout::manager_unpause_countdown,
+            &unpause_countdown))
+    {
+        return false;
+    }
+    return true;
+}
+
 void Sc6ReplayRuntime::SetForcedDepth7QualificationEnabled(
     bool enabled) noexcept
 {
@@ -1227,4 +1259,3 @@ void Sc6ReplayRuntime::FillObservedPresentationEnvelope(
     envelope.round_state_after = observation.after.round_state;
     envelope.input_generation_changed = input_generation_changed;
 }
-
