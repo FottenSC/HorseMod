@@ -24,6 +24,10 @@ struct Config
     // the production correction path at the fixed acceptance depth of seven
     // frames; it is never enabled by the production allowlist.
     bool forced_depth7_qualification{};
+    std::uint32_t qualification_depth{7};
+    // 1 near round start, 2 active combat, 3 presentation-bearing hit,
+    // 4 terminal activity. Ignored outside qualification.
+    std::uint32_t qualification_location{2};
 };
 
 struct ConfigLoadResult

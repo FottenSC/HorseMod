@@ -1,8 +1,10 @@
 #include "deterministic/Config.hpp"
 #include "deterministic/ReplayCoordinator.hpp"
 #include "deterministic/Schema.hpp"
+#include "ProductionCandidateManifest.generated.hpp"
 
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <ostream>
 
@@ -10,12 +12,27 @@ using namespace Horse::Deterministic;
 
 namespace
 {
+void write_sha256(
+    std::ostream& output, const std::array<std::byte, 32>& digest)
+{
+    const auto flags = output.flags();
+    const auto fill = output.fill();
+    output << std::hex << std::setfill('0');
+    for (const auto value : digest)
+        output << std::setw(2) << std::to_integer<unsigned>(value);
+    output.flags(flags);
+    output.fill(fill);
+}
+
 void write_schema(std::ostream& output)
 {
     output << "{\n"
            << "  \"config_version\": " << Config::current_version << ",\n"
            << "  \"protocol_version\": " << Schema::protocol_version << ",\n"
            << "  \"snapshot_schema_version\": " << Schema::snapshot_schema_version << ",\n"
+           << "  \"production_candidate_manifest_sha256\": \"";
+    write_sha256(output, production_candidate_manifest_sha256);
+    output << "\",\n"
            << "  \"ucrt_algorithm_version\": "
            << Schema::Sc6UcrtLayout::algorithm_version << ",\n"
            << "  \"ucrt_allowlist_version\": "
@@ -89,6 +106,8 @@ void write_schema(std::ostream& output)
                << "    {\"name\": \"" << region.name
                << "\", \"address\": " << region.address
                << ", \"size\": " << region.size
+               << ", \"resolver\": \"" << region.resolver
+               << "\""
                << ", \"class\": \"" << Schema::region_class_name(region.classification)
                << "\"}";
     }

@@ -90,9 +90,16 @@ public:
               TransportReliability reliability) noexcept override;
   std::optional<TransportMessage> Poll() noexcept override;
   [[nodiscard]] FailureCode TerminalFailure() const noexcept override;
+  [[nodiscard]] bool IsClearForStock() const noexcept override;
   void Stop() noexcept override;
 
   [[nodiscard]] bool Authenticated() const noexcept { return authenticated_; }
+  [[nodiscard]] std::uint64_t LocalSteamId() const noexcept {
+    return local_steam_id_;
+  }
+  [[nodiscard]] std::uint64_t PeerSteamId() const noexcept {
+    return peer_steam_id_;
+  }
   [[nodiscard]] std::size_t QueuedMessages() const noexcept {
     return queue_size_;
   }
@@ -125,6 +132,8 @@ private:
     std::uint64_t highest{};
     std::uint64_t seen{};
     bool Accept(std::uint64_t sequence) noexcept;
+    friend constexpr bool operator==(const ReplayWindow &,
+                                     const ReplayWindow &) = default;
   };
 
   Status Fail(FailureCode code) noexcept;
@@ -164,5 +173,6 @@ private:
   bool remote_hello_{};
   bool sent_confirmation_{};
   bool authenticated_{};
+  bool channel_close_failed_{};
 };
 } // namespace Horse::Deterministic

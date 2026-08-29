@@ -312,7 +312,7 @@ public:
         if (hash_ != nullptr) BCryptDestroyHash(hash_);
     }
 
-    bool Hash(FrameCoordinate coordinate, std::uint64_t context_identity,
+    bool Hash(FrameCoordinate coordinate, std::uint64_t /*context_identity*/,
         std::span<const std::span<const std::byte>> canonical_components,
         CanonicalHash& output) noexcept
     {
@@ -325,8 +325,11 @@ public:
         };
         const bool added = add(hash_domain.data(), hash_domain.size())
             && add(&coordinate.generation, sizeof(coordinate.generation))
-            && add(&coordinate.frame, sizeof(coordinate.frame))
-            && add(&context_identity, sizeof(context_identity));
+            && add(&coordinate.frame, sizeof(coordinate.frame));
+        // battle_identity is the live ALuxBattleManager address. Keep it in
+        // Snapshot for same-process restore/lifetime validation, but never put
+        // an ASLR/allocator-dependent pointer into the portable canonical hash
+        // exchanged by peers or compared across fresh processes.
         bool components_added = added;
         for (const auto component : canonical_components)
             components_added = components_added

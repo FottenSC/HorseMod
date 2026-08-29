@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -25,9 +26,15 @@ enum class ImportFailure : std::uint8_t
 
 struct ReplayMetadata
 {
+    static constexpr std::size_t kMaximumStateResetRecords = 16;
+    static constexpr std::size_t kMaximumRoundStarts =
+        kMaximumStateResetRecords;
+    static constexpr std::int8_t kSimultaneousRoundWinners = 2;
+
     std::int32_t stage_index{-1};
     std::uint8_t left_character{0xff};
     std::uint8_t right_character{0xff};
+    std::uint32_t state_reset_record_count{};
 };
 
 class ReplayPayloadImporter final
@@ -40,7 +47,7 @@ public:
                          ReplayMetadata& metadata) noexcept;
     bool RequestPlayerProfiles() noexcept;
     bool PopulateFallbackProfiles() noexcept;
-    bool ApplyPlaybackContext() noexcept;
+    bool RequestReadyPlayback() noexcept;
     void ReleasePlaybackContext() noexcept;
 
 private:

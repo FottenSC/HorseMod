@@ -38,7 +38,11 @@ class TemporaryReplayMod(AbstractContextManager["TemporaryReplayMod"]):
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
-        deadline = time.monotonic() + 5.0
+        # UE4SS and Windows can retain the just-unloaded qualification DLL for
+        # several seconds after the game process disappears from tasklist.
+        # Keep teardown bounded, but allow the loader/AV file handles to drain
+        # before treating an otherwise clean run as a lifecycle failure.
+        deadline = time.monotonic() + 30.0
         while True:
             try:
                 self._enabled.unlink(missing_ok=True)
@@ -68,6 +72,10 @@ def create_request(
     min_resume_tick_rate: float = 58.0,
     resume_tick_window: int = 120,
     stage_terminal: str | None = None,
+    stock_round_outcome_control: bool | None = None,
+    require_authored_outcomes: bool = False,
+    expected_round_winners: tuple[int, ...] = (),
+    expected_match_winner: int | None = None,
 ) -> str:
     if watch_frames < 1 or watch_frames > 36000:
         raise RuntimeError("watch frames must be between 1 and 36000")
@@ -88,19 +96,45 @@ def create_request(
         raise RuntimeError("minimum resume tick rate must be between 1 and 1000")
     if not 1 <= resume_tick_window <= 36000:
         raise RuntimeError("resume tick window must be between 1 and 36000")
-    if stage_terminal not in (None, "wall", "barrier"):
-        raise RuntimeError("stage terminal must be wall or barrier")
-    version = 5 if stage_terminal else (4 if seek_percentages else 2)
+    if stage_terminal not in (None, "wall", "barrier", "both"):
+        raise RuntimeError("stage terminal must be wall, barrier, or both")
+    if stock_round_outcome_control is None:
+        stock_round_outcome_control = not seek_percentages and not stage_terminal
+    if any(winner not in (0, 1, 2) for winner in expected_round_winners):
+        raise RuntimeError("expected round winners must be P1, P2, or draw")
+    if expected_match_winner not in (None, 0, 1):
+        raise RuntimeError("expected match winner must be P1 or P2")
+    if require_authored_outcomes and not stock_round_outcome_control:
+        if not expected_round_winners or expected_match_winner is None:
+            raise RuntimeError(
+                "outcome verification requires a same-replay stock control oracle")
+    version = 8
     seek_line = (
         "seek_percentages=" + ",".join(map(str, seek_percentages)) + "\n"
         f"min_resume_tick_rate_milli={round(min_resume_tick_rate * 1000)}\n"
         f"resume_tick_window={resume_tick_window}\n"
-        if seek_percentages or stage_terminal else ""
+        if version >= 6 or seek_percentages or stage_terminal else ""
     )
-    terminal_line = f"stage_terminal={stage_terminal}\n" if stage_terminal else ""
+    terminal_line = f"stage_terminal={stage_terminal or ''}\n"
+    outcome_line = (
+        "stock_round_outcome_control="
+        f"{'true' if stock_round_outcome_control else 'false'}\n"
+    )
+    authored_outcome_line = (
+        "require_authored_outcomes="
+        f"{'true' if require_authored_outcomes else 'false'}\n"
+    )
+    expected_outcome_lines = (
+        "expected_round_winners="
+        + ",".join(map(str, expected_round_winners)) + "\n"
+        + "expected_match_winner="
+        + ("" if expected_match_winner is None else str(expected_match_winner))
+        + "\n"
+    )
     temporary.write_text(
         f"version={version}\nrun_id={run_id}\nreplay_path={replay_text}\n"
-        f"watch_frames={watch_frames}\n{seek_line}{terminal_line}",
+        f"watch_frames={watch_frames}\n{seek_line}{terminal_line}{outcome_line}"
+        f"{authored_outcome_line}{expected_outcome_lines}",
         encoding="utf-8",
     )
     os.replace(temporary, request)

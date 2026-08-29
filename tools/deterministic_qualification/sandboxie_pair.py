@@ -8,6 +8,10 @@ from pathlib import Path
 
 DEFAULT_SANDBOXIE_START = Path(r"C:\Program Files\Sandboxie-Plus\Start.exe")
 DEFAULT_STEAM_EXECUTABLE = Path(r"C:\Program Files (x86)\Steam\steam.exe")
+DEFAULT_GAME_EXECUTABLE = Path(
+    r"E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI"
+    r"\Binaries\Win64\SoulcaliburVI.exe"
+)
 DEFAULT_STEAM_APP_ID = "544750"
 _BOX_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
@@ -17,6 +21,7 @@ class SandboxiePairSpec:
     box_name: str
     sandboxie_start: Path = DEFAULT_SANDBOXIE_START
     steam_executable: Path = DEFAULT_STEAM_EXECUTABLE
+    game_executable: Path = DEFAULT_GAME_EXECUTABLE
     steam_app_id: str = DEFAULT_STEAM_APP_ID
     sandbox_query_port: int = 27012
 
@@ -41,9 +46,7 @@ class SandboxiePairSpec:
         return (
             str(self.sandboxie_start),
             f"/box:{self.box_name}",
-            str(self.steam_executable),
-            "-applaunch",
-            self.steam_app_id,
+            str(self.game_executable),
             f"-QueryPort={self.sandbox_query_port}",
         )
 

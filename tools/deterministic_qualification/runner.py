@@ -3,18 +3,40 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 from .artifacts import runner_sha256, sha256_file, source_identity
 from .process_control import (
     close_game,
     find_game_pid,
+    force_stop_game_for_cleanup,
     launch_game,
+    list_game_processes,
     require_game_process,
     wait_for_game,
 )
+from .observer_pair import (
+    ObserverPairPaths,
+    ObserverPeerPaths,
+    cleanup_observer_pair,
+    create_host_room_request,
+    create_host_room_suppression,
+    create_probe_request,
+    deploy_observer_pair,
+    stop_observer_processes,
+    validate_host_room_suppression,
+    validate_observer_reports,
+    wait_for_observer_reports,
+    wait_for_host_room,
+    wait_for_pair_processes,
+)
+from .offline_campaign import run_offline_campaign
+from .paired_online import run_paired_online
+from .release_publish import publish_release
 from .replay_entry import (
     TemporaryReplayMod,
     create_request,
@@ -22,15 +44,23 @@ from .replay_entry import (
     wait_for_replay_entry,
 )
 from .report import write_report
+from .sandboxie_pair import SandboxiePairSpec
 from .trace_parser import (
     capture_log_offset,
     wait_for_boot_evidence,
+    wait_for_correction_probe_evidence,
     wait_for_forced_qualification_evidence,
+    wait_for_final_canonical_evidence,
     wait_for_gameplay_rng_coverage_evidence,
     wait_for_presentation_coverage_evidence,
+    wait_for_presentation_identity_evidence,
+    wait_for_qualification_health_evidence,
     wait_for_replay_lifecycle_evidence,
+    wait_for_replay_metadata_evidence,
     wait_for_replay_seek_evidence,
+    wait_for_stock_round_outcome_evidence,
 )
+from .tira_campaign import run_tira_campaign
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -42,6 +72,45 @@ DEFAULT_SCHEMA = ROOT / "build_cmake_LessEqual421__Shipping__Win64" / "HorseMod"
 DEFAULT_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "boot-report.json"
 DEFAULT_REPLAY_MOD = ROOT / "build_cmake_LessEqual421__Shipping__Win64" / "HorseMod" / "ReplayQualificationMod.dll"
 DEFAULT_REPLAY_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "replay-entry-report.json"
+DEFAULT_OBSERVER_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "online-observer-report.json"
+DEFAULT_SANDBOX_ROOT = Path(r"C:\Sandbox\prest\sc67")
+
+
+def _observer_paths(sandbox_root: Path) -> ObserverPairPaths:
+    host_mods = GAME_ROOT / "ue4ss" / "Mods"
+    sandbox_game_root = (
+        sandbox_root / "drive" / "E" / "SteamLibrary" / "steamapps" / "common"
+        / "SoulcaliburVI" / "SoulcaliburVI" / "Binaries" / "Win64"
+    )
+    return ObserverPairPaths(
+        host=ObserverPeerPaths(
+            mods_root=host_mods,
+            horsemod_dll=host_mods / "HorseMod" / "dlls" / "main.dll",
+            config=host_mods / "HorseMod" / "dlls" / "rollback.ini",
+            qualification_root=Path.home() / "AppData" / "Local" / "HorseMod" / "Qualification",
+            log=GAME_ROOT / "ue4ss" / "UE4SS.log",
+        ),
+        sandbox=ObserverPeerPaths(
+            mods_root=sandbox_game_root / "ue4ss" / "Mods",
+            horsemod_dll=sandbox_game_root / "ue4ss" / "Mods" / "HorseMod" / "dlls" / "main.dll",
+            config=sandbox_game_root / "ue4ss" / "Mods" / "HorseMod" / "dlls" / "rollback.ini",
+            qualification_root=(
+                sandbox_root / "user" / "current" / "AppData" / "Local"
+                / "HorseMod" / "Qualification"
+            ),
+            log=sandbox_game_root / "ue4ss" / "UE4SS.log",
+        ),
+    )
+
+
+def _paired_observer_paths(args: argparse.Namespace) -> ObserverPairPaths:
+    root = args.sandbox_root.resolve()
+    if root == DEFAULT_SANDBOX_ROOT.resolve() and args.sandbox_box != "sc67":
+        root = root.parent / args.sandbox_box
+    if root.name.casefold() != args.sandbox_box.casefold():
+        raise RuntimeError(
+            "sandbox root leaf must match --sandbox-box for isolated writable roots")
+    return _observer_paths(root)
 
 
 def required_file(path: Path, label: str) -> Path:
@@ -49,6 +118,185 @@ def required_file(path: Path, label: str) -> Path:
     if not resolved.is_file():
         raise FileNotFoundError(f"{label} not found: {resolved}")
     return resolved
+
+
+def load_outcome_control(
+    path: Path, replay: Path, dll: Path, replay_mod: Path,
+    schema: Path, executable: Path,
+) -> tuple[tuple[int, ...], int, dict[str, str]]:
+    control_path = required_file(path, "same-replay stock outcome control")
+    data = json.loads(control_path.read_text(encoding="utf-8"))
+    if (data.get("report_schema") != 2 or data.get("certifying") is not True
+            or data.get("result") != "pass" or data.get("renderer") != "normal"):
+        raise RuntimeError("stock outcome control is not a schema-v2 normal-render certifying pass")
+    artifacts = data.get("artifacts", {})
+    replay_artifact = artifacts.get("replay", {})
+    if replay_artifact.get("sha256") != sha256_file(replay):
+        raise RuntimeError("stock outcome control replay hash mismatch")
+    required_identities = {
+        "HorseMod DLL": (artifacts.get("horsemod_dll", {}).get("sha256"), sha256_file(dll)),
+        "replay qualification mod": (
+            artifacts.get("replay_qualification_mod", {}).get("sha256"),
+            sha256_file(replay_mod),
+        ),
+        "generated schema": (
+            artifacts.get("generated_schema", {}).get("sha256"), sha256_file(schema)
+        ),
+        "game executable": (
+            artifacts.get("game_executable", {}).get("sha256"),
+            sha256_file(executable),
+        ),
+        "qualification runner": (
+            artifacts.get("runner_sha256"),
+            runner_sha256(Path(__file__).resolve().parent),
+        ),
+    }
+    for label, (observed, expected) in required_identities.items():
+        if observed != expected:
+            raise RuntimeError(f"stock outcome control {label} hash mismatch")
+    outcome = data.get("runtime", {}).get("stock_round_outcome")
+    if not isinstance(outcome, dict):
+        raise RuntimeError("stock outcome control is missing runtime outcomes")
+    winners = tuple(int(value) for value in outcome.get("round_winners", ()))
+    winner = int(outcome.get("match_winner", -1))
+    if not winners or any(value not in (0, 1, 2) for value in winners):
+        raise RuntimeError("stock outcome control has invalid round winners")
+    if winner not in (0, 1) or outcome.get("rounds") != len(winners):
+        raise RuntimeError("stock outcome control has invalid match outcome")
+    return winners, winner, {
+        "path": str(control_path), "sha256": sha256_file(control_path)
+    }
+
+
+def run_online_observer(args: argparse.Namespace) -> int:
+    horsemod = required_file(args.dll, "HorseMod observer DLL")
+    observer_bridge = required_file(args.replay_mod, "observer bridge DLL")
+    executable = required_file(args.game_executable, "SoulcaliburVI executable")
+    paths = _observer_paths(args.sandbox_root.resolve())
+    spec = SandboxiePairSpec(
+        box_name=args.sandbox_box,
+        sandboxie_start=args.sandboxie_start,
+        steam_executable=args.steam_executable,
+        game_executable=executable,
+        sandbox_query_port=args.sandbox_query_port,
+    )
+    spec.validate()
+    required_file(spec.sandboxie_start, "Sandboxie Start.exe")
+    required_file(spec.steam_executable, "Steam executable")
+    if shutil.disk_usage(ROOT).free < 5 * 1024**3:
+        raise RuntimeError("less than 5 GiB free; refusing paired artifact deployment")
+    existing_processes = list_game_processes()
+    if existing_processes:
+        raise RuntimeError(
+            "SC6 is already running; refusing ambiguous observer deployment: "
+            + ", ".join(str(process.pid) for process in existing_processes)
+        )
+
+    run_id = "observer-" + uuid.uuid4().hex
+    pair = None
+    process_rows = None
+    reports = None
+    artifact_hashes: dict[str, str] = {}
+    primary_error: BaseException | None = None
+    try:
+        artifact_hashes = deploy_observer_pair(paths, horsemod, observer_bridge)
+        native_timeout = max(1, min(900, int(args.timeout) - 10))
+        create_probe_request(paths.host, run_id, native_timeout)
+        create_probe_request(paths.sandbox, run_id, native_timeout)
+        create_host_room_suppression(paths.sandbox, run_id)
+        create_host_room_request(paths.host, run_id)
+        subprocess.Popen(spec.host_command(), close_fds=True)
+        subprocess.Popen(spec.sandbox_command(), close_fds=True)
+        print("Observer-only pair launched; creating Fotten's Player Match room through "
+              "SC6's stock UI state machine.", flush=True)
+        pair, process_rows = wait_for_pair_processes(spec, args.launch_timeout)
+
+        def guard() -> None:
+            current = list_game_processes()
+            if {process.pid for process in current} != {pair.host_pid, pair.sandbox_pid}:
+                raise RuntimeError("paired SC6 process identity changed during observer probe")
+
+        wait_for_host_room(paths.host, run_id, args.launch_timeout, guard)
+        validate_host_room_suppression(paths.sandbox, run_id)
+        print(
+            "Fotten's Player Match room is created. In the Sandboxie game, join it as "
+            "ulvunge1; then use normal visible character select on both games and choose "
+            f"{args.stage_display_name}. No character-select automation is running.",
+            flush=True,
+        )
+
+        host_report, sandbox_report = wait_for_observer_reports(
+            paths, run_id, args.timeout, guard
+        )
+        reports = validate_observer_reports(
+            host_report,
+            sandbox_report,
+            args.host_steamid64,
+            args.client_steamid64,
+            args.stage_package,
+            args.stage_display_name,
+        )
+    except BaseException as error:
+        primary_error = error
+    finally:
+        cleanup_errors: list[str] = []
+        try:
+            current_processes = list_game_processes()
+            if current_processes:
+                stop_observer_processes(current_processes)
+        except (RuntimeError, TimeoutError) as error:
+            cleanup_errors.append(str(error))
+        try:
+            cleanup_observer_pair(paths, run_id)
+        except RuntimeError as error:
+            cleanup_errors.append(str(error))
+        if cleanup_errors:
+            cleanup_error = RuntimeError("; ".join(cleanup_errors))
+            if primary_error is None:
+                primary_error = cleanup_error
+            else:
+                primary_error = RuntimeError(f"{primary_error}; cleanup: {cleanup_error}")
+    if primary_error is not None:
+        raise primary_error
+    assert pair is not None and process_rows is not None and reports is not None
+    report_data: dict[str, object] = {
+        "report_schema": 1,
+        "kind": "online_observer_only_pair",
+        "certifying": False,
+        "result": "pass",
+        "reason": "read-only native online accessor/lobby/content observation only",
+        "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "run_id": run_id,
+        "artifacts": {
+            "horsemod_dll": {"path": str(horsemod), "sha256": artifact_hashes["horsemod"]},
+            "observer_bridge": {"path": str(observer_bridge), "sha256": artifact_hashes["observer_bridge"]},
+            "game_executable": {"path": str(executable), "sha256": sha256_file(executable)},
+        },
+        "processes": {
+            "host_pid": pair.host_pid,
+            "sandbox_pid": pair.sandbox_pid,
+            "host_command_line": process_rows[pair.host_pid].command_line,
+            "sandbox_command_line": process_rows[pair.sandbox_pid].command_line,
+            "sandbox_box": args.sandbox_box,
+            "sandbox_query_port": args.sandbox_query_port,
+        },
+        "observer_contract": reports,
+        "room_automation": {
+            "host_created_room": True,
+            "sandbox_shadow_arm": False,
+            "sandbox_room_automation_executed": False,
+        },
+        "cleanup": {
+            "requests_disarmed": True,
+            "diagnostic_flags_false": True,
+            "qualification_bridge_removed": True,
+            "game_processes_remaining": 0,
+        },
+    }
+    write_report(args.report, report_data)
+    print(json.dumps(report_data, indent=2, sort_keys=True))
+    print(f"report: {args.report.resolve()}")
+    return 0
 
 
 def run_boot(args: argparse.Namespace) -> int:
@@ -114,11 +362,21 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     schema = required_file(args.schema, "generated schema")
     executable = required_file(args.game_executable, "SoulcaliburVI executable")
     identity = source_identity(ROOT)
+    config_fields = {
+        key.strip().casefold(): value.strip().casefold()
+        for line in config.read_text(encoding="utf-8").splitlines()
+        if (separator := line.partition("="))[1]
+        for key, value in [(separator[0], separator[2])]
+    }
     forced_depth7_requested = any(
         line.strip().casefold() == "forced_depth7_qualification=true"
         for line in config.read_text(encoding="utf-8").splitlines()
     )
-    if identity["dirty"] and not args.allow_dirty:
+    correction_probe_requested = any(
+        line.strip().casefold() == "correction_probe=true"
+        for line in config.read_text(encoding="utf-8").splitlines()
+    )
+    if identity["dirty"] and (args.certifying or not args.allow_dirty):
         raise RuntimeError(
             "source tree is dirty; replay-entry evidence would not bind an immutable source state"
         )
@@ -129,42 +387,123 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     pid: int | None = None
     forced = None
     seeks = ()
+    boot = None
+    lifecycle = None
     presentation_coverage = None
+    presentation_identity = None
+    qualification_health = None
     gameplay_rng_coverage = None
+    stock_round_outcome = None
+    replay_metadata = None
+    correction_probes = ()
+    stock_round_outcome_control = args.stock_round_outcome_control or (
+        not args.deterministic_baseline
+        and not forced_depth7_requested and not correction_probe_requested
+        and not args.seek_percentages and args.stage_terminal is None
+        and not args.require_authored_outcomes
+        and not args.require_tira_probability_transition)
+    require_authored_outcomes = bool(
+        args.certifying or args.require_authored_outcomes
+        or args.require_tira_probability_transition
+    )
+    expected_round_winners: tuple[int, ...] = ()
+    expected_match_winner: int | None = None
+    outcome_control_artifact: dict[str, str] | None = None
+    if require_authored_outcomes and not stock_round_outcome_control:
+        if args.outcome_control_report is None:
+            raise RuntimeError(
+                "deterministic outcome verification requires "
+                "--outcome-control-report from the same replay")
+        (expected_round_winners, expected_match_winner,
+         outcome_control_artifact) = load_outcome_control(
+            args.outcome_control_report, replay, dll, replay_mod, schema, executable)
+    final_canonical = None
     mods_root = GAME_ROOT / "ue4ss" / "Mods"
+    graceful_exit_observed = False
+    process_absent_after_exit = False
     with TemporaryReplayMod(replay_mod, mods_root):
         try:
             run_id = create_request(
                 replay, args.watch_frames, tuple(args.seek_percentages),
                 args.min_resume_tick_rate, args.resume_tick_window,
                 args.stage_terminal,
+                stock_round_outcome_control,
+                require_authored_outcomes,
+                expected_round_winners,
+                expected_match_winner,
             )
             log_start = capture_log_offset(args.log)
             launch_game()
             pid = wait_for_game(args.timeout)
             guard = lambda: require_game_process(pid)
-            boot = wait_for_boot_evidence(
-                args.log, args.timeout, guard, log_start
-            )
+            if not stock_round_outcome_control:
+                boot = wait_for_boot_evidence(
+                    args.log, args.timeout, guard, log_start
+                )
             entry = wait_for_replay_entry(run_id, args.timeout, guard)
-            lifecycle = wait_for_replay_lifecycle_evidence(
-                args.log, args.timeout, guard, log_start
-            )
-            presentation_coverage = wait_for_presentation_coverage_evidence(
-                args.log, args.timeout, guard, log_start
-            )
-            gameplay_rng_coverage = wait_for_gameplay_rng_coverage_evidence(
-                args.log, args.timeout, guard, log_start
-            )
-            if gameplay_rng_coverage.unknown_callers != 0:
-                raise RuntimeError("unverified gameplay xorshift caller observed")
-            if args.require_tira_probability_transition:
-                if (gameplay_rng_coverage.tira_probability_batches == 0
-                        or gameplay_rng_coverage.tira_random_transitions == 0
-                        or gameplay_rng_coverage.tira_targets == 0):
+            replay_metadata = wait_for_replay_metadata_evidence(
+                args.log, args.timeout, guard, log_start)
+            if not stock_round_outcome_control:
+                lifecycle = wait_for_replay_lifecycle_evidence(
+                    args.log, args.timeout, guard, log_start
+                )
+            if stock_round_outcome_control or require_authored_outcomes:
+                stock_round_outcome = wait_for_stock_round_outcome_evidence(
+                    args.log, args.timeout, guard, log_start
+                )
+            if not stock_round_outcome_control:
+                presentation_coverage = wait_for_presentation_coverage_evidence(
+                    args.log, args.timeout, guard, log_start
+                )
+                presentation_identity = wait_for_presentation_identity_evidence(
+                    args.log, args.timeout, guard, log_start
+                )
+                qualification_health = wait_for_qualification_health_evidence(
+                    args.log, args.timeout, guard, log_start
+                )
+                if (presentation_identity.failures != 0
+                        or presentation_identity.audio_events == 0
+                        or presentation_identity.order_events == 0
+                        or presentation_identity.camera_batches == 0):
                     raise RuntimeError(
-                        "authored Tira IF 0x007F transition was not observed"
+                        "replay presentation identity is empty or contains failures")
+                gameplay_rng_coverage = wait_for_gameplay_rng_coverage_evidence(
+                    args.log, args.timeout, guard, log_start
+                )
+                if gameplay_rng_coverage.unknown_callers != 0:
+                    raise RuntimeError("unverified gameplay xorshift caller observed")
+                if args.require_tira_probability_transition:
+                    if (gameplay_rng_coverage.tira_probability_batches == 0
+                            or gameplay_rng_coverage.tira_random_transitions == 0
+                            or gameplay_rng_coverage.tira_targets == 0
+                            or gameplay_rng_coverage.tira_stance_batches == 0
+                            or gameplay_rng_coverage.tira_slot_mask == 0
+                            or not gameplay_rng_coverage.state19_initial_valid):
+                        raise RuntimeError(
+                            "joined authored Tira IF 0x007F RNG/target/state19 "
+                            "transition was not observed"
+                        )
+                    transitioned_states = []
+                    if gameplay_rng_coverage.tira_slot_mask & 1:
+                        transitioned_states.append(
+                            gameplay_rng_coverage.state19_at_tira_transition_p0)
+                    if gameplay_rng_coverage.tira_slot_mask & 2:
+                        transitioned_states.append(
+                            gameplay_rng_coverage.state19_at_tira_transition_p1)
+                    if (not transitioned_states
+                            or any(state not in (0, 1)
+                                   for state in transitioned_states)):
+                        raise RuntimeError(
+                            "Tira transition did not land in exact native "
+                            "Gloomy/Jolly state19"
+                        )
+                if correction_probe_requested:
+                    correction_probes = wait_for_correction_probe_evidence(
+                        args.log, args.timeout, guard, log_start
                     )
+                final_canonical = wait_for_final_canonical_evidence(
+                    args.log, args.timeout, guard, log_start
+                )
             if args.seek_percentages:
                 seeks = wait_for_replay_seek_evidence(
                     args.log, tuple(args.seek_percentages), args.timeout,
@@ -191,31 +530,68 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                         f"result={forced.result} completed={forced.completed} "
                         f"status={forced.status}"
                     )
-                if (args.require_presentation_coverage
-                        and forced.presentation_terminal_coverage != "complete"):
-                    raise RuntimeError(
-                        "forced depth-7 presentation terminal coverage is incomplete"
-                    )
-            if boot.source_commit != identity["commit"]:
+                expected_depth = int(config_fields.get("qualification_depth", "7"))
+                expected_location = int(config_fields.get("qualification_location", "2"))
+                if forced.depth != expected_depth or forced.location != expected_location:
+                    raise RuntimeError("forced correction depth/location identity mismatch")
+                if args.require_presentation_coverage:
+                    require_wall = args.stage_terminal in ("wall", "both")
+                    require_barrier = args.stage_terminal in ("barrier", "both")
+                    wall_ok = (not require_wall
+                        or (presentation_coverage.stage_wall != 0
+                            and presentation_coverage.stage_dispatch != 0
+                            and forced.suppressed_stage_wall != 0
+                            and forced.semantic_stage_dispatches != 0))
+                    barrier_ok = (not require_barrier
+                        or (presentation_coverage.stage_barrier != 0
+                            and forced.suppressed_stage_barrier != 0))
+                    particle_ok = (args.correction_location != "confirmed_hit"
+                        or (presentation_coverage.particle_spawn != 0
+                            and forced.suppressed_particle_spawn != 0))
+                    if (not wall_ok or not barrier_ok or not particle_ok
+                            or forced.presentation_failures != 0
+                            or forced.presentation_terminal_coverage != "complete"):
+                        raise RuntimeError(
+                            "forced depth-7 requested stage presentation coverage "
+                            "is incomplete"
+                        )
+            if boot is not None and boot.source_commit != identity["commit"]:
                 raise RuntimeError(
                     f"deployed HorseMod source {boot.source_commit} does not match HEAD {identity['commit']}"
                 )
-            if lifecycle.source_commit != identity["commit"]:
+            if (stock_round_outcome is not None
+                    and stock_round_outcome.source_commit != identity["commit"]):
+                raise RuntimeError(
+                    "stock replay qualification mod source does not match "
+                    "the current source commit"
+                )
+            if (lifecycle is not None
+                    and lifecycle.source_commit != identity["commit"]):
                 raise RuntimeError(
                     "replay qualification mod source does not match the current source commit"
                 )
-            if not lifecycle.native_import_ready:
+            if lifecycle is not None and not lifecycle.native_import_ready:
                 raise RuntimeError("replay qualification native import contract was blocked")
         finally:
             if pid is not None and find_game_pid() is not None:
-                close_game(pid)
+                try:
+                    close_game(pid)
+                    graceful_exit_observed = True
+                    process_absent_after_exit = find_game_pid() is None
+                except (RuntimeError, TimeoutError):
+                    # Preserve the graceful-teardown failure as the run result,
+                    # but first release the process-owned DLL handle so the
+                    # context manager can remove its temporary mod exactly.
+                    force_stop_game_for_cleanup(pid)
+                    raise
             if run_id:
                 remove_request_files(run_id)
+    temporary_mod_removed = not (mods_root / "ReplayQualificationMod").exists()
 
     report_data: dict[str, object] = {
-        "report_schema": 1,
+        "report_schema": 2,
         "kind": "replay_entry_probe",
-        "certifying": False,
+        "certifying": bool(args.certifying),
         "result": "pass",
         "reason": (
             "native replay import, stock launch request, and bounded normal-play "
@@ -223,6 +599,11 @@ def run_replay_entry(args: argparse.Namespace) -> int:
         ),
         "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "source": identity,
+        "case_id": args.case_id,
+        "row_id": args.row_id,
+        "renderer": "normal",
+        "display_map_name": args.display_map_name,
+        "stage_package_root": args.stage_package_root,
         "artifacts": {
             "horsemod_dll": {"path": str(dll), "sha256": sha256_file(dll)},
             "replay_qualification_mod": {
@@ -230,15 +611,121 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             },
             "replay": {"path": str(replay), "sha256": sha256_file(replay)},
             "config": {"path": str(config), "sha256": sha256_file(config)},
+            "config_fields": config_fields,
             "generated_schema": {"path": str(schema), "sha256": sha256_file(schema)},
+            "horsemod_dll_sha256": sha256_file(dll),
+            "schema_sha256": sha256_file(schema),
             "runner_sha256": runner_sha256(Path(__file__).resolve().parent),
             "game_executable": {"path": str(executable), "sha256": sha256_file(executable)},
+            "stock_outcome_control": outcome_control_artifact,
         },
         "runtime": {
             "run_id": entry.run_id,
-            "horsemod_version": boot.version,
-            "reported_source_commit": boot.source_commit,
-            "native_replay_import_ready": lifecycle.native_import_ready,
+            "replay_metadata": None if replay_metadata is None else {
+                "stage": replay_metadata.stage,
+                "map": replay_metadata.map,
+                "left_character": replay_metadata.left_character,
+                "right_character": replay_metadata.right_character,
+                "state_reset_records": replay_metadata.state_reset_records,
+            },
+            "canonical_convergence": (
+                "exact" if forced is None else forced.canonical_convergence
+            ),
+            "final_canonical": None if final_canonical is None else {
+                "generation": final_canonical.generation,
+                "frame": final_canonical.frame,
+                "sha256": final_canonical.sha256,
+            },
+            "capacity_failures": (None if qualification_health is None else
+                                  qualification_health.capacity_failures),
+            "capacity_growth_events": (None if qualification_health is None else
+                                       qualification_health.capacity_growth_events),
+            "timeline_accounting_failures": (
+                None if qualification_health is None else
+                qualification_health.timeline_accounting_failures),
+            "presentation_duplicate_failures": (
+                None if qualification_health is None else
+                qualification_health.presentation_duplicate_failures),
+            "presentation_publish_failures": (
+                None if qualification_health is None else
+                qualification_health.presentation_publish_failures),
+            "aggregate_owned_bytes": (None if qualification_health is None else
+                                      qualification_health.aggregate_owned_bytes),
+            "presentation_owned_bytes": (None if qualification_health is None else
+                                         qualification_health.presentation_owned_bytes),
+            "clean_exit": (graceful_exit_observed
+                           and process_absent_after_exit
+                           and temporary_mod_removed),
+            "graceful_exit_observed": graceful_exit_observed,
+            "process_absent_after_exit": process_absent_after_exit,
+            "reentry": False,
+            "corrections": 0 if forced is None else forced.completed,
+            "consecutive_corrections": 0 if forced is None else forced.completed,
+            "depth": 0 if forced is None else forced.depth,
+            "location": args.correction_location,
+            "presentation": {
+                "ordered_audio_payload_ids": (
+                    presentation_identity is not None
+                    and presentation_identity.audio_events > 0
+                    and presentation_identity.failures == 0
+                ) if forced is None else (
+                    forced.audio_batches_verified > 0
+                    and forced.audio_sequence_mismatches == 0
+                ),
+                "ephemeral_exactly_once": (
+                    presentation_identity is not None
+                    and presentation_identity.order_events > 0
+                    and presentation_identity.failures == 0
+                ) if forced is None else (
+                    forced.journal_duplicates == 0
+                    and forced.journal_publish_failures == 0
+                ),
+                "persistent_final_exact": (
+                    presentation_identity is not None
+                    and presentation_identity.camera_identity != 0
+                    and presentation_identity.camera_batches > 0
+                    and presentation_identity.failures == 0
+                ) if forced is None else (
+                    forced.camera_batches_verified > 0
+                    and forced.camera_publication_mismatches == 0
+                    and forced.presentation_failures == 0
+                ),
+                "leaks": 0 if forced is None else (
+                    forced.journal_pending + forced.journal_payload_bytes
+                ),
+                "required_activity": 0 if forced is None else (
+                    forced.audio_batches_verified
+                    + forced.suppressed_particle_spawn
+                    + forced.suppressed_stage_wall
+                    + forced.suppressed_stage_barrier
+                ),
+                "terminal_coverage": "not_applicable" if forced is None
+                    else forced.presentation_terminal_coverage,
+                "identity": None if presentation_identity is None else {
+                    "batches": presentation_identity.batches,
+                    "audio_events": presentation_identity.audio_events,
+                    "audio_identity": f"0x{presentation_identity.audio_identity:016x}",
+                    "order_events": presentation_identity.order_events,
+                    "order_identity": f"0x{presentation_identity.order_identity:016x}",
+                    "camera_identity": f"0x{presentation_identity.camera_identity:016x}",
+                    "camera_batches": presentation_identity.camera_batches,
+                    "failures": presentation_identity.failures,
+                    "journal_committed": presentation_identity.journal_committed,
+                },
+            },
+            "performance": {
+                "capture_p99_us": 0 if forced is None else forced.capture_p99_us,
+                "capture_max_us": 0 if forced is None else forced.capture_max_us,
+                "correction_p99_us": 0 if forced is None else forced.cycle_p99_us,
+                "correction_max_us": 0 if forced is None else forced.cycle_max_us,
+            },
+            "horsemod_version": None if boot is None else boot.version,
+            "reported_source_commit": (
+                identity["commit"] if boot is None else boot.source_commit
+            ),
+            "native_replay_import_ready": (
+                None if lifecycle is None else lifecycle.native_import_ready
+            ),
             "launch_requested": True,
             "watch_frames": args.watch_frames,
             "stage_terminal": args.stage_terminal,
@@ -261,7 +748,25 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                 }
                 for seek in seeks
             ],
-            "presentation_source_coverage": {
+            "stock_round_outcome": None if stock_round_outcome is None else {
+                "source_commit": stock_round_outcome.source_commit,
+                "rounds": stock_round_outcome.rounds,
+                "match_winner": stock_round_outcome.match_winner,
+                "round_winners": list(stock_round_outcome.round_winners),
+            },
+            "authored_outcomes_required": require_authored_outcomes,
+            "correction_probes": [
+                {
+                    "depth": probe.depth,
+                    "base": probe.base,
+                    "final": probe.final,
+                    "batches": probe.batches,
+                    "coordinates": probe.coordinates,
+                    "total_us": probe.total_us,
+                }
+                for probe in correction_probes
+            ],
+            "presentation_source_coverage": None if presentation_coverage is None else {
                 "stage_wall": presentation_coverage.stage_wall,
                 "stage_barrier": presentation_coverage.stage_barrier,
                 "stage_dispatch": presentation_coverage.stage_dispatch,
@@ -273,7 +778,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                 "audio_blueprint": presentation_coverage.audio_blueprint,
                 "particle_spawn": presentation_coverage.particle_spawn,
             },
-            "gameplay_rng_coverage": {
+            "gameplay_rng_coverage": None if gameplay_rng_coverage is None else {
                 "xorshift_draws": gameplay_rng_coverage.xorshift_draws,
                 "known_callers": f"0x{gameplay_rng_coverage.known_callers:x}",
                 "unknown_callers": gameplay_rng_coverage.unknown_callers,
@@ -295,9 +800,36 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                 "tira_probability_batches":
                     gameplay_rng_coverage.tira_probability_batches,
                 "tira_targets": f"0x{gameplay_rng_coverage.tira_targets:x}",
+                "tira_last_target":
+                    f"0x{gameplay_rng_coverage.tira_last_target:04x}",
+                "xorshift_sequence":
+                    f"0x{gameplay_rng_coverage.xorshift_sequence:016x}",
+                "transition07_sequence":
+                    f"0x{gameplay_rng_coverage.transition07_sequence:016x}",
+                "tira_sequence":
+                    f"0x{gameplay_rng_coverage.tira_sequence:016x}",
+                "tira_stance_batches": gameplay_rng_coverage.tira_stance_batches,
+                "tira_slot_mask": f"0x{gameplay_rng_coverage.tira_slot_mask:x}",
+                "state19_sequence_p0":
+                    f"0x{gameplay_rng_coverage.state19_sequence_p0:016x}",
+                "state19_sequence_p1":
+                    f"0x{gameplay_rng_coverage.state19_sequence_p1:016x}",
+                "state19_initial_p0": gameplay_rng_coverage.state19_initial_p0,
+                "state19_initial_p1": gameplay_rng_coverage.state19_initial_p1,
+                "state19_final_p0": gameplay_rng_coverage.state19_final_p0,
+                "state19_final_p1": gameplay_rng_coverage.state19_final_p1,
+                "xorshift_landing": [
+                    f"0x{word:08x}" for word in gameplay_rng_coverage.xorshift_landing
+                ],
+                "state19_at_tira_transition_p0":
+                    gameplay_rng_coverage.state19_at_tira_transition_p0,
+                "state19_at_tira_transition_p1":
+                    gameplay_rng_coverage.state19_at_tira_transition_p1,
+                "state19_initial_valid":
+                    gameplay_rng_coverage.state19_initial_valid,
             },
-            "frame_fencepost_observed": True,
-            "temporary_mod_removed": True,
+            "frame_fencepost_observed": lifecycle is not None,
+            "temporary_mod_removed": temporary_mod_removed,
             "clean_exit_requested": True,
             "forced_depth7": None if forced is None else {
                 "result": forced.result,
@@ -306,6 +838,11 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                 "presentation_terminal_coverage":
                     forced.presentation_terminal_coverage,
                 "status": forced.status,
+                "suppressed_stage_wall": forced.suppressed_stage_wall,
+                "suppressed_stage_barrier": forced.suppressed_stage_barrier,
+                "semantic_stage_dispatches": forced.semantic_stage_dispatches,
+                "suppressed_particle_spawn": forced.suppressed_particle_spawn,
+                "presentation_failures": forced.presentation_failures,
             },
         },
     }
@@ -320,6 +857,29 @@ def build_parser() -> argparse.ArgumentParser:
         description="Fail-closed HorseMod deterministic qualification runner"
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
+    observer = subcommands.add_parser(
+        "observer-online",
+        help="run the structurally read-only paired Steam/Sandboxie accessor probe",
+    )
+    observer.add_argument(
+        "--dll", type=Path,
+        default=ROOT / "build_cmake_LessEqual421__Shipping__Win64" / "HorseMod" / "HorseMod.dll",
+    )
+    observer.add_argument("--replay-mod", type=Path, default=DEFAULT_REPLAY_MOD)
+    observer.add_argument("--game-executable", type=Path, default=GAME_ROOT / "SoulcaliburVI.exe")
+    observer.add_argument("--steam-executable", type=Path, default=Path(r"C:\Program Files (x86)\Steam\steam.exe"))
+    observer.add_argument("--sandboxie-start", type=Path, default=Path(r"C:\Program Files\Sandboxie-Plus\Start.exe"))
+    observer.add_argument("--sandbox-root", type=Path, default=DEFAULT_SANDBOX_ROOT)
+    observer.add_argument("--sandbox-box", default="sc67")
+    observer.add_argument("--sandbox-query-port", type=int, default=27012)
+    observer.add_argument("--host-steamid64", type=int, default=76561198070521860)
+    observer.add_argument("--client-steamid64", type=int, default=76561198201141039)
+    observer.add_argument("--stage-package", default="/Game/Stage/STG009")
+    observer.add_argument("--stage-display-name", default="Snow-Capped Showdown")
+    observer.add_argument("--launch-timeout", type=float, default=120.0)
+    observer.add_argument("--timeout", type=float, default=600.0)
+    observer.add_argument("--report", type=Path, default=DEFAULT_OBSERVER_REPORT)
+    observer.set_defaults(handler=run_online_observer)
     boot = subcommands.add_parser(
         "boot", help="collect non-certifying DLL provenance and hook-install evidence"
     )
@@ -351,6 +911,26 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--report", type=Path, default=DEFAULT_REPLAY_REPORT)
     replay.add_argument("--timeout", type=float, default=120.0)
     replay.add_argument("--watch-frames", type=int, default=1)
+    replay.add_argument("--certifying", action="store_true")
+    replay.add_argument("--deterministic-baseline", action="store_true")
+    replay.add_argument("--stock-round-outcome-control", action="store_true")
+    replay.add_argument(
+        "--outcome-control-report",
+        type=Path,
+        help=("same-replay normal-render stock control report used as the "
+              "ordered round/match outcome oracle"),
+    )
+    replay.add_argument(
+        "--require-authored-outcomes",
+        action="store_true",
+        help=("verify every round winner and the final match winner against "
+              "--outcome-control-report before collecting deterministic coverage"),
+    )
+    replay.add_argument("--case-id", default="")
+    replay.add_argument("--row-id", default="")
+    replay.add_argument("--display-map-name", default="")
+    replay.add_argument("--stage-package-root", default="")
+    replay.add_argument("--correction-location", default=None)
     replay.add_argument(
         "--seek-percentages",
         type=int,
@@ -372,9 +952,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     replay.add_argument(
         "--stage-terminal",
-        choices=("wall", "barrier"),
-        help=("arm one qualification-only native stage terminal at the "
-              "authoritative source-frame boundary"),
+        choices=("wall", "barrier", "both"),
+        help=("arm one or both qualification-only native stage terminals at "
+              "authoritative source-frame boundaries"),
     )
     replay.add_argument(
         "--allow-dirty",
@@ -384,15 +964,110 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument(
         "--require-presentation-coverage",
         action="store_true",
-        help="require complete forced-qualification presentation terminal coverage",
+        help=("require forced-qualification coverage for the requested "
+              "authored stage terminal"),
     )
     replay.add_argument(
         "--require-tira-probability-transition",
         action="store_true",
-        help=("require an IF 0x007F draw and Tira transition target "
-              "0x0153/0x0205 on the same native source frame"),
+        help=("require an IF 0x007F draw, Tira-owned CALLCOND 0x07 target, "
+              "and exact mood/moveset state transition on the same native source frame"),
     )
     replay.set_defaults(handler=run_replay_entry)
+    offline = subcommands.add_parser(
+        "offline-matrix",
+        help="run the complete 51-row normal-render offline qualification campaign",
+    )
+    offline.add_argument("--case-manifest", type=Path,
+        default=ROOT / "docs" / "investigations" / "deterministic-production-candidate-manifest.json")
+    offline.add_argument("--dll", type=Path, required=True)
+    offline.add_argument("--deployed-dll", type=Path, default=DEFAULT_DLL)
+    offline.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    offline.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
+    offline.add_argument("--replay-mod", type=Path, default=DEFAULT_REPLAY_MOD)
+    offline.add_argument("--game-executable", type=Path,
+        default=GAME_ROOT / "SoulcaliburVI.exe")
+    offline.add_argument("--log", type=Path, default=DEFAULT_LOG)
+    offline.add_argument("--output-dir", type=Path, required=True)
+    offline.add_argument("--report", type=Path, required=True)
+    offline.add_argument("--timeout", type=float, default=1800.0)
+    offline.set_defaults(handler=lambda args: run_offline_campaign(args, ROOT))
+    tira = subcommands.add_parser(
+        "tira-campaign",
+        help="run the repeated exact-map authored Tira RNG qualification campaign",
+    )
+    tira.add_argument("--case-manifest", type=Path, required=True)
+    tira.add_argument("--dll", type=Path, required=True)
+    tira.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    tira.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
+    tira.add_argument("--replay-mod", type=Path, default=DEFAULT_REPLAY_MOD)
+    tira.add_argument("--game-executable", type=Path,
+        default=GAME_ROOT / "SoulcaliburVI.exe")
+    tira.add_argument("--log", type=Path, default=DEFAULT_LOG)
+    tira.add_argument("--output-dir", type=Path, required=True)
+    tira.add_argument("--report", type=Path, required=True)
+    tira.add_argument("--timeout", type=float, default=1800.0)
+    tira.set_defaults(handler=lambda args: run_tira_campaign(args, ROOT))
+    paired = subcommands.add_parser(
+        "paired-online", help="run authenticated Steam/Sandboxie rollback qualification")
+    paired.add_argument("--case-manifest", type=Path, required=True)
+    paired.add_argument("--case", required=True)
+    paired.add_argument("--dll", type=Path, required=True)
+    paired.add_argument("--replay-mod", type=Path, default=DEFAULT_REPLAY_MOD)
+    paired.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
+    paired.add_argument("--game-executable", type=Path,
+        default=GAME_ROOT / "SoulcaliburVI.exe")
+    paired.add_argument("--steam-executable", type=Path,
+        default=Path(r"C:\Program Files (x86)\Steam\steam.exe"))
+    paired.add_argument("--sandboxie-start", type=Path,
+        default=Path(r"C:\Program Files\Sandboxie-Plus\Start.exe"))
+    paired.add_argument("--sandbox-root", type=Path, default=DEFAULT_SANDBOX_ROOT)
+    paired.add_argument("--sandbox-box", default="sc67")
+    paired.add_argument("--sandbox-query-port", type=int, default=27012)
+    paired.add_argument("--host-steamid64", type=int, default=76561198070521860)
+    paired.add_argument("--client-steamid64", type=int, default=76561198201141039)
+    paired.add_argument("--impairment-profile", default="clean",
+        choices=("clean", "latency", "jitter", "loss", "burst_loss", "reorder",
+                 "duplicate", "corruption", "disconnect_pre", "disconnect_post"))
+    paired.add_argument("--impairment-tool", type=Path)
+    paired.add_argument("--impairment-seed", type=int, default=1396913718)
+    paired.add_argument("--failure-case", default="", choices=(
+        "", "preownership_mismatch", "preownership_timeout",
+        "preownership_disconnect", "postownership_auth", "postownership_hash",
+        "postownership_restore", "postownership_peer",
+        "postownership_disconnect"),
+        help="qualification-only authoritative boundary fault to verify fail-closed cleanup")
+    paired.add_argument("--soak-seconds", type=float, default=0.0)
+    paired.add_argument("--match-cycles", type=int, default=1,
+        help="minimum same-process lobby/match cycles before cleanup")
+    paired.add_argument("--cycling-soak-seconds", type=float, default=0.0,
+        help="minimum elapsed time spent repeating same-process lobby/match cycles")
+    paired.add_argument("--fresh-box", action="store_true",
+        help="require a non-sc67 box whose UE4SS and qualification roots are initially absent")
+    paired.add_argument("--memory-warmup-seconds", type=float, default=600.0)
+    paired.add_argument("--launch-timeout", type=float, default=180.0)
+    paired.add_argument("--phase-timeout", type=float, default=10.0)
+    paired.add_argument("--match-timeout", type=float, default=1800.0)
+    paired.add_argument("--output-dir", type=Path, required=True)
+    paired.add_argument("--report", type=Path, required=True)
+    paired.set_defaults(handler=lambda args: run_paired_online(
+        args, ROOT, _paired_observer_paths(args)))
+    publish = subcommands.add_parser(
+        "release-publish",
+        help="verify every frozen release gate and atomically publish the allowlist",
+    )
+    publish.add_argument("--release-index", type=Path, required=True)
+    publish.add_argument("--case-manifest", type=Path, required=True)
+    publish.add_argument("--region-manifest", type=Path, required=True)
+    publish.add_argument("--tira-manifest", type=Path, required=True)
+    publish.add_argument("--dll", type=Path, required=True)
+    publish.add_argument("--replay-mod", type=Path, default=DEFAULT_REPLAY_MOD)
+    publish.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
+    publish.add_argument("--game-executable", type=Path,
+        default=GAME_ROOT / "SoulcaliburVI.exe")
+    publish.add_argument("--output-dir", type=Path, required=True)
+    publish.add_argument("--allowlist", type=Path, required=True)
+    publish.set_defaults(handler=lambda args: publish_release(args, ROOT))
     return parser
 
 

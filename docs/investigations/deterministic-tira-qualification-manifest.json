@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "case_id": "tira-authored-13510506239876751347",
+      "replay": "ReplayExample/REPLAY_13510506239876751347.bin",
+      "replay_sha256": "3c0fc5c34e1bf05d533fac5bcb7a677610e46a166702c93b7c1b4d3a749f0cca",
+      "replay_metadata_stage": 4,
+      "replay_metadata_map": 4,
+      "contains_tira": true,
+      "stage_package_root": "/Game/Stage/STG004",
+      "native_display_name": "Astral Chaos: Tide of the Damned"
+    },
+    {
+      "case_id": "tira-authored-11775433596982945207",
+      "replay": "ReplayExample/REPLAY_11775433596982945207.bin",
+      "replay_sha256": "dd489382ea0b33430b5a93f062606adfafefc6a9784810721bd37066e6f61a3e",
+      "replay_metadata_stage": 4,
+      "replay_metadata_map": 4,
+      "contains_tira": true,
+      "stage_package_root": "/Game/Stage/STG004",
+      "native_display_name": "Astral Chaos: Tide of the Damned"
+    },
+    {
+      "case_id": "astral-chaos-non-tira-control-10919796003596567142",
+      "replay": "ReplayExample/REPLAY_10919796003596567142.bin",
+      "replay_sha256": "192b59f0585fb0712f97e38335805707fbb79d440edd64e07810364f21f4d253",
+      "replay_metadata_stage": 4,
+      "replay_metadata_map": 4,
+      "contains_tira": false,
+      "stage_package_root": "/Game/Stage/STG004",
+      "native_display_name": "Astral Chaos: Tide of the Damned"
+    }
+  ]
+}

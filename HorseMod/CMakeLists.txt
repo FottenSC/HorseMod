@@ -7,6 +7,8 @@ if(DEFINED HORSEMOD_ENABLE_GEKKONET)
 endif()
 option(HORSEMOD_BUILD_PINNED_GEKKONET
     "Build the pinned GekkoNet integration after offline qualification" OFF)
+option(HORSEMOD_BUILD_OBSERVER_PROBE
+    "Build the observer-only online accessor qualification surface" ON)
 set(HORSEMOD_GEKKONET_GIT_COMMIT
     "f21698d85367c8d97585cf7610897316c873681c"
     CACHE STRING "Immutable FottenSC/GekkoNet commit")
@@ -76,6 +78,9 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/ReplayCoordinator.cpp
     horselib/deterministic/ReplaySeekPlanner.cpp
     horselib/deterministic/Sc6ReplayNativeBridge.cpp
+    horselib/deterministic/Sc6OnlineContractObserver.cpp
+    horselib/deterministic/Sc6OnlineObserverProbe.cpp
+    horselib/deterministic/Sc6StageCatalog.cpp
     horselib/deterministic/SimulationSession.cpp
     horselib/deterministic/SnapshotStore.cpp
     horselib/deterministic/StageBreakListenerDiagnostics.cpp
@@ -87,11 +92,50 @@ set(HORSEMOD_DETERMINISTIC_SOURCES
     horselib/deterministic/UcrtRandBroker.cpp
 )
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(HORSEMOD_PRODUCTION_CANDIDATE_MANIFEST
+    "${CMAKE_SOURCE_DIR}/docs/investigations/deterministic-production-candidate-manifest.json")
+set(HORSEMOD_GENERATED_CANDIDATE_HEADER
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/ProductionCandidateManifest.generated.hpp")
+add_custom_command(
+    OUTPUT "${HORSEMOD_GENERATED_CANDIDATE_HEADER}"
+    COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/tools/generate_production_candidate_manifest.py"
+        "${HORSEMOD_PRODUCTION_CANDIDATE_MANIFEST}"
+        "${HORSEMOD_GENERATED_CANDIDATE_HEADER}"
+    DEPENDS
+        "${HORSEMOD_PRODUCTION_CANDIDATE_MANIFEST}"
+        "${CMAKE_SOURCE_DIR}/tools/generate_production_candidate_manifest.py"
+    VERBATIM
+)
+add_custom_target(ProductionCandidateManifest
+    DEPENDS "${HORSEMOD_GENERATED_CANDIDATE_HEADER}")
+set(HORSEMOD_PRODUCTION_REGION_MANIFEST
+    "${CMAKE_SOURCE_DIR}/docs/investigations/deterministic-production-region-manifest.json")
+set(HORSEMOD_GENERATED_REGIONS_HEADER
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/ProductionRegions.generated.hpp")
+add_custom_command(
+    OUTPUT "${HORSEMOD_GENERATED_REGIONS_HEADER}"
+    COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/tools/generate_production_regions.py"
+        "${HORSEMOD_PRODUCTION_REGION_MANIFEST}"
+        "${HORSEMOD_GENERATED_REGIONS_HEADER}"
+    DEPENDS
+        "${HORSEMOD_PRODUCTION_REGION_MANIFEST}"
+        "${CMAKE_SOURCE_DIR}/tools/generate_production_regions.py"
+    VERBATIM
+)
+add_custom_target(ProductionRegions
+    DEPENDS "${HORSEMOD_GENERATED_REGIONS_HEADER}")
+
 add_library(HorseDeterministicCore STATIC
     ${HORSEMOD_DETERMINISTIC_SOURCES}
 )
+add_dependencies(HorseDeterministicCore ProductionCandidateManifest)
+add_dependencies(HorseDeterministicCore ProductionRegions)
 target_include_directories(HorseDeterministicCore PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/horselib
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 target_compile_features(HorseDeterministicCore PUBLIC cxx_std_20)
 if(WIN32)
@@ -181,12 +225,16 @@ add_library(${TARGET} SHARED
 
 add_library(ReplayQualificationMod SHARED EXCLUDE_FROM_ALL
     ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod/ReplayQualificationMod.cpp
+    ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod/OnlineRoomAutomation.cpp
     ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod/ReplayPayloadImporter.cpp
     ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod/ReplaySceneNavigator.cpp
 )
 target_include_directories(ReplayQualificationMod PRIVATE
     ${CMAKE_SOURCE_DIR}/tools/replay_qualification_mod
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
+add_dependencies(ReplayQualificationMod ProductionRegions)
 target_compile_features(ReplayQualificationMod PRIVATE cxx_std_20)
 target_compile_definitions(ReplayQualificationMod PRIVATE
     REPLAY_QUALIFICATION_SOURCE_COMMIT="${HORSEMOD_SOURCE_COMMIT}"
@@ -253,12 +301,48 @@ add_test(
     NAME SteamP2PTransportSelfTest
     COMMAND $<TARGET_FILE:SteamP2PTransportSelfTest>
 )
+add_executable(Sc6OnlineContractObserverSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/sc6_online_contract_observer_selftest.cpp
+)
+target_link_libraries(Sc6OnlineContractObserverSelfTest
+    PRIVATE HorseDeterministicCore)
+target_compile_features(Sc6OnlineContractObserverSelfTest PRIVATE cxx_std_20)
+if(MSVC)
+    set_property(TARGET Sc6OnlineContractObserverSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+add_test(
+    NAME Sc6OnlineContractObserverSelfTest
+    COMMAND $<TARGET_FILE:Sc6OnlineContractObserverSelfTest>
+)
+add_executable(Sc6OnlineObserverProbeSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/sc6_online_observer_probe_selftest.cpp
+)
+target_link_libraries(Sc6OnlineObserverProbeSelfTest
+    PRIVATE HorseDeterministicCore)
+target_compile_features(Sc6OnlineObserverProbeSelfTest PRIVATE cxx_std_20)
+if(MSVC)
+    set_property(TARGET Sc6OnlineObserverProbeSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+add_test(
+    NAME Sc6OnlineObserverProbeSelfTest
+    COMMAND $<TARGET_FILE:Sc6OnlineObserverProbeSelfTest>
+)
 set_tests_properties(SteamP2PTransportSelfTest PROPERTIES
     LABELS "deterministic;online;fast"
     TIMEOUT 60
 )
 set_tests_properties(OnlineCoordinatorSelfTest PROPERTIES
     LABELS "deterministic;online;fast"
+    TIMEOUT 60
+)
+set_tests_properties(Sc6OnlineContractObserverSelfTest PROPERTIES
+    LABELS "deterministic;online;fast"
+    TIMEOUT 60
+)
+set_tests_properties(Sc6OnlineObserverProbeSelfTest PROPERTIES
+    LABELS "deterministic;online;observer-only;fast"
     TIMEOUT 60
 )
 set_tests_properties(NativeCandidateRegionsSelfTest PROPERTIES
@@ -286,8 +370,56 @@ add_custom_command(
 )
 add_custom_target(DeterministicSchema ALL DEPENDS "${HORSEMOD_GENERATED_SCHEMA}")
 
+set(HORSEMOD_GENERATED_RELEASE_IDENTITIES
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/ProductionReleaseIdentities.generated.hpp")
+add_custom_target(ProductionReleaseIdentities
+    COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/tools/generate_compiled_release_identities.py"
+        "${CMAKE_SOURCE_DIR}"
+        "${HORSEMOD_GENERATED_SCHEMA}"
+        "${HORSEMOD_GENERATED_RELEASE_IDENTITIES}"
+    DEPENDS
+        "${HORSEMOD_GENERATED_SCHEMA}"
+        "${CMAKE_SOURCE_DIR}/tools/generate_compiled_release_identities.py"
+    BYPRODUCTS "${HORSEMOD_GENERATED_RELEASE_IDENTITIES}"
+    VERBATIM
+)
+add_library(HorseProductionRelease STATIC
+    horselib/deterministic/ProductionOnlineAllowlist.cpp
+    horselib/deterministic/ProductionReleaseLoader.cpp
+)
+add_dependencies(HorseProductionRelease ProductionReleaseIdentities)
+target_include_directories(HorseProductionRelease PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/horselib
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+)
+target_compile_features(HorseProductionRelease PUBLIC cxx_std_20)
+target_link_libraries(HorseProductionRelease PUBLIC HorseDeterministicCore bcrypt)
+if(MSVC)
+    set_property(TARGET HorseProductionRelease PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+target_link_libraries(OnlineCoordinatorSelfTest PRIVATE HorseProductionRelease)
+add_executable(ProductionReleaseLoaderSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/production_release_loader_selftest.cpp)
+target_link_libraries(ProductionReleaseLoaderSelfTest PRIVATE
+    HorseProductionRelease)
+target_compile_features(ProductionReleaseLoaderSelfTest PRIVATE cxx_std_20)
+if(MSVC)
+    set_property(TARGET ProductionReleaseLoaderSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+add_test(NAME ProductionReleaseLoaderSelfTest
+    COMMAND $<TARGET_FILE:ProductionReleaseLoaderSelfTest>
+        "${HORSEMOD_GENERATED_SCHEMA}"
+        "${HORSEMOD_PRODUCTION_CANDIDATE_MANIFEST}"
+        "${HORSEMOD_PRODUCTION_REGION_MANIFEST}")
+set_tests_properties(ProductionReleaseLoaderSelfTest PROPERTIES
+    LABELS "deterministic;release;fast" TIMEOUT 60)
+
 target_compile_definitions(${TARGET} PRIVATE
     HORSE_ENABLE_GEKKONET=$<BOOL:${HORSEMOD_BUILD_PINNED_GEKKONET}>
+    HORSE_ENABLE_OBSERVER_PROBE=$<BOOL:${HORSEMOD_BUILD_OBSERVER_PROBE}>
     HORSEMOD_SOURCE_COMMIT="${HORSEMOD_SOURCE_COMMIT}"
     HORSEMOD_VERSION="${HORSEMOD_VERSION}"
 )
@@ -301,10 +433,33 @@ target_include_directories(${TARGET} PRIVATE
 
 target_link_libraries(${TARGET} PUBLIC UE4SS)
 target_link_libraries(${TARGET} PRIVATE
-    HorseDeterministicCore dxgi d3d11 delayimp ws2_32 bcrypt
+    HorseDeterministicCore HorseProductionRelease dxgi d3d11 delayimp ws2_32 bcrypt
 )
 if(HORSEMOD_BUILD_PINNED_GEKKONET AND TARGET GekkoNet)
-    target_link_libraries(${TARGET} PRIVATE GekkoNet)
+    add_library(HorseGekkoRollback STATIC
+        horselib/deterministic/GekkoRollbackSession.cpp)
+    target_include_directories(HorseGekkoRollback PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/horselib)
+    target_compile_features(HorseGekkoRollback PUBLIC cxx_std_20)
+    target_link_libraries(HorseGekkoRollback PUBLIC
+        HorseDeterministicCore GekkoNet)
+    if(MSVC)
+        set_property(TARGET HorseGekkoRollback PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    endif()
+    target_link_libraries(${TARGET} PRIVATE HorseGekkoRollback)
+
+    add_executable(GekkoRollbackSessionSelfTest
+        ${CMAKE_SOURCE_DIR}/tools/gekko_rollback_session_selftest.cpp)
+    target_link_libraries(GekkoRollbackSessionSelfTest PRIVATE
+        HorseGekkoRollback)
+    target_compile_features(GekkoRollbackSessionSelfTest PRIVATE cxx_std_20)
+    if(MSVC)
+        set_property(TARGET GekkoRollbackSessionSelfTest PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    endif()
+    add_test(NAME GekkoRollbackSessionSelfTest
+        COMMAND $<TARGET_FILE:GekkoRollbackSessionSelfTest>)
 endif()
 
 target_link_options(${TARGET} PRIVATE

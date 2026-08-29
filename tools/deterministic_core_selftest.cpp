@@ -1,5 +1,7 @@
 #include "deterministic/CanonicalHashTimeline.hpp"
 #include "deterministic/AudioPresentation.hpp"
+#include "deterministic/AuthoritativeInputGate.hpp"
+#include "deterministic/DeterministicHookSet.hpp"
 #include "deterministic/InputTimeline.hpp"
 #include "deterministic/Config.hpp"
 #include "deterministic/FloatingPointEnvironment.hpp"
@@ -7,6 +9,7 @@
 #include "deterministic/NativeBatchTimeline.hpp"
 #include "deterministic/NativeAudioPresentationController.hpp"
 #include "deterministic/NativePresentationJournal.hpp"
+#include "deterministic/OnlineQualificationMetrics.hpp"
 #include "deterministic/ParticlePresentation.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/ReplayCoordinator.hpp"
@@ -37,6 +40,129 @@ void expect(bool condition, const char* message)
         std::cerr << "FAIL: " << message << '\n';
         ++failures;
     }
+}
+
+void test_online_qualification_metrics_are_bounded_and_resettable()
+{
+    OnlineQualificationMetrics metrics{};
+    metrics.SetPreMatchOwnedBytes(500);
+    metrics.BeginStatus4(1000);
+    metrics.ObserveOwnedBytes(1000);
+    metrics.RecordCorrection(1'000'000);
+    metrics.RecordCorrection(2'000'000);
+    metrics.RecordCorrection(3'000'000);
+    metrics.RecordCapacityFailure();
+    auto status = metrics.status();
+    expect(status.correction_samples == 3
+            && status.correction_p50_ns == 2'010'000
+            && status.correction_p95_ns == 3'010'000
+            && status.correction_p99_ns == 3'010'000
+            && status.correction_max_ns == 3'000'000,
+        "online timing histogram reports bounded upper quantiles and exact max");
+    expect(status.post_status4_growth_events == 0
+            && status.capacity_failures == 1
+            && status.pre_match_owned_bytes == 500,
+        "online metrics retain growth and capacity failure evidence");
+    metrics.ObserveOwnedBytes(1001);
+    expect(metrics.status().post_status4_growth_events == 1,
+        "online metrics detect allocator-accounted post-status-4 growth");
+    metrics.Reset();
+    status = metrics.status();
+    expect(status.correction_samples == 0
+            && status.post_status4_growth_events == 0
+            && status.capacity_failures == 0,
+        "online metrics reset completely between owned matches");
+}
+
+struct InputGateFixture
+{
+    bool publish_result{true};
+    bool commit_result{true};
+    std::uint32_t publish_calls{};
+    std::uint32_t commit_calls{};
+    PlayerInput published[2]{};
+};
+
+bool publish_input_gate_pair(
+    void* context, const PlayerInput (&input)[2]) noexcept
+{
+    auto& fixture = *static_cast<InputGateFixture*>(context);
+    ++fixture.publish_calls;
+    fixture.published[0] = input[0];
+    fixture.published[1] = input[1];
+    return fixture.publish_result;
+}
+
+bool commit_input_gate_ownership(void* context) noexcept
+{
+    auto& fixture = *static_cast<InputGateFixture*>(context);
+    ++fixture.commit_calls;
+    return fixture.commit_result;
+}
+
+void test_authoritative_input_gate_is_transactional_and_fail_closed()
+{
+    const PlayerInput stock[2]{{0x11, 0x01}, {0x22, 0x02}};
+    const PlayerInput selected[2]{{0x33, 0x03}, {0x44, 0x04}};
+    InputGateFixture fixture{};
+    auto result = ApplyAuthoritativeInputGate(
+        AuthoritativeInputDisposition::PreparedTakeover, true, stock, selected,
+        publish_input_gate_pair, &fixture,
+        commit_input_gate_ownership, &fixture);
+    expect(result.action
+                == AuthoritativeInputGateAction::ContinueAuthoritative
+            && result.applied && result.before_valid
+            && result.before[0] == selected[0]
+            && fixture.publish_calls == 1 && fixture.commit_calls == 1,
+        "first ownership commits only after a complete paired publication");
+
+    fixture = {};
+    fixture.publish_result = false;
+    result = ApplyAuthoritativeInputGate(
+        AuthoritativeInputDisposition::PreparedTakeover, true, stock, selected,
+        publish_input_gate_pair, &fixture,
+        commit_input_gate_ownership, &fixture);
+    expect(result.action == AuthoritativeInputGateAction::AbortBeforeConsume
+            && result.failed_closed && !result.applied
+            && fixture.publish_calls == 1 && fixture.commit_calls == 0,
+        "failed first-owned publication aborts before commit or consumption");
+
+    fixture = {};
+    fixture.commit_result = false;
+    result = ApplyAuthoritativeInputGate(
+        AuthoritativeInputDisposition::PreparedTakeover, true, stock, selected,
+        publish_input_gate_pair, &fixture,
+        commit_input_gate_ownership, &fixture);
+    expect(result.action == AuthoritativeInputGateAction::AbortBeforeConsume
+            && result.failed_closed && !result.applied
+            && fixture.publish_calls == 1 && fixture.commit_calls == 1,
+        "failed ownership commit aborts the already-published frame before consumption");
+
+    fixture = {};
+    result = ApplyAuthoritativeInputGate(
+        AuthoritativeInputDisposition::FailClosed, false, stock, selected,
+        publish_input_gate_pair, &fixture,
+        commit_input_gate_ownership, &fixture);
+    expect(result.action == AuthoritativeInputGateAction::AbortBeforeConsume
+            && result.failed_closed && !result.before_valid
+            && fixture.publish_calls == 0 && fixture.commit_calls == 0,
+        "unreadable or failed owned input never substitutes neutral or advances stock");
+}
+
+void test_aborted_outer_tick_reaches_post_completion_callback()
+{
+    struct Fixture { bool called{}; bool saw_abort{}; } fixture{};
+    OuterTickObservation observation{};
+    observation.authoritative_input_aborted_before_consume = true;
+    const auto callback = [](void* context,
+        const OuterTickObservation& completed) noexcept {
+            auto& value = *static_cast<Fixture*>(context);
+            value.called = true;
+            value.saw_abort = completed.authoritative_input_aborted_before_consume;
+        };
+    DispatchCompletedOuterTick(&fixture, callback, observation);
+    expect(fixture.called && fixture.saw_abort,
+        "pre-consumption abort is delivered through the post-original outer callback");
 }
 
 void test_canonical_hash_timeline_is_immutable_and_bounded()
@@ -803,6 +929,40 @@ void test_snapshot_capacity_is_atomic()
             && !store.Load({1, 0}).has_value(),
         "snapshot store clear releases payload while retaining bounded slots");
 
+    SnapshotStore prewarmed{1024 * 1024, 3, CapacityPolicy::RejectNew};
+    Snapshot prototype{};
+    prototype.coordinate = {5, 1};
+    prototype.bytes.resize(64, std::byte{0x41});
+    prototype.local_images.resize(1);
+    prototype.local_images[0].bytes.resize(32, std::byte{0x42});
+    expect(prewarmed.PrewarmCopySlots(prototype).ok(),
+        "prewarm bounded checkpoint copy slots from native shape");
+    const auto prewarmed_bytes = prewarmed.BytesUsed();
+    expect(prewarmed.SaveCopyPrewarmed(prototype).ok()
+            && prewarmed.BytesUsed() == prewarmed_bytes,
+        "prewarmed checkpoint save does not grow allocator-accounted storage");
+    auto next = prototype;
+    next.coordinate = {5, 2};
+    expect(prewarmed.SaveCopyPrewarmed(next).ok()
+            && prewarmed.BytesUsed() == prewarmed_bytes,
+        "subsequent checkpoint copies retain the fixed allocation ceiling");
+    auto oversized = prototype;
+    oversized.coordinate = {5, 3};
+    oversized.bytes.resize(1024);
+    expect(prewarmed.SaveCopyPrewarmed(oversized).ok()
+            && prewarmed.BytesUsed() >= prewarmed_bytes
+            && prewarmed.FindExact({5, 3}) != nullptr,
+        "checkpoint shape may rewarm the bounded pool before ownership");
+    const auto grown_bytes = prewarmed.BytesUsed();
+    oversized.bytes[0] = std::byte{0x55};
+    expect(prewarmed.SaveCopyPrewarmed(oversized).ok()
+            && prewarmed.BytesUsed() == grown_bytes,
+        "stabilized checkpoint shape copies without allocator growth");
+    prewarmed.Clear();
+    expect(prewarmed.BytesUsed() == grown_bytes
+            && prewarmed.FindExact({5, 1}) == nullptr,
+        "prewarmed clear retains buffers while releasing all identities");
+
     SnapshotStore transactional{1024 * 1024, 4, CapacityPolicy::RejectNew};
     Snapshot old_a{};
     old_a.coordinate = {7, 10};
@@ -1131,10 +1291,9 @@ void test_native_audio_presentation_correction_is_atomic()
         "audio correction retains the prefix and atomically replaces its suffix");
     DecodingAudioSink sink;
     expect(controller.CommitThrough({4, 102}, sink).ok()
-            && sink.terminals.size() == 2
-            && sink.terminals[0] == original.audio_terminal_journal[0]
-            && sink.terminals[1] == corrected.audio_terminal_journal[1],
-        "confirmed audio commit publishes the corrected authored sequence once");
+            && sink.terminals.size() == 1
+            && sink.terminals[0] == corrected.audio_terminal_journal[1],
+        "confirmation reuses unchanged speculative terminals and publishes only the corrected suffix");
     controller.EndGeneration();
     expect(controller.generation() == 0 && controller.pending_count() == 0,
         "audio presentation lifecycle invalidates all generation-bound values");
@@ -1670,6 +1829,9 @@ void test_stage_presentation_is_pointer_free_and_composite()
 
 int main()
 {
+    test_online_qualification_metrics_are_bounded_and_resettable();
+    test_authoritative_input_gate_is_transactional_and_fail_closed();
+    test_aborted_outer_tick_reaches_post_completion_callback();
     test_canonical_hash_timeline_is_immutable_and_bounded();
     test_public_config_contract();
     test_input_replacement_and_invalidation();

@@ -344,6 +344,8 @@ Status SteamP2PTransport::Start(std::uint64_t validated_steam_peer) noexcept {
   if (started_ || validated_steam_peer == 0)
     return Status::failure(FailureCode::IllegalTransition);
   Stop();
+  if (!IsClearForStock())
+    return Status::failure(FailureCode::TransportFailed);
   if (!api_ || !api_->Initialize())
     return Fail(FailureCode::TransportFailed);
   local_steam_id_ = api_->LocalSteamId();
@@ -603,6 +605,26 @@ FailureCode SteamP2PTransport::TerminalFailure() const noexcept {
   return failure_;
 }
 
+bool SteamP2PTransport::IsClearForStock() const noexcept {
+  if (started_ || remote_hello_ || sent_confirmation_ || authenticated_ ||
+      channel_close_failed_ ||
+      local_steam_id_ != 0 || peer_steam_id_ != 0 || queue_head_ != 0 ||
+      queue_size_ != 0 || failure_ != FailureCode::None ||
+      send_sequence_ != decltype(send_sequence_){} ||
+      receive_windows_ != decltype(receive_windows_){})
+    return false;
+  for (const auto &entry : queue_)
+    if (entry.has_value())
+      return false;
+  const auto all_zero = [](const auto &bytes) {
+    return std::all_of(bytes.begin(), bytes.end(),
+                       [](auto value) { return value == decltype(value){}; });
+  };
+  return all_zero(local_nonce_) && all_zero(remote_nonce_) &&
+         all_zero(remote_public_) && all_zero(session_key_) &&
+         all_zero(ephemeral_.Public());
+}
+
 Status SteamP2PTransport::Fail(FailureCode code) noexcept {
   failure_ = code;
   return Status::failure(code);
@@ -617,8 +639,9 @@ void SteamP2PTransport::ClearSecrets() noexcept {
 }
 
 void SteamP2PTransport::Stop() noexcept {
-  if (started_ && api_ && peer_steam_id_)
-    (void)api_->CloseChannel(peer_steam_id_, steam_p2p_channel);
+  bool channel_closed = !channel_close_failed_ && !started_;
+  if (api_ && peer_steam_id_)
+    channel_closed = api_->CloseChannel(peer_steam_id_, steam_p2p_channel);
   for (auto &entry : queue_)
     entry.reset();
   queue_head_ = 0;
@@ -630,8 +653,17 @@ void SteamP2PTransport::Stop() noexcept {
   sent_confirmation_ = false;
   authenticated_ = false;
   local_steam_id_ = 0;
-  peer_steam_id_ = 0;
-  failure_ = FailureCode::None;
+  if (channel_closed)
+  {
+    peer_steam_id_ = 0;
+    failure_ = FailureCode::None;
+    channel_close_failed_ = false;
+  }
+  else
+  {
+    failure_ = FailureCode::TransportFailed;
+    channel_close_failed_ = true;
+  }
   ClearSecrets();
 }
 } // namespace Horse::Deterministic

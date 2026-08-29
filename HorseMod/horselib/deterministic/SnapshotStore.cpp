@@ -14,12 +14,14 @@ SnapshotStore::SnapshotStore(
     CapacityPolicy policy) noexcept
     : maximum_bytes_(maximum_bytes),
       maximum_entries_(maximum_entries),
+      slot_capacity_(maximum_entries),
       policy_(policy)
 {
     if (maximum_entries_ == 0
         || maximum_entries_ > maximum_bytes_ / sizeof(Snapshot))
     {
         maximum_entries_ = 0;
+        slot_capacity_ = 0;
         return;
     }
     snapshots_.reset(new (std::nothrow) Snapshot[maximum_entries_]);
@@ -29,6 +31,7 @@ SnapshotStore::SnapshotStore(
         snapshots_.reset();
         free_slots_.reset();
         maximum_entries_ = 0;
+        slot_capacity_ = 0;
         return;
     }
     try
@@ -40,6 +43,7 @@ SnapshotStore::SnapshotStore(
         snapshots_.reset();
         free_slots_.reset();
         maximum_entries_ = 0;
+        slot_capacity_ = 0;
         return;
     }
     fixed_bytes_ = maximum_entries_
@@ -51,6 +55,7 @@ SnapshotStore::SnapshotStore(
         free_slots_.reset();
         std::vector<Entry>{}.swap(entries_);
         maximum_entries_ = 0;
+        slot_capacity_ = 0;
         fixed_bytes_ = 0;
         return;
     }
@@ -68,6 +73,183 @@ std::size_t SnapshotStore::snapshot_dynamic_cost(
     return cost;
 }
 
+bool SnapshotStore::can_copy_without_growth(
+    const Snapshot& target, const Snapshot& source) noexcept
+{
+    if (source.bytes.size() > target.bytes.capacity()
+        || source.local_images.size() > target.local_images.size())
+        return false;
+    for (std::size_t index = 0; index < source.local_images.size(); ++index)
+    {
+        if (source.local_images[index].bytes.size()
+            > target.local_images[index].bytes.capacity())
+            return false;
+    }
+    return true;
+}
+
+void SnapshotStore::copy_without_growth(
+    Snapshot& target, const Snapshot& source) noexcept
+{
+    target.coordinate = source.coordinate;
+    target.context_identity = source.context_identity;
+    target.canonical_hash = source.canonical_hash;
+    target.canonical_components = source.canonical_components;
+    target.canonical_native = source.canonical_native;
+    target.canonical_input = source.canonical_input;
+    target.canonical_wind_semantic = source.canonical_wind_semantic;
+    target.canonical_wind = source.canonical_wind;
+    target.canonical_wind_node = source.canonical_wind_node;
+    target.canonical_move_dispatch = source.canonical_move_dispatch;
+    target.bytes.resize(source.bytes.size());
+    std::copy(source.bytes.begin(), source.bytes.end(), target.bytes.begin());
+    target.local_images.resize(source.local_images.size());
+    for (std::size_t index = 0; index < source.local_images.size(); ++index)
+    {
+        auto& destination = target.local_images[index];
+        const auto& input = source.local_images[index];
+        destination.serializer_id = input.serializer_id;
+        destination.serializer_version = input.serializer_version;
+        destination.context = input.context;
+        destination.cursor = input.cursor;
+        destination.checksum = input.checksum;
+        destination.bytes.resize(input.bytes.size());
+        std::copy(input.bytes.begin(), input.bytes.end(),
+            destination.bytes.begin());
+    }
+}
+
+Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept
+{
+    if (slot_capacity_ == 0)
+        return Status::failure(FailureCode::CapacityExceeded);
+    const auto occupied = [this](std::size_t slot) noexcept {
+        return std::any_of(entries_.begin(), entries_.end(),
+            [slot](const Entry& entry) { return entry.slot == slot; });
+    };
+    std::size_t highest_occupied{};
+    bool have_occupied{};
+    for (const auto& entry : entries_)
+    {
+        highest_occupied = (std::max)(highest_occupied, entry.slot);
+        have_occupied = true;
+    }
+    for (std::size_t slot = 0; slot < slot_capacity_; ++slot)
+    {
+        if (!occupied(slot)) snapshots_[slot] = {};
+    }
+    std::size_t allocated = fixed_bytes_;
+    try
+    {
+        for (const auto& entry : entries_)
+        {
+            auto& target = snapshots_[entry.slot];
+            target.bytes.reserve(prototype.bytes.size());
+            target.local_images.resize((std::max)(
+                target.local_images.size(), prototype.local_images.size()));
+            for (std::size_t index = 0;
+                    index < prototype.local_images.size(); ++index)
+                target.local_images[index].bytes.reserve(
+                    prototype.local_images[index].bytes.size());
+            allocated += snapshot_dynamic_cost(target);
+        }
+        if (allocated > maximum_bytes_)
+            return Status::failure(FailureCode::CapacityExceeded);
+        std::size_t admitted = have_occupied ? highest_occupied + 1 : 0;
+        for (std::size_t slot = 0; slot < slot_capacity_; ++slot)
+        {
+            if (occupied(slot)) continue;
+            snapshots_[slot] = prototype;
+            const auto cost = snapshot_dynamic_cost(snapshots_[slot]);
+            if (cost > maximum_bytes_ - allocated)
+            {
+                snapshots_[slot] = {};
+                break;
+            }
+            allocated += cost;
+            admitted = slot + 1;
+        }
+        if (admitted == 0 || (have_occupied && admitted <= highest_occupied))
+            return Status::failure(FailureCode::CapacityExceeded);
+        maximum_entries_ = admitted;
+    }
+    catch (...)
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    if (allocated > maximum_bytes_)
+        return Status::failure(FailureCode::CapacityExceeded);
+    bytes_used_ = allocated;
+    copy_slots_prewarmed_ = true;
+    free_slot_count_ = 0;
+    for (std::size_t slot = maximum_entries_; slot-- > 0;)
+    {
+        if (!occupied(slot)) free_slots_[free_slot_count_++] = slot;
+    }
+    return Status::success();
+}
+
+Status SnapshotStore::SaveCopyPrewarmed(const Snapshot& snapshot) noexcept
+{
+    if (!copy_slots_prewarmed_)
+    {
+        const auto prewarmed = PrewarmCopySlots(snapshot);
+        if (!prewarmed.ok()) return prewarmed;
+    }
+    auto existing = std::lower_bound(entries_.begin(), entries_.end(),
+        snapshot.coordinate, [](const Entry& entry, FrameCoordinate value) {
+            return entry.coordinate < value;
+        });
+    if (existing != entries_.end()
+        && existing->coordinate == snapshot.coordinate)
+    {
+        auto& target = snapshots_[existing->slot];
+        if (!can_copy_without_growth(target, snapshot))
+        {
+            const auto rewarmed = PrewarmCopySlots(snapshot);
+            if (!rewarmed.ok()
+                || !can_copy_without_growth(target, snapshot))
+                return Status::failure(FailureCode::CapacityExceeded);
+        }
+        copy_without_growth(target, snapshot);
+        return Status::success();
+    }
+    if (free_slot_count_ == 0 || entries_.size() >= maximum_entries_)
+        return Status::failure(FailureCode::CapacityExceeded);
+    const auto slot = free_slots_[--free_slot_count_];
+    if (!can_copy_without_growth(snapshots_[slot], snapshot))
+    {
+        ++free_slot_count_;
+        const auto rewarmed = PrewarmCopySlots(snapshot);
+        if (!rewarmed.ok() || free_slot_count_ == 0)
+            return Status::failure(FailureCode::CapacityExceeded);
+        const auto rewarmed_slot = free_slots_[--free_slot_count_];
+        if (!can_copy_without_growth(snapshots_[rewarmed_slot], snapshot))
+        {
+            ++free_slot_count_;
+            return Status::failure(FailureCode::CapacityExceeded);
+        }
+        copy_without_growth(snapshots_[rewarmed_slot], snapshot);
+        entries_.insert(existing, Entry{snapshot.coordinate, rewarmed_slot});
+        return Status::success();
+    }
+    copy_without_growth(snapshots_[slot], snapshot);
+    entries_.insert(existing, Entry{snapshot.coordinate, slot});
+    return Status::success();
+}
+
+void SnapshotStore::ReleasePrewarmedCopySlots() noexcept
+{
+    if (!copy_slots_prewarmed_) return;
+    entries_.clear();
+    for (std::size_t slot = 0; slot < slot_capacity_; ++slot)
+        snapshots_[slot] = {};
+    maximum_entries_ = slot_capacity_;
+    copy_slots_prewarmed_ = false;
+    bytes_used_ = fixed_bytes_;
+    reset_free_slots();
+}
+
 void SnapshotStore::reset_free_slots() noexcept
 {
     free_slot_count_ = maximum_entries_;
@@ -79,8 +261,13 @@ void SnapshotStore::release_entry(
     std::vector<Entry>::iterator entry) noexcept
 {
     const auto slot = entry->slot;
-    bytes_used_ -= snapshot_dynamic_cost(snapshots_[slot]);
-    snapshots_[slot] = {};
+    if (copy_slots_prewarmed_)
+        snapshots_[slot].coordinate = {};
+    else
+    {
+        bytes_used_ -= snapshot_dynamic_cost(snapshots_[slot]);
+        snapshots_[slot] = {};
+    }
     free_slots_[free_slot_count_++] = slot;
     entries_.erase(entry);
 }
@@ -213,6 +400,9 @@ Status SnapshotStore::ValidateExactReplacement(
         const auto& current = snapshots_[found->slot];
         if (current.canonical_hash != expected_hashes[index])
             return Status::failure(FailureCode::IdentityMismatch);
+        if (copy_slots_prewarmed_
+            && !can_copy_without_growth(current, replacement))
+            return Status::failure(FailureCode::CapacityExceeded);
         const auto old_cost = snapshot_dynamic_cost(current);
         const auto new_cost = snapshot_dynamic_cost(replacement);
         if (removed > (std::numeric_limits<std::size_t>::max)() - old_cost
@@ -223,7 +413,8 @@ Status SnapshotStore::ValidateExactReplacement(
         previous = replacement.coordinate;
         have_previous = true;
     }
-    if (incoming > maximum_bytes_ - (bytes_used_ - removed))
+    if (!copy_slots_prewarmed_
+        && incoming > maximum_bytes_ - (bytes_used_ - removed))
         return Status::failure(FailureCode::CapacityExceeded);
     return Status::success();
 }
@@ -239,9 +430,14 @@ void SnapshotStore::CommitValidatedExactReplacement(
                 return entry.coordinate < value;
             });
         const auto slot = found->slot;
-        bytes_used_ -= snapshot_dynamic_cost(snapshots_[slot]);
-        bytes_used_ += snapshot_dynamic_cost(replacement);
-        snapshots_[slot] = std::move(replacement);
+        if (copy_slots_prewarmed_)
+            copy_without_growth(snapshots_[slot], replacement);
+        else
+        {
+            bytes_used_ -= snapshot_dynamic_cost(snapshots_[slot]);
+            bytes_used_ += snapshot_dynamic_cost(replacement);
+            snapshots_[slot] = std::move(replacement);
+        }
     }
 }
 
@@ -280,9 +476,15 @@ bool SnapshotStore::TakeOldestIfFull(Snapshot& output) noexcept
 
 void SnapshotStore::Clear() noexcept
 {
-    for (const auto& entry : entries_) snapshots_[entry.slot] = {};
+    for (const auto& entry : entries_)
+    {
+        if (copy_slots_prewarmed_)
+            snapshots_[entry.slot].coordinate = {};
+        else
+            snapshots_[entry.slot] = {};
+    }
     entries_.clear();
     reset_free_slots();
-    bytes_used_ = fixed_bytes_;
+    if (!copy_slots_prewarmed_) bytes_used_ = fixed_bytes_;
 }
 }

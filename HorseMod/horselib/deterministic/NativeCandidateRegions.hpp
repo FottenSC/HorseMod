@@ -43,7 +43,11 @@ struct NativeCandidateAddresses
     std::uintptr_t pending_hit_record{};
     std::uintptr_t pending_launcher_sync{};
     std::uintptr_t camera_director{};
+    std::uintptr_t camera_velocity_basis{};
+    std::uintptr_t camera_timer_config{};
+    std::uintptr_t camera_timer_node{};
     std::uintptr_t camera_action_backing{};
+    std::array<std::uintptr_t, 4> camera_timer_globals{};
     std::array<std::uintptr_t, 2> fighter_roots{};
     std::uint64_t session_generation{};
     std::uint64_t round_generation{};
@@ -187,8 +191,9 @@ inline constexpr std::size_t native_movevm_state_short_count = 240;
 // global-short bank at ALuxBattleChara+0x197C. The native HgCpuDirect archive
 // remains the sole restoration owner; this typed copy makes gameplay selectors
 // such as Tira's heavily used behavior/probability state immediately visible
-// to canonical hashes. The exact native field that names Tira's mood is still
-// kept distinct from this evidence-backed bank projection.
+// to canonical hashes. Ghidra independently proves state index 0x19 as Tira's
+// live Gloomy/Jolly stance (0/1) in Tira context; the globally shared slot
+// retains a neutral name because other character banks author values 2/3.
 struct NativeMoveVmStateShortImage
 {
     std::array<std::array<std::uint16_t, native_movevm_state_short_count>, 2>
@@ -222,6 +227,12 @@ inline constexpr std::size_t native_camera_action_count = 17;
 inline constexpr std::size_t native_camera_component_count = 16;
 inline constexpr std::size_t native_camera_component_common_bytes = 0x174;
 inline constexpr std::size_t native_camera_component_maximum_derived_bytes = 0x140;
+inline constexpr std::size_t native_camera_director_state_bytes = 0x360;
+inline constexpr std::size_t native_camera_velocity_basis_bytes = 0x40;
+inline constexpr std::size_t native_camera_timer_config_state_bytes = 0x98;
+inline constexpr std::size_t native_camera_timer_node_bytes = 0x2F0;
+inline constexpr std::size_t native_camera_action_backing_bytes = 0x41E0;
+inline constexpr std::size_t native_camera_fighter_render_position_bytes = 0x0C;
 inline constexpr std::size_t native_stage_wind_emitter_max_count = 16;
 inline constexpr std::size_t native_stage_wind_emitter_state_size = 0xA8;
 
@@ -293,6 +304,31 @@ struct NativeCameraSourceFrameImage
     std::uint64_t round_generation{};
     std::array<NativeCameraComponentImage, native_camera_component_count>
         components{};
+    // Presentation-local smoothed render XYZ at ALuxBattleChara+0x2090.
+    // LuxEffectCamera_UpdateGameCameraState consumes these values, while
+    // LuxBattleChara_UpdateSmoothedRenderPositionFromRootStepCache owns their
+    // progression from the authoritative +0xC0 root-step cache. They are a
+    // same-process source-frame boundary, never peer checkpoint state.
+    std::array<std::array<std::byte,
+        native_camera_fighter_render_position_bytes>, 2>
+        fighter_render_positions{};
+    // Exact same-generation local inverse image used by SC6's paired HgCpu
+    // timer-node writer/reader. The node and backing contain process-local
+    // identities, so they are never hashed or transferred to a peer.
+    std::array<std::byte, native_camera_director_state_bytes> director_state{};
+    // Mutable 4x4 matrix consumed by camera keyframe interpolation and the
+    // velocity/yaw synthesis pass. It is initialized per match and replaced by
+    // SetLuxBattleCameraVelocityBasisMatrix, so it must be restored before
+    // camera actions run. It is pointer-free and same-generation local state.
+    std::array<std::byte, native_camera_velocity_basis_bytes> velocity_basis{};
+    // Timer-config +0xA8..+0x13F. The native archive owns the fixed
+    // +0xA8..+0x12B blocks; PlayerWatch and the slot-16 producer also consume
+    // the independently verified local tail at +0x138/+0x13C.
+    std::array<std::byte, native_camera_timer_config_state_bytes>
+        timer_config_state{};
+    std::array<std::byte, native_camera_timer_node_bytes> timer_node{};
+    std::array<std::byte, native_camera_action_backing_bytes> action_backing{};
+    std::array<std::uint32_t, 4> timer_globals{};
 
     friend bool operator==(
         const NativeCameraSourceFrameImage&,

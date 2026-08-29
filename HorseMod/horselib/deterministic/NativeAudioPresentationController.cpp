@@ -33,7 +33,20 @@ Status NativeAudioPresentationController::RecordSpeculative(
     if (generation_ == 0
         || batch.entry_coordinate.generation != generation_)
         return Status::failure(FailureCode::GenerationMismatch);
-    return RecordNativeAudioPresentation(batch, journal_);
+    if (maximum_correction_events_ == 0)
+        return Status::failure(FailureCode::CapacityExceeded);
+    std::size_t event_count{};
+    const Status built = BuildNativeAudioPresentation(batch,
+        std::span{correction_events_.get(), maximum_correction_events_},
+        event_count);
+    if (!built.ok()) return built;
+    for (std::size_t index = 0; index < event_count; ++index)
+    {
+        const Status recorded = journal_.RecordPresented(
+            correction_events_[index]);
+        if (!recorded.ok()) return recorded;
+    }
+    return Status::success();
 }
 
 Status NativeAudioPresentationController::ReplaceCorrected(
@@ -102,6 +115,12 @@ std::size_t NativeAudioPresentationController::pending_count() const noexcept
 std::size_t NativeAudioPresentationController::payload_bytes() const noexcept
 {
     return journal_.payload_bytes();
+}
+
+std::size_t NativeAudioPresentationController::allocated_bytes() const noexcept
+{
+    return journal_.allocated_bytes()
+        + maximum_correction_events_ * sizeof(PresentationEvent);
 }
 
 PresentationJournal::Statistics

@@ -15,6 +15,7 @@ def test_pair_commands_preserve_production_steam_launch() -> None:
         box_name="sc6_peer",
         sandboxie_start=Path(r"C:\Sandboxie\Start.exe"),
         steam_executable=Path(r"C:\Steam\steam.exe"),
+        game_executable=Path(r"E:\SC6\SoulcaliburVI.exe"),
     )
     assert spec.host_command() == (
         r"C:\Steam\steam.exe",
@@ -24,9 +25,7 @@ def test_pair_commands_preserve_production_steam_launch() -> None:
     assert spec.sandbox_command() == (
         r"C:\Sandboxie\Start.exe",
         "/box:sc6_peer",
-        r"C:\Steam\steam.exe",
-        "-applaunch",
-        "544750",
+        r"E:\SC6\SoulcaliburVI.exe",
         "-QueryPort=27012",
     )
 

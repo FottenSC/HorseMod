@@ -7,8 +7,8 @@
 
 namespace Horse::Deterministic::Schema
 {
-inline constexpr std::uint32_t protocol_version = 1;
-inline constexpr std::uint32_t snapshot_schema_version = 45;
+inline constexpr std::uint32_t protocol_version = 2;
+inline constexpr std::uint32_t snapshot_schema_version = 46;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::size_t maximum_presentation_payload = 256;
 inline constexpr std::uint64_t checkpoint_interval = 30;
@@ -47,14 +47,13 @@ inline constexpr std::size_t replay_checkpoint_memory_budget =
     replay_timeline_memory_limit - replay_input_memory_budget
     - replay_native_batch_memory_budget - replay_canonical_hash_memory_budget;
 inline constexpr std::size_t replay_input_entry_budget = 128;
-// Leave a fixed schema margin for the bounded cross-family presentation and
-// audio-terminal journals. The aggregate native-batch allocation remains
-// capped at 192 MiB, so increasing this accounting ceiling reduces capacity.
-// The 64-entry audio-terminal journal and matching presentation-order lane add
-// 864 bytes over the former 32-entry bound. Keep the accounting ceiling at a
-// fixed 17 KiB; the aggregate allocation remains capped at 192 MiB and thus
-// admits fewer timeline batches rather than allowing unbounded growth.
-inline constexpr std::size_t replay_native_batch_entry_budget = 17408;
+// Leave a fixed schema margin for the bounded cross-family presentation,
+// audio-terminal, and same-generation camera timer/action source journals.
+// The exact native timer-node boundary adds a 0x2F0 node, fixed 0x41E0 action
+// backing, and four camera scalars to each batch. The aggregate native-batch
+// allocation remains capped at 192 MiB, so the larger fixed entry ceiling
+// reduces retained batch capacity rather than allowing unbounded growth.
+inline constexpr std::size_t replay_native_batch_entry_budget = 36864;
 inline constexpr std::size_t replay_native_batch_coordinate_budget = 32;
 inline constexpr std::size_t replay_round_image_size = 0xc0;
 inline constexpr std::uint32_t maximum_replay_round_images = 64;
@@ -106,12 +105,15 @@ inline constexpr std::uintptr_t battle_audio_append_parameter_owner_rva =
 inline constexpr std::uintptr_t particle_spawn_rva = 0x8a3920;
 inline constexpr std::uintptr_t particle_finished_bind_rva = 0x533f40;
 inline constexpr std::uintptr_t gameplay_xorshift96_rva = 0x34f1f0;
+inline constexpr std::uintptr_t movevm_evaluate_if_rva = 0x3732f0;
 inline constexpr std::uintptr_t movevm_transition_author_07_rva = 0x2fcc10;
 inline constexpr std::uintptr_t particle_wall_return_rva = 0x53d69f;
 inline constexpr std::uintptr_t particle_barrier_hit_return_rva = 0x54a1ef;
 inline constexpr std::uintptr_t particle_barrier_break_return_rva = 0x54a364;
 inline constexpr std::uintptr_t particle_blueprint_return_rva = 0xcf44f3;
 inline constexpr std::uintptr_t camera_yaw_turns_rva = 0x470d0dc;
+inline constexpr std::uintptr_t camera_input_words01_rva = 0x470d100;
+inline constexpr std::uintptr_t camera_input_words25_rva = 0x470d110;
 inline constexpr std::uintptr_t camera_mode_rva = 0x470d198;
 inline constexpr std::uintptr_t camera_frame_vectors_rva = 0x470d1a0;
 inline constexpr std::size_t camera_frame_vectors_size = 0x60;
@@ -166,6 +168,16 @@ inline constexpr std::array<std::byte, 16> gameplay_xorshift96_signature{
     std::byte{0x3b}, std::byte{0x04}, std::byte{0x8b}, std::byte{0xd1},
     std::byte{0x8b}, std::byte{0xc1}, std::byte{0xc1}, std::byte{0xe2},
     std::byte{0x0c}, std::byte{0xc1}, std::byte{0xe8}, std::byte{0x06}};
+// LuxMoveVM_EvaluateIfOpcode: full non-leaf prologue through the seven saved
+// nonvolatile registers. The typed ABI returns its predicate in RAX.
+inline constexpr std::array<std::byte, 24> movevm_evaluate_if_signature{
+    std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+    std::byte{0x10}, std::byte{0x48}, std::byte{0x89}, std::byte{0x6c},
+    std::byte{0x24}, std::byte{0x18}, std::byte{0x48}, std::byte{0x89},
+    std::byte{0x74}, std::byte{0x24}, std::byte{0x20}, std::byte{0x57},
+    std::byte{0x41}, std::byte{0x54}, std::byte{0x41}, std::byte{0x55},
+    std::byte{0x41}, std::byte{0x56}, std::byte{0x41}, std::byte{0x57},
+};
 inline constexpr std::array<std::byte, 23> stage_break_barrier_handler_signature{
     std::byte{0x4c}, std::byte{0x8b}, std::byte{0xdc}, std::byte{0x49},
     std::byte{0x89}, std::byte{0x5b}, std::byte{0x18}, std::byte{0x49},
@@ -311,11 +323,12 @@ struct NativeRegionDescriptor
     std::uintptr_t address;
     std::size_t size;
     RegionClass classification;
+    std::string_view resolver;
 };
 
-// Admission is deliberately fail-closed. Regions are added only after their complete
-// native read/write and lifetime surface is recorded in the Ghidra-backed contract.
-inline constexpr std::array<NativeRegionDescriptor, 0> production_regions{};
+// Generated only from the reviewed manifest. The generator rejects missing
+// owner/type/writer/reader/lifetime/restore/failure contracts and order gaps.
+#include "ProductionRegions.generated.hpp"
 
 constexpr std::string_view region_class_name(RegionClass value) noexcept
 {

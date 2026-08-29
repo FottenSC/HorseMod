@@ -138,6 +138,7 @@ public:
     [[nodiscard]] CandidateAdapterPerformanceStatus performance_status()
         const noexcept;
     void ResetCapturePerformanceWindow() noexcept;
+    [[nodiscard]] std::size_t owned_scratch_bytes() const noexcept;
     [[nodiscard]] CandidateCapturePhase last_capture_phase() const noexcept
     {
         return last_capture_phase_;
@@ -151,6 +152,10 @@ public:
     last_captured_movevm_state_shorts() const noexcept
     {
         return last_captured_movevm_state_shorts_;
+    }
+    [[nodiscard]] const NativeRngImage& last_captured_rng() const noexcept
+    {
+        return last_captured_rng_;
     }
     Status TraceLocalStreamOffset(std::size_t stream_offset,
         HgCpuWriteSpan& output) noexcept;
@@ -239,6 +244,7 @@ private:
     CandidateCapturePhase last_capture_phase_{};
     std::array<std::uint16_t, 2> last_captured_movevm_short25_{};
     NativeMoveVmStateShortImage last_captured_movevm_state_shorts_{};
+    NativeRngImage last_captured_rng_{};
     bool configured_{};
     bool bound_{};
 };

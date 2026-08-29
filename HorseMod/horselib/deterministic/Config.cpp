@@ -81,6 +81,10 @@ ConfigLoadResult LoadConfig(const std::filesystem::path& path)
         else if (key == "forced_depth7_qualification")
             valid = parse_bool(value,
                 result.config.forced_depth7_qualification);
+        else if (key == "qualification_depth")
+            valid = parse_u32(value, result.config.qualification_depth);
+        else if (key == "qualification_location")
+            valid = parse_u32(value, result.config.qualification_location);
         else
         {
             if (result.diagnostics.empty())
@@ -101,7 +105,13 @@ ConfigLoadResult LoadConfig(const std::filesystem::path& path)
     if (result.config.config_version != Config::current_version
         || result.config.rollback_window == 0
         || result.config.rollback_window > 30
-        || result.config.input_delay > 8)
+        || result.config.input_delay > 8
+        || (result.config.qualification_depth != 1
+            && result.config.qualification_depth != 6
+            && result.config.qualification_depth != 7
+            && result.config.qualification_depth != 11)
+        || result.config.qualification_location < 1
+        || result.config.qualification_location > 4)
     {
         result.status = Status::failure(FailureCode::InvalidConfiguration);
         result.diagnostics.emplace_back("configuration values are outside the supported contract");

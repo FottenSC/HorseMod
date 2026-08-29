@@ -80,6 +80,7 @@ enum class FailureCode : std::uint16_t
     NativeLifecycleEnded,
     NativeGenerationMaterializationFailed,
     PerformanceBudgetExceeded,
+    Timeout,
 };
 
 constexpr std::string_view failure_code_name(FailureCode code) noexcept
@@ -116,6 +117,7 @@ constexpr std::string_view failure_code_name(FailureCode code) noexcept
     case FailureCode::NativeLifecycleEnded: return "native_lifecycle_ended";
     case FailureCode::NativeGenerationMaterializationFailed: return "native_generation_materialization_failed";
     case FailureCode::PerformanceBudgetExceeded: return "performance_budget_exceeded";
+    case FailureCode::Timeout: return "timeout";
     }
     return "unknown_failure";
 }
@@ -308,6 +310,7 @@ enum class OnlineState : std::uint8_t
     ObservingLobby,
     Handshaking,
     AwaitingBattle,
+    AwaitingBaselineTarget,
     FreezingBaseline,
     Active,
     RoundBarrier,

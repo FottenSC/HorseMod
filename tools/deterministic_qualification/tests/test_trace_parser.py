@@ -3,12 +3,100 @@ from pathlib import Path
 from tools.deterministic_qualification.trace_parser import (
     capture_log_offset,
     parse_forced_qualification_evidence,
+    parse_correction_probe_evidence,
     parse_gameplay_rng_coverage_evidence,
     parse_replay_seek_evidence,
     parse_presentation_coverage_evidence,
+    parse_presentation_identity_evidence,
+    parse_qualification_health_evidence,
+    parse_replay_metadata_evidence,
+    parse_stock_round_outcome_evidence,
     wait_for_boot_evidence,
     wait_for_replay_lifecycle_evidence,
 )
+
+
+def test_qualification_health_parser_uses_native_counters() -> None:
+    text = (
+        "[HorseMod] ctor v1.0 source=" + "a" * 40 + "\n"
+        "[ReplayQualification] qualification health capacity_failures=0 "
+        "capacity_growth_events=0 timeline_accounting_failures=0 "
+        "aggregate_owned_bytes=1234 presentation_owned_bytes=567 "
+        "presentation_duplicate_failures=0 presentation_publish_failures=0\n"
+    )
+    evidence = parse_qualification_health_evidence(text)
+    assert evidence is not None
+    assert evidence.capacity_failures == 0
+    assert evidence.capacity_growth_events == 0
+    assert evidence.timeline_accounting_failures == 0
+    assert evidence.presentation_duplicate_failures == 0
+    assert evidence.presentation_publish_failures == 0
+    assert evidence.aggregate_owned_bytes == 1234
+
+
+def test_presentation_identity_parser_preserves_exact_sequences() -> None:
+    text = (
+        "[HorseMod] ctor v1.0 source=" + "a" * 40 + "\n"
+        "[ReplayQualification] presentation identity batches=600 "
+        "audio_events=42 audio_identity=0x1122334455667788 "
+        "order_events=51 order_identity=0x8877665544332211 "
+        "camera_identity=0x0102030405060708 camera_batches=57 "
+        "failures=0 journal_committed=9\n"
+    )
+    evidence = parse_presentation_identity_evidence(text)
+    assert evidence is not None
+    assert evidence.audio_identity == 0x1122334455667788
+    assert evidence.order_identity == 0x8877665544332211
+    assert evidence.camera_identity == 0x0102030405060708
+    assert evidence.camera_batches == 57
+    assert evidence.failures == 0
+
+
+def test_replay_metadata_parser_is_bound_to_latest_import() -> None:
+    text = (
+        "[ReplayQualification] source=" + "a" * 40 + " native_import=ready\n"
+        "[ReplayQualification] replay metadata stage=9 map=9 "
+        "left_character=1 right_character=2 state_reset_records=2\n"
+        "[ReplayQualification] source=" + "b" * 40 + " native_import=ready\n"
+        "[ReplayQualification] replay metadata stage=260 map=4 "
+        "left_character=35 right_character=11 state_reset_records=3\n"
+    )
+    evidence = parse_replay_metadata_evidence(text)
+    assert evidence is not None
+    assert evidence.stage == 260
+    assert evidence.map == 4
+    assert evidence.left_character == 35
+    assert evidence.right_character == 11
+    assert evidence.state_reset_records == 3
+
+
+def test_correction_probe_parser_preserves_depth_order() -> None:
+    lines = "".join(
+        "[HorseMod] owned correction probe passed "
+        f"depth={depth} base=100 final=110 batches=7 coordinates=7 "
+        "undo_capture_us=1 restore_us=2 resim_us=3 verify_us=4 "
+        f"total_us={depth + 10} restore_phase_us(local=1/1)\n"
+        for depth in (1, 6, 11, 7)
+    )
+    text = "[HorseMod] ctor v1.0 source=" + "a" * 40 + "\n" + lines
+    evidence = parse_correction_probe_evidence(text)
+    assert tuple(item.depth for item in evidence) == (1, 6, 11, 7)
+    assert evidence[2].total_us == 21
+
+
+def test_stock_round_outcome_parser_is_source_bound() -> None:
+    text = (
+        "[ReplayQualification] source=" + "a" * 40
+        + " native_import=ready\n"
+        "[ReplayQualification] stock round outcome qualification passed "
+        "rounds=5 match_winner=0 winners=0,1,0,1,0\n"
+    )
+    evidence = parse_stock_round_outcome_evidence(text)
+    assert evidence is not None
+    assert evidence.source_commit == "a" * 40
+    assert evidence.rounds == 5
+    assert evidence.match_winner == 0
+    assert evidence.round_winners == (0, 1, 0, 1, 0)
 
 
 def test_gameplay_rng_coverage_parser_is_source_bound() -> None:
@@ -21,7 +109,19 @@ def test_gameplay_rng_coverage_parser_is_source_bound() -> None:
         "state_changes_p1=8 probability_state_mask_p0=" + "0" * 63 + "1 "
         "probability_state_mask_p1=" + "0" * 62 + "20 "
         "transition07_calls=9 tira_random_transitions=2 "
-        "tira_probability_batches=2 tira_targets=0x3\n"
+        "tira_probability_batches=2 tira_targets=0x3 "
+        "xorshift_sequence=0x0123456789abcdef "
+        "transition07_sequence=0x1023456789abcdef "
+        "tira_sequence=0x2023456789abcdef "
+        "tira_stance_batches=2 tira_slot_mask=0x1 "
+        "state19_sequence_p0=0x3023456789abcdef "
+        "state19_sequence_p1=0x4023456789abcdef "
+        "state19_initial_p0=0 state19_initial_p1=3 "
+        "state19_final_p0=1 state19_final_p1=3 "
+        "xorshift_landing=0x12345678,0x23456789,0x3456789a "
+        "state19_at_tira_transition_p0=1 "
+        "state19_at_tira_transition_p1=3 state19_initial_valid=1 "
+        "tira_last_target=0x0205\n"
     )
     evidence = parse_gameplay_rng_coverage_evidence(text)
     assert evidence is not None
@@ -35,6 +135,15 @@ def test_gameplay_rng_coverage_parser_is_source_bound() -> None:
     assert evidence.tira_random_transitions == 2
     assert evidence.tira_probability_batches == 2
     assert evidence.tira_targets == 3
+    assert evidence.xorshift_sequence == 0x0123456789ABCDEF
+    assert evidence.tira_stance_batches == 2
+    assert evidence.tira_slot_mask == 1
+    assert evidence.state19_initial_p0 == 0
+    assert evidence.state19_final_p0 == 1
+    assert evidence.xorshift_landing == (0x12345678, 0x23456789, 0x3456789A)
+    assert evidence.state19_at_tira_transition_p0 == 1
+    assert evidence.state19_initial_valid
+    assert evidence.tira_last_target == 0x0205
 
 
 def test_presentation_coverage_parser_is_source_bound() -> None:
@@ -87,7 +196,11 @@ def test_forced_qualification_parser_requires_exact_summary_fields() -> None:
     text = (
         "[HorseMod] ctor v2.0 source=" + "b" * 40 + "\n"
         "[HorseMod] forced depth-7 qualification passed completed=600 "
-        "generations=6-7 canonical_convergence=exact "
+        "generations=6-7 stage_wall_suppressed=7 "
+        "stage_barrier_suppressed=0 stage_semantic_dispatches=7 "
+        "particle_spawn_suppressed=7 particle_bind_suppressed=0 "
+        "presentation_failures=0 journal_attempted=10 "
+        "canonical_convergence=exact "
         "presentation_terminal_coverage=incomplete\n"
     )
     evidence = parse_forced_qualification_evidence(text)
@@ -96,6 +209,35 @@ def test_forced_qualification_parser_requires_exact_summary_fields() -> None:
     assert evidence.completed == 600
     assert evidence.canonical_convergence == "exact"
     assert evidence.presentation_terminal_coverage == "incomplete"
+    assert evidence.suppressed_stage_wall == 7
+    assert evidence.suppressed_stage_barrier == 0
+    assert evidence.semantic_stage_dispatches == 7
+    assert evidence.suppressed_particle_spawn == 7
+    assert evidence.presentation_failures == 0
+
+
+def test_forced_qualification_parser_keeps_timing_and_capacity_metrics() -> None:
+    text = (
+        "[HorseMod] ctor v2.0 source=" + "b" * 40 + "\n"
+        "[HorseMod] forced correction qualification passed depth=7 location=2 "
+        "completed=600 cycle_p99_us=1234 cycle_max_us=2345 capture_samples=601 "
+        "capture_p99_us=400 capture_max_us=900 scratch_capacity_bytes=10->10 "
+        "scratch_growth_events=0 stage_wall_suppressed=0 stage_barrier_suppressed=0 "
+        "stage_semantic_dispatches=0 particle_spawn_suppressed=0 "
+        "audio_batches_verified=600 audio_sequence_mismatches=0 "
+        "camera_batches_verified=600 camera_publication_mismatches=0 "
+        "presentation_failures=0 journal_attempted=12 journal_recorded=12 "
+        "journal_discarded=0 journal_committed=12 journal_duplicates=0 "
+        "journal_capacity_failures=0 journal_publish_failures=0 "
+        "journal_pending=0 journal_payload_bytes=0 canonical_convergence=exact "
+        "presentation_terminal_coverage=complete\n"
+    )
+    evidence = parse_forced_qualification_evidence(text)
+    assert evidence is not None
+    assert evidence.cycle_p99_us == 1234
+    assert evidence.capture_p99_us == 400
+    assert evidence.capture_max_us == 900
+    assert evidence.scratch_capacity_begin == evidence.scratch_capacity_end == 10
 
 
 def test_waiters_ignore_complete_stale_sessions(tmp_path: Path) -> None:

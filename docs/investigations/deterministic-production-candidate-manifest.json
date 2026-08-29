@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "publication_state": "candidate_evidence_empty",
+  "protocol_version": 2,
+  "snapshot_schema_version": 46,
+  "region_manifest": "docs/investigations/deterministic-production-region-manifest.json",
+  "release_binding": {
+    "location": "production-allowlist.ini",
+    "required_hashes": [
+      "game_executable_sha256",
+      "horsemod_dll_sha256",
+      "source_identity_sha256",
+      "schema_sha256",
+      "region_manifest_sha256",
+      "candidate_manifest_sha256",
+      "offline_report_sha256_by_case",
+      "paired_report_sha256_by_case",
+      "loaded_map_sha256_by_case"
+    ],
+    "current_evidence": null
+  },
+  "cases": [
+    {
+      "case_id": "astaroth-raphael-silver-wolves-haven",
+      "replay": "ReplayExample/REPLAY_10224262924037108963.bin",
+      "replay_sha256": "c30f1368c918188c87127db1411aa5466d1b39d91e60ca0d658a0da79b5e3a41",
+      "replay_metadata_stage": 273,
+      "replay_metadata_map": 111,
+      "fighter_order": ["012", "015"],
+      "fighter_names": ["Astaroth", "Raphael"],
+      "stage_selection_code": "273",
+      "authored_stage_code": "111",
+      "stage_package_root": "/Game/DLC/07/Stage/STG011_R",
+      "map_path": "/Game/DLC/07/Stage/STG011_R/Maps/STG011_R",
+      "localization_key": "ID_DLC7_CMN_Stag_D_011_R",
+      "native_display_name": "Silver Wolves' Haven",
+      "rng_policy": "authored_stage_only_random_selection_forbidden"
+    },
+    {
+      "case_id": "raphael-maxi-snow-capped-showdown",
+      "replay": "ReplayExample/REPLAY_12744704008398858106.bin",
+      "replay_sha256": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+      "replay_metadata_stage": 9,
+      "replay_metadata_map": 9,
+      "fighter_order": ["015", "004"],
+      "fighter_names": ["Raphael", "Maxi"],
+      "stage_selection_code": "009",
+      "authored_stage_code": "009",
+      "stage_package_root": "/Game/Stage/STG009",
+      "map_path": "/Game/Stage/STG009/Maps/STG009",
+      "localization_key": "ID_CMN_Stag_D_009",
+      "native_display_name": "Snow-Capped Showdown",
+      "rng_policy": "authored_stage_only_random_selection_forbidden"
+    },
+    {
+      "case_id": "siegfried-cervantes-murakumo-shrine-grounds",
+      "replay": "ReplayExample/REPLAY_10655830802443135226.bin",
+      "replay_sha256": "d1543bea1bb229bd9cf5e33b09167c88782653e9bb3b98d0eb4c31f131367887",
+      "replay_metadata_stage": 23,
+      "replay_metadata_map": 17,
+      "fighter_order": ["007", "014"],
+      "fighter_names": ["Siegfried", "Cervantes"],
+      "stage_selection_code": "023",
+      "authored_stage_code": "017",
+      "stage_package_root": "/Game/DLC/11/Stage/STG017",
+      "map_path": "/Game/DLC/11/Stage/STG017/Maps/STG017",
+      "localization_key": "ID_DLC11_CMN_Stag_D_017",
+      "native_display_name": "Murakumo Shrine Grounds",
+      "rng_policy": "authored_stage_only_random_selection_forbidden"
+    }
+  ]
+}

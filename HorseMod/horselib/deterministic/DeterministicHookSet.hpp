@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Types.hpp"
+#include "AuthoritativeInputGate.hpp"
 #include "BattleAudioSelectorState.hpp"
 #include "FloatingPointEnvironment.hpp"
 #include "NativeBatchTimeline.hpp"
@@ -45,6 +46,10 @@ struct FrameFencepostObservation
     std::uint32_t input_filter_invocations{};
     bool input_filter_observed{};
     bool source_rows_observed{};
+    bool authoritative_input_requested{};
+    bool authoritative_input_applied{};
+    bool authoritative_input_round_barrier{};
+    bool authoritative_input_failed_closed{};
 };
 
 struct ReplayExitObservation
@@ -93,6 +98,9 @@ struct OuterTickObservation
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};
     std::uint8_t tira_random_transition_target_mask{};
+    std::uint16_t tira_last_transition_target{};
+    std::uint8_t tira_character_slot_mask{};
+    std::array<std::uint16_t, 2> tira_state19_at_transition{};
     std::uint32_t stage_wall_calls{};
     std::uint64_t stage_wall_hash{};
     std::uint32_t stage_barrier_calls{};
@@ -181,6 +189,13 @@ struct OuterTickObservation
     // execution. Ordinary gameplay envelopes always leave this zero.
     std::uint8_t qualification_stage_terminal_mask{};
     std::uint16_t read_mask{};
+    bool authoritative_input_requested{};
+    bool authoritative_input_applied{};
+    bool authoritative_input_round_barrier{};
+    bool authoritative_input_failed_closed{};
+    // Set only when the live outer tick was unwound before any native input
+    // consumer could run. This is distinct from a post-frame failure.
+    bool authoritative_input_aborted_before_consume{};
     bool fp_before_valid{};
     bool fp_after_valid{};
 };
@@ -195,6 +210,21 @@ using OuterTickCallback = void (*)(
     void* user,
     const OuterTickObservation& observation) noexcept;
 
+inline void DispatchCompletedOuterTick(
+    void* user, OuterTickCallback callback,
+    const OuterTickObservation& observation) noexcept
+{
+    if (callback != nullptr) callback(user, observation);
+}
+
+using AuthoritativeInputCallback = AuthoritativeInputDisposition (*)(
+    void* user,
+    const OuterTickObservation& observation,
+    bool stock_valid,
+    const PlayerInput (&stock)[2],
+    PlayerInput (&authoritative)[2]) noexcept;
+using AuthoritativeInputCommitCallback = bool (*)(void* user) noexcept;
+
 struct DeterministicHookCallbacks
 {
     void* user{};
@@ -207,6 +237,8 @@ struct DeterministicHookCallbacks
     OuterTickCallback outer_tick_source{};
     OuterTickCallback outer_tick{};
     ReplayExitCallback replay_exit{};
+    AuthoritativeInputCallback authoritative_input{};
+    AuthoritativeInputCommitCallback authoritative_input_commit{};
 };
 
 using OwnedBatchLandingCaptureFn = Status (*)(
@@ -261,6 +293,9 @@ struct OwnedBatchReplayResult
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};
     std::uint8_t tira_random_transition_target_mask{};
+    std::uint16_t tira_last_transition_target{};
+    std::uint8_t tira_character_slot_mask{};
+    std::array<std::uint16_t, 2> tira_state19_at_transition{};
     std::uint32_t suppressed_stage_wall_calls{};
     std::uint32_t suppressed_stage_barrier_calls{};
     std::uint32_t semantic_stage_dispatch_calls{};
@@ -303,6 +338,8 @@ struct OwnedBatchReplayResult
     std::uint32_t camera_publication_mismatches{};
     std::uint32_t camera_publication_difference_count{};
     std::uint32_t first_camera_publication_difference{UINT32_MAX};
+    std::uint8_t expected_camera_publication_byte{};
+    std::uint8_t observed_camera_publication_byte{};
     std::array<std::uint8_t, maximum_battle_audio_handlers>
         suppressed_audio_remap_entry_values{};
     std::uint8_t suppressed_audio_remap_entry_mask{};
@@ -343,6 +380,7 @@ public:
         const StageBreakListenerTopology& topology,
         std::span<const StageBreakParticleAssetRef> assets) noexcept;
     void InvalidateStageBreakPresentationIdentity() noexcept;
+    void InvalidateBattleAudioPresentationIdentity() noexcept;
     Status MarkQualificationStageTerminal(std::uint32_t operation) noexcept;
     Status ResolveQualificationStageActor(
         std::uintptr_t actor, std::uint64_t& owner_logical_id) const noexcept;
@@ -376,6 +414,29 @@ private:
         bool suppress_speculative_presentation{};
         OwnedBatchExecution* owned{};
     };
+
+    Status ValidateOwnedBatchRequest(const OwnedBatchReplayRequest& request,
+        OwnedBatchReplayResult& output,
+        bool& capture_corrected) const noexcept;
+    Status PrepareOwnedBatchState(const OwnedBatchReplayRequest& request,
+        OwnedBatchReplayResult& output) noexcept;
+    Status ExecuteQualificationStageTerminalIfRequested(
+        const OwnedBatchReplayRequest& request,
+        OwnedBatchReplayResult& output) noexcept;
+    static void CopyObservedGameplayIdentity(
+        const OuterTickObservation& observation,
+        OwnedBatchReplayResult& output) noexcept;
+    static bool OwnedGameplayIdentityMatches(
+        const OwnedBatchReplayRequest& request,
+        const OwnedBatchReplayResult& output) noexcept;
+    Status ExecuteOwnedNativeTick(const OwnedBatchReplayRequest& request,
+        OwnedBatchReplayResult& output,
+        OuterTickObservation& observation,
+        bool capture_corrected) noexcept;
+    Status ValidateOwnedBatchResult(const OwnedBatchReplayRequest& request,
+        OwnedBatchReplayResult& output,
+        OuterTickObservation& observation,
+        bool capture_corrected) noexcept;
 
     using FrameFencepostFn = void (__fastcall*)(void* battle_manager);
     using OuterTickFn = void (__fastcall*)(void* battle_manager, float delta_seconds);
@@ -419,12 +480,19 @@ private:
     using ParticleFinishedBindFn = void (__fastcall*)(void* delegate,
         void* owner, void* callback, std::uint64_t callback_name);
     using GameplayXorshift96Fn = std::uint32_t (__fastcall*)();
+    using MoveVmEvaluateIfFn = std::uint64_t (__fastcall*)(
+        void* chara, std::int32_t argument_count,
+        std::uint16_t* arguments);
     using MoveVmTransitionAuthor07Fn = void (__fastcall*)(
         void* chara, std::int32_t argument_count, std::uint16_t* arguments);
 
     static void __fastcall FrameFencepostDetour(void* battle_manager) noexcept;
     static void __fastcall OuterTickDetour(
         void* battle_manager, float delta_seconds) noexcept;
+    static bool InvokeOuterTickWithAbortGuard(
+        OuterTickFn original, void* battle_manager,
+        float delta_seconds) noexcept;
+    [[noreturn]] static void AbortActiveOuterTick() noexcept;
     static void __fastcall ReplayPostTickDetour(void* replay_state) noexcept;
     static void __fastcall CallbackExecutorDetour(
         void* collection, void* callback_argument) noexcept;
@@ -432,15 +500,38 @@ private:
         void* actor, bool immediately) noexcept;
     static void __fastcall StageBreakBarrierDetour(
         void* actor, void* direction) noexcept;
+    static void SuppressStageWall(void* actor, bool immediately,
+        StageBreakWallFn original, OuterTickCaptureContext* batch,
+        const StagePresentationJournalEntry& semantic,
+        bool semantic_ok) noexcept;
+    static void SuppressStageBarrier(void* actor, void* direction,
+        StageBreakBarrierFn original, OuterTickCaptureContext* batch,
+        const StagePresentationJournalEntry& semantic,
+        bool semantic_ok) noexcept;
     static void __fastcall StageBreakDispatchDetour(
         void* emitter, std::int32_t actor_id, void* location) noexcept;
     static std::int32_t __fastcall BattleAudioDispatchDetour(
         void* battle_manager, void* event_record,
         bool alternate_route) noexcept;
+    static std::size_t ObserveBattleAudioDispatch(
+        OuterTickCaptureContext* batch, void* event_record,
+        bool alternate_route) noexcept;
+    static std::size_t FindOrRegisterBattleAudioHandler(void* handler) noexcept;
     static std::int32_t __fastcall BattleAudioRemapDetour(
         void* handler, std::int32_t contact_type) noexcept;
     static void __fastcall BattleAudioContactHandlerDetour(
         void* handler, void* event_record) noexcept;
+    static void ReplayRecordedBattleAudioSource(
+        OuterTickCaptureContext* batch, void* handler,
+        void* event_record) noexcept;
+    static void ConsumeRecordedBattleAudioSourceSpan(
+        OuterTickCaptureContext* batch, void* handler,
+        const std::array<std::byte, 18>& semantic,
+        const BattleAudioSourceJournalEntry& source) noexcept;
+    static bool ConsumeRecordedBattleAudioRemaps(
+        OuterTickCaptureContext* batch, std::uintptr_t handler_identity,
+        std::size_t handler_slot, std::int32_t source_contact_type,
+        const BattleAudioSourceJournalEntry& source) noexcept;
     static void __fastcall BattleAudioPhaseChangedDetour(
         void* handler, void* phase_record) noexcept;
     static std::uint64_t __fastcall BattleAudioTrackingRemoveDetour(
@@ -467,12 +558,21 @@ private:
     static void __fastcall ParticleFinishedBindDetour(void* delegate,
         void* owner, void* callback, std::uint64_t callback_name) noexcept;
     static std::uint32_t __fastcall GameplayXorshift96Detour() noexcept;
+    static std::uint64_t __fastcall MoveVmEvaluateIfDetour(
+        void* chara, std::int32_t argument_count,
+        std::uint16_t* arguments) noexcept;
     static void __fastcall MoveVmTransitionAuthor07Detour(
         void* chara, std::int32_t argument_count,
         std::uint16_t* arguments) noexcept;
     static int __cdecl UcrtRandDetour() noexcept;
     static void __cdecl UcrtSrandDetour(unsigned int seed) noexcept;
     void EmitFrameFencepost(void* battle_manager) noexcept;
+    void CaptureFencepostManagerState(
+        void* battle_manager, FrameFencepostObservation& observation) noexcept;
+    static void CaptureFencepostInputState(
+        FrameFencepostObservation& observation) noexcept;
+    void FinalizeFrameFencepost(
+        FrameFencepostObservation& observation) noexcept;
     void CaptureOuterTickState(
         void* battle_manager,
         OuterTickState& state,
@@ -488,6 +588,18 @@ private:
         bool before) const noexcept;
     bool InstallUcrtIatHooks() noexcept;
     void UninstallUcrtIatHooks() noexcept;
+    [[nodiscard]] bool ValidateInstallationSignatures(
+        std::uintptr_t image_base) const noexcept;
+    bool InstallDetour(std::unique_ptr<PLH::x64Detour>& storage,
+        std::uintptr_t target, std::uintptr_t replacement,
+        std::uint64_t& trampoline,
+        std::atomic<std::uint64_t>& published_trampoline) noexcept;
+    bool InstallFrameHooks() noexcept;
+    bool InstallStageHooks() noexcept;
+    bool InstallAudioHooks() noexcept;
+    bool InstallParticleHooks() noexcept;
+    bool InstallRandomHooks() noexcept;
+    Status AbortInstallation() noexcept;
     Status RestoreBattleAudioRemapEntry(
         const NativeBatchEnvelope& envelope,
         OwnedBatchReplayResult& output) noexcept;
@@ -497,6 +609,24 @@ private:
     bool CompleteBattleAudioJournal(
         const NativeBatchEnvelope& envelope,
         OwnedBatchReplayResult& output) noexcept;
+    bool ConsumeBattleAudioSource(
+        const NativeBatchEnvelope& envelope,
+        const BattleAudioSourceJournalEntry& source,
+        OwnedBatchReplayResult& output) noexcept;
+    static bool ConsumeDirectAudioBlueprintsUntil(
+        const NativeBatchEnvelope& envelope,
+        std::size_t target,
+        OwnedBatchReplayResult& output) noexcept;
+    static bool ConsumeAudioTerminalsUntil(
+        const NativeBatchEnvelope& envelope,
+        std::size_t target,
+        OwnedBatchReplayResult& output) noexcept;
+    static void ObserveMoveVmTransition(void* chara,
+        std::int32_t argument_count, std::uint16_t* arguments,
+        OuterTickCaptureContext& batch) noexcept;
+    static void ObserveTiraRandomTransition(void* chara,
+        std::uint16_t target, OuterTickCaptureContext& batch,
+        OuterTickObservation& observation) noexcept;
     [[nodiscard]] bool PrepareAudioOwnerGraph(
         std::uintptr_t battle_manager) noexcept;
     [[nodiscard]] bool ResolveAudioOwner(
@@ -540,6 +670,7 @@ private:
     static std::atomic<std::uint64_t> particle_spawn_trampoline_global_;
     static std::atomic<std::uint64_t> particle_finished_bind_trampoline_global_;
     static std::atomic<std::uint64_t> gameplay_xorshift96_trampoline_global_;
+    static std::atomic<std::uint64_t> movevm_evaluate_if_trampoline_global_;
     static std::atomic<std::uint64_t>
         movevm_transition_author_07_trampoline_global_;
     static std::array<std::atomic<std::uintptr_t>,
@@ -569,6 +700,7 @@ private:
     std::unique_ptr<PLH::x64Detour> particle_spawn_detour_{};
     std::unique_ptr<PLH::x64Detour> particle_finished_bind_detour_{};
     std::unique_ptr<PLH::x64Detour> gameplay_xorshift96_detour_{};
+    std::unique_ptr<PLH::x64Detour> movevm_evaluate_if_detour_{};
     std::unique_ptr<PLH::x64Detour> movevm_transition_author_07_detour_{};
     std::uint64_t frame_fencepost_trampoline_{};
     std::uint64_t replay_post_tick_trampoline_{};
@@ -592,6 +724,7 @@ private:
     std::uint64_t particle_spawn_trampoline_{};
     std::uint64_t particle_finished_bind_trampoline_{};
     std::uint64_t gameplay_xorshift96_trampoline_{};
+    std::uint64_t movevm_evaluate_if_trampoline_{};
     std::uint64_t movevm_transition_author_07_trampoline_{};
     std::uint64_t next_outer_batch_id_{};
     std::uintptr_t image_base_{};

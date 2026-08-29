@@ -75,11 +75,12 @@ public:
     closed_peer = peer;
     closed_channel = channel;
     ++close_count;
-    return true;
+    return close_succeeds;
   }
 
   bool initialize_succeeds{true};
   bool send_succeeds{true};
+  bool close_succeeds{true};
   std::uint64_t closed_peer{};
   int closed_channel{};
   int close_count{};
@@ -130,9 +131,12 @@ OnlinePeerContract contract(std::uint8_t slot) {
   value.casual_player_match = true;
   value.executable_id[0] = std::byte{1};
   value.build_id[0] = std::byte{2};
-  value.content.fighter_ids = {10, 20};
-  value.content.stage_id = 273;
-  value.content.map_id = 17;
+  std::memcpy(value.content.fighter_codes[0].data(), "ger", 4);
+  std::memcpy(value.content.fighter_codes[1].data(), "tir", 4);
+  std::memcpy(value.content.stage_code.data(), "017", 4);
+  value.content.map_identity[0] = std::byte{0x17};
+  constexpr char map_name[] = "Snow-Capped Showdown";
+  std::memcpy(value.content.map_name.data(), map_name, sizeof(map_name));
   value.input_delay = 1;
   value.rollback_window = 12;
   return value;
@@ -173,8 +177,12 @@ void test_real_coordinator_over_authenticated_pair() {
              second.state() == OnlineState::AwaitingBattle,
          "authenticated pair reaches bilateral pre-ownership agreement");
   const CanonicalHash baseline = hash(std::byte{0x31});
-  expect(first.FreezeBaseline(1, baseline).ok() &&
-             second.FreezeBaseline(1, baseline).ok(),
+  expect(first.ReadyBaseline({1, 0}).ok() &&
+             second.ReadyBaseline({1, 0}).ok(),
+         "real coordinators publish baseline readiness");
+  pump_pair(first, second, OnlineState::AwaitingBaselineTarget);
+  expect(first.FreezeBaseline({1, 120}, baseline, hash(std::byte{9})).ok() &&
+             second.FreezeBaseline({1, 120}, baseline, hash(std::byte{9})).ok(),
          "real coordinators freeze identical canonical baseline");
   pump_pair(first, second, OnlineState::Active);
   expect(
@@ -183,7 +191,7 @@ void test_real_coordinator_over_authenticated_pair() {
       "real coordinators activate through production authenticated transport");
 
   PlayerInput input{0x41, 0x02};
-  expect(first.SendInput({1, 5}, input).ok(),
+  expect(first.SendInput({1, 125}, input).ok(),
          "active production coordinator sends gameplay input");
   expect(second.Pump().ok(),
          "remote production coordinator pumps authenticated gameplay");
@@ -229,8 +237,15 @@ void test_authenticated_delivery_and_replay_rejection() {
   expect(second.TerminalFailure() == FailureCode::None,
          "duplicate datagram is non-terminal");
 
+  first_api.close_succeeds = false;
+  first.Stop();
+  expect(!first.IsClearForStock(),
+         "failed native channel close withholds stock clearance");
+  first_api.close_succeeds = true;
   first.Stop();
   second.Stop();
+  expect(first.IsClearForStock() && second.IsClearForStock(),
+         "transport teardown clears authentication, queues, identities, and secrets");
   expect(first_api.closed_peer == 1002 &&
              first_api.closed_channel == steam_p2p_channel,
          "teardown closes only the Horse-owned peer channel");

@@ -68,11 +68,23 @@ struct ReplayTimelineStatus
     std::uint64_t observed_gameplay_xorshift_unknown_callers{};
     std::uint64_t observed_gameplay_xorshift_weighted_draws{};
     std::uint64_t observed_gameplay_xorshift_if_draws{};
+    std::uint64_t observed_gameplay_xorshift_sequence_hash{};
     std::uint64_t observed_movevm_transition_07_calls{};
+    std::uint64_t observed_movevm_transition_07_sequence_hash{};
     std::uint64_t observed_tira_random_transition_calls{};
+    std::uint64_t observed_tira_random_transition_sequence_hash{};
     std::uint64_t observed_tira_probability_transition_batches{};
+    std::uint64_t observed_tira_stance_transition_batches{};
     std::uint8_t observed_tira_random_transition_target_mask{};
+    std::uint16_t observed_tira_last_transition_target{};
+    std::uint8_t observed_tira_character_slot_mask{};
+    std::array<std::uint16_t, 2> observed_tira_state19_at_transition{};
     std::array<std::uint64_t, 2> observed_movevm_short25_changes{};
+    std::array<std::uint64_t, 2> observed_movevm_short25_sequence_hash{};
+    std::array<std::uint16_t, 2> initial_movevm_short25{};
+    std::array<std::uint16_t, 2> final_movevm_short25{};
+    std::array<std::uint32_t, 3> final_gameplay_xorshift_state{};
+    bool movevm_short25_initial_recorded{};
     std::array<std::uint64_t, 2> observed_movevm_state_changes{};
     std::array<std::array<std::uint64_t, 4>, 2>
         observed_probability_changed_state_short_masks{};
@@ -145,6 +157,16 @@ struct ReplayTimelineStatus
     std::uint32_t identity_issue{};
     std::uint64_t identity_expected{};
     std::uint64_t identity_observed{};
+};
+
+struct DeterministicOwnedStorageStatus
+{
+    std::size_t timeline_bytes{};
+    std::size_t forced_snapshot_bytes{};
+    std::size_t presentation_bytes{};
+    std::size_t scratch_metadata_bytes{};
+    std::size_t aggregate_bytes{};
+    std::size_t aggregate_limit{576ull * 1024ull * 1024ull};
 };
 
 struct OwnedCorrectionResult
@@ -279,6 +301,9 @@ public:
     [[nodiscard]] bool ready() const noexcept;
     void SetForcedDepth7QualificationEnabled(bool enabled) noexcept;
     void SetCorrectedInputQualificationEnabled(bool enabled) noexcept;
+    Status SetOnlinePredictedRemotePlayer(
+        std::optional<std::size_t> player_index) noexcept;
+    Status PrepareOnlineOwnedStorage(FrameCoordinate baseline) noexcept;
     [[nodiscard]] std::size_t forced_qualification_bytes() const noexcept;
     void ResetCapturePerformanceWindow() noexcept;
     [[nodiscard]] CandidateAdapterPerformanceStatus capture_performance()
@@ -297,11 +322,18 @@ public:
     Status CommitPresentationThrough(
         FrameCoordinate confirmed, DeterministicHookSet& hooks) noexcept;
     [[nodiscard]] bool presentation_ownership_enabled() const noexcept;
+    [[nodiscard]] bool IsOnlineClearForStock() const noexcept;
     [[nodiscard]] std::size_t pending_presentation_events() const noexcept;
     [[nodiscard]] std::size_t presentation_payload_bytes() const noexcept;
+    [[nodiscard]] DeterministicOwnedStorageStatus owned_storage_status()
+        const noexcept;
     [[nodiscard]] PresentationJournal::Statistics presentation_statistics()
         const noexcept;
     [[nodiscard]] ReplayTimelineStatus timeline_status() const noexcept;
+    // Game-thread-only borrowed view for narrow native qualification exports.
+    // The caller must consume fields immediately and never retain this reference.
+    [[nodiscard]] const ReplayTimelineStatus& timeline_status_view()
+        const noexcept;
     [[nodiscard]] const InputTimeline& input_timeline() const noexcept;
     [[nodiscard]] const NativeBatchTimeline& batch_timeline() const noexcept;
     [[nodiscard]] Status PlanSeek(
@@ -312,6 +344,8 @@ public:
     Status ExecuteOwnedStateSeek(
         FrameCoordinate target, DeterministicHookSet& hooks) noexcept;
     Status CaptureCurrentCanonical(Snapshot& output) noexcept;
+    [[nodiscard]] Status GetCanonicalHash(
+        FrameCoordinate coordinate, CanonicalHash& output) const noexcept;
     [[nodiscard]] bool GetSeekableRange(
         FrameCoordinate& first, FrameCoordinate& last) const noexcept;
     Status ExecuteOwnedCorrection(
@@ -329,6 +363,97 @@ public:
         FrameCoordinate earliest_changed) const noexcept;
 
 private:
+    struct CorrectedReplayCapture;
+    struct InterbatchDiagnosticTargets;
+    Status BeginObservedFrame(const FrameFencepostObservation& observation,
+        FrameCoordinate& coordinate, bool& new_generation) noexcept;
+    Status AppendObservedInput(const FrameFencepostObservation& observation,
+        FrameCoordinate coordinate) noexcept;
+    Status ValidateResumedFrame(FrameCoordinate coordinate) noexcept;
+    void CaptureLandingCheckpoint(const FrameFencepostObservation& observation,
+        FrameCoordinate coordinate, bool new_generation) noexcept;
+    Status CaptureCanonicalFrame(FrameCoordinate coordinate,
+        bool new_generation) noexcept;
+    Status BeginObservedOuterTick(const OuterTickObservation& observation,
+        std::uint32_t& coordinate_count,
+        bool& input_generation_changed,
+        bool& skip_batch) noexcept;
+    void FillObservedGameplayEnvelope(const OuterTickObservation& observation,
+        std::uint32_t coordinate_count,
+        bool input_generation_changed,
+        NativeBatchEnvelope& envelope) const noexcept;
+    void FillObservedPresentationEnvelope(
+        const OuterTickObservation& observation,
+        bool input_generation_changed,
+        NativeBatchEnvelope& envelope) const noexcept;
+    bool ConsumeResumeValidation() noexcept;
+    Status AccumulateObservedGameplayIdentity(
+        const OuterTickObservation& observation) noexcept;
+    Status StoreObservedBatch(const OuterTickObservation& observation,
+        const NativeBatchEnvelope& envelope) noexcept;
+    Status FinalizeObservedBatch(const OuterTickObservation& observation,
+        const NativeBatchEnvelope& envelope,
+        std::uint32_t coordinate_count,
+        bool input_generation_changed) noexcept;
+    void RecordSeekHashMismatch(FrameCoordinate target,
+        const CanonicalHashEntry& expected,
+        const Snapshot& observed) noexcept;
+    void ArmResumeValidation(FrameCoordinate target,
+        FrameCoordinate source_end,
+        const ReplaySeekPlan& plan,
+        std::uint64_t validation_ns) noexcept;
+    Status CommitCorrectedReplay(FrameCoordinate coordinate,
+        const InputPair& proposed,
+        const InputPair& previous,
+        OwnedCorrectionResult& output) noexcept;
+    static void RecordCorrectionLocalCameraDiagnostics(
+        const CandidateCheckpointImage& expected_image,
+        const CandidateCheckpointImage& observed_image,
+        const Snapshot& expected,
+        const Snapshot& observed,
+        OwnedCorrectionResult& output) noexcept;
+    static void RecordCorrectionInputRngDiagnostics(
+        const CandidateCheckpointImage& expected_image,
+        const CandidateCheckpointImage& observed_image,
+        OwnedCorrectionResult& output) noexcept;
+    static void RecordCorrectionWindDiagnostics(
+        const CandidateCheckpointImage& expected_image,
+        const CandidateCheckpointImage& observed_image,
+        OwnedCorrectionResult& output) noexcept;
+    void RecordCorrectionMismatchDiagnostics(const Snapshot& expected,
+        const Snapshot& observed,
+        OwnedCorrectionResult& output) noexcept;
+    Status VerifyCorrectionFinalState(
+        const CanonicalHash* expected_final_hash,
+        CorrectedReplayCapture* corrected,
+        const Snapshot& undo,
+        OwnedCorrectionResult& output) noexcept;
+    static Status ValidateReplayedPresentationEnvelope(
+        const NativeBatchEnvelope& envelope,
+        OwnedBatchReplayResult& result) noexcept;
+    static void AccumulateReplayPresentationDiagnostics(
+        const OwnedBatchReplayResult& result,
+        OwnedCorrectionResult* diagnostics) noexcept;
+    Status CaptureCorrectedReplayBatch(std::size_t batch_index,
+        const NativeBatchEnvelope& envelope,
+        const NativeCameraSourceFrameImage& camera_source,
+        const OuterTickObservation& corrected_observation,
+        NativeCameraSourceFrameImage& next_camera_source,
+        bool& next_camera_source_valid,
+        CorrectedReplayCapture* corrected) noexcept;
+    void CaptureInterbatchDiagnostics(std::size_t batch_index,
+        std::size_t final_batch_index,
+        const NativeBatchEnvelope& envelope,
+        const InterbatchDiagnosticTargets& targets) noexcept;
+    Status PrepareReplayBatchHandoffs(std::size_t batch_index,
+        std::size_t first_batch_index,
+        bool preserve_first_entry_input_log,
+        const NativeBatchEnvelope& envelope,
+        std::span<const InputPair> inputs,
+        CorrectedReplayCapture* corrected,
+        const NativeCameraSourceFrameImage& camera_source,
+        bool capture_landing,
+        std::uint32_t landing_offset) noexcept;
     static constexpr std::size_t maximum_owned_correction_coordinates = 64;
     static constexpr std::size_t maximum_owned_correction_batches = 64;
     static constexpr std::size_t maximum_owned_correction_checkpoints =
@@ -379,6 +504,25 @@ private:
     {
         Sc6ReplayRuntime* runtime{};
         std::span<InputPair> inputs{};
+    };
+
+    struct InterbatchDiagnosticTargets
+    {
+        std::uint64_t* difference_mask{};
+        std::size_t* difference_batch{};
+        std::uint32_t* frame_difference_mask{};
+        std::uint32_t* local_difference{};
+        std::uint32_t* local_difference_count{};
+        std::uint32_t* motion_difference{};
+        std::uint32_t* motion_difference_count{};
+        NativeRngImage* expected_rng{};
+        NativeRngImage* observed_rng{};
+        OwnedCorrectionResult::WindNodeScheduleDiagnostic* expected_wind{};
+        OwnedCorrectionResult::WindNodeScheduleDiagnostic* observed_wind{};
+        OwnedCorrectionResult::WindGraphScheduleDiagnostic*
+            expected_wind_graph{};
+        OwnedCorrectionResult::WindGraphScheduleDiagnostic*
+            observed_wind_graph{};
     };
 
     Status PrepareInitialGeneration(
@@ -474,6 +618,7 @@ private:
         Schema::maximum_correction_presentation_events};
     bool forced_depth7_qualification_enabled_{};
     bool corrected_input_qualification_enabled_{};
+    std::optional<std::size_t> online_predicted_remote_player_{};
     ReplayTimelineStatus timeline_status_{};
     std::uintptr_t timeline_manager_{};
     std::uintptr_t timeline_input_log_{};
@@ -488,6 +633,8 @@ private:
     std::array<std::array<std::uint64_t, 4>, 2>
         pending_movevm_state_short_change_masks_{};
     std::uint8_t pending_movevm_short25_change_mask_{};
+    std::array<std::uint16_t, 2> pending_movevm_short25_before_{};
+    std::array<std::uint16_t, 2> pending_movevm_short25_after_{};
     bool last_movevm_short25_valid_{};
     FrameCoordinate resume_target_{};
     FrameCoordinate resume_source_end_{};

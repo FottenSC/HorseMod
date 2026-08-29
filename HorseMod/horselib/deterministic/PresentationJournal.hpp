@@ -19,6 +19,8 @@ public:
         std::uint64_t capacity_failures{};
         std::uint64_t discarded{};
         std::uint64_t committed{};
+        std::uint64_t speculative_presented{};
+        std::uint64_t speculative_reused{};
         std::uint64_t publish_failures{};
         FailureCode first_publish_failure{FailureCode::None};
         PresentationEvent first_failed_event{};
@@ -31,6 +33,10 @@ public:
         std::size_t maximum_payload_bytes) noexcept;
 
     Status Record(PresentationEvent event) noexcept override;
+    // Record an event whose native terminal already ran during speculative
+    // authoritative/predicted simulation. Confirmation advances exactly-once
+    // metadata without publishing the terminal a second time.
+    Status RecordPresented(PresentationEvent event) noexcept;
     void DiscardFrom(FrameCoordinate coordinate) noexcept override;
     Status CommitThrough(
         FrameCoordinate confirmed,
@@ -44,6 +50,11 @@ public:
     [[nodiscard]] std::size_t pending_count() const noexcept;
     [[nodiscard]] std::size_t payload_bytes() const noexcept;
     [[nodiscard]] std::size_t capacity() const noexcept;
+    [[nodiscard]] std::size_t allocated_bytes() const noexcept
+    {
+        return maximum_events_
+            * (sizeof(Slot) + sizeof(Watermark) + sizeof(bool));
+    }
     [[nodiscard]] Statistics statistics() const noexcept;
 
 private:
@@ -60,6 +71,7 @@ private:
     struct Slot
     {
         bool occupied{};
+        bool presented{};
         PresentationEvent event{};
     };
 
@@ -78,6 +90,7 @@ private:
     [[nodiscard]] bool IsCommitted(const PresentationEvent& event) const noexcept;
     [[nodiscard]] static EventKey Key(const PresentationEvent& event) noexcept;
     [[nodiscard]] static bool Valid(const PresentationEvent& event) noexcept;
+    Status RecordInternal(PresentationEvent event, bool presented) noexcept;
     void ClearSlot(Slot& slot) noexcept;
 
     std::size_t maximum_events_{};
@@ -86,6 +99,7 @@ private:
     std::size_t pending_count_{};
     std::unique_ptr<Slot[]> slots_;
     std::unique_ptr<Watermark[]> watermarks_;
+    std::unique_ptr<bool[]> replacement_presented_;
     Statistics statistics_{};
 };
 }

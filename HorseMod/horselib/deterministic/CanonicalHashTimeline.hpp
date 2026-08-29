@@ -48,6 +48,10 @@ public:
     {
         return entries_.size() * sizeof(CanonicalHashEntry);
     }
+    [[nodiscard]] std::size_t allocated_bytes() const noexcept
+    {
+        return entries_.capacity() * sizeof(CanonicalHashEntry);
+    }
 
 private:
     std::size_t maximum_entries_{};

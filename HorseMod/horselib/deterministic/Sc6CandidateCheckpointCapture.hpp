@@ -77,6 +77,7 @@ public:
         const CanonicalInputDiagnostic& expected,
         const InputPair& input) noexcept;
     void InvalidateHistory() noexcept;
+    void ReleaseHistoryStorage() noexcept;
     void ReleaseBinding() noexcept;
     void Reset() noexcept;
 
@@ -99,11 +100,13 @@ public:
     [[nodiscard]] CandidateAdapterPerformanceStatus adapter_performance()
         const noexcept;
     void ResetCapturePerformanceWindow() noexcept;
+    [[nodiscard]] std::size_t owned_scratch_bytes() const noexcept;
     [[nodiscard]] CandidateCapturePhase transient_capture_phase() const noexcept;
     [[nodiscard]] std::array<std::uint16_t, 2>
     last_captured_movevm_short25() const noexcept;
     [[nodiscard]] NativeMoveVmStateShortImage
     last_captured_movevm_state_shorts() const noexcept;
+    [[nodiscard]] NativeRngImage last_captured_rng() const noexcept;
     [[nodiscard]] CharaAnimationTopologyIssue
     transient_animation_topology_issue() const noexcept;
     [[nodiscard]] std::uintptr_t
@@ -221,6 +224,7 @@ private:
     std::uint64_t bound_round_generation_{};
     CameraTopology bound_camera_topology_{};
     CallbackTopology bound_callback_topology_{};
+    CallbackTopology callback_topology_scratch_{};
     std::uint32_t transient_identity_issue_{};
     std::uint64_t transient_identity_expected_{};
     std::uint64_t transient_identity_observed_{};

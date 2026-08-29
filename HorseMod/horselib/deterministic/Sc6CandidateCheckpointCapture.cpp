@@ -34,11 +34,15 @@ bool battle_audio_handler_overflowed(void*) noexcept
 constexpr std::uintptr_t fighter_roots_rva = 0x470DE90;
 constexpr std::uintptr_t effect_camera_pointer_rva = 0x470DEE8;
 constexpr std::uintptr_t camera_director_state_rva = 0x470E9F0;
+constexpr std::uintptr_t camera_velocity_basis_rva = 0x470E180;
+constexpr std::uintptr_t camera_timer_config_rva = 0x470ED50;
 constexpr std::uintptr_t camera_director_vtable_rva = 0x3E85568;
 constexpr std::uintptr_t camera_interface_vtable_rva = 0x3E87A58;
 constexpr std::size_t hgcpu_camera_state_size = 0x360;
 constexpr std::uintptr_t camera_action_list_rva = 0x470EE90;
 constexpr std::uintptr_t camera_action_owner_rva = 0x470ED50;
+constexpr std::array<std::uintptr_t, 4> camera_timer_global_rvas{
+    0x470DF48, 0x470DF68, 0x40F4A84, 0x470DFD8};
 constexpr std::size_t camera_action_count = 17;
 constexpr std::size_t camera_action_stride = 0x3E0;
 constexpr std::size_t camera_action_backing_size =
@@ -77,6 +81,12 @@ struct WeakCallbackPrefix
 };
 static_assert(sizeof(WeakCallbackPrefix) == 0x18);
 
+struct CallbackOwnerResolveContext
+{
+    const CallbackTopology* bound{};
+    std::size_t next_record{};
+};
+
 RC::Unreal::UObject* resolve_weak_object(
     std::int32_t object_index, std::int32_t serial_number) noexcept
 {
@@ -87,13 +97,39 @@ RC::Unreal::UObject* resolve_weak_object(
 }
 
 Status resolve_callback_owner_class(
-    void*, std::int32_t object_index, std::int32_t serial_number,
+    void* user, std::int32_t object_index, std::int32_t serial_number,
     std::uint64_t& class_token) noexcept
 {
     class_token = 0;
     auto* object = resolve_weak_object(object_index, serial_number);
     if (object == nullptr || object->GetClassPrivate() == nullptr)
         return Status::failure(FailureCode::IdentityMismatch);
+    // UObject class identity cannot change during an object's lifetime. Once
+    // the bound topology has established the class-name token, the weak index
+    // and serial pair proves the same live object and lets the per-frame probe
+    // avoid formatting and hashing its class name again.
+    auto* context = static_cast<CallbackOwnerResolveContext*>(user);
+    if (context != nullptr && context->bound != nullptr)
+    {
+        // Capture walks the callback collections in the same canonical order
+        // used to create the bound topology.  Match that exact position instead
+        // of linearly searching the complete bound topology for every callback.
+        // A reordered/replaced owner still falls through to live class hashing
+        // and is rejected by the subsequent full-record comparison.
+        const auto record_index = context->next_record++;
+        if (record_index < context->bound->records.size())
+        {
+            const auto& record = context->bound->records[record_index];
+            if (record.owner_object_index == object_index
+                && record.owner_serial_number == serial_number)
+            {
+                class_token = record.owner_class_token;
+                return class_token == 0
+                    ? Status::failure(FailureCode::IdentityMismatch)
+                    : Status::success();
+            }
+        }
+    }
     try
     {
         const auto name = object->GetClassPrivate()->GetName();
@@ -206,6 +242,44 @@ Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
 }
 
 Sc6CandidateCheckpointCapture::~Sc6CandidateCheckpointCapture() = default;
+
+std::size_t Sc6CandidateCheckpointCapture::owned_scratch_bytes() const noexcept
+{
+    const auto snapshot_capacity = [](const Snapshot& snapshot) noexcept {
+        std::size_t bytes = snapshot.bytes.capacity()
+            + snapshot.local_images.capacity()
+                * sizeof(LocalReconstructionImage);
+        for (const auto& local : snapshot.local_images)
+            bytes += local.bytes.capacity();
+        return bytes;
+    };
+    std::size_t bytes = 0;
+    if (memory_) bytes += sizeof(ProcessMemory);
+    if (regions_) bytes += sizeof(NativeCandidateRegions);
+    if (battle_audio_selector_) bytes += sizeof(BattleAudioSelectorState);
+    if (motion_banks_) bytes += sizeof(MotionBankSnapshot);
+    if (move_dispatch_) bytes += sizeof(MoveDispatchState);
+    if (secondary_events_) bytes += sizeof(SecondaryEventState);
+    if (chara_animation_) bytes += sizeof(CharaAnimationState);
+    if (callback_probe_) bytes += sizeof(CallbackTopologyProbe);
+    if (wind_probe_) bytes += sizeof(StageWindTopologyProbe);
+    if (wind_allocator_) bytes += sizeof(ProcessStageWindAllocator);
+    if (wind_transaction_) bytes += sizeof(StageWindGraphTransaction);
+    if (adapter_)
+        bytes += sizeof(CandidateGameStateAdapter)
+            + adapter_->owned_scratch_bytes();
+    bytes += snapshot_capacity(landing_capture_scratch_)
+        + snapshot_capacity(batch_entry_capture_scratch_)
+        + bound_callback_topology_.records.capacity()
+            * sizeof(CallbackTopologyRecord)
+        + callback_topology_scratch_.records.capacity()
+            * sizeof(CallbackTopologyRecord);
+    if (auxiliary_decode_scratch_)
+        bytes += sizeof(CandidateCheckpointImage)
+            + CandidateCheckpointDynamicCapacity(
+                *auxiliary_decode_scratch_, true);
+    return bytes;
+}
 
 Status Sc6CandidateCheckpointCapture::Initialize(
     std::uintptr_t image_base, UcrtRandBroker* ucrt_broker) noexcept
@@ -332,8 +406,9 @@ Status Sc6CandidateCheckpointCapture::capture_callback_topology(
             bound_manager_ + callback_collection_offsets[index],
         };
     }
+    CallbackOwnerResolveContext context{&bound_callback_topology_};
     return callback_probe_->Capture(image_base_, image_size_, refs,
-        &resolve_callback_owner_class, nullptr, output);
+        &resolve_callback_owner_class, &context, output);
 }
 
 Status Sc6CandidateCheckpointCapture::resolve_move_dispatch(
@@ -426,7 +501,14 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + pending_hit_record_rva,
         image_base_ + pending_launcher_sync_rva,
         camera_topology.camera_root,
+        image_base_ + camera_velocity_basis_rva,
+        image_base_ + camera_timer_config_rva,
+        image_base_ + camera_action_list_rva,
         camera_topology.action_backing,
+        {image_base_ + camera_timer_global_rvas[0],
+         image_base_ + camera_timer_global_rvas[1],
+         image_base_ + camera_timer_global_rvas[2],
+         image_base_ + camera_timer_global_rvas[3]},
         fighter_roots,
         session_generation,
         coordinate.generation,
@@ -519,14 +601,22 @@ Status Sc6CandidateCheckpointCapture::bind(
     bound_session_generation_ = session_generation;
     bound_round_generation_ = coordinate.generation;
     bound_camera_topology_ = camera_topology;
-    CallbackTopology topology{};
-    const Status callback_status = capture_callback_topology(topology);
+    const Status callback_status = capture_callback_topology(
+        callback_topology_scratch_);
     if (!callback_status.ok())
     {
         ReleaseBinding();
         return callback_status;
     }
-    bound_callback_topology_ = std::move(topology);
+    try
+    {
+        bound_callback_topology_ = callback_topology_scratch_;
+    }
+    catch (...)
+    {
+        ReleaseBinding();
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
     return Status::success();
 }
 
@@ -581,9 +671,10 @@ Status Sc6CandidateCheckpointCapture::Capture(
         return Status::failure(failure);
     }
 
-    CallbackTopology topology{};
-    const Status callback_status = capture_callback_topology(topology);
-    if (!callback_status.ok() || topology != bound_callback_topology_)
+    const Status callback_status = capture_callback_topology(
+        callback_topology_scratch_);
+    if (!callback_status.ok()
+        || callback_topology_scratch_ != bound_callback_topology_)
     {
         const auto failure = callback_status.ok()
             ? FailureCode::IdentityMismatch : callback_status.code;
@@ -616,9 +707,10 @@ Status Sc6CandidateCheckpointCapture::Capture(
     if (captured.ok())
     {
         const auto store_begin = std::chrono::steady_clock::now();
-        // Keep the role-local encode capacity warm; SnapshotStore owns its
-        // bounded copy and reports that cost separately from native capture.
-        captured = snapshots.Save(snapshot);
+        // The first checkpoint prewarms every budget-admitted store slot.
+        // Later captures copy into those retained buffers without allocating,
+        // including after online status 4.
+        captured = snapshots.SaveCopyPrewarmed(snapshot);
         const auto store_end = std::chrono::steady_clock::now();
         store_timing.Record(static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -678,13 +770,14 @@ Status Sc6CandidateCheckpointCapture::CaptureTransient(
         return Status::failure(camera.ok()
             ? FailureCode::IdentityMismatch : camera.code);
     }
-    CallbackTopology callback_topology{};
-    const Status callbacks = capture_callback_topology(callback_topology);
-    if (!callbacks.ok() || callback_topology != bound_callback_topology_)
+    const Status callbacks = capture_callback_topology(
+        callback_topology_scratch_);
+    if (!callbacks.ok()
+        || callback_topology_scratch_ != bound_callback_topology_)
     {
         transient_identity_issue_ = 2;
         transient_identity_expected_ = bound_callback_topology_.signature;
-        transient_identity_observed_ = callback_topology.signature;
+        transient_identity_observed_ = callback_topology_scratch_.signature;
         return Status::failure(callbacks.ok()
             ? FailureCode::IdentityMismatch : callbacks.code);
     }
@@ -716,13 +809,14 @@ Status Sc6CandidateCheckpointCapture::CaptureCanonical(
         return Status::failure(camera.ok()
             ? FailureCode::IdentityMismatch : camera.code);
     }
-    CallbackTopology callback_topology{};
-    const Status callbacks = capture_callback_topology(callback_topology);
-    if (!callbacks.ok() || callback_topology != bound_callback_topology_)
+    const Status callbacks = capture_callback_topology(
+        callback_topology_scratch_);
+    if (!callbacks.ok()
+        || callback_topology_scratch_ != bound_callback_topology_)
     {
         transient_identity_issue_ = 2;
         transient_identity_expected_ = bound_callback_topology_.signature;
-        transient_identity_observed_ = callback_topology.signature;
+        transient_identity_observed_ = callback_topology_scratch_.signature;
         return Status::failure(callbacks.ok()
             ? FailureCode::IdentityMismatch : callbacks.code);
     }
@@ -752,6 +846,13 @@ Sc6CandidateCheckpointCapture::last_captured_movevm_state_shorts() const noexcep
     return adapter_ == nullptr
         ? NativeMoveVmStateShortImage{}
         : adapter_->last_captured_movevm_state_shorts();
+}
+
+NativeRngImage Sc6CandidateCheckpointCapture::last_captured_rng() const noexcept
+{
+    return adapter_ == nullptr
+        ? NativeRngImage{}
+        : adapter_->last_captured_rng();
 }
 
 void Sc6CandidateCheckpointCapture::ResetCapturePerformanceWindow() noexcept
@@ -893,6 +994,18 @@ void Sc6CandidateCheckpointCapture::InvalidateHistory() noexcept
     batch_entry_store_timing_ = {};
 }
 
+void Sc6CandidateCheckpointCapture::ReleaseHistoryStorage() noexcept
+{
+    InvalidateHistory();
+    landing_snapshots_.ReleasePrewarmedCopySlots();
+    batch_entry_snapshots_.ReleasePrewarmedCopySlots();
+    landing_capture_scratch_ = {};
+    batch_entry_capture_scratch_ = {};
+    if (auxiliary_decode_scratch_ != nullptr)
+        *auxiliary_decode_scratch_ = {};
+    callback_topology_scratch_ = {};
+}
+
 void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 {
     adapter_->Reset();
@@ -915,7 +1028,7 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
 
 void Sc6CandidateCheckpointCapture::Reset() noexcept
 {
-    InvalidateHistory();
+    ReleaseHistoryStorage();
     image_base_ = 0;
     image_size_ = 0;
     ucrt_broker_ = nullptr;

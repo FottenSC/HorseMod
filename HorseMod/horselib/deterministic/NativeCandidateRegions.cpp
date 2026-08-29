@@ -46,6 +46,7 @@ constexpr std::array<std::size_t, 4> vfx_edge_diagnostic_offsets{
 constexpr std::ptrdiff_t movevm_state_shorts_offset = 0x197C;
 constexpr std::size_t camera_action_stride = 0x3E0;
 constexpr std::size_t camera_distance_history_offset = 0x25C;
+constexpr std::ptrdiff_t camera_fighter_render_position_offset = 0x2090;
 constexpr std::uint32_t player_watch_camera_vtable_rva = 0x3E87EB0;
 constexpr std::array<Range, 46> camera_component_common_ranges{{
     {0x008,0x04},{0x00C,0x04},{0x010,0x04},{0x014,0x04},
@@ -1392,6 +1393,29 @@ Status NativeCandidateRegions::CaptureCameraSourceFrame(
         if (!capture_camera_component(index, output.components[index]))
             return Status::failure(FailureCode::CaptureFailed);
     }
+    for (std::size_t fighter = 0;
+         fighter < output.fighter_render_positions.size(); ++fighter)
+    {
+        if (!read_bytes(addresses_.fighter_roots[fighter]
+                + camera_fighter_render_position_offset,
+            output.fighter_render_positions[fighter]))
+            return Status::failure(FailureCode::CaptureFailed);
+    }
+    if (!read_bytes(addresses_.camera_director, output.director_state)
+        || !read_bytes(addresses_.camera_velocity_basis,
+            output.velocity_basis)
+        || !read_bytes(addresses_.camera_timer_config + 0xA8,
+            output.timer_config_state)
+        || !read_bytes(addresses_.camera_timer_node, output.timer_node)
+        || !read_bytes(addresses_.camera_action_backing,
+            output.action_backing))
+        return Status::failure(FailureCode::CaptureFailed);
+    for (std::size_t index = 0; index < output.timer_globals.size(); ++index)
+    {
+        if (!read_value(memory_, addresses_.camera_timer_globals[index],
+                output.timer_globals[index]))
+            return Status::failure(FailureCode::CaptureFailed);
+    }
     return Status::success();
 }
 
@@ -1419,30 +1443,121 @@ Status NativeCandidateRegions::RestoreCameraSourceFrameTransactional(
             return Status::failure(FailureCode::IdentityMismatch);
         }
     }
-    NativeCameraSourceFrameImage undo{};
-    const Status captured = CaptureCameraSourceFrame(undo);
-    if (!captured.ok()) return captured;
-    bool wrote = true;
-    for (std::size_t index = 0; index < image.components.size(); ++index)
+    NativeCameraSourceFrameImage current{};
+    const Status current_status = CaptureCameraSourceFrame(current);
+    if (!current_status.ok()) return current_status;
+    const auto read_pointer = [](const auto& bytes, std::size_t offset) noexcept {
+        std::uintptr_t value{};
+        std::memcpy(&value, bytes.data() + offset, sizeof(value));
+        return value;
+    };
+    const auto read_u32 = [](const auto& bytes, std::size_t offset) noexcept {
+        std::uint32_t value{};
+        std::memcpy(&value, bytes.data() + offset, sizeof(value));
+        return value;
+    };
+    const auto current_owner = read_pointer(current.timer_node, 0);
+    if (current_owner == 0
+        || read_pointer(image.director_state, 0)
+            != read_pointer(current.director_state, 0)
+        || read_pointer(image.director_state, 0x10)
+            != read_pointer(current.director_state, 0x10)
+        || read_pointer(current.timer_node, 8)
+            != addresses_.camera_action_backing
+        || read_pointer(image.timer_node, 0) != current_owner
+        || read_pointer(image.timer_node, 8)
+            != addresses_.camera_action_backing)
+        return Status::failure(FailureCode::IdentityMismatch);
+    for (std::size_t index = 0; index < native_camera_component_count; ++index)
     {
-        if (image.components[index].present == 0) continue;
-        wrote = write_camera_component(
-            index, image.components[index], false) && wrote;
-        if (!wrote) break;
+        if (read_pointer(image.director_state, 0x270 + index * 8)
+                != identities_.camera_components[index].object
+            || read_pointer(current.director_state, 0x270 + index * 8)
+                != identities_.camera_components[index].object)
+            return Status::failure(FailureCode::IdentityMismatch);
     }
+    for (std::size_t index = 0; index < native_camera_action_count; ++index)
+    {
+        const auto action = addresses_.camera_action_backing
+            + index * camera_action_stride;
+        if (read_pointer(current.timer_node, 0x10 + index * 8) != action
+            || read_pointer(image.timer_node, 0x10 + index * 8) != action
+            || read_pointer(current.action_backing,
+                   index * camera_action_stride) != identities_.camera_vtables[index]
+            || read_pointer(image.action_backing,
+                   index * camera_action_stride) != identities_.camera_vtables[index]
+            || read_u32(image.action_backing,
+                   index * camera_action_stride + 0x08) != index
+            || read_pointer(image.action_backing,
+                   index * camera_action_stride + 0x10) != current_owner
+            || read_pointer(image.action_backing,
+                   index * camera_action_stride + 0x18)
+                != addresses_.camera_timer_node)
+            return Status::failure(FailureCode::IdentityMismatch);
+    }
+    NativeCameraSourceFrameImage undo{};
+    undo = current;
+    const auto write_source = [&](const NativeCameraSourceFrameImage& source,
+                                  bool reverse) noexcept {
+        // Match the native HgCpu reader: director first, then typed
+        // components, timer node/backing, child state, and trailing globals.
+        bool ok = write_bytes(addresses_.camera_director,
+            source.director_state);
+        if (!ok && !reverse) return false;
+        // Camera actions and the gated synthesis velocity pass consume this
+        // matrix, so restore it before either component/action state can run.
+        ok = write_bytes(addresses_.camera_velocity_basis,
+            source.velocity_basis) && ok;
+        if (!ok && !reverse) return false;
+        for (std::size_t index = 0; index < source.components.size(); ++index)
+        {
+            if (source.components[index].present == 0) continue;
+            ok = write_camera_component(
+                index, source.components[index], reverse) && ok;
+            if (!ok && !reverse) return false;
+        }
+        // Restore the render-cache values before the next camera synthesis.
+        // They are regenerated from canonical root-step state during each
+        // native frame but otherwise survive a rollback load at the later
+        // authoritative frame.
+        for (std::size_t fighter = 0;
+             fighter < source.fighter_render_positions.size(); ++fighter)
+        {
+            ok = write_bytes(addresses_.fighter_roots[fighter]
+                    + camera_fighter_render_position_offset,
+                source.fighter_render_positions[fighter]) && ok;
+            if (!ok && !reverse) return false;
+        }
+        const std::array<std::byte, 16> live_node_identity = [&] {
+            std::array<std::byte, 16> value{};
+            std::memcpy(value.data(), current.timer_node.data(), value.size());
+            return value;
+        }();
+        ok = write_bytes(addresses_.camera_timer_node, source.timer_node) && ok;
+        ok = write_bytes(addresses_.camera_timer_node, live_node_identity) && ok;
+        ok = write_bytes(addresses_.camera_action_backing,
+            source.action_backing) && ok;
+        // Match the native reader's post-node fixed-tail restore and include
+        // the verified +0x138/+0x13C selector/producer inputs omitted by the
+        // generic HgCpu archive.
+        ok = write_bytes(addresses_.camera_timer_config + 0xA8,
+            source.timer_config_state) && ok;
+        for (std::size_t index = 0; index < source.timer_globals.size(); ++index)
+        {
+            ok = write_bytes(addresses_.camera_timer_globals[index],
+                std::as_bytes(std::span{source.timer_globals.data() + index, 1}))
+                && ok;
+        }
+        return ok;
+    };
+    const bool wrote = write_source(image, false);
     NativeCameraSourceFrameImage verification{};
     if (wrote && CaptureCameraSourceFrame(verification).ok()
         && verification == image)
     {
         return Status::success();
     }
-    bool undone = true;
-    for (std::size_t index = undo.components.size(); index-- > 0;)
-    {
-        if (undo.components[index].present == 0) continue;
-        undone = write_camera_component(
-            index, undo.components[index], true) && undone;
-    }
+    const bool undone = write_source(undo, true);
     if (!undone) return Status::failure(FailureCode::UndoFailed);
     NativeCameraSourceFrameImage undo_verification{};
     if (!CaptureCameraSourceFrame(undo_verification).ok()

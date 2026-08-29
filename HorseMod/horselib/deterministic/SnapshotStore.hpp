@@ -19,6 +19,12 @@ public:
         CapacityPolicy policy) noexcept;
 
     Status Save(Snapshot snapshot) noexcept override;
+    // Qualification history uses a fixed allocator shape learned from the
+    // first native checkpoint. Every admitted slot is allocated before
+    // online status 4; later captures copy into those buffers without growth.
+    Status PrewarmCopySlots(const Snapshot& prototype) noexcept;
+    Status SaveCopyPrewarmed(const Snapshot& snapshot) noexcept;
+    void ReleasePrewarmedCopySlots() noexcept;
     [[nodiscard]] std::optional<Snapshot> Load(
         FrameCoordinate coordinate) const override;
     [[nodiscard]] std::optional<Snapshot> NearestAtOrBefore(
@@ -52,12 +58,17 @@ private:
 
     [[nodiscard]] std::size_t snapshot_dynamic_cost(
         const Snapshot& snapshot) const noexcept;
+    [[nodiscard]] static bool can_copy_without_growth(
+        const Snapshot& target, const Snapshot& source) noexcept;
+    static void copy_without_growth(
+        Snapshot& target, const Snapshot& source) noexcept;
     void release_entry(std::vector<Entry>::iterator entry) noexcept;
     void erase_oldest() noexcept;
     void reset_free_slots() noexcept;
 
     std::size_t maximum_bytes_{};
     std::size_t maximum_entries_{};
+    std::size_t slot_capacity_{};
     CapacityPolicy policy_{CapacityPolicy::RejectNew};
     std::size_t fixed_bytes_{};
     std::size_t bytes_used_{};
@@ -65,5 +76,6 @@ private:
     std::unique_ptr<std::size_t[]> free_slots_;
     std::size_t free_slot_count_{};
     std::vector<Entry> entries_;
+    bool copy_slots_prewarmed_{};
 };
 }

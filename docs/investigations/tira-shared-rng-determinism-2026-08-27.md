@@ -57,8 +57,10 @@ Slots 338 and 359 write an authored value to state-short index 25 immediately
 before IF `0x007F` consumes it as the percentage threshold. Slots 356 through
 358 use the same probability opcode with threshold 5. This establishes that
 Tira actively couples character-specific MoveVM state and the shared gameplay
-xorshift stream. It does not, by itself, prove that index 25 is the sole native
-field named “mood.”
+xorshift stream. Subsequent native writer/consumer analysis closes index 25
+(`0x19`) as Tira's live stance word at `ALuxBattleChara+0x19AE`: Tira values
+`0` and `1` are Gloomy and Jolly respectively. The globally shared enum keeps
+neutral numeric names because other character banks author values `2` and `3`.
 
 The probability-success transition boundary is also closed in authored data:
 
@@ -72,11 +74,25 @@ The probability-success transition boundary is also closed in authored data:
   completeness score is 100.
 
 HorseMod signature-guards and observes that typed wrapper. Every call records
-the ordered `(argument count, target move ID)` sequence. Tira qualification
-requires target `0x0153` or `0x0205` on the same native source frame as the IF
-draw; target identity or generic state churn alone is not accepted. The full
-transition sequence is also compared during ordinary owned verification, so
-the Tira-specific gate does not weaken other characters' transition identity.
+the ordered `(argument count, target move ID)` sequence. Target move IDs are
+local to the owning movement program, so Tira qualification first binds the
+callback's `pChara` to the verified native fighter/resource ID `0x23` in
+`wCharaIdA` at `+0x24C`. This is distinct from the zero-based reflected
+`ELuxCharacter::ELC_TIRA` value `16` carried by replay metadata. The native
+identity is independently established by
+`LuxMoveVM_ClassifyCharaAIMode @ 0x1402FA1F0`, which selects Tira's state-`0x19`
+branch only when `wCharaIdA == 0x23`, and by both round initializers. The
+separate `+0x250` move-table index also holds `0x23` for this resource, but the
+observer uses the stock classifier's exact `+0x24C` identity boundary.
+Qualification detours the typed `LuxMoveVM_EvaluateIfOpcode` boundary as well.
+It admits a Tira probability join only when IF `0x007F` returns true after
+exactly one new gameplay-xorshift draw, then the same owner reaches target
+`0x0153` or `0x0205` in the same outer batch and native frame with no
+intervening gameplay draw. Target identity, a matching
+target from another fighter, or generic state churn alone is not accepted. The
+full transition sequence is also compared during ordinary owned verification,
+so the Tira-specific gate does not weaken other characters' transition
+identity.
 
 UE reflection metadata gives two additional, distinct inputs:
 
@@ -122,6 +138,24 @@ and reports:
 - no omitted camera/effect shared-stream draws;
 - exact subsequent move availability/selection;
 - exact peer-confirmed hashes in the paired Steam run.
+
+The runtime evidence is therefore an ordered contract, not a count-only gate.
+It binds each transition target to the verified Tira fighter root, records the
+Tira slot and state-`0x19` value at the authoring boundary, hashes every
+state-`0x19` change with its generation/frame and before/after values, and
+reports the final three-word xorshift96 landing state. A certifying transition
+requires an IF-`0x007F` draw, target `0x0153` or `0x0205`, and a same-batch
+Gloomy/Jolly `0<->1` change for that exact fighter slot. Repeated runs must
+match the full RNG, transition, stance-sequence, landing-state, and canonical
+hash evidence.
+
+The supplied `REPLAY_11775433596982945207.bin` produced one exact Tira
+IF-`0x007F` success and target `0x0165`, but no state-`0x19` mood transition.
+That route is a legitimate shared-RNG consumer but not either recovered mood
+success branch, so it remains negative diagnostic evidence. The supplied
+`REPLAY_10919796003596567142.bin` contains character IDs 13/11 rather than
+Tira; it remains an Astral Chaos: Tide of the Damned stock-control workload,
+not Tira transition coverage.
 
 The four retained base-game recordings were swept with the new gate. They
 contained up to 11 IF draws, 12 weighted draws, and 226 transition-author calls

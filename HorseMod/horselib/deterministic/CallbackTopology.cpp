@@ -1,5 +1,6 @@
 #include "CallbackTopology.hpp"
 
+#include <array>
 #include <limits>
 
 namespace Horse::Deterministic
@@ -18,6 +19,26 @@ struct WeakCallbackPrefix
     std::uintptr_t callback{};
 };
 static_assert(sizeof(WeakCallbackPrefix) == 0x18);
+
+struct CallbackCollectionHeader
+{
+    std::uintptr_t heap_entries{};
+    std::array<std::byte, 8> reserved{};
+    std::int32_t count{};
+    std::int32_t capacity{};
+};
+static_assert(sizeof(CallbackCollectionHeader) == 0x18);
+
+struct CallbackEntryProbe
+{
+    WeakCallbackPrefix inline_callback{};
+    std::array<std::byte, 8> reserved_18{};
+    std::uintptr_t callback_override{};
+    std::array<std::byte, 8> reserved_28{};
+    std::int32_t active{};
+    std::array<std::byte, 4> reserved_34{};
+};
+static_assert(sizeof(CallbackEntryProbe) == 0x38);
 
 template <typename T>
 bool read_value(INativeMemory& memory, std::uintptr_t address, T& output) noexcept
@@ -53,16 +74,15 @@ Status capture_collection(
     CallbackTopology& output,
     std::uint64_t& signature) noexcept
 {
-    std::uintptr_t heap_entries{};
-    std::int32_t count{};
-    std::int32_t capacity{};
+    CallbackCollectionHeader header{};
     if (collection.address == 0 || (collection.address & 7) != 0
-        || !read_value(memory, collection.address + 0x40, heap_entries)
-        || !read_value(memory, collection.address + 0x50, count)
-        || !read_value(memory, collection.address + 0x54, capacity))
+        || !read_value(memory, collection.address + 0x40, header))
     {
         return Status::failure(FailureCode::CapturePreflightFailed);
     }
+    const auto heap_entries = header.heap_entries;
+    const auto count = header.count;
+    const auto capacity = header.capacity;
     if (count < 0 || capacity < count
         || capacity > static_cast<std::int32_t>(maximum_entries_per_collection)
         || (heap_entries == 0 && count > 1)
@@ -78,20 +98,20 @@ Status capture_collection(
     {
         const auto entry = entries + index * callback_entry_size;
         if (entry < entries) return Status::failure(FailureCode::IdentityMismatch);
-        std::int32_t active{};
-        std::uintptr_t callback_override{};
-        if (!read_value(memory, entry + 0x30, active)
-            || !read_value(memory, entry + 0x20, callback_override))
+        CallbackEntryProbe entry_probe{};
+        if (!read_value(memory, entry, entry_probe))
         {
             return Status::failure(FailureCode::CapturePreflightFailed);
         }
-        if (active == 0) return Status::failure(FailureCode::IdentityMismatch);
-        const auto callback_address = callback_override != 0
-            ? callback_override : entry;
+        if (entry_probe.active == 0)
+            return Status::failure(FailureCode::IdentityMismatch);
+        const auto callback_address = entry_probe.callback_override != 0
+            ? entry_probe.callback_override : entry;
         if ((callback_address & 7) != 0)
             return Status::failure(FailureCode::IdentityMismatch);
-        WeakCallbackPrefix callback{};
-        if (!read_value(memory, callback_address, callback)
+        WeakCallbackPrefix callback = entry_probe.inline_callback;
+        if ((entry_probe.callback_override != 0
+                && !read_value(memory, callback_address, callback))
             || !in_image(callback.vtable, image_base, image_size)
             || !in_image(callback.callback, image_base, image_size))
         {
@@ -143,7 +163,11 @@ Status CallbackTopologyProbe::Capture(
     void* resolve_user,
     CallbackTopology& output) noexcept
 {
-    output = {};
+    // This probe runs on every canonical frame. Retain the caller-owned
+    // record capacity so identity validation cannot allocate in the active
+    // simulation path after its first bounded capture.
+    output.signature = 0;
+    output.records.clear();
     if (image_base == 0 || image_size == 0
         || image_size > std::numeric_limits<std::uint32_t>::max()
         || collections.empty()
@@ -161,7 +185,8 @@ Status CallbackTopologyProbe::Capture(
                 collection, resolve_owner, resolve_user, output, signature);
             if (!captured.ok())
             {
-                output = {};
+                output.signature = 0;
+                output.records.clear();
                 return captured;
             }
         }
@@ -170,7 +195,8 @@ Status CallbackTopologyProbe::Capture(
     }
     catch (...)
     {
-        output = {};
+        output.signature = 0;
+        output.records.clear();
         return Status::failure(FailureCode::CapacityExceeded);
     }
 }

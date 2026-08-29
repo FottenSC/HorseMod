@@ -103,6 +103,7 @@ void CandidateGameStateAdapter::Reset() noexcept
     last_capture_phase_ = CandidateCapturePhase::None;
     last_captured_movevm_short25_ = {};
     last_captured_movevm_state_shorts_ = {};
+    last_captured_rng_ = {};
     configured_ = false;
     bound_ = false;
 }
@@ -239,6 +240,7 @@ Status CandidateGameStateAdapter::Capture(
     if (!captured.ok()) return captured;
     last_captured_movevm_state_shorts_ =
         capture_scratch_.native.movevm_state_shorts;
+    last_captured_rng_ = capture_scratch_.native.rng;
     for (std::size_t fighter = 0;
          fighter < last_captured_movevm_short25_.size(); ++fighter)
     {
@@ -280,6 +282,7 @@ Status CandidateGameStateAdapter::CaptureCanonical(
     if (!captured.ok()) return captured;
     last_captured_movevm_state_shorts_ =
         canonical_capture_scratch_.native.movevm_state_shorts;
+    last_captured_rng_ = canonical_capture_scratch_.native.rng;
     for (std::size_t fighter = 0;
          fighter < last_captured_movevm_short25_.size(); ++fighter)
     {
@@ -365,6 +368,15 @@ std::size_t CandidateGameStateAdapter::scratch_capacity_bytes() const noexcept
     if (binding_.move_dispatch != nullptr)
         bytes += binding_.move_dispatch->ScratchCapacityBytes();
     return bytes;
+}
+
+std::size_t CandidateGameStateAdapter::owned_scratch_bytes() const noexcept
+{
+    return scratch_capacity_bytes()
+        + (transaction_target_scratch_ == nullptr
+            ? 0 : sizeof(CandidateCheckpointImage))
+        + (transaction_scratch_ == nullptr
+            ? 0 : sizeof(CandidateCheckpointImage));
 }
 
 std::array<std::size_t,

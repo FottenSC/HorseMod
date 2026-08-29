@@ -70,6 +70,9 @@ struct CameraPublicationState
     std::array<std::byte, camera_publication_vector_bytes> vectors{};
     std::uint32_t yaw_bits{};
     std::uint32_t mode{};
+    // Exact six-word input record consumed by LuxBattle_PerFrameTick. The
+    // native publication is split around an unused eight-byte gap.
+    std::array<std::uint32_t, 6> input_words{};
 };
 
 struct BattleAudioDispatchJournalEntry
@@ -170,6 +173,9 @@ struct NativeBatchEnvelope
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};
     std::uint8_t tira_random_transition_target_mask{};
+    std::uint16_t tira_last_transition_target{};
+    std::uint8_t tira_character_slot_mask{};
+    std::array<std::uint16_t, 2> tira_state19_at_transition{};
     std::uint32_t stage_wall_calls{};
     std::uint64_t stage_wall_hash{};
     std::uint32_t stage_barrier_calls{};
@@ -297,6 +303,11 @@ public:
 
     [[nodiscard]] std::size_t batch_count() const noexcept;
     [[nodiscard]] std::size_t coordinate_count() const noexcept;
+    [[nodiscard]] std::size_t allocated_bytes() const noexcept
+    {
+        return batches_.capacity() * sizeof(NativeBatchEnvelope)
+            + coordinates_.capacity() * sizeof(NativeBatchCoordinate);
+    }
 
 private:
     [[nodiscard]] bool Validate(

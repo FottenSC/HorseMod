@@ -25,6 +25,7 @@ public:
     [[nodiscard]] std::uint64_t generation() const noexcept;
     [[nodiscard]] std::size_t pending_count() const noexcept;
     [[nodiscard]] std::size_t payload_bytes() const noexcept;
+    [[nodiscard]] std::size_t allocated_bytes() const noexcept;
     [[nodiscard]] PresentationJournal::Statistics statistics() const noexcept;
 
 private:

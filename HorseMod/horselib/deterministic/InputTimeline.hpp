@@ -33,6 +33,10 @@ public:
     void Clear() noexcept;
 
     [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
+    [[nodiscard]] std::size_t allocated_bytes() const noexcept
+    {
+        return entries_.capacity() * sizeof(Entry);
+    }
 
 private:
     struct Entry

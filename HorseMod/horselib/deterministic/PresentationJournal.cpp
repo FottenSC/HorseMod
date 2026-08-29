@@ -22,16 +22,29 @@ PresentationJournal::PresentationJournal(
     }
     slots_.reset(new (std::nothrow) Slot[maximum_events_]);
     watermarks_.reset(new (std::nothrow) Watermark[maximum_events_]);
-    if (!slots_ || !watermarks_)
+    replacement_presented_.reset(new (std::nothrow) bool[maximum_events_]);
+    if (!slots_ || !watermarks_ || !replacement_presented_)
     {
         slots_.reset();
         watermarks_.reset();
+        replacement_presented_.reset();
         maximum_events_ = 0;
         maximum_payload_bytes_ = 0;
     }
 }
 
 Status PresentationJournal::Record(PresentationEvent event) noexcept
+{
+    return RecordInternal(std::move(event), false);
+}
+
+Status PresentationJournal::RecordPresented(PresentationEvent event) noexcept
+{
+    return RecordInternal(std::move(event), true);
+}
+
+Status PresentationJournal::RecordInternal(
+    PresentationEvent event, bool presented) noexcept
 {
     ++statistics_.attempted;
     if (!Valid(event))
@@ -56,6 +69,11 @@ Status PresentationJournal::Record(PresentationEvent event) noexcept
         const EventKey existing = Key(slot.event);
         if (existing == key)
         {
+            if (presented && !slot.presented)
+            {
+                slot.presented = true;
+                ++statistics_.speculative_presented;
+            }
             ++statistics_.duplicates;
             return Status::success();
         }
@@ -69,15 +87,17 @@ Status PresentationJournal::Record(PresentationEvent event) noexcept
     payload_bytes_ += event.payload_size;
     free_slot->event = std::move(event);
     free_slot->occupied = true;
+    free_slot->presented = presented;
     ++pending_count_;
     ++statistics_.recorded;
+    if (presented) ++statistics_.speculative_presented;
     return Status::success();
 }
 
 Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,
     std::span<const PresentationEvent> replacement) noexcept
 {
-    if (coordinate.generation == 0)
+    if (coordinate.generation == 0 || replacement.size() > maximum_events_)
         return Status::failure(FailureCode::InvalidConfiguration);
 
     std::size_t retained_count{};
@@ -134,11 +154,29 @@ Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,
         return Status::failure(FailureCode::CapacityExceeded);
     }
 
-    DiscardFrom(coordinate);
-    for (const auto& event : replacement)
+    for (std::size_t index = 0; index < replacement.size(); ++index)
     {
-        const Status status = Record(event);
+        replacement_presented_[index] = false;
+        const auto key = Key(replacement[index]);
+        for (std::size_t slot_index = 0;
+             slot_index < maximum_events_; ++slot_index)
+        {
+            const auto& slot = slots_[slot_index];
+            if (slot.occupied && slot.presented && Key(slot.event) == key)
+            {
+                replacement_presented_[index] = true;
+                break;
+            }
+        }
+    }
+    DiscardFrom(coordinate);
+    for (std::size_t index = 0; index < replacement.size(); ++index)
+    {
+        const Status status = RecordInternal(replacement[index],
+            replacement_presented_[index]);
         if (!status.ok()) return Status::failure(FailureCode::UndoFailed);
+        if (replacement_presented_[index])
+            ++statistics_.speculative_reused;
     }
     return Status::success();
 }
@@ -193,7 +231,8 @@ Status PresentationJournal::CommitThrough(
             ++statistics_.capacity_failures;
             return Status::failure(FailureCode::CapacityExceeded);
         }
-        const Status published = sink.Publish(next->event);
+        const Status published = next->presented
+            ? Status::success() : sink.Publish(next->event);
         if (!published.ok())
         {
             ++statistics_.publish_failures;

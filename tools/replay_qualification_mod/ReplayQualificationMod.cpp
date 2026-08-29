@@ -9,6 +9,8 @@
 
 #include "ReplayPayloadImporter.hpp"
 #include "ReplaySceneNavigator.hpp"
+#include "OnlineRoomAutomation.hpp"
+#include "deterministic/Sc6OnlineObserverProbe.hpp"
 
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <Mod/CppUserModBase.hpp>
@@ -22,9 +24,12 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <iomanip>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -55,6 +60,18 @@ struct Request
     std::uint32_t min_resume_tick_rate_milli{58'000};
     std::uint32_t resume_tick_window{120};
     std::uint32_t stage_terminal{};
+    bool stock_round_outcome_control{};
+    bool require_authored_outcomes{};
+    std::vector<std::int8_t> expected_round_winners{};
+    std::int32_t expected_match_winner{-1};
+};
+
+struct BattleResult
+{
+    std::int32_t timer_seconds{};
+    std::int32_t result_type{};
+    std::int32_t round_winner_index{-1};
+    std::int32_t match_winner_index{-1};
 };
 
 using RequestReplaySeekFn = bool (*)(std::uint64_t);
@@ -65,10 +82,29 @@ using GetReplaySeekableRangeFn = bool (*)(
 using GetReplaySimulationPhaseFn = bool (*)(
     std::int32_t*, std::int32_t*, std::uint32_t*, std::int32_t*);
 using GetReplaySeekMetricsFn = bool (*)(std::uint64_t*, std::uint64_t*);
+using GetReplayCanonicalStateFn = bool (*)(
+    std::uint64_t*, std::uint64_t*, std::byte*, std::size_t);
+using GetReplayCanonicalComponentsFn = bool (*)(std::uint64_t*, std::size_t);
 using GetReplayPresentationCoverageFn = bool (*)(std::uint64_t*, std::size_t);
+using GetReplayPresentationIdentityFn = bool (*)(std::uint64_t*, std::size_t);
+using GetReplayAudioBatchIdentityFn = bool (*)(
+    std::size_t, std::uint64_t*, std::size_t);
+using GetReplayAudioDispatchIdentityFn = bool (*)(
+    std::size_t, std::size_t, std::uint64_t*, std::size_t);
+using GetReplayQualificationHealthFn = bool (*)(std::uint64_t*, std::size_t);
+using ResetReplayQualificationHealthFn = bool (*)();
 using GetReplayGameplayRngCoverageFn = bool (*)(std::uint64_t*, std::size_t);
 using RequestStageTerminalFn = bool (*)(std::uint32_t);
 using GetStageTerminalStatusFn = std::uint32_t (*)(std::uint32_t*);
+using GetForcedQualificationStatusFn = std::uint32_t (*)();
+using ArmOnlineQualificationFn = bool (*)(
+    const char*, std::size_t, std::uint32_t);
+using GetOnlineQualificationStatusFn = std::uint32_t (*)();
+using ArmOnlineObserverProbeFn = bool (*)(
+    const Horse::Deterministic::OnlineObserverProbeRequest*);
+using GetOnlineObserverProbeReportFn = std::uint32_t (*)(
+    Horse::Deterministic::OnlineObserverProbeReport*);
+using DisarmOnlineObserverProbeFn = void (*)();
 
 bool ResolveHorseModSeekApi(
     RequestReplaySeekFn& request, GetReplaySeekStatusFn& status,
@@ -136,6 +172,120 @@ GetReplayPresentationCoverageFn ResolveHorseModPresentationCoverageApi() noexcep
     return nullptr;
 }
 
+GetReplayPresentationIdentityFn ResolveHorseModPresentationIdentityApi() noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+        return nullptr;
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate = reinterpret_cast<
+            GetReplayPresentationIdentityFn>(GetProcAddress(modules[index],
+                "horsemod_get_replay_presentation_identity"));
+        if (candidate != nullptr) return candidate;
+    }
+    return nullptr;
+}
+
+template <typename Function>
+Function ResolveHorseModExport(const char* name) noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+        return nullptr;
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate = reinterpret_cast<Function>(
+            GetProcAddress(modules[index], name));
+        if (candidate != nullptr) return candidate;
+    }
+    return nullptr;
+}
+
+GetReplayQualificationHealthFn ResolveHorseModQualificationHealthApi() noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+        return nullptr;
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate = reinterpret_cast<GetReplayQualificationHealthFn>(
+            GetProcAddress(modules[index],
+                "horsemod_get_replay_qualification_health"));
+        if (candidate != nullptr) return candidate;
+    }
+    return nullptr;
+}
+
+ResetReplayQualificationHealthFn ResolveHorseModQualificationHealthResetApi() noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+        return nullptr;
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate = reinterpret_cast<ResetReplayQualificationHealthFn>(
+            GetProcAddress(modules[index],
+                "horsemod_reset_replay_qualification_health"));
+        if (candidate != nullptr) return candidate;
+    }
+    return nullptr;
+}
+
+GetReplayCanonicalStateFn ResolveHorseModCanonicalStateApi() noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+        return nullptr;
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate = reinterpret_cast<GetReplayCanonicalStateFn>(
+            GetProcAddress(modules[index],
+                "horsemod_get_replay_canonical_state"));
+        if (candidate != nullptr) return candidate;
+    }
+    return nullptr;
+}
+
+GetReplayCanonicalComponentsFn ResolveHorseModCanonicalComponentsApi() noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+        return nullptr;
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate =
+            reinterpret_cast<GetReplayCanonicalComponentsFn>(GetProcAddress(
+                modules[index], "horsemod_get_replay_canonical_components"));
+        if (candidate != nullptr) return candidate;
+    }
+    return nullptr;
+}
+
 GetReplayGameplayRngCoverageFn ResolveHorseModGameplayRngCoverageApi() noexcept
 {
     std::array<HMODULE, 512> modules{};
@@ -158,7 +308,8 @@ GetReplayGameplayRngCoverageFn ResolveHorseModGameplayRngCoverageApi() noexcept
 }
 
 bool ResolveHorseModStageTerminalApi(RequestStageTerminalFn& request,
-    GetStageTerminalStatusFn& status) noexcept
+    GetStageTerminalStatusFn& status,
+    GetForcedQualificationStatusFn& forced_status) noexcept
 {
     std::array<HMODULE, 512> modules{};
     DWORD required{};
@@ -175,10 +326,77 @@ bool ResolveHorseModStageTerminalApi(RequestStageTerminalFn& request,
         const auto candidate_status = reinterpret_cast<GetStageTerminalStatusFn>(
             GetProcAddress(modules[index],
                 "horsemod_get_qualification_stage_terminal_status"));
+        const auto candidate_forced = reinterpret_cast<GetForcedQualificationStatusFn>(
+            GetProcAddress(modules[index],
+                "horsemod_get_forced_qualification_status"));
         if (candidate_request != nullptr && candidate_status != nullptr)
         {
             request = candidate_request;
             status = candidate_status;
+            forced_status = candidate_forced;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ResolveHorseModOnlineQualificationApi(
+    ArmOnlineQualificationFn& arm,
+    GetOnlineQualificationStatusFn& status) noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+        return false;
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate_arm = reinterpret_cast<ArmOnlineQualificationFn>(
+            GetProcAddress(modules[index],
+                "horsemod_arm_online_qualification_v3"));
+        const auto candidate_status = reinterpret_cast<
+            GetOnlineQualificationStatusFn>(GetProcAddress(modules[index],
+                "horsemod_get_online_qualification_status"));
+        if (candidate_arm != nullptr && candidate_status != nullptr)
+        {
+            arm = candidate_arm;
+            status = candidate_status;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ResolveHorseModOnlineObserverProbeApi(ArmOnlineObserverProbeFn& arm,
+    GetOnlineObserverProbeReportFn& report,
+    DisarmOnlineObserverProbeFn& disarm) noexcept
+{
+    std::array<HMODULE, 512> modules{};
+    DWORD required{};
+    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
+            static_cast<DWORD>(sizeof(modules)), &required))
+        return false;
+    const auto count = (std::min)(modules.size(),
+        static_cast<std::size_t>(required / sizeof(HMODULE)));
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto candidate_arm = reinterpret_cast<ArmOnlineObserverProbeFn>(
+            GetProcAddress(modules[index],
+                "horsemod_arm_online_observer_probe"));
+        const auto candidate_report = reinterpret_cast<
+            GetOnlineObserverProbeReportFn>(GetProcAddress(modules[index],
+                "horsemod_get_online_observer_probe_report"));
+        const auto candidate_disarm = reinterpret_cast<
+            DisarmOnlineObserverProbeFn>(GetProcAddress(modules[index],
+                "horsemod_disarm_online_observer_probe"));
+        if (candidate_arm != nullptr && candidate_report != nullptr
+            && candidate_disarm != nullptr)
+        {
+            arm = candidate_arm;
+            report = candidate_report;
+            disarm = candidate_disarm;
             return true;
         }
     }
@@ -224,6 +442,250 @@ bool ValidRunId(std::string_view value) noexcept
     return true;
 }
 
+bool ReadOnlineRequest(const std::filesystem::path& path,
+    std::string& run_id, std::uint32_t& fault)
+{
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) return false;
+    stream.seekg(0, std::ios::end);
+    const auto size = stream.tellg();
+    if (size <= 0 || size > 4096) return false;
+    stream.seekg(0, std::ios::beg);
+    std::string text(static_cast<std::size_t>(size), '\0');
+    if (!stream.read(text.data(), size)) return false;
+    bool arm{};
+    std::uint32_t version{1};
+    std::uint64_t not_before_unix_ms{};
+    std::size_t begin{};
+    while (begin < text.size())
+    {
+        const auto end = text.find_first_of("\r\n", begin);
+        const auto line = std::string_view(text).substr(begin,
+            (end == std::string::npos ? text.size() : end) - begin);
+        if (!line.empty())
+        {
+            const auto equals = line.find('=');
+            if (equals == std::string_view::npos) return false;
+            const auto key = line.substr(0, equals);
+            const auto value = line.substr(equals + 1);
+            if (key == "version")
+                version = value == "2" ? 2u : 0u;
+            else if (key == "run_id") run_id.assign(value);
+            else if (key == "arm") arm = value == "true";
+            else if (key == "not_before_unix_ms")
+            {
+                const auto parsed = std::from_chars(value.data(),
+                    value.data() + value.size(), not_before_unix_ms);
+                if (parsed.ec != std::errc{}
+                    || parsed.ptr != value.data() + value.size()) return false;
+            }
+            else if (key == "qualification_fault")
+            {
+                const auto parsed = std::from_chars(value.data(),
+                    value.data() + value.size(), fault);
+                if (parsed.ec != std::errc{}
+                    || parsed.ptr != value.data() + value.size()
+                    || fault > 6) return false;
+            }
+            else return false;
+        }
+        if (end == std::string::npos) break;
+        begin = end + 1;
+        if (begin < text.size() && text[end] == '\r' && text[begin] == '\n')
+            ++begin;
+    }
+    if (!arm || !ValidRunId(run_id) || version != 2
+        || not_before_unix_ms == 0) return false;
+    const auto now = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+    return now >= not_before_unix_ms;
+}
+
+bool ReadObserverOnlyRequest(const std::filesystem::path& path,
+    Horse::Deterministic::OnlineObserverProbeRequest& request)
+{
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) return false;
+    stream.seekg(0, std::ios::end);
+    const auto size = stream.tellg();
+    if (size <= 0 || size > 4096) return false;
+    stream.seekg(0, std::ios::beg);
+    std::string text(static_cast<std::size_t>(size), '\0');
+    if (!stream.read(text.data(), size)) return false;
+    std::string run_id;
+    bool arm{};
+    bool observer_only{};
+    std::uint32_t version{};
+    std::uint32_t timeout_seconds{};
+    std::size_t begin{};
+    while (begin < text.size())
+    {
+        const auto end = text.find_first_of("\r\n", begin);
+        const auto line = std::string_view(text).substr(begin,
+            (end == std::string::npos ? text.size() : end) - begin);
+        if (!line.empty())
+        {
+            const auto equals = line.find('=');
+            if (equals == std::string_view::npos) return false;
+            const auto key = line.substr(0, equals);
+            const auto value = line.substr(equals + 1);
+            if (key == "version") version = value == "1" ? 1u : 0u;
+            else if (key == "request_type")
+                observer_only = value == "observer_only";
+            else if (key == "run_id") run_id.assign(value);
+            else if (key == "arm") arm = value == "true";
+            else if (key == "timeout_seconds")
+            {
+                const auto parsed = std::from_chars(
+                    value.data(), value.data() + value.size(), timeout_seconds);
+                if (parsed.ec != std::errc{}
+                    || parsed.ptr != value.data() + value.size())
+                    return false;
+            }
+            else return false;
+        }
+        if (end == std::string::npos) break;
+        begin = end + 1;
+        if (begin < text.size() && text[end] == '\r' && text[begin] == '\n')
+            ++begin;
+    }
+    if (!arm || !observer_only || version != 1 || !ValidRunId(run_id)
+        || run_id.size() >= request.run_id.size()
+        || timeout_seconds == 0
+        || timeout_seconds >
+            Horse::Deterministic::online_observer_probe_timeout_seconds)
+        return false;
+    std::memcpy(request.run_id.data(), run_id.data(), run_id.size());
+    request.run_id[run_id.size()] = '\0';
+    request.timeout_seconds = timeout_seconds;
+    return true;
+}
+
+bool ReadRoomAutomationRequest(const std::filesystem::path& path,
+                               std::string& run_id)
+{
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) return false;
+    std::map<std::string, std::string> fields;
+    std::string line;
+    while (std::getline(stream, line))
+    {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const auto equals = line.find('=');
+        if (equals == std::string::npos
+            || !fields.emplace(line.substr(0, equals),
+                               line.substr(equals + 1)).second)
+            return false;
+    }
+    if (!stream.eof() || fields.size() != 4
+        || fields["version"] != "1"
+        || fields["request_type"] != "host_room_create"
+        || fields["arm"] != "true"
+        || !ValidRunId(fields["run_id"]))
+        return false;
+    run_id = fields["run_id"];
+    return true;
+}
+
+void WriteRoomAutomationReport(const std::string& run_id,
+                               Horse::Qualification::OnlineRoomState state,
+                               const std::string& detail)
+{
+    const auto root = QualificationRoot();
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    const auto temporary = root / L"online_room_report.tmp";
+    const auto destination = root / L"online_room_report.json";
+    std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+    stream << "{\n"
+        << "  \"schema_version\": 1,\n"
+        << "  \"kind\": \"host_room_create\",\n"
+        << "  \"run_id\": \"" << run_id << "\",\n"
+        << "  \"state\": \""
+        << (state == Horse::Qualification::OnlineRoomState::Complete
+                ? "complete" : "failed") << "\",\n"
+        << "  \"detail\": \"" << detail << "\"\n"
+        << "}\n";
+    stream.close();
+    MoveFileExW(temporary.c_str(), destination.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+}
+
+template <std::size_t Size>
+std::string HexBytes(const std::array<std::byte, Size>& bytes)
+{
+    std::ostringstream stream;
+    stream << std::hex << std::setfill('0');
+    for (const auto value : bytes)
+        stream << std::setw(2) << std::to_integer<unsigned int>(value);
+    return stream.str();
+}
+
+void WriteObserverOnlyReport(
+    const Horse::Deterministic::OnlineObserverProbeReport& report)
+{
+    using Horse::Deterministic::failure_code_name;
+    const auto root = QualificationRoot();
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    const auto temporary = root / L"online_observer_report.tmp";
+    const auto destination = root / L"online_observer_report.json";
+    std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+    stream << "{\n"
+        << "  \"schema_version\": " << report.schema_version << ",\n"
+        << "  \"kind\": \"online_observer_only\",\n"
+        << "  \"run_id\": \"" << report.run_id.data() << "\",\n"
+        << "  \"state\": " << static_cast<std::uint32_t>(report.state) << ",\n"
+        << "  \"failure\": \"" << failure_code_name(report.failure) << "\",\n"
+        << "  \"elapsed_milliseconds\": " << report.elapsed_milliseconds << ",\n"
+        << "  \"session\": {\n"
+        << "    \"role\": " << static_cast<int>(report.session.role) << ",\n"
+        << "    \"virtual_state\": "
+        << static_cast<unsigned>(report.session.virtual_session_state) << ",\n"
+        << "    \"local_slot\": "
+        << static_cast<unsigned>(report.session.local_player_slot) << ",\n"
+        << "    \"lobby_id\": " << report.session.lobby_id << ",\n"
+        << "    \"session_name\": " << report.session.session_name << ",\n"
+        << "    \"session_interface\": " << report.session.session_interface << ",\n"
+        << "    \"active_connect\": " << report.session.active_connect << ",\n"
+        << "    \"online_session\": " << report.session.online_session << ",\n"
+        << "    \"named_session\": " << report.session.named_session << ",\n"
+        << "    \"session_info\": " << report.session.session_info << "\n"
+        << "  },\n"
+        << "  \"lobby\": {\n"
+        << "    \"local_steam_id\": " << report.lobby.local_steam_id << ",\n"
+        << "    \"members\": [" << report.lobby.members[0] << ", "
+        << report.lobby.members[1] << "],\n"
+        << "    \"member_count\": "
+        << static_cast<unsigned>(report.lobby.member_count) << ",\n"
+        << "    \"casual_player_match\": "
+        << (report.lobby.casual_player_match ? "true" : "false") << "\n"
+        << "  },\n"
+        << "  \"content\": {\n"
+        << "    \"fighters\": [\""
+        << report.battle.content.fighter_codes[0].data() << "\", \""
+        << report.battle.content.fighter_codes[1].data() << "\"],\n"
+        << "    \"stage_code\": \""
+        << report.battle.content.stage_code.data() << "\",\n"
+        << "    \"stage_package\": \"" << report.stage_package.data() << "\",\n"
+        << "    \"stage_display_name\": \""
+        << report.stage_display_name.data() << "\",\n"
+        << "    \"loaded_package_identity\": \""
+        << HexBytes(report.loaded_package_identity) << "\",\n"
+        << "    \"battle_sync_object\": "
+        << report.battle.battle_sync_object << ",\n"
+        << "    \"characters_received\": "
+        << (report.battle.characters_received ? "true" : "false") << ",\n"
+        << "    \"stage_received\": "
+        << (report.battle.stage_received ? "true" : "false") << "\n"
+        << "  }\n"
+        << "}\n";
+    stream.close();
+    MoveFileExW(temporary.c_str(), destination.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+}
+
 bool ReadRequest(const std::filesystem::path& path, Request& output)
 {
     std::ifstream stream(path, std::ios::binary);
@@ -243,11 +705,16 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     }
     if (!stream.eof() || !ValidRunId(fields["run_id"])
         || (fields["version"] != "2" && fields["version"] != "3"
-            && fields["version"] != "4" && fields["version"] != "5")
+            && fields["version"] != "4" && fields["version"] != "5"
+            && fields["version"] != "6" && fields["version"] != "7"
+            && fields["version"] != "8")
         || (fields["version"] == "2" && fields.size() != 4)
         || (fields["version"] == "3" && fields.size() != 5)
         || (fields["version"] == "4" && fields.size() != 7)
-        || (fields["version"] == "5" && fields.size() != 8))
+        || (fields["version"] == "5" && fields.size() != 8)
+        || (fields["version"] == "6" && fields.size() != 9)
+        || (fields["version"] == "7" && fields.size() != 10)
+        || (fields["version"] == "8" && fields.size() != 12))
     {
         return false;
     }
@@ -263,7 +730,8 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     catch (...) { return false; }
     std::vector<std::uint32_t> percentages;
     if (fields["version"] == "3" || fields["version"] == "4"
-        || fields["version"] == "5")
+        || fields["version"] == "5" || fields["version"] == "6"
+        || fields["version"] == "7" || fields["version"] == "8")
     {
         std::string_view remaining = fields["seek_percentages"];
         while (!remaining.empty())
@@ -281,11 +749,15 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
             if (comma == std::string_view::npos) break;
             remaining.remove_prefix(comma + 1);
         }
-        if (percentages.empty() && fields["version"] != "5") return false;
+        if (percentages.empty() && fields["version"] != "5"
+            && fields["version"] != "6" && fields["version"] != "7"
+            && fields["version"] != "8") return false;
     }
     std::uint32_t min_resume_tick_rate_milli = 58'000;
     std::uint32_t resume_tick_window = 120;
-    if (fields["version"] == "4" || fields["version"] == "5")
+    if (fields["version"] == "4" || fields["version"] == "5"
+        || fields["version"] == "6" || fields["version"] == "7"
+        || fields["version"] == "8")
     {
         try
         {
@@ -302,15 +774,66 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         catch (...) { return false; }
     }
     std::uint32_t stage_terminal{};
-    if (fields["version"] == "5")
+    if (fields["version"] == "5"
+        || ((fields["version"] == "6" || fields["version"] == "7"
+                || fields["version"] == "8")
+            && !fields["stage_terminal"].empty()))
     {
         if (fields["stage_terminal"] == "wall") stage_terminal = 1;
         else if (fields["stage_terminal"] == "barrier") stage_terminal = 2;
+        else if (fields["stage_terminal"] == "both") stage_terminal = 3;
         else return false;
+    }
+    const bool stock_round_outcome_control =
+        (fields["version"] == "6" || fields["version"] == "7"
+            || fields["version"] == "8")
+        ? fields["stock_round_outcome_control"] == "true"
+        : percentages.empty() && stage_terminal == 0;
+    if ((fields["version"] == "6" || fields["version"] == "7"
+            || fields["version"] == "8")
+        && fields["stock_round_outcome_control"] != "true"
+        && fields["stock_round_outcome_control"] != "false")
+        return false;
+    const bool require_authored_outcomes =
+        (fields["version"] == "7" || fields["version"] == "8")
+        && fields["require_authored_outcomes"] == "true";
+    if ((fields["version"] == "7" || fields["version"] == "8")
+        && fields["require_authored_outcomes"] != "true"
+        && fields["require_authored_outcomes"] != "false")
+        return false;
+    std::vector<std::int8_t> expected_round_winners;
+    std::int32_t expected_match_winner = -1;
+    if (fields["version"] == "8")
+    {
+        std::string_view remaining = fields["expected_round_winners"];
+        while (!remaining.empty())
+        {
+            const auto comma = remaining.find(',');
+            const auto token = remaining.substr(0, comma);
+            if (token.size() != 1 || token[0] < '0' || token[0] > '2'
+                || expected_round_winners.size()
+                    >= Horse::Qualification::ReplayMetadata::kMaximumRoundStarts)
+                return false;
+            expected_round_winners.push_back(
+                static_cast<std::int8_t>(token[0] - '0'));
+            if (comma == std::string_view::npos) break;
+            remaining.remove_prefix(comma + 1);
+        }
+        if (!fields["expected_match_winner"].empty())
+        {
+            if (fields["expected_match_winner"] != "0"
+                && fields["expected_match_winner"] != "1") return false;
+            expected_match_winner = fields["expected_match_winner"][0] - '0';
+        }
+        if (require_authored_outcomes && !stock_round_outcome_control
+            && (expected_round_winners.empty()
+                || expected_match_winner < 0)) return false;
     }
     output = {fields["run_id"], std::filesystem::path(replay_path),
         watch_frames, std::move(percentages), min_resume_tick_rate_milli,
-        resume_tick_window, stage_terminal};
+        resume_tick_window, stage_terminal, stock_round_outcome_control,
+        require_authored_outcomes, std::move(expected_round_winners),
+        expected_match_winner};
     return output.replay_path.is_absolute();
 }
 
@@ -355,6 +878,53 @@ RC::Unreal::UObject* TryResolveOwningGameInstance(
     __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
 }
 
+bool LogAuthoredMapPackages(RC::Unreal::UObject* manager) noexcept
+{
+    struct ArrayHeader
+    {
+        RC::Unreal::UObject** data{};
+        std::int32_t count{};
+        std::int32_t capacity{};
+    };
+    if (manager == nullptr || !RC::Unreal::UObject::IsReal(manager)) return false;
+    {
+        auto* world = reinterpret_cast<RC::Unreal::UObject*>(manager->GetWorld());
+        if (world == nullptr || !RC::Unreal::UObject::IsReal(world)) return false;
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] authored map world={}\n"),
+            world->GetFullName());
+        auto* streaming = world->GetValuePtrByPropertyNameInChain<ArrayHeader>(
+            L"StreamingLevels");
+        if (streaming == nullptr || streaming->data == nullptr
+            || streaming->count <= 0 || streaming->count > 256)
+            return true;
+        for (std::int32_t index = 0; index < streaming->count; ++index)
+        {
+            auto* level = streaming->data[index];
+            if (level == nullptr || !RC::Unreal::UObject::IsReal(level)) continue;
+            auto* package = level->GetValuePtrByPropertyNameInChain<
+                RC::Unreal::FName>(L"PackageNameToLoad");
+            if (package == nullptr) continue;
+            const auto name = package->ToString();
+            if (!name.empty())
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] authored map package[{}]={}\n"),
+                    index, name);
+        }
+    }
+    return true;
+}
+
+RC::Unreal::UObject* FindBattleManager() noexcept
+{
+    std::vector<RC::Unreal::UObject*> managers;
+    RC::Unreal::UObjectGlobals::FindAllOf(L"LuxBattleManager", managers);
+    for (auto* manager : managers)
+        if (manager != nullptr && RC::Unreal::UObject::IsReal(manager))
+            return manager;
+    return nullptr;
+}
+
 RC::Unreal::UObject* FindGameInstance() noexcept
 {
     std::vector<RC::Unreal::UObject*> managers;
@@ -368,6 +938,32 @@ RC::Unreal::UObject* FindGameInstance() noexcept
         }
     }
     return nullptr;
+}
+
+bool TryReadBattleResult(
+    RC::Unreal::UObject* manager, BattleResult& output) noexcept
+{
+    if (manager == nullptr || !RC::Unreal::UObject::IsReal(manager))
+        return false;
+    __try
+    {
+        BattleResult* result =
+            manager->GetValuePtrByPropertyNameInChain<BattleResult>(
+                L"BattleResult");
+        if (result == nullptr) return false;
+        output = *result;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool ReadBattleResult(BattleResult& output) noexcept
+{
+    std::vector<RC::Unreal::UObject*> managers;
+    RC::Unreal::UObjectGlobals::FindAllOf(L"LuxBattleManager", managers);
+    for (RC::Unreal::UObject* manager : managers)
+        if (TryReadBattleResult(manager, output)) return true;
+    return false;
 }
 
 RC::Unreal::UObject* GetBattleSetup(RC::Unreal::UObject* instance) noexcept
@@ -428,6 +1024,8 @@ public:
 
     ~ReplayQualificationMod() override
     {
+        if (disarm_online_observer_ != nullptr)
+            disarm_online_observer_();
         s_instance_.store(nullptr, std::memory_order_release);
         if (engine_tick_id_ != RC::Unreal::Hook::ERROR_ID)
         {
@@ -441,6 +1039,8 @@ public:
             GetModuleHandleW(nullptr)));
         bound_ = bound_ && navigator_.Bind(reinterpret_cast<std::uintptr_t>(
             GetModuleHandleW(nullptr)));
+        bound_ = bound_ && room_automation_.Bind(
+            reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)));
         Output::send<LogLevel::Default>(STR(
             "[ReplayQualification] source={} native_import={}\n"),
             HORSE_WIDEN(REPLAY_QUALIFICATION_SOURCE_COMMIT),
@@ -466,12 +1066,147 @@ public:
 private:
     void TickGameThread()
     {
-        if (!bound_ || state_ == State::Launched || state_ == State::Failed) return;
-        if (++poll_divider_ < 15) return;
-        poll_divider_ = 0;
+        if (!bound_) return;
+        if (state_ != State::WaitingForLaunch)
+        {
+            if (++poll_divider_ < 15) return;
+            poll_divider_ = 0;
+        }
+        PollOnlineRoomAutomation();
+        const bool observer_only_request = PollOnlineObserverOnly();
+        if (!observer_only_request) PollOnlineQualification();
+        if (state_ == State::Launched || state_ == State::Failed) return;
         if (state_ == State::Idle) LoadRequest();
         if (state_ == State::Importing) StartRequest();
         if (state_ == State::WaitingForLaunch) PollLaunch();
+    }
+
+    void PollOnlineQualification()
+    {
+        std::string run_id;
+        std::uint32_t fault{};
+        if (!ReadOnlineRequest(
+                QualificationRoot() / L"online_request.txt", run_id, fault))
+            return;
+        if (run_id != online_last_run_id_)
+        {
+            if ((arm_online_ == nullptr || get_online_status_ == nullptr)
+                && !ResolveHorseModOnlineQualificationApi(
+                    arm_online_, get_online_status_))
+                return;
+            if (!arm_online_(run_id.data(), run_id.size(), fault)) return;
+            online_last_run_id_ = run_id;
+            online_last_status_ = UINT32_MAX;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] armed online qualification "
+                "run_id={} fault={} without menu navigation\n"),
+                RC::to_generic_string(run_id), fault);
+        }
+        if (get_online_status_ != nullptr)
+        {
+            const auto status = get_online_status_();
+            if (status != online_last_status_)
+            {
+                online_last_status_ = status;
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] online qualification "
+                    "run_id={} status={}\n"),
+                    RC::to_generic_string(online_last_run_id_), status);
+            }
+        }
+    }
+
+    void PollOnlineRoomAutomation()
+    {
+        std::string run_id;
+        const bool present = ReadRoomAutomationRequest(
+            QualificationRoot() / L"online_room_request.txt", run_id);
+        if (!present)
+        {
+            if (!online_room_run_id_.empty()) room_automation_.Reset();
+            online_room_run_id_.clear();
+            online_room_terminal_ = false;
+            return;
+        }
+        if (run_id != online_room_run_id_)
+        {
+            room_automation_.Reset();
+            online_room_run_id_ = run_id;
+            online_room_terminal_ = false;
+            online_room_last_detail_.clear();
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] armed stock host room creation "
+                "run_id={}\n"), RC::to_generic_string(run_id));
+        }
+        if (online_room_terminal_) return;
+        std::string detail;
+        const auto state = room_automation_.Tick(detail);
+        if (detail != online_room_last_detail_)
+        {
+            online_room_last_detail_ = detail;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] stock host room creation "
+                "run_id={} detail={}\n"),
+                RC::to_generic_string(run_id),
+                RC::to_generic_string(detail));
+        }
+        if (state == Horse::Qualification::OnlineRoomState::Waiting) return;
+        WriteRoomAutomationReport(run_id, state, detail);
+        online_room_terminal_ = true;
+    }
+
+    bool PollOnlineObserverOnly()
+    {
+        using namespace Horse::Deterministic;
+        OnlineObserverProbeRequest request{};
+        const bool present = ReadObserverOnlyRequest(
+            QualificationRoot() / L"online_observer_request.txt", request);
+        const std::string run_id = present
+            ? std::string(request.run_id.data()) : std::string{};
+        if (!present)
+        {
+            if (online_observer_active_ && disarm_online_observer_ != nullptr)
+                disarm_online_observer_();
+            online_observer_active_ = false;
+            return false;
+        }
+        if (run_id != online_observer_last_run_id_)
+        {
+            if ((arm_online_observer_ == nullptr
+                    || get_online_observer_report_ == nullptr
+                    || disarm_online_observer_ == nullptr)
+                && !ResolveHorseModOnlineObserverProbeApi(
+                    arm_online_observer_, get_online_observer_report_,
+                    disarm_online_observer_))
+                return true;
+            if (!arm_online_observer_(&request)) return true;
+            online_observer_last_run_id_ = run_id;
+            online_observer_active_ = true;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] armed observer-only online probe "
+                "run_id={}\n"), RC::to_generic_string(run_id));
+        }
+        if (!online_observer_active_ || get_online_observer_report_ == nullptr)
+            return true;
+        OnlineObserverProbeReport report{};
+        const auto state = static_cast<OnlineObserverProbeState>(
+            get_online_observer_report_(&report));
+        if (state != OnlineObserverProbeState::Complete
+            && state != OnlineObserverProbeState::Expired
+            && state != OnlineObserverProbeState::Failed)
+            return true;
+        if (std::string_view(report.run_id.data()) != run_id) return true;
+        WriteObserverOnlyReport(report);
+        disarm_online_observer_();
+        online_observer_active_ = false;
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] observer-only online probe completed "
+            "run_id={} map={} state={}\n"),
+            RC::to_generic_string(run_id),
+            RC::to_generic_string(std::string(
+                report.stage_display_name.data())),
+            static_cast<std::uint32_t>(state));
+        return true;
     }
 
     void LoadRequest()
@@ -486,6 +1221,13 @@ private:
         playback_context_staged_ = false;
         battle_scene_observed_ = false;
         initial_battle_frame_ = 0;
+        observed_battle_frame_ = 0;
+        battle_rate_started_at_ = {};
+        battle_rate_logged_ = false;
+        battle_active_rate_started_at_ = {};
+        battle_active_rate_start_frame_ = 0;
+        battle_active_rate_round_ = 0;
+        battle_active_rate_logged_ = false;
         seek_index_ = 0;
         seek_requested_ = false;
         requested_seek_target_ = 0;
@@ -503,10 +1245,17 @@ private:
         seek_resume_last_round_state_frame_ = 0;
         seek_resume_observation_active_ = false;
         phase_wait_log_counter_ = 0;
-        profile_attempts_ = 0;
+        replay_metadata_ = {};
+        observed_round_winner_count_ = 0;
+        observed_round_winners_.clear();
+        have_last_round_result_ = false;
+        round_result_armed_ = true;
+        last_round_result_ = {};
+        round_outcomes_verified_ = false;
         stage_terminal_requested_ = false;
         stage_terminal_completed_ = false;
-        next_profile_attempt_ = {};
+        stage_terminal_operation_ = request_.stage_terminal == 3
+            ? 1 : request_.stage_terminal;
         state_ = State::Importing;
         Output::send<LogLevel::Default>(STR(
             "[ReplayQualification] accepted replay request run_id={}\n"),
@@ -546,11 +1295,13 @@ private:
         }
         Output::send<LogLevel::Default>(STR(
             "[ReplayQualification] replay metadata stage={} map={} "
-            "left_character={} right_character={}\n"),
+            "left_character={} right_character={} state_reset_records={}\n"),
             metadata.stage_index,
             metadata.stage_index > 0xff
                 ? metadata.stage_index & 0xff : metadata.stage_index,
-            metadata.left_character, metadata.right_character);
+            metadata.left_character, metadata.right_character,
+            metadata.state_reset_record_count);
+        replay_metadata_ = metadata;
         state_ = State::WaitingForLaunch;
         WriteResult("waiting_for_launch", "none");
     }
@@ -596,16 +1347,20 @@ private:
         GetReplaySeekableRangeFn unused_range{};
         GetReplaySimulationPhaseFn get_phase{};
         GetReplaySeekMetricsFn unused_metrics{};
-        if (!ResolveHorseModSeekApi(unused_request, unused_status,
+        const bool stock_round_outcome_control =
+            request_.stock_round_outcome_control;
+        if (!stock_round_outcome_control
+            && !ResolveHorseModSeekApi(unused_request, unused_status,
                 unused_range, get_phase, unused_metrics))
         {
             Fail("horsemod_simulation_phase_api_unavailable");
             return;
         }
         std::int32_t native_round{}, native_time{}, unpause_countdown{};
-        std::uint32_t round_state_frame{};
-        const bool phase_available = get_phase(&native_round, &native_time,
-            &round_state_frame, &unpause_countdown);
+        std::uint32_t round_state_frame = stock_round_outcome_control ? 1u : 0u;
+        const bool phase_available = stock_round_outcome_control
+            || get_phase(&native_round, &native_time,
+                &round_state_frame, &unpause_countdown);
         if (!phase_available || round_state_frame == 0
             || unpause_countdown != 0)
         {
@@ -623,10 +1378,25 @@ private:
             return;
         }
         phase_wait_log_counter_ = 0;
+        if (!authored_map_logged_)
+            authored_map_logged_ = LogAuthoredMapPackages(FindBattleManager());
         if (!battle_scene_observed_)
         {
+            if (!stock_round_outcome_control)
+            {
+                const auto reset_health =
+                    ResolveHorseModQualificationHealthResetApi();
+                if (reset_health == nullptr || !reset_health())
+                {
+                    Fail("horsemod_qualification_health_reset_unavailable");
+                    return;
+                }
+            }
             battle_scene_observed_ = true;
-            initial_battle_frame_ = frame;
+            observed_battle_frame_ = frame;
+            initial_battle_frame_ = round_state_frame <= frame + 1
+                ? frame - (round_state_frame - 1) : frame;
+            battle_rate_started_at_ = std::chrono::steady_clock::now();
             importer_.ReleasePlaybackContext();
             Output::send<LogLevel::Default>(STR(
                 "[ReplayQualification] stock replay battle observed "
@@ -634,8 +1404,80 @@ private:
                 native_round, native_time, round_state_frame);
             return;
         }
-        if (request_.stage_terminal != 0 && !PollStageTerminal()) return;
         const std::uint32_t advanced = frame - initial_battle_frame_;
+        if (!battle_rate_logged_ && advanced >= request_.watch_frames)
+        {
+            const auto elapsed_us = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now()
+                        - battle_rate_started_at_).count());
+            const auto measured_frames = static_cast<std::uint64_t>(
+                frame - observed_battle_frame_);
+            const auto tick_rate_milli = elapsed_us == 0 ? 0
+                : measured_frames * 1'000'000'000ull
+                    / elapsed_us;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] normal-render battle rate "
+                "frames={} elapsed_us={} tick_rate_milli={}\n"),
+                measured_frames, elapsed_us, tick_rate_milli);
+            battle_rate_logged_ = true;
+        }
+        // Strict seek qualification owns its own fixed live-frame timing
+        // window.  Emitting this diagnostic at the same 120-frame boundary
+        // perturbs the interval it is intended to qualify.
+        if (request_.seek_percentages.empty()
+            && !battle_active_rate_logged_
+            && advanced >= request_.watch_frames)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            if (battle_active_rate_started_at_.time_since_epoch().count() == 0
+                || native_round != battle_active_rate_round_
+                || frame < battle_active_rate_start_frame_)
+            {
+                battle_active_rate_started_at_ = now;
+                battle_active_rate_start_frame_ = frame;
+                battle_active_rate_round_ = native_round;
+            }
+            else if (frame - battle_active_rate_start_frame_
+                >= request_.resume_tick_window)
+            {
+                const auto measured_frames = static_cast<std::uint64_t>(
+                    frame - battle_active_rate_start_frame_);
+                const auto elapsed_us = static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        now - battle_active_rate_started_at_).count());
+                const auto tick_rate_milli = elapsed_us == 0 ? 0
+                    : measured_frames * 1'000'000'000ull / elapsed_us;
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] normal-render active battle rate "
+                    "frames={} elapsed_us={} tick_rate_milli={}\n"),
+                    measured_frames, elapsed_us, tick_rate_milli);
+                battle_active_rate_logged_ = true;
+            }
+        }
+        if (stock_round_outcome_control)
+        {
+            if (!PollRoundOutcomeQualification()) return;
+            state_ = State::Launched;
+            WriteResult("launch_requested", "none");
+            std::ostringstream winners;
+            for (std::size_t index = 0;
+                 index < observed_round_winners_.size(); ++index)
+            {
+                if (index != 0) winners << ',';
+                winners << static_cast<int>(observed_round_winners_[index]);
+            }
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] stock round outcome qualification "
+                "passed rounds={} match_winner={} winners={}\n"),
+                observed_round_winner_count_,
+                last_round_result_.match_winner_index,
+                RC::to_generic_string(winners.str()));
+            return;
+        }
+        if (request_.require_authored_outcomes
+            && !PollRoundOutcomeQualification()) return;
+        if (request_.stage_terminal != 0 && !PollStageTerminal()) return;
         if (advanced < request_.watch_frames) return;
         if (seek_index_ < request_.seek_percentages.size())
         {
@@ -657,9 +1499,93 @@ private:
             "audio_stop_all={} audio_blueprint={} particle_spawn={}\n"),
             coverage[0], coverage[1], coverage[2], coverage[3], coverage[4],
             coverage[5], coverage[6], coverage[7], coverage[8], coverage[9]);
+        const auto get_presentation_identity =
+            ResolveHorseModPresentationIdentityApi();
+        std::array<std::uint64_t, 9> presentation_identity{};
+        if (get_presentation_identity == nullptr
+            || !get_presentation_identity(
+                presentation_identity.data(), presentation_identity.size()))
+        {
+            Fail("horsemod_presentation_identity_api_unavailable");
+            return;
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] presentation identity batches={} "
+            "audio_events={} audio_identity=0x{:016x} order_events={} "
+            "order_identity=0x{:016x} camera_identity=0x{:016x} "
+            "camera_batches={} failures={} journal_committed={}\n"),
+            presentation_identity[0], presentation_identity[1],
+            presentation_identity[2], presentation_identity[3],
+            presentation_identity[4], presentation_identity[5],
+            presentation_identity[8], presentation_identity[6],
+            presentation_identity[7]);
+        const auto get_audio_batch = ResolveHorseModExport<
+            GetReplayAudioBatchIdentityFn>(
+                "horsemod_get_replay_audio_batch_identity");
+        const auto get_audio_dispatch = ResolveHorseModExport<
+            GetReplayAudioDispatchIdentityFn>(
+                "horsemod_get_replay_audio_dispatch_identity");
+        if (get_audio_batch == nullptr || get_audio_dispatch == nullptr)
+        {
+            Fail("horsemod_audio_identity_diagnostic_api_unavailable");
+            return;
+        }
+        for (std::size_t batch_index = 0;
+             batch_index < presentation_identity[0]; ++batch_index)
+        {
+            std::array<std::uint64_t, 8> batch_identity{};
+            if (!get_audio_batch(batch_index, batch_identity.data(),
+                    batch_identity.size()))
+            {
+                Fail("horsemod_audio_batch_identity_unavailable");
+                return;
+            }
+            if (batch_identity[2] == 0) continue;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] audio batch index={} coordinate={}:{} "
+                "dispatches={} sequence=0x{:016x} route=0x{:08x} "
+                "payload=0x{:08x} position=0x{:08x} journal={}\n"),
+                batch_index, batch_identity[0], batch_identity[1],
+                batch_identity[2], batch_identity[3], batch_identity[4],
+                batch_identity[5], batch_identity[6], batch_identity[7]);
+            for (std::size_t dispatch_index = 0;
+                 dispatch_index < batch_identity[7]; ++dispatch_index)
+            {
+                std::array<std::uint64_t, 7> dispatch{};
+                if (!get_audio_dispatch(batch_index, dispatch_index,
+                        dispatch.data(), dispatch.size()))
+                {
+                    Fail("horsemod_audio_dispatch_identity_unavailable");
+                    return;
+                }
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] audio dispatch batch={} index={} "
+                    "event={} payload_ext={} payload=0x{:016x} "
+                    "reserved={} alternate={} direct={} succeeded={}\n"),
+                    batch_index, dispatch_index, dispatch[0], dispatch[1],
+                    dispatch[2], dispatch[3], dispatch[4], dispatch[5],
+                    dispatch[6]);
+            }
+        }
+        const auto get_health = ResolveHorseModQualificationHealthApi();
+        std::array<std::uint64_t, 7> health{};
+        if (get_health == nullptr
+            || !get_health(health.data(), health.size()))
+        {
+            Fail("horsemod_qualification_health_api_unavailable");
+            return;
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] qualification health "
+            "capacity_failures={} capacity_growth_events={} "
+            "timeline_accounting_failures={} aggregate_owned_bytes={} "
+            "presentation_owned_bytes={} presentation_duplicate_failures={} "
+            "presentation_publish_failures={}\n"),
+            health[0], health[1], health[2], health[3], health[4],
+            health[5], health[6]);
         const auto get_rng_coverage =
             ResolveHorseModGameplayRngCoverageApi();
-        std::array<std::uint64_t, 22> rng_coverage{};
+        std::array<std::uint64_t, 40> rng_coverage{};
         if (get_rng_coverage == nullptr
             || !get_rng_coverage(rng_coverage.data(), rng_coverage.size()))
         {
@@ -675,7 +1601,16 @@ private:
             "{:016x}{:016x}{:016x}{:016x} probability_state_mask_p1="
             "{:016x}{:016x}{:016x}{:016x} transition07_calls={} "
             "tira_random_transitions={} tira_probability_batches={} "
-            "tira_targets=0x{:x}\n"),
+            "tira_targets=0x{:x} xorshift_sequence=0x{:016x} "
+            "transition07_sequence=0x{:016x} tira_sequence=0x{:016x} "
+            "tira_stance_batches={} tira_slot_mask=0x{:x} "
+            "state19_sequence_p0=0x{:016x} state19_sequence_p1=0x{:016x} "
+            "state19_initial_p0={} state19_initial_p1={} "
+            "state19_final_p0={} state19_final_p1={} "
+            "xorshift_landing=0x{:08x},0x{:08x},0x{:08x} "
+            "state19_at_tira_transition_p0={} "
+            "state19_at_tira_transition_p1={} state19_initial_valid={} "
+            "tira_last_target=0x{:04x}\n"),
             rng_coverage[0], rng_coverage[1], rng_coverage[2],
             rng_coverage[3], rng_coverage[4], rng_coverage[5],
             rng_coverage[6], rng_coverage[7], rng_coverage[8],
@@ -683,7 +1618,45 @@ private:
             rng_coverage[11], rng_coverage[10], rng_coverage[17],
             rng_coverage[16], rng_coverage[15], rng_coverage[14],
             rng_coverage[18], rng_coverage[19], rng_coverage[20],
-            rng_coverage[21]);
+            rng_coverage[21], rng_coverage[22], rng_coverage[23],
+            rng_coverage[24], rng_coverage[25], rng_coverage[26],
+            rng_coverage[27], rng_coverage[28], rng_coverage[29],
+            rng_coverage[30], rng_coverage[31], rng_coverage[32],
+            rng_coverage[33], rng_coverage[34], rng_coverage[35],
+            rng_coverage[36], rng_coverage[37], rng_coverage[38],
+            rng_coverage[39]);
+        const auto get_canonical = ResolveHorseModCanonicalStateApi();
+        std::uint64_t canonical_generation{}, canonical_frame{};
+        std::array<std::byte, 32> canonical_hash{};
+        if (get_canonical == nullptr
+            || !get_canonical(&canonical_generation, &canonical_frame,
+                canonical_hash.data(), canonical_hash.size()))
+        {
+            Fail("horsemod_canonical_state_api_unavailable");
+            return;
+        }
+        std::ostringstream canonical_hex;
+        canonical_hex << std::hex << std::setfill('0');
+        for (const auto item : canonical_hash)
+            canonical_hex << std::setw(2) << std::to_integer<unsigned>(item);
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] final canonical state generation={} "
+            "frame={} sha256={}\n"), canonical_generation, canonical_frame,
+            RC::to_generic_string(canonical_hex.str()));
+        const auto get_components = ResolveHorseModCanonicalComponentsApi();
+        std::array<std::uint64_t, 6> canonical_components{};
+        if (get_components != nullptr
+            && get_components(canonical_components.data(),
+                canonical_components.size()))
+        {
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] final canonical components "
+                "context=0x{:016x} native=0x{:016x} secondary=0x{:016x} "
+                "animation=0x{:016x} ucrt=0x{:016x} wind=0x{:016x}\n"),
+                canonical_components[0], canonical_components[1],
+                canonical_components[2], canonical_components[3],
+                canonical_components[4], canonical_components[5]);
+        }
         state_ = State::Launched;
         WriteResult("launch_requested", "none");
         Output::send<LogLevel::Default>(STR(
@@ -692,22 +1665,110 @@ private:
             request_.watch_frames);
     }
 
+    bool PollRoundOutcomeQualification()
+    {
+        if (round_outcomes_verified_) return true;
+        BattleResult result{};
+        if (!ReadBattleResult(result)) return false;
+        const bool round_result_valid = result.result_type != 0
+            && result.round_winner_index >= 0
+            && result.round_winner_index
+                <= Horse::Qualification::ReplayMetadata::
+                    kSimultaneousRoundWinners;
+        if (!round_result_valid)
+        {
+            if (have_last_round_result_) round_result_armed_ = true;
+            return false;
+        }
+        const bool new_round_result = round_result_armed_
+            || !have_last_round_result_
+            || result.timer_seconds != last_round_result_.timer_seconds
+            || result.result_type != last_round_result_.result_type
+            || result.round_winner_index
+                != last_round_result_.round_winner_index;
+        if (new_round_result)
+        {
+            have_last_round_result_ = true;
+            round_result_armed_ = false;
+            last_round_result_ = result;
+            const std::int8_t observed = static_cast<std::int8_t>(
+                result.round_winner_index);
+            if (!request_.stock_round_outcome_control)
+            {
+                if (observed_round_winner_count_
+                    >= request_.expected_round_winners.size())
+                {
+                    Fail("simulated_round_winner_overflow");
+                    return false;
+                }
+                const std::int8_t expected =
+                    request_.expected_round_winners[observed_round_winner_count_];
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] round outcome ordinal={} "
+                    "control={} simulated={} result_type={}\n"),
+                    observed_round_winner_count_ + 1,
+                    expected, observed, result.result_type);
+                if (observed != expected)
+                {
+                    Fail("simulated_round_winner_mismatch");
+                    return false;
+                }
+            }
+            observed_round_winners_.push_back(observed);
+            ++observed_round_winner_count_;
+        }
+        if (result.match_winner_index < 0) return false;
+        if (!request_.stock_round_outcome_control
+            && result.match_winner_index != request_.expected_match_winner)
+        {
+            Fail("simulated_match_winner_mismatch");
+            return false;
+        }
+        if (!request_.stock_round_outcome_control
+            && observed_round_winner_count_
+                != request_.expected_round_winners.size())
+        {
+            Fail("simulated_round_winner_count_mismatch");
+            return false;
+        }
+        round_outcomes_verified_ = true;
+        std::ostringstream winners;
+        for (std::size_t index = 0;
+             index < observed_round_winners_.size(); ++index)
+        {
+            if (index != 0) winners << ',';
+            winners << static_cast<int>(observed_round_winners_[index]);
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] ordered round outcomes verified "
+            "rounds={} match_winner={} winners={}\n"),
+            observed_round_winner_count_, result.match_winner_index,
+            RC::to_generic_string(winners.str()));
+        return true;
+    }
+
     bool PollStageTerminal()
     {
+        if (stage_terminal_completed_) return true;
         if (request_stage_terminal_ == nullptr
             && !ResolveHorseModStageTerminalApi(
-                request_stage_terminal_, get_stage_terminal_status_))
+                request_stage_terminal_, get_stage_terminal_status_,
+                get_forced_qualification_status_))
         {
             Fail("horsemod_stage_terminal_api_unavailable");
             return false;
         }
+        if (!stage_terminal_requested_
+            && get_forced_qualification_status_ != nullptr
+            && get_forced_qualification_status_() == 0)
+            return false;
         if (!stage_terminal_requested_)
         {
-            if (!request_stage_terminal_(request_.stage_terminal)) return false;
+            if (!request_stage_terminal_(stage_terminal_operation_)) return false;
             stage_terminal_requested_ = true;
             Output::send<LogLevel::Default>(STR(
                 "[ReplayQualification] requested source-frame stage "
-                "terminal operation={}\n"), request_.stage_terminal);
+                "terminal operation={}\n"), stage_terminal_operation_);
             return false;
         }
         std::uint32_t source_frame{};
@@ -718,14 +1779,17 @@ private:
             return false;
         }
         if (status != 2) return false;
-        if (!stage_terminal_completed_)
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] source-frame stage terminal "
+            "completed operation={} frame={}\n"),
+            stage_terminal_operation_, source_frame);
+        if (request_.stage_terminal == 3 && stage_terminal_operation_ == 1)
         {
-            stage_terminal_completed_ = true;
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] source-frame stage terminal "
-                "completed operation={} frame={}\n"),
-                request_.stage_terminal, source_frame);
+            stage_terminal_operation_ = 2;
+            stage_terminal_requested_ = false;
+            return false;
         }
+        stage_terminal_completed_ = true;
         return true;
     }
 
@@ -742,19 +1806,9 @@ private:
         const auto percentage = request_.seek_percentages[seek_index_];
         if (seek_resume_observation_active_)
         {
-            std::int32_t native_round{}, native_time{}, unpause_countdown{};
-            std::uint32_t round_state_frame{};
-            if (!get_phase_(&native_round, &native_time, &round_state_frame,
-                    &unpause_countdown))
-            {
-                Fail("horsemod_seek_resume_phase_unavailable");
-                return;
-            }
             const auto now = std::chrono::steady_clock::now();
             if (seek_resume_last_active_at_.time_since_epoch().count() != 0
-                && frame > seek_resume_last_observed_frame_
-                && native_round == seek_resume_native_round_
-                && round_state_frame >= seek_resume_last_round_state_frame_)
+                && frame > seek_resume_last_observed_frame_)
             {
                 const auto elapsed_us = static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::microseconds>(
@@ -773,16 +1827,6 @@ private:
             }
             seek_resume_last_active_at_ = now;
             seek_resume_last_observed_frame_ = frame;
-            seek_resume_native_round_ = native_round;
-            seek_resume_last_round_state_frame_ = round_state_frame;
-            std::uint64_t unused_target{}, unused_source{}, unused_verified{};
-            std::uint16_t failure{};
-            if (get_status_(&unused_target, &unused_source, &unused_verified,
-                    &failure) == 3)
-            {
-                Fail("horsemod_seek_live_resume_failed");
-                return;
-            }
             if (frame < seek_resume_start_frame_)
             {
                 Fail("horsemod_seek_live_resume_generation_changed");
@@ -795,6 +1839,33 @@ private:
                 static_cast<std::uint64_t>(request_.watch_frames));
             if (live_frames < required_live_frames)
             {
+                return;
+            }
+            std::int32_t native_round{}, native_time{}, unpause_countdown{};
+            std::uint32_t round_state_frame{};
+            if (!get_phase_(&native_round, &native_time, &round_state_frame,
+                    &unpause_countdown))
+            {
+                Fail("horsemod_seek_resume_phase_unavailable");
+                return;
+            }
+            if (native_round != seek_resume_native_round_
+                || round_state_frame < seek_resume_last_round_state_frame_)
+            {
+                Fail("horsemod_seek_resume_phase_changed");
+                return;
+            }
+            // The seek status is terminal once validation completes.  Poll it
+            // at the end of the live-resume interval instead of performing an
+            // exported status call inside every sample of the timing window.
+            // This preserves fail-closed validation without measuring the
+            // qualification observer as simulation work.
+            std::uint64_t unused_target{}, unused_source{}, unused_verified{};
+            std::uint16_t failure{};
+            if (get_status_(&unused_target, &unused_source, &unused_verified,
+                    &failure) == 3)
+            {
+                Fail("horsemod_seek_live_resume_failed");
                 return;
             }
             const auto elapsed_us = seek_resume_rate_elapsed_us_;
@@ -946,44 +2017,27 @@ private:
 
     void PollPlayerProfiles()
     {
-        const auto now = std::chrono::steady_clock::now();
         if (!player_profiles_requested_)
         {
-            // Replay qualification does not need live online profile contents.
-            // The native request is asynchronous and its successful submission
-            // does not mean the two profile slots are ready; staging after a
-            // fixed delay can therefore enter ReplayBattleScene with no active
-            // replay phase. Populate the same bounded native profile values the
-            // existing failure fallback uses and avoid that external race.
             if (!importer_.PopulateFallbackProfiles())
             {
                 Fail("player_profile_fallback_failed");
                 return;
             }
             player_profiles_requested_ = true;
-            player_profiles_requested_at_ = now - std::chrono::seconds(2);
             Output::send<LogLevel::Default>(STR(
                 "[ReplayQualification] staged bounded replay profiles\n"));
             return;
         }
-        if (now - player_profiles_requested_at_ < std::chrono::seconds(2))
-            return;
-        if (!importer_.ApplyPlaybackContext())
+        if (!importer_.RequestReadyPlayback())
         {
-            Fail("playback_context_apply_failed");
-            return;
-        }
-        RC::Unreal::UObject* instance = FindGameInstance();
-        if (instance == nullptr
-            || !CallNoParams(instance, L"ApplyReplayToBattleSetup"))
-        {
-            Fail("apply_replay_to_battle_setup_failed");
+            Fail("request_ready_replay_failed");
             return;
         }
         playback_context_staged_ = true;
         Output::send<LogLevel::Default>(STR(
-            "[ReplayQualification] native replay playback context and "
-            "battle setup staged\n"));
+            "[ReplayQualification] stock RequestReadyReplay ownership "
+            "transfer completed; ReplaySetupScene owns setup application\n"));
     }
 
     void Fail(std::string_view reason)
@@ -1010,13 +2064,17 @@ private:
 
     Horse::Qualification::ReplayPayloadImporter importer_{};
     Horse::Qualification::ReplaySceneNavigator navigator_{};
+    Horse::Qualification::OnlineRoomAutomation room_automation_{};
+    Horse::Qualification::ReplayMetadata replay_metadata_{};
     static inline std::atomic<ReplayQualificationMod*> s_instance_{nullptr};
     Request request_{};
     std::string last_run_id_{};
+    std::string online_last_run_id_{};
+    std::string online_observer_last_run_id_{};
+    std::string online_room_run_id_{};
+    std::string online_room_last_detail_{};
     std::string last_navigation_detail_{};
     std::chrono::steady_clock::time_point started_{};
-    std::chrono::steady_clock::time_point player_profiles_requested_at_{};
-    std::chrono::steady_clock::time_point next_profile_attempt_{};
     State state_{State::Idle};
     std::uint32_t poll_divider_{};
     RC::Unreal::Hook::GlobalCallbackId engine_tick_id_{
@@ -1026,7 +2084,15 @@ private:
     bool player_profiles_requested_{};
     bool playback_context_staged_{};
     bool battle_scene_observed_{};
+    bool authored_map_logged_{};
     std::uint32_t initial_battle_frame_{};
+    std::uint32_t observed_battle_frame_{};
+    std::chrono::steady_clock::time_point battle_rate_started_at_{};
+    bool battle_rate_logged_{};
+    std::chrono::steady_clock::time_point battle_active_rate_started_at_{};
+    std::uint32_t battle_active_rate_start_frame_{};
+    std::int32_t battle_active_rate_round_{};
+    bool battle_active_rate_logged_{};
     std::size_t seek_index_{};
     bool seek_requested_{};
     std::uint64_t requested_seek_target_{};
@@ -1044,8 +2110,18 @@ private:
     GetReplaySeekMetricsFn get_metrics_{};
     RequestStageTerminalFn request_stage_terminal_{};
     GetStageTerminalStatusFn get_stage_terminal_status_{};
+    GetForcedQualificationStatusFn get_forced_qualification_status_{};
+    ArmOnlineQualificationFn arm_online_{};
+    GetOnlineQualificationStatusFn get_online_status_{};
+    std::uint32_t online_last_status_{UINT32_MAX};
+    ArmOnlineObserverProbeFn arm_online_observer_{};
+    GetOnlineObserverProbeReportFn get_online_observer_report_{};
+    DisarmOnlineObserverProbeFn disarm_online_observer_{};
+    bool online_observer_active_{};
+    bool online_room_terminal_{};
     bool stage_terminal_requested_{};
     bool stage_terminal_completed_{};
+    std::uint32_t stage_terminal_operation_{};
     std::uint32_t seek_resume_start_frame_{};
     std::uint64_t seek_resume_rate_frames_{};
     std::uint64_t seek_resume_rate_elapsed_us_{};
@@ -1055,7 +2131,12 @@ private:
     std::uint32_t seek_resume_last_round_state_frame_{};
     bool seek_resume_observation_active_{};
     std::uint16_t phase_wait_log_counter_{};
-    std::uint8_t profile_attempts_{};
+    std::uint32_t observed_round_winner_count_{};
+    std::vector<std::int8_t> observed_round_winners_{};
+    BattleResult last_round_result_{};
+    bool have_last_round_result_{};
+    bool round_result_armed_{true};
+    bool round_outcomes_verified_{};
 };
 
 #define REPLAY_QUALIFICATION_API __declspec(dllexport)

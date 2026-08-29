@@ -34,7 +34,7 @@ using CopyFn = void* (__fastcall*)(void*, void*);
 using FreeFn = void (__fastcall*)(void*);
 using GetContainerClassFn = const RC::Unreal::UClass* (__fastcall*)();
 using RequestPlayerProfilesFn = bool (__fastcall*)(void*);
-using ApplyPlaybackContextFn = void (__fastcall*)(void*);
+using RequestReadyReplayFn = void (__fastcall*)(void*);
 using InitializeProfileFn = void* (__fastcall*)(void*);
 using DestroyProfileFn = void (__fastcall*)(void*);
 using CopyProfileFn = void* (__fastcall*)(void*, void*);
@@ -50,7 +50,7 @@ struct NativeFunctions
     FreeFn free_memory{};
     GetContainerClassFn get_container_class{};
     RequestPlayerProfilesFn request_player_profiles{};
-    ApplyPlaybackContextFn apply_playback_context{};
+    RequestReadyReplayFn request_ready_replay{};
     InitializeProfileFn initialize_profile{};
     DestroyProfileFn destroy_profile{};
     CopyProfileFn copy_profile{};
@@ -83,6 +83,8 @@ constexpr FunctionContract kContracts[]{
                 std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x48}}},
     {0x5e90c0, {std::byte{0x40}, std::byte{0x55}, std::byte{0x53}, std::byte{0x57},
                 std::byte{0x41}, std::byte{0x54}, std::byte{0x48}, std::byte{0x8d}}},
+    {0x5ea1c0, {std::byte{0x40}, std::byte{0x53}, std::byte{0x48}, std::byte{0x83},
+                std::byte{0xec}, std::byte{0x20}, std::byte{0x48}, std::byte{0x8b}}},
     {0x5e3010, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
                 std::byte{0x10}, std::byte{0x57}, std::byte{0x48}, std::byte{0x81}}},
     {0x2dc0270, {std::byte{0x40}, std::byte{0x53}, std::byte{0x48}, std::byte{0x83},
@@ -152,7 +154,7 @@ bool ReplayPayloadImporter::Bind(std::uintptr_t image_base) noexcept
         reinterpret_cast<FreeFn>(image_base + 0xd46a00),
         reinterpret_cast<GetContainerClassFn>(image_base + 0xb77900),
         reinterpret_cast<RequestPlayerProfilesFn>(image_base + 0x5e90c0),
-        reinterpret_cast<ApplyPlaybackContextFn>(image_base + 0x5e3010),
+        reinterpret_cast<RequestReadyReplayFn>(image_base + 0x5ea1c0),
         reinterpret_cast<InitializeProfileFn>(image_base + 0x2dc0270),
         reinterpret_cast<DestroyProfileFn>(image_base + 0x4eeed0),
         reinterpret_cast<CopyProfileFn>(image_base + 0x4f1cf0)};
@@ -169,6 +171,7 @@ ImportFailure ReplayPayloadImporter::Import(
     constexpr std::size_t kStageIndex = kBattleData + 0x98;
     constexpr std::size_t kLeftCharacter = kBattleData + 0xa0 + 0x28 + 0x08;
     constexpr std::size_t kRightCharacter = kBattleData + 0xcf0 + 0x28 + 0x08;
+    constexpr std::size_t kStateResetData = kBattleData + 0x1940;
     metadata = {};
     ReleasePlaybackContext();
     if (g_functions.initialize == nullptr || payload.size() < 8
@@ -205,12 +208,21 @@ ImportFailure ReplayPayloadImporter::Import(
                     sizeof(metadata.left_character));
         std::memcpy(&metadata.right_character, item.data() + kRightCharacter,
                     sizeof(metadata.right_character));
+        ByteArray state_reset_data{};
+        std::memcpy(&state_reset_data, item.data() + kStateResetData,
+                    sizeof(state_reset_data));
+        if (state_reset_data.data != nullptr && state_reset_data.count > 0
+            && state_reset_data.count <= static_cast<std::int32_t>(
+                ReplayMetadata::kMaximumStateResetRecords))
+            metadata.state_reset_record_count =
+                static_cast<std::uint32_t>(state_reset_data.count);
         const std::int32_t map_index = metadata.stage_index > 0xff
             ? metadata.stage_index & 0xff : metadata.stage_index;
         if (metadata.stage_index < 0 || metadata.stage_index > 0xfff
             || map_index < 0 || map_index > 0xff
             || metadata.left_character == 0xff
-            || metadata.right_character == 0xff)
+            || metadata.right_character == 0xff
+            || metadata.state_reset_record_count == 0)
         {
             result = ImportFailure::InvalidMetadata;
         }
@@ -340,15 +352,20 @@ bool ReplayPayloadImporter::PopulateFallbackProfiles() noexcept
         && populate(kRightProfile, L"P2");
 }
 
-bool ReplayPayloadImporter::ApplyPlaybackContext() noexcept
+bool ReplayPayloadImporter::RequestReadyPlayback() noexcept
 {
     if (playback_container_ == nullptr
-        || g_functions.apply_playback_context == nullptr)
+        || g_functions.request_ready_replay == nullptr)
     {
         return false;
     }
     return SafeCall(false, [&]() {
-        g_functions.apply_playback_context(playback_container_);
+        // This is ULuxReplayListContainer::RequestReadyReplay, the exact
+        // stock Play path. It invokes the virtual OnRequestPlay ownership
+        // transfer and then broadcasts OnReadyReplayCompleted. Do not call
+        // OnRequestPlay or ApplyReplayToBattleSetup directly: ReplaySetupScene
+        // applies the replay to battle setup later from OnStartVersusInfo.
+        g_functions.request_ready_replay(playback_container_);
         return true;
     });
 }

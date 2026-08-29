@@ -93,11 +93,14 @@ enum class TransportMessageKind : std::uint8_t
 {
     Hello,
     HelloAck,
+    BaselineReady,
+    BaselineCommit,
     Baseline,
     BaselineAck,
     Input,
     StateHash,
     RoundBarrier,
+    GekkoData,
     Disconnect,
 };
 
@@ -119,6 +122,7 @@ public:
         TransportReliability reliability) noexcept = 0;
     virtual std::optional<TransportMessage> Poll() noexcept = 0;
     [[nodiscard]] virtual FailureCode TerminalFailure() const noexcept = 0;
+    [[nodiscard]] virtual bool IsClearForStock() const noexcept = 0;
     virtual void Stop() noexcept = 0;
 };
 }

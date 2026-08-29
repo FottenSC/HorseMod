@@ -742,6 +742,16 @@ void test_candidate_checkpoint_codec()
             && canonical_snapshot.canonical_wind_node
                 == snapshot.canonical_wind_node,
         "canonical-only encoding preserves exact identity without restore payloads");
+    Snapshot relocated_context_snapshot{};
+    expect(CandidateCheckpointCodec::EncodeCanonical(
+            {7, 30}, 0xA2A2, canonical_image,
+            relocated_context_snapshot).ok()
+            && relocated_context_snapshot.context_identity == 0xA2A2
+            && relocated_context_snapshot.canonical_hash
+                == canonical_snapshot.canonical_hash
+            && relocated_context_snapshot.canonical_components
+                == canonical_snapshot.canonical_components,
+        "portable canonical identity excludes the process-local battle-manager address");
     canonical_image.wind.nodes.clear();
     Snapshot fresh_without_wind_node{};
     expect(CandidateCheckpointCodec::EncodeCanonical(
