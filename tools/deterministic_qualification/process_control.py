@@ -157,6 +157,26 @@ def focus_game_window(pid: int, timeout_seconds: float = 60.0) -> None:
     )
 
 
+def is_game_foreground(pid: int) -> bool:
+    user32 = ctypes.windll.user32
+    user32.GetForegroundWindow.restype = ctypes.c_void_p
+    user32.GetWindowThreadProcessId.argtypes = (
+        ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)
+    )
+    foreground = user32.GetForegroundWindow()
+    if not foreground:
+        return False
+    foreground_pid = ctypes.c_ulong()
+    user32.GetWindowThreadProcessId(foreground, ctypes.byref(foreground_pid))
+    return foreground_pid.value == pid
+
+
+def require_foreground_game_process(pid: int) -> None:
+    require_game_process(pid)
+    if not is_game_foreground(pid):
+        focus_game_window(pid, timeout_seconds=5.0)
+
+
 def _post_close_to_process(pid: int) -> bool:
     user32 = ctypes.windll.user32
     posted = False

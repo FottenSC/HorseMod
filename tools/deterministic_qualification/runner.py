@@ -17,6 +17,7 @@ from .process_control import (
     force_stop_game_for_cleanup,
     launch_game,
     list_game_processes,
+    require_foreground_game_process,
     require_game_process,
     wait_for_game,
 )
@@ -439,7 +440,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             launch_game()
             pid = wait_for_game(args.timeout)
             focus_game_window(pid)
-            guard = lambda: require_game_process(pid)
+            guard = lambda: require_foreground_game_process(pid)
             if not stock_round_outcome_control:
                 boot = wait_for_boot_evidence(
                     args.log, args.timeout, guard, log_start
