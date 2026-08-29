@@ -957,15 +957,6 @@ bool TryReadBattleResult(
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
-bool ReadBattleResult(BattleResult& output) noexcept
-{
-    std::vector<RC::Unreal::UObject*> managers;
-    RC::Unreal::UObjectGlobals::FindAllOf(L"LuxBattleManager", managers);
-    for (RC::Unreal::UObject* manager : managers)
-        if (TryReadBattleResult(manager, output)) return true;
-    return false;
-}
-
 RC::Unreal::UObject* GetBattleSetup(RC::Unreal::UObject* instance) noexcept
 {
     if (instance == nullptr) return nullptr;
@@ -1225,6 +1216,7 @@ private:
         playback_context_staged_ = false;
         battle_scene_observed_ = false;
         replay_scene_ready_ = false;
+        battle_manager_ = nullptr;
         initial_battle_frame_ = 0;
         observed_battle_frame_ = 0;
         battle_rate_started_at_ = {};
@@ -1353,22 +1345,20 @@ private:
             Fail("battle_frame_counter_unreadable");
             return;
         }
-        RequestReplaySeekFn unused_request{};
-        GetReplaySeekStatusFn unused_status{};
-        GetReplaySeekableRangeFn unused_range{};
-        GetReplaySimulationPhaseFn get_phase{};
-        GetReplaySeekMetricsFn unused_metrics{};
         const bool stock_round_outcome_control =
             request_.stock_round_outcome_control;
-        if (!ResolveHorseModSeekApi(unused_request, unused_status,
-                unused_range, get_phase, unused_metrics))
+        if ((request_seek_ == nullptr || get_status_ == nullptr
+                || get_range_ == nullptr || get_phase_ == nullptr
+                || get_metrics_ == nullptr)
+            && !ResolveHorseModSeekApi(request_seek_, get_status_, get_range_,
+                get_phase_, get_metrics_))
         {
             Fail("horsemod_simulation_phase_api_unavailable");
             return;
         }
         std::int32_t native_round{}, native_time{}, unpause_countdown{};
         std::uint32_t round_state_frame{};
-        const bool phase_available = get_phase(
+        const bool phase_available = get_phase_(
             &native_round, &native_time, &round_state_frame,
             &unpause_countdown);
         if (!phase_available || round_state_frame == 0
@@ -1388,8 +1378,11 @@ private:
             return;
         }
         phase_wait_log_counter_ = 0;
+        if (battle_manager_ == nullptr)
+            battle_manager_ = FindBattleManager();
+        if (battle_manager_ == nullptr) return;
         if (!authored_map_logged_)
-            authored_map_logged_ = LogAuthoredMapPackages(FindBattleManager());
+            authored_map_logged_ = LogAuthoredMapPackages(battle_manager_);
         if (!battle_scene_observed_)
         {
             if (!stock_round_outcome_control)
@@ -1775,7 +1768,7 @@ private:
     {
         if (round_outcomes_verified_) return true;
         BattleResult result{};
-        if (!ReadBattleResult(result)) return false;
+        if (!TryReadBattleResult(battle_manager_, result)) return false;
         const bool round_result_valid = result.result_type != 0
             && result.round_winner_index >= 0
             && result.round_winner_index
@@ -2244,6 +2237,7 @@ private:
     bool have_last_round_result_{};
     bool round_result_armed_{true};
     bool round_outcomes_verified_{};
+    RC::Unreal::UObject* battle_manager_{};
 };
 
 #define REPLAY_QUALIFICATION_API __declspec(dllexport)
