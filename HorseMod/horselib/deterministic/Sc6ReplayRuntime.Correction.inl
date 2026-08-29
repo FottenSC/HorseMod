@@ -632,6 +632,8 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrectionInternal(
     const auto record_primary_failure = [&](Status failure) noexcept {
         output.primary_failure = failure.code;
         output.primary_validation = checkpoint_capture_.restore_validation();
+        output.primary_restore_difference_mask =
+            checkpoint_capture_.restore_difference_mask();
         output.primary_performance = checkpoint_capture_.adapter_performance();
     };
     const auto restore_undo = [&]() noexcept {

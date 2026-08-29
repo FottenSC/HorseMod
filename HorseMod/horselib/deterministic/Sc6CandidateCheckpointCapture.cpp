@@ -1083,6 +1083,12 @@ Sc6CandidateCheckpointCapture::restore_validation() const noexcept
     return regions_->validation_diagnostic();
 }
 
+std::uint32_t Sc6CandidateCheckpointCapture::restore_difference_mask()
+    const noexcept
+{
+    return adapter_ == nullptr ? 0 : adapter_->last_restore_difference_mask();
+}
+
 CandidateAdapterPerformanceStatus
 Sc6CandidateCheckpointCapture::adapter_performance() const noexcept
 {

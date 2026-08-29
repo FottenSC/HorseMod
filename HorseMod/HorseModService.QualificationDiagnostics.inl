@@ -632,6 +632,7 @@
             Output::send<LogLevel::Warning>(STR(
                 "[HorseMod] forced depth-7 qualification failed "
                 "completed={} frame={} status={} primary={} undo={} "
+                "restore_lane_mask=0x{:x} "
                 "coordinates={} base={} final={} total_us={} "
                 "diff_mask=0x{:x} local_diff={} local_count={} "
                 "motion_diff={} motion_count={} input_scalars={}@{}={}->{} "
@@ -678,6 +679,7 @@
                 RC::to_generic_string(std::string(
                     Horse::Deterministic::failure_code_name(
                         result.undo_failure))),
+                result.primary_restore_difference_mask,
                 result.replayed_coordinates, result.resimulation_base.frame,
                 result.final_coordinate.frame, result.total_ns / 1000,
                 result.undo_comparison_mask,
@@ -1121,4 +1123,3 @@
             presentation_terminal_coverage
                 ? STR("complete") : STR("incomplete"));
     }
-

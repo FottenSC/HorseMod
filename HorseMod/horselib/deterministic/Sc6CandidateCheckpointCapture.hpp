@@ -97,6 +97,7 @@ public:
         std::span<const CanonicalHash> expected_batch_entry_hashes) const noexcept;
     [[nodiscard]] NativeCandidateValidationDiagnostic restore_validation()
         const noexcept;
+    [[nodiscard]] std::uint32_t restore_difference_mask() const noexcept;
     [[nodiscard]] CandidateAdapterPerformanceStatus adapter_performance()
         const noexcept;
     void ResetCapturePerformanceWindow() noexcept;

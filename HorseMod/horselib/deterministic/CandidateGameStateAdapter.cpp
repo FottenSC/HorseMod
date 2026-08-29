@@ -645,6 +645,7 @@ Status CandidateGameStateAdapter::RebuildDerivedState() noexcept
 Status CandidateGameStateAdapter::VerifyRestoredState(
     const Snapshot& expected) noexcept
 {
+    last_restore_difference_mask_ = 0;
     if (transaction_target_scratch_ == nullptr
         || transaction_scratch_ == nullptr)
         return Status::failure(FailureCode::AdapterUnqualified);
@@ -670,15 +671,22 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
             transaction_scratch_->native.camera_components[index] =
                 transaction_target_scratch_->native.camera_components[index];
     }
-    return transaction_scratch_->native == transaction_target_scratch_->native
-            && transaction_scratch_->move_dispatch
-                == transaction_target_scratch_->move_dispatch
-            && transaction_scratch_->secondary_events
-                == transaction_target_scratch_->secondary_events
-            && transaction_scratch_->chara_animation
-                == transaction_target_scratch_->chara_animation
-            && transaction_scratch_->ucrt == transaction_target_scratch_->ucrt
-            && transaction_scratch_->wind == transaction_target_scratch_->wind
+    if (transaction_scratch_->native != transaction_target_scratch_->native)
+        last_restore_difference_mask_ |= 1;
+    if (transaction_scratch_->move_dispatch
+        != transaction_target_scratch_->move_dispatch)
+        last_restore_difference_mask_ |= 2;
+    if (transaction_scratch_->secondary_events
+        != transaction_target_scratch_->secondary_events)
+        last_restore_difference_mask_ |= 4;
+    if (transaction_scratch_->chara_animation
+        != transaction_target_scratch_->chara_animation)
+        last_restore_difference_mask_ |= 8;
+    if (transaction_scratch_->ucrt != transaction_target_scratch_->ucrt)
+        last_restore_difference_mask_ |= 16;
+    if (transaction_scratch_->wind != transaction_target_scratch_->wind)
+        last_restore_difference_mask_ |= 32;
+    return last_restore_difference_mask_ == 0
         ? Status::success()
         : Status::failure(FailureCode::RestoreVerificationFailed);
 }
