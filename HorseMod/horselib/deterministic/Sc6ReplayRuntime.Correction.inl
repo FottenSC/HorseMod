@@ -653,6 +653,16 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrectionInternal(
     if (!status.ok())
     {
         record_primary_failure(status);
+        // A restore verifier can fail before replay begins. Capture the
+        // just-restored image while it is still at the checkpoint boundary so
+        // the existing canonical diagnostics identify the authoritative lane
+        // and byte instead of reporting an empty final-replay comparison.
+        Snapshot& restored = correction_verified_scratch_;
+        if (checkpoint_capture_.CaptureTransient(
+                base->coordinate, restored).ok())
+        {
+            RecordCorrectionMismatchDiagnostics(*base, restored, output);
+        }
         if (!restore_undo()) status = Status::failure(FailureCode::UndoFailed);
         return finish(status);
     }
