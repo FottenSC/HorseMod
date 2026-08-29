@@ -1067,18 +1067,22 @@ private:
     void TickGameThread()
     {
         if (!bound_) return;
-        if (state_ != State::WaitingForLaunch)
+        if (state_ == State::WaitingForLaunch)
         {
-            if (++poll_divider_ < 15) return;
-            poll_divider_ = 0;
+            PollLaunch();
+            return;
         }
+        if (++poll_divider_ < 15)
+        {
+            return;
+        }
+        poll_divider_ = 0;
         PollOnlineRoomAutomation();
         const bool observer_only_request = PollOnlineObserverOnly();
         if (!observer_only_request) PollOnlineQualification();
         if (state_ == State::Launched || state_ == State::Failed) return;
         if (state_ == State::Idle) LoadRequest();
         if (state_ == State::Importing) StartRequest();
-        if (state_ == State::WaitingForLaunch) PollLaunch();
     }
 
     void PollOnlineQualification()
@@ -1220,6 +1224,7 @@ private:
         player_profiles_requested_ = false;
         playback_context_staged_ = false;
         battle_scene_observed_ = false;
+        replay_scene_ready_ = false;
         initial_battle_frame_ = 0;
         observed_battle_frame_ = 0;
         battle_rate_started_at_ = {};
@@ -1315,27 +1320,33 @@ private:
             Fail("asset_wait_timeout");
             return;
         }
-        std::string navigation_detail;
-        const Horse::Qualification::NavigationState navigation =
-            navigator_.Tick(playback_context_staged_, navigation_detail);
-        if (navigation_detail != last_navigation_detail_)
+        if (!replay_scene_ready_)
         {
-            last_navigation_detail_ = navigation_detail;
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] navigation={}\n"),
-                RC::to_generic_string(navigation_detail));
+            std::string navigation_detail;
+            const Horse::Qualification::NavigationState navigation =
+                navigator_.Tick(playback_context_staged_, navigation_detail);
+            if (navigation_detail != last_navigation_detail_)
+            {
+                last_navigation_detail_ = navigation_detail;
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] navigation={}\n"),
+                    RC::to_generic_string(navigation_detail));
+            }
+            if (navigation == Horse::Qualification::NavigationState::Failed)
+            {
+                Fail(navigation_detail);
+                return;
+            }
+            if (navigation
+                == Horse::Qualification::NavigationState::ReplayListReady)
+            {
+                PollPlayerProfiles();
+                return;
+            }
+            if (navigation != Horse::Qualification::NavigationState::Ready)
+                return;
+            replay_scene_ready_ = true;
         }
-        if (navigation == Horse::Qualification::NavigationState::Failed)
-        {
-            Fail(navigation_detail);
-            return;
-        }
-        if (navigation == Horse::Qualification::NavigationState::ReplayListReady)
-        {
-            PollPlayerProfiles();
-            return;
-        }
-        if (navigation != Horse::Qualification::NavigationState::Ready) return;
         std::uint32_t frame = 0;
         if (!ReadLuxBattleFrame(frame))
         {
@@ -1349,18 +1360,17 @@ private:
         GetReplaySeekMetricsFn unused_metrics{};
         const bool stock_round_outcome_control =
             request_.stock_round_outcome_control;
-        if (!stock_round_outcome_control
-            && !ResolveHorseModSeekApi(unused_request, unused_status,
+        if (!ResolveHorseModSeekApi(unused_request, unused_status,
                 unused_range, get_phase, unused_metrics))
         {
             Fail("horsemod_simulation_phase_api_unavailable");
             return;
         }
         std::int32_t native_round{}, native_time{}, unpause_countdown{};
-        std::uint32_t round_state_frame = stock_round_outcome_control ? 1u : 0u;
-        const bool phase_available = stock_round_outcome_control
-            || get_phase(&native_round, &native_time,
-                &round_state_frame, &unpause_countdown);
+        std::uint32_t round_state_frame{};
+        const bool phase_available = get_phase(
+            &native_round, &native_time, &round_state_frame,
+            &unpause_countdown);
         if (!phase_available || round_state_frame == 0
             || unpause_countdown != 0)
         {
@@ -2180,6 +2190,7 @@ private:
     bool player_profiles_requested_{};
     bool playback_context_staged_{};
     bool battle_scene_observed_{};
+    bool replay_scene_ready_{};
     bool authored_map_logged_{};
     std::uint32_t initial_battle_frame_{};
     std::uint32_t observed_battle_frame_{};
