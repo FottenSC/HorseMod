@@ -673,6 +673,20 @@ void test_candidate_checkpoint_codec()
     expect(shim.Capture(&fake_hgcpu_writer, hgcpu_context(), hgcpu).ok(),
         "capture checkpoint HgCpu image");
 
+    CandidateCheckpointImage prepared{};
+    expect(PrepareCandidateCheckpointStorage(prepared, true).ok(),
+        "prepare bounded checkpoint scratch storage");
+    const auto prepared_capacity =
+        CandidateCheckpointDynamicCapacity(prepared);
+    prepared.native.stage_wind_emitters.states.resize(
+        native_stage_wind_emitter_max_count);
+    prepared.move_dispatch.sub_elements.resize(1024);
+    prepared.local_images[0].bytes.resize(hgcpu_stream_capacity);
+    prepared.local_images[1].bytes.resize(motion_bank_image_bytes);
+    prepared.wind.nodes.resize(stage_wind_max_nodes);
+    expect(CandidateCheckpointDynamicCapacity(prepared) == prepared_capacity,
+        "bounded checkpoint scratch does not grow at maximum sizes");
+
     CandidateCheckpointImage image{};
     image.native = native;
     image.battle_audio_selector.session_generation = native.session_generation;

@@ -101,6 +101,8 @@ public:
         const MoveDispatchImage& image, std::vector<std::byte>& output);
     [[nodiscard]] static Status DecodeCanonicalBytes(
         std::span<const std::byte> bytes, MoveDispatchImage& output) noexcept;
+    [[nodiscard]] static Status PrepareImageStorage(
+        MoveDispatchImage& output) noexcept;
 
 private:
     struct Identity

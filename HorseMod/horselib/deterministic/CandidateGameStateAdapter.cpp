@@ -66,6 +66,19 @@ Status CandidateGameStateAdapter::Configure(
         if (transaction_scratch_ == nullptr)
             transaction_scratch_ =
                 std::make_unique<CandidateCheckpointImage>();
+        Status prepared = PrepareCandidateCheckpointStorage(
+            capture_scratch_, true);
+        if (prepared.ok()) prepared = PrepareCandidateCheckpointStorage(
+            canonical_capture_scratch_, false);
+        if (prepared.ok()) prepared = PrepareCandidateCheckpointStorage(
+            *transaction_target_scratch_, true);
+        if (prepared.ok()) prepared = PrepareCandidateCheckpointStorage(
+            *transaction_scratch_, true);
+        if (!prepared.ok())
+        {
+            binding_ = {};
+            return prepared;
+        }
     }
     catch (...)
     {
@@ -407,7 +420,11 @@ void CandidateGameStateAdapter::observe_scratch_capacity() noexcept
     std::size_t current{};
     for (const auto bytes : by_owner) current += bytes;
     if (scratch_capacity_baseline_bytes_ == 0)
+    {
         scratch_capacity_baseline_bytes_ = current;
+        scratch_capacity_baseline_by_owner_ = by_owner;
+        scratch_capacity_high_water_by_owner_ = by_owner;
+    }
     if (current > scratch_capacity_high_water_bytes_)
     {
         if (scratch_capacity_high_water_bytes_ != 0)

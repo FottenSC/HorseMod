@@ -28,6 +28,9 @@ struct CandidateCheckpointImage
 [[nodiscard]] std::size_t CandidateCheckpointDynamicCapacity(
     const CandidateCheckpointImage& image,
     bool include_attached_local_images = true) noexcept;
+[[nodiscard]] Status PrepareCandidateCheckpointStorage(
+    CandidateCheckpointImage& image,
+    bool include_local_reconstruction) noexcept;
 
 class CandidateCheckpointCodec
 {

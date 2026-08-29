@@ -311,6 +311,26 @@ std::size_t MoveDispatchState::ScratchCapacityBytes() const noexcept
         + capacity(restore_verification_scratch_);
 }
 
+Status MoveDispatchState::PrepareImageStorage(
+    MoveDispatchImage& output) noexcept
+{
+    try
+    {
+        output.sub_elements.reserve(maximum_sub_elements);
+        if (auto* pending =
+                std::get_if<MoveDispatchPendingState>(&output.phase))
+        {
+            pending->windows.reserve(maximum_pending_windows);
+        }
+        output.pending_windows_scratch.reserve(maximum_pending_windows);
+    }
+    catch (...)
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    return Status::success();
+}
+
 std::vector<std::byte> MoveDispatchState::CanonicalBytes(
     const MoveDispatchImage& image)
 {

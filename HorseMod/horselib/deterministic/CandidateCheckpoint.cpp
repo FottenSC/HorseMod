@@ -43,6 +43,54 @@ std::size_t CandidateCheckpointDynamicCapacity(
     return bytes;
 }
 
+Status PrepareCandidateCheckpointStorage(
+    CandidateCheckpointImage& image,
+    bool include_local_reconstruction) noexcept
+{
+    try
+    {
+        image.native.stage_wind_emitters.states.reserve(
+            native_stage_wind_emitter_max_count);
+        const Status dispatch =
+            MoveDispatchState::PrepareImageStorage(image.move_dispatch);
+        if (!dispatch.ok()) return dispatch;
+
+        std::size_t maximum_semantic{};
+        std::size_t maximum_derived{};
+        constexpr std::array node_kinds{
+            StageWindNodeKind::Parallel,
+            StageWindNodeKind::RingOut,
+            StageWindNodeKind::RingIn,
+            StageWindNodeKind::ShockWave,
+        };
+        for (const auto kind : node_kinds)
+        {
+            const auto* layout = FindStageWindNodeLayout(kind);
+            if (layout == nullptr)
+                return Status::failure(FailureCode::AdapterUnqualified);
+            maximum_semantic = (std::max)(maximum_semantic,
+                StageWindSemanticStateSize(*layout));
+            maximum_derived = (std::max)(maximum_derived,
+                StageWindDerivedStateSize(*layout));
+        }
+        image.wind.nodes.prepare_storage(
+            maximum_semantic, maximum_derived);
+
+        if (include_local_reconstruction)
+        {
+            image.local_images.reserve(maximum_local_reconstruction_images);
+            image.local_images.resize(2);
+            image.local_images[0].bytes.reserve(hgcpu_stream_capacity);
+            image.local_images[1].bytes.reserve(motion_bank_image_bytes);
+        }
+    }
+    catch (...)
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    return Status::success();
+}
+
 namespace
 {
 void reset_checkpoint_image(CandidateCheckpointImage& output) noexcept

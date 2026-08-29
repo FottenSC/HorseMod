@@ -1519,6 +1519,28 @@ private:
             presentation_identity[4], presentation_identity[5],
             presentation_identity[8], presentation_identity[6],
             presentation_identity[7]);
+        const auto get_capacity_health =
+            ResolveHorseModQualificationHealthApi();
+        std::array<std::uint64_t, 21> capacity_health{};
+        if (get_capacity_health == nullptr
+            || !get_capacity_health(
+                capacity_health.data(), capacity_health.size()))
+        {
+            Fail("horsemod_qualification_health_api_unavailable");
+            return;
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] scratch capacity owners "
+            "capture={}->{} canonical={}->{} target={}->{} "
+            "transaction={}->{} regions={}->{} motion={}->{} "
+            "dispatch={}->{} growth_events={}\n"),
+            capacity_health[7], capacity_health[14],
+            capacity_health[8], capacity_health[15],
+            capacity_health[9], capacity_health[16],
+            capacity_health[10], capacity_health[17],
+            capacity_health[11], capacity_health[18],
+            capacity_health[12], capacity_health[19],
+            capacity_health[13], capacity_health[20], capacity_health[1]);
         const auto get_audio_batch = ResolveHorseModExport<
             GetReplayAudioBatchIdentityFn>(
                 "horsemod_get_replay_audio_batch_identity");
@@ -1568,7 +1590,7 @@ private:
             }
         }
         const auto get_health = ResolveHorseModQualificationHealthApi();
-        std::array<std::uint64_t, 7> health{};
+        std::array<std::uint64_t, 21> health{};
         if (get_health == nullptr
             || !get_health(health.data(), health.size()))
         {
@@ -1580,9 +1602,15 @@ private:
             "capacity_failures={} capacity_growth_events={} "
             "timeline_accounting_failures={} aggregate_owned_bytes={} "
             "presentation_owned_bytes={} presentation_duplicate_failures={} "
-            "presentation_publish_failures={}\n"),
+            "presentation_publish_failures={} "
+            "scratch_owner_capture={}->{} scratch_owner_canonical={}->{} "
+            "scratch_owner_target={}->{} scratch_owner_transaction={}->{} "
+            "scratch_owner_regions={}->{} scratch_owner_motion={}->{} "
+            "scratch_owner_dispatch={}->{}\n"),
             health[0], health[1], health[2], health[3], health[4],
-            health[5], health[6]);
+            health[5], health[6], health[7], health[14], health[8], health[15],
+            health[9], health[16], health[10], health[17], health[11],
+            health[18], health[12], health[19], health[13], health[20]);
         const auto get_rng_coverage =
             ResolveHorseModGameplayRngCoverageApi();
         std::array<std::uint64_t, 40> rng_coverage{};

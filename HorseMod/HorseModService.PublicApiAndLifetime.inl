@@ -407,6 +407,15 @@ public:
         values[4] = storage.presentation_bytes;
         values[5] = presentation.duplicates;
         values[6] = presentation.publish_failures;
+        if (count >= 21)
+            for (std::size_t index = 0;
+                 index < capture.scratch_owner_count; ++index)
+            {
+                values[7 + index] =
+                    capture.scratch_capacity_baseline_by_owner[index];
+                values[14 + index] =
+                    capture.scratch_capacity_high_water_by_owner[index];
+            }
         return timeline.canonical_frames != 0;
     }
 
