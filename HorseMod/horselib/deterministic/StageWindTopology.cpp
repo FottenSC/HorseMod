@@ -366,7 +366,14 @@ void StageWindTopologyProbe::CanonicalBytes(
     output.clear();
     if (output.capacity() < 0x1000) output.reserve(0x1000);
     append(output, &image.generation, sizeof(image.generation));
-    append(output, image.root_clock.data(), image.root_clock.size());
+    // Native root +0x08/+0x0C are the written strength and scene-tick
+    // scalars. The captured +0x10 word has no writer or reader in the
+    // verified native closure, so retain it for local byte-exact rewind but
+    // exclude it from portable peer identity.
+    constexpr std::size_t live_root_clock_size = sizeof(float) * 2;
+    static_assert(live_root_clock_size <
+        std::tuple_size_v<decltype(image.root_clock)>);
+    append(output, image.root_clock.data(), live_root_clock_size);
     append(output, image.pending_callback_rvas.data(),
         sizeof(image.pending_callback_rvas));
     append(output, image.schedule_state.data(), image.schedule_state.size());

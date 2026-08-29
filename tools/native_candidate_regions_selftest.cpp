@@ -2303,6 +2303,17 @@ void test_stage_wind_topology_is_bounded_and_pointer_free()
             && !contains_qword(canonical, second),
         "wind canonical bytes contain no native root or node pointer");
 
+    auto root_residue_variant = image;
+    root_residue_variant.root_clock[8] = std::byte{0xA5};
+    expect(StageWindTopologyProbe::CanonicalBytes(root_residue_variant)
+            == canonical,
+        "wind canonical bytes exclude the verified unwritten root +0x10 word");
+    auto root_live_variant = image;
+    root_live_variant.root_clock[0] = std::byte{0xA5};
+    expect(StageWindTopologyProbe::CanonicalBytes(root_live_variant)
+            != canonical,
+        "wind canonical bytes retain live root strength and scene-tick state");
+
     const auto canonical_before_residue = canonical;
     memory.Fill(first + 0x34, 0x0C, std::byte{0x7A});
     expect(probe.Capture(image).ok()
