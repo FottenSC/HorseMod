@@ -509,15 +509,24 @@ Status CandidateGameStateAdapter::PreflightRestore(
 Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
 {
     const auto total_begin = std::chrono::steady_clock::now();
+    last_restore_operation_failure_mask_ = 0;
     if (transaction_target_scratch_ == nullptr
         || transaction_scratch_ == nullptr)
+    {
+        last_restore_operation_failure_mask_ = 1u << 10;
         return Status::failure(FailureCode::AdapterUnqualified);
+    }
     const Status preflight = decode_and_preflight(
         snapshot, *transaction_target_scratch_);
-    if (!preflight.ok()) return preflight;
+    if (!preflight.ok())
+    {
+        last_restore_operation_failure_mask_ = 1u << 9;
+        return preflight;
+    }
     ScopedFloatingPointEnvironment fp_scope;
     Status restored = capture_image(*transaction_scratch_);
     const bool undo_captured = restored.ok();
+    if (!undo_captured) last_restore_operation_failure_mask_ = 1u << 8;
     if (undo_captured)
     {
         // Camera component internals are presentation-local and the decoded
@@ -529,13 +538,18 @@ Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
     if (restored.ok()) restored = restore_image(*transaction_target_scratch_);
     if (!restored.ok() && undo_captured
         && !undo_image(*transaction_scratch_))
+    {
+        last_restore_operation_failure_mask_ |= 1u << 11;
         restored = Status::failure(FailureCode::UndoFailed);
+    }
     const Status fp = fp_scope.Finish();
     const auto total_end = std::chrono::steady_clock::now();
     total_restore_timing_.Record(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             total_end - total_begin).count()));
     observe_scratch_capacity();
+    if (restored.ok() && !fp.ok())
+        last_restore_operation_failure_mask_ = 1u << 12;
     return restored.ok() ? fp : restored;
 }
 
@@ -546,10 +560,12 @@ Status CandidateGameStateAdapter::restore_image(
     Status status = hgcpu_.Restore(
         binding_.hgcpu_reader, binding_.hgcpu_context,
         image.local_images[0]);
+    if (!status.ok()) last_restore_operation_failure_mask_ = 1u << 0;
     if (status.ok())
     {
         status = binding_.motion_banks->RestoreTransactional(
             image.local_images[1]);
+        if (!status.ok()) last_restore_operation_failure_mask_ = 1u << 1;
     }
     const auto local_end = std::chrono::steady_clock::now();
     local_restore_timing_.Record(static_cast<std::uint64_t>(
@@ -562,12 +578,19 @@ Status CandidateGameStateAdapter::restore_image(
         // may own several native batches, so the per-batch journal is the only
         // qualified restore boundary for that selector.
         status = regions_.RestoreTransactional(image.native);
+        if (!status.ok()) last_restore_operation_failure_mask_ = 1u << 2;
         if (status.ok()) status = binding_.move_dispatch->RestoreTransactional(
             image.move_dispatch);
+        if (!status.ok() && last_restore_operation_failure_mask_ == 0)
+            last_restore_operation_failure_mask_ = 1u << 3;
         if (status.ok()) status = binding_.secondary_events->RestoreTransactional(
             image.secondary_events);
+        if (!status.ok() && last_restore_operation_failure_mask_ == 0)
+            last_restore_operation_failure_mask_ = 1u << 4;
         if (status.ok()) status = binding_.chara_animation->RestoreTransactional(
             image.chara_animation);
+        if (!status.ok() && last_restore_operation_failure_mask_ == 0)
+            last_restore_operation_failure_mask_ = 1u << 5;
         const auto typed_end = std::chrono::steady_clock::now();
         typed_restore_timing_.Record(static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -578,6 +601,7 @@ Status CandidateGameStateAdapter::restore_image(
         const auto wind_begin = std::chrono::steady_clock::now();
         status = binding_.wind_transaction->Restore(
             binding_.wind_addresses, image.wind);
+        if (!status.ok()) last_restore_operation_failure_mask_ = 1u << 6;
         const auto wind_end = std::chrono::steady_clock::now();
         wind_restore_timing_.Record(static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -588,6 +612,7 @@ Status CandidateGameStateAdapter::restore_image(
         const auto ucrt_begin = std::chrono::steady_clock::now();
         status = binding_.ucrt_broker->Restore(
             binding_.simulation_thread_id, image.ucrt);
+        if (!status.ok()) last_restore_operation_failure_mask_ = 1u << 7;
         const auto ucrt_end = std::chrono::steady_clock::now();
         ucrt_restore_timing_.Record(static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(

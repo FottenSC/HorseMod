@@ -634,6 +634,10 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrectionInternal(
         output.primary_validation = checkpoint_capture_.restore_validation();
         output.primary_restore_difference_mask =
             checkpoint_capture_.restore_difference_mask();
+        output.primary_restore_operation_failure_mask =
+            checkpoint_capture_.restore_operation_failure_mask();
+        output.primary_restore_failure_phase =
+            checkpoint_capture_.restore_failure_phase();
         output.primary_performance = checkpoint_capture_.adapter_performance();
     };
     const auto restore_undo = [&]() noexcept {

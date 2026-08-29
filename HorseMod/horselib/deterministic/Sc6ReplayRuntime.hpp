@@ -206,6 +206,8 @@ struct OwnedCorrectionResult
     NativeCandidateValidationDiagnostic undo_validation{};
     CandidateAdapterPerformanceStatus primary_performance{};
     std::uint32_t primary_restore_difference_mask{};
+    std::uint32_t primary_restore_operation_failure_mask{};
+    std::uint8_t primary_restore_failure_phase{};
     NativeBatchEnvelope failed_envelope{};
     OwnedBatchReplayResult failed_batch_result{};
     std::size_t failed_batch_index{SIZE_MAX};

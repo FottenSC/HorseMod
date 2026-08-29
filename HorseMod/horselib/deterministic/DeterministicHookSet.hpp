@@ -278,6 +278,7 @@ struct OwnedBatchReplayResult
     OuterTickState after{};
     std::uint32_t observed_coordinates{};
     std::uint32_t filter_invocations{};
+    std::uint32_t validation_difference_mask{};
     std::uint32_t gameplay_xorshift_draws{};
     std::uint64_t gameplay_xorshift_sequence_hash{};
     std::uint64_t gameplay_xorshift_known_callers{};

@@ -147,6 +147,10 @@ public:
     {
         return last_restore_difference_mask_;
     }
+    [[nodiscard]] std::uint32_t last_restore_operation_failure_mask() const noexcept
+    {
+        return last_restore_operation_failure_mask_;
+    }
     [[nodiscard]] std::array<std::uint16_t, 2>
     last_captured_movevm_short25() const noexcept
     {
@@ -250,6 +254,7 @@ private:
     NativeMoveVmStateShortImage last_captured_movevm_state_shorts_{};
     NativeRngImage last_captured_rng_{};
     std::uint32_t last_restore_difference_mask_{};
+    std::uint32_t last_restore_operation_failure_mask_{};
     bool configured_{};
     bool bound_{};
 };

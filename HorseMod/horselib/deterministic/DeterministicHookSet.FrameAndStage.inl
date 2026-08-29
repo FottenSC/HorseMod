@@ -497,7 +497,7 @@ Status DeterministicHookSet::PrepareOwnedBatchState(
     OuterTickState pre_handoff{};
     CaptureOuterTickState(reinterpret_cast<void*>(request.battle_manager),
         pre_handoff, pre_handoff_mask, 0x1, 0x2, 0x4, 0x8);
-    if ((pre_handoff_mask & 0x0f) != 0x0f
+    if (pre_handoff_mask != Schema::Sc6FrameLayout::required_outer_tick_pre_read_mask
         || pre_handoff.input_log == 0
         || pre_handoff.frame_counter != request.envelope->native_frame_before
         || pre_handoff.manager_game_round_cursor
@@ -550,7 +550,7 @@ Status DeterministicHookSet::PrepareOwnedBatchState(
     CaptureOuterTickState(
         reinterpret_cast<void*>(request.battle_manager), output.before,
         read_mask, 0x1, 0x2, 0x4, 0x8);
-    if ((read_mask & 0x0f) != 0x0f
+    if (read_mask != Schema::Sc6FrameLayout::required_outer_tick_pre_read_mask
         || !OuterStateMatchesEnvelope(output.before, *request.envelope, true))
     {
         output.failure = FailureCode::IdentityMismatch;
@@ -734,7 +734,29 @@ Status DeterministicHookSet::ValidateOwnedBatchResult(
     CaptureOuterTickState(
         reinterpret_cast<void*>(request.battle_manager), output.after,
         read_mask, 0x10, 0x20, 0x40, 0x80);
-    if (read_mask != Schema::Sc6FrameLayout::required_outer_tick_read_mask
+    if (read_mask != Schema::Sc6FrameLayout::required_outer_tick_post_read_mask)
+        output.validation_difference_mask |= 1u << 0;
+    if (output.observed_coordinates != request.coordinates.size())
+        output.validation_difference_mask |= 1u << 1;
+    if (output.after.input_log != output.before.input_log)
+        output.validation_difference_mask |= 1u << 2;
+    if (output.after.frame_counter != request.envelope->native_frame_after)
+        output.validation_difference_mask |= 1u << 3;
+    if (output.after.input_game_round != request.envelope->input_round_after)
+        output.validation_difference_mask |= 1u << 4;
+    if (output.after.input_game_time != request.envelope->input_time_after)
+        output.validation_difference_mask |= 1u << 5;
+    if (output.after.manager_game_round_cursor
+        != request.envelope->manager_round_cursor_after)
+        output.validation_difference_mask |= 1u << 6;
+    if (output.after.manager_game_time_cursor
+        != request.envelope->manager_time_cursor_after)
+        output.validation_difference_mask |= 1u << 7;
+    if (output.after.main_state != request.envelope->main_state_after)
+        output.validation_difference_mask |= 1u << 8;
+    if (output.after.round_state != request.envelope->round_state_after)
+        output.validation_difference_mask |= 1u << 9;
+    if (read_mask != Schema::Sc6FrameLayout::required_outer_tick_post_read_mask
         || output.observed_coordinates != request.coordinates.size()
         || output.after.input_log != output.before.input_log
         || !OuterStateMatchesEnvelope(output.after, *request.envelope, false))
@@ -1243,4 +1265,3 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
-

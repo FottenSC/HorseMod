@@ -537,8 +537,12 @@
         const bool location_ready = [&]() noexcept {
             switch (m_deterministic_config.qualification_location)
             {
-            case 1: return timeline.round_state_frame > 16
-                    && timeline.round_state_frame <= 120;
+            // Locations are qualification start barriers, not sampling
+            // windows. Once the first stable post-unpause round frame is
+            // reached, all 600 consecutive corrections must continue; an
+            // upper bound silently capped ordinary matches below the required
+            // workload and made this row structurally impossible to pass.
+            case 1: return timeline.round_state_frame > 16;
             case 2: return timeline.round_state_frame > 120;
             case 3: return timeline.observed_battle_audio_dispatches != 0
                     && timeline.observed_particle_spawn_calls != 0;
@@ -632,7 +636,10 @@
             Output::send<LogLevel::Warning>(STR(
                 "[HorseMod] forced depth-7 qualification failed "
                 "completed={} frame={} status={} primary={} undo={} "
-                "restore_lane_mask=0x{:x} "
+                "restore_lane_mask=0x{:x} restore_operation_mask=0x{:x} "
+                "restore_phase={} "
+                "batch_validation_mask=0x{:x} batch_index={} "
+                "batch_coordinates={}/{} "
                 "coordinates={} base={} final={} total_us={} "
                 "diff_mask=0x{:x} local_diff={} local_count={} "
                 "motion_diff={} motion_count={} input_scalars={}@{}={}->{} "
@@ -680,6 +687,12 @@
                     Horse::Deterministic::failure_code_name(
                         result.undo_failure))),
                 result.primary_restore_difference_mask,
+                result.primary_restore_operation_failure_mask,
+                static_cast<unsigned>(result.primary_restore_failure_phase),
+                result.failed_batch_result.validation_difference_mask,
+                result.failed_batch_index,
+                result.failed_batch_result.observed_coordinates,
+                result.failed_envelope.coordinate_count,
                 result.replayed_coordinates, result.resimulation_base.frame,
                 result.final_coordinate.frame, result.total_ns / 1000,
                 result.undo_comparison_mask,

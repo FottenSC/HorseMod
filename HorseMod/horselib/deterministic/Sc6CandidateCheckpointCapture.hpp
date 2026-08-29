@@ -98,6 +98,11 @@ public:
     [[nodiscard]] NativeCandidateValidationDiagnostic restore_validation()
         const noexcept;
     [[nodiscard]] std::uint32_t restore_difference_mask() const noexcept;
+    [[nodiscard]] std::uint32_t restore_operation_failure_mask() const noexcept;
+    [[nodiscard]] std::uint8_t restore_failure_phase() const noexcept
+    {
+        return restore_failure_phase_;
+    }
     [[nodiscard]] CandidateAdapterPerformanceStatus adapter_performance()
         const noexcept;
     void ResetCapturePerformanceWindow() noexcept;
@@ -227,6 +232,7 @@ private:
     CallbackTopology bound_callback_topology_{};
     CallbackTopology callback_topology_scratch_{};
     std::uint32_t transient_identity_issue_{};
+    std::uint8_t restore_failure_phase_{};
     std::uint64_t transient_identity_expected_{};
     std::uint64_t transient_identity_observed_{};
 };

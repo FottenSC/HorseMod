@@ -901,15 +901,29 @@ Status Sc6CandidateCheckpointCapture::EnsureRestoreOwnership(
 Status Sc6CandidateCheckpointCapture::RestoreAndVerify(
     const Snapshot& snapshot) noexcept
 {
+    restore_failure_phase_ = 1;
     if (!regions_->IsBound() || bound_manager_ == 0
         || snapshot.coordinate.generation != bound_round_generation_)
     {
         return Status::failure(FailureCode::GenerationMismatch);
     }
     Status status = adapter_->PreflightRestore(snapshot);
-    if (status.ok()) status = adapter_->Restore(snapshot);
-    if (status.ok()) status = adapter_->RebuildDerivedState();
-    if (status.ok()) status = adapter_->VerifyRestoredState(snapshot);
+    if (status.ok())
+    {
+        restore_failure_phase_ = 2;
+        status = adapter_->Restore(snapshot);
+    }
+    if (status.ok())
+    {
+        restore_failure_phase_ = 3;
+        status = adapter_->RebuildDerivedState();
+    }
+    if (status.ok())
+    {
+        restore_failure_phase_ = 4;
+        status = adapter_->VerifyRestoredState(snapshot);
+    }
+    if (status.ok()) restore_failure_phase_ = 0;
     return status;
 }
 
@@ -1087,6 +1101,13 @@ std::uint32_t Sc6CandidateCheckpointCapture::restore_difference_mask()
     const noexcept
 {
     return adapter_ == nullptr ? 0 : adapter_->last_restore_difference_mask();
+}
+
+std::uint32_t Sc6CandidateCheckpointCapture::restore_operation_failure_mask()
+    const noexcept
+{
+    return adapter_ == nullptr
+        ? 0 : adapter_->last_restore_operation_failure_mask();
 }
 
 CandidateAdapterPerformanceStatus
