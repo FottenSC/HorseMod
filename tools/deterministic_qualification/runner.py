@@ -52,6 +52,7 @@ from .trace_parser import (
     wait_for_forced_qualification_evidence,
     wait_for_final_canonical_evidence,
     wait_for_gameplay_rng_coverage_evidence,
+    wait_for_normal_render_rate_evidence,
     wait_for_presentation_coverage_evidence,
     wait_for_presentation_identity_evidence,
     wait_for_qualification_health_evidence,
@@ -393,6 +394,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     presentation_identity = None
     qualification_health = None
     gameplay_rng_coverage = None
+    normal_render_rate = None
     stock_round_outcome = None
     replay_metadata = None
     correction_probes = ()
@@ -441,6 +443,18 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                     args.log, args.timeout, guard, log_start
                 )
             entry = wait_for_replay_entry(run_id, args.timeout, guard)
+            if not args.seek_percentages:
+                normal_render_rate = wait_for_normal_render_rate_evidence(
+                    args.log, args.timeout, guard, log_start
+                )
+                minimum_rate_milli = round(args.min_resume_tick_rate * 1000)
+                if (normal_render_rate.tick_rate_milli < minimum_rate_milli
+                        or normal_render_rate.active_tick_rate_milli
+                            < minimum_rate_milli):
+                    raise RuntimeError(
+                        "normal-render frame/tick rate was below the required "
+                        f"{args.min_resume_tick_rate:.3f} Hz"
+                    )
             replay_metadata = wait_for_replay_metadata_evidence(
                 args.log, args.timeout, guard, log_start)
             if not stock_round_outcome_control:
@@ -718,6 +732,36 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                 "capture_max_us": 0 if forced is None else forced.capture_max_us,
                 "correction_p99_us": 0 if forced is None else forced.cycle_p99_us,
                 "correction_max_us": 0 if forced is None else forced.cycle_max_us,
+                "normal_render_frames": (
+                    None if normal_render_rate is None else normal_render_rate.frames
+                ),
+                "normal_render_elapsed_us": (
+                    None if normal_render_rate is None else normal_render_rate.elapsed_us
+                ),
+                "normal_render_fps": (
+                    None if normal_render_rate is None else
+                    normal_render_rate.tick_rate_milli / 1000.0
+                ),
+                "normal_render_tick_rate": (
+                    None if normal_render_rate is None else
+                    normal_render_rate.tick_rate_milli / 1000.0
+                ),
+                "active_battle_frames": (
+                    None if normal_render_rate is None else
+                    normal_render_rate.active_frames
+                ),
+                "active_battle_elapsed_us": (
+                    None if normal_render_rate is None else
+                    normal_render_rate.active_elapsed_us
+                ),
+                "active_battle_fps": (
+                    None if normal_render_rate is None else
+                    normal_render_rate.active_tick_rate_milli / 1000.0
+                ),
+                "active_battle_tick_rate": (
+                    None if normal_render_rate is None else
+                    normal_render_rate.active_tick_rate_milli / 1000.0
+                ),
             },
             "horsemod_version": None if boot is None else boot.version,
             "reported_source_commit": (

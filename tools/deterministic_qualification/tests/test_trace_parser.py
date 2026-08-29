@@ -5,6 +5,7 @@ from tools.deterministic_qualification.trace_parser import (
     parse_forced_qualification_evidence,
     parse_correction_probe_evidence,
     parse_gameplay_rng_coverage_evidence,
+    parse_normal_render_rate_evidence,
     parse_replay_seek_evidence,
     parse_presentation_coverage_evidence,
     parse_presentation_identity_evidence,
@@ -176,6 +177,22 @@ def test_replay_seek_parser_requires_structured_rate_window() -> None:
     assert evidence[0].resimulation_coordinates == 8
     assert evidence[0].resume_window == 120
     assert evidence[0].resume_tick_rate_milli == 58536
+
+
+def test_normal_render_rate_parser_requires_full_and_active_windows() -> None:
+    text = (
+        "[HorseMod] ctor v2.0 source=" + "b" * 40 + "\n"
+        "[ReplayQualification] normal-render active battle rate "
+        "frames=120 elapsed_us=2020000 tick_rate_milli=59405\n"
+        "[ReplayQualification] normal-render battle rate "
+        "frames=600 elapsed_us=10050000 tick_rate_milli=59701\n"
+    )
+    evidence = parse_normal_render_rate_evidence(text)
+    assert evidence is not None
+    assert evidence.frames == 600
+    assert evidence.tick_rate_milli == 59701
+    assert evidence.active_frames == 120
+    assert evidence.active_tick_rate_milli == 59405
 
 
 def test_forced_qualification_parser_prefers_terminal_failure() -> None:

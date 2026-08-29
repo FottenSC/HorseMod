@@ -45,6 +45,16 @@ REPLAY_SEEK_PATTERN = re.compile(
     r"resume_elapsed_us=(?P<elapsed>\d+) "
     r"resume_tick_rate_milli=(?P<rate>\d+) index=(?P<index>\d+)"
 )
+NORMAL_RENDER_RATE_PATTERN = re.compile(
+    r"\[ReplayQualification\] normal-render battle rate "
+    r"frames=(?P<frames>\d+) elapsed_us=(?P<elapsed>\d+) "
+    r"tick_rate_milli=(?P<rate>\d+)"
+)
+NORMAL_RENDER_ACTIVE_RATE_PATTERN = re.compile(
+    r"\[ReplayQualification\] normal-render active battle rate "
+    r"frames=(?P<frames>\d+) elapsed_us=(?P<elapsed>\d+) "
+    r"tick_rate_milli=(?P<rate>\d+)"
+)
 PRESENTATION_COVERAGE_PATTERN = re.compile(
     r"\[ReplayQualification\] presentation source coverage "
     r"stage_wall=(?P<stage_wall>\d+) stage_barrier=(?P<stage_barrier>\d+) "
@@ -187,6 +197,16 @@ class ReplaySeekEvidence:
     resume_elapsed_us: int
     resume_tick_rate_milli: int
     index: int
+
+
+@dataclass(frozen=True)
+class NormalRenderRateEvidence:
+    frames: int
+    elapsed_us: int
+    tick_rate_milli: int
+    active_frames: int
+    active_elapsed_us: int
+    active_tick_rate_milli: int
 
 
 @dataclass(frozen=True)
@@ -434,6 +454,51 @@ def parse_replay_seek_evidence(text: str) -> tuple[ReplaySeekEvidence, ...]:
         )
         for match in REPLAY_SEEK_PATTERN.finditer(current_boot)
     )
+
+
+def parse_normal_render_rate_evidence(
+    text: str,
+) -> NormalRenderRateEvidence | None:
+    source_matches = list(SOURCE_PATTERN.finditer(text))
+    if not source_matches:
+        return None
+    current_boot = text[source_matches[-1].start():]
+    overall_matches = list(NORMAL_RENDER_RATE_PATTERN.finditer(current_boot))
+    active_matches = list(NORMAL_RENDER_ACTIVE_RATE_PATTERN.finditer(current_boot))
+    if not overall_matches or not active_matches:
+        return None
+    overall = overall_matches[-1]
+    active = active_matches[-1]
+    return NormalRenderRateEvidence(
+        frames=int(overall.group("frames")),
+        elapsed_us=int(overall.group("elapsed")),
+        tick_rate_milli=int(overall.group("rate")),
+        active_frames=int(active.group("frames")),
+        active_elapsed_us=int(active.group("elapsed")),
+        active_tick_rate_milli=int(active.group("rate")),
+    )
+
+
+def wait_for_normal_render_rate_evidence(
+    log_path: Path,
+    timeout_seconds: float,
+    progress_guard: Callable[[], None] | None = None,
+    start_offset: LogCursor | int = 0,
+) -> NormalRenderRateEvidence:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if progress_guard is not None:
+            progress_guard()
+        try:
+            evidence = parse_normal_render_rate_evidence(
+                _read_since(log_path, start_offset)
+            )
+        except OSError:
+            evidence = None
+        if evidence is not None:
+            return evidence
+        time.sleep(0.25)
+    raise TimeoutError("normal-render frame/tick-rate evidence did not appear")
 
 
 def wait_for_replay_seek_evidence(

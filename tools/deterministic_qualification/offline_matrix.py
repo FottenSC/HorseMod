@@ -147,6 +147,12 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
              "aggregate deterministic owned storage exceeded 576 MiB", failures)
     _require(runtime.get("clean_exit") is True and runtime.get("reentry") is True,
              "clean exit/re-entry missing", failures)
+    _require(performance.get("normal_render_fps", 0) >= 58.0
+             and performance.get("normal_render_tick_rate", 0) >= 58.0,
+             "full normal-render frame/tick rate was below 58 Hz", failures)
+    _require(performance.get("active_battle_fps", 0) >= 58.0
+             and performance.get("active_battle_tick_rate", 0) >= 58.0,
+             "active-battle frame/tick rate was below 58 Hz", failures)
     reentry_proof = runtime.get("reentry_proof", {})
     _require(all(reentry_proof.get(key) is True for key in (
         "distinct_run_id", "native_import_ready", "clean_exit",

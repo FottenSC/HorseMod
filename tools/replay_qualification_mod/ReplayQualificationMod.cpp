@@ -1397,6 +1397,12 @@ private:
             initial_battle_frame_ = round_state_frame <= frame + 1
                 ? frame - (round_state_frame - 1) : frame;
             battle_rate_started_at_ = std::chrono::steady_clock::now();
+            if (request_.seek_percentages.empty())
+            {
+                battle_active_rate_started_at_ = battle_rate_started_at_;
+                battle_active_rate_start_frame_ = frame;
+                battle_active_rate_round_ = native_round;
+            }
             importer_.ReleasePlaybackContext();
             Output::send<LogLevel::Default>(STR(
                 "[ReplayQualification] stock replay battle observed "
@@ -1421,13 +1427,22 @@ private:
                 "frames={} elapsed_us={} tick_rate_milli={}\n"),
                 measured_frames, elapsed_us, tick_rate_milli);
             battle_rate_logged_ = true;
+            if (tick_rate_milli < request_.min_resume_tick_rate_milli)
+            {
+                Output::send<LogLevel::Error>(STR(
+                    "[ReplayQualification] normal-render battle rate failed "
+                    "frames={} elapsed_us={} tick_rate_milli={} minimum={}\n"),
+                    measured_frames, elapsed_us, tick_rate_milli,
+                    request_.min_resume_tick_rate_milli);
+                Fail("normal_render_battle_rate_below_minimum");
+                return;
+            }
         }
         // Strict seek qualification owns its own fixed live-frame timing
         // window.  Emitting this diagnostic at the same 120-frame boundary
         // perturbs the interval it is intended to qualify.
         if (request_.seek_percentages.empty()
-            && !battle_active_rate_logged_
-            && advanced >= request_.watch_frames)
+            && !battle_active_rate_logged_)
         {
             const auto now = std::chrono::steady_clock::now();
             if (battle_active_rate_started_at_.time_since_epoch().count() == 0
@@ -1453,6 +1468,17 @@ private:
                     "frames={} elapsed_us={} tick_rate_milli={}\n"),
                     measured_frames, elapsed_us, tick_rate_milli);
                 battle_active_rate_logged_ = true;
+                if (tick_rate_milli < request_.min_resume_tick_rate_milli)
+                {
+                    Output::send<LogLevel::Error>(STR(
+                        "[ReplayQualification] normal-render active battle "
+                        "rate failed frames={} elapsed_us={} "
+                        "tick_rate_milli={} minimum={}\n"),
+                        measured_frames, elapsed_us, tick_rate_milli,
+                        request_.min_resume_tick_rate_milli);
+                    Fail("normal_render_active_battle_rate_below_minimum");
+                    return;
+                }
             }
         }
         if (stock_round_outcome_control)
