@@ -125,24 +125,69 @@ def focus_game_window(pid: int, timeout_seconds: float = 60.0) -> None:
     user32.ShowWindowAsync.argtypes = (ctypes.c_void_p, ctypes.c_int)
     user32.BringWindowToTop.argtypes = (ctypes.c_void_p,)
     user32.SetForegroundWindow.argtypes = (ctypes.c_void_p,)
+    user32.GetWindowRect.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+    user32.AttachThreadInput.argtypes = (
+        ctypes.c_ulong, ctypes.c_ulong, ctypes.c_bool
+    )
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         require_game_process(pid)
-        candidates: list[int] = []
+        candidates: list[tuple[int, int]] = []
+
+        class Rect(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
 
         @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
         def visit(window: int, _unused: int) -> bool:
             window_pid = ctypes.c_ulong()
             user32.GetWindowThreadProcessId(window, ctypes.byref(window_pid))
             if window_pid.value == pid and user32.IsWindowVisible(window):
-                candidates.append(window)
+                rect = Rect()
+                user32.GetWindowRect(window, ctypes.byref(rect))
+                area = max(0, rect.right - rect.left) * max(
+                    0, rect.bottom - rect.top
+                )
+                candidates.append((area, window))
             return True
 
         user32.EnumWindows(visit, 0)
-        for window in candidates:
+        for _area, window in sorted(candidates, reverse=True):
+            foreground = user32.GetForegroundWindow()
+            foreground_pid = ctypes.c_ulong()
+            foreground_thread = (
+                user32.GetWindowThreadProcessId(
+                    foreground, ctypes.byref(foreground_pid)
+                ) if foreground else 0
+            )
+            target_pid = ctypes.c_ulong()
+            target_thread = user32.GetWindowThreadProcessId(
+                window, ctypes.byref(target_pid)
+            )
+            current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+            attached_foreground = bool(
+                foreground_thread and foreground_thread != current_thread
+                and user32.AttachThreadInput(
+                    current_thread, foreground_thread, True
+                )
+            )
+            attached_target = bool(
+                target_thread and target_thread != current_thread
+                and target_thread != foreground_thread
+                and user32.AttachThreadInput(current_thread, target_thread, True)
+            )
             user32.ShowWindowAsync(window, 9)  # SW_RESTORE
             user32.BringWindowToTop(window)
+            # A synthetic Alt press allows a foreground transition under the
+            # same Windows rule used by task switching, without sending a
+            # gameplay key to SC6.
+            user32.keybd_event(0x12, 0, 0, 0)
             user32.SetForegroundWindow(window)
+            user32.keybd_event(0x12, 0, 2, 0)
+            if attached_target:
+                user32.AttachThreadInput(current_thread, target_thread, False)
+            if attached_foreground:
+                user32.AttachThreadInput(current_thread, foreground_thread, False)
             foreground = user32.GetForegroundWindow()
             foreground_pid = ctypes.c_ulong()
             if foreground:
