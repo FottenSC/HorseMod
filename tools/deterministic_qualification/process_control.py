@@ -109,6 +109,54 @@ def wait_for_game(timeout_seconds: float) -> int:
     raise TimeoutError("SoulcaliburVI did not start before the timeout")
 
 
+def focus_game_window(pid: int, timeout_seconds: float = 60.0) -> None:
+    """Make the exact SC6 top-level window foreground before qualification.
+
+    SC6 is externally frame-throttled while its window is in the background.
+    A normal-render run therefore cannot silently proceed until Windows proves
+    that the launched process owns the foreground window.
+    """
+    user32 = ctypes.windll.user32
+    user32.GetForegroundWindow.restype = ctypes.c_void_p
+    user32.GetWindowThreadProcessId.argtypes = (
+        ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)
+    )
+    user32.IsWindowVisible.argtypes = (ctypes.c_void_p,)
+    user32.ShowWindowAsync.argtypes = (ctypes.c_void_p, ctypes.c_int)
+    user32.BringWindowToTop.argtypes = (ctypes.c_void_p,)
+    user32.SetForegroundWindow.argtypes = (ctypes.c_void_p,)
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        require_game_process(pid)
+        candidates: list[int] = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        def visit(window: int, _unused: int) -> bool:
+            window_pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(window, ctypes.byref(window_pid))
+            if window_pid.value == pid and user32.IsWindowVisible(window):
+                candidates.append(window)
+            return True
+
+        user32.EnumWindows(visit, 0)
+        for window in candidates:
+            user32.ShowWindowAsync(window, 9)  # SW_RESTORE
+            user32.BringWindowToTop(window)
+            user32.SetForegroundWindow(window)
+            foreground = user32.GetForegroundWindow()
+            foreground_pid = ctypes.c_ulong()
+            if foreground:
+                user32.GetWindowThreadProcessId(
+                    foreground, ctypes.byref(foreground_pid)
+                )
+            if foreground_pid.value == pid:
+                return
+        time.sleep(0.25)
+    raise TimeoutError(
+        f"SoulcaliburVI process {pid} did not own the foreground window"
+    )
+
+
 def _post_close_to_process(pid: int) -> bool:
     user32 = ctypes.windll.user32
     posted = False
