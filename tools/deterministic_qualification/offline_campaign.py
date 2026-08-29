@@ -11,7 +11,9 @@ from .artifacts import (
     require_compiled_candidate_manifest, runner_sha256, sha256_file,
     source_identity,
 )
-from .configuration import armed_baseline, armed_correction, disarm_diagnostics
+from .configuration import (
+    armed_baseline, armed_correction, disarm_diagnostics, read_fields,
+)
 from .offline_matrix import OfflineMatrixRow, build_rows, evaluate_matrix, load_candidate_cases
 from .process_control import list_game_processes
 from .report import write_report
@@ -61,7 +63,15 @@ def _invoke_replay(
         "--stage-package-root", row.stage_package_root,
     ]
     if certifying:
-        command.append("--certifying")
+        command.extend([
+            "--certifying",
+            # Qualify performance over the same full 600-frame workload as
+            # the row, after the authored replay has actually begun. The
+            # takeover plan requires a 600-frame timing gate, so the shorter
+            # 120-frame sample was not certifying evidence.
+            "--min-resume-tick-rate", "58",
+            "--resume-tick-window", "600",
+        ])
     else:
         command.append("--allow-dirty")
     if stock:
@@ -75,9 +85,7 @@ def _invoke_replay(
     if require_authored_outcomes:
         command.append("--require-authored-outcomes")
     if seek_percentages:
-        command.extend(["--seek-percentages", *map(str, seek_percentages),
-                        "--min-resume-tick-rate", "58",
-                        "--resume-tick-window", "120"])
+        command.extend(["--seek-percentages", *map(str, seek_percentages)])
     if row.required_corrections:
         command.append("--require-presentation-coverage")
     if row.location is not None:
@@ -177,8 +185,10 @@ def run_offline_campaign(args: Any, root: Path) -> int:
     }
     raw = output / "raw"
     raw.mkdir(exist_ok=True)
+    current_row: OfflineMatrixRow | None = None
     try:
         for row in rows:
+            current_row = row
             print(f"offline qualification: {row.row_id} on {row.display_map_name}", flush=True)
             if row.required_corrections == 0:
                 disarm_diagnostics(config)
@@ -248,6 +258,40 @@ def run_offline_campaign(args: Any, root: Path) -> int:
                 runner_sha256(root / "tools" / "deterministic_qualification"),
                 expected_artifacts)
             write_report(output / "offline-matrix-progress.json", evaluation)
+    except Exception as error:
+        try:
+            log_lines = log.read_text(
+                encoding="utf-8", errors="replace").splitlines()[-200:]
+        except OSError:
+            log_lines = []
+        failure = {
+            "report_schema": 1,
+            "kind": "offline_matrix_failure",
+            "result": "failed",
+            "reason": str(error),
+            "row": None if current_row is None else {
+                "row_id": current_row.row_id,
+                "case_id": current_row.case_id,
+                "display_map_name": current_row.display_map_name,
+                "stage_package_root": current_row.stage_package_root,
+                "location": current_row.location,
+                "mode": current_row.mode,
+                "depth": current_row.depth,
+            },
+            "artifacts": {
+                "candidate_dll_sha256": sha256_file(candidate),
+                "deployed_dll_sha256": sha256_file(deployed),
+                "schema_sha256": sha256_file(schema),
+                "replay_mod_sha256": sha256_file(replay_mod),
+                "runner_sha256": runner_sha256(
+                    root / "tools" / "deterministic_qualification"),
+                "source": source_identity(root),
+                "config_fields": read_fields(config),
+            },
+            "log_tail": log_lines,
+        }
+        write_report(output / "offline-matrix-failure.json", failure)
+        raise
     finally:
         disarm_diagnostics(config)
         if list_game_processes():
