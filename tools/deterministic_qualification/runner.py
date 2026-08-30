@@ -13,7 +13,9 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from .artifacts import runner_sha256, sha256_file, source_identity
+from .artifacts import (
+    capture_harness_sha256, runner_sha256, sha256_file, source_identity,
+)
 from .configuration import armed_baseline, canonicalize_contract
 from .process_control import (
     close_game,
@@ -169,9 +171,12 @@ def load_outcome_control(
             artifacts.get("game_executable", {}).get("sha256"),
             sha256_file(executable),
         ),
-        "qualification runner": (
-            artifacts.get("runner_sha256"),
-            runner_sha256(Path(__file__).resolve().parent),
+        "capture harness": (
+            artifacts.get("capture_harness_sha256",
+                          artifacts.get("runner_sha256")),
+            (capture_harness_sha256(ROOT)
+             if "capture_harness_sha256" in artifacts else
+             runner_sha256(Path(__file__).resolve().parent)),
         ),
     }
     for label, (observed, expected) in required_identities.items():
@@ -675,6 +680,7 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
             "generated_schema": {"path": str(schema), "sha256": sha256_file(schema)},
             "horsemod_dll_sha256": sha256_file(dll),
             "schema_sha256": sha256_file(schema),
+            "capture_harness_sha256": capture_harness_sha256(ROOT),
             "runner_sha256": runner_sha256(Path(__file__).resolve().parent),
             "game_executable": {"path": str(executable), "sha256": sha256_file(executable)},
             "stock_outcome_control": outcome_control_artifact,
@@ -980,9 +986,15 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     smoke_args.stage_terminal = None
     smoke_args.watch_frames = args.smoke_frames
     smoke_args.report = args.report.with_suffix(".smoke.json")
-    with _temporarily_armed_smoke_config(config):
-        _run_replay_entry_once(smoke_args)
-    return _run_replay_entry_once(args)
+    # One lifecycle scope owns both processes. Direct CLI callers normally
+    # start from the safe production config, while offline orchestration may
+    # already hold an outer armed scope; armed_baseline is reversible in both
+    # cases. The smoke helper preserves the exact full-run armed bytes around
+    # its narrower request.
+    with armed_baseline(config):
+        with _temporarily_armed_smoke_config(config):
+            _run_replay_entry_once(smoke_args)
+        return _run_replay_entry_once(args)
 
 
 def run_replay_development_campaign(args: argparse.Namespace) -> int:

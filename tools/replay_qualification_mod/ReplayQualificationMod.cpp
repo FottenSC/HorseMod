@@ -77,6 +77,8 @@ struct BattleResult
 };
 
 using RequestReplaySeekFn = bool (*)(std::uint64_t);
+using SetReplayHistoryCaptureRequiredFn = bool (*)(bool);
+using CaptureReplayQualificationTerminalEvidenceFn = bool (*)();
 using GetReplaySeekStatusFn = std::uint32_t (*)(
     std::uint64_t*, std::uint64_t*, std::uint64_t*, std::uint16_t*);
 using GetReplaySeekableRangeFn = bool (*)(
@@ -1105,6 +1107,9 @@ private:
                 if (self->request_.require_authored_outcomes
                     || self->request_.stock_round_outcome_control)
                     (void)self->PollRoundOutcomeQualification();
+                self->terminal_snapshot_captured_ =
+                    self->capture_terminal_evidence_ != nullptr
+                    && self->capture_terminal_evidence_();
                 self->battle_terminate_observed_ = true;
             };
         UnrealScriptFunctionCallable post_callback =
@@ -1261,6 +1266,7 @@ private:
         playback_context_staged_ = false;
         battle_scene_observed_ = false;
         battle_terminate_observed_ = false;
+        terminal_snapshot_captured_ = false;
         replay_scene_ready_ = false;
         authored_map_logged_ = false;
         battle_manager_ = nullptr;
@@ -1301,9 +1307,24 @@ private:
         stage_terminal_operation_ = request_.stage_terminal == 3
             ? 1 : request_.stage_terminal;
         state_ = State::Importing;
+        const bool history_required = !request_.seek_percentages.empty();
+        const auto set_history = ResolveHorseModExport<
+            SetReplayHistoryCaptureRequiredFn>(
+                "horsemod_set_replay_history_capture_required");
+        capture_terminal_evidence_ = ResolveHorseModExport<
+            CaptureReplayQualificationTerminalEvidenceFn>(
+                "horsemod_capture_replay_qualification_terminal_evidence");
+        if (set_history == nullptr || !set_history(history_required)
+            || capture_terminal_evidence_ == nullptr)
+        {
+            Fail("horsemod_replay_history_mode_unavailable");
+            return;
+        }
         Output::send<LogLevel::Default>(STR(
-            "[ReplayQualification] accepted replay request run_id={}\n"),
-            RC::to_generic_string(request_.run_id));
+            "[ReplayQualification] accepted replay request run_id={} "
+            "history_required={}\n"),
+            RC::to_generic_string(request_.run_id),
+            history_required ? 1 : 0);
     }
 
     void StartRequest()
@@ -1528,6 +1549,12 @@ private:
             Fail("authored_outcome_missing_at_battle_terminate");
             return;
         }
+        if (battle_terminate_observed_ && !stock_round_outcome_control
+            && !terminal_snapshot_captured_)
+        {
+            Fail("horsemod_terminal_snapshot_incomplete");
+            return;
+        }
         phase_wait_log_counter_ = 0;
         if (battle_manager_ == nullptr)
             battle_manager_ = FindBattleManager();
@@ -1668,6 +1695,18 @@ private:
         if (request_.stage_terminal != 0 && !PollStageTerminal()) return;
         if (request_.require_authored_outcomes
             && !PollRoundOutcomeQualification()) return;
+        if (request_.require_authored_outcomes
+            && round_outcomes_verified_ && !terminal_snapshot_captured_)
+        {
+            terminal_snapshot_captured_ =
+                capture_terminal_evidence_ != nullptr
+                && capture_terminal_evidence_();
+            if (!terminal_snapshot_captured_)
+            {
+                Fail("horsemod_terminal_snapshot_incomplete");
+                return;
+            }
+        }
         if (advanced < request_.watch_frames) return;
         if (request_.development_smoke)
         {
@@ -2260,6 +2299,8 @@ private:
     std::uint32_t battle_terminate_hook_poll_divider_{};
     bool battle_terminate_hook_registered_{};
     bool battle_terminate_observed_{};
+    bool terminal_snapshot_captured_{};
+    CaptureReplayQualificationTerminalEvidenceFn capture_terminal_evidence_{};
     bool bound_{};
     bool waiting_context_logged_{};
     bool player_profiles_requested_{};

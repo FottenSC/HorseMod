@@ -101,8 +101,17 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
              "DLL hash mismatch", failures)
     _require(artifacts.get("schema_sha256") == schema_sha256,
              "schema hash mismatch", failures)
-    _require(artifacts.get("runner_sha256") == runner_sha256,
-             "runner hash mismatch", failures)
+    expected_capture_harness = (None if expected_artifacts is None else
+                                expected_artifacts.get("capture_harness"))
+    if expected_capture_harness is None:
+        # Compatibility for unit fixtures and pre-split reports. Production
+        # campaign evaluation always supplies the capture-only identity below.
+        _require(artifacts.get("runner_sha256") == runner_sha256,
+                 "runner hash mismatch", failures)
+    else:
+        _require(artifacts.get("capture_harness_sha256")
+                 == expected_capture_harness,
+                 "capture harness hash mismatch", failures)
     _require(artifacts.get("replay", {}).get("sha256") == row.replay_sha256,
              "frozen replay hash mismatch", failures)
     metadata = runtime.get("replay_metadata", {})
@@ -113,8 +122,12 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
              == row.replay_metadata_fighters,
              "native replay fighter metadata mismatch", failures)
     if expected_artifacts is not None:
-        _require(report.get("source") == expected_artifacts["source"],
-                 "source identity mismatch", failures)
+        # The exact DLL/schema/bridge/capture-harness hashes below are the raw
+        # producer identity. Keep the report's full source object as provenance,
+        # but do not invalidate a capture merely because offline policy code was
+        # changed and the immutable evidence is being re-evaluated.
+        _require(isinstance(report.get("source"), dict),
+                 "source provenance missing", failures)
         _require(artifacts.get("replay_qualification_mod", {}).get("sha256")
                  == expected_artifacts["replay_mod"],
                  "replay bridge hash mismatch", failures)
@@ -202,7 +215,8 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
 def evaluate_matrix(candidate_manifest: Path, output_dir: Path,
                     dll_sha256: str, schema_sha256: str,
                     runner_sha256: str,
-                    expected_artifacts: dict[str, Any] | None = None) -> dict[str, Any]:
+                    expected_artifacts: dict[str, Any] | None = None,
+                    evaluator_sha256: str | None = None) -> dict[str, Any]:
     row_results: list[dict[str, Any]] = []
     for row in build_rows(candidate_manifest):
         path = output_dir / f"{row.row_id}.json"
@@ -219,5 +233,6 @@ def evaluate_matrix(candidate_manifest: Path, output_dir: Path,
     failures = sum(bool(row["failures"]) for row in row_results)
     return {"report_schema": 2, "kind": "offline_matrix_evaluation",
             "certifying": failures == 0, "result": "pass" if failures == 0 else "fail",
+            "evaluator_sha256": evaluator_sha256,
             "expected_rows": 51, "passed_rows": 51 - failures,
             "failed_rows": failures, "rows": row_results}

@@ -45,6 +45,35 @@ DETERMINISTIC_PREFIXES = (
     "tools/steam_p2p_transport_selftest.cpp",
 )
 
+# Files which can change how a replay request is launched, observed, parsed,
+# or reported.  Offline policy/evaluation code is intentionally excluded: a
+# policy-only fix may re-evaluate immutable raw captures, but any change here
+# invalidates them.  The native qualification bridge is hashed as source here
+# and as an exact DLL in every capture report.
+CAPTURE_HARNESS_PATHS = (
+    "tools/deterministic_qualification.py",
+    "tools/deterministic_qualification/__init__.py",
+    "tools/deterministic_qualification/artifacts.py",
+    "tools/deterministic_qualification/configuration.py",
+    "tools/deterministic_qualification/process_control.py",
+    "tools/deterministic_qualification/replay_entry.py",
+    "tools/deterministic_qualification/report.py",
+    "tools/deterministic_qualification/runner.py",
+    "tools/deterministic_qualification/trace_parser.py",
+    "tools/replay_qualification_mod/OnlineRoomAutomation.cpp",
+    "tools/replay_qualification_mod/OnlineRoomAutomation.hpp",
+    "tools/replay_qualification_mod/ReplayPayloadImporter.cpp",
+    "tools/replay_qualification_mod/ReplayPayloadImporter.hpp",
+    "tools/replay_qualification_mod/ReplayQualificationMod.cpp",
+    "tools/replay_qualification_mod/ReplaySceneNavigator.cpp",
+    "tools/replay_qualification_mod/ReplaySceneNavigator.hpp",
+)
+
+OFFLINE_EVALUATOR_PATHS = (
+    "tools/deterministic_qualification/offline_campaign.py",
+    "tools/deterministic_qualification/offline_matrix.py",
+)
+
 
 def _deterministic_path(path: str) -> bool:
     normalized = path.replace("\\", "/")
@@ -267,3 +296,26 @@ def runner_sha256(package_dir: Path) -> str:
         digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def _named_files_sha256(root: Path, relative_paths: tuple[str, ...]) -> str:
+    digest = hashlib.sha256()
+    for relative in relative_paths:
+        path = root / relative
+        if not path.is_file():
+            raise FileNotFoundError(f"identity input is missing: {path}")
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def capture_harness_sha256(root: Path) -> str:
+    """Hash only code capable of changing raw replay capture semantics."""
+    return _named_files_sha256(root, CAPTURE_HARNESS_PATHS)
+
+
+def offline_evaluator_sha256(root: Path) -> str:
+    """Hash the current policy/composition layer independently of capture."""
+    return _named_files_sha256(root, OFFLINE_EVALUATOR_PATHS)

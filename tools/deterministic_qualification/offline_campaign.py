@@ -8,13 +8,18 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import (
+    capture_harness_sha256, offline_evaluator_sha256,
     require_compiled_candidate_manifest, runner_sha256, sha256_file,
     source_identity,
 )
 from .configuration import (
-    armed_baseline, armed_correction, disarm_diagnostics, read_fields,
+    armed_baseline, armed_correction, contract_sha256, disarm_diagnostics,
+    expected_fields, is_exact_contract, read_fields,
 )
-from .offline_matrix import OfflineMatrixRow, build_rows, evaluate_matrix, load_candidate_cases
+from .offline_matrix import (
+    OfflineMatrixRow, build_rows, evaluate_matrix, evaluate_row,
+    load_candidate_cases,
+)
 from .process_control import list_game_processes
 from .report import write_report
 
@@ -25,6 +30,70 @@ LOCATION_CODES = {
     "confirmed_hit": 3,
     "round_end": 4,
 }
+
+
+def _load_reusable_capture(
+    path: Path,
+    row: OfflineMatrixRow,
+    expected_artifacts: dict[str, Any],
+    expected_config: dict[str, str],
+    *,
+    stock: bool,
+    outcome_control: Path | None = None,
+    seek_percentages: tuple[int, ...] = (),
+) -> dict[str, Any] | None:
+    """Return an immutable raw capture only when every producer input matches."""
+    if not path.is_file():
+        return None
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    artifacts = report.get("artifacts", {})
+    runtime = report.get("runtime", {})
+    metadata = runtime.get("replay_metadata", {})
+    valid = (
+        report.get("report_schema") == 2
+        and report.get("certifying") is True
+        and report.get("result") == "pass"
+        and report.get("case_id") == row.case_id
+        and report.get("row_id") == row.row_id
+        and report.get("renderer") == "normal"
+        and report.get("display_map_name") == row.display_map_name
+        and report.get("stage_package_root") == row.stage_package_root
+        and artifacts.get("horsemod_dll_sha256") == expected_artifacts["dll"]
+        and artifacts.get("schema_sha256") == expected_artifacts["schema"]
+        and artifacts.get("capture_harness_sha256")
+            == expected_artifacts["capture_harness"]
+        and artifacts.get("replay", {}).get("sha256") == row.replay_sha256
+        and artifacts.get("replay_qualification_mod", {}).get("sha256")
+            == expected_artifacts["replay_mod"]
+        and artifacts.get("game_executable", {}).get("sha256")
+            == expected_artifacts["executable"]
+        and is_exact_contract(artifacts.get("config_fields"), expected_config)
+        and artifacts.get("config", {}).get("sha256")
+            == contract_sha256(expected_config)
+        and metadata.get("stage") == row.replay_metadata_stage
+        and metadata.get("map") == row.replay_metadata_map
+        and (metadata.get("left_character"), metadata.get("right_character"))
+            == row.replay_metadata_fighters
+        and runtime.get("watch_frames") == 600
+        and runtime.get("seek_percentages") == list(seek_percentages)
+        and runtime.get("clean_exit") is True
+        and runtime.get("process_absent_after_exit") is True
+        and runtime.get("temporary_mod_removed") is True
+        and (stock or runtime.get("native_replay_import_ready") is True)
+    )
+    if outcome_control is not None:
+        control = artifacts.get("stock_outcome_control", {})
+        valid = (valid and outcome_control.is_file()
+                 and control.get("sha256") == sha256_file(outcome_control))
+    return report if valid else None
+
+
+def _reuse_notice(path: Path, row: OfflineMatrixRow) -> None:
+    print(f"hash-safe reuse: {row.row_id} on {row.display_map_name} ({path.name})",
+          flush=True)
 
 
 def _invoke_replay(
@@ -186,40 +255,119 @@ def run_offline_campaign(args: Any, root: Path) -> int:
     if sha256_file(candidate) != sha256_file(deployed):
         raise RuntimeError("deployed DLL hash differs from immutable candidate")
 
-    rows = build_rows(manifest)
+    matrix_rows = build_rows(manifest)
+    canary_baseline = matrix_rows[0]
+    canary_correction = next(
+        row for row in matrix_rows
+        if row.case_id == canary_baseline.case_id
+        and row.location == "active_combat" and row.depth == 1)
+    # Front-load the smallest representative ladder. The remaining matrix is
+    # still identical, but a bad candidate now fails before dozens of launches.
+    rows = (canary_baseline, canary_correction, *(
+        row for row in matrix_rows
+        if row not in (canary_baseline, canary_correction)))
     expected_artifacts = {
         "source": source_identity(root),
+        "dll": sha256_file(deployed),
+        "schema": sha256_file(schema),
+        "capture_harness": capture_harness_sha256(root),
         "replay_mod": sha256_file(replay_mod),
         "executable": sha256_file(game_executable),
     }
+    evaluator_identity = offline_evaluator_sha256(root)
     raw = output / "raw"
     raw.mkdir(exist_ok=True)
+
+    def run_strict_capture(row: OfflineMatrixRow) -> Path:
+        stock_path = raw / f"{row.row_id}-vanilla.json"
+        strict_path = output / f"{row.case_id}__strict-seeks.json"
+        with armed_baseline(config):
+            strict = _load_reusable_capture(
+                strict_path, row, expected_artifacts,
+                expected_fields(enabled=False, trace=True), stock=False,
+                outcome_control=stock_path,
+                seek_percentages=(10, 25, 50, 75))
+            if strict is None:
+                _invoke_replay(
+                    root, row, strict_path, deployed, config, schema,
+                    replay_mod, game_executable, log, certifying=True,
+                    baseline=True, outcome_control=stock_path,
+                    require_authored_outcomes=True,
+                    seek_percentages=(10, 25, 50, 75),
+                    timeout=args.timeout,
+                )
+            else:
+                _reuse_notice(strict_path, row)
+        return strict_path
+
     current_row: OfflineMatrixRow | None = None
     try:
         for row in rows:
             current_row = row
+            completed_path = output / f"{row.row_id}.json"
+            if completed_path.is_file():
+                try:
+                    completed_report = json.loads(
+                        completed_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError):
+                    completed_report = {}
+                if not evaluate_row(
+                        row, completed_report, expected_artifacts["dll"],
+                        expected_artifacts["schema"],
+                        runner_sha256(root / "tools" / "deterministic_qualification"),
+                        expected_artifacts):
+                    _reuse_notice(completed_path, row)
+                    if row == canary_correction:
+                        print("canary ladder: reused correction; validating "
+                              f"strict seeks on {canary_baseline.display_map_name}",
+                              flush=True)
+                        run_strict_capture(canary_baseline)
+                    continue
             print(f"offline qualification: {row.row_id} on {row.display_map_name}", flush=True)
             if row.required_corrections == 0:
                 disarm_diagnostics(config)
                 stock_path = raw / f"{row.row_id}-vanilla.json"
-                stock = _invoke_replay(root, row, stock_path,
-                    deployed, config, schema, replay_mod, game_executable, log,
-                    certifying=True, stock=True, timeout=args.timeout)
+                stock_config = expected_fields(enabled=False, trace=False)
+                stock = _load_reusable_capture(
+                    stock_path, row, expected_artifacts, stock_config, stock=True)
+                if stock is None:
+                    stock = _invoke_replay(root, row, stock_path,
+                        deployed, config, schema, replay_mod, game_executable, log,
+                        certifying=True, stock=True, timeout=args.timeout)
+                else:
+                    _reuse_notice(stock_path, row)
                 # replay-entry deliberately disarms diagnostics after every
                 # process, including a successful one. Give each independent
                 # baseline its own ownership scope so the second process
                 # cannot inherit the first process's safe, trace=false exit
                 # state after its automatic smoke restores the caller config.
                 with armed_baseline(config):
-                    first = _invoke_replay(root, row, raw / f"{row.row_id}-first.json",
-                        deployed, config, schema, replay_mod, game_executable, log,
-                        certifying=True, baseline=True, outcome_control=stock_path,
-                        require_authored_outcomes=True, timeout=args.timeout)
+                    first_path = raw / f"{row.row_id}-first.json"
+                    baseline_config = expected_fields(enabled=False, trace=True)
+                    first = _load_reusable_capture(
+                        first_path, row, expected_artifacts, baseline_config,
+                        stock=False, outcome_control=stock_path)
+                    if first is None:
+                        first = _invoke_replay(root, row, first_path,
+                            deployed, config, schema, replay_mod,
+                            game_executable, log, certifying=True, baseline=True,
+                            outcome_control=stock_path,
+                            require_authored_outcomes=True, timeout=args.timeout)
+                    else:
+                        _reuse_notice(first_path, row)
                 with armed_baseline(config):
-                    second = _invoke_replay(root, row, raw / f"{row.row_id}-repeat.json",
-                        deployed, config, schema, replay_mod, game_executable, log,
-                        certifying=True, baseline=True, outcome_control=stock_path,
-                        require_authored_outcomes=True, timeout=args.timeout)
+                    second_path = raw / f"{row.row_id}-repeat.json"
+                    second = _load_reusable_capture(
+                        second_path, row, expected_artifacts, baseline_config,
+                        stock=False, outcome_control=stock_path)
+                    if second is None:
+                        second = _invoke_replay(root, row, second_path,
+                            deployed, config, schema, replay_mod,
+                            game_executable, log, certifying=True, baseline=True,
+                            outcome_control=stock_path,
+                            require_authored_outcomes=True, timeout=args.timeout)
+                    else:
+                        _reuse_notice(second_path, row)
                 first_hash = first["runtime"]["final_canonical"]["sha256"]
                 second_hash = second["runtime"]["final_canonical"]["sha256"]
                 first["runtime"]["repeat_canonical_equal"] = first_hash == second_hash
@@ -252,32 +400,64 @@ def run_offline_campaign(args: Any, root: Path) -> int:
                 completed = _finish_row(row, first, second)
             else:
                 stock_path = raw / f"{row.case_id}__baseline-vanilla.json"
-                if not stock_path.is_file():
-                    raise RuntimeError(
-                        f"same-replay vanilla oracle missing for {row.display_map_name}")
+                baseline_row = next(item for item in rows
+                    if item.case_id == row.case_id and item.location is None)
+                disarm_diagnostics(config)
+                stock = _load_reusable_capture(
+                    stock_path, baseline_row, expected_artifacts,
+                    expected_fields(enabled=False, trace=False), stock=True)
+                if stock is None:
+                    stock = _invoke_replay(
+                        root, baseline_row, stock_path, deployed, config, schema,
+                        replay_mod, game_executable, log, certifying=True,
+                        stock=True, timeout=args.timeout)
+                else:
+                    _reuse_notice(stock_path, baseline_row)
                 with armed_correction(config, row.depth, LOCATION_CODES[row.location]):
-                    primary = _invoke_replay(root, row, raw / f"{row.row_id}-primary.json",
-                        deployed, config, schema, replay_mod, game_executable, log,
-                        # Matrix rows certify the presentation activity authored
-                        # by this exact replay on its native map.  The bounded
-                        # stage-terminal request is a separate source-boundary
-                        # diagnostic and cannot invent wall/barrier actors on a
-                        # map whose BattleStageActorManager exposes none.
-                        certifying=True,
-                        outcome_control=stock_path, require_authored_outcomes=True,
-                        timeout=args.timeout)
+                    primary_path = raw / f"{row.row_id}-primary.json"
+                    correction_config = expected_fields(
+                        enabled=False, trace=True, forced_depth7=True,
+                        depth=row.depth, location=LOCATION_CODES[row.location])
+                    primary = _load_reusable_capture(
+                        primary_path, row, expected_artifacts,
+                        correction_config, stock=False,
+                        outcome_control=stock_path)
+                    if primary is None:
+                        primary = _invoke_replay(root, row, primary_path,
+                            deployed, config, schema, replay_mod,
+                            game_executable, log,
+                            # Matrix rows certify presentation authored by this
+                            # exact replay on its native map.
+                            certifying=True, outcome_control=stock_path,
+                            require_authored_outcomes=True,
+                            timeout=args.timeout)
+                    else:
+                        _reuse_notice(primary_path, row)
                 with armed_baseline(config):
-                    reentry = _invoke_replay(root, row, raw / f"{row.row_id}-reentry.json",
-                        deployed, config, schema, replay_mod, game_executable, log,
-                        certifying=True, baseline=True, outcome_control=stock_path,
-                        require_authored_outcomes=True, timeout=args.timeout)
+                    reentry_path = raw / f"{row.row_id}-reentry.json"
+                    reentry = _load_reusable_capture(
+                        reentry_path, row, expected_artifacts,
+                        expected_fields(enabled=False, trace=True), stock=False,
+                        outcome_control=stock_path)
+                    if reentry is None:
+                        reentry = _invoke_replay(root, row, reentry_path,
+                            deployed, config, schema, replay_mod,
+                            game_executable, log, certifying=True, baseline=True,
+                            outcome_control=stock_path,
+                            require_authored_outcomes=True, timeout=args.timeout)
+                    else:
+                        _reuse_notice(reentry_path, row)
                 completed = _finish_row(row, primary, reentry)
-            write_report(output / f"{row.row_id}.json", completed)
+            write_report(completed_path, completed)
             evaluation = evaluate_matrix(manifest, output,
                 sha256_file(deployed), sha256_file(schema),
                 runner_sha256(root / "tools" / "deterministic_qualification"),
-                expected_artifacts)
+                expected_artifacts, evaluator_identity)
             write_report(output / "offline-matrix-progress.json", evaluation)
+            if row == canary_correction:
+                print("canary ladder: correction passed; running strict seeks "
+                      f"on {canary_baseline.display_map_name}", flush=True)
+                run_strict_capture(canary_baseline)
     except Exception as error:
         try:
             log_lines = log.read_text(
@@ -321,15 +501,7 @@ def run_offline_campaign(args: Any, root: Path) -> int:
         for case in load_candidate_cases(manifest):
             row = next(item for item in rows
                        if item.case_id == case["case_id"] and item.location is None)
-            stock_path = raw / f"{row.row_id}-vanilla.json"
-            strict_path = output / f"{case['case_id']}__strict-seeks.json"
-            with armed_baseline(config):
-                _invoke_replay(
-                    root, row, strict_path, deployed, config, schema, replay_mod,
-                    game_executable, log, certifying=True, baseline=True,
-                    outcome_control=stock_path, require_authored_outcomes=True,
-                    seek_percentages=(10, 25, 50, 75), timeout=args.timeout,
-                )
+            strict_path = run_strict_capture(row)
             strict_results.append({
                 "case_id": case["case_id"],
                 "display_map_name": case["native_display_name"],
@@ -343,7 +515,7 @@ def run_offline_campaign(args: Any, root: Path) -> int:
     evaluation = evaluate_matrix(manifest, output,
         sha256_file(deployed), sha256_file(schema),
         runner_sha256(root / "tools" / "deterministic_qualification"),
-        expected_artifacts)
+        expected_artifacts, evaluator_identity)
     evaluation["strict_replay_gates_complete"] = len(strict_results) == 3
     evaluation["strict_replay_gates"] = strict_results
     write_report(args.report, evaluation)

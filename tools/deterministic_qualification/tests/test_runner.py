@@ -1,15 +1,22 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from tools.deterministic_qualification.artifacts import runner_sha256, sha256_file
+from tools.deterministic_qualification.artifacts import (
+    capture_harness_sha256, sha256_file,
+)
 from tools.deterministic_qualification.runner import (
     _read_bounded_log_since,
     _temporarily_armed_smoke_config,
     load_outcome_control,
+    run_replay_entry,
 )
 from tools.deterministic_qualification.trace_parser import capture_log_offset
+
+
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _write(path, value: bytes) -> None:
@@ -33,7 +40,9 @@ def test_outcome_control_binds_every_executable_artifact(tmp_path):
         "replay_qualification_mod": {"sha256": sha256_file(replay_mod)},
         "generated_schema": {"sha256": sha256_file(schema)},
         "game_executable": {"sha256": sha256_file(executable)},
-        "runner_sha256": runner_sha256(Path(__file__).resolve().parents[1]),
+        "capture_harness_sha256": capture_harness_sha256(ROOT),
+        # Aggregate package/evaluator identity is not a stock-capture input.
+        "runner_sha256": "older-evaluator-package",
     }
     control = tmp_path / "control.json"
     control.write_text(json.dumps({
@@ -98,4 +107,53 @@ def test_smoke_config_arms_hooks_and_restores_exact_bytes(tmp_path):
         assert "correction_probe=false\n" in armed
         assert "forced_depth7_qualification=false\n" in armed
 
+    assert config.read_bytes() == original
+
+
+def test_baseline_wrapper_arms_smoke_and_full_run_then_restores(
+    tmp_path, monkeypatch,
+):
+    config = tmp_path / "rollback.ini"
+    original = (
+        b"config_version=1\nenabled=false\nrollback_window=12\n"
+        b"input_delay=1\ntrace=false\ncorrection_probe=false\n"
+        b"forced_depth7_qualification=false\nqualification_depth=7\n"
+        b"qualification_location=2\n"
+    )
+    config.write_bytes(original)
+    observed = []
+
+    def capture(args):
+        observed.append((
+            args.development_smoke,
+            config.read_text(encoding="utf-8"),
+        ))
+        return 0
+
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.runner._run_replay_entry_once",
+        capture,
+    )
+    args = SimpleNamespace(
+        certifying=False,
+        skip_development_smoke=False,
+        smoke_frames=120,
+        deterministic_baseline=True,
+        development_smoke=False,
+        stock_round_outcome_control=False,
+        require_authored_outcomes=True,
+        require_tira_probability_transition=False,
+        require_presentation_coverage=False,
+        outcome_control_report=tmp_path / "stock.json",
+        seek_percentages=[],
+        stage_terminal=None,
+        watch_frames=600,
+        report=tmp_path / "baseline.json",
+        config=config,
+    )
+
+    assert run_replay_entry(args) == 0
+    assert [smoke for smoke, _ in observed] == [True, False]
+    assert all("trace=true\n" in text for _, text in observed)
+    assert all("enabled=false\n" in text for _, text in observed)
     assert config.read_bytes() == original
