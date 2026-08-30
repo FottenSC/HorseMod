@@ -390,18 +390,18 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     {
         hooks->callbacks_.outer_tick_prepare(
             hooks->callbacks_.user, observation);
-        // outer_tick_prepare first advances the replay lifetime generation.
-        // Only then may a graph be admitted for this exact generation.
-        if (!hooks->PrepareAudioOwnerGraph(
-                reinterpret_cast<std::uintptr_t>(battle_manager)))
-            hooks->ClearAudioOwnerGraph();
-        observation.audio_owner_graph_failure_stage =
-            hooks->audio_graph_failure_stage_;
         hooks->CaptureOuterTickState(
             battle_manager, observation.before, observation.read_mask,
             0x1, 0x2, 0x4, 0x8);
         hooks->callbacks_.outer_tick_begin(
             hooks->callbacks_.user, observation);
+        // outer_tick_begin admits the initial/native round generation from
+        // the captured pre-tick state. Only then may its audio graph exist.
+        if (!hooks->PrepareAudioOwnerGraph(
+                reinterpret_cast<std::uintptr_t>(battle_manager)))
+            hooks->ClearAudioOwnerGraph();
+        observation.audio_owner_graph_failure_stage =
+            hooks->audio_graph_failure_stage_;
     }
     OuterTickCaptureContext capture_context{&observation};
     if (hooks != nullptr)

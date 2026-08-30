@@ -4,6 +4,24 @@ This ledger preserves authoritative failure causes and diagnostics separately
 from candidate hashes. Every listed artifact is regression evidence only unless
 an immutable release certificate explicitly promotes it.
 
+## 2026-08-30 — audio generation was bound before initial admission
+
+- Source commit: `3097bdaafc64ab5161f4bafe435db3bb4ae20940`.
+- HorseMod DLL SHA-256:
+  `44F49F6A99713AFFAB15EA1D56398922722DEE45E8722948C0BC78802C040A30`.
+- Authored replay map: **Silver Wolves’ Haven**.
+- Paired baseline A failed before identity publication with
+  `horsemod_presentation_coverage_api_unavailable`.
+- First native failure: batch 3, frame 0→3, audio owner graph stage 1,
+  epoch/bindings zero, unresolved terminal caller `0x519789`; the frame
+  fencepost then failed with `presentation_failed`.
+- Authoritative cause: the new graph gate required a nonzero replay generation,
+  but graph preparation ran before `ObserveOuterTickBegin` admitted the initial
+  generation from captured pre-tick state.
+- Repair: admit the generation in the begin callback, publish it to the audio
+  owner, and only then construct the exact-generation graph before native tick
+  execution. The failed DLL and its stock control are non-certifying.
+
 ## 2026-08-30 — pre-tick audio graph assigned an exact cue to the wrong owner
 
 - Audited ancestor commit: `dc3cc3d9`; the defect remained present in candidate

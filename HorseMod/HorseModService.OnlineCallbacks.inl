@@ -441,6 +441,9 @@
             }
             return;
         }
+        self->m_deterministic_hooks.SetBattleAudioPresentationGeneration(
+            self->m_replay_native_runtime.timeline_status_view()
+                .last_coordinate.generation);
         const auto& timeline =
             self->m_replay_native_runtime.timeline_status_view();
 #if HORSE_ENABLE_GEKKONET
@@ -922,9 +925,6 @@
                 status.code, std::memory_order_release);
             return;
         }
-        self->m_deterministic_hooks.SetBattleAudioPresentationGeneration(
-            self->m_replay_native_runtime.timeline_status_view()
-                .last_coordinate.generation);
 #if !HORSE_ENABLE_GEKKONET
         const auto presentation =
             self->m_replay_native_runtime.PreparePresentationOuterTick(
