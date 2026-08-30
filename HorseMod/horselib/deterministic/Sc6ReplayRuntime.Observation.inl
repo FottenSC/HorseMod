@@ -1226,6 +1226,8 @@ void Sc6ReplayRuntime::FillObservedPresentationEnvelope(
     envelope.battle_audio_stop_all_journal =
         observation.battle_audio_stop_all_journal;
     envelope.audio_terminal_journal = observation.audio_terminal_journal;
+    envelope.audio_terminal_return_rvas =
+        observation.audio_terminal_return_rvas;
     envelope.stage_wall_journal = observation.stage_wall_journal;
     envelope.stage_barrier_journal = observation.stage_barrier_journal;
     envelope.stage_dispatch_journal = observation.stage_dispatch_journal;

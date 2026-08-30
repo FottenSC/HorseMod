@@ -235,6 +235,8 @@ struct NativeBatchEnvelope
         battle_audio_stop_all_journal{};
     std::array<AudioTerminalEvent, maximum_audio_terminal_journal_events>
         audio_terminal_journal{};
+    std::array<std::uint32_t, maximum_audio_terminal_journal_events>
+        audio_terminal_return_rvas{};
     std::array<StagePresentationJournalEntry,
         maximum_stage_presentation_journal_events> stage_wall_journal{};
     std::array<StagePresentationJournalEntry,

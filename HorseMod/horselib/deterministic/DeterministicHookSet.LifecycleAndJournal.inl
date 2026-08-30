@@ -1112,7 +1112,8 @@ bool DeterministicHookSet::ResolveAudioOwner(
 
 bool DeterministicHookSet::RecordAudioTerminal(
     OuterTickCaptureContext* batch,
-    const AudioTerminalEvent& event) noexcept
+    const AudioTerminalEvent& event,
+    std::uint32_t return_rva) noexcept
 {
     if (batch == nullptr || batch->observation == nullptr || !event.valid())
         return false;
@@ -1149,8 +1150,9 @@ bool DeterministicHookSet::RecordAudioTerminal(
         observation.battle_audio_signature_failure_mask |= 1u << 12;
         return false;
     }
-    observation.audio_terminal_journal[
-        observation.audio_terminal_journal_count++] = event;
+    const auto journal_index = observation.audio_terminal_journal_count++;
+    observation.audio_terminal_journal[journal_index] = event;
+    observation.audio_terminal_return_rvas[journal_index] = return_rva;
 
     if (batch->owned == nullptr
         || !batch->owned->request->suppress_ephemeral_presentation)
@@ -1191,4 +1193,3 @@ bool DeterministicHookSet::IsPresentationSuppressed(
         || (batch != nullptr
             && batch->suppress_speculative_presentation);
 }
-

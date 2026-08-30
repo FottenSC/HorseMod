@@ -396,6 +396,8 @@ public:
         values[5] = terminal.cue_sheet_id;
         values[6] = static_cast<std::uint32_t>(terminal.cue_id);
         values[7] = terminal.value;
+        if (count >= 9)
+            values[8] = batch->audio_terminal_return_rvas[terminal_index];
         return true;
     }
 

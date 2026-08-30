@@ -12,6 +12,12 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
         trampoline);
     auto* batch = active_outer_capture_;
     const bool suppress = IsPresentationSuppressed(batch);
+    const auto return_address = reinterpret_cast<std::uintptr_t>(
+        _ReturnAddress());
+    const auto return_rva = hooks != nullptr && hooks->image_base_ != 0
+            && return_address >= hooks->image_base_
+        ? static_cast<std::uint32_t>(return_address - hooks->image_base_)
+        : 0;
     AudioOwnerSelector owner{};
     std::uint32_t frame{};
     const bool owner_resolved = batch != nullptr
@@ -70,7 +76,8 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
         }
         const AudioTerminalEvent event{AudioTerminalOperation::Create, owner,
             logical_id, cue_sheet_id, cue_id, playback_flags};
-        if (!RecordAudioTerminal(batch, event) && batch->owned != nullptr)
+        if (!RecordAudioTerminal(batch, event, return_rva)
+            && batch->owned != nullptr)
             batch->owned->result->failure = FailureCode::PresentationFailed;
         callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
         return logical_id;
@@ -111,7 +118,7 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
                 epoch, owner, logical_id, result);
         }
         if (!mapped
-            || !RecordAudioTerminal(batch, event))
+            || !RecordAudioTerminal(batch, event, return_rva))
         {
             ++batch->observation->battle_audio_signature_failures;
             batch->observation->battle_audio_signature_failure_mask |= 1u << 12;

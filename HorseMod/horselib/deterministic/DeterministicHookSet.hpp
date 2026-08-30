@@ -160,6 +160,10 @@ struct OuterTickObservation
         battle_audio_stop_all_journal{};
     std::array<AudioTerminalEvent, maximum_audio_terminal_journal_events>
         audio_terminal_journal{};
+    // Diagnostic-only native caller RVAs. These identify the authoritative
+    // source route without becoming part of the ordered terminal identity.
+    std::array<std::uint32_t, maximum_audio_terminal_journal_events>
+        audio_terminal_return_rvas{};
     std::array<StagePresentationJournalEntry,
         maximum_stage_presentation_journal_events> stage_wall_journal{};
     std::array<StagePresentationJournalEntry,
@@ -634,7 +638,8 @@ private:
         std::uintptr_t owner, AudioOwnerSelector& selector) noexcept;
     static bool RecordAudioTerminal(
         OuterTickCaptureContext* batch,
-        const AudioTerminalEvent& event) noexcept;
+        const AudioTerminalEvent& event,
+        std::uint32_t return_rva = 0) noexcept;
     [[nodiscard]] static bool IsOwnedPresentationSuppressed(
         const OuterTickCaptureContext* batch) noexcept;
     [[nodiscard]] static bool IsPresentationSuppressed(
