@@ -969,8 +969,9 @@
             && qualification.suppressed_audio_blueprint_calls != 0
             && qualification.verified_audio_batches != 0
             && qualification.verified_camera_batches != 0
-            && (m_deterministic_config.qualification_location != 3
-                || qualification.suppressed_particle_spawn_calls != 0)
+            // A resolved hit is certified by the native pending-hit consumer.
+            // Particle activity is still identity-checked when authored, but
+            // it is optional across characters, moves, and maps.
             && (m_deterministic_config.qualification_location != 4
                 || ((qualification.suppressed_stage_wall_calls != 0
                         || qualification.suppressed_stage_barrier_calls != 0)

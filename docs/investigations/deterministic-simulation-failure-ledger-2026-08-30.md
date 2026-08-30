@@ -54,3 +54,36 @@ an immutable release certificate explicitly promotes it.
 - Required regression: serialize both fields, freeze a new source identity,
   rebuild the unchanged simulation DLL with that identity, and restart the
   51-row matrix from its **Silver Wolves’ Haven** stock control.
+
+## 2026-08-30 — stale particle requirement in presentation coverage
+
+- Source commit: `0ffffa725af8c7a6c8ffa95f5affdafffdea6f37`
+- HorseMod DLL SHA-256:
+  `B6C80C67710FF679315218D3D1ADB6C36C1C2D30ECDFB4B37E907551FB8D812F`
+- Authored replay map: **Silver Wolves’ Haven**
+- Matrix row: `confirmed_hit`, depth 1, primary pass attempt
+- Preserved bounded log:
+  `docs/investigations/evidence/release-0ffffa72/offline/raw/astaroth-raphael-silver-wolves-haven__confirmed_hit__depth_1-primary.log`
+- Terminal harness error:
+  `forced correction native/presentation coverage is incomplete`
+- Native correction result: the resolved-hit request armed at frame 1583 and
+  completed 600 corrections across generations 6 through 10 with one round
+  transition. Canonical convergence was exact; correction p99 was 2500
+  microseconds and maximum was 2988 microseconds.
+- Presentation evidence: 419 audio dispatches, 104 discarded speculative audio
+  calls, 1276 audio terminal calls, 113 Blueprint audio calls, 600 verified
+  audio batches, 600 verified camera batches, zero audio-sequence mismatches,
+  zero camera-publication mismatches, zero presentation failures, and zero
+  particle spawns.
+- Authoritative cause: the native request trigger and Python gate used the new
+  resolved-hit boundary, but the C++ aggregate presentation-coverage label
+  retained the retired condition that location 3 must suppress at least one
+  particle spawn. The authored match has no particle activity, so the label
+  was structurally forced to `incomplete` despite exact presentation.
+- Repair constraint: remove only the particle-*presence* requirement for
+  confirmed-hit location. Ordered audio payload IDs, audio/camera batch
+  identity, journal completion, zero pending payload bytes, zero capacity and
+  publication failures, and exact handling of every particle that is actually
+  authored remain mandatory.
+- Cleanup: SC6 was absent, the temporary replay bridge was removed, and all
+  diagnostic flags were restored to `false`.
