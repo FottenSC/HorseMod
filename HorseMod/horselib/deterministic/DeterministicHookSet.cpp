@@ -73,6 +73,8 @@ thread_local DeterministicHookSet::OuterTickCaptureContext*
     DeterministicHookSet::active_outer_capture_{};
 thread_local DeterministicHookSet::BattleCharaCueSourceContext
     DeterministicHookSet::active_battle_chara_cue_source_{};
+thread_local DeterministicHookSet::BattleDispatchSourceContext
+    DeterministicHookSet::active_battle_dispatch_source_{};
 thread_local std::uint32_t active_battle_audio_source_depth{};
 thread_local std::uint32_t active_owned_battle_audio_source_depth{};
 thread_local std::uint32_t active_owned_audio_registration_depth{};

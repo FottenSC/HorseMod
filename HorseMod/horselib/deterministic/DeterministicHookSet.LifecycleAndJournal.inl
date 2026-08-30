@@ -996,7 +996,8 @@ bool DeterministicHookSet::CompleteBattleAudioJournal(
 }
 
 bool DeterministicHookSet::PrepareAudioOwnerGraph(
-    std::uintptr_t battle_manager) noexcept
+    std::uintptr_t battle_manager,
+    std::uintptr_t battle_audio_manager_override) noexcept
 {
     constexpr std::uintptr_t cri_manager_slot_rva = 0x41492e8;
     constexpr std::size_t maximum_battle_players = 64;
@@ -1009,14 +1010,28 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
     std::uintptr_t bgm_state{};
     std::uintptr_t active_context{};
     std::uintptr_t battle_audio_manager{};
-    if (!SafeRead(image_base_ + cri_manager_slot_rva, cri_manager)
-        || cri_manager == 0
-        || !SafeRead(cri_manager + 0x90, bgm_state) || bgm_state == 0
-        || !SafeRead(cri_manager + 0xa0, active_context)
-        || active_context == 0
-        || !SafeRead(battle_manager + 0x520, battle_audio_manager)
-        || battle_audio_manager == 0)
+    if (battle_audio_manager_override != 0)
+        battle_audio_manager = battle_audio_manager_override;
+    else if (!SafeRead(battle_manager + 0x520, battle_audio_manager))
         return false;
+    if (battle_audio_manager == 0)
+        return false;
+    // The battle dispatcher can author a voice before the process-wide CRI/BGM
+    // owners have been published. Admit the complete live battle-manager graph
+    // at that semantic source; optional CRI owners join a later epoch once all
+    // of their lifetime roots are simultaneously readable.
+    const bool cri_ready = SafeRead(image_base_ + cri_manager_slot_rva,
+            cri_manager)
+        && cri_manager != 0
+        && SafeRead(cri_manager + 0x90, bgm_state) && bgm_state != 0
+        && SafeRead(cri_manager + 0xa0, active_context)
+        && active_context != 0;
+    if (!cri_ready)
+    {
+        cri_manager = 0;
+        bgm_state = 0;
+        active_context = 0;
+    }
     audio_graph_failure_stage_ = 2;
 
     const std::uint64_t epoch = audio_graph_epoch_counter_ + 1;
@@ -1044,12 +1059,12 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
 
     std::uintptr_t bgm_pairs{};
     std::int32_t bgm_count{};
-    if (!SafeRead(bgm_state, bgm_pairs) || bgm_pairs == 0
+    if (cri_ready && (!SafeRead(bgm_state, bgm_pairs) || bgm_pairs == 0
         || !SafeRead(bgm_state + 8, bgm_count)
-        || bgm_count < 2 || bgm_count > 16)
+        || bgm_count < 2 || bgm_count > 16))
         return false;
     audio_graph_failure_stage_ = 4;
-    for (std::uint8_t lane = 0; lane < 2; ++lane)
+    for (std::uint8_t lane = 0; cri_ready && lane < 2; ++lane)
     {
         std::uintptr_t shared{};
         if (!SafeRead(bgm_pairs + static_cast<std::uintptr_t>(lane) * 0x10,
@@ -1059,14 +1074,14 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
     }
     audio_graph_failure_stage_ = 5;
     std::uintptr_t shared{};
-    if (!SafeRead(bgm_state + 0x10, shared)
+    if (cri_ready && (!SafeRead(bgm_state + 0x10, shared)
         || !bind_shared(shared, {AudioOwnerDomain::Jingle, 0, 0})
         || !SafeRead(bgm_state + 0x60, shared)
         || !bind_shared(shared, {AudioOwnerDomain::BgmDirect, 0, 0})
         || !SafeRead(active_context, shared)
         || !bind_shared(shared, {AudioOwnerDomain::ActiveContextSe, 0, 0})
         || !SafeRead(active_context + 0x10, shared)
-        || !bind_shared(shared, {AudioOwnerDomain::ActiveContextVoice, 0, 0}))
+        || !bind_shared(shared, {AudioOwnerDomain::ActiveContextVoice, 0, 0})))
         return false;
     audio_graph_failure_stage_ = 6;
 
@@ -1129,10 +1144,25 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
         return true;
     }
 
+    const auto previous_epoch = audio_owner_resolver_.epoch();
+    const auto previous_resolver = audio_owner_resolver_;
+    const bool playback_epoch_ready = previous_epoch == 0
+        ? audio_playback_map_.BeginEpoch(epoch)
+        : audio_playback_map_.TransitionEpoch(previous_epoch, epoch,
+            [&](AudioOwnerSelector selector) noexcept
+            {
+                std::uintptr_t previous_owner{};
+                std::uintptr_t candidate_owner{};
+                return previous_resolver.ResolveOwner(previous_epoch, selector,
+                        previous_owner)
+                    && candidate.ResolveOwner(epoch, selector, candidate_owner)
+                    && previous_owner == candidate_owner;
+            });
     audio_owner_resolver_ = candidate;
-    if (!audio_playback_map_.BeginEpoch(epoch))
+    if (!playback_epoch_ready)
     {
         audio_owner_resolver_.Clear();
+        audio_playback_map_.Clear();
         return false;
     }
     audio_graph_epoch_counter_ = epoch;

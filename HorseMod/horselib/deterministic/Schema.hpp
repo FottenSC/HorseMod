@@ -8,7 +8,7 @@
 namespace Horse::Deterministic::Schema
 {
 inline constexpr std::uint32_t protocol_version = 2;
-inline constexpr std::uint32_t snapshot_schema_version = 48;
+inline constexpr std::uint32_t snapshot_schema_version = 49;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::size_t maximum_presentation_payload = 256;
 inline constexpr std::uint64_t checkpoint_interval = 30;
@@ -103,6 +103,11 @@ inline constexpr std::uintptr_t battle_audio_resolve_chara_cue_rva = 0x519970;
 // the voice terminal. Its cue-sheet argument is a process-local CRI slot.
 inline constexpr std::uintptr_t battle_audio_chara_cue_terminal_return_rva =
     0x519a6d;
+// Return address after the general battle-event dispatcher crosses into the
+// shared-player voice-registration thunk. The dispatcher has already selected
+// the exact class/shared owner from its live manager at this point.
+inline constexpr std::uintptr_t battle_audio_dispatch_terminal_return_rva =
+    0x519789;
 inline constexpr std::uintptr_t battle_audio_find_active_voice_rva = 0x1de5e00;
 inline constexpr std::uintptr_t battle_audio_append_command_rva = 0x5656d0;
 inline constexpr std::uintptr_t battle_audio_stop_all_rva = 0x560940;

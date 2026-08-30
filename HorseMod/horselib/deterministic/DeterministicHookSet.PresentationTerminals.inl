@@ -92,6 +92,8 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     std::uint32_t frame{};
     const bool character_cue = return_rva == Schema::Sc6FrameLayout::
         battle_audio_chara_cue_terminal_return_rva;
+    const bool dispatch_cue = return_rva == Schema::Sc6FrameLayout::
+        battle_audio_dispatch_terminal_return_rva;
     const auto& source = active_battle_chara_cue_source_;
     const bool source_resolved = character_cue && hooks != nullptr
         && source.valid
@@ -102,9 +104,31 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
             == hooks->audio_graph_provenance_.battle_audio_manager
         && source.chara_pairs == hooks->audio_graph_provenance_.chara_pairs
         && source.chara_count == hooks->audio_graph_provenance_.chara_count;
+    const auto& dispatch_source = active_battle_dispatch_source_;
+    AudioOwnerSelector dispatch_resolved_selector{};
+    const bool dispatch_source_resolved = dispatch_cue && hooks != nullptr
+        && dispatch_source.valid
+        && dispatch_source.owner == reinterpret_cast<std::uintptr_t>(
+            active_voice_owner)
+        && dispatch_source.generation == hooks->audio_graph_generation_
+        && dispatch_source.battle_audio_manager
+            == hooks->audio_graph_provenance_.battle_audio_manager
+        && hooks->audio_owner_resolver_.Resolve(
+            hooks->audio_owner_resolver_.epoch(), dispatch_source.owner,
+            dispatch_resolved_selector)
+        && dispatch_resolved_selector == dispatch_source.selector
+        && (dispatch_source.selector.domain
+                != AudioOwnerDomain::BattleClassPlayer
+            || (dispatch_source.owner_pairs
+                    == hooks->audio_graph_provenance_.class_pairs
+                && dispatch_source.owner_count
+                    == hooks->audio_graph_provenance_.class_count));
     if (source_resolved) owner = source.selector;
+    else if (dispatch_source_resolved) owner = dispatch_source.selector;
+    const bool source_bound_terminal = character_cue || dispatch_cue;
     const bool owner_resolved = batch != nullptr && hooks != nullptr
-        && (source_resolved || (!character_cue
+        && (source_resolved || dispatch_source_resolved
+            || (!source_bound_terminal
             && hooks->ResolveAudioOwner(
                 reinterpret_cast<std::uintptr_t>(active_voice_owner), owner)));
     if (batch != nullptr && hooks != nullptr && !owner_resolved)
@@ -161,7 +185,8 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
         if (character_cue && source_resolved)
             cue_sheet_identity = MakeAudioCueFamilyIdentity(
                 source.cue_family);
-        if (character_cue && !source_resolved)
+        if (source_bound_terminal
+            && !source_resolved && !dispatch_source_resolved)
         {
             ++batch->observation->battle_audio_signature_failures;
             batch->observation->battle_audio_signature_failure_mask |= 1u << 12;
@@ -184,7 +209,8 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     if (result != audio_invalid_playback_id && batch != nullptr)
     {
         std::uint32_t cue_sheet_identity = cue_sheet_id;
-        const bool stable_identity = !character_cue || source_resolved;
+        const bool stable_identity = !source_bound_terminal
+            || source_resolved || dispatch_source_resolved;
         if (character_cue && source_resolved)
             cue_sheet_identity = MakeAudioCueFamilyIdentity(
                 source.cue_family);
@@ -1249,6 +1275,7 @@ void DeterministicHookSet::ClearState() noexcept
         0, std::memory_order_release);
     tira_probability_join = {};
     active_battle_chara_cue_source_ = {};
+    active_battle_dispatch_source_ = {};
     for (auto& handler : observed_battle_audio_handlers_)
         handler.store(0, std::memory_order_release);
     battle_audio_handler_overflow_.store(false, std::memory_order_release);

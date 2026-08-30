@@ -653,7 +653,8 @@ private:
         std::uint16_t target, OuterTickCaptureContext& batch,
         OuterTickObservation& observation) noexcept;
     [[nodiscard]] bool PrepareAudioOwnerGraph(
-        std::uintptr_t battle_manager) noexcept;
+        std::uintptr_t battle_manager,
+        std::uintptr_t battle_audio_manager_override = 0) noexcept;
     void ClearAudioOwnerGraph() noexcept;
     [[nodiscard]] bool ResolveAudioOwner(
         std::uintptr_t owner, AudioOwnerSelector& selector) noexcept;
@@ -726,6 +727,19 @@ private:
     };
     static thread_local BattleCharaCueSourceContext
         active_battle_chara_cue_source_;
+
+    struct BattleDispatchSourceContext
+    {
+        AudioOwnerSelector selector{};
+        std::uintptr_t owner{};
+        std::uintptr_t battle_audio_manager{};
+        std::uintptr_t owner_pairs{};
+        std::int32_t owner_count{};
+        std::uint64_t generation{};
+        bool valid{};
+    };
+    static thread_local BattleDispatchSourceContext
+        active_battle_dispatch_source_;
 
     struct AudioOwnerGraphProvenance
     {

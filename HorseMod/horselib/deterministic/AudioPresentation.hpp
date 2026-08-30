@@ -314,6 +314,18 @@ public:
         return epoch != 0;
     }
 
+    template <typename PreserveOwner>
+    [[nodiscard]] bool TransitionEpoch(std::uint64_t old_epoch,
+        std::uint64_t new_epoch, PreserveOwner&& preserve_owner) noexcept
+    {
+        if (old_epoch == 0 || old_epoch != epoch_ || new_epoch == 0)
+            return false;
+        for (auto& entry : entries_)
+            if (entry.occupied && !preserve_owner(entry.owner)) entry = {};
+        epoch_ = new_epoch;
+        return true;
+    }
+
     void Clear() noexcept
     {
         entries_ = {};

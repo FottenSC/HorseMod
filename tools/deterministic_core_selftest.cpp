@@ -1703,19 +1703,52 @@ void test_audio_presentation_identities_are_epoch_bound()
             && same.Bind(8, 0x1000, class_player) && same.Seal(8)
             && owners.SameBindings(same),
         "audio owner graph equality ignores epoch and insertion order");
-    expect(playback.RemoveOne(7, class_player, logical)
-            && !playback.NativeForLogical(7, class_player, logical, mapped),
+    expect(playback.TransitionEpoch(7, 8,
+                [&](AudioOwnerSelector selector) noexcept
+                {
+                    std::uintptr_t before{};
+                    std::uintptr_t after{};
+                    return owners.ResolveOwner(7, selector, before)
+                        && same.ResolveOwner(8, selector, after)
+                        && before == after;
+                })
+            && playback.NativeForLogical(
+                8, class_player, logical, mapped)
+            && mapped == 0x1234
+            && !playback.NativeForLogical(
+                7, class_player, logical, mapped),
+        "audio playback map preserves only stable-owner mappings across a provenance epoch");
+    AudioOwnerResolver changed;
+    AudioPlaybackMap changed_playback;
+    expect(changed.BeginEpoch(9)
+            && changed.Bind(9, 0x3000, class_player) && changed.Seal(9)
+            && changed_playback.BeginEpoch(8)
+            && changed_playback.Insert(8, class_player, logical, 0x1234)
+            && changed_playback.TransitionEpoch(8, 9,
+                [&](AudioOwnerSelector selector) noexcept
+                {
+                    std::uintptr_t before{};
+                    std::uintptr_t after{};
+                    return same.ResolveOwner(8, selector, before)
+                        && changed.ResolveOwner(9, selector, after)
+                        && before == after;
+                })
+            && !changed_playback.NativeForLogical(
+                9, class_player, logical, mapped),
+        "audio playback map retires a mapping when its native owner changes");
+    expect(playback.RemoveOne(8, class_player, logical)
+            && !playback.NativeForLogical(8, class_player, logical, mapped),
         "audio playback map retires an exact stopped voice");
     const auto inactive_logical = MakeLogicalAudioPlaybackId(124, 0);
     const auto active_logical = MakeLogicalAudioPlaybackId(124, 1);
-    expect(playback.Insert(7, class_player, inactive_logical, 0x1235)
-            && playback.Insert(7, shared, active_logical, 0x1236)
-            && playback.PruneInactive(7,
+    expect(playback.Insert(8, class_player, inactive_logical, 0x1235)
+            && playback.Insert(8, shared, active_logical, 0x1236)
+            && playback.PruneInactive(8,
                 [](AudioOwnerSelector, std::uint32_t native_id) noexcept
                 { return native_id == 0x1236; }) == 1
             && !playback.NativeForLogical(
-                7, class_player, inactive_logical, mapped)
-            && playback.NativeForLogical(7, shared, active_logical, mapped)
+                8, class_player, inactive_logical, mapped)
+            && playback.NativeForLogical(8, shared, active_logical, mapped)
             && mapped == 0x1236,
         "audio playback map prunes only native-lifecycle-inactive voices");
 

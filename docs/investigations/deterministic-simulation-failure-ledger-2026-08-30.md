@@ -4,6 +4,32 @@ This ledger preserves authoritative failure causes and diagnostics separately
 from candidate hashes. Every listed artifact is regression evidence only unless
 an immutable release certificate explicitly promotes it.
 
+## 2026-08-30 — general battle-event terminal lacked source-scoped ownership
+
+- Source commit: `b3b79de0a1c46d5ad6e007c3d606230487e5f9ac`.
+- HorseMod DLL SHA-256:
+  `F130B4F0788C77B2DD7D320C37FB73C7F607766C98992F3124B13CD53B04279E`.
+- Authored replay map: **Silver Wolves’ Haven**.
+- Stock four-round control passed at 60.082 normal-render FPS/TPS, but paired
+  baseline A failed before presentation identity publication with
+  `horsemod_presentation_coverage_api_unavailable`.
+- First native failure: batch 3, frame 0→3, one terminal call from return RVA
+  `0x519789`, unresolved owner `0x22714D89580`, graph stage 1, epoch/bindings
+  zero; the frame fencepost then failed with `presentation_failed`.
+- Authoritative cause: `0x519789` is the call return inside
+  `LuxBattleManager_DispatchBattleEventByClass @ 0x140519480`, not a generic
+  terminal. The dispatcher can author its first voice before the process-wide
+  CRI/BGM owner roots are published, while the implementation recognized only
+  the distinct character-cue source return `0x519A6D`.
+- Repair: carry the dispatcher's exact live class/shared-player selection to
+  its synchronous terminal, admit the complete battle-manager subgraph even
+  while optional CRI/BGM roots are unavailable, and preserve a playback mapping
+  across the later expanded provenance epoch only when the selector still maps
+  to the same native owner. The failed DLL and stock control are non-certifying.
+- Required regression: schema-v49 unit tests and a new immutable candidate,
+  followed by a fresh **Silver Wolves’ Haven** stock control and paired exact
+  normal-render baselines before any correction request.
+
 ## 2026-08-30 — audio generation was bound before initial admission
 
 - Source commit: `3097bdaafc64ab5161f4bafe435db3bb4ae20940`.

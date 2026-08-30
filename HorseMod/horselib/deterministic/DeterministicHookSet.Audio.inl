@@ -298,8 +298,70 @@ std::int32_t __fastcall DeterministicHookSet::BattleAudioDispatchDetour(
         observed_journal_index = ObserveBattleAudioDispatch(
             batch, event_record, alternate_route);
     }
+    const auto previous_dispatch_source = active_battle_dispatch_source_;
+    BattleDispatchSourceContext dispatch_source{};
+    if (hooks != nullptr && batch != nullptr && batch->observation != nullptr
+        && battle_manager != nullptr && event_record != nullptr
+        && hooks->audio_graph_generation_ != 0)
+    {
+        const auto manager = reinterpret_cast<std::uintptr_t>(battle_manager);
+        const auto event = reinterpret_cast<std::uintptr_t>(event_record);
+        std::uint8_t event_type{};
+        std::uint32_t payload_id{};
+        std::uintptr_t owner_pairs{};
+        std::int32_t owner_count{};
+        std::uintptr_t shared_player{};
+        std::uintptr_t owner{};
+        AudioOwnerSelector selector{};
+        bool selected{};
+        if (SafeRead(event, event_type) && SafeRead(event + 4, payload_id)
+            && hooks->PrepareAudioOwnerGraph(
+                batch->observation->battle_manager, manager))
+        {
+            const bool shared_route = !alternate_route
+                && payload_id >= 0x12d && payload_id <= 0x12e;
+            if (shared_route)
+            {
+                selected = SafeRead(manager + 0x420, shared_player);
+                selector = {AudioOwnerDomain::BattleSharedPlayer, 0, 0};
+            }
+            else if (SafeRead(manager + 0x400, owner_pairs)
+                && SafeRead(manager + 0x408, owner_count)
+                && owner_count > 0 && owner_count <= 64
+                && event_type < static_cast<std::uint8_t>(owner_count)
+                && owner_pairs != 0)
+            {
+                selected = SafeRead(owner_pairs
+                    + static_cast<std::uintptr_t>(event_type) * 0x10,
+                    shared_player);
+                selector = {AudioOwnerDomain::BattleClassPlayer,
+                    event_type, 0};
+            }
+            if (selected && shared_player != 0
+                && SafeRead(shared_player, owner) && owner != 0)
+            {
+                AudioOwnerSelector resolved{};
+                const auto epoch = hooks->audio_owner_resolver_.epoch();
+                if (hooks->audio_owner_resolver_.Resolve(
+                        epoch, owner, resolved)
+                    && resolved == selector)
+                {
+                    dispatch_source.selector = selector;
+                    dispatch_source.owner = owner;
+                    dispatch_source.battle_audio_manager = manager;
+                    dispatch_source.owner_pairs = owner_pairs;
+                    dispatch_source.owner_count = owner_count;
+                    dispatch_source.generation =
+                        hooks->audio_graph_generation_;
+                    dispatch_source.valid = true;
+                }
+            }
+        }
+    }
+    active_battle_dispatch_source_ = dispatch_source;
     if (original != nullptr)
         result = original(battle_manager, event_record, alternate_route);
+    active_battle_dispatch_source_ = previous_dispatch_source;
     if (verify_recorded && expected_success >= 0)
     {
         // Re-enter the native dispatcher so deterministic source/remap logic
@@ -1184,4 +1246,3 @@ void __fastcall DeterministicHookSet::BattleAudioBlueprintPublishDetour(
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
-
