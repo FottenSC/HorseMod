@@ -2247,7 +2247,7 @@ void test_stage_wind_topology_is_bounded_and_pointer_free()
     memory.Set(root, first);
     memory.Fill(root + 0x08, 12, std::byte{0x11});
     memory.Set(root + 0x18, image_base + std::uintptr_t{0x334430});
-    memory.Set(root + 0x98, std::uint32_t{1});
+    memory.Set(root + 0x98, std::uint32_t{0});
     memory.Set(root + 0x9C, std::int32_t{1});
     memory.Fill(root + 0xA0, 0x10, std::byte{0x22});
     memory.Fill(root + 0xB0, 0x10, std::byte{0x33});
@@ -2302,6 +2302,22 @@ void test_stage_wind_topology_is_bounded_and_pointer_free()
     expect(!contains_qword(canonical, root) && !contains_qword(canonical, first)
             && !contains_qword(canonical, second),
         "wind canonical bytes contain no native root or node pointer");
+
+    auto equivalent_bank_variant = image;
+    const std::uint32_t alternate_bank = 1;
+    std::memcpy(equivalent_bank_variant.schedule_state.data(),
+        &alternate_bank, sizeof(alternate_bank));
+    equivalent_bank_variant.pending_callback_rvas[8] =
+        image.pending_callback_rvas[0];
+    equivalent_bank_variant.pending_callback_rvas[0] = 0x123456;
+    equivalent_bank_variant.pending_callback_rvas[7] = 0x654321;
+    expect(StageWindTopologyProbe::CanonicalBytes(equivalent_bank_variant)
+            == canonical,
+        "wind canonical bytes normalize the symmetric callback bank and exclude stale slots");
+    equivalent_bank_variant.pending_callback_rvas[8] = 0x334431;
+    expect(StageWindTopologyProbe::CanonicalBytes(equivalent_bank_variant)
+            != canonical,
+        "wind canonical bytes retain exact ordered active pending callback identity");
 
     auto root_residue_variant = image;
     root_residue_variant.root_clock[8] = std::byte{0xA5};

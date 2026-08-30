@@ -649,11 +649,6 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
                     image.native.input_log.cache_rows[
                         slot * 512 + (frame & 0x1ffu)];
             }
-        output.canonical_wind[0] = local_checksum(image.wind.schedule_state);
-        output.canonical_wind[1] = local_checksum(std::as_bytes(std::span{
-            image.wind.pending_callback_rvas}));
-        output.canonical_wind[1] ^= static_cast<std::uint64_t>(
-            image.wind.nodes.size()) << 32;
         std::array<std::uint32_t, 4> schedule_words{};
         std::memcpy(schedule_words.data(), image.wind.schedule_state.data(),
             image.wind.schedule_state.size());
@@ -665,6 +660,18 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         {
             const auto pending = std::span{image.wind.pending_callback_rvas}
                 .subspan(active_bank * 8, pending_count);
+            LocalImageChecksum schedule_checksum;
+            schedule_checksum.Add(&schedule_words[1],
+                sizeof(schedule_words[1]));
+            schedule_checksum.Add(&schedule_words[2],
+                sizeof(schedule_words[2]));
+            schedule_checksum.Add(&schedule_words[3],
+                sizeof(schedule_words[3]));
+            output.canonical_wind[0] = schedule_checksum.Finish();
+            output.canonical_wind[1] = local_checksum(
+                std::as_bytes(pending));
+            output.canonical_wind[1] ^= static_cast<std::uint64_t>(
+                image.wind.nodes.size()) << 32;
             output.canonical_wind_schedule[4] = local_checksum(
                 std::as_bytes(pending));
             output.canonical_wind_schedule[5] = pending_count;

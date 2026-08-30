@@ -374,9 +374,29 @@ void StageWindTopologyProbe::CanonicalBytes(
     static_assert(live_root_clock_size <
         std::tuple_size_v<decltype(image.root_clock)>);
     append(output, image.root_clock.data(), live_root_clock_size);
-    append(output, image.pending_callback_rvas.data(),
-        sizeof(image.pending_callback_rvas));
-    append(output, image.schedule_state.data(), image.schedule_state.size());
+    std::uint32_t active_bank{};
+    std::int32_t pending_count{};
+    std::int32_t schedule_state{};
+    std::int32_t effect_pair_scheduled{};
+    std::memcpy(&active_bank, image.schedule_state.data(),
+        sizeof(active_bank));
+    std::memcpy(&pending_count, image.schedule_state.data() + 4,
+        sizeof(pending_count));
+    std::memcpy(&schedule_state, image.schedule_state.data() + 8,
+        sizeof(schedule_state));
+    std::memcpy(&effect_pair_scheduled, image.schedule_state.data() + 12,
+        sizeof(effect_pair_scheduled));
+    if (active_bank > 1 || pending_count < 0 || pending_count > 8)
+        return;
+    // The bank bit is a symmetric double-buffer label. Only the ordered
+    // pending span in the selected bank can be read before the next flip;
+    // unused slots in either bank are stale native residue.
+    append(output, &schedule_state, sizeof(schedule_state));
+    append(output, &effect_pair_scheduled, sizeof(effect_pair_scheduled));
+    append(output, &pending_count, sizeof(pending_count));
+    append(output, image.pending_callback_rvas.data() + active_bank * 8,
+        static_cast<std::size_t>(pending_count)
+            * sizeof(image.pending_callback_rvas[0]));
     append(output, image.schedule_params.data(), image.schedule_params.size());
     // Root force lanes are presentation accumulation written after sampling.
     // They remain in the local reconstruction image, not canonical peer truth.

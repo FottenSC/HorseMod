@@ -872,6 +872,45 @@ score for `0x1403BA080` is 92.0%; the remaining eight fixable points are
 register-only structural temporaries. Runtime qualification of this contract is
 still required; the ordered count/route/payload/position identity gate remains
 unchanged.
+
+### Terminal audio ownership and stage-wind callback banks (2026-08-30)
+
+Paired normal-render playback of the authored Silver Wolves' Haven replay
+isolated two previously opaque hash failures into their exact native fields.
+All 2,617 terminal presentation events and 846 battle dispatches otherwise
+matched. The audio difference was confined to the ordered character-cue owner
+and cue-sheet-family tuple at terminal source return RVA `0x519A6D`; the wind
+difference was confined to callback-bank residue while the live pending count
+was zero.
+
+Ghidra re-verification of
+`ALuxBattleSoundEventHandler_HandleCharaCueEvent @ 0x1403C6B80` proves that
+source event mode 1 selects cue family 7, mode 2 selects family 8, the default
+selects family 6, and modes 3/4 select option families 10/11. The selected owner
+comes from the current live player-entry array at the source tick before
+`LuxAudio_ResolveAndPlayCharaCue @ 0x140519970` returns through `0x140519A6D`.
+The implementation now refreshes this bounded owner graph on every authoritative
+outer tick and rotates its generation only when the actual bindings change.
+Ordered payload id, owner, family, cue id, and source-return identity remain an
+exact gate; no audio identity was weakened.
+
+`LuxBattle_TickStageWindAndAccumulateForces @ 0x140333FD0` proves that
+`IwWindRoot+0x98` is a symmetric double-buffer label. Only `+0x9C` callbacks
+from the selected bank are live and read in ascending order; unused selected
+slots and the opposite bank are stale residue. Portable canonical bytes now
+retain schedule state, the effect-pair latch, pending count, and the exact
+ordered active pending span while normalizing the bank label. The complete raw
+two-bank image remains in the same-process restore image and diagnostics. A
+self-test moves the same live callback between banks while mutating stale slots,
+then separately proves that changing the active callback still changes canonical
+identity.
+
+Ghidra effective completeness is 100 for
+`LuxAudio_ResolveAndPlayCharaCue`, 100 for
+`LuxAudio_RegisterActiveVoiceInstance`, and 92 for the wind tick with eight
+remaining fixable points. The verified program was saved through native MCP
+tools.
+
 | Replay/scene/disconnect | Close replay stop/order and earliest world/online invalidation signals | No identity survives transition/partial failure |
 | Hook teardown | Audit Horse shutdown only after target set is final | Admission gate, reverse removal, zero in-flight callbacks |
 
