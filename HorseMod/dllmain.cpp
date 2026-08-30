@@ -405,6 +405,21 @@ extern "C"
         return mod != nullptr && mod->RequestReplaySeek(target_frame);
     }
 
+    HORSE_MOD_API bool horsemod_set_replay_history_capture_required(
+        bool required)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr
+            && mod->SetReplayHistoryCaptureRequired(required);
+    }
+
+    HORSE_MOD_API bool horsemod_capture_replay_qualification_terminal_evidence()
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr
+            && mod->CaptureReplayQualificationTerminalEvidence();
+    }
+
     HORSE_MOD_API bool horsemod_get_replay_seekable_range(
         std::uint64_t* generation, std::uint64_t* first_frame,
         std::uint64_t* last_frame)

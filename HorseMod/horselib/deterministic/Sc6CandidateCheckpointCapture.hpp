@@ -58,6 +58,11 @@ public:
         FrameCoordinate coordinate,
         std::uint64_t session_generation,
         std::uint32_t simulation_thread_id) noexcept;
+    Status BindForCanonicalCapture(
+        std::uintptr_t battle_manager,
+        FrameCoordinate coordinate,
+        std::uint64_t session_generation,
+        std::uint32_t simulation_thread_id) noexcept;
     Status CaptureTransient(
         FrameCoordinate coordinate, Snapshot& output) noexcept;
     Status CaptureCanonical(

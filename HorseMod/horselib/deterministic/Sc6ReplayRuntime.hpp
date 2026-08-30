@@ -315,6 +315,7 @@ public:
     [[nodiscard]] bool ready() const noexcept;
     void SetForcedDepth7QualificationEnabled(bool enabled) noexcept;
     void SetCorrectedInputQualificationEnabled(bool enabled) noexcept;
+    Status SetReplayHistoryCaptureRequired(bool required) noexcept;
     Status SetOnlinePredictedRemotePlayer(
         std::optional<std::size_t> player_index) noexcept;
     Status PrepareOnlineOwnedStorage(FrameCoordinate baseline) noexcept;
@@ -357,6 +358,8 @@ public:
         std::int32_t& unpause_countdown) noexcept;
     [[nodiscard]] const InputTimeline& input_timeline() const noexcept;
     [[nodiscard]] const NativeBatchTimeline& batch_timeline() const noexcept;
+    [[nodiscard]] bool GetPresentationIdentity(
+        std::array<std::uint64_t, 9>& values) const noexcept;
     [[nodiscard]] Status PlanSeek(
         FrameCoordinate target, ReplaySeekPlan& output) const noexcept;
     // Transactional native-state reconstruction primitive. It intentionally
@@ -388,6 +391,7 @@ private:
     struct InterbatchDiagnosticTargets;
     Status BeginObservedFrame(const FrameFencepostObservation& observation,
         FrameCoordinate& coordinate, bool& new_generation) noexcept;
+    void ArchivePresentationIdentity() noexcept;
     Status AppendObservedInput(const FrameFencepostObservation& observation,
         FrameCoordinate coordinate) noexcept;
     Status ValidateResumedFrame(FrameCoordinate coordinate) noexcept;
@@ -622,6 +626,9 @@ private:
     CanonicalHashTimeline canonical_timeline_{
         Schema::replay_canonical_hash_memory_budget
             / sizeof(CanonicalHashEntry)};
+    std::optional<CanonicalHashEntry> archived_last_canonical_{};
+    std::uint64_t archived_canonical_frames_{};
+    std::array<std::uint64_t, 9> archived_presentation_identity_{};
     Sc6CandidateCheckpointCapture checkpoint_capture_{};
     SnapshotStore forced_qualification_snapshots_{
         16u * 1024u * 1024u, 16, CapacityPolicy::EvictOldest};
@@ -639,6 +646,8 @@ private:
         Schema::maximum_correction_presentation_events};
     bool forced_depth7_qualification_enabled_{};
     bool corrected_input_qualification_enabled_{};
+    bool replay_history_capture_required_{true};
+    bool next_replay_history_capture_required_{true};
     std::optional<std::size_t> online_predicted_remote_player_{};
     ReplayTimelineStatus timeline_status_{};
     std::uintptr_t timeline_manager_{};

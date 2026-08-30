@@ -77,6 +77,19 @@ Status MotionBankSnapshot::Bind(
             }
         }
     }
+    try
+    {
+        // Restore is a live simulation-path transaction. Prepare both the
+        // undo image and the verification image while binding so the first
+        // correction cannot allocate after qualification has begun.
+        undo_scratch_.bytes.reserve(motion_bank_image_bytes);
+        observed_scratch_.bytes.reserve(motion_bank_image_bytes);
+    }
+    catch (...)
+    {
+        Invalidate();
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
     bound_ = true;
     return topology_matches()
         ? Status::success() : Status::failure(FailureCode::IdentityMismatch);

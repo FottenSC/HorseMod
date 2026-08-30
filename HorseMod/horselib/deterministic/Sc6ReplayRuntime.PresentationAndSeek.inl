@@ -286,6 +286,9 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     input_timeline_.Clear();
     batch_timeline_.Clear();
     canonical_timeline_.Clear();
+    archived_last_canonical_.reset();
+    archived_canonical_frames_ = 0;
+    archived_presentation_identity_ = {};
     forced_qualification_snapshots_.Clear();
     correction_undo_scratch_ = {};
     correction_verified_scratch_ = {};
@@ -323,6 +326,8 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     checkpoint_capture_.ReleaseBinding();
     generation_rebaseline_pending_ = false;
     continuing_session_rebaseline_ = false;
+    replay_history_capture_required_ =
+        next_replay_history_capture_required_;
 }
 
 Status Sc6ReplayRuntime::EnablePresentationOwnership() noexcept

@@ -214,9 +214,11 @@ Status Sc6ReplayRuntime::GetCanonicalHash(
 {
     output = {};
     const auto entry = canonical_timeline_.GetExact(coordinate);
-    if (!entry.has_value())
-        return Status::failure(FailureCode::MissingSnapshot);
-    output = entry->hash;
+    if (entry.has_value()) output = entry->hash;
+    else if (archived_last_canonical_.has_value()
+        && archived_last_canonical_->coordinate == coordinate)
+        output = archived_last_canonical_->hash;
+    else return Status::failure(FailureCode::MissingSnapshot);
     return Status::success();
 }
 

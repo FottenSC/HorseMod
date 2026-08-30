@@ -41,6 +41,9 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     input_timeline_.Clear();
     batch_timeline_.Clear();
     canonical_timeline_.Clear();
+    archived_last_canonical_.reset();
+    archived_canonical_frames_ = 0;
+    archived_presentation_identity_ = {};
     forced_qualification_snapshots_.Clear();
     correction_undo_scratch_ = {};
     correction_verified_scratch_ = {};
@@ -72,6 +75,8 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     resume_catchup_pending_ = false;
     generation_rebaseline_pending_ = false;
     continuing_session_rebaseline_ = false;
+    replay_history_capture_required_ = true;
+    next_replay_history_capture_required_ = true;
 }
 
 bool Sc6ReplayRuntime::ready() const noexcept
@@ -89,11 +94,18 @@ bool Sc6ReplayRuntime::ObserveCurrentSimulationPhase(
     std::uint32_t& round_state_frame,
     std::int32_t& unpause_countdown) noexcept
 {
-    const Obj battle_manager = lux_.battleManager();
-    if (!battle_manager) return false;
-
+    // The outer-tick hook is the authoritative owner of the active native
+    // BattleManager lifetime. Scene-singleton discovery can transiently return
+    // null during persistent ReplayBattleScene re-entry even after that hook
+    // has admitted and observed the new manager. Prefer the admitted identity;
+    // retain discovery only for setup before the first admitted outer tick.
+    const std::uintptr_t admitted_manager = timeline_manager_;
+    const Obj discovered_manager = admitted_manager == 0
+        ? lux_.battleManager() : Obj{};
     const auto manager = reinterpret_cast<const std::byte*>(
-        battle_manager.raw());
+        admitted_manager != 0 ? admitted_manager :
+            reinterpret_cast<std::uintptr_t>(discovered_manager.raw()));
+    if (manager == nullptr) return false;
     void* input_log{};
     if (!SafeReadPtr(manager + Schema::Sc6FrameLayout::manager_input_log,
             &input_log)
@@ -131,6 +143,24 @@ void Sc6ReplayRuntime::SetCorrectedInputQualificationEnabled(
     bool enabled) noexcept
 {
     corrected_input_qualification_enabled_ = enabled;
+}
+
+Status Sc6ReplayRuntime::SetReplayHistoryCaptureRequired(
+    bool required) noexcept
+{
+    // ReplayQualificationMod can publish the next request while the prior
+    // replay is still leaving ReplayBattleScene. Record that next-lifetime
+    // policy immediately, but never mutate storage ownership underneath an
+    // admitted timeline.
+    next_replay_history_capture_required_ = required;
+    if (timeline_status_.last_coordinate.generation != 0
+        || pending_batch_id_ != 0 || resume_validation_active_)
+    {
+        return Status::success();
+    }
+    replay_history_capture_required_ = required;
+    if (!required) checkpoint_capture_.ReleaseHistoryStorage();
+    return Status::success();
 }
 
 Status Sc6ReplayRuntime::SetOnlinePredictedRemotePlayer(
@@ -564,6 +594,10 @@ void Sc6ReplayRuntime::CaptureLandingCheckpoint(
     FrameCoordinate coordinate, bool new_generation) noexcept
 {
     ++timeline_status_.captured_frames;
+    const bool retain_history = replay_history_capture_required_
+        || forced_depth7_qualification_enabled_
+        || online_predicted_remote_player_.has_value();
+    if (!retain_history) return;
     const auto* batch_entry = checkpoint_capture_.snapshots(
         CandidateCheckpointRole::BatchEntry).FindNearestAtOrBefore(coordinate);
     if (batch_entry == nullptr)
@@ -667,7 +701,8 @@ Status Sc6ReplayRuntime::CaptureCanonicalFrame(
             canonical.canonical_wind_semantic,
             canonical.canonical_wind,
             canonical.canonical_wind_node);
-        timeline_status_.canonical_frames = canonical_timeline_.size();
+        timeline_status_.canonical_frames = archived_canonical_frames_
+            + canonical_timeline_.size();
         timeline_status_.canonical_hash_bytes = canonical_timeline_.bytes_used();
         if (stored.code == FailureCode::CapacityExceeded)
         {
@@ -842,6 +877,21 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     const FrameCoordinate coordinate = timeline_status_.last_coordinate;
     if (coordinate.generation == 0)
         return Status::success();
+    const bool retain_history = replay_history_capture_required_
+        || forced_depth7_qualification_enabled_
+        || online_predicted_remote_player_.has_value();
+    if (!retain_history)
+    {
+        const Status bound = checkpoint_capture_.BindForCanonicalCapture(
+            observation.battle_manager, coordinate,
+            timeline_session_generation_, observation.thread_id);
+        if (!bound.ok())
+        {
+            timeline_status_.failure = bound.code;
+            return bound;
+        }
+        return CapturePendingCameraSource();
+    }
     const auto previous = checkpoint_capture_.status(
         CandidateCheckpointRole::BatchEntry);
     const std::optional<FrameCoordinate> previous_coordinate = previous.captured == 0
@@ -973,6 +1023,10 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     // identity transition invalidates restorable timeline storage.
     const ReplaySessionCoverage coverage =
         CaptureReplaySessionCoverage(timeline_status_);
+    if (const auto range = canonical_timeline_.Range(); range.has_value())
+        archived_last_canonical_ = canonical_timeline_.GetExact(range->second);
+    archived_canonical_frames_ += canonical_timeline_.size();
+    ArchivePresentationIdentity();
     input_timeline_.Clear();
     batch_timeline_.Clear();
     canonical_timeline_.Clear();
@@ -990,6 +1044,12 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     timeline_status_.sessions = sessions;
     timeline_status_.generations = generations;
     timeline_status_.identity_rebaselines = rebaselines;
+    timeline_status_.canonical_frames = archived_canonical_frames_;
+    timeline_status_.canonical_hash_bytes = archived_canonical_frames_
+        * sizeof(CanonicalHashEntry);
+    if (archived_last_canonical_.has_value())
+        timeline_status_.last_coordinate =
+            archived_last_canonical_->coordinate;
     RestoreReplaySessionCoverage(timeline_status_, coverage);
     timeline_manager_ = 0;
     timeline_input_log_ = 0;
@@ -1011,6 +1071,101 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     resume_catchup_pending_ = false;
     generation_rebaseline_pending_ = false;
     continuing_session_rebaseline_ = true;
+}
+
+void Sc6ReplayRuntime::ArchivePresentationIdentity() noexcept
+{
+    auto& values = archived_presentation_identity_;
+    if (values[2] == 0) values[2] = 1469598103934665603ull;
+    if (values[4] == 0) values[4] = 1469598103934665603ull;
+    if (values[5] == 0) values[5] = 1469598103934665603ull;
+    for (std::size_t index = 0; index < batch_timeline_.batch_count(); ++index)
+    {
+        const auto* batch = batch_timeline_.GetBatch(index);
+        if (batch == nullptr) continue;
+        ++values[0];
+        values[1] += batch->battle_audio_dispatches
+            + batch->audio_terminal_calls;
+        values[3] += batch->presentation_order_journal_count;
+        AppendFnv64(values[2], &batch->entry_coordinate,
+            sizeof(batch->entry_coordinate));
+        AppendFnv64(values[2], &batch->battle_audio_dispatches,
+            sizeof(batch->battle_audio_dispatches));
+        AppendFnv64(values[2], &batch->battle_audio_sequence_hash,
+            sizeof(batch->battle_audio_sequence_hash));
+        AppendFnv64(values[2], &batch->battle_audio_payload_hash,
+            sizeof(batch->battle_audio_payload_hash));
+        AppendFnv64(values[2], &batch->audio_terminal_calls,
+            sizeof(batch->audio_terminal_calls));
+        AppendFnv64(values[2], &batch->audio_terminal_hash,
+            sizeof(batch->audio_terminal_hash));
+        AppendFnv64(values[4], &batch->entry_coordinate,
+            sizeof(batch->entry_coordinate));
+        AppendFnv64(values[4], &batch->presentation_order_journal_count,
+            sizeof(batch->presentation_order_journal_count));
+        AppendFnv64(values[4], &batch->presentation_order_hash,
+            sizeof(batch->presentation_order_hash));
+        AppendFnv64(values[5], &batch->entry_coordinate,
+            sizeof(batch->entry_coordinate));
+        AppendFnv64(values[5], &batch->camera_publication_hash,
+            sizeof(batch->camera_publication_hash));
+        values[8] += batch->camera_publication_hash != 0 ? 1 : 0;
+        values[6] += batch->presentation_order_failures
+            + batch->camera_signature_failures
+            + batch->stage_signature_failures
+            + batch->particle_signature_failures;
+    }
+}
+
+bool Sc6ReplayRuntime::GetPresentationIdentity(
+    std::array<std::uint64_t, 9>& values) const noexcept
+{
+    values = archived_presentation_identity_;
+    if (values[2] == 0) values[2] = 1469598103934665603ull;
+    if (values[4] == 0) values[4] = 1469598103934665603ull;
+    if (values[5] == 0) values[5] = 1469598103934665603ull;
+    for (std::size_t index = 0; index < batch_timeline_.batch_count(); ++index)
+    {
+        const auto* batch = batch_timeline_.GetBatch(index);
+        if (batch == nullptr) return false;
+        ++values[0];
+        values[1] += batch->battle_audio_dispatches
+            + batch->audio_terminal_calls;
+        values[3] += batch->presentation_order_journal_count;
+        AppendFnv64(values[2], &batch->entry_coordinate,
+            sizeof(batch->entry_coordinate));
+        AppendFnv64(values[2], &batch->battle_audio_dispatches,
+            sizeof(batch->battle_audio_dispatches));
+        AppendFnv64(values[2], &batch->battle_audio_sequence_hash,
+            sizeof(batch->battle_audio_sequence_hash));
+        AppendFnv64(values[2], &batch->battle_audio_payload_hash,
+            sizeof(batch->battle_audio_payload_hash));
+        AppendFnv64(values[2], &batch->audio_terminal_calls,
+            sizeof(batch->audio_terminal_calls));
+        AppendFnv64(values[2], &batch->audio_terminal_hash,
+            sizeof(batch->audio_terminal_hash));
+        AppendFnv64(values[4], &batch->entry_coordinate,
+            sizeof(batch->entry_coordinate));
+        AppendFnv64(values[4], &batch->presentation_order_journal_count,
+            sizeof(batch->presentation_order_journal_count));
+        AppendFnv64(values[4], &batch->presentation_order_hash,
+            sizeof(batch->presentation_order_hash));
+        AppendFnv64(values[5], &batch->entry_coordinate,
+            sizeof(batch->entry_coordinate));
+        AppendFnv64(values[5], &batch->camera_publication_hash,
+            sizeof(batch->camera_publication_hash));
+        values[8] += batch->camera_publication_hash != 0 ? 1 : 0;
+        values[6] += batch->presentation_order_failures
+            + batch->camera_signature_failures
+            + batch->stage_signature_failures
+            + batch->particle_signature_failures;
+    }
+    const auto statistics = presentation_controller_.statistics();
+    values[6] += statistics.duplicates + statistics.capacity_failures
+        + statistics.publish_failures;
+    values[7] = statistics.committed;
+    return values[0] != 0 && values[1] != 0 && values[3] != 0
+        && values[8] != 0;
 }
 
 Status Sc6ReplayRuntime::BeginObservedOuterTick(

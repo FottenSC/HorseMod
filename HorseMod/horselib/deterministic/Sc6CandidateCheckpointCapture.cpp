@@ -748,6 +748,28 @@ Status Sc6CandidateCheckpointCapture::Capture(
     return Status::success();
 }
 
+Status Sc6CandidateCheckpointCapture::BindForCanonicalCapture(
+    std::uintptr_t battle_manager,
+    FrameCoordinate coordinate,
+    std::uint64_t session_generation,
+    std::uint32_t simulation_thread_id) noexcept
+{
+    if (image_base_ == 0 || battle_manager == 0
+        || coordinate.generation == 0 || session_generation == 0
+        || simulation_thread_id == 0)
+    {
+        return Status::failure(FailureCode::ContextUnavailable);
+    }
+    if (!regions_->IsBound() || bound_manager_ != battle_manager
+        || bound_session_generation_ != session_generation
+        || bound_round_generation_ != coordinate.generation)
+    {
+        return bind(battle_manager, coordinate, session_generation,
+            simulation_thread_id);
+    }
+    return Status::success();
+}
+
 Status Sc6CandidateCheckpointCapture::CaptureTransient(
     FrameCoordinate coordinate, Snapshot& output) noexcept
 {

@@ -311,3 +311,88 @@ an immutable release certificate explicitly promotes it.
 - The campaign was stopped before accepting a row. SC6 exited through WM_CLOSE,
   the temporary bridge and request were removed, and all diagnostic flags were
   restored to `false`. The stock artifact is non-certifying regression evidence.
+
+## 2026-08-30 — deterministic replay missed the unchanged 58 Hz gate
+
+- Source commit: `496798b983ed70a501569d1082a13587af3d8a5d`.
+- HorseMod DLL SHA-256:
+  `3EE1D9064D244C06BF2F4F891A014C6162EDD41ED79A4C7D934698445ABCA6EA`.
+- Authored replay map: **Silver Wolves’ Haven**.
+- Two automatic deterministic smoke attempts failed only the unchanged 58 Hz
+  performance threshold: 120 active frames measured 55.851 and 57.178 Hz.
+  Both had valid native ownership/checkpoint activity and no canonical,
+  presentation, RNG, or lifecycle failure. Their same-process stock controls
+  measured 60.08 Hz.
+- A diagnostic build then excluded the first 30 active frames while leaving
+  the threshold unchanged. The next 90 frames still measured only 56.366 Hz,
+  disproving a round-entry-only timing bias; that workaround was removed before
+  freeze.
+- The native log reports roughly 109 MB per candidate image and a 5.02 ms
+  checkpoint-store p99 during initialization, while capture itself remains
+  about 0.15–0.23 ms. The authoritative storage/copy path must be reconstructed
+  and optimized before another candidate can pass. The release threshold and
+  untrimmed timing intervals remain unchanged.
+- Both failed attempts cleaned up completely: SC6 absent, temporary bridge and
+  requests absent, and every diagnostic flag restored to `false`.
+
+## 2026-08-31 — baseline retained correction history it never consumed
+
+- Source commit: `496798b983ed70a501569d1082a13587af3d8a5d` plus the recorded
+  deterministic dirty patch; all evidence remains non-certifying.
+- Authored replay map: **Silver Wolves' Haven**.
+- A 600-frame diagnostic measured 59.337 Hz and showed that the expensive path
+  was retained rollback history and startup storage, not canonical capture.
+- Repair: ordinary smoke/baseline requests bind the complete native candidate
+  surface and continue canonical, RNG, camera, audio, ownership, and lifecycle
+  observation without retaining restorable checkpoint history. Seek requests,
+  forced corrections, and online predicted-player ownership override that
+  policy and retain the full bounded history.
+- Regression evidence: a three-cycle persistent-process campaign passed at
+  60.383–60.387 Hz; a complete **Silver Wolves' Haven** authored-outcome
+  baseline passed at 60.083 Hz with exact final canonical coordinate `21:8284`,
+  8,280 presentation batches, 17,476 audio events, 20,881 ordered events, zero
+  capacity/presentation failures, and clean teardown. A separate active-combat
+  depth-1 run retained 528,461,218 owned bytes, completed 600 corrections, and
+  converged exactly at 59.621 Hz, proving correction history was not weakened.
+- Harness lifecycle defect found during this repair: direct
+  `replay-entry --deterministic-baseline` armed only its automatic smoke and
+  restored `trace=false` before the full process. One outer reversible baseline
+  scope now owns both processes; a regression test verifies both see
+  `trace=true` and the caller's exact config bytes are restored afterward.
+
+## 2026-08-31 — first strict seek allocated transactional verification scratch
+
+- Source commit: `496798b983ed70a501569d1082a13587af3d8a5d` plus the recorded
+  deterministic dirty patch; all evidence remains non-certifying.
+- Authored replay map: **Snow-Capped Showdown**.
+- First attempt reached active replay frame 600 and restored the 10% target at
+  generation 6/frame 1024, then fail-fast rejected `growth_events=1`. Canonical,
+  timeline, ownership, presentation, and RNG failure fields were all zero.
+- Authoritative cause: native-region, motion-bank, and move-dispatch
+  transactional undo/verification buffers were prepared lazily by the first
+  restore, after the active qualification window had established its capacity
+  baseline.
+- Repair: reserve every bounded transactional scratch owner during native bind.
+  The identical normal-render 10/25/50/75% run then passed with zero capacity
+  growth, exact canonical convergence, and clean teardown. The four seeks used
+  7, 7, 13, and 1 resimulation coordinates; validation took 4.877, 4.312,
+  5.727, and 2.907 milliseconds; all 120-frame rate windows were approximately
+  60 Hz.
+
+## 2026-08-31 — matrix orchestration discarded reusable captures
+
+- The previous campaign keyed every row to one aggregate Python-package hash
+  and had no resume check. An evaluator-only metadata repair therefore made
+  mechanically valid raw captures unusable, while an interruption restarted
+  already completed clean-process rows.
+- Repair: raw capture identity is now separate from evaluator identity. Reuse
+  requires exact HorseMod DLL, schema, capture harness, qualification bridge,
+  config bytes, authored replay, and game executable hashes plus exact native
+  map/fighter metadata and cleanup proof. The evaluator has its own hash and may
+  regrade immutable captures without claiming to have produced them.
+- The offline campaign now reuses complete rows and individually reusable raw
+  stock/primary/re-entry/seek captures only after those checks pass. Its order
+  front-loads the canary ladder: baseline (including automatic 120-frame smoke),
+  active-combat depth 1, strict seeks, then the remaining matrix. Final
+  certification still requires the independent clean-process re-entry evidence;
+  persistent-process cycles remain development acceleration only.

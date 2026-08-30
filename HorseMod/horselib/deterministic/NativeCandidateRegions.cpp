@@ -777,6 +777,13 @@ Status NativeCandidateRegions::Bind(const NativeCandidateAddresses& addresses) n
         if (restore_verification_scratch_ == nullptr)
             restore_verification_scratch_ =
                 std::make_unique<NativeCandidateImage>();
+        // Transactional restore captures both an undo image and a verification
+        // image. Reserve their only dynamic native region at bind time so the
+        // first correction is allocation-stable inside the active window.
+        restore_undo_scratch_->stage_wind_emitters.states.reserve(
+            native_stage_wind_emitter_max_count);
+        restore_verification_scratch_->stage_wind_emitters.states.reserve(
+            native_stage_wind_emitter_max_count);
     }
     catch (...)
     {

@@ -194,6 +194,17 @@ public:
         return qualification.active && !qualification.warmup_pending ? 1u : 0u;
     }
 
+    bool SetReplayHistoryCaptureRequired(bool required) noexcept
+    {
+        return m_replay_native_runtime.SetReplayHistoryCaptureRequired(
+            required).ok();
+    }
+
+    bool CaptureReplayQualificationTerminalEvidence() noexcept
+    {
+        return CaptureReplayQualificationTerminalSnapshot();
+    }
+
     bool RequestReplaySeek(std::uint64_t frame) noexcept
     {
         if (frame == UINT64_MAX) return false;
@@ -344,49 +355,11 @@ public:
                     .presentation_identity.end(), values);
             return true;
         }
-        std::fill(values, values + 9, 0);
-        auto append = [](std::uint64_t& hash, const auto& value) {
-            const auto* bytes = reinterpret_cast<const std::uint8_t*>(&value);
-            for (std::size_t index = 0; index < sizeof(value); ++index)
-            {
-                hash ^= bytes[index];
-                hash *= 1099511628211ull;
-            }
-        };
-        values[2] = values[4] = values[5] = 1469598103934665603ull;
-        const auto& batches = m_replay_native_runtime.batch_timeline();
-        for (std::size_t index = 0; index < batches.batch_count(); ++index)
-        {
-            const auto* batch = batches.GetBatch(index);
-            if (batch == nullptr) return false;
-            ++values[0];
-            values[1] += batch->battle_audio_dispatches
-                + batch->audio_terminal_calls;
-            values[3] += batch->presentation_order_journal_count;
-            append(values[2], batch->entry_coordinate);
-            append(values[2], batch->battle_audio_dispatches);
-            append(values[2], batch->battle_audio_sequence_hash);
-            append(values[2], batch->battle_audio_payload_hash);
-            append(values[2], batch->audio_terminal_calls);
-            append(values[2], batch->audio_terminal_hash);
-            append(values[4], batch->entry_coordinate);
-            append(values[4], batch->presentation_order_journal_count);
-            append(values[4], batch->presentation_order_hash);
-            append(values[5], batch->entry_coordinate);
-            append(values[5], batch->camera_publication_hash);
-            values[8] += batch->camera_publication_hash != 0 ? 1 : 0;
-            values[6] += batch->presentation_order_failures
-                + batch->camera_signature_failures
-                + batch->stage_signature_failures
-                + batch->particle_signature_failures;
-        }
-        const auto statistics =
-            m_replay_native_runtime.presentation_statistics();
-        values[6] += statistics.duplicates + statistics.capacity_failures
-            + statistics.publish_failures;
-        values[7] = statistics.committed;
-        return values[0] != 0 && values[1] != 0 && values[3] != 0
-            && values[8] != 0;
+        std::array<std::uint64_t, 9> identity{};
+        if (!m_replay_native_runtime.GetPresentationIdentity(identity))
+            return false;
+        std::copy(identity.begin(), identity.end(), values);
+        return true;
     }
 
     bool GetReplayAudioBatchIdentity(std::size_t batch_index,
@@ -715,9 +688,31 @@ public:
             terminal.canonical_frame = captured.canonical_frame;
             terminal.canonical_hash = captured.canonical_hash;
         }
-        return terminal.presentation_coverage_valid
+        const bool complete = terminal.presentation_coverage_valid
             && terminal.presentation_identity_valid && terminal.health_valid
             && terminal.gameplay_rng_coverage_valid && terminal.canonical_valid;
+        if (!complete && m_deterministic_config.trace)
+        {
+            const auto timeline = m_replay_native_runtime.timeline_status();
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] terminal replay evidence incomplete "
+                "coverage={} identity={} health={} rng={} canonical={} "
+                "coordinate={}:{} canonical_frames={} batches={} "
+                "rebaselines={} partial={} failure={}\n"),
+                terminal.presentation_coverage_valid ? 1 : 0,
+                terminal.presentation_identity_valid ? 1 : 0,
+                terminal.health_valid ? 1 : 0,
+                terminal.gameplay_rng_coverage_valid ? 1 : 0,
+                terminal.canonical_valid ? 1 : 0,
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame, timeline.canonical_frames,
+                m_replay_native_runtime.batch_timeline().batch_count(),
+                timeline.identity_rebaselines, timeline.partial ? 1 : 0,
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(
+                        timeline.failure))));
+        }
+        return complete;
     }
 
     std::uint32_t GetReplaySeekStatus(

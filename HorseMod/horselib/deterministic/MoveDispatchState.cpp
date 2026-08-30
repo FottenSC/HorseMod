@@ -92,6 +92,14 @@ Status MoveDispatchState::Bind(
         Invalidate();
         return Status::failure(FailureCode::AdapterUnqualified);
     }
+    Status prepared = PrepareImageStorage(restore_undo_scratch_);
+    if (prepared.ok())
+        prepared = PrepareImageStorage(restore_verification_scratch_);
+    if (!prepared.ok())
+    {
+        Invalidate();
+        return prepared;
+    }
     bound_ = true;
     MoveDispatchImage ignored{};
     if (!capture_unchecked(ignored))
