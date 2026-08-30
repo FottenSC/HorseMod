@@ -2155,16 +2155,28 @@ Status NativeCandidateRegions::RestoreMoveDispatchMasksTransactional(
     {
         return Status::failure(FailureCode::IdentityMismatch);
     }
+    return RestoreMoveDispatchMasksTransactional(image.move_dispatch_masks);
+}
+
+Status NativeCandidateRegions::RestoreMoveDispatchMasksTransactional(
+    const std::array<std::uint64_t, 2>& masks) noexcept
+{
+    validation_diagnostic_ = {};
+    if (!bound_ || !identities_match()
+        || identities_.event_mask_owner == 0)
+    {
+        return Status::failure(FailureCode::IdentityMismatch);
+    }
     std::array<std::uint64_t, 2> undo{};
     if (!read_bytes(identities_.event_mask_owner,
             std::as_writable_bytes(std::span{undo})))
         return Status::failure(FailureCode::CaptureFailed);
     const bool wrote = write_bytes(identities_.event_mask_owner,
-        std::as_bytes(std::span{image.move_dispatch_masks}));
+        std::as_bytes(std::span{masks}));
     std::array<std::uint64_t, 2> verified{};
     if (wrote && read_bytes(identities_.event_mask_owner,
             std::as_writable_bytes(std::span{verified}))
-        && verified == image.move_dispatch_masks)
+        && verified == masks)
     {
         return Status::success();
     }

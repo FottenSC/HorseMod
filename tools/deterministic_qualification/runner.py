@@ -969,10 +969,15 @@ def run_replay_entry(args: argparse.Namespace) -> int:
         raise RuntimeError("certifying deterministic baselines require the smoke preflight")
     if not 60 <= args.smoke_frames <= 120:
         raise RuntimeError("smoke frames must be between 60 and 120")
-    if (not args.deterministic_baseline or args.development_smoke
-            or args.skip_development_smoke):
+    if not args.deterministic_baseline or args.development_smoke:
         return _run_replay_entry_once(args)
     config = required_file(args.config, "deterministic config")
+    if args.skip_development_smoke:
+        # The flag skips only the acceleration preflight.  A deterministic
+        # baseline still owns the same reversible hook-arming scope as the
+        # normal smoke+full path below.
+        with armed_baseline(config):
+            return _run_replay_entry_once(args)
     smoke_args = copy.copy(args)
     smoke_args.development_smoke = True
     smoke_args.deterministic_baseline = False
@@ -1327,6 +1332,9 @@ def build_parser() -> argparse.ArgumentParser:
 _FAILURE_MARKERS = (
     "[ReplayQualification] fail-fast health",
     "[ReplayQualification] normal-render battle rate failed",
+    "owned replay seek request failed",
+    "owned replay seek resume failed",
+    "frame-fencepost observation failed",
     "authoritative battle-audio capture failed",
     "canonical capture",
     "canonical divergence",
@@ -1350,6 +1358,10 @@ def _read_bounded_log_since(
             start_offset = cursor.offset if prefix_matches and tail_matches else 0
         else:
             start_offset = 0
+        # UE4SS startup reflection output can exceed the read ceiling before a
+        # late replay failure occurs. Keep the current run's tail in that case;
+        # reading the first maximum_bytes silently discarded the terminal line.
+        start_offset = max(start_offset, size - maximum_bytes)
         stream.seek(start_offset)
         return stream.read(maximum_bytes)
 
@@ -1434,9 +1446,17 @@ def _write_compact_replay_failure(args: argparse.Namespace, error: BaseException
             "fields": diagnostic_fields,
             "first_failing_frame": diagnostic_fields.get(
                 "frame", diagnostic_fields.get(
-                    "frames", diagnostic_fields.get("last_coordinate"))),
+                    "frames", diagnostic_fields.get(
+                        "target", diagnostic_fields.get(
+                            "coordinate", diagnostic_fields.get(
+                                "last_coordinate"))))),
             "field_or_mask": diagnostic_fields.get(
-                "mask", diagnostic_fields.get("identity_issue")),
+                "field", diagnostic_fields.get(
+                    "mask", diagnostic_fields.get(
+                        "component_mask", diagnostic_fields.get(
+                            "native_mask", diagnostic_fields.get(
+                                "wind_mask", diagnostic_fields.get(
+                                    "identity_issue")))))),
             "owner_selector": diagnostic_fields.get("owner_selector"),
             "owner_pointer": diagnostic_fields.get(
                 "owner_pointer", diagnostic_fields.get("unresolved_owner")),
@@ -1444,6 +1464,9 @@ def _write_compact_replay_failure(args: argparse.Namespace, error: BaseException
                 "return_rva", diagnostic_fields.get("caller_rva")),
             "graph_provenance": diagnostic_fields.get(
                 "graph_provenance", diagnostic_fields.get("owner_stage")),
+            "lifecycle_phase": diagnostic_fields.get(
+                "lifecycle_phase", diagnostic_fields.get(
+                    "phase", diagnostic_fields.get("owner_stage"))),
             "bounded_log": str(log_artifact.resolve()),
             "bounded_log_lines": len(bounded_lines),
         },

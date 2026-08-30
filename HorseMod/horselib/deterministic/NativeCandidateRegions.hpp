@@ -390,6 +390,8 @@ public:
         const NativeCandidateImage& image) noexcept;
     Status RestoreMoveDispatchMasksTransactional(
         const NativeCandidateImage& image) noexcept;
+    Status RestoreMoveDispatchMasksTransactional(
+        const std::array<std::uint64_t, 2>& masks) noexcept;
     Status CaptureCameraSourceFrame(
         NativeCameraSourceFrameImage& output) noexcept;
     Status RestoreCameraSourceFrameTransactional(

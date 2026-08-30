@@ -74,6 +74,8 @@ public:
     Status RestoreInputLogForReplay(const Snapshot& snapshot) noexcept;
     Status RestoreMoveDispatchMasksForReplay(
         const Snapshot& snapshot) noexcept;
+    Status RestoreMoveDispatchMasksForReplay(
+        const CanonicalMoveDispatchDiagnostic& diagnostic) noexcept;
     Status CaptureCameraSourceFrame(
         NativeCameraSourceFrameImage& output) noexcept;
     Status RestoreCameraSourceFrameForReplay(

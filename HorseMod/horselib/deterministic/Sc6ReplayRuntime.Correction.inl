@@ -177,6 +177,17 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
                 expected_target->input, *target_input);
     }
     if (status.ok())
+    {
+        // Batch-entry reconstruction images include the preceding outer
+        // tick's post-fencepost tail. Event masks are OR-only gameplay state,
+        // so replaying from such an image cannot remove a bit introduced by
+        // that tail. Restore the exact canonical target values before landing
+        // verification; the live outer tick owns and will execute the target
+        // tail after this request returns.
+        status = checkpoint_capture_.RestoreMoveDispatchMasksForReplay(
+            expected_target->move_dispatch);
+    }
+    if (status.ok())
         status = checkpoint_capture_.CaptureTransient(target, landing);
     if (status.ok() && landing.canonical_hash != expected_target->hash)
     {

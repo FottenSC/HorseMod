@@ -41,13 +41,21 @@ Status PlanReplaySeek(
         return Status::failure(FailureCode::IdentityMismatch);
     }
 
-    const Snapshot* base{};
-    const auto* exact = batch_entry_snapshots.FindExact(target);
-    if (exact != nullptr && landing_batch->exit_coordinate == target)
-        base = exact;
-    else
-        base = batch_entry_snapshots.FindNearestAtOrBefore(
-            landing_batch->entry_coordinate);
+    // A batch-entry checkpoint and a completed-coordinate landing may share
+    // the same coordinate without representing the same execution boundary.
+    // The entry image includes the preceding outer tick's post-fencepost tail;
+    // a seek runs from the completed-coordinate fencepost and lets the live
+    // outer tick execute that tail after this request returns.  Therefore an
+    // exact batch-entry image is only a reconstruction base, never an exact
+    // landing.  Re-enter the batch that produced the target and capture its
+    // fencepost instead.
+    if (target.frame == 0)
+        return Status::failure(FailureCode::MissingSnapshot);
+    const auto base_limit = FrameCoordinate{
+        target.generation, target.frame - 1};
+    const Snapshot* base = batch_entry_snapshots.FindNearestAtOrBefore(
+        base_limit < landing_batch->entry_coordinate
+            ? base_limit : landing_batch->entry_coordinate);
     if (base == nullptr)
         return Status::failure(FailureCode::MissingSnapshot);
     if (base->coordinate.generation != target.generation

@@ -396,3 +396,76 @@ an immutable release certificate explicitly promotes it.
   active-combat depth 1, strict seeks, then the remaining matrix. Final
   certification still requires the independent clean-process re-entry evidence;
   persistent-process cycles remain development acceleration only.
+
+## 2026-08-31 — multi-seek harness rejected a completed cross-round resume
+
+- Frozen source commit: `83644a0a3d2ac41eb1c565630b66cf08963adbad`.
+- HorseMod DLL SHA-256:
+  `D035EE1F3B4728793598EAA09C5E3BE12053DC949092F8B633C55B24B2C3583A`.
+- Qualification bridge SHA-256:
+  `6D3B42E35D21E433397FDDCCE589AB350A9B74BB2277FE943C63BF5F5CA0D226`.
+- Authored replay map: **Silver Wolves' Haven**.
+- The first strict 10% seek passed its complete native historical check over
+  1,358 coordinates, resimulated 7 coordinates in 4.934 ms, and then resumed
+  600 live normal-render frames at 59.808 Hz with no native terminal failure.
+  The 600-frame window legitimately crossed a round/timeline generation
+  barrier. Before requesting 25%, the bridge rejected the new seekable range as
+  `horsemod_seek_generation_changed` even though no seek or validation was then
+  active.
+- Authoritative cause: the bridge treated one generation/range snapshot as the
+  domain for the entire multi-seek request. Native `GetSeekableRange` instead
+  guarantees a same-generation range for the current timeline; a completed
+  600-frame resume may advance to a new valid domain.
+- Repair: retain strict generation continuity throughout an active seek and its
+  live-resume validation, but after that seek passes, re-anchor the next
+  percentage to a newly returned same-generation range. The 600-frame release
+  requirement remains unchanged. The failed process cleaned up completely:
+  SC6 absent, temporary bridge/request absent, and all diagnostic flags false.
+
+## 2026-08-31 — development smoke skip bypassed deterministic hook arming
+
+- Authored replay map: **Silver Wolves' Haven**.
+- A targeted non-certifying 10/25/50/75% rerun used
+  `--deterministic-baseline --skip-development-smoke`, but the live config
+  remained fully disabled and HorseMod never installed deterministic lifecycle
+  hooks. The bridge correctly waited forever for seekable native history.
+- Authoritative cause: `run_replay_entry` treated the smoke-skip flag as a
+  reason to bypass the entire baseline wrapper, including its reversible
+  `armed_baseline` scope. The flag's documented purpose is only to omit the
+  acceleration preflight.
+- Repair: a skipped-smoke deterministic baseline now runs its full request
+  inside the same reversible arming scope. A regression test observes
+  `trace=true` during the one full invocation and exact original config bytes
+  afterward. The interrupted diagnostic was explicitly cleaned: only the
+  identified SC6 process was terminated, the exact temporary qualification mod
+  and matching request were removed, and all diagnostic flags are false.
+
+## 2026-08-31 — exact batch-entry checkpoint was not an exact seek landing
+
+- Source identity: frozen commit
+  `83644a0a3d2ac41eb1c565630b66cf08963adbad` plus the recorded deterministic
+  dirty patch; this development evidence is non-certifying.
+- Authored replay map: **Silver Wolves' Haven**.
+- The first 10% seek targeted generation 6/frame 1024 from frame 1565. Its
+  immediate landing hash differed only in native fingerprint bit 18: the exact
+  two MoveDispatch event-mask qwords were expected as `0/0` and observed as
+  `0/0x110`. The additional `wind_mask=0x400` identified node zero's derived
+  wind bytes, which are deliberately excluded from canonical truth.
+- Authoritative cause: a retained batch-entry reconstruction image may share a
+  coordinate with the earlier completed-coordinate fencepost, but it also
+  contains the preceding outer tick's post-fencepost tail. The event-mask
+  writer is OR-only within the object lifetime, so replaying from that image
+  cannot remove a bit introduced by the tail. Treating an exact entry image as
+  an exact canonical landing was invalid.
+- Repair: seek planning now replays the batch that produced the target instead
+  of using the same-coordinate entry as a landing. Before landing verification,
+  the existing identity-checked transactional event-mask writer restores the
+  two exact values retained in the canonical timeline. The field remains in
+  canonical hashing and verification.
+- Regression evidence: the same normal-render 10/25/50/75% canary passed all
+  four seeks. They resimulated 7, 7, 13, and 1 coordinates in 4.941, 4.290,
+  5.512, and 3.144 ms. Each then verified its complete historical interval and
+  resumed 600 live frames at approximately 60 Hz. Cross-generation range
+  re-anchoring also passed. SC6 and the temporary qualification mod were absent
+  afterward, and `enabled`, `trace`, `correction_probe`, and
+  `forced_depth7_qualification` were all restored to `false`.

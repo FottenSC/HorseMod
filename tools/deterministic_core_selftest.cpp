@@ -1126,14 +1126,17 @@ void test_batch_aware_replay_seek_planning()
         "mid-batch plan preserves its base, landing offset, and batch tail");
 
     expect(entries.Save({{1, 3}, 1, {}, {}}).ok(),
-        "save resumable exact batch boundary");
+        "save exact batch-entry boundary");
     expect(PlanReplaySeek({1, 3}, batches, entries, 29, plan).ok(),
         "plan an exact batch-boundary seek");
-    expect(plan.resimulation_base == FrameCoordinate{1, 3}
-            && plan.first_batch_index == 1
-            && plan.resimulation_coordinates == 0
-            && !plan.landing_requires_batch_replay,
-        "exact entry checkpoint resumes at the following batch");
+    expect(plan.resimulation_base == FrameCoordinate{1, 0}
+            && plan.first_batch_index == 0
+            && plan.landing_batch_index == 0
+            && plan.landing_offset_in_batch == 2
+            && plan.resimulation_coordinates == 3
+            && plan.landing_requires_batch_replay,
+        "exact entry checkpoint is not mistaken for the earlier canonical "
+        "fencepost at the same coordinate");
 
     SnapshotStore missing{1024 * 1024, 8, CapacityPolicy::RejectNew};
     expect(PlanReplaySeek({1, 2}, batches, missing, 29, plan).code

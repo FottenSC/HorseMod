@@ -982,6 +982,14 @@ Status Sc6CandidateCheckpointCapture::RestoreMoveDispatchMasksForReplay(
         auxiliary_decode_scratch_->native);
 }
 
+Status Sc6CandidateCheckpointCapture::RestoreMoveDispatchMasksForReplay(
+    const CanonicalMoveDispatchDiagnostic& diagnostic) noexcept
+{
+    const std::array<std::uint64_t, 2> masks{
+        diagnostic[0], diagnostic[1]};
+    return regions_->RestoreMoveDispatchMasksTransactional(masks);
+}
+
 Status Sc6CandidateCheckpointCapture::CaptureCameraSourceFrame(
     NativeCameraSourceFrameImage& output) noexcept
 {

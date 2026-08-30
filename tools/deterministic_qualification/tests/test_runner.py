@@ -10,6 +10,7 @@ from tools.deterministic_qualification.artifacts import (
 from tools.deterministic_qualification.runner import (
     _read_bounded_log_since,
     _temporarily_armed_smoke_config,
+    _write_compact_replay_failure,
     load_outcome_control,
     run_replay_entry,
 )
@@ -90,6 +91,72 @@ def test_bounded_failure_log_restarts_after_log_rotation(tmp_path):
     assert failure in captured
 
 
+def test_bounded_failure_log_keeps_late_terminal_line(tmp_path):
+    log = tmp_path / "UE4SS.log"
+    log.write_bytes(b"old run\n")
+    cursor = capture_log_offset(log)
+    failure = (
+        b"[HorseMod] owned replay seek request failed target=1024 "
+        b"component_mask=0x1 native_mask=0x40000\n"
+    )
+    log.write_bytes(b"old run\n" + b"startup\n" * 2048 + failure)
+
+    captured = _read_bounded_log_since(log, cursor, maximum_bytes=4096)
+
+    assert failure in captured
+
+
+def test_compact_failure_records_terminal_fields_and_restores_flags(
+    tmp_path, monkeypatch,
+):
+    log = tmp_path / "UE4SS.log"
+    log.write_bytes(b"startup\n" * 300000)
+    cursor = capture_log_offset(log)
+    failure = (
+        b"[HorseMod] owned replay seek request failed target=1024 "
+        b"component_mask=0x1 native_mask=0x40000 "
+        b"owner_selector=general owner_pointer=0x1234 "
+        b"caller_rva=0x519789 graph_provenance=0xabcd phase=seek\n"
+    )
+    with log.open("ab") as stream:
+        stream.write(failure)
+    config = tmp_path / "rollback.ini"
+    config.write_text(
+        "enabled=false\ntrace=true\ncorrection_probe=true\n"
+        "forced_depth7_qualification=true\n",
+        encoding="utf-8",
+    )
+    report = tmp_path / "failure.json"
+    args = SimpleNamespace(
+        command="replay-entry", config=config, log=log, report=report,
+        case_id="case", row_id="row", display_map_name="Test Map",
+        stage_package_root="/Game/Test", _failure_log_start=cursor,
+    )
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.runner.find_game_pid",
+        lambda: None,
+    )
+
+    _write_compact_replay_failure(args, RuntimeError("intentional failure"))
+
+    document = json.loads(report.read_text(encoding="utf-8"))
+    details = document["failure"]
+    assert details["first_failing_frame"] == "1024"
+    assert details["field_or_mask"] == "0x1"
+    assert details["owner_selector"] == "general"
+    assert details["owner_pointer"] == "0x1234"
+    assert details["return_rva"] == "0x519789"
+    assert details["graph_provenance"] == "0xabcd"
+    assert details["lifecycle_phase"] == "seek"
+    assert failure.decode().strip() in Path(details["bounded_log"]).read_text(
+        encoding="utf-8")
+    restored = config.read_text(encoding="utf-8")
+    assert "enabled=false\n" in restored
+    assert "trace=false\n" in restored
+    assert "correction_probe=false\n" in restored
+    assert "forced_depth7_qualification=false\n" in restored
+
+
 def test_smoke_config_arms_hooks_and_restores_exact_bytes(tmp_path):
     config = tmp_path / "rollback.ini"
     original = (
@@ -156,4 +223,41 @@ def test_baseline_wrapper_arms_smoke_and_full_run_then_restores(
     assert [smoke for smoke, _ in observed] == [True, False]
     assert all("trace=true\n" in text for _, text in observed)
     assert all("enabled=false\n" in text for _, text in observed)
+    assert config.read_bytes() == original
+
+
+def test_baseline_smoke_skip_still_arms_full_run_then_restores(
+    tmp_path, monkeypatch,
+):
+    config = tmp_path / "rollback.ini"
+    original = (
+        b"config_version=1\nenabled=false\nrollback_window=12\n"
+        b"input_delay=1\ntrace=false\ncorrection_probe=false\n"
+        b"forced_depth7_qualification=false\nqualification_depth=7\n"
+        b"qualification_location=2\n"
+    )
+    config.write_bytes(original)
+    observed = []
+
+    def capture(args):
+        observed.append(config.read_text(encoding="utf-8"))
+        return 0
+
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.runner._run_replay_entry_once",
+        capture,
+    )
+    args = SimpleNamespace(
+        certifying=False,
+        skip_development_smoke=True,
+        smoke_frames=120,
+        deterministic_baseline=True,
+        development_smoke=False,
+        config=config,
+    )
+
+    assert run_replay_entry(args) == 0
+    assert len(observed) == 1
+    assert "enabled=false\n" in observed[0]
+    assert "trace=true\n" in observed[0]
     assert config.read_bytes() == original

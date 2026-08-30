@@ -2200,16 +2200,28 @@ private:
         {
             return;
         }
-        if (seek_range_generation_ == 0)
+        // A completed seek resumes live simulation for the full qualification
+        // window.  That window may legitimately cross a round barrier and
+        // advance the native timeline generation before the next percentage
+        // is requested.  The native range API guarantees that each returned
+        // range is internally single-generation, so anchor the next seek to
+        // that new domain.  Generation changes remain terminal while a seek
+        // request or its live-resume validation is active in the branches
+        // above.
+        if (seek_range_generation_ == 0
+            || generation != seek_range_generation_)
         {
+            if (seek_range_generation_ != 0)
+            {
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] strict seek range re-anchored "
+                    "previous_generation={} generation={} range={}-{} "
+                    "next_index={}\n"), seek_range_generation_, generation,
+                    first, last, seek_index_);
+            }
             seek_range_generation_ = generation;
             seek_range_first_ = first;
             seek_range_last_ = last;
-        }
-        if (generation != seek_range_generation_)
-        {
-            Fail("horsemod_seek_generation_changed");
-            return;
         }
         const std::uint64_t target = seek_range_first_
             + (seek_range_last_ - seek_range_first_) * percentage / 100;
