@@ -29,3 +29,28 @@ an immutable release certificate explicitly promotes it.
   earlier **Silver Wolves’ Haven** baseline and correction rows, then rerun the
   entire 51-row normal-render offline matrix.
 
+## 2026-08-30 — resolved-hit evidence omitted from JSON serialization
+
+- Source commit: `642e2ef266a6686d5ff5b2865d6407e51ca8d465`
+- HorseMod DLL SHA-256:
+  `9D2AD9084EFCBF6F38FAA08C3AD21FD72CDEB15EE1557F9FF1CB8D57F99BC45D`
+- Authored replay map: **Silver Wolves’ Haven**
+- Last completed matrix row:
+  `near_round_start`, depth 1, primary pass
+- Raw report:
+  `docs/investigations/evidence/release-642e2ef2/offline/raw/astaroth-raphael-silver-wolves-haven__near_round_start__depth_1-primary.json`
+- Simulation result before campaign interruption: 600 corrections, exact
+  canonical convergence, zero capacity failures or growth events, 59.548
+  active-replay FPS/TPS, correction p99 2450 microseconds and maximum 2759
+  microseconds.
+- Reporting failure: `GameplayRngCoverageEvidence` parsed
+  `resolved_hit_calls` and `resolved_hit_sequence`, and the live confirmed-hit
+  gate used the count, but `runner.py` manually serialized the older field set
+  and omitted both values from the JSON report. This was an evidence-schema
+  defect, not a simulation or canonical divergence.
+- Cleanup: the campaign was interrupted before accepting further rows; SC6 was
+  absent and `trace`, `correction_probe`, and
+  `forced_depth7_qualification` were explicitly restored to `false`.
+- Required regression: serialize both fields, freeze a new source identity,
+  rebuild the unchanged simulation DLL with that identity, and restart the
+  51-row matrix from its **Silver Wolves’ Haven** stock control.

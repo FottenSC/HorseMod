@@ -849,6 +849,9 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                     f"0x{gameplay_rng_coverage.xorshift_sequence:016x}",
                 "transition07_sequence":
                     f"0x{gameplay_rng_coverage.transition07_sequence:016x}",
+                "resolved_hit_calls": gameplay_rng_coverage.resolved_hit_calls,
+                "resolved_hit_sequence":
+                    f"0x{gameplay_rng_coverage.resolved_hit_sequence:016x}",
                 "tira_sequence":
                     f"0x{gameplay_rng_coverage.tira_sequence:016x}",
                 "tira_stance_batches": gameplay_rng_coverage.tira_stance_batches,
