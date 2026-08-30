@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .configuration import expected_fields, is_exact_contract
+from .configuration import contract_sha256, expected_fields, is_exact_contract
 
 
 LOCATIONS = ("near_round_start", "active_combat", "confirmed_hit", "round_end")
@@ -133,6 +133,9 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
             if row.required_corrections else 2)
     _require(is_exact_contract(config, expected_config),
              "qualification config contract mismatch", failures)
+    _require(artifacts.get("config", {}).get("sha256")
+             == contract_sha256(expected_config),
+             "qualification config byte contract mismatch", failures)
     _require(runtime.get("canonical_convergence") == "exact",
              "canonical convergence is not exact", failures)
     _require(runtime.get("capacity_failures") == 0,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -38,8 +39,19 @@ def expected_fields(*, enabled: bool, trace: bool,
 
 
 def is_exact_contract(fields: object, expected: dict[str, str]) -> bool:
-    return (isinstance(fields, dict) and tuple(fields) == CONFIG_FIELD_ORDER
-            and fields == expected)
+    # JSON objects are unordered and write_report deliberately sorts their
+    # keys. Exact file ordering is bound by the canonical config SHA-256;
+    # this projection verifies the complete native field/value contract.
+    return isinstance(fields, dict) and fields == expected
+
+
+def contract_sha256(expected: dict[str, str]) -> str:
+    if set(expected) != set(CONFIG_FIELD_ORDER):
+        raise RuntimeError("cannot hash an incomplete native config contract")
+    encoded = "".join(
+        f"{key}={expected[key]}\n" for key in CONFIG_FIELD_ORDER
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def read_fields(path: Path) -> dict[str, str]:

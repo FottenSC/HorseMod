@@ -9,7 +9,8 @@ from typing import Any
 
 from .artifacts import runner_sha256, sha256_file, source_identity
 from .configuration import (
-    armed_baseline, disarm_diagnostics, expected_fields, is_exact_contract,
+    armed_baseline, contract_sha256, disarm_diagnostics, expected_fields,
+    is_exact_contract,
 )
 from .process_control import list_game_processes
 from .report import write_report
@@ -107,9 +108,12 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                     or presentation.get("identity") is None):
                 case_failures.append("Tira presentation identity is incomplete")
             config = artifacts.get("config_fields", {})
-            if not is_exact_contract(
-                    config, expected_fields(enabled=False, trace=True)):
+            expected_config = expected_fields(enabled=False, trace=True)
+            if not is_exact_contract(config, expected_config):
                 case_failures.append("Tira qualification config contract mismatch")
+            if (artifacts.get("config", {}).get("sha256")
+                    != contract_sha256(expected_config)):
+                case_failures.append("Tira qualification config byte contract mismatch")
             if runtime.get("stock_round_outcome") is None:
                 case_failures.append("authored round/final winner proof missing")
             if runtime.get("final_canonical") is None:

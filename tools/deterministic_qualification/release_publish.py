@@ -10,7 +10,7 @@ from .artifacts import (
     source_identity, source_identity_sha256,
 )
 from .offline_matrix import evaluate_matrix, load_candidate_cases
-from .configuration import expected_fields, is_exact_contract
+from .configuration import contract_sha256, expected_fields, is_exact_contract
 
 
 REQUIRED_PROFILES = {
@@ -83,6 +83,8 @@ def _common_report(report: dict[str, Any], case: dict[str, Any],
                      and all(is_exact_contract(value, online)
                              for value in config_fields.values()),
                      "release paired config contract mismatch")
+            _require(set(config_identity.values()) == {contract_sha256(online)},
+                     "release paired config byte contract mismatch")
         else:
             _require(isinstance(config_identity, str) and len(config_identity) == 64,
                      "release config hash binding missing")
@@ -101,10 +103,13 @@ def _strict_seek_gate(report: dict[str, Any], case: dict[str, Any],
              and (metadata.get("left_character"), metadata.get("right_character"))
                 == tuple(case["replay_metadata_fighters"]),
              "strict seek native replay metadata mismatch")
+    expected_config = expected_fields(enabled=False, trace=True)
     _require(is_exact_contract(
-        report.get("artifacts", {}).get("config_fields"),
-        expected_fields(enabled=False, trace=True)),
+        report.get("artifacts", {}).get("config_fields"), expected_config),
         "strict seek config contract mismatch")
+    _require(report.get("artifacts", {}).get("config", {}).get("sha256")
+             == contract_sha256(expected_config),
+             "strict seek config byte contract mismatch")
     _require(report.get("renderer") == "normal", "strict seek renderer is not normal")
     _require(runtime.get("canonical_convergence") == "exact",
              "strict seek canonical convergence failed")

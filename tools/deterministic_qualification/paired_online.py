@@ -15,7 +15,9 @@ from .artifacts import (
     require_compiled_candidate_manifest, runner_sha256, sha256_file,
     source_identity, source_identity_sha256,
 )
-from .configuration import disarm_diagnostics, read_fields, write_fields
+from .configuration import (
+    canonicalize_contract, disarm_diagnostics, read_fields, write_fields,
+)
 from .impairment import ClumsyImpairment
 from .observer_pair import (
     ObserverPairPaths,
@@ -642,6 +644,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
     try:
         hashes = deploy_observer_pair(paths, args.dll, args.replay_mod)
         for peer in (paths.host, paths.sandbox):
+            canonicalize_contract(peer.config)
             write_fields(peer.config, {"enabled": "false", "trace": "true"})
         config_hashes = {
             "host": sha256_file(paths.host.config),

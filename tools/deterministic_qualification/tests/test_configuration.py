@@ -5,6 +5,7 @@ import pytest
 from tools.deterministic_qualification.configuration import (
     armed_correction,
     canonicalize_contract,
+    contract_sha256,
     disarm_diagnostics,
     expected_fields,
     is_exact_contract,
@@ -52,11 +53,14 @@ def test_disarm_overrides_enabled_and_verifies_every_diagnostic(tmp_path: Path) 
     assert "qualification_location=2" in restored
 
 
-def test_exact_config_contract_rejects_unknown_or_reordered_fields() -> None:
+def test_exact_config_contract_rejects_unknown_fields_not_json_key_order() -> None:
     expected = expected_fields(enabled=True, trace=True)
     assert is_exact_contract(dict(expected), expected)
     assert not is_exact_contract({**expected, "unknown": "false"}, expected)
-    assert not is_exact_contract(dict(reversed(list(expected.items()))), expected)
+    assert is_exact_contract(dict(reversed(list(expected.items()))), expected)
+    assert contract_sha256(expected) == (
+        "0b8d84c6379ef14a2cfc9b45fcdd6e383b29b9d2471ee252621b6b9658b6b1f9"
+    )
 
 
 def test_certifying_config_canonicalization_drops_ignored_legacy_fields(

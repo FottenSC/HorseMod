@@ -288,3 +288,26 @@ an immutable release certificate explicitly promotes it.
 - The interrupted confirmed-hit depth-6 re-entry was cleaned up without
   accepting evidence: SC6 was absent, the request and temporary bridge were
   removed, and all diagnostic flags were restored to `false`.
+
+## 2026-08-30 — JSON key ordering could falsely reject the native config contract
+
+- Source commit: `945ded3d65d13e8a0df58ef45a075dfa71adf012`.
+- HorseMod DLL SHA-256:
+  `A01342449533188182A0089B2551DF5D317824EA556E5BA0A3ED0F9562420D3E`.
+- Authored replay map: **Silver Wolves’ Haven**.
+- The fresh stock control passed at 60.08 normal-render FPS/TPS with native
+  stage 273/map 17 and Astaroth 12/Raphael 14, proving the preceding manifest
+  correction. Before a combined matrix row was accepted, source inspection
+  found that `write_report` sorts every JSON object key while
+  `is_exact_contract` required Python dictionary iteration order to match INI
+  file order. Every deserialized certifying report was therefore guaranteed to
+  fail despite exact native fields and values.
+- Authoritative repair: compare JSON config projections as unordered exact
+  field/value mappings, and separately require the SHA-256 of the canonical
+  LF-terminated nine-line native config. This preserves and strengthens the
+  byte-order contract without assigning semantics to JSON object order.
+  Offline, strict-seek, Tira, and paired-online release gates all bind the
+  canonical config hash; paired deployment canonicalizes both peer configs.
+- The campaign was stopped before accepting a row. SC6 exited through WM_CLOSE,
+  the temporary bridge and request were removed, and all diagnostic flags were
+  restored to `false`. The stock artifact is non-certifying regression evidence.

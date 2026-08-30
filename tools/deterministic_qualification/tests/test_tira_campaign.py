@@ -1,7 +1,9 @@
 from copy import deepcopy
 
 from tools.deterministic_qualification.tira_campaign import evaluate_tira_reports
-from tools.deterministic_qualification.configuration import expected_fields
+from tools.deterministic_qualification.configuration import (
+    contract_sha256, expected_fields,
+)
 
 
 def _cases():
@@ -20,6 +22,7 @@ def _cases():
 
 
 def _report(case_id: str, transition: bool):
+    expected_config = expected_fields(enabled=False, trace=True)
     coverage = {
         "xorshift_draws": 10,
         "known_callers": 1,
@@ -57,7 +60,8 @@ def _report(case_id: str, transition: bool):
             "schema_sha256": "schema",
             "runner_sha256": "runner",
             "replay": {"sha256": "replay"},
-            "config_fields": expected_fields(enabled=False, trace=True),
+            "config": {"sha256": contract_sha256(expected_config)},
+            "config_fields": expected_config,
         },
         "runtime": {
             "capacity_failures": 0,
