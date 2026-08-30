@@ -210,6 +210,8 @@ Status StageWindGraphTransaction::Restore(
             callbacks[index] = addresses.image_base + target.pending_callback_rvas[index];
     std::memcpy(new_root.data() + 0x18, callbacks.data(), sizeof(callbacks));
     std::memcpy(new_root.data() + 0x98, target.schedule_state.data(), target.schedule_state.size());
+    std::memcpy(new_root.data() + 0xA8, target.root_unknown_a8.data(),
+        target.root_unknown_a8.size());
     std::memcpy(new_root.data() + 0xB0, target.schedule_params.data(), target.schedule_params.size());
     std::memcpy(new_root.data() + 0xC0, target.output_force.data(), target.output_force.size());
 

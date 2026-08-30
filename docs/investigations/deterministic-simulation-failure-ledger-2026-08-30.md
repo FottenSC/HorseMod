@@ -4,6 +4,38 @@ This ledger preserves authoritative failure causes and diagnostics separately
 from candidate hashes. Every listed artifact is regression evidence only unless
 an immutable release certificate explicitly promotes it.
 
+## 2026-08-30 — pre-tick audio graph assigned an exact cue to the wrong owner
+
+- Audited ancestor commit: `dc3cc3d9`; the defect remained present in candidate
+  commit `ef3884cc350a2f85fda16de98c094bfdc73d76a1`.
+- Invalidated candidate DLL SHA-256:
+  `3E125C248AF27753CA1E31783871E7F2080C07871F1DC4E70108412C60B005A5`.
+- Authored replay map: **Silver Wolves’ Haven**.
+- Paired normal-render baseline: 3,463 terminal events on each run. The first
+  mismatch was global terminal 39; operation, order, cue, and route matched,
+  but the character-cue family/slot identity was 7 versus 6. Forty-seven
+  terminal records differed.
+- Authoritative cause: the outer-tick graph sampled the character-player array
+  before `LuxAudio_ResolveAndPlayCharaCue @ 0x140519970` selected its live entry.
+  The terminal pointer was known, so the miss-only refresh path never ran and
+  silently associated an exact cue payload with the wrong logical owner.
+- Additional accepted defects: a local duplicate-pointer shortcut ignored a
+  conflicting selector; epoch reuse compared bindings without manager,
+  container, generation, or lifetime provenance; stage identity invalidation
+  also cleared unrelated audio state; wind canonicalization could return a
+  partial prefix for an invalid bank/count; and local wind-root restore omitted
+  `+0xA8..+0xAF`.
+- Authoritative repair: hook the synchronous semantic resolver, capture exact
+  `bMode`, authored cue family, selected owner, and live array only for that
+  call, and fail closed on terminal mismatch. Reuse an audio epoch only when
+  generation, managers, containers, counts, and exact bindings all match.
+  Validate wind images before emitting bytes and restore the complete local
+  root image.
+- Required regression: schema-v48 unit tests, then a paired exact-audio
+  normal-render baseline on **Silver Wolves’ Haven** before any correction
+  matrix row. All evidence from the invalidated candidate remains
+  non-certifying regression evidence.
+
 ## 2026-08-30 — confirmed-hit trigger was structurally impossible
 
 - Source commit: `0278d46eee6cb57a37f6a3242194b08ea1b0aa60`

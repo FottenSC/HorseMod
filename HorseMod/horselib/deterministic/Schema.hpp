@@ -8,7 +8,7 @@
 namespace Horse::Deterministic::Schema
 {
 inline constexpr std::uint32_t protocol_version = 2;
-inline constexpr std::uint32_t snapshot_schema_version = 47;
+inline constexpr std::uint32_t snapshot_schema_version = 48;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::size_t maximum_presentation_payload = 256;
 inline constexpr std::uint64_t checkpoint_interval = 30;
@@ -96,6 +96,9 @@ inline constexpr std::uintptr_t battle_audio_tracking_insert_rva = 0x156bff0;
 inline constexpr std::uintptr_t battle_audio_tracking_rehash_rva = 0x3c9d00;
 inline constexpr std::uintptr_t battle_audio_blueprint_publish_rva = 0x979e00;
 inline constexpr std::uintptr_t battle_audio_register_voice_rva = 0x54f8b0;
+// LuxAudio_ResolveAndPlayCharaCue selects the character player from the
+// event's authored bMode byte before synchronously reaching the voice terminal.
+inline constexpr std::uintptr_t battle_audio_resolve_chara_cue_rva = 0x519970;
 // Return address immediately after the character cue-family resolver calls
 // the voice terminal. Its cue-sheet argument is a process-local CRI slot.
 inline constexpr std::uintptr_t battle_audio_chara_cue_terminal_return_rva =
@@ -273,6 +276,12 @@ inline constexpr std::array<std::byte, 16> battle_audio_register_voice_signature
     std::byte{0x10}, std::byte{0x48}, std::byte{0x89}, std::byte{0x74},
     std::byte{0x24}, std::byte{0x18}, std::byte{0x48}, std::byte{0x89},
     std::byte{0x7c}, std::byte{0x24}, std::byte{0x20}, std::byte{0x55},
+};
+inline constexpr std::array<std::byte, 16> battle_audio_resolve_chara_cue_signature{
+    std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+    std::byte{0x20}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83},
+    std::byte{0xec}, std::byte{0x20}, std::byte{0x0f}, std::byte{0xb6},
+    std::byte{0x02}, std::byte{0x33}, std::byte{0xdb}, std::byte{0x45},
 };
 inline constexpr std::array<std::byte, 16> battle_audio_append_command_signature{
     std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},

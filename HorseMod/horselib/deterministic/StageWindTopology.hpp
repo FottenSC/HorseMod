@@ -215,6 +215,7 @@ struct StageWindTopologyImage
     std::array<std::byte, 12> root_clock{};
     std::array<std::uint32_t, 16> pending_callback_rvas{};
     std::array<std::byte, 16> schedule_state{};
+    std::array<std::byte, 8> root_unknown_a8{};
     std::array<std::byte, 16> schedule_params{};
     std::array<std::byte, 48> output_force{};
     StageWindNodeBuffer nodes;
@@ -246,8 +247,9 @@ public:
 
     [[nodiscard]] static std::vector<std::byte> CanonicalBytes(
         const StageWindTopologyImage& image);
-    static void CanonicalBytes(const StageWindTopologyImage& image,
-        std::vector<std::byte>& output);
+    [[nodiscard]] static Status CanonicalBytes(
+        const StageWindTopologyImage& image,
+        std::vector<std::byte>& output) noexcept;
 
 private:
     INativeMemory& memory_;

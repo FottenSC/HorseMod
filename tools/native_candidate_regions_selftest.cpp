@@ -2302,6 +2302,35 @@ void test_stage_wind_topology_is_bounded_and_pointer_free()
     expect(!contains_qword(canonical, root) && !contains_qword(canonical, first)
             && !contains_qword(canonical, second),
         "wind canonical bytes contain no native root or node pointer");
+    std::vector<std::byte> rejected{std::byte{0x7f}};
+    auto invalid_schedule = image;
+    const std::uint32_t invalid_bank = 2;
+    std::memcpy(invalid_schedule.schedule_state.data(), &invalid_bank,
+        sizeof(invalid_bank));
+    expect(StageWindTopologyProbe::CanonicalBytes(
+                invalid_schedule, rejected).code
+                == FailureCode::IdentityMismatch
+            && rejected.empty(),
+        "invalid wind schedules fail before emitting canonical bytes");
+    const std::uint32_t valid_bank = 0;
+    const std::int32_t negative_count = -1;
+    std::memcpy(invalid_schedule.schedule_state.data(), &valid_bank,
+        sizeof(valid_bank));
+    std::memcpy(invalid_schedule.schedule_state.data() + 4,
+        &negative_count, sizeof(negative_count));
+    rejected.assign(1, std::byte{0x7f});
+    expect(!StageWindTopologyProbe::CanonicalBytes(
+                invalid_schedule, rejected).ok()
+            && rejected.empty(),
+        "negative wind callback counts cannot leave canonical prefixes");
+    const std::int32_t oversized_count = 9;
+    std::memcpy(invalid_schedule.schedule_state.data() + 4,
+        &oversized_count, sizeof(oversized_count));
+    rejected.assign(1, std::byte{0x7f});
+    expect(!StageWindTopologyProbe::CanonicalBytes(
+                invalid_schedule, rejected).ok()
+            && rejected.empty(),
+        "oversized wind callback counts cannot leave canonical prefixes");
 
     auto equivalent_bank_variant = image;
     const std::uint32_t alternate_bank = 1;
@@ -2408,6 +2437,7 @@ void test_stage_wind_graph_restore_is_transactional()
     memory.Fill(root + 0x08, 12, std::byte{0x11});
     memory.Set(root + 0x98, std::uint32_t{});
     memory.Set(root + 0x9C, std::int32_t{});
+    memory.Fill(root + 0xA8, 8, std::byte{0x2f});
     memory.Fill(root + 0xB0, 0x10, std::byte{0x33});
     memory.Fill(root + 0xC0, 0x30, std::byte{0x44});
     memory.Set(old_node, image_base + std::uintptr_t{0x3E88CE8});
@@ -2434,6 +2464,7 @@ void test_stage_wind_graph_restore_is_transactional()
     const auto canonical_before_derived_change =
         StageWindTopologyProbe::CanonicalBytes(target);
     target.root_clock[0] = std::byte{0x7A};
+    target.root_unknown_a8[3] = std::byte{0x6f};
     target.nodes[0].semantic_state[0] = std::byte{0x6A};
     target.nodes[0].derived_state[0] = std::byte{0x5A};
     auto canonical_without_derived = target;

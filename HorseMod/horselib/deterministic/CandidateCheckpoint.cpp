@@ -195,6 +195,7 @@ void encode_wind_local(
     append_range(output, image.root_clock);
     append_range(output, std::as_bytes(std::span{image.pending_callback_rvas}));
     append_range(output, image.schedule_state);
+    append_range(output, image.root_unknown_a8);
     append_range(output, image.schedule_params);
     append_range(output, image.output_force);
     append(output, static_cast<std::uint32_t>(image.nodes.size()));
@@ -250,6 +251,7 @@ Status decode_wind_local(
     output.root_clock = {};
     output.pending_callback_rvas = {};
     output.schedule_state = {};
+    output.root_unknown_a8 = {};
     output.schedule_params = {};
     output.output_force = {};
     Reader reader{bytes};
@@ -259,6 +261,7 @@ Status decode_wind_local(
         || !reader.TakeBytes(std::as_writable_bytes(
             std::span{output.pending_callback_rvas}))
         || !reader.TakeBytes(output.schedule_state)
+        || !reader.TakeBytes(output.root_unknown_a8)
         || !reader.TakeBytes(output.schedule_params)
         || !reader.TakeBytes(output.output_force)
         || !reader.Take(count) || count > 64)
@@ -570,7 +573,9 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         if (ucrt_canonical.capacity() < 32) ucrt_canonical.reserve(32);
         append_ucrt_canonical(ucrt_canonical, image.ucrt);
         static thread_local std::vector<std::byte> wind_canonical;
-        StageWindTopologyProbe::CanonicalBytes(image.wind, wind_canonical);
+        const auto wind_status = StageWindTopologyProbe::CanonicalBytes(
+            image.wind, wind_canonical);
+        if (!wind_status.ok()) return wind_status;
         const std::array canonical_components{
             std::span<const std::byte>{native_canonical},
             std::span<const std::byte>{move_dispatch_canonical},
@@ -979,7 +984,13 @@ Status CandidateCheckpointCodec::Decode(
     {
         try
         {
-            wind_canonical = StageWindTopologyProbe::CanonicalBytes(output.wind);
+            const auto wind_status = StageWindTopologyProbe::CanonicalBytes(
+                output.wind, wind_canonical);
+            if (!wind_status.ok())
+            {
+                reset_checkpoint_image(output);
+                return wind_status;
+            }
         }
         catch (...)
         {

@@ -889,8 +889,13 @@ source event mode 1 selects cue family 7, mode 2 selects family 8, the default
 selects family 6, and modes 3/4 select option families 10/11. The selected owner
 comes from the current live player-entry array at the source tick before
 `LuxAudio_ResolveAndPlayCharaCue @ 0x140519970` returns through `0x140519A6D`.
-The implementation now refreshes this bounded owner graph on every authoritative
-outer tick and rotates its generation only when the actual bindings change.
+That return address is diagnostic terminal provenance, not an independently
+stable owner identity. The implementation now hooks the semantic resolver and
+carries its exact event `bMode`, authored family byte, selected live owner, and
+array provenance only across the synchronous terminal call. A terminal owner
+mismatch fails closed. The broader graph is refreshed only after replay
+generation preparation and preserves an epoch only when generation, managers,
+containers, counts, and exact pointer-selector bindings all match.
 `LuxAudio_RegisterCueSheetObjectAndReturnSlot @ 0x1405510B0` proves that the
 numeric cue-sheet argument at the terminal is allocated by live-object arrival:
 reuse a pointer-equal entry, otherwise fill the first expired/null hole, otherwise

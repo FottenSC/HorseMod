@@ -388,17 +388,15 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     observation.fp_before_valid = true;
     if (hooks != nullptr)
     {
-        // The manager's shared-player arrays settle asynchronously after the
-        // battle manager itself becomes stable. Rebuild the bounded candidate
-        // from the current arrays at every authoritative outer-tick boundary;
-        // PrepareAudioOwnerGraph preserves the epoch when bindings are equal
-        // and rotates it only when the native owner graph actually changes.
-        static_cast<void>(hooks->PrepareAudioOwnerGraph(
-            reinterpret_cast<std::uintptr_t>(battle_manager)));
-        observation.audio_owner_graph_failure_stage =
-            hooks->audio_graph_failure_stage_;
         hooks->callbacks_.outer_tick_prepare(
             hooks->callbacks_.user, observation);
+        // outer_tick_prepare first advances the replay lifetime generation.
+        // Only then may a graph be admitted for this exact generation.
+        if (!hooks->PrepareAudioOwnerGraph(
+                reinterpret_cast<std::uintptr_t>(battle_manager)))
+            hooks->ClearAudioOwnerGraph();
+        observation.audio_owner_graph_failure_stage =
+            hooks->audio_graph_failure_stage_;
         hooks->CaptureOuterTickState(
             battle_manager, observation.before, observation.read_mask,
             0x1, 0x2, 0x4, 0x8);

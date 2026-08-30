@@ -47,6 +47,8 @@ std::atomic<std::uint64_t>
 std::atomic<std::uint64_t>
     DeterministicHookSet::battle_audio_register_voice_trampoline_global_{};
 std::atomic<std::uint64_t>
+    DeterministicHookSet::battle_audio_resolve_chara_cue_trampoline_global_{};
+std::atomic<std::uint64_t>
     DeterministicHookSet::battle_audio_append_command_trampoline_global_{};
 std::atomic<std::uint64_t>
     DeterministicHookSet::battle_audio_stop_all_trampoline_global_{};
@@ -69,6 +71,8 @@ std::array<std::atomic<std::uintptr_t>, maximum_battle_audio_handlers>
 std::atomic<bool> DeterministicHookSet::battle_audio_handler_overflow_{};
 thread_local DeterministicHookSet::OuterTickCaptureContext*
     DeterministicHookSet::active_outer_capture_{};
+thread_local DeterministicHookSet::BattleCharaCueSourceContext
+    DeterministicHookSet::active_battle_chara_cue_source_{};
 thread_local std::uint32_t active_battle_audio_source_depth{};
 thread_local std::uint32_t active_owned_battle_audio_source_depth{};
 thread_local std::uint32_t active_owned_audio_registration_depth{};

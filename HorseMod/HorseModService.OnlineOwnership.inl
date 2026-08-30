@@ -72,7 +72,6 @@
     void invalidate_stage_break_presentation_identity() noexcept
     {
         m_deterministic_hooks.InvalidateStageBreakPresentationIdentity();
-        m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();
         m_stage_break_topology = {};
         m_stage_break_identity_actors.fill({});
         m_stage_break_identity_assets.fill({});

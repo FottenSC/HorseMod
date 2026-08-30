@@ -27,6 +27,8 @@ bool DeterministicHookSet::ValidateInstallationSignatures(
         && matches(FrameLayout::battle_audio_tracking_insert_rva, FrameLayout::battle_audio_tracking_insert_signature)
         && matches(FrameLayout::battle_audio_tracking_rehash_rva, FrameLayout::battle_audio_tracking_rehash_signature)
         && matches(FrameLayout::battle_audio_blueprint_publish_rva, FrameLayout::battle_audio_blueprint_publish_signature)
+        && matches(FrameLayout::battle_audio_resolve_chara_cue_rva,
+            FrameLayout::battle_audio_resolve_chara_cue_signature)
         && matches(FrameLayout::battle_audio_register_voice_rva, FrameLayout::battle_audio_register_voice_signature)
         && matches(FrameLayout::battle_audio_append_command_rva, FrameLayout::battle_audio_append_command_signature)
         && matches(FrameLayout::battle_audio_stop_all_rva, FrameLayout::battle_audio_stop_all_signature)
@@ -102,6 +104,7 @@ bool DeterministicHookSet::InstallAudioHooks() noexcept
         && InstallDetour(battle_audio_tracking_insert_detour_, image_base_ + FrameLayout::battle_audio_tracking_insert_rva, reinterpret_cast<std::uintptr_t>(&BattleAudioTrackingInsertDetour), battle_audio_tracking_insert_trampoline_, battle_audio_tracking_insert_trampoline_global_)
         && InstallDetour(battle_audio_tracking_rehash_detour_, image_base_ + FrameLayout::battle_audio_tracking_rehash_rva, reinterpret_cast<std::uintptr_t>(&BattleAudioTrackingRehashDetour), battle_audio_tracking_rehash_trampoline_, battle_audio_tracking_rehash_trampoline_global_)
         && InstallDetour(battle_audio_blueprint_publish_detour_, image_base_ + FrameLayout::battle_audio_blueprint_publish_rva, reinterpret_cast<std::uintptr_t>(&BattleAudioBlueprintPublishDetour), battle_audio_blueprint_publish_trampoline_, battle_audio_blueprint_publish_trampoline_global_)
+        && InstallDetour(battle_audio_resolve_chara_cue_detour_, image_base_ + FrameLayout::battle_audio_resolve_chara_cue_rva, reinterpret_cast<std::uintptr_t>(&BattleAudioResolveCharaCueDetour), battle_audio_resolve_chara_cue_trampoline_, battle_audio_resolve_chara_cue_trampoline_global_)
         && InstallDetour(battle_audio_register_voice_detour_, image_base_ + FrameLayout::battle_audio_register_voice_rva, reinterpret_cast<std::uintptr_t>(&BattleAudioRegisterVoiceDetour), battle_audio_register_voice_trampoline_, battle_audio_register_voice_trampoline_global_)
         && InstallDetour(battle_audio_append_command_detour_, image_base_ + FrameLayout::battle_audio_append_command_rva, reinterpret_cast<std::uintptr_t>(&BattleAudioAppendCommandDetour), battle_audio_append_command_trampoline_, battle_audio_append_command_trampoline_global_)
         && InstallDetour(battle_audio_stop_all_detour_, image_base_ + FrameLayout::battle_audio_stop_all_rva, reinterpret_cast<std::uintptr_t>(&BattleAudioStopAllDetour), battle_audio_stop_all_trampoline_, battle_audio_stop_all_trampoline_global_)
@@ -206,6 +209,8 @@ void DeterministicHookSet::Uninstall() noexcept
         battle_audio_append_command_detour_->unHook();
     if (battle_audio_register_voice_detour_)
         battle_audio_register_voice_detour_->unHook();
+    if (battle_audio_resolve_chara_cue_detour_)
+        battle_audio_resolve_chara_cue_detour_->unHook();
     if (battle_audio_blueprint_publish_detour_)
         battle_audio_blueprint_publish_detour_->unHook();
     if (battle_audio_tracking_rehash_detour_)
@@ -282,8 +287,24 @@ void DeterministicHookSet::InvalidateBattleAudioPresentationIdentity() noexcept
     for (auto& handler : observed_battle_audio_handlers_)
         handler.store(0, std::memory_order_release);
     battle_audio_handler_overflow_.store(false, std::memory_order_release);
+    ClearAudioOwnerGraph();
+    audio_graph_generation_ = 0;
+}
+
+void DeterministicHookSet::ClearAudioOwnerGraph() noexcept
+{
     audio_owner_resolver_.Clear();
     audio_playback_map_.Clear();
+    audio_graph_provenance_ = {};
+    audio_graph_battle_manager_ = 0;
+}
+
+void DeterministicHookSet::SetBattleAudioPresentationGeneration(
+    std::uint64_t generation) noexcept
+{
+    if (generation == audio_graph_generation_) return;
+    ClearAudioOwnerGraph();
+    audio_graph_generation_ = generation;
 }
 
 Status DeterministicHookSet::MarkQualificationStageTerminal(
@@ -980,7 +1001,9 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
     constexpr std::uintptr_t cri_manager_slot_rva = 0x41492e8;
     constexpr std::size_t maximum_battle_players = 64;
     audio_graph_failure_stage_ = 1;
-    if (image_base_ == 0 || battle_manager == 0) return false;
+    if (image_base_ == 0 || battle_manager == 0
+        || audio_graph_generation_ == 0)
+        return false;
 
     std::uintptr_t cri_manager{};
     std::uintptr_t bgm_state{};
@@ -1000,18 +1023,12 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
     AudioOwnerResolver candidate;
     if (!candidate.BeginEpoch(epoch)) return false;
     audio_graph_failure_stage_ = 3;
-    std::array<std::uintptr_t, maximum_audio_owner_bindings> bound{};
-    std::size_t bound_count{};
     const auto bind_unique = [&](std::uintptr_t owner,
                                  AudioOwnerSelector selector) noexcept {
         if (owner == 0) return true;
-        for (std::size_t index = 0; index < bound_count; ++index)
-            if (bound[index] == owner) return true;
-        if (bound_count >= bound.size()
-            || !candidate.Bind(epoch, owner, selector))
-            return false;
-        bound[bound_count++] = owner;
-        return true;
+        // AudioOwnerResolver::Bind accepts only an exact repeated pair and
+        // rejects either a pointer or selector reused for another identity.
+        return candidate.Bind(epoch, owner, selector);
     };
     const auto read_owner = [](std::uintptr_t shared_player,
                                std::uintptr_t& owner) noexcept {
@@ -1057,14 +1074,20 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
     std::int32_t class_count{};
     std::uintptr_t chara_pairs{};
     std::int32_t chara_count{};
+    std::uintptr_t cue_family_pairs{};
+    std::int32_t cue_family_count{};
     if (!SafeRead(battle_audio_manager + 0x400, class_pairs)
         || !SafeRead(battle_audio_manager + 0x408, class_count)
         || !SafeRead(battle_audio_manager + 0x410, chara_pairs)
         || !SafeRead(battle_audio_manager + 0x418, chara_count)
+        || !SafeRead(battle_audio_manager + 0x430, cue_family_pairs)
+        || !SafeRead(battle_audio_manager + 0x438, cue_family_count)
         || class_count < 0 || class_count > maximum_battle_players
         || chara_count < 0 || chara_count > maximum_battle_players
+        || cue_family_count < 0 || cue_family_count > 64
         || (class_count != 0 && class_pairs == 0)
-        || (chara_count != 0 && chara_pairs == 0))
+        || (chara_count != 0 && chara_pairs == 0)
+        || (cue_family_count != 0 && cue_family_pairs == 0))
         return false;
     audio_graph_failure_stage_ = 7;
     for (std::int32_t index = 0; index < class_count; ++index)
@@ -1092,7 +1115,14 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
         return false;
     audio_graph_failure_stage_ = 10;
 
-    if (audio_owner_resolver_.SameBindings(candidate))
+    const AudioOwnerGraphProvenance provenance{
+        audio_graph_generation_, battle_manager, cri_manager, bgm_state,
+        active_context, bgm_pairs, bgm_count, battle_audio_manager,
+        class_pairs, class_count, chara_pairs, chara_count,
+        cue_family_pairs, cue_family_count, shared};
+
+    if (audio_graph_provenance_ == provenance
+        && audio_owner_resolver_.SameBindings(candidate))
     {
         audio_graph_battle_manager_ = battle_manager;
         audio_graph_failure_stage_ = 0;
@@ -1107,6 +1137,7 @@ bool DeterministicHookSet::PrepareAudioOwnerGraph(
     }
     audio_graph_epoch_counter_ = epoch;
     audio_graph_battle_manager_ = battle_manager;
+    audio_graph_provenance_ = provenance;
     audio_graph_failure_stage_ = 0;
     return true;
 }

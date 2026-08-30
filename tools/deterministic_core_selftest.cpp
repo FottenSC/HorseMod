@@ -1672,6 +1672,13 @@ void test_audio_presentation_identities_are_epoch_bound()
             && !owners.Bind(7, 0x3000, {
                 AudioOwnerDomain::BattleClassPlayer, 4, 0}),
         "audio owner resolver rejects stale epochs and post-seal mutation");
+    AudioOwnerResolver aliases;
+    expect(aliases.BeginEpoch(9)
+            && aliases.Bind(9, 0x4000, class_player)
+            && aliases.Bind(9, 0x4000, class_player)
+            && !aliases.Bind(9, 0x4000, shared)
+            && !aliases.Bind(9, 0x5000, class_player),
+        "audio owner resolver accepts exact repeats but rejects pointer and selector aliases");
 
     const auto logical = MakeLogicalAudioPlaybackId(123, 2);
     const auto cue_family = MakeAudioCueFamilyIdentity(7);

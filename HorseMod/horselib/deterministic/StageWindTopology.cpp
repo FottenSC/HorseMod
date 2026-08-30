@@ -195,6 +195,7 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
     output.root_clock = {};
     output.pending_callback_rvas = {};
     output.schedule_state = {};
+    output.root_unknown_a8 = {};
     output.schedule_params = {};
     output.output_force = {};
     if (!bound_) return Status::failure(FailureCode::AdapterUnqualified);
@@ -231,6 +232,7 @@ Status StageWindTopologyProbe::Capture(StageWindTopologyImage& output) noexcept
     std::array<std::uintptr_t, 16> callbacks{};
     if (!memory_.Read(root_ + 0x18, std::as_writable_bytes(std::span{callbacks}))
         || !memory_.Read(root_ + 0x98, output.schedule_state)
+        || !memory_.Read(root_ + 0xA8, output.root_unknown_a8)
         || !memory_.Read(root_ + 0xB0, output.schedule_params)
         || !memory_.Read(root_ + 0xC0, output.output_force))
     {
@@ -356,16 +358,21 @@ std::vector<std::byte> StageWindTopologyProbe::CanonicalBytes(
     const StageWindTopologyImage& image)
 {
     std::vector<std::byte> output;
-    CanonicalBytes(image, output);
+    static_cast<void>(CanonicalBytes(image, output));
     return output;
 }
 
-void StageWindTopologyProbe::CanonicalBytes(
-    const StageWindTopologyImage& image, std::vector<std::byte>& output)
+Status StageWindTopologyProbe::CanonicalBytes(
+    const StageWindTopologyImage& image,
+    std::vector<std::byte>& output) noexcept
 {
     output.clear();
-    if (output.capacity() < 0x1000) output.reserve(0x1000);
-    append(output, &image.generation, sizeof(image.generation));
+    if (!ValidateStageWindTopologyImage(image))
+        return Status::failure(FailureCode::IdentityMismatch);
+    try
+    {
+        if (output.capacity() < 0x1000) output.reserve(0x1000);
+        append(output, &image.generation, sizeof(image.generation));
     // Native root +0x08/+0x0C are the written strength and scene-tick
     // scalars. The captured +0x10 word has no writer or reader in the
     // verified native closure, so retain it for local byte-exact rewind but
@@ -386,8 +393,8 @@ void StageWindTopologyProbe::CanonicalBytes(
         sizeof(schedule_state));
     std::memcpy(&effect_pair_scheduled, image.schedule_state.data() + 12,
         sizeof(effect_pair_scheduled));
-    if (active_bank > 1 || pending_count < 0 || pending_count > 8)
-        return;
+    // Validation above makes bank/count failure structurally impossible after
+    // output begins, so an invalid image can never leave a canonical prefix.
     // The bank bit is a symmetric double-buffer label. Only the ordered
     // pending span in the selected bank can be read before the next flip;
     // unused slots in either bank are stale native residue.
@@ -409,5 +416,12 @@ void StageWindTopologyProbe::CanonicalBytes(
         append(output, &size, sizeof(size));
         append(output, node.semantic_state.data(), node.semantic_state.size());
     }
+    }
+    catch (...)
+    {
+        output.clear();
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    return Status::success();
 }
 }

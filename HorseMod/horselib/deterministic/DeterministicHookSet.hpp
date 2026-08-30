@@ -396,6 +396,8 @@ public:
         std::span<const StageBreakParticleAssetRef> assets) noexcept;
     void InvalidateStageBreakPresentationIdentity() noexcept;
     void InvalidateBattleAudioPresentationIdentity() noexcept;
+    void SetBattleAudioPresentationGeneration(
+        std::uint64_t generation) noexcept;
     Status MarkQualificationStageTerminal(std::uint32_t operation) noexcept;
     Status ResolveQualificationStageActor(
         std::uintptr_t actor, std::uint64_t& owner_logical_id) const noexcept;
@@ -481,6 +483,9 @@ private:
     using BattleAudioRegisterVoiceFn = std::uint32_t (__fastcall*)(
         void* active_voice_owner, std::uint32_t cue_sheet_id,
         std::int32_t cue_id, std::uint32_t playback_flags);
+    using BattleAudioResolveCharaCueFn = std::uint32_t (__fastcall*)(
+        void* battle_audio_manager, const void* event,
+        std::uint8_t cue_family);
     using BattleAudioAppendCommandFn = void (__fastcall*)(
         void* active_voice_owner, void* command_record);
     using BattleAudioStopAllFn = void (__fastcall*)(
@@ -562,6 +567,9 @@ private:
     static std::uint32_t __fastcall BattleAudioRegisterVoiceDetour(
         void* active_voice_owner, std::uint32_t cue_sheet_id,
         std::int32_t cue_id, std::uint32_t playback_flags) noexcept;
+    static std::uint32_t __fastcall BattleAudioResolveCharaCueDetour(
+        void* battle_audio_manager, const void* event,
+        std::uint8_t cue_family) noexcept;
     static void __fastcall BattleAudioAppendCommandDetour(
         void* active_voice_owner, void* command_record) noexcept;
     static void __fastcall BattleAudioStopAllDetour(
@@ -646,6 +654,7 @@ private:
         OuterTickObservation& observation) noexcept;
     [[nodiscard]] bool PrepareAudioOwnerGraph(
         std::uintptr_t battle_manager) noexcept;
+    void ClearAudioOwnerGraph() noexcept;
     [[nodiscard]] bool ResolveAudioOwner(
         std::uintptr_t owner, AudioOwnerSelector& selector) noexcept;
     [[nodiscard]] bool ResolveBattleCharaCueFamilyIdentity(
@@ -687,6 +696,8 @@ private:
     static std::atomic<std::uint64_t> battle_audio_tracking_rehash_trampoline_global_;
     static std::atomic<std::uint64_t> battle_audio_blueprint_publish_trampoline_global_;
     static std::atomic<std::uint64_t> battle_audio_register_voice_trampoline_global_;
+    static std::atomic<std::uint64_t>
+        battle_audio_resolve_chara_cue_trampoline_global_;
     static std::atomic<std::uint64_t> battle_audio_append_command_trampoline_global_;
     static std::atomic<std::uint64_t> battle_audio_stop_all_trampoline_global_;
     static std::atomic<std::uint64_t> battle_audio_append_parameter_trampoline_global_;
@@ -701,6 +712,43 @@ private:
         maximum_battle_audio_handlers> observed_battle_audio_handlers_;
     static std::atomic<bool> battle_audio_handler_overflow_;
     static thread_local OuterTickCaptureContext* active_outer_capture_;
+
+    struct BattleCharaCueSourceContext
+    {
+        AudioOwnerSelector selector{};
+        std::uintptr_t owner{};
+        std::uintptr_t battle_audio_manager{};
+        std::uintptr_t chara_pairs{};
+        std::int32_t chara_count{};
+        std::uint64_t generation{};
+        std::uint8_t cue_family{};
+        bool valid{};
+    };
+    static thread_local BattleCharaCueSourceContext
+        active_battle_chara_cue_source_;
+
+    struct AudioOwnerGraphProvenance
+    {
+        std::uint64_t generation{};
+        std::uintptr_t battle_manager{};
+        std::uintptr_t cri_manager{};
+        std::uintptr_t bgm_state{};
+        std::uintptr_t active_context{};
+        std::uintptr_t bgm_pairs{};
+        std::int32_t bgm_count{};
+        std::uintptr_t battle_audio_manager{};
+        std::uintptr_t class_pairs{};
+        std::int32_t class_count{};
+        std::uintptr_t chara_pairs{};
+        std::int32_t chara_count{};
+        std::uintptr_t cue_family_pairs{};
+        std::int32_t cue_family_count{};
+        std::uintptr_t battle_shared_player{};
+
+        friend constexpr bool operator==(
+            const AudioOwnerGraphProvenance&,
+            const AudioOwnerGraphProvenance&) = default;
+    };
 
     std::unique_ptr<PLH::x64Detour> frame_fencepost_detour_{};
     std::unique_ptr<PLH::x64Detour> replay_post_tick_detour_{};
@@ -718,6 +766,7 @@ private:
     std::unique_ptr<PLH::x64Detour> battle_audio_tracking_rehash_detour_{};
     std::unique_ptr<PLH::x64Detour> battle_audio_blueprint_publish_detour_{};
     std::unique_ptr<PLH::x64Detour> battle_audio_register_voice_detour_{};
+    std::unique_ptr<PLH::x64Detour> battle_audio_resolve_chara_cue_detour_{};
     std::unique_ptr<PLH::x64Detour> battle_audio_append_command_detour_{};
     std::unique_ptr<PLH::x64Detour> battle_audio_stop_all_detour_{};
     std::unique_ptr<PLH::x64Detour> battle_audio_append_parameter_detour_{};
@@ -743,6 +792,7 @@ private:
     std::uint64_t battle_audio_tracking_rehash_trampoline_{};
     std::uint64_t battle_audio_blueprint_publish_trampoline_{};
     std::uint64_t battle_audio_register_voice_trampoline_{};
+    std::uint64_t battle_audio_resolve_chara_cue_trampoline_{};
     std::uint64_t battle_audio_append_command_trampoline_{};
     std::uint64_t battle_audio_stop_all_trampoline_{};
     std::uint64_t battle_audio_append_parameter_trampoline_{};
@@ -763,6 +813,8 @@ private:
     StageBreakPresentationIdentityMap stage_break_presentation_identity_{};
     AudioOwnerResolver audio_owner_resolver_{};
     AudioPlaybackMap audio_playback_map_{};
+    AudioOwnerGraphProvenance audio_graph_provenance_{};
+    std::uint64_t audio_graph_generation_{};
     std::uintptr_t audio_graph_battle_manager_{};
     std::uint64_t audio_graph_epoch_counter_{};
     std::uint32_t audio_graph_failure_stage_{};

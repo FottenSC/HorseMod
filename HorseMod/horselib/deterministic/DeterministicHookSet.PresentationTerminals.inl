@@ -1,3 +1,73 @@
+std::uint32_t __fastcall
+DeterministicHookSet::BattleAudioResolveCharaCueDetour(
+    void* battle_audio_manager, const void* event,
+    std::uint8_t cue_family) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr
+        ? hooks->battle_audio_resolve_chara_cue_trampoline_
+        : battle_audio_resolve_chara_cue_trampoline_global_.load(
+            std::memory_order_acquire);
+    const auto original = reinterpret_cast<BattleAudioResolveCharaCueFn>(
+        trampoline);
+
+    const auto previous = active_battle_chara_cue_source_;
+    BattleCharaCueSourceContext source{};
+    auto* batch = active_outer_capture_;
+    if (hooks != nullptr && batch != nullptr && batch->observation != nullptr
+        && battle_audio_manager != nullptr && event != nullptr
+        && hooks->audio_graph_generation_ != 0)
+    {
+        const auto manager = reinterpret_cast<std::uintptr_t>(
+            battle_audio_manager);
+        std::uint8_t mode{};
+        std::uintptr_t chara_pairs{};
+        std::int32_t chara_count{};
+        std::uintptr_t shared_player{};
+        std::uintptr_t owner{};
+        std::uintptr_t observed_audio_manager{};
+        const auto battle_manager = batch->observation->battle_manager;
+        const bool graph_current = battle_manager != 0
+            && SafeRead(battle_manager + 0x520, observed_audio_manager)
+            && observed_audio_manager == manager
+            && hooks->PrepareAudioOwnerGraph(battle_manager);
+        if (graph_current
+            && SafeRead(reinterpret_cast<std::uintptr_t>(event), mode)
+            && SafeRead(manager + 0x410, chara_pairs)
+            && SafeRead(manager + 0x418, chara_count)
+            && chara_count > 0 && chara_count <= 64
+            && mode < static_cast<std::uint8_t>(chara_count)
+            && chara_pairs != 0
+            && SafeRead(chara_pairs
+                    + static_cast<std::uintptr_t>(mode) * 0x10,
+                shared_player)
+            && shared_player != 0 && SafeRead(shared_player, owner)
+            && owner != 0
+            && hooks->audio_graph_provenance_.battle_audio_manager == manager
+            && hooks->audio_graph_provenance_.chara_pairs == chara_pairs
+            && hooks->audio_graph_provenance_.chara_count == chara_count)
+        {
+            source.selector = {
+                AudioOwnerDomain::BattleCharaPlayer, mode, 0};
+            source.owner = owner;
+            source.battle_audio_manager = manager;
+            source.chara_pairs = chara_pairs;
+            source.chara_count = chara_count;
+            source.generation = hooks->audio_graph_generation_;
+            source.cue_family = cue_family;
+            source.valid = true;
+        }
+    }
+    active_battle_chara_cue_source_ = source;
+    const auto result = original != nullptr
+        ? original(battle_audio_manager, event, cue_family)
+        : audio_invalid_playback_id;
+    active_battle_chara_cue_source_ = previous;
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return result;
+}
+
 std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     void* active_voice_owner, std::uint32_t cue_sheet_id,
     std::int32_t cue_id, std::uint32_t playback_flags) noexcept
@@ -20,10 +90,23 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
         : 0;
     AudioOwnerSelector owner{};
     std::uint32_t frame{};
-    const bool owner_resolved = batch != nullptr
-        && hooks != nullptr
-        && hooks->ResolveAudioOwner(
-            reinterpret_cast<std::uintptr_t>(active_voice_owner), owner);
+    const bool character_cue = return_rva == Schema::Sc6FrameLayout::
+        battle_audio_chara_cue_terminal_return_rva;
+    const auto& source = active_battle_chara_cue_source_;
+    const bool source_resolved = character_cue && hooks != nullptr
+        && source.valid
+        && source.owner == reinterpret_cast<std::uintptr_t>(
+            active_voice_owner)
+        && source.generation == hooks->audio_graph_generation_
+        && source.battle_audio_manager
+            == hooks->audio_graph_provenance_.battle_audio_manager
+        && source.chara_pairs == hooks->audio_graph_provenance_.chara_pairs
+        && source.chara_count == hooks->audio_graph_provenance_.chara_count;
+    if (source_resolved) owner = source.selector;
+    const bool owner_resolved = batch != nullptr && hooks != nullptr
+        && (source_resolved || (!character_cue
+            && hooks->ResolveAudioOwner(
+                reinterpret_cast<std::uintptr_t>(active_voice_owner), owner)));
     if (batch != nullptr && hooks != nullptr && !owner_resolved)
         RecordUnresolvedAudioOwner(*batch->observation, hooks->image_base_,
             reinterpret_cast<std::uintptr_t>(active_voice_owner),
@@ -75,10 +158,10 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
             return audio_invalid_playback_id;
         }
         std::uint32_t cue_sheet_identity = cue_sheet_id;
-        if (return_rva == Schema::Sc6FrameLayout::
-                battle_audio_chara_cue_terminal_return_rva
-            && !hooks->ResolveBattleCharaCueFamilyIdentity(
-                cue_sheet_id, cue_sheet_identity))
+        if (character_cue && source_resolved)
+            cue_sheet_identity = MakeAudioCueFamilyIdentity(
+                source.cue_family);
+        if (character_cue && !source_resolved)
         {
             ++batch->observation->battle_audio_signature_failures;
             batch->observation->battle_audio_signature_failure_mask |= 1u << 12;
@@ -101,12 +184,10 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
     if (result != audio_invalid_playback_id && batch != nullptr)
     {
         std::uint32_t cue_sheet_identity = cue_sheet_id;
-        const bool stable_identity = return_rva
-                != Schema::Sc6FrameLayout::
-                    battle_audio_chara_cue_terminal_return_rva
-            || (hooks != nullptr
-                && hooks->ResolveBattleCharaCueFamilyIdentity(
-                    cue_sheet_id, cue_sheet_identity));
+        const bool stable_identity = !character_cue || source_resolved;
+        if (character_cue && source_resolved)
+            cue_sheet_identity = MakeAudioCueFamilyIdentity(
+                source.cue_family);
         const AudioTerminalEvent event{AudioTerminalOperation::Create, owner,
             logical_id, cue_sheet_identity, cue_id, playback_flags};
         bool mapped = stable_identity && owned_terminal && event.valid()
@@ -1065,9 +1146,8 @@ void DeterministicHookSet::ClearState() noexcept
     suppress_presentation_next_outer_tick_.store(
         false, std::memory_order_release);
     stage_break_presentation_identity_.Invalidate();
-    audio_owner_resolver_.Clear();
-    audio_playback_map_.Clear();
-    audio_graph_battle_manager_ = 0;
+    ClearAudioOwnerGraph();
+    audio_graph_generation_ = 0;
     audio_graph_epoch_counter_ = 0;
     audio_graph_failure_stage_ = 0;
     gameplay_xorshift96_detour_.reset();
@@ -1080,6 +1160,7 @@ void DeterministicHookSet::ClearState() noexcept
     battle_audio_stop_all_detour_.reset();
     battle_audio_append_command_detour_.reset();
     battle_audio_register_voice_detour_.reset();
+    battle_audio_resolve_chara_cue_detour_.reset();
     battle_audio_blueprint_publish_detour_.reset();
     battle_audio_tracking_rehash_detour_.reset();
     battle_audio_tracking_insert_detour_.reset();
@@ -1111,6 +1192,7 @@ void DeterministicHookSet::ClearState() noexcept
     battle_audio_tracking_rehash_trampoline_ = 0;
     battle_audio_blueprint_publish_trampoline_ = 0;
     battle_audio_register_voice_trampoline_ = 0;
+    battle_audio_resolve_chara_cue_trampoline_ = 0;
     battle_audio_append_command_trampoline_ = 0;
     battle_audio_stop_all_trampoline_ = 0;
     battle_audio_append_parameter_trampoline_ = 0;
@@ -1146,6 +1228,8 @@ void DeterministicHookSet::ClearState() noexcept
         0, std::memory_order_release);
     battle_audio_register_voice_trampoline_global_.store(
         0, std::memory_order_release);
+    battle_audio_resolve_chara_cue_trampoline_global_.store(
+        0, std::memory_order_release);
     battle_audio_append_command_trampoline_global_.store(
         0, std::memory_order_release);
     battle_audio_stop_all_trampoline_global_.store(
@@ -1164,6 +1248,7 @@ void DeterministicHookSet::ClearState() noexcept
     resolved_hit_consumer_trampoline_global_.store(
         0, std::memory_order_release);
     tira_probability_join = {};
+    active_battle_chara_cue_source_ = {};
     for (auto& handler : observed_battle_audio_handlers_)
         handler.store(0, std::memory_order_release);
     battle_audio_handler_overflow_.store(false, std::memory_order_release);
