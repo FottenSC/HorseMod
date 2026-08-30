@@ -878,8 +878,8 @@ unchanged.
 Paired normal-render playback of the authored Silver Wolves' Haven replay
 isolated two previously opaque hash failures into their exact native fields.
 All 2,617 terminal presentation events and 846 battle dispatches otherwise
-matched. The audio difference was confined to the ordered character-cue owner
-and cue-sheet-family tuple at terminal source return RVA `0x519A6D`; the wind
+matched. The audio difference was confined to the process-local character-cue
+CRI table slot at terminal source return RVA `0x519A6D`; the wind
 difference was confined to callback-bank residue while the live pending count
 was zero.
 
@@ -891,8 +891,17 @@ comes from the current live player-entry array at the source tick before
 `LuxAudio_ResolveAndPlayCharaCue @ 0x140519970` returns through `0x140519A6D`.
 The implementation now refreshes this bounded owner graph on every authoritative
 outer tick and rotates its generation only when the actual bindings change.
-Ordered payload id, owner, family, cue id, and source-return identity remain an
-exact gate; no audio identity was weakened.
+`LuxAudio_RegisterCueSheetObjectAndReturnSlot @ 0x1405510B0` proves that the
+numeric cue-sheet argument at the terminal is allocated by live-object arrival:
+reuse a pointer-equal entry, otherwise fill the first expired/null hole, otherwise
+append. In the paired failure, all 47 differences were this slot alone: family 7
+and family 8 exchanged slots 6/7 between processes while owner, playback, cue,
+value, operation, order, and source were exact. The journal therefore stores the
+exact authored family key and resolves it back to the current process-local slot
+only at presentation commit. Reports retain that raw slot separately so a future
+failure identifies both the canonical field and local allocation symptom.
+Ordered payload id, owner, authored family, cue id, and source-return identity
+remain an exact gate; no audio identity was weakened.
 
 `LuxBattle_TickStageWindAndAccumulateForces @ 0x140333FD0` proves that
 `IwWindRoot+0x98` is a symmetric double-buffer label. Only `+0x9C` callbacks
@@ -907,7 +916,8 @@ identity.
 
 Ghidra effective completeness is 100 for
 `LuxAudio_ResolveAndPlayCharaCue`, 100 for
-`LuxAudio_RegisterActiveVoiceInstance`, and 92 for the wind tick with eight
+`LuxAudio_RegisterActiveVoiceInstance`, 100 for
+`LuxAudio_RegisterCueSheetObjectAndReturnSlot`, and 92 for the wind tick with eight
 remaining fixable points. The verified program was saved through native MCP
 tools.
 

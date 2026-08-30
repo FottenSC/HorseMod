@@ -450,8 +450,13 @@ Status DeterministicHookSet::CommitAudioTerminal(
                 battle_audio_register_voice_trampoline_);
             if (original == nullptr)
                 return Status::failure(FailureCode::IllegalTransition);
+            std::uint32_t cue_sheet_slot = event.cue_sheet_id;
+            if (IsAudioCueFamilyIdentity(event.cue_sheet_id)
+                && !ResolveBattleCharaCueSheetSlot(
+                    event.cue_sheet_id, cue_sheet_slot))
+                return Status::failure(FailureCode::IdentityMismatch);
             const auto native_id = original(reinterpret_cast<void*>(owner),
-                event.cue_sheet_id, event.cue_id, event.value);
+                cue_sheet_slot, event.cue_id, event.value);
             if (native_id == audio_invalid_playback_id)
                 return Status::failure(FailureCode::PresentationFailed);
             if (!audio_playback_map_.Insert(epoch, event.owner,
@@ -1110,10 +1115,79 @@ bool DeterministicHookSet::ResolveAudioOwner(
         audio_owner_resolver_.epoch(), owner, selector);
 }
 
+bool DeterministicHookSet::ResolveBattleCharaCueFamilyIdentity(
+    std::uint32_t cue_sheet_slot, std::uint32_t& identity) noexcept
+{
+    identity = 0;
+    constexpr std::int32_t maximum_cue_families = 64;
+    std::uintptr_t battle_audio_manager{};
+    std::uintptr_t entries{};
+    std::int32_t count{};
+    if (audio_graph_battle_manager_ == 0
+        || !SafeRead(audio_graph_battle_manager_ + 0x520,
+            battle_audio_manager)
+        || battle_audio_manager == 0
+        || !SafeRead(battle_audio_manager + 0x430, entries)
+        || !SafeRead(battle_audio_manager + 0x438, count)
+        || count <= 0 || count > maximum_cue_families || entries == 0)
+        return false;
+
+    bool found{};
+    for (std::int32_t index = 0; index < count; ++index)
+    {
+        const auto entry = entries + static_cast<std::uintptr_t>(index) * 0x10;
+        std::uint8_t family{};
+        std::uint32_t slot{};
+        if (!SafeRead(entry, family) || !SafeRead(entry + 4, slot))
+            return false;
+        if (slot != cue_sheet_slot) continue;
+        if (found) return false;
+        identity = MakeAudioCueFamilyIdentity(family);
+        found = true;
+    }
+    return found;
+}
+
+bool DeterministicHookSet::ResolveBattleCharaCueSheetSlot(
+    std::uint32_t identity, std::uint32_t& cue_sheet_slot) noexcept
+{
+    cue_sheet_slot = 0;
+    if (!IsAudioCueFamilyIdentity(identity)) return false;
+    constexpr std::int32_t maximum_cue_families = 64;
+    std::uintptr_t battle_audio_manager{};
+    std::uintptr_t entries{};
+    std::int32_t count{};
+    if (audio_graph_battle_manager_ == 0
+        || !SafeRead(audio_graph_battle_manager_ + 0x520,
+            battle_audio_manager)
+        || battle_audio_manager == 0
+        || !SafeRead(battle_audio_manager + 0x430, entries)
+        || !SafeRead(battle_audio_manager + 0x438, count)
+        || count <= 0 || count > maximum_cue_families || entries == 0)
+        return false;
+
+    const auto wanted = AudioCueFamilyFromIdentity(identity);
+    bool found{};
+    for (std::int32_t index = 0; index < count; ++index)
+    {
+        const auto entry = entries + static_cast<std::uintptr_t>(index) * 0x10;
+        std::uint8_t family{};
+        std::uint32_t slot{};
+        if (!SafeRead(entry, family) || !SafeRead(entry + 4, slot))
+            return false;
+        if (family != wanted) continue;
+        if (found) return false;
+        cue_sheet_slot = slot;
+        found = true;
+    }
+    return found;
+}
+
 bool DeterministicHookSet::RecordAudioTerminal(
     OuterTickCaptureContext* batch,
     const AudioTerminalEvent& event,
-    std::uint32_t return_rva) noexcept
+    std::uint32_t return_rva,
+    std::uint32_t raw_cue_sheet_id) noexcept
 {
     if (batch == nullptr || batch->observation == nullptr || !event.valid())
         return false;
@@ -1153,6 +1227,8 @@ bool DeterministicHookSet::RecordAudioTerminal(
     const auto journal_index = observation.audio_terminal_journal_count++;
     observation.audio_terminal_journal[journal_index] = event;
     observation.audio_terminal_return_rvas[journal_index] = return_rva;
+    observation.audio_terminal_raw_cue_sheet_ids[journal_index] =
+        raw_cue_sheet_id;
 
     if (batch->owned == nullptr
         || !batch->owned->request->suppress_ephemeral_presentation)

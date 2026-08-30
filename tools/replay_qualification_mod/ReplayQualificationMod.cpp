@@ -1631,7 +1631,7 @@ private:
             for (std::size_t terminal_index = 0;
                  terminal_index < batch_identity[8]; ++terminal_index)
             {
-                std::array<std::uint64_t, 9> terminal{};
+                std::array<std::uint64_t, 10> terminal{};
                 if (!get_audio_terminal(batch_index, terminal_index,
                         terminal.data(), terminal.size()))
                 {
@@ -1640,12 +1640,13 @@ private:
                 }
                 Output::send<LogLevel::Default>(STR(
                     "[ReplayQualification] audio terminal batch={} index={} "
-                    "operation={} owner={}:{}:{} playback={} cue_sheet={} "
-                    "cue={} value={} source_return_rva=0x{:x}\n"),
+                    "operation={} owner={}:{}:{} playback={} "
+                    "cue_sheet_identity=0x{:x} cue={} value={} "
+                    "source_return_rva=0x{:x} raw_cue_sheet_slot={}\n"),
                     batch_index, terminal_index, terminal[0], terminal[1],
                     terminal[2], terminal[3], terminal[4], terminal[5],
                     static_cast<std::int32_t>(terminal[6]), terminal[7],
-                    terminal[8]);
+                    terminal[8], terminal[9]);
             }
         }
         const auto get_health = ResolveHorseModQualificationHealthApi();

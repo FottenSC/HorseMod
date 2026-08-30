@@ -164,6 +164,10 @@ struct OuterTickObservation
     // source route without becoming part of the ordered terminal identity.
     std::array<std::uint32_t, maximum_audio_terminal_journal_events>
         audio_terminal_return_rvas{};
+    // Diagnostic-only process-local CRI table slots. Ordered canonical
+    // identity stays in audio_terminal_journal as an authored cue family.
+    std::array<std::uint32_t, maximum_audio_terminal_journal_events>
+        audio_terminal_raw_cue_sheet_ids{};
     std::array<StagePresentationJournalEntry,
         maximum_stage_presentation_journal_events> stage_wall_journal{};
     std::array<StagePresentationJournalEntry,
@@ -636,10 +640,15 @@ private:
         std::uintptr_t battle_manager) noexcept;
     [[nodiscard]] bool ResolveAudioOwner(
         std::uintptr_t owner, AudioOwnerSelector& selector) noexcept;
+    [[nodiscard]] bool ResolveBattleCharaCueFamilyIdentity(
+        std::uint32_t cue_sheet_slot, std::uint32_t& identity) noexcept;
+    [[nodiscard]] bool ResolveBattleCharaCueSheetSlot(
+        std::uint32_t identity, std::uint32_t& cue_sheet_slot) noexcept;
     static bool RecordAudioTerminal(
         OuterTickCaptureContext* batch,
         const AudioTerminalEvent& event,
-        std::uint32_t return_rva = 0) noexcept;
+        std::uint32_t return_rva = 0,
+        std::uint32_t raw_cue_sheet_id = 0) noexcept;
     [[nodiscard]] static bool IsOwnedPresentationSuppressed(
         const OuterTickCaptureContext* batch) noexcept;
     [[nodiscard]] static bool IsPresentationSuppressed(

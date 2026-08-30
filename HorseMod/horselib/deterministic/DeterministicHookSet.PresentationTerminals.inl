@@ -74,9 +74,22 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
             callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
             return audio_invalid_playback_id;
         }
+        std::uint32_t cue_sheet_identity = cue_sheet_id;
+        if (return_rva == Schema::Sc6FrameLayout::
+                battle_audio_chara_cue_terminal_return_rva
+            && !hooks->ResolveBattleCharaCueFamilyIdentity(
+                cue_sheet_id, cue_sheet_identity))
+        {
+            ++batch->observation->battle_audio_signature_failures;
+            batch->observation->battle_audio_signature_failure_mask |= 1u << 12;
+            if (batch->owned != nullptr)
+                batch->owned->result->failure = FailureCode::PresentationFailed;
+            callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+            return audio_invalid_playback_id;
+        }
         const AudioTerminalEvent event{AudioTerminalOperation::Create, owner,
-            logical_id, cue_sheet_id, cue_id, playback_flags};
-        if (!RecordAudioTerminal(batch, event, return_rva)
+            logical_id, cue_sheet_identity, cue_id, playback_flags};
+        if (!RecordAudioTerminal(batch, event, return_rva, cue_sheet_id)
             && batch->owned != nullptr)
             batch->owned->result->failure = FailureCode::PresentationFailed;
         callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -87,12 +100,19 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
         : audio_invalid_playback_id;
     if (result != audio_invalid_playback_id && batch != nullptr)
     {
+        std::uint32_t cue_sheet_identity = cue_sheet_id;
+        const bool stable_identity = return_rva
+                != Schema::Sc6FrameLayout::
+                    battle_audio_chara_cue_terminal_return_rva
+            || (hooks != nullptr
+                && hooks->ResolveBattleCharaCueFamilyIdentity(
+                    cue_sheet_id, cue_sheet_identity));
         const AudioTerminalEvent event{AudioTerminalOperation::Create, owner,
-            logical_id, cue_sheet_id, cue_id, playback_flags};
-        bool mapped = owned_terminal && event.valid()
+            logical_id, cue_sheet_identity, cue_id, playback_flags};
+        bool mapped = stable_identity && owned_terminal && event.valid()
             && hooks->audio_playback_map_.Insert(
                 hooks->audio_owner_resolver_.epoch(), owner, logical_id, result);
-        if (!mapped && owned_terminal && event.valid())
+        if (!mapped && stable_identity && owned_terminal && event.valid())
         {
             // Logical/native mappings outlive the corresponding native voices.
             // When the fixed-capacity map fills, consult each owner's embedded
@@ -118,7 +138,8 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
                 epoch, owner, logical_id, result);
         }
         if (!mapped
-            || !RecordAudioTerminal(batch, event, return_rva))
+            || !RecordAudioTerminal(
+                batch, event, return_rva, cue_sheet_id))
         {
             ++batch->observation->battle_audio_signature_failures;
             batch->observation->battle_audio_signature_failure_mask |= 1u << 12;

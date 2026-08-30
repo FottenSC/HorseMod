@@ -401,6 +401,9 @@ public:
         values[7] = terminal.value;
         if (count >= 9)
             values[8] = batch->audio_terminal_return_rvas[terminal_index];
+        if (count >= 10)
+            values[9] =
+                batch->audio_terminal_raw_cue_sheet_ids[terminal_index];
         return true;
     }
 

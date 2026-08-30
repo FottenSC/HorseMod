@@ -11,6 +11,8 @@
 namespace Horse::Deterministic
 {
 inline constexpr std::uint32_t audio_logical_id_tag = 0x80000000u;
+inline constexpr std::uint32_t audio_cue_family_tag = 0x80000000u;
+inline constexpr std::uint32_t audio_cue_family_mask = 0xffu;
 inline constexpr std::uint32_t audio_invalid_playback_id = 0xffffffffu;
 inline constexpr std::uint32_t audio_native_id_maximum = 0x7fffu;
 inline constexpr std::uint32_t audio_ordinals_per_frame = 64u;
@@ -83,6 +85,25 @@ static_assert(sizeof(AudioOwnerSelector) == 4);
         | ordinal;
     return value == audio_invalid_playback_id
         ? audio_invalid_playback_id : value;
+}
+
+[[nodiscard]] constexpr std::uint32_t MakeAudioCueFamilyIdentity(
+    std::uint8_t family) noexcept
+{
+    return audio_cue_family_tag | family;
+}
+
+[[nodiscard]] constexpr bool IsAudioCueFamilyIdentity(
+    std::uint32_t value) noexcept
+{
+    return (value & audio_cue_family_tag) != 0
+        && (value & ~(audio_cue_family_tag | audio_cue_family_mask)) == 0;
+}
+
+[[nodiscard]] constexpr std::uint8_t AudioCueFamilyFromIdentity(
+    std::uint32_t value) noexcept
+{
+    return static_cast<std::uint8_t>(value & audio_cue_family_mask);
 }
 
 enum class AudioTerminalOperation : std::uint8_t

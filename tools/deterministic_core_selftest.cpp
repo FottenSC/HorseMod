@@ -916,8 +916,10 @@ void test_native_batch_timeline_is_exact_and_bounded()
 void test_snapshot_capacity_is_atomic()
 {
     SnapshotStore store{sizeof(Snapshot) + 64, 1, CapacityPolicy::RejectNew};
-    Snapshot first{{1, 0}, 1, {}, {}, {}, {}, {}, {}, {}, std::vector<std::byte>(4)};
-    Snapshot second{{1, 1}, 1, {}, {}, {}, {}, {}, {}, {}, std::vector<std::byte>(4)};
+    Snapshot first{{1, 0}, 1, {}, {}, {}, {}, {}, {}, {}, {},
+        std::vector<std::byte>(4)};
+    Snapshot second{{1, 1}, 1, {}, {}, {}, {}, {}, {}, {}, {},
+        std::vector<std::byte>(4)};
     const auto reserved_bytes = store.BytesUsed();
     expect(store.Save(first).ok(), "save first snapshot");
     const auto bytes_before = store.BytesUsed();
@@ -1672,6 +1674,11 @@ void test_audio_presentation_identities_are_epoch_bound()
         "audio owner resolver rejects stale epochs and post-seal mutation");
 
     const auto logical = MakeLogicalAudioPlaybackId(123, 2);
+    const auto cue_family = MakeAudioCueFamilyIdentity(7);
+    expect(IsAudioCueFamilyIdentity(cue_family)
+            && AudioCueFamilyFromIdentity(cue_family) == 7
+            && !IsAudioCueFamilyIdentity(7),
+        "authored audio cue families are distinct from process-local CRI slots");
     expect(playback.BeginEpoch(7)
             && playback.Insert(7, class_player, logical, 0x1234),
         "audio playback map admits one logical-to-native binding");
@@ -1709,7 +1716,7 @@ void test_audio_presentation_identities_are_epoch_bound()
     terminal.operation = AudioTerminalOperation::Create;
     terminal.owner = class_player;
     terminal.logical_playback_id = logical;
-    terminal.cue_sheet_id = 14;
+    terminal.cue_sheet_id = cue_family;
     terminal.cue_id = 77;
     terminal.value = 0x3f000000u;
     PresentationEvent encoded{};
