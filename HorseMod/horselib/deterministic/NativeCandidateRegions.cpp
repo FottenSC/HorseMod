@@ -86,6 +86,8 @@ constexpr std::uint32_t camera_serialize_stay_rva = 0x341110;
 constexpr std::ptrdiff_t manager_input_log = 0x478;
 constexpr std::ptrdiff_t manager_repeat_pending = 0x1462;
 constexpr std::ptrdiff_t manager_pending_move_state = 0x1463;
+constexpr std::ptrdiff_t manager_pending_dispatch = 0x1464;
+constexpr std::ptrdiff_t manager_round_image_applied = 0x1465;
 constexpr std::ptrdiff_t manager_round_sequence_array = 0x1470;
 constexpr std::ptrdiff_t manager_round_sequence_count = 0x1478;
 constexpr std::ptrdiff_t manager_round_sequence_capacity = 0x147C;
@@ -223,6 +225,10 @@ void append_frame_boundary(
     append_bytes(output, &frame.repeat_pending, sizeof(frame.repeat_pending));
     append_bytes(output, &frame.pending_move_state,
         sizeof(frame.pending_move_state));
+    append_bytes(output, &frame.pending_dispatch,
+        sizeof(frame.pending_dispatch));
+    append_bytes(output, &frame.round_image_applied,
+        sizeof(frame.round_image_applied));
 }
 
 void append_round_sequence(
@@ -852,15 +858,19 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
             output.frame.repeat_pending)) return region_read_failed(8);
     if (!read_value(memory_, addresses_.battle_manager + manager_pending_move_state,
             output.frame.pending_move_state)) return region_read_failed(9);
+    if (!read_value(memory_, addresses_.battle_manager + manager_pending_dispatch,
+            output.frame.pending_dispatch)) return region_read_failed(10);
+    if (!read_value(memory_, addresses_.battle_manager + manager_round_image_applied,
+            output.frame.round_image_applied)) return region_read_failed(11);
     if (!read_bytes(identities_.previous_input_array,
             std::as_writable_bytes(std::span{output.frame.previous_inputs})))
-        return region_read_failed(10);
+        return region_read_failed(12);
     if (!read_bytes(identities_.input_pair_array,
             std::as_writable_bytes(std::span{output.frame.input_pairs})))
-        return region_read_failed(11);
+        return region_read_failed(13);
     if (!read_bytes(identities_.prior_input_pair_array,
             std::as_writable_bytes(std::span{output.frame.prior_input_pairs})))
-        return region_read_failed(12);
+        return region_read_failed(14);
     if (!validate_input_log_image(
             output.input_log, output.frame, validation_diagnostic_)) return false;
     std::int32_t round_sequence_count{};
@@ -1661,6 +1671,10 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
             std::as_bytes(std::span{&image.frame.repeat_pending, 1}))
         || !write_bytes(addresses_.battle_manager + manager_pending_move_state,
             std::as_bytes(std::span{&image.frame.pending_move_state, 1}))
+        || !write_bytes(addresses_.battle_manager + manager_pending_dispatch,
+            std::as_bytes(std::span{&image.frame.pending_dispatch, 1}))
+        || !write_bytes(addresses_.battle_manager + manager_round_image_applied,
+            std::as_bytes(std::span{&image.frame.round_image_applied, 1}))
         || (round_sequence_count != 0
             && !write_bytes(identities_.round_sequence_array,
                 std::as_bytes(std::span{image.round_sequence.states})
@@ -2020,6 +2034,10 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
         ok = write_bytes(identities_.round_sequence_array,
             std::as_bytes(std::span{image.round_sequence.states})
                 .first(static_cast<std::size_t>(round_sequence_count))) && ok;
+    ok = write_bytes(addresses_.battle_manager + manager_round_image_applied,
+        std::as_bytes(std::span{&image.frame.round_image_applied, 1})) && ok;
+    ok = write_bytes(addresses_.battle_manager + manager_pending_dispatch,
+        std::as_bytes(std::span{&image.frame.pending_dispatch, 1})) && ok;
     ok = write_bytes(addresses_.battle_manager + manager_pending_move_state,
         std::as_bytes(std::span{&image.frame.pending_move_state, 1})) && ok;
     ok = write_bytes(addresses_.battle_manager + manager_repeat_pending,
@@ -2318,6 +2336,8 @@ CanonicalNativeFingerprint NativeCandidateRegions::CanonicalFingerprint(
     output[6] = finish();
     append_bytes(bytes, &image.frame.repeat_pending, sizeof(image.frame.repeat_pending));
     append_bytes(bytes, &image.frame.pending_move_state, sizeof(image.frame.pending_move_state));
+    append_bytes(bytes, &image.frame.pending_dispatch, sizeof(image.frame.pending_dispatch));
+    append_bytes(bytes, &image.frame.round_image_applied, sizeof(image.frame.round_image_applied));
     output[7] = finish();
     append_round_sequence(bytes, image.round_sequence); output[8] = finish();
     append_bytes(bytes, image.input_log.scalars.data(), image.input_log.scalars.size());
@@ -2438,6 +2458,10 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
             sizeof(output.frame.repeat_pending))
         || !take(&output.frame.pending_move_state,
             sizeof(output.frame.pending_move_state))
+        || !take(&output.frame.pending_dispatch,
+            sizeof(output.frame.pending_dispatch))
+        || !take(&output.frame.round_image_applied,
+            sizeof(output.frame.round_image_applied))
         || !take(&output.round_sequence.count,
             sizeof(output.round_sequence.count))
         || output.round_sequence.count > native_round_sequence_max_states

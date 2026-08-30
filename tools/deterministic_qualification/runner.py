@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from .artifacts import runner_sha256, sha256_file, source_identity
+from .configuration import armed_baseline
 from .process_control import (
     close_game,
     find_game_pid,
@@ -46,6 +51,7 @@ from .replay_entry import (
 from .report import write_report
 from .sandboxie_pair import SandboxiePairSpec
 from .trace_parser import (
+    LogCursor,
     capture_log_offset,
     wait_for_boot_evidence,
     wait_for_correction_probe_evidence,
@@ -75,6 +81,19 @@ DEFAULT_REPLAY_MOD = ROOT / "build_cmake_LessEqual421__Shipping__Win64" / "Horse
 DEFAULT_REPLAY_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "replay-entry-report.json"
 DEFAULT_OBSERVER_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "online-observer-report.json"
 DEFAULT_SANDBOX_ROOT = Path(r"C:\Sandbox\prest\sc67")
+
+
+@contextmanager
+def _temporarily_armed_smoke_config(config: Path):
+    """Arm observer hooks while preserving the caller's exact full-run config."""
+    original = config.read_bytes()
+    try:
+        with armed_baseline(config):
+            yield
+    finally:
+        temporary = config.with_suffix(config.suffix + ".smoke-restore.tmp")
+        temporary.write_bytes(original)
+        os.replace(temporary, config)
 
 
 def _observer_paths(sandbox_root: Path) -> ObserverPairPaths:
@@ -123,11 +142,13 @@ def required_file(path: Path, label: str) -> Path:
 
 def load_outcome_control(
     path: Path, replay: Path, dll: Path, replay_mod: Path,
-    schema: Path, executable: Path,
+    schema: Path, executable: Path, *, allow_noncertifying: bool = False,
 ) -> tuple[tuple[int, ...], int, dict[str, str]]:
     control_path = required_file(path, "same-replay stock outcome control")
     data = json.loads(control_path.read_text(encoding="utf-8"))
-    if (data.get("report_schema") != 2 or data.get("certifying") is not True
+    certifying = data.get("certifying") is True
+    if (data.get("report_schema") != 2
+            or (not certifying and not allow_noncertifying)
             or data.get("result") != "pass" or data.get("renderer") != "normal"):
         raise RuntimeError("stock outcome control is not a schema-v2 normal-render certifying pass")
     artifacts = data.get("artifacts", {})
@@ -355,7 +376,7 @@ def run_boot(args: argparse.Namespace) -> int:
     return 0
 
 
-def run_replay_entry(args: argparse.Namespace) -> int:
+def _run_replay_entry_once(args: argparse.Namespace) -> int:
     dll = required_file(args.dll, "HorseMod DLL")
     replay_mod = required_file(args.replay_mod, "replay qualification mod")
     replay = required_file(args.replay, "replay payload")
@@ -377,6 +398,10 @@ def run_replay_entry(args: argparse.Namespace) -> int:
         line.strip().casefold() == "correction_probe=true"
         for line in config.read_text(encoding="utf-8").splitlines()
     )
+    if args.development_smoke and args.certifying:
+        raise RuntimeError("development smoke is non-certifying")
+    if args.development_smoke and not 60 <= args.watch_frames <= 120:
+        raise RuntimeError("development smoke must watch 60 to 120 replay frames")
     if identity["dirty"] and (args.certifying or not args.allow_dirty):
         raise RuntimeError(
             "source tree is dirty; replay-entry evidence would not bind an immutable source state"
@@ -399,14 +424,18 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     replay_metadata = None
     correction_probes = ()
     stock_round_outcome_control = args.stock_round_outcome_control or (
+        not args.development_smoke
+        and
         not args.deterministic_baseline
         and not forced_depth7_requested and not correction_probe_requested
         and not args.seek_percentages and args.stage_terminal is None
         and not args.require_authored_outcomes
         and not args.require_tira_probability_transition)
     require_authored_outcomes = bool(
-        args.certifying or args.require_authored_outcomes
+        not args.development_smoke
+        and (args.certifying or args.require_authored_outcomes
         or args.require_tira_probability_transition
+        )
     )
     expected_round_winners: tuple[int, ...] = ()
     expected_match_winner: int | None = None
@@ -418,7 +447,9 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                 "--outcome-control-report from the same replay")
         (expected_round_winners, expected_match_winner,
          outcome_control_artifact) = load_outcome_control(
-            args.outcome_control_report, replay, dll, replay_mod, schema, executable)
+            args.outcome_control_report, replay, dll, replay_mod, schema, executable,
+            allow_noncertifying=args.allow_dirty and not args.certifying,
+        )
     final_canonical = None
     mods_root = GAME_ROOT / "ue4ss" / "Mods"
     graceful_exit_observed = False
@@ -427,14 +458,18 @@ def run_replay_entry(args: argparse.Namespace) -> int:
         try:
             run_id = create_request(
                 replay, args.watch_frames, tuple(args.seek_percentages),
-                args.min_resume_tick_rate, args.resume_tick_window,
+                args.min_resume_tick_rate,
+                args.watch_frames if args.development_smoke
+                else args.resume_tick_window,
                 args.stage_terminal,
                 stock_round_outcome_control,
                 require_authored_outcomes,
                 expected_round_winners,
                 expected_match_winner,
+                args.development_smoke,
             )
             log_start = capture_log_offset(args.log)
+            args._failure_log_start = log_start
             launch_game()
             pid = wait_for_game(args.timeout)
             guard = lambda: require_game_process(pid)
@@ -457,7 +492,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                     )
             replay_metadata = wait_for_replay_metadata_evidence(
                 args.log, args.timeout, guard, log_start)
-            if not stock_round_outcome_control:
+            if not stock_round_outcome_control and not args.development_smoke:
                 lifecycle = wait_for_replay_lifecycle_evidence(
                     args.log, args.timeout, guard, log_start
                 )
@@ -465,7 +500,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                 stock_round_outcome = wait_for_stock_round_outcome_evidence(
                     args.log, args.timeout, guard, log_start
                 )
-            if not stock_round_outcome_control:
+            if not stock_round_outcome_control and not args.development_smoke:
                 presentation_coverage = wait_for_presentation_coverage_evidence(
                     args.log, args.timeout, guard, log_start
                 )
@@ -606,13 +641,14 @@ def run_replay_entry(args: argparse.Namespace) -> int:
 
     report_data: dict[str, object] = {
         "report_schema": 2,
-        "kind": "replay_entry_probe",
+        "kind": ("replay_development_smoke" if args.development_smoke
+                 else "replay_entry_probe"),
         "certifying": bool(args.certifying),
         "result": "pass",
-        "reason": (
-            "native replay import, stock launch request, and bounded normal-play "
-            "frame observation"
-        ),
+        "reason": ("bounded normal-render authored replay audio/ownership smoke"
+                   if args.development_smoke else
+                   "native replay import, stock launch request, and bounded "
+                   "normal-play frame observation"),
         "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "source": identity,
         "case_id": args.case_id,
@@ -659,6 +695,15 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             "timeline_accounting_failures": (
                 None if qualification_health is None else
                 qualification_health.timeline_accounting_failures),
+            "cursor_mismatches": (
+                None if qualification_health is None else
+                qualification_health.cursor_mismatches),
+            "batch_accounting_mismatches": (
+                None if qualification_health is None else
+                qualification_health.batch_accounting_mismatches),
+            "round_transition_barriers": (
+                None if qualification_health is None else
+                qualification_health.round_transition_barriers),
             "presentation_duplicate_failures": (
                 None if qualification_health is None else
                 qualification_health.presentation_duplicate_failures),
@@ -774,6 +819,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
             ),
             "launch_requested": True,
             "watch_frames": args.watch_frames,
+            "development_smoke": bool(args.development_smoke),
             "stage_terminal": args.stage_terminal,
             "seek_percentages": args.seek_percentages,
             "min_resume_tick_rate": args.min_resume_tick_rate,
@@ -898,8 +944,113 @@ def run_replay_entry(args: argparse.Namespace) -> int:
         },
     }
     write_report(args.report, report_data)
+    _restore_replay_diagnostic_flags(config)
     print(json.dumps(report_data, indent=2, sort_keys=True))
     print(f"report: {args.report.resolve()}")
+    return 0
+
+
+def run_replay_entry(args: argparse.Namespace) -> int:
+    if args.certifying and args.skip_development_smoke:
+        raise RuntimeError("certifying deterministic baselines require the smoke preflight")
+    if not 60 <= args.smoke_frames <= 120:
+        raise RuntimeError("smoke frames must be between 60 and 120")
+    if (not args.deterministic_baseline or args.development_smoke
+            or args.skip_development_smoke):
+        return _run_replay_entry_once(args)
+    config = required_file(args.config, "deterministic config")
+    smoke_args = copy.copy(args)
+    smoke_args.development_smoke = True
+    smoke_args.deterministic_baseline = False
+    smoke_args.certifying = False
+    smoke_args.stock_round_outcome_control = False
+    smoke_args.require_authored_outcomes = False
+    smoke_args.require_tira_probability_transition = False
+    smoke_args.require_presentation_coverage = False
+    smoke_args.outcome_control_report = None
+    smoke_args.seek_percentages = []
+    smoke_args.stage_terminal = None
+    smoke_args.watch_frames = args.smoke_frames
+    smoke_args.report = args.report.with_suffix(".smoke.json")
+    with _temporarily_armed_smoke_config(config):
+        _run_replay_entry_once(smoke_args)
+    return _run_replay_entry_once(args)
+
+
+def run_replay_development_campaign(args: argparse.Namespace) -> int:
+    replay_mod = required_file(args.replay_mod, "replay qualification mod")
+    replay = required_file(args.replay, "replay payload")
+    config = required_file(args.config, "deterministic config")
+    if find_game_pid() is not None:
+        raise RuntimeError("SC6 is already running; persistent campaign requires clean entry")
+    if not 60 <= args.watch_frames <= 120:
+        raise RuntimeError("persistent smoke must watch 60 to 120 replay frames")
+    if args.reentry_count < 2 or args.reentry_count > 32:
+        raise RuntimeError("persistent re-entry count must be between 2 and 32")
+    cycles: list[dict[str, object]] = []
+    pid: int | None = None
+    active_run_id = ""
+    mods_root = GAME_ROOT / "ue4ss" / "Mods"
+    with _temporarily_armed_smoke_config(config):
+        with TemporaryReplayMod(replay_mod, mods_root):
+            try:
+                for cycle in range(args.reentry_count):
+                    log_start = capture_log_offset(args.log)
+                    args._failure_log_start = log_start
+                    active_run_id = create_request(
+                        replay, args.watch_frames, (), args.min_resume_tick_rate,
+                        args.watch_frames, None, False, False, (), None, True,
+                    )
+                    if pid is None:
+                        launch_game()
+                        pid = wait_for_game(args.timeout)
+                    guard = lambda: require_game_process(pid)
+                    entry = wait_for_replay_entry(active_run_id, args.timeout, guard)
+                    rate = wait_for_normal_render_rate_evidence(
+                        args.log, args.timeout, guard, log_start,
+                        source_bound=False)
+                    metadata = wait_for_replay_metadata_evidence(
+                        args.log, args.timeout, guard, log_start,
+                        source_bound=False)
+                    cycles.append({
+                        "cycle": cycle + 1,
+                        "run_id": entry.run_id,
+                        "stage": metadata.stage,
+                        "map": metadata.map,
+                        "normal_render_frames": rate.frames,
+                        "normal_render_tick_rate": rate.tick_rate_milli / 1000.0,
+                        "active_battle_tick_rate":
+                            rate.active_tick_rate_milli / 1000.0,
+                    })
+                    remove_request_files(active_run_id)
+                    active_run_id = ""
+            finally:
+                if pid is not None and find_game_pid() is not None:
+                    try:
+                        close_game(pid)
+                    except (RuntimeError, TimeoutError):
+                        force_stop_game_for_cleanup(pid)
+                        raise
+                if active_run_id:
+                    remove_request_files(active_run_id)
+    report = {
+        "report_schema": 2,
+        "kind": "persistent_replay_development_campaign",
+        "certifying": False,
+        "result": "pass",
+        "reason": "same-process normal-render authored replay re-entry smoke",
+        "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "display_map_name": args.display_map_name,
+        "stage_package_root": args.stage_package_root,
+        "reentry_count": len(cycles),
+        "cycles": cycles,
+        "cleanup": {
+            "process_absent": find_game_pid() is None,
+            "temporary_mod_removed": not (mods_root / "ReplayQualificationMod").exists(),
+        },
+    }
+    write_report(args.report, report)
+    print(json.dumps(report, indent=2, sort_keys=True))
     return 0
 
 
@@ -964,6 +1115,19 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--watch-frames", type=int, default=1)
     replay.add_argument("--certifying", action="store_true")
     replay.add_argument("--deterministic-baseline", action="store_true")
+    replay.add_argument(
+        "--development-smoke", action="store_true",
+        help=("run a non-certifying 60-120 frame normal-render gate after "
+              "the authored replay becomes active"),
+    )
+    replay.add_argument(
+        "--smoke-frames", type=int, default=120,
+        help="normal-render authored replay frames used by baseline preflight",
+    )
+    replay.add_argument(
+        "--skip-development-smoke", action="store_true",
+        help="development-only escape hatch; rejected for certifying baselines",
+    )
     replay.add_argument("--stock-round-outcome-control", action="store_true")
     replay.add_argument(
         "--outcome-control-report",
@@ -1025,6 +1189,22 @@ def build_parser() -> argparse.ArgumentParser:
               "and exact mood/moveset state transition on the same native source frame"),
     )
     replay.set_defaults(handler=run_replay_entry)
+    development = subcommands.add_parser(
+        "replay-development-campaign",
+        help="run repeated non-certifying authored replay smoke in one SC6 process",
+    )
+    development.add_argument("--replay", type=Path, required=True)
+    development.add_argument("--replay-mod", type=Path, default=DEFAULT_REPLAY_MOD)
+    development.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    development.add_argument("--log", type=Path, default=DEFAULT_LOG)
+    development.add_argument("--report", type=Path, required=True)
+    development.add_argument("--timeout", type=float, default=120.0)
+    development.add_argument("--watch-frames", type=int, default=120)
+    development.add_argument("--reentry-count", type=int, default=3)
+    development.add_argument("--min-resume-tick-rate", type=float, default=58.0)
+    development.add_argument("--display-map-name", required=True)
+    development.add_argument("--stage-package-root", required=True)
+    development.set_defaults(handler=run_replay_development_campaign)
     offline = subcommands.add_parser(
         "offline-matrix",
         help="run the complete 51-row normal-render offline qualification campaign",
@@ -1122,11 +1302,145 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_FAILURE_MARKERS = (
+    "[ReplayQualification] fail-fast health",
+    "[ReplayQualification] normal-render battle rate failed",
+    "authoritative battle-audio capture failed",
+    "canonical capture",
+    "canonical divergence",
+    "presentation publish",
+    "lifecycle failure",
+)
+
+
+def _read_bounded_log_since(
+    log: Path, cursor: LogCursor | int, maximum_bytes: int = 2 * 1024 * 1024,
+) -> bytes:
+    with log.open("rb") as stream:
+        size = stream.seek(0, 2)
+        if isinstance(cursor, int):
+            start_offset = cursor if cursor <= size else 0
+        elif cursor.offset <= size:
+            stream.seek(0)
+            prefix_matches = stream.read(len(cursor.prefix)) == cursor.prefix
+            stream.seek(cursor.sentinel_offset)
+            tail_matches = stream.read(len(cursor.sentinel)) == cursor.sentinel
+            start_offset = cursor.offset if prefix_matches and tail_matches else 0
+        else:
+            start_offset = 0
+        stream.seek(start_offset)
+        return stream.read(maximum_bytes)
+
+
+def _restore_replay_diagnostic_flags(config: Path) -> dict[str, bool]:
+    """Fail closed without changing the production enabled/allowlist state."""
+    restored = {name: False for name in (
+        "trace", "correction_probe", "forced_depth7_qualification")}
+    try:
+        lines = config.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return restored
+    output: list[str] = []
+    for line in lines:
+        key, separator, _value = line.partition("=")
+        normalized = key.strip().casefold()
+        if separator and normalized in restored:
+            output.append(f"{key}=false")
+            restored[normalized] = True
+        else:
+            output.append(line)
+    temporary = config.with_suffix(config.suffix + ".qualification.tmp")
+    temporary.write_text("\n".join(output) + "\n", encoding="utf-8")
+    os.replace(temporary, config)
+    return restored
+
+
+def _write_compact_replay_failure(args: argparse.Namespace, error: BaseException) -> None:
+    if getattr(args, "command", None) not in (
+            "replay-entry", "replay-development-campaign"):
+        return
+    running_pid = find_game_pid()
+    if running_pid is not None:
+        try:
+            force_stop_game_for_cleanup(running_pid)
+        except (RuntimeError, TimeoutError):
+            pass
+    restored = _restore_replay_diagnostic_flags(Path(args.config))
+    log = Path(args.log)
+    bounded_lines: list[str] = []
+    try:
+        cursor = getattr(args, "_failure_log_start", 0)
+        run_lines = _read_bounded_log_since(log, cursor).decode(
+            "utf-8", errors="replace").splitlines()
+        failure_index = next((
+            index for index, line in enumerate(run_lines)
+            if any(marker.casefold() in line.casefold()
+                   for marker in _FAILURE_MARKERS)
+        ), None)
+        if failure_index is None:
+            bounded_lines = run_lines[-256:]
+        else:
+            bounded_lines = run_lines[
+                max(0, failure_index - 64):failure_index + 192]
+    except OSError:
+        pass
+    first_failure = next(
+        (line for line in bounded_lines
+         if any(marker.casefold() in line.casefold() for marker in _FAILURE_MARKERS)),
+        "",
+    )
+    diagnostic_fields = {
+        key: value for key, value in re.findall(
+            r"\b([A-Za-z][A-Za-z0-9_]*)=([^\s,]+)", first_failure)
+    }
+    log_artifact = Path(args.report).with_suffix(".failure.log")
+    log_artifact.parent.mkdir(parents=True, exist_ok=True)
+    log_artifact.write_text("\n".join(bounded_lines) + "\n", encoding="utf-8")
+    report = {
+        "report_schema": 2,
+        "kind": "replay_entry_failure",
+        "certifying": False,
+        "result": "fail",
+        "reason": str(error),
+        "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "case_id": getattr(args, "case_id", ""),
+        "row_id": getattr(args, "row_id", ""),
+        "display_map_name": getattr(args, "display_map_name", ""),
+        "stage_package_root": getattr(args, "stage_package_root", ""),
+        "failure": {
+            "first_failure_line": first_failure,
+            "fields": diagnostic_fields,
+            "first_failing_frame": diagnostic_fields.get(
+                "frame", diagnostic_fields.get(
+                    "frames", diagnostic_fields.get("last_coordinate"))),
+            "field_or_mask": diagnostic_fields.get(
+                "mask", diagnostic_fields.get("identity_issue")),
+            "owner_selector": diagnostic_fields.get("owner_selector"),
+            "owner_pointer": diagnostic_fields.get(
+                "owner_pointer", diagnostic_fields.get("unresolved_owner")),
+            "return_rva": diagnostic_fields.get(
+                "return_rva", diagnostic_fields.get("caller_rva")),
+            "graph_provenance": diagnostic_fields.get(
+                "graph_provenance", diagnostic_fields.get("owner_stage")),
+            "bounded_log": str(log_artifact.resolve()),
+            "bounded_log_lines": len(bounded_lines),
+        },
+        "cleanup": {
+            "process_absent": find_game_pid() is None,
+            "diagnostic_flags_restored_false": restored,
+        },
+    }
+    write_report(Path(args.report), report)
+
+
 def main() -> int:
+    args: argparse.Namespace | None = None
     try:
         args = build_parser().parse_args()
         return int(args.handler(args))
     except (FileNotFoundError, RuntimeError, TimeoutError, subprocess.SubprocessError) as error:
+        if args is not None:
+            _write_compact_replay_failure(args, error)
         print(f"qualification failed: {error}", file=sys.stderr)
         return 2
 

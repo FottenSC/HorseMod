@@ -53,6 +53,15 @@ struct ReplayTimelineStatus
     std::uint64_t repeat_requests{};
     std::uint64_t same_native_time_coordinates{};
     std::uint64_t cursor_mismatches{};
+    std::uint64_t round_transition_cursor_barriers{};
+    FrameCoordinate last_cursor_mismatch_coordinate{};
+    std::int32_t last_cursor_mismatch_input_round{};
+    std::int32_t last_cursor_mismatch_input_time{};
+    std::int32_t last_cursor_mismatch_manager_round{};
+    std::uint32_t last_cursor_mismatch_manager_time{};
+    std::uint8_t last_cursor_mismatch_pending_dispatch{};
+    std::uint8_t last_cursor_mismatch_round_image_applied{};
+    std::uint8_t last_cursor_mismatch_round_state{};
     std::uint64_t input_filter_observations{};
     std::uint64_t input_filter_mutations{};
     std::uint64_t identity_rebaselines{};

@@ -37,6 +37,7 @@ struct ReplaySessionCoverage
 {
     std::array<std::uint64_t, 10> presentation{};
     std::uint64_t audio_terminal_calls{};
+    std::array<std::uint64_t, 3> accounting{};
     std::array<std::uint64_t, 42> gameplay_rng{};
 };
 
@@ -56,6 +57,10 @@ ReplaySessionCoverage CaptureReplaySessionCoverage(
         status.observed_battle_audio_blueprint_calls,
         status.observed_particle_spawn_calls};
     coverage.audio_terminal_calls = status.observed_audio_terminal_calls;
+    coverage.accounting = {
+        status.cursor_mismatches,
+        status.batch_frame_accounting_mismatches,
+        status.round_transition_cursor_barriers};
     coverage.gameplay_rng = {
         status.observed_gameplay_xorshift_draws,
         status.observed_gameplay_xorshift_known_callers,
@@ -116,6 +121,9 @@ void RestoreReplaySessionCoverage(ReplayTimelineStatus& status,
     status.observed_battle_audio_blueprint_calls = coverage.presentation[8];
     status.observed_particle_spawn_calls = coverage.presentation[9];
     status.observed_audio_terminal_calls = coverage.audio_terminal_calls;
+    status.cursor_mismatches = coverage.accounting[0];
+    status.batch_frame_accounting_mismatches = coverage.accounting[1];
+    status.round_transition_cursor_barriers = coverage.accounting[2];
     status.observed_gameplay_xorshift_draws = coverage.gameplay_rng[0];
     status.observed_gameplay_xorshift_known_callers = coverage.gameplay_rng[1];
     status.observed_gameplay_xorshift_unknown_callers = coverage.gameplay_rng[2];

@@ -326,11 +326,61 @@ Status Sc6ReplayRuntime::BeginObservedFrame(
         timeline_status_.maximum_input_filter_invocation_ordinal =
             observation.input_filter_invocations;
     }
-    if (observation.manager_game_round_cursor != observation.game_round
+    const bool cursor_mismatch =
+        observation.manager_game_round_cursor != observation.game_round
         || observation.manager_game_time_cursor
-            != static_cast<std::uint32_t>(observation.game_time))
-    {
+            != static_cast<std::uint32_t>(observation.game_time);
+    const auto record_cursor_mismatch = [&]() noexcept {
         ++timeline_status_.cursor_mismatches;
+        timeline_status_.last_cursor_mismatch_coordinate = coordinate;
+        timeline_status_.last_cursor_mismatch_input_round =
+            observation.game_round;
+        timeline_status_.last_cursor_mismatch_input_time =
+            observation.game_time;
+        timeline_status_.last_cursor_mismatch_manager_round =
+            observation.manager_game_round_cursor;
+        timeline_status_.last_cursor_mismatch_manager_time =
+            observation.manager_game_time_cursor;
+        timeline_status_.last_cursor_mismatch_pending_dispatch =
+            observation.pending_dispatch;
+        timeline_status_.last_cursor_mismatch_round_image_applied =
+            observation.round_image_applied;
+        timeline_status_.last_cursor_mismatch_round_state =
+            observation.round_state;
+    };
+    const bool round_reset_publication_barrier = new_generation
+        && observation.round_state == 1
+        && observation.game_time == 0
+        && static_cast<std::int64_t>(observation.game_round)
+            == static_cast<std::int64_t>(
+                observation.manager_game_round_cursor) + 1
+        && observation.pending_dispatch == 0
+        && observation.round_image_applied == 0;
+    if (observation.round_image_applied == 1)
+    {
+        // Native move-state 4 deliberately applies the next-round image, sets
+        // +0x1464/+0x1465, and forces one simulation traversal with the
+        // manager's consumed-time cursor reset to zero. This is the exact
+        // round-image barrier, not an accounting failure. Both companion
+        // values are native postconditions of that branch and fail closed if
+        // they do not agree.
+        ++timeline_status_.round_transition_cursor_barriers;
+        if (observation.pending_dispatch != 1
+            || observation.manager_game_time_cursor != 0)
+            record_cursor_mismatch();
+    }
+    else if (round_reset_publication_barrier)
+    {
+        // Round-state ID 1 synchronously broadcasts manager collection
+        // +0xB80. Its bound FrameInputLog delegate resets the InputLog to the
+        // next round at time zero before this post-coordinate fencepost, while
+        // the manager cursors still describe the traversal just consumed.
+        // The next worker tick consumes the newly published round image.
+        ++timeline_status_.round_transition_cursor_barriers;
+    }
+    else if (observation.round_image_applied != 0 || cursor_mismatch)
+    {
+        record_cursor_mismatch();
     }
     return Status::success();
 }

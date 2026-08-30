@@ -38,13 +38,21 @@
             Horse::OnlineRules::instance().hooks_installed();
         const bool game_mode_installed =
             Horse::GameMode::instance().hook_installed();
+        const bool replay_exit_hook_required =
+            m_deterministic_config.trace || m_deterministic_config.enabled;
+        const bool replay_exit_hook_ready = !replay_exit_hook_required
+            || m_battle_terminate_hook_registered;
         if (m_hook_registered && all_reset_registered
-            && online_rules_installed && game_mode_installed)
+            && online_rules_installed && game_mode_installed
+            && replay_exit_hook_ready)
             return;
         if (++m_poll_counter < 60) return;
         m_poll_counter = 0;
         if (!m_hook_registered)        try_register_cockpit_hook();
         if (!all_reset_registered)     try_register_reset_hooks();
+        if (replay_exit_hook_required
+            && !m_battle_terminate_hook_registered)
+            try_register_battle_terminate_hook();
         if (!online_rules_installed)
             Horse::OnlineRules::instance().try_install_hooks();
         // GameMode: hook SetPresence so we know which scene the user
@@ -305,6 +313,46 @@ private:
                 STR("[HorseMod] Reset-override hook registered: {} (pre={} post={})\n"),
                 slot.func_path, slot.ids.first, slot.ids.second);
         }
+    }
+
+    void try_register_battle_terminate_hook()
+    {
+        UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr, nullptr, m_battle_terminate_hook_path);
+        if (function == nullptr) return;
+        UnrealScriptFunctionCallable pre_cb =
+            [](UnrealScriptFunctionCallableContext&, void*) {
+                auto* self = s_instance.load(std::memory_order_acquire);
+                if (self == nullptr) return;
+                Output::send<LogLevel::Default>(STR(
+                    "[HorseMod] LuxBattleGameMode termination requested; "
+                    "invalidating native replay identity before BattleManager teardown\n"));
+                Horse::Deterministic::ReplayExitObservation observation{
+                    0, ::GetCurrentThreadId()};
+                HorseMod::on_replay_exit(self, observation);
+            };
+        UnrealScriptFunctionCallable post_cb =
+            [](UnrealScriptFunctionCallableContext&, void*) {};
+        try
+        {
+            m_battle_terminate_hook_ids = UObjectGlobals::RegisterHook(
+                m_battle_terminate_hook_path, pre_cb, post_cb, nullptr);
+        }
+        catch (const std::exception& error)
+        {
+            Output::send<LogLevel::Error>(STR(
+                "[HorseMod] LuxBattleGameMode termination-hook registration "
+                "failed: {}\n"), RC::to_generic_string(error.what()));
+            return;
+        }
+        if (m_battle_terminate_hook_ids.first == 0
+            && m_battle_terminate_hook_ids.second == 0)
+            return;
+        m_battle_terminate_hook_registered = true;
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] LuxBattleGameMode termination hook registered "
+            "pre={} post={}\n"), m_battle_terminate_hook_ids.first,
+            m_battle_terminate_hook_ids.second);
     }
 
     // ---- Ansel "always allow photography" apply-per-frame helper -------
@@ -1082,4 +1130,3 @@ private:
         // engine from stomping our writes each tick.
         m_free_camera.tick(pcm);
     }
-

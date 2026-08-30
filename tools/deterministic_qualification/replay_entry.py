@@ -76,6 +76,7 @@ def create_request(
     require_authored_outcomes: bool = False,
     expected_round_winners: tuple[int, ...] = (),
     expected_match_winner: int | None = None,
+    development_smoke: bool = False,
 ) -> str:
     if watch_frames < 1 or watch_frames > 36000:
         raise RuntimeError("watch frames must be between 1 and 36000")
@@ -108,7 +109,14 @@ def create_request(
         if not expected_round_winners or expected_match_winner is None:
             raise RuntimeError(
                 "outcome verification requires a same-replay stock control oracle")
-    version = 8
+    if development_smoke:
+        if watch_frames < 60 or watch_frames > 120:
+            raise RuntimeError("development smoke must watch 60 to 120 replay frames")
+        if (seek_percentages or stage_terminal or stock_round_outcome_control
+                or require_authored_outcomes):
+            raise RuntimeError(
+                "development smoke cannot request seeks, terminals, stock control, or outcomes")
+    version = 9
     seek_line = (
         "seek_percentages=" + ",".join(map(str, seek_percentages)) + "\n"
         f"min_resume_tick_rate_milli={round(min_resume_tick_rate * 1000)}\n"
@@ -131,10 +139,14 @@ def create_request(
         + ("" if expected_match_winner is None else str(expected_match_winner))
         + "\n"
     )
+    smoke_line = (
+        "development_smoke="
+        f"{'true' if development_smoke else 'false'}\n"
+    )
     temporary.write_text(
         f"version={version}\nrun_id={run_id}\nreplay_path={replay_text}\n"
         f"watch_frames={watch_frames}\n{seek_line}{terminal_line}{outcome_line}"
-        f"{authored_outcome_line}{expected_outcome_lines}",
+        f"{authored_outcome_line}{expected_outcome_lines}{smoke_line}",
         encoding="utf-8",
     )
     os.replace(temporary, request)

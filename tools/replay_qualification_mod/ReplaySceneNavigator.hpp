@@ -17,7 +17,9 @@ class ReplaySceneNavigator final
 {
 public:
     bool Bind(std::uintptr_t image_base) noexcept;
-    NavigationState Tick(bool playback_context_staged, std::string& detail);
+    NavigationState Tick(bool playback_context_staged,
+                         bool require_replay_list,
+                         std::string& detail);
 
 private:
     std::string last_scene_{};

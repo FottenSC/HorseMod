@@ -45,7 +45,7 @@
             m_replay_exit_first_observation_logged = true;
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] replay-exit invalidated native identity "
-                "before PostTick state=0x{:x}\n"),
+                "before destructive teardown state=0x{:x}\n"),
                 m_replay_exit_state.load(std::memory_order_acquire));
         }
 
@@ -446,10 +446,22 @@ public:
         const auto capture = m_replay_native_runtime.capture_performance();
         const auto timeline = m_replay_native_runtime.timeline_status();
         const auto storage = m_replay_native_runtime.owned_storage_status();
+        const auto observer_delta = [](std::uint64_t value,
+                                        std::uint64_t baseline) noexcept {
+            return value >= baseline ? value - baseline : value;
+        };
+        const std::uint64_t cursor_mismatches = observer_delta(
+            timeline.cursor_mismatches,
+            m_replay_qualification_cursor_mismatch_baseline);
+        const std::uint64_t batch_accounting_mismatches = observer_delta(
+            timeline.batch_frame_accounting_mismatches,
+            m_replay_qualification_batch_accounting_mismatch_baseline);
+        const std::uint64_t round_transition_barriers = observer_delta(
+            timeline.round_transition_cursor_barriers,
+            m_replay_qualification_round_transition_barrier_baseline);
         values[0] = presentation.capacity_failures;
         values[1] = capture.scratch_capacity_growth_events;
-        values[2] = timeline.cursor_mismatches
-            + timeline.batch_frame_accounting_mismatches;
+        values[2] = cursor_mismatches + batch_accounting_mismatches;
         values[3] = storage.aggregate_bytes;
         values[4] = storage.presentation_bytes;
         values[5] = presentation.duplicates;
@@ -463,11 +475,90 @@ public:
                 values[14 + index] =
                     capture.scratch_capacity_high_water_by_owner[index];
             }
-        return timeline.canonical_frames != 0;
+        // Append-only observer diagnostics. Preserve the original 7/21-value
+        // contracts for older harnesses.
+        if (count >= 36)
+        {
+            values[21] = static_cast<std::uint64_t>(timeline.failure);
+            values[22] = timeline.last_coordinate.generation;
+            values[23] = timeline.last_coordinate.frame;
+            values[24] =
+                timeline.canonical_capture_failure_coordinate.generation;
+            values[25] = timeline.canonical_capture_failure_coordinate.frame;
+            values[26] = timeline.identity_issue;
+            values[27] = static_cast<std::uint64_t>(
+                presentation.first_publish_failure);
+            values[28] = presentation.first_failed_event.kind;
+            values[29] = presentation.first_failed_event.identity;
+            const std::uint64_t fp_mismatches = timeline.fp_control_mismatches
+                + timeline.fp_status_mismatches
+                + timeline.fp_x87_status_mismatches
+                + timeline.fp_mxcsr_status_mismatches;
+            // The qualification module resets this observer window only after
+            // the authored replay is active. Setup batches remain available in
+            // the full timeline diagnostics, but must not masquerade as an
+            // active-replay terminal failure.
+            values[30] = fp_mismatches >=
+                    m_replay_qualification_fp_mismatch_baseline
+                ? fp_mismatches - m_replay_qualification_fp_mismatch_baseline
+                : fp_mismatches;
+            values[31] = timeline.observed_gameplay_xorshift_unknown_callers;
+            values[32] = timeline.identity_expected;
+            values[33] = timeline.identity_observed;
+            values[34] = timeline.observed_battle_audio_source_calls;
+            values[35] = timeline.observed_audio_terminal_calls;
+        }
+        if (count >= 39)
+        {
+            values[36] = cursor_mismatches;
+            values[37] = batch_accounting_mismatches;
+            values[38] = round_transition_barriers;
+        }
+        if (count >= 48)
+        {
+            values[39] =
+                timeline.last_cursor_mismatch_coordinate.generation;
+            values[40] = timeline.last_cursor_mismatch_coordinate.frame;
+            values[41] = static_cast<std::uint64_t>(
+                static_cast<std::int64_t>(
+                    timeline.last_cursor_mismatch_input_round));
+            values[42] = static_cast<std::uint64_t>(
+                static_cast<std::int64_t>(
+                    timeline.last_cursor_mismatch_input_time));
+            values[43] = static_cast<std::uint64_t>(
+                static_cast<std::int64_t>(
+                    timeline.last_cursor_mismatch_manager_round));
+            values[44] = timeline.last_cursor_mismatch_manager_time;
+            values[45] = timeline.last_cursor_mismatch_pending_dispatch;
+            values[46] = timeline.last_cursor_mismatch_round_image_applied;
+            values[47] = timeline.last_cursor_mismatch_round_state;
+        }
+        return timeline.canonical_frames != 0
+            || timeline.failure
+                != Horse::Deterministic::FailureCode::None
+            || presentation.capacity_failures != 0
+            || presentation.duplicates != 0
+            || presentation.publish_failures != 0;
     }
 
     bool ResetReplayQualificationHealth() noexcept
     {
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        m_replay_qualification_fp_mismatch_baseline =
+            timeline.fp_control_mismatches
+            + timeline.fp_status_mismatches
+            + timeline.fp_x87_status_mismatches
+            + timeline.fp_mxcsr_status_mismatches;
+        // Preserve the native lifetime counters and any latched FailureCode.
+        // Qualification health is an observer-only window beginning at the
+        // first active authored replay frame, so pre-active setup accounting
+        // cannot masquerade as an active replay failure.
+        m_replay_qualification_cursor_mismatch_baseline =
+            timeline.cursor_mismatches;
+        m_replay_qualification_batch_accounting_mismatch_baseline =
+            timeline.batch_frame_accounting_mismatches;
+        m_replay_qualification_round_transition_barrier_baseline =
+            timeline.round_transition_cursor_barriers;
         m_replay_native_runtime.ResetCapturePerformanceWindow();
         return true;
     }
@@ -883,6 +974,12 @@ public:
                 STR("[HorseMod] dtor unregistered reset hook {} pre={} post={}\n"),
                 slot.func_path, slot.ids.first, slot.ids.second);
             slot.registered = false;
+        }
+        if (m_battle_terminate_hook_registered)
+        {
+            UObjectGlobals::UnregisterHook(
+                m_battle_terminate_hook_path, m_battle_terminate_hook_ids);
+            m_battle_terminate_hook_registered = false;
         }
 
         // Tear down the C++-level SetStartPosition detour cleanly so the

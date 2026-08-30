@@ -402,6 +402,24 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
             hooks->ClearAudioOwnerGraph();
         observation.audio_owner_graph_failure_stage =
             hooks->audio_graph_failure_stage_;
+        std::uint64_t provenance_hash = 1469598103934665603ull;
+        const auto mix_provenance = [&](std::uint64_t value) noexcept
+        {
+            provenance_hash ^= value;
+            provenance_hash *= 1099511628211ull;
+        };
+        const auto& provenance = hooks->audio_graph_provenance_;
+        mix_provenance(provenance.generation);
+        mix_provenance(provenance.battle_manager);
+        mix_provenance(provenance.cri_manager);
+        mix_provenance(provenance.bgm_state);
+        mix_provenance(provenance.active_context);
+        mix_provenance(provenance.battle_audio_manager);
+        mix_provenance(provenance.class_count);
+        mix_provenance(provenance.chara_count);
+        mix_provenance(provenance.cue_family_count);
+        mix_provenance(provenance.battle_shared_player);
+        observation.audio_owner_graph_provenance = provenance_hash;
     }
     OuterTickCaptureContext capture_context{&observation};
     if (hooks != nullptr)

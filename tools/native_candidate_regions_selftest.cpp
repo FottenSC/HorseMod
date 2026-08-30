@@ -1532,6 +1532,8 @@ void test_capture_restore_preserves_exclusions()
     fixture.memory.Set(fixture.addresses.battle_manager + 0x14F0, std::int32_t{7});
     fixture.memory.Set(fixture.addresses.battle_manager + 0x1462, std::uint8_t{1});
     fixture.memory.Set(fixture.addresses.battle_manager + 0x1463, std::uint8_t{3});
+    fixture.memory.Set(fixture.addresses.battle_manager + 0x1464, std::uint8_t{1});
+    fixture.memory.Set(fixture.addresses.battle_manager + 0x1465, std::uint8_t{1});
     fixture.memory.Set(fixture.addresses.battle_manager + 0x1478, std::int32_t{1});
     fixture.memory.Set(fixture.addresses.battle_manager + 0x1480, std::uint8_t{9});
     fixture.memory.Set(Fixture::memory_base + 0x1C300,

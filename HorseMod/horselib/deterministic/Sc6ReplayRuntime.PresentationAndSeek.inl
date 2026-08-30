@@ -1010,7 +1010,11 @@ void Sc6ReplayRuntime::CaptureInterbatchDiagnostics(
                         if (a.previous_inputs != b.previous_inputs) *first_interbatch_frame_difference_mask |= 0x10;
                         if (a.input_pairs != b.input_pairs) *first_interbatch_frame_difference_mask |= 0x20;
                         if (a.prior_input_pairs != b.prior_input_pairs) *first_interbatch_frame_difference_mask |= 0x40;
-                        if (a.repeat_pending != b.repeat_pending || a.pending_move_state != b.pending_move_state) *first_interbatch_frame_difference_mask |= 0x80;
+                        if (a.repeat_pending != b.repeat_pending
+                            || a.pending_move_state != b.pending_move_state
+                            || a.pending_dispatch != b.pending_dispatch
+                            || a.round_image_applied != b.round_image_applied)
+                            *first_interbatch_frame_difference_mask |= 0x80;
                     }
                     if (material_difference != 0
                         && first_interbatch_local_difference != nullptr

@@ -80,7 +80,10 @@ QUALIFICATION_HEALTH_PATTERN = re.compile(
     r"aggregate_owned_bytes=(?P<aggregate>\d+) "
     r"presentation_owned_bytes=(?P<presentation>\d+) "
     r"presentation_duplicate_failures=(?P<duplicates>\d+) "
-    r"presentation_publish_failures=(?P<publish>\d+)"
+    r"presentation_publish_failures=(?P<publish>\d+) "
+    r"cursor_mismatches=(?P<cursor_mismatches>\d+) "
+    r"batch_accounting_mismatches=(?P<batch_mismatches>\d+) "
+    r"round_transition_barriers=(?P<round_barriers>\d+)"
 )
 GAMEPLAY_RNG_COVERAGE_PATTERN = re.compile(
     r"\[ReplayQualification\] gameplay rng coverage "
@@ -255,6 +258,9 @@ class QualificationHealthEvidence:
     presentation_owned_bytes: int
     presentation_duplicate_failures: int
     presentation_publish_failures: int
+    cursor_mismatches: int
+    batch_accounting_mismatches: int
+    round_transition_barriers: int
 
 
 @dataclass(frozen=True)
@@ -463,11 +469,13 @@ def parse_replay_seek_evidence(text: str) -> tuple[ReplaySeekEvidence, ...]:
 
 def parse_normal_render_rate_evidence(
     text: str,
+    *,
+    source_bound: bool = True,
 ) -> NormalRenderRateEvidence | None:
     source_matches = list(SOURCE_PATTERN.finditer(text))
-    if not source_matches:
+    if source_bound and not source_matches:
         return None
-    current_boot = text[source_matches[-1].start():]
+    current_boot = text[source_matches[-1].start():] if source_matches else text
     overall_matches = list(NORMAL_RENDER_RATE_PATTERN.finditer(current_boot))
     active_matches = list(NORMAL_RENDER_ACTIVE_RATE_PATTERN.finditer(current_boot))
     if not overall_matches or not active_matches:
@@ -489,6 +497,8 @@ def wait_for_normal_render_rate_evidence(
     timeout_seconds: float,
     progress_guard: Callable[[], None] | None = None,
     start_offset: LogCursor | int = 0,
+    *,
+    source_bound: bool = True,
 ) -> NormalRenderRateEvidence:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -496,7 +506,8 @@ def wait_for_normal_render_rate_evidence(
             progress_guard()
         try:
             evidence = parse_normal_render_rate_evidence(
-                _read_since(log_path, start_offset)
+                _read_since(log_path, start_offset),
+                source_bound=source_bound,
             )
         except OSError:
             evidence = None
@@ -600,6 +611,9 @@ def parse_qualification_health_evidence(
         presentation_owned_bytes=int(match.group("presentation")),
         presentation_duplicate_failures=int(match.group("duplicates")),
         presentation_publish_failures=int(match.group("publish")),
+        cursor_mismatches=int(match.group("cursor_mismatches")),
+        batch_accounting_mismatches=int(match.group("batch_mismatches")),
+        round_transition_barriers=int(match.group("round_barriers")),
     )
 
 
@@ -646,11 +660,15 @@ def wait_for_stock_round_outcome_evidence(
     raise TimeoutError("stock replay ordered round outcomes did not verify")
 
 
-def parse_replay_metadata_evidence(text: str) -> ReplayMetadataEvidence | None:
+def parse_replay_metadata_evidence(
+    text: str,
+    *,
+    source_bound: bool = True,
+) -> ReplayMetadataEvidence | None:
     source_matches = list(REPLAY_ENTRY_PATTERN.finditer(text))
-    if not source_matches:
+    if source_bound and not source_matches:
         return None
-    current_boot = text[source_matches[-1].start():]
+    current_boot = text[source_matches[-1].start():] if source_matches else text
     matches = list(REPLAY_METADATA_PATTERN.finditer(current_boot))
     if not matches:
         return None
@@ -667,6 +685,8 @@ def wait_for_replay_metadata_evidence(
     log_path: Path, timeout_seconds: float,
     progress_guard: Callable[[], None] | None = None,
     start_offset: LogCursor | int = 0,
+    *,
+    source_bound: bool = True,
 ) -> ReplayMetadataEvidence:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -674,7 +694,8 @@ def wait_for_replay_metadata_evidence(
             progress_guard()
         try:
             evidence = parse_replay_metadata_evidence(
-                _read_since(log_path, start_offset))
+                _read_since(log_path, start_offset),
+                source_bound=source_bound)
         except OSError:
             evidence = None
         if evidence is not None:

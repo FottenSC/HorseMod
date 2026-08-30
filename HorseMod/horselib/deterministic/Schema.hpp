@@ -99,15 +99,6 @@ inline constexpr std::uintptr_t battle_audio_register_voice_rva = 0x54f8b0;
 // LuxAudio_ResolveAndPlayCharaCue selects the character player from the
 // event's authored bMode byte before synchronously reaching the voice terminal.
 inline constexpr std::uintptr_t battle_audio_resolve_chara_cue_rva = 0x519970;
-// Return address immediately after the character cue-family resolver calls
-// the voice terminal. Its cue-sheet argument is a process-local CRI slot.
-inline constexpr std::uintptr_t battle_audio_chara_cue_terminal_return_rva =
-    0x519a6d;
-// Return address after the general battle-event dispatcher crosses into the
-// shared-player voice-registration thunk. The dispatcher has already selected
-// the exact class/shared owner from its live manager at this point.
-inline constexpr std::uintptr_t battle_audio_dispatch_terminal_return_rva =
-    0x519789;
 inline constexpr std::uintptr_t battle_audio_find_active_voice_rva = 0x1de5e00;
 inline constexpr std::uintptr_t battle_audio_append_command_rva = 0x5656d0;
 inline constexpr std::uintptr_t battle_audio_stop_all_rva = 0x560940;
@@ -132,7 +123,7 @@ inline constexpr std::uintptr_t camera_input_words25_rva = 0x470d110;
 inline constexpr std::uintptr_t camera_mode_rva = 0x470d198;
 inline constexpr std::uintptr_t camera_frame_vectors_rva = 0x470d1a0;
 inline constexpr std::size_t camera_frame_vectors_size = 0x60;
-inline constexpr std::uint16_t required_observation_read_mask = 0x3fff;
+inline constexpr std::uint16_t required_observation_read_mask = 0xffff;
 inline constexpr std::uint16_t required_outer_tick_pre_read_mask = 0x000f;
 inline constexpr std::uint16_t required_outer_tick_post_read_mask = 0x00f0;
 inline constexpr std::uint16_t required_outer_tick_read_mask = 0x00ff;
@@ -147,6 +138,8 @@ inline constexpr std::ptrdiff_t manager_active_player_count = 0x14b0;
 inline constexpr std::ptrdiff_t manager_repeat_pending = 0x1462;
 inline constexpr std::ptrdiff_t manager_main_state = 0x1461;
 inline constexpr std::ptrdiff_t manager_pending_move_state = 0x1463;
+inline constexpr std::ptrdiff_t manager_pending_dispatch = 0x1464;
+inline constexpr std::ptrdiff_t manager_round_image_applied = 0x1465;
 inline constexpr std::ptrdiff_t manager_game_round_cursor = 0x1488;
 inline constexpr std::ptrdiff_t manager_game_time_cursor = 0x148c;
 inline constexpr std::ptrdiff_t manager_round_state_frame = 0x1490;

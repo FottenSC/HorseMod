@@ -1,4 +1,5 @@
 #include "DeterministicHookSet.hpp"
+#include "Sc6HookLayout.hpp"
 
 #include "Schema.hpp"
 

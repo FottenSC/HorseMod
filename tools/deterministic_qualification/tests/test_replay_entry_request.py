@@ -5,7 +5,7 @@ import pytest
 from tools.deterministic_qualification.replay_entry import create_request
 
 
-def test_seek_request_uses_explicit_version_eight_mode_contract(
+def test_seek_request_uses_explicit_version_nine_mode_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
@@ -18,7 +18,7 @@ def test_seek_request_uses_explicit_version_eight_mode_contract(
     ).read_text(encoding="utf-8")
 
     assert f"run_id={run_id}\n" in request
-    assert request.startswith("version=8\n")
+    assert request.startswith("version=9\n")
     assert "require_authored_outcomes=false\n" in request
     assert "watch_frames=600\n" in request
     assert "seek_percentages=10,25,50,75\n" in request
@@ -41,7 +41,7 @@ def test_seek_request_rejects_endpoint_percentages(
         create_request(replay, 600, (100,))
 
 
-def test_stage_terminal_request_uses_typed_version_eight_contract(
+def test_stage_terminal_request_uses_typed_version_nine_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
@@ -53,7 +53,7 @@ def test_stage_terminal_request_uses_typed_version_eight_contract(
         tmp_path / "HorseMod" / "Qualification" / "replay_request.txt"
     ).read_text(encoding="utf-8")
 
-    assert request.startswith("version=8\n")
+    assert request.startswith("version=9\n")
     assert "seek_percentages=\n" in request
     assert "stage_terminal=wall\n" in request
     assert "stock_round_outcome_control=false\n" in request
@@ -71,7 +71,7 @@ def test_both_stage_terminals_use_one_bounded_request(
         tmp_path / "HorseMod" / "Qualification" / "replay_request.txt"
     ).read_text(encoding="utf-8")
 
-    assert request.startswith("version=8\n")
+    assert request.startswith("version=9\n")
     assert "stage_terminal=both\n" in request
     assert "stock_round_outcome_control=false\n" in request
 
@@ -88,8 +88,32 @@ def test_no_seek_request_explicitly_enables_stock_outcome_control(
         tmp_path / "HorseMod" / "Qualification" / "replay_request.txt"
     ).read_text(encoding="utf-8")
 
-    assert request.startswith("version=8\n")
+    assert request.startswith("version=9\n")
     assert "stock_round_outcome_control=true\n" in request
+
+
+def test_development_smoke_is_bounded_and_disables_outcome_control(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    replay = tmp_path / "smoke.bin"
+    replay.write_bytes(b"ULX1test")
+
+    create_request(
+        replay, 120, stock_round_outcome_control=False,
+        development_smoke=True,
+    )
+    request = (
+        tmp_path / "HorseMod" / "Qualification" / "replay_request.txt"
+    ).read_text(encoding="utf-8")
+
+    assert "development_smoke=true\n" in request
+    assert "stock_round_outcome_control=false\n" in request
+    with pytest.raises(RuntimeError, match="60 to 120"):
+        create_request(
+            replay, 121, stock_round_outcome_control=False,
+            development_smoke=True,
+        )
 
 
 def test_outcome_verification_requires_and_serializes_control_oracle(

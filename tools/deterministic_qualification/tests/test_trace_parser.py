@@ -23,7 +23,9 @@ def test_qualification_health_parser_uses_native_counters() -> None:
         "[ReplayQualification] qualification health capacity_failures=0 "
         "capacity_growth_events=0 timeline_accounting_failures=0 "
         "aggregate_owned_bytes=1234 presentation_owned_bytes=567 "
-        "presentation_duplicate_failures=0 presentation_publish_failures=0\n"
+        "presentation_duplicate_failures=0 presentation_publish_failures=0 "
+        "cursor_mismatches=0 batch_accounting_mismatches=0 "
+        "round_transition_barriers=4\n"
     )
     evidence = parse_qualification_health_evidence(text)
     assert evidence is not None
@@ -32,6 +34,9 @@ def test_qualification_health_parser_uses_native_counters() -> None:
     assert evidence.timeline_accounting_failures == 0
     assert evidence.presentation_duplicate_failures == 0
     assert evidence.presentation_publish_failures == 0
+    assert evidence.cursor_mismatches == 0
+    assert evidence.batch_accounting_mismatches == 0
+    assert evidence.round_transition_barriers == 4
     assert evidence.aggregate_owned_bytes == 1234
 
 
@@ -69,6 +74,17 @@ def test_replay_metadata_parser_is_bound_to_latest_import() -> None:
     assert evidence.left_character == 35
     assert evidence.right_character == 11
     assert evidence.state_reset_records == 3
+
+
+def test_replay_metadata_parser_supports_explicit_request_local_window() -> None:
+    text = (
+        "[ReplayQualification] replay metadata stage=273 map=17 "
+        "left_character=12 right_character=14 state_reset_records=4\n"
+    )
+    assert parse_replay_metadata_evidence(text) is None
+    evidence = parse_replay_metadata_evidence(text, source_bound=False)
+    assert evidence is not None
+    assert (evidence.stage, evidence.map) == (273, 17)
 
 
 def test_correction_probe_parser_preserves_depth_order() -> None:
@@ -196,6 +212,20 @@ def test_normal_render_rate_parser_requires_full_and_active_windows() -> None:
     assert evidence.tick_rate_milli == 59701
     assert evidence.active_frames == 120
     assert evidence.active_tick_rate_milli == 59405
+
+
+def test_normal_render_rate_parser_supports_explicit_request_local_window() -> None:
+    text = (
+        "[ReplayQualification] normal-render battle rate "
+        "frames=120 elapsed_us=2040000 tick_rate_milli=58823\n"
+        "[ReplayQualification] normal-render active battle rate "
+        "frames=120 elapsed_us=2041000 tick_rate_milli=58794\n"
+    )
+    assert parse_normal_render_rate_evidence(text) is None
+    evidence = parse_normal_render_rate_evidence(text, source_bound=False)
+    assert evidence is not None
+    assert evidence.frames == 120
+    assert evidence.active_tick_rate_milli == 58794
 
 
 def test_forced_qualification_parser_prefers_terminal_failure() -> None:

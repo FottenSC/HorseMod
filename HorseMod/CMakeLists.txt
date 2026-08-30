@@ -460,7 +460,30 @@ if(HORSEMOD_BUILD_PINNED_GEKKONET AND TARGET GekkoNet)
     endif()
     add_test(NAME GekkoRollbackSessionSelfTest
         COMMAND $<TARGET_FILE:GekkoRollbackSessionSelfTest>)
+    set_tests_properties(GekkoRollbackSessionSelfTest PROPERTIES
+        LABELS "deterministic;online;fast" TIMEOUT 60)
 endif()
+
+# Dirty-tree iteration intentionally builds only the two runtime DLLs, the
+# exported contract, and the eight deterministic self-tests. Configuration is
+# kept separate so source identity is frozen only when explicitly requested.
+set(HORSEMOD_ITERATION_TARGETS
+    ${TARGET}
+    ReplayQualificationMod
+    DeterministicSchema
+    DeterministicCoreSelfTest
+    NativeCandidateRegionsSelfTest
+    OnlineCoordinatorSelfTest
+    SteamP2PTransportSelfTest
+    Sc6OnlineContractObserverSelfTest
+    Sc6OnlineObserverProbeSelfTest
+    ProductionReleaseLoaderSelfTest
+)
+if(TARGET GekkoRollbackSessionSelfTest)
+    list(APPEND HORSEMOD_ITERATION_TARGETS GekkoRollbackSessionSelfTest)
+endif()
+add_custom_target(DeterministicIterationTargets
+    DEPENDS ${HORSEMOD_ITERATION_TARGETS})
 
 target_link_options(${TARGET} PRIVATE
     /DELAYLOAD:d3d11.dll

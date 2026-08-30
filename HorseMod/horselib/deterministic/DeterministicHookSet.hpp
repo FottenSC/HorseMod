@@ -42,6 +42,8 @@ struct FrameFencepostObservation
     std::uint8_t round_state{};
     std::uint8_t repeat_pending{};
     std::uint8_t pending_move_state{};
+    std::uint8_t pending_dispatch{};
+    std::uint8_t round_image_applied{};
     std::uint16_t read_mask{};
     std::uint32_t input_filter_invocations{};
     bool input_filter_observed{};
@@ -149,6 +151,7 @@ struct OuterTickObservation
     std::uint64_t audio_owner_graph_epoch{};
     std::uint32_t audio_owner_graph_bindings{};
     std::uint32_t audio_owner_graph_failure_stage{};
+    std::uint64_t audio_owner_graph_provenance{};
     std::array<BattleAudioDispatchJournalEntry,
         maximum_battle_audio_journal_dispatches> battle_audio_journal{};
     std::array<BattleAudioSourceJournalEntry,

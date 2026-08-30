@@ -64,6 +64,7 @@ struct Request
     bool require_authored_outcomes{};
     std::vector<std::int8_t> expected_round_winners{};
     std::int32_t expected_match_winner{-1};
+    bool development_smoke{};
 };
 
 struct BattleResult
@@ -709,14 +710,15 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         || (fields["version"] != "2" && fields["version"] != "3"
             && fields["version"] != "4" && fields["version"] != "5"
             && fields["version"] != "6" && fields["version"] != "7"
-            && fields["version"] != "8")
+            && fields["version"] != "8" && fields["version"] != "9")
         || (fields["version"] == "2" && fields.size() != 4)
         || (fields["version"] == "3" && fields.size() != 5)
         || (fields["version"] == "4" && fields.size() != 7)
         || (fields["version"] == "5" && fields.size() != 8)
         || (fields["version"] == "6" && fields.size() != 9)
         || (fields["version"] == "7" && fields.size() != 10)
-        || (fields["version"] == "8" && fields.size() != 12))
+        || (fields["version"] == "8" && fields.size() != 12)
+        || (fields["version"] == "9" && fields.size() != 13))
     {
         return false;
     }
@@ -733,7 +735,8 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     std::vector<std::uint32_t> percentages;
     if (fields["version"] == "3" || fields["version"] == "4"
         || fields["version"] == "5" || fields["version"] == "6"
-        || fields["version"] == "7" || fields["version"] == "8")
+        || fields["version"] == "7" || fields["version"] == "8"
+        || fields["version"] == "9")
     {
         std::string_view remaining = fields["seek_percentages"];
         while (!remaining.empty())
@@ -753,13 +756,14 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         }
         if (percentages.empty() && fields["version"] != "5"
             && fields["version"] != "6" && fields["version"] != "7"
-            && fields["version"] != "8") return false;
+            && fields["version"] != "8" && fields["version"] != "9")
+            return false;
     }
     std::uint32_t min_resume_tick_rate_milli = 58'000;
     std::uint32_t resume_tick_window = 120;
     if (fields["version"] == "4" || fields["version"] == "5"
         || fields["version"] == "6" || fields["version"] == "7"
-        || fields["version"] == "8")
+        || fields["version"] == "8" || fields["version"] == "9")
     {
         try
         {
@@ -779,7 +783,8 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     if (fields["version"] == "5"
         || ((fields["version"] == "6" || fields["version"] == "7"
                 || fields["version"] == "8")
-            && !fields["stage_terminal"].empty()))
+                || fields["version"] == "9")
+            && !fields["stage_terminal"].empty())
     {
         if (fields["stage_terminal"] == "wall") stage_terminal = 1;
         else if (fields["stage_terminal"] == "barrier") stage_terminal = 2;
@@ -788,24 +793,26 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     }
     const bool stock_round_outcome_control =
         (fields["version"] == "6" || fields["version"] == "7"
-            || fields["version"] == "8")
+            || fields["version"] == "8" || fields["version"] == "9")
         ? fields["stock_round_outcome_control"] == "true"
         : percentages.empty() && stage_terminal == 0;
     if ((fields["version"] == "6" || fields["version"] == "7"
-            || fields["version"] == "8")
+            || fields["version"] == "8" || fields["version"] == "9")
         && fields["stock_round_outcome_control"] != "true"
         && fields["stock_round_outcome_control"] != "false")
         return false;
     const bool require_authored_outcomes =
-        (fields["version"] == "7" || fields["version"] == "8")
+        (fields["version"] == "7" || fields["version"] == "8"
+            || fields["version"] == "9")
         && fields["require_authored_outcomes"] == "true";
-    if ((fields["version"] == "7" || fields["version"] == "8")
+    if ((fields["version"] == "7" || fields["version"] == "8"
+            || fields["version"] == "9")
         && fields["require_authored_outcomes"] != "true"
         && fields["require_authored_outcomes"] != "false")
         return false;
     std::vector<std::int8_t> expected_round_winners;
     std::int32_t expected_match_winner = -1;
-    if (fields["version"] == "8")
+    if (fields["version"] == "8" || fields["version"] == "9")
     {
         std::string_view remaining = fields["expected_round_winners"];
         while (!remaining.empty())
@@ -831,11 +838,20 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
             && (expected_round_winners.empty()
                 || expected_match_winner < 0)) return false;
     }
+    const bool development_smoke = fields["version"] == "9"
+        && fields["development_smoke"] == "true";
+    if (fields["version"] == "9"
+        && fields["development_smoke"] != "true"
+        && fields["development_smoke"] != "false") return false;
+    if (development_smoke
+        && (watch_frames < 60 || watch_frames > 120
+            || stock_round_outcome_control || require_authored_outcomes
+            || stage_terminal != 0 || !percentages.empty())) return false;
     output = {fields["run_id"], std::filesystem::path(replay_path),
         watch_frames, std::move(percentages), min_resume_tick_rate_milli,
         resume_tick_window, stage_terminal, stock_round_outcome_control,
         require_authored_outcomes, std::move(expected_round_winners),
-        expected_match_winner};
+        expected_match_winner, development_smoke};
     return output.replay_path.is_absolute();
 }
 
@@ -1218,6 +1234,7 @@ private:
         playback_context_staged_ = false;
         battle_scene_observed_ = false;
         replay_scene_ready_ = false;
+        authored_map_logged_ = false;
         battle_manager_ = nullptr;
         initial_battle_frame_ = 0;
         observed_battle_frame_ = 0;
@@ -1305,6 +1322,99 @@ private:
         WriteResult("waiting_for_launch", "none");
     }
 
+    bool PollFailFastHealth(std::uint32_t frame)
+    {
+        const auto get_health = ResolveHorseModQualificationHealthApi();
+        if (get_health == nullptr)
+        {
+            Fail("horsemod_qualification_health_api_unavailable");
+            return false;
+        }
+        std::array<std::uint64_t, 48> health{};
+        // A canonical frame may not exist on the first active replay tick.
+        // That is not a failure; poll again on the next engine tick.
+        if (!get_health(health.data(), health.size())) return true;
+        // health[30] intentionally remains diagnostic-only: it includes masked
+        // x87/MXCSR exception-status changes that normal simulation produces on
+        // every outer tick. Control-environment correctness remains part of the
+        // native final timeline evidence and any real failure is represented by
+        // health[21].
+        const bool terminal_failure = health[0] != 0 || health[1] != 0
+            || health[2] != 0 || health[5] != 0 || health[6] != 0
+            || health[21] != 0 || health[26] != 0 || health[27] != 0
+            || health[31] != 0;
+        if (!terminal_failure) return true;
+        Output::send<LogLevel::Error>(STR(
+            "[ReplayQualification] fail-fast health frame={} "
+            "timeline_failure={} last_coordinate={}:{} "
+            "canonical_failure={}:{} identity_issue={} "
+            "identity_expected=0x{:016x} identity_observed=0x{:016x} "
+            "presentation_failure={} event_kind={} event_identity=0x{:016x} "
+            "capacity_failures={} growth_events={} accounting_failures={} "
+            "cursor_mismatches={} batch_accounting_mismatches={} "
+            "round_transition_barriers={} "
+            "cursor_failure_coordinate={}:{} cursor_input={}:{} "
+            "cursor_manager={}:{} pending_dispatch={} "
+            "round_image_applied={} round_state={} "
+            "duplicates={} publish_failures={} fp_mismatches={} "
+            "unknown_rng_callers={} audio_sources={} audio_terminals={}\n"),
+            frame, health[21], health[22], health[23], health[24], health[25],
+            health[26], health[32], health[33], health[27], health[28],
+            health[29], health[0], health[1], health[2], health[36], health[37],
+            health[38], health[39], health[40],
+            static_cast<std::int64_t>(health[41]),
+            static_cast<std::int64_t>(health[42]),
+            static_cast<std::int64_t>(health[43]), health[44], health[45],
+            health[46], health[47], health[5], health[6], health[30], health[31],
+            health[34], health[35]);
+        Fail("horsemod_fail_fast_health");
+        return false;
+    }
+
+    bool CompleteDevelopmentSmoke(std::uint32_t frame)
+    {
+        const auto get_coverage = ResolveHorseModPresentationCoverageApi();
+        const auto get_identity = ResolveHorseModPresentationIdentityApi();
+        const auto get_health = ResolveHorseModQualificationHealthApi();
+        std::array<std::uint64_t, 10> coverage{};
+        std::array<std::uint64_t, 9> identity{};
+        std::array<std::uint64_t, 48> health{};
+        if (get_coverage == nullptr || get_identity == nullptr
+            || get_health == nullptr
+            || !get_coverage(coverage.data(), coverage.size())
+            || !get_identity(identity.data(), identity.size())
+            || !get_health(health.data(), health.size()))
+        {
+            Fail("development_smoke_diagnostics_unavailable");
+            return false;
+        }
+        if (coverage[6] == 0 || identity[1] == 0 || identity[3] == 0
+            || health[34] == 0 || health[35] == 0)
+        {
+            Output::send<LogLevel::Error>(STR(
+                "[ReplayQualification] development smoke missing early "
+                "audio/ownership activity frame={} audio_source_coverage={} "
+                "audio_events={} order_events={} audio_sources={} "
+                "audio_terminals={}\n"), frame, coverage[6], identity[1],
+                identity[3], health[34], health[35]);
+            Fail("development_smoke_audio_ownership_missing");
+            return false;
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] development smoke passed frame={} "
+            "audio_source_coverage={} audio_events={} order_events={} "
+            "audio_sources={} audio_terminals={}\n"), frame, coverage[6],
+            identity[1], identity[3], health[34], health[35]);
+        WriteResult("launch_requested", "development_smoke_passed");
+        // A persistent development campaign publishes the next request only
+        // after observing this result. Return to request polling, but require
+        // the existing navigator to leave the current ReplayBattleScene before
+        // another payload can be staged.
+        require_replay_list_before_ready_ = true;
+        state_ = State::Idle;
+        return true;
+    }
+
     void PollLaunch()
     {
         if (!battle_scene_observed_
@@ -1318,7 +1428,8 @@ private:
         {
             std::string navigation_detail;
             const Horse::Qualification::NavigationState navigation =
-                navigator_.Tick(playback_context_staged_, navigation_detail);
+                navigator_.Tick(playback_context_staged_,
+                    require_replay_list_before_ready_, navigation_detail);
             if (navigation_detail != last_navigation_detail_)
             {
                 last_navigation_detail_ = navigation_detail;
@@ -1334,6 +1445,7 @@ private:
             if (navigation
                 == Horse::Qualification::NavigationState::ReplayListReady)
             {
+                require_replay_list_before_ready_ = false;
                 PollPlayerProfiles();
                 return;
             }
@@ -1415,6 +1527,12 @@ private:
                 native_round, native_time, round_state_frame);
             return;
         }
+        // Stock outcome control is the rollback-disabled authored oracle. It
+        // intentionally does not reset the deterministic qualification-health
+        // window above, and must not classify pre-active observer diagnostics
+        // as a stock-game outcome failure. Every deterministic replay path
+        // retains the fail-fast contract after resetting its active window.
+        if (!stock_round_outcome_control && !PollFailFastHealth(frame)) return;
         const std::uint32_t advanced = frame - initial_battle_frame_;
         if (!battle_rate_logged_ && advanced >= request_.watch_frames)
         {
@@ -1513,6 +1631,11 @@ private:
         if (request_.require_authored_outcomes
             && !PollRoundOutcomeQualification()) return;
         if (advanced < request_.watch_frames) return;
+        if (request_.development_smoke)
+        {
+            CompleteDevelopmentSmoke(frame);
+            return;
+        }
         if (seek_index_ < request_.seek_percentages.size())
         {
             PollSeekQualification(frame);
@@ -1650,7 +1773,7 @@ private:
             }
         }
         const auto get_health = ResolveHorseModQualificationHealthApi();
-        std::array<std::uint64_t, 21> health{};
+        std::array<std::uint64_t, 48> health{};
         if (get_health == nullptr
             || !get_health(health.data(), health.size()))
         {
@@ -1662,13 +1785,15 @@ private:
             "capacity_failures={} capacity_growth_events={} "
             "timeline_accounting_failures={} aggregate_owned_bytes={} "
             "presentation_owned_bytes={} presentation_duplicate_failures={} "
-            "presentation_publish_failures={} "
+            "presentation_publish_failures={} cursor_mismatches={} "
+            "batch_accounting_mismatches={} round_transition_barriers={} "
             "scratch_owner_capture={}->{} scratch_owner_canonical={}->{} "
             "scratch_owner_target={}->{} scratch_owner_transaction={}->{} "
             "scratch_owner_regions={}->{} scratch_owner_motion={}->{} "
             "scratch_owner_dispatch={}->{}\n"),
             health[0], health[1], health[2], health[3], health[4],
-            health[5], health[6], health[7], health[14], health[8], health[15],
+            health[5], health[6], health[36], health[37], health[38],
+            health[7], health[14], health[8], health[15],
             health[9], health[16], health[10], health[17], health[11],
             health[18], health[12], health[19], health[13], health[20]);
         const auto get_rng_coverage =
@@ -2224,6 +2349,7 @@ private:
     bool playback_context_staged_{};
     bool battle_scene_observed_{};
     bool replay_scene_ready_{};
+    bool require_replay_list_before_ready_{};
     bool authored_map_logged_{};
     std::uint32_t initial_battle_frame_{};
     std::uint32_t observed_battle_frame_{};

@@ -446,6 +446,9 @@
                 .last_coordinate.generation);
         const auto& timeline =
             self->m_replay_native_runtime.timeline_status_view();
+        if (timeline.last_coordinate.generation != 0)
+            self->m_replay_identity_active.store(
+                true, std::memory_order_release);
 #if HORSE_ENABLE_GEKKONET
         const auto online_frame = self->complete_online_native_frame(observation);
         if (!online_frame.ok())
@@ -645,8 +648,9 @@
                     "dispatches={} journal={}/{} sources={} source_journal={}/{} "
                     "remaps={} remap_journal={}/{} stop_all={} "
                     "stop_all_journal={}/{} stop_all_owners={} "
-                    "unresolved_owner=0x{:x} caller_rva=0x{:x} "
-                    "owner_epoch={} owner_bindings={} owner_stage={}\n"),
+                    "owner_selector=unresolved unresolved_owner=0x{:x} "
+                    "caller_rva=0x{:x} owner_epoch={} owner_bindings={} "
+                    "owner_stage={} graph_provenance=0x{:016x}\n"),
                     observation.batch_id, observation.before.frame_counter,
                     observation.after.frame_counter,
                     observation.battle_audio_signature_failures,
@@ -668,7 +672,8 @@
                     observation.first_unresolved_audio_return_rva,
                     observation.audio_owner_graph_epoch,
                     observation.audio_owner_graph_bindings,
-                    observation.audio_owner_graph_failure_stage);
+                    observation.audio_owner_graph_failure_stage,
+                    observation.audio_owner_graph_provenance);
             }
             self->m_frame_fencepost_failure.store(
                 status.code, std::memory_order_release);
@@ -695,7 +700,8 @@
                 observation.thread_id, ucrt_image);
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] native fencepost evidence frames={} repeats={} "
-                "same_time={} cursor_mismatches={} round_state_frame={} "
+                "same_time={} cursor_mismatches={} round_transition_barriers={} "
+                "round_state_frame={} "
                 "input_filter_observations={} input_filter_mutations={} "
                 "input_filter_invocations_max={} identity_rebaselines={} unpause={} "
                 "pending_move_state={} batches={} zero_batches={} "
@@ -714,6 +720,7 @@
                 timeline.repeat_requests,
                 timeline.same_native_time_coordinates,
                 timeline.cursor_mismatches,
+                timeline.round_transition_cursor_barriers,
                 timeline.round_state_frame,
                 timeline.input_filter_observations,
                 timeline.input_filter_mutations,
@@ -824,6 +831,15 @@
         }
         const auto& timeline =
             self->m_replay_native_runtime.timeline_status_view();
+        // ObserveOuterTickBegin has admitted the native batch-entry
+        // coordinate before the game's outer tick can emit presentation.
+        // Publish that generation now so first-frame semantic audio sources
+        // bind against the same admitted lifetime instead of generation zero.
+        self->m_deterministic_hooks.SetBattleAudioPresentationGeneration(
+            timeline.last_coordinate.generation);
+        if (timeline.last_coordinate.generation != 0)
+            self->m_replay_identity_active.store(
+                true, std::memory_order_release);
         const auto logged = self->m_candidate_batch_entry_logged_count.load(
             std::memory_order_acquire);
         const bool batch_entry_log_due =
@@ -1151,9 +1167,16 @@
                 std::memory_order_release);
             return;
         }
+        // Replay PostTick and LuxBattleGameMode::TerminateBattle are two
+        // legitimate native teardown routes. Either callback may follow the
+        // other, so consume the active identity exactly once.
+        if (!self->m_replay_identity_active.exchange(
+                false, std::memory_order_acq_rel))
+            return;
 
-        // This callback runs before Replay PostTick mutates camera, fighters,
-        // or the queued world mode. Remove the observed native identity first.
+        // Both callbacks run before their route can mutate or release the
+        // camera, fighters, queued world mode, or battle manager. Remove the
+        // observed native identity first.
         auto& qualification = self->m_forced_correction_qualification;
         if (self->m_deterministic_config.trace
             && self->m_deterministic_config.forced_depth7_qualification
@@ -1186,6 +1209,7 @@
         self->m_qualification_stage_terminal_requested_ms.store(
             0, std::memory_order_release);
         self->invalidate_stage_break_presentation_identity();
+        self->m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();
         self->m_replay_native_runtime.ObserveReplayExit();
         self->m_owned_correction_probe_index = 0;
         self->m_forced_correction_qualification = {};

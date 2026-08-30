@@ -90,9 +90,9 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
         : 0;
     AudioOwnerSelector owner{};
     std::uint32_t frame{};
-    const bool character_cue = return_rva == Schema::Sc6FrameLayout::
+    const bool character_cue = return_rva == Sc6HookLayout::
         battle_audio_chara_cue_terminal_return_rva;
-    const bool dispatch_cue = return_rva == Schema::Sc6FrameLayout::
+    const bool dispatch_cue = return_rva == Sc6HookLayout::
         battle_audio_dispatch_terminal_return_rva;
     const auto& source = active_battle_chara_cue_source_;
     const bool source_resolved = character_cue && hooks != nullptr
@@ -879,6 +879,18 @@ void DeterministicHookSet::CaptureFencepostManagerState(
             observation.pending_move_state))
     {
         observation.read_mask |= 0x80;
+    }
+    if (battle_manager != nullptr
+        && SafeRead(
+            observation.battle_manager
+                + Schema::Sc6FrameLayout::manager_pending_dispatch,
+            observation.pending_dispatch)
+        && SafeRead(
+            observation.battle_manager
+                + Schema::Sc6FrameLayout::manager_round_image_applied,
+            observation.round_image_applied))
+    {
+        observation.read_mask |= 0xc000;
     }
     if (battle_manager != nullptr
         && SafeRead(

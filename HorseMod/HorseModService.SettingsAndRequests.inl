@@ -674,6 +674,10 @@
         std::pair<int32_t, int32_t> ids{};
     };
     std::vector<ResetHookSlot>   m_reset_slots;
+    bool m_battle_terminate_hook_registered{};
+    std::pair<int32_t, int32_t> m_battle_terminate_hook_ids{};
+    StringType m_battle_terminate_hook_path{
+        STR("/Script/LuxorGame.LuxBattleGameMode:TerminateBattle")};
 
     // Last status for the Labbing tab's Copy/Paste pose JSON buttons.
     // ImGui-only state; UI thread reads + writes the same fields, no
@@ -690,6 +694,10 @@
 
     Horse::Lux                 m_lux;
     Horse::Deterministic::Sc6ReplayRuntime m_replay_native_runtime{m_lux};
+    std::uint64_t m_replay_qualification_fp_mismatch_baseline{};
+    std::uint64_t m_replay_qualification_cursor_mismatch_baseline{};
+    std::uint64_t m_replay_qualification_batch_accounting_mismatch_baseline{};
+    std::uint64_t m_replay_qualification_round_transition_barrier_baseline{};
     Horse::Deterministic::DeterministicHookSet m_deterministic_hooks{};
 #if HORSE_ENABLE_GEKKONET || HORSE_ENABLE_OBSERVER_PROBE
     Horse::GlobalPtr m_online_battle_sync{};
@@ -889,6 +897,7 @@
         Horse::Deterministic::FailureCode::None};
     std::atomic<std::uintptr_t> m_replay_exit_state{};
     std::atomic<std::uint64_t> m_replay_exit_observations{};
+    std::atomic<bool> m_replay_identity_active{};
     std::atomic<std::uint32_t> m_frame_fencepost_expected_thread{};
     bool m_frame_fencepost_first_observation_logged{};
     bool m_frame_fencepost_incomplete_logged{};

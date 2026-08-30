@@ -10,12 +10,15 @@
 
 #include <Unreal/FString.hpp>
 #include <Unreal/CoreUObject/UObject/Class.hpp>
+#include <Unreal/CoreUObject/UObject/FStrProperty.hpp>
+#include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
 
 #include <array>
 #include <cstddef>
 #include <cstring>
+#include <vector>
 
 namespace Horse::Qualification
 {
@@ -31,6 +34,8 @@ struct DataTablePath
     void* reference_count{};
 };
 static_assert(sizeof(DataTablePath) == 0x18);
+
+using UIDataObject = DataTablePath;
 
 struct NullScriptDelegate
 {
@@ -68,6 +73,18 @@ RC::Unreal::UObject* FindManager() noexcept
         RC::Unreal::UObjectGlobals::FindFirstOf(L"LuxUIGameFlowManager");
     return manager != nullptr && RC::Unreal::UObject::IsReal(manager)
         ? manager : nullptr;
+}
+
+RC::Unreal::FProperty* Param(RC::Unreal::UFunction* function,
+                             const wchar_t* name) noexcept
+{
+    if (function == nullptr || name == nullptr) return nullptr;
+    try
+    {
+        return function->FindProperty(
+            RC::Unreal::FName(name, RC::Unreal::FNAME_Find));
+    }
+    catch (...) { return nullptr; }
 }
 
 RC::Unreal::UObject* CurrentScene(RC::Unreal::UObject* manager) noexcept
@@ -145,6 +162,105 @@ bool ChangeScene(RC::Unreal::UObject* owner, const wchar_t* tag)
     g_destroy_path(&params.inherited_data);
     return true;
 }
+
+void Destroy(UIDataObject& value) noexcept
+{
+    if (g_destroy_path != nullptr) g_destroy_path(&value);
+    value = {};
+}
+
+bool CreateStringDataObject(const wchar_t* value,
+                            UIDataObject& output) noexcept
+{
+    output = {};
+    auto* cdo = RC::Unreal::UObjectGlobals::StaticFindObject<
+        RC::Unreal::UObject*>(nullptr, nullptr,
+        STR("/Script/UMGUtil.Default__UMGUtilUIDataObjectLibrary"));
+    if (cdo == nullptr || !RC::Unreal::UObject::IsReal(cdo)) return false;
+    auto* function = cdo->GetFunctionByNameInChain(
+        L"Conv_StringToUIDataObject");
+    if (function == nullptr || function->GetPropertiesSize() <= 0
+        || function->GetPropertiesSize() > 4096)
+        return false;
+    auto* input = RC::Unreal::CastField<RC::Unreal::FStrProperty>(
+        Param(function, L"inString"));
+    auto* result = function->GetReturnProperty();
+    if (input == nullptr || result == nullptr || result->GetSize() <= 0
+        || result->GetSize() > static_cast<std::int32_t>(sizeof(output)))
+        return false;
+    std::vector<std::uint8_t> params(
+        static_cast<std::size_t>(function->GetPropertiesSize()), 0);
+    bool initialized{};
+    try
+    {
+        input->InitializeValue_InContainer(params.data());
+        initialized = true;
+        input->SetPropertyValueInContainer(params.data(),
+                                            RC::Unreal::FString(value));
+        cdo->ProcessEvent(function, params.data());
+        void* slot = result->ContainerPtrToValuePtr<void>(params.data());
+        if (slot == nullptr)
+        {
+            input->DestroyValue_InContainer(params.data());
+            return false;
+        }
+        std::memcpy(&output, slot, static_cast<std::size_t>(result->GetSize()));
+        input->DestroyValue_InContainer(params.data());
+        return true;
+    }
+    catch (...)
+    {
+        if (initialized) input->DestroyValue_InContainer(params.data());
+        output = {};
+        return false;
+    }
+}
+
+bool RequestReplayList(RC::Unreal::UObject* scene) noexcept
+{
+    if (scene == nullptr || !RC::Unreal::UObject::IsReal(scene)) return false;
+    auto* function = scene->GetFunctionByNameInChain(L"RequestChangeScene");
+    if (function == nullptr || function->GetPropertiesSize() <= 0
+        || function->GetPropertiesSize() > 4096)
+        return false;
+    auto* tag = RC::Unreal::CastField<RC::Unreal::FStrProperty>(
+        Param(function, L"inTag"));
+    auto* inherited = Param(function, L"inInheritedData");
+    if (tag == nullptr || inherited == nullptr || inherited->GetSize() <= 0
+        || inherited->GetSize() > static_cast<std::int32_t>(sizeof(UIDataObject)))
+        return false;
+
+    UIDataObject data{};
+    if (!CreateStringDataObject(L"replaybattle", data)) return false;
+    std::vector<std::uint8_t> params(
+        static_cast<std::size_t>(function->GetPropertiesSize()), 0);
+    bool initialized{};
+    try
+    {
+        tag->InitializeValue_InContainer(params.data());
+        initialized = true;
+        tag->SetPropertyValueInContainer(params.data(),
+                                         RC::Unreal::FString(L"replaylist"));
+        void* slot = inherited->ContainerPtrToValuePtr<void>(params.data());
+        if (slot == nullptr)
+        {
+            tag->DestroyValue_InContainer(params.data());
+            Destroy(data);
+            return false;
+        }
+        std::memcpy(slot, &data, static_cast<std::size_t>(inherited->GetSize()));
+        scene->ProcessEvent(function, params.data());
+        tag->DestroyValue_InContainer(params.data());
+        Destroy(data);
+        return true;
+    }
+    catch (...)
+    {
+        if (initialized) tag->DestroyValue_InContainer(params.data());
+        Destroy(data);
+        return false;
+    }
+}
 }
 
 bool ReplaySceneNavigator::Bind(std::uintptr_t image_base) noexcept
@@ -169,7 +285,9 @@ bool ReplaySceneNavigator::Bind(std::uintptr_t image_base) noexcept
 }
 
 NavigationState ReplaySceneNavigator::Tick(
-    bool playback_context_staged, std::string& detail)
+    bool playback_context_staged,
+    bool require_replay_list,
+    std::string& detail)
 {
     RC::Unreal::UObject* manager = FindManager();
     RC::Unreal::UObject* scene = CurrentScene(manager);
@@ -179,7 +297,8 @@ NavigationState ReplaySceneNavigator::Tick(
         return NavigationState::Waiting;
     }
     const std::string scene_name = RC::to_string(scene->GetClassPrivate()->GetName());
-    if (scene_name.find("ReplayBattleScene") != std::string::npos)
+    if (scene_name.find("ReplayBattleScene") != std::string::npos
+        && !require_replay_list)
     {
         detail = scene_name;
         return NavigationState::Ready;
@@ -331,6 +450,21 @@ NavigationState ReplaySceneNavigator::Tick(
     if (scene_name.find("ReplaySetupScene") != std::string::npos)
     {
         detail = scene_name;
+        return NavigationState::Waiting;
+    }
+    if (scene_name.find("ReplayBattleScene") != std::string::npos)
+    {
+        // ReplayBattleScene's cooked LuxPauseMenu::GoBackToReplaySelect path
+        // calls its inherited Blueprint RequestChangeScene custom event. That
+        // event installs the battle-scene pre-transition callback before it
+        // delegates to ChangeScene, which is required for orderly battle
+        // teardown. A direct manager ChangeScene request is ignored here.
+        if (!RequestReplayList(scene))
+        {
+            detail = "request_replay_list_failed:" + scene_name;
+            return NavigationState::Failed;
+        }
+        detail = "request_replay_list:" + scene_name;
         return NavigationState::Waiting;
     }
     if (scene_name.find("ReplayListScene") != std::string::npos

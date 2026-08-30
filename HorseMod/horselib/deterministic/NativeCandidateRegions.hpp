@@ -67,6 +67,8 @@ struct NativeFrameBoundaryImage
     std::array<PlayerInput, 2> prior_input_pairs{};
     std::uint8_t repeat_pending{};
     std::uint8_t pending_move_state{};
+    std::uint8_t pending_dispatch{};
+    std::uint8_t round_image_applied{};
 
     friend bool operator==(
         const NativeFrameBoundaryImage&,
