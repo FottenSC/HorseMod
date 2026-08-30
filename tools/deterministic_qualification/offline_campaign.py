@@ -91,11 +91,20 @@ def _invoke_replay(
     if row.location is not None:
         command.extend(["--correction-location", row.location])
     result = subprocess.run(command, cwd=root, text=True)
+    bounded_log = report.with_suffix(".log")
+    if log.is_file():
+        shutil.copy2(log, bounded_log)
     if result.returncode != 0:
         raise RuntimeError(f"offline row subprocess failed ({result.returncode}): {row.row_id}")
     document = json.loads(report.read_text(encoding="utf-8"))
     if document.get("result") != "pass":
         raise RuntimeError(f"offline row report failed: {row.row_id}")
+    document.setdefault("artifacts", {})["bounded_log"] = {
+        "path": str(bounded_log.resolve()),
+        "sha256": sha256_file(bounded_log),
+        "size": bounded_log.stat().st_size,
+    }
+    write_report(report, document)
     return document
 
 
