@@ -205,11 +205,17 @@ def run_offline_campaign(args: Any, root: Path) -> int:
                 stock = _invoke_replay(root, row, stock_path,
                     deployed, config, schema, replay_mod, game_executable, log,
                     certifying=True, stock=True, timeout=args.timeout)
+                # replay-entry deliberately disarms diagnostics after every
+                # process, including a successful one. Give each independent
+                # baseline its own ownership scope so the second process
+                # cannot inherit the first process's safe, trace=false exit
+                # state after its automatic smoke restores the caller config.
                 with armed_baseline(config):
                     first = _invoke_replay(root, row, raw / f"{row.row_id}-first.json",
                         deployed, config, schema, replay_mod, game_executable, log,
                         certifying=True, baseline=True, outcome_control=stock_path,
                         require_authored_outcomes=True, timeout=args.timeout)
+                with armed_baseline(config):
                     second = _invoke_replay(root, row, raw / f"{row.row_id}-repeat.json",
                         deployed, config, schema, replay_mod, game_executable, log,
                         certifying=True, baseline=True, outcome_control=stock_path,
