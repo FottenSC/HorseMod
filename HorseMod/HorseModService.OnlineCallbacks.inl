@@ -1168,11 +1168,31 @@
             return;
         }
         // Replay PostTick and LuxBattleGameMode::TerminateBattle are two
-        // legitimate native teardown routes. Either callback may follow the
-        // other, so consume the active identity exactly once.
-        if (!self->m_replay_identity_active.exchange(
-                false, std::memory_order_acq_rel))
-            return;
+        // legitimate native teardown routes. Preserve any currently readable
+        // value-only evidence before deduplicating their destructive cleanup:
+        // the later route can be the first one that observes the completed
+        // authored result even when an earlier transition consumed the active
+        // identity. Snapshot replacement is monotonic within the qualification
+        // window, so duplicate signals cannot erase a complete capture.
+        const auto& exit_timeline =
+            self->m_replay_native_runtime.timeline_status_view();
+        const auto exit_generation = exit_timeline.last_coordinate.generation;
+        const auto exit_frame = exit_timeline.last_coordinate.frame;
+        const auto exit_canonical_frames = exit_timeline.canonical_frames;
+        const bool terminal_snapshot_complete =
+            self->CaptureReplayQualificationTerminalSnapshot();
+        const bool active_identity = self->m_replay_identity_active.exchange(
+            false, std::memory_order_acq_rel);
+        if (self->m_deterministic_config.trace)
+        {
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] replay exit evidence generation={} frame={} "
+                "canonical_frames={} active_identity={} snapshot_complete={}\n"),
+                exit_generation, exit_frame, exit_canonical_frames,
+                active_identity ? 1 : 0,
+                terminal_snapshot_complete ? 1 : 0);
+        }
+        if (!active_identity) return;
 
         // Both callbacks run before their route can mutate or release the
         // camera, fighters, queued world mode, or battle manager. Remove the
@@ -1208,12 +1228,6 @@
         }
         self->m_qualification_stage_terminal_requested_ms.store(
             0, std::memory_order_release);
-        // The qualification observer runs from a later EngineTick callback.
-        // Freeze value-only terminal evidence before either valid native exit
-        // route invalidates object-backed replay history. Failure to capture is
-        // fail-closed: the post-exit APIs remain unavailable and the harness
-        // rejects the run.
-        self->CaptureReplayQualificationTerminalSnapshot();
         self->invalidate_stage_break_presentation_identity();
         self->m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();
         self->m_replay_native_runtime.ObserveReplayExit();
