@@ -523,6 +523,7 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         output.canonical_wind_semantic = {};
         output.canonical_wind = {};
         output.canonical_wind_node = {};
+        output.canonical_wind_schedule = {};
     }
     else
     {
@@ -653,6 +654,21 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
             image.wind.pending_callback_rvas}));
         output.canonical_wind[1] ^= static_cast<std::uint64_t>(
             image.wind.nodes.size()) << 32;
+        std::array<std::uint32_t, 4> schedule_words{};
+        std::memcpy(schedule_words.data(), image.wind.schedule_state.data(),
+            image.wind.schedule_state.size());
+        for (std::size_t index = 0; index < schedule_words.size(); ++index)
+            output.canonical_wind_schedule[index] = schedule_words[index];
+        const auto active_bank = schedule_words[0];
+        const auto pending_count = schedule_words[1];
+        if (active_bank < 2 && pending_count <= 8)
+        {
+            const auto pending = std::span{image.wind.pending_callback_rvas}
+                .subspan(active_bank * 8, pending_count);
+            output.canonical_wind_schedule[4] = local_checksum(
+                std::as_bytes(pending));
+            output.canonical_wind_schedule[5] = pending_count;
+        }
         output.canonical_wind[18] = local_checksum(image.wind.root_clock);
         output.canonical_wind[19] = local_checksum(image.wind.schedule_params);
         const auto wind_node_count = (std::min)(

@@ -284,6 +284,9 @@ public:
             components[64] = snapshot.canonical_wind_node.kind;
             components[65] = snapshot.canonical_wind_node.present;
         }
+        if (count >= 72)
+            std::copy(snapshot.canonical_wind_schedule.begin(),
+                snapshot.canonical_wind_schedule.end(), components + 66);
         return true;
     }
 

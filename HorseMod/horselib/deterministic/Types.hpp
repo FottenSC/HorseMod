@@ -235,6 +235,9 @@ struct Snapshot
     CanonicalWindSemanticDiagnostic canonical_wind_semantic{};
     CanonicalWindFingerprint canonical_wind{};
     CanonicalWindNodeDiagnostic canonical_wind_node{};
+    // Qualification diagnostics for IwWindRoot +0x98..+0xA7 and the
+    // currently pending callback span. They do not alter canonical identity.
+    std::array<std::uint64_t, 6> canonical_wind_schedule{};
     std::vector<std::byte> bytes;
     // Same-generation, local-only reconstruction payloads. These are kept
     // outside the encoded typed image so capture can transfer ownership

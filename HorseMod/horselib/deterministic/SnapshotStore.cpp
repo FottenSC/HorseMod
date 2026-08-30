@@ -100,6 +100,7 @@ void SnapshotStore::copy_without_growth(
     target.canonical_wind_semantic = source.canonical_wind_semantic;
     target.canonical_wind = source.canonical_wind;
     target.canonical_wind_node = source.canonical_wind_node;
+    target.canonical_wind_schedule = source.canonical_wind_schedule;
     target.canonical_move_dispatch = source.canonical_move_dispatch;
     target.bytes.resize(source.bytes.size());
     std::copy(source.bytes.begin(), source.bytes.end(), target.bytes.begin());

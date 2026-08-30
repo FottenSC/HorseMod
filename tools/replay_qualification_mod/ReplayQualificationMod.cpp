@@ -1731,7 +1731,7 @@ private:
             "frame={} sha256={}\n"), canonical_generation, canonical_frame,
             RC::to_generic_string(canonical_hex.str()));
         const auto get_components = ResolveHorseModCanonicalComponentsApi();
-        std::array<std::uint64_t, 66> canonical_components{};
+        std::array<std::uint64_t, 72> canonical_components{};
         if (get_components != nullptr
             && get_components(canonical_components.data(),
                 canonical_components.size()))
@@ -1785,6 +1785,14 @@ private:
                 canonical_components[60], canonical_components[61],
                 canonical_components[62], canonical_components[63],
                 canonical_components[64], canonical_components[65]);
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] final wind schedule raw "
+                "active_bank={} pending_count={} schedule_state={} "
+                "effect_pair_scheduled={} active_callback_hash=0x{:016x} "
+                "active_callback_count={}\n"),
+                canonical_components[66], canonical_components[67],
+                canonical_components[68], canonical_components[69],
+                canonical_components[70], canonical_components[71]);
         }
         state_ = State::Launched;
         WriteResult("launch_requested", "none");
