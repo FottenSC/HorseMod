@@ -243,7 +243,8 @@ def test_forced_qualification_parser_keeps_timing_and_capacity_metrics() -> None
         "completed=600 cycle_p99_us=1234 cycle_max_us=2345 capture_samples=601 "
         "capture_p99_us=400 capture_max_us=900 scratch_capacity_bytes=10->10 "
         "scratch_growth_events=0 stage_wall_suppressed=0 stage_barrier_suppressed=0 "
-        "stage_semantic_dispatches=0 particle_spawn_suppressed=0 "
+        "stage_semantic_dispatches=0 round_terminal_source_stop_all=1 "
+        "particle_spawn_suppressed=0 "
         "audio_batches_verified=600 audio_sequence_mismatches=0 "
         "camera_batches_verified=600 camera_publication_mismatches=0 "
         "presentation_failures=0 journal_attempted=12 journal_recorded=12 "
@@ -258,6 +259,7 @@ def test_forced_qualification_parser_keeps_timing_and_capacity_metrics() -> None
     assert evidence.capture_p99_us == 400
     assert evidence.capture_max_us == 900
     assert evidence.scratch_capacity_begin == evidence.scratch_capacity_end == 10
+    assert evidence.round_terminal_source_stop_all == 1
 
 
 def test_waiters_ignore_complete_stale_sessions(tmp_path: Path) -> None:

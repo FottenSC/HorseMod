@@ -126,3 +126,40 @@ an immutable release certificate explicitly promotes it.
 - Required regression: build a new immutable candidate, rerun unit tests, rerun
   the **Silver Wolves’ Haven** round-end depth-1 primary/re-entry pair, then
   restart the complete 51-row normal-render matrix from its stock control.
+
+## 2026-08-30 — real round-end delta exposed missing new-generation history
+
+- Source commit: `49407bc20671d62f5db1b6820623f456d714e563`
+- HorseMod DLL SHA-256:
+  `8D02EEE4A93A9F803FCDB5942ED551C4AF1B0529C49D642F71A125595D27A9D9`
+- Replay bridge SHA-256:
+  `4D123DB9E7EAC882DDEFFBB5F1A550B44FCFB5D30053EDE784687ED21F42E84F`
+- Authored replay map: **Silver Wolves’ Haven**
+- Targeted row: `round_end`, depth 1
+- Preserved log:
+  `docs/investigations/evidence/release-49407bc2/targeted-round-end-depth-1-generation-mismatch.log`
+- Terminal harness error:
+  `forced depth-7 qualification failed: result=failed completed=0 status=generation_mismatch`
+- Boundary evidence: the repaired counter baseline did not arm at the stale
+  setup value or frame 980. It armed only after round 1's real terminal
+  stop-all, at generation 11/frame 2372. The first correction preflight then
+  rejected because the new generation had not yet accumulated a same-generation
+  checkpoint. No restore or resimulation operation ran; all restore masks and
+  replayed-coordinate counts remained zero.
+- Authoritative cause: the qualification already waited for insufficient
+  history after a generation changed while an active run was in progress, but
+  did not enter that waiting state when the run was first armed on the exact
+  generation-transition fencepost. Treating this as terminal would either fail
+  a correct barrier or tempt an illegal cross-generation restore.
+- Authoritative repair: latch the post-baseline source stop-all, mark a newly
+  armed run as awaiting generation history, and remain fail-closed until the
+  first same-generation correction preflight succeeds. Report the source
+  terminal latch explicitly and require it in the Python round-end gate. The
+  terminal event remains part of exact source presentation identity; the
+  correction window begins after the barrier and never restores the prior
+  generation.
+- Cleanup: SC6 was absent and all diagnostic flags were restored to `false`.
+- Required regression: rebuild HorseMod and the configure-time-bound replay
+  bridge from the new commit, pass all local tests, rerun the focused
+  **Silver Wolves’ Haven** round-end depth-1 primary/re-entry pair, and restart
+  the complete 51-row matrix from the stock control.

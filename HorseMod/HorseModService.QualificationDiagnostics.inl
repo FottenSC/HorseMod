@@ -561,21 +561,15 @@
                 }
                 if (!qualification.round_terminal_baseline_ready)
                 {
-                    qualification.round_terminal_stage_wall_baseline =
-                        timeline.observed_stage_wall_calls;
-                    qualification.round_terminal_stage_barrier_baseline =
-                        timeline.observed_stage_barrier_calls;
                     qualification.round_terminal_audio_stop_all_baseline =
                         timeline.observed_battle_audio_stop_all_calls;
                     qualification.round_terminal_baseline_ready = true;
                     return false;
                 }
-                return timeline.observed_stage_wall_calls
-                            > qualification.round_terminal_stage_wall_baseline
-                    || timeline.observed_stage_barrier_calls
-                            > qualification.round_terminal_stage_barrier_baseline
-                    || timeline.observed_battle_audio_stop_all_calls
-                            > qualification.round_terminal_audio_stop_all_baseline;
+                qualification.round_terminal_source_stop_all =
+                    timeline.observed_battle_audio_stop_all_calls
+                        > qualification.round_terminal_audio_stop_all_baseline;
+                return qualification.round_terminal_source_stop_all;
             default: return false;
             }
         }();
@@ -601,6 +595,11 @@
                 timeline.batch_entry_checkpoint_bytes;
             qualification.forced_history_bytes_begin =
                 m_replay_native_runtime.forced_qualification_bytes();
+            // A terminal event can publish the next native generation before
+            // that generation has a restorable checkpoint.  Never attempt a
+            // cross-generation restore; retain the source terminal latch and
+            // wait for the first same-generation correction preflight.
+            qualification.awaiting_generation_history = true;
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] forced depth-7 qualification started "
                 "generation={} frame={} warmup=1 target={} normal_render=true\n"),
@@ -997,12 +996,13 @@
             // A resolved hit is certified by the native pending-hit consumer.
             // Particle activity is still identity-checked when authored, but
             // it is optional across characters, moves, and maps.
-            // Round-end requires a terminal audio stop authored after the
-            // post-start baseline.  Stage wall/barrier events remain exact
-            // identity gates whenever the map authors them, but maps with no
-            // break actor must not be forced to invent stage presentation.
+            // Round-end is a new-generation barrier.  Its source stop-all must
+            // be observed after the post-start baseline, but it cannot be
+            // replayed by restoring across generations.  Corrections begin at
+            // the first safe same-generation checkpoint after the latched
+            // terminal.  Stage events remain exact whenever authored.
             && (m_deterministic_config.qualification_location != 4
-                || qualification.suppressed_audio_stop_all_calls != 0);
+                || qualification.round_terminal_source_stop_all);
         const auto capture_performance =
             m_replay_native_runtime.capture_performance();
         Horse::Deterministic::AudioTerminalEvent first_failed_audio{};
@@ -1053,6 +1053,7 @@
             "forced_history_bytes={}->{} "
             "stage_wall_suppressed={} stage_barrier_suppressed={} "
             "stage_semantic_dispatches={} stage_coverage={} "
+            "round_terminal_source_stop_all={} "
             "audio_suppressed={} audio_discarded={} "
             "audio_stop_all_suppressed={} "
             "audio_terminals_suppressed={} "
@@ -1110,6 +1111,7 @@
             qualification.suppressed_stage_wall_calls != 0
                     || qualification.suppressed_stage_barrier_calls != 0
                 ? STR("observed") : STR("missing"),
+            qualification.round_terminal_source_stop_all ? 1u : 0u,
             qualification.suppressed_audio_calls,
             qualification.discarded_audio_calls,
             qualification.suppressed_audio_stop_all_calls,

@@ -160,6 +160,7 @@ class ForcedQualificationEvidence:
     suppressed_stage_wall: int = 0
     suppressed_stage_barrier: int = 0
     semantic_stage_dispatches: int = 0
+    round_terminal_source_stop_all: int = 0
     suppressed_particle_spawn: int = 0
     presentation_failures: int = 0
     cycle_p99_us: int = 0
@@ -891,6 +892,8 @@ def parse_forced_qualification_evidence(
             suppressed_stage_wall=int(match.group("stage_wall")),
             suppressed_stage_barrier=int(match.group("stage_barrier")),
             semantic_stage_dispatches=int(match.group("stage_dispatch")),
+            round_terminal_source_stop_all=numeric.get(
+                "round_terminal_source_stop_all", 0),
             suppressed_particle_spawn=int(match.group("particle")),
             presentation_failures=int(match.group("presentation_failures")),
             cycle_p99_us=numeric.get("cycle_p99_us", 0),

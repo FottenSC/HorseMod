@@ -561,7 +561,10 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                             and forced.suppressed_stage_barrier != 0))
                     hit_ok = (args.correction_location != "confirmed_hit"
                         or gameplay_rng_coverage.resolved_hit_calls != 0)
+                    round_end_ok = (args.correction_location != "round_end"
+                        or forced.round_terminal_source_stop_all != 0)
                     if (not wall_ok or not barrier_ok or not hit_ok
+                            or not round_end_ok
                             or forced.presentation_failures != 0
                             or forced.presentation_terminal_coverage != "complete"):
                         raise RuntimeError(
@@ -887,6 +890,8 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                 "suppressed_stage_wall": forced.suppressed_stage_wall,
                 "suppressed_stage_barrier": forced.suppressed_stage_barrier,
                 "semantic_stage_dispatches": forced.semantic_stage_dispatches,
+                "round_terminal_source_stop_all":
+                    forced.round_terminal_source_stop_all,
                 "suppressed_particle_spawn": forced.suppressed_particle_spawn,
                 "presentation_failures": forced.presentation_failures,
             },
