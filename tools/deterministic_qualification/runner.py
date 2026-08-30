@@ -46,6 +46,7 @@ from .replay_entry import (
     TemporaryReplayMod,
     create_request,
     remove_request_files,
+    require_replay_request_healthy,
     wait_for_replay_entry,
 )
 from .report import write_report
@@ -472,7 +473,9 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
             args._failure_log_start = log_start
             launch_game()
             pid = wait_for_game(args.timeout)
-            guard = lambda: require_game_process(pid)
+            def guard() -> None:
+                require_game_process(pid)
+                require_replay_request_healthy(run_id)
             if not stock_round_outcome_control:
                 boot = wait_for_boot_evidence(
                     args.log, args.timeout, guard, log_start
@@ -1004,7 +1007,9 @@ def run_replay_development_campaign(args: argparse.Namespace) -> int:
                     if pid is None:
                         launch_game()
                         pid = wait_for_game(args.timeout)
-                    guard = lambda: require_game_process(pid)
+                    def guard() -> None:
+                        require_game_process(pid)
+                        require_replay_request_healthy(active_run_id)
                     entry = wait_for_replay_entry(active_run_id, args.timeout, guard)
                     rate = wait_for_normal_render_rate_evidence(
                         args.log, args.timeout, guard, log_start,

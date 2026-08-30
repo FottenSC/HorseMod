@@ -246,6 +246,18 @@ public:
         if (hash == nullptr || hash_size != Horse::Deterministic::CanonicalHash{}.size())
             return false;
         const auto timeline = m_replay_native_runtime.timeline_status();
+        if (timeline.last_coordinate.generation == 0
+            && m_replay_qualification_terminal_snapshot.canonical_valid)
+        {
+            generation = m_replay_qualification_terminal_snapshot
+                .canonical_generation;
+            frame = m_replay_qualification_terminal_snapshot.canonical_frame;
+            std::copy(m_replay_qualification_terminal_snapshot
+                .canonical_hash.begin(),
+                m_replay_qualification_terminal_snapshot
+                    .canonical_hash.end(), hash);
+            return true;
+        }
         Horse::Deterministic::CanonicalHash value{};
         if (timeline.last_coordinate.generation == 0
             || !m_replay_native_runtime.GetCanonicalHash(
@@ -295,6 +307,16 @@ public:
     {
         if (counts == nullptr || count < 10) return false;
         const auto timeline = m_replay_native_runtime.timeline_status();
+        if (timeline.canonical_frames == 0
+            && m_replay_qualification_terminal_snapshot
+                .presentation_coverage_valid)
+        {
+            std::copy(m_replay_qualification_terminal_snapshot
+                .presentation_coverage.begin(),
+                m_replay_qualification_terminal_snapshot
+                    .presentation_coverage.end(), counts);
+            return true;
+        }
         counts[0] = timeline.observed_stage_wall_calls;
         counts[1] = timeline.observed_stage_barrier_calls;
         counts[2] = timeline.observed_stage_dispatch_calls;
@@ -312,6 +334,16 @@ public:
         std::uint64_t* values, std::size_t count) const noexcept
     {
         if (values == nullptr || count < 9) return false;
+        if (m_replay_native_runtime.timeline_status().canonical_frames == 0
+            && m_replay_qualification_terminal_snapshot
+                .presentation_identity_valid)
+        {
+            std::copy(m_replay_qualification_terminal_snapshot
+                .presentation_identity.begin(),
+                m_replay_qualification_terminal_snapshot
+                    .presentation_identity.end(), values);
+            return true;
+        }
         std::fill(values, values + 9, 0);
         auto append = [](std::uint64_t& hash, const auto& value) {
             const auto* bytes = reinterpret_cast<const std::uint8_t*>(&value);
@@ -441,6 +473,15 @@ public:
         std::uint64_t* values, std::size_t count) const noexcept
     {
         if (values == nullptr || count < 7) return false;
+        if (m_replay_native_runtime.timeline_status().canonical_frames == 0
+            && m_replay_qualification_terminal_snapshot.health_valid)
+        {
+            const auto copied = (std::min)(count,
+                m_replay_qualification_terminal_snapshot.health.size());
+            std::copy_n(m_replay_qualification_terminal_snapshot.health.begin(),
+                copied, values);
+            return true;
+        }
         const auto presentation =
             m_replay_native_runtime.presentation_statistics();
         const auto capture = m_replay_native_runtime.capture_performance();
@@ -543,6 +584,7 @@ public:
 
     bool ResetReplayQualificationHealth() noexcept
     {
+        m_replay_qualification_terminal_snapshot = {};
         const auto timeline = m_replay_native_runtime.timeline_status();
         m_replay_qualification_fp_mismatch_baseline =
             timeline.fp_control_mismatches
@@ -568,6 +610,16 @@ public:
     {
         if (counts == nullptr || count < 42) return false;
         const auto timeline = m_replay_native_runtime.timeline_status();
+        if (timeline.canonical_frames == 0
+            && m_replay_qualification_terminal_snapshot
+                .gameplay_rng_coverage_valid)
+        {
+            std::copy(m_replay_qualification_terminal_snapshot
+                .gameplay_rng_coverage.begin(),
+                m_replay_qualification_terminal_snapshot
+                    .gameplay_rng_coverage.end(), counts);
+            return true;
+        }
         counts[0] = timeline.observed_gameplay_xorshift_draws;
         counts[1] = timeline.observed_gameplay_xorshift_known_callers;
         counts[2] = timeline.observed_gameplay_xorshift_unknown_callers;
@@ -610,6 +662,62 @@ public:
         counts[40] = timeline.observed_resolved_hit_calls;
         counts[41] = timeline.observed_resolved_hit_sequence_hash;
         return timeline.canonical_frames != 0;
+    }
+
+    bool CaptureReplayQualificationTerminalSnapshot() noexcept
+    {
+        ReplayQualificationTerminalSnapshot captured{};
+        captured.presentation_coverage_valid = GetReplayPresentationCoverage(
+            captured.presentation_coverage.data(),
+            captured.presentation_coverage.size());
+        captured.presentation_identity_valid = GetReplayPresentationIdentity(
+            captured.presentation_identity.data(),
+            captured.presentation_identity.size());
+        captured.health_valid = GetReplayQualificationHealth(
+            captured.health.data(), captured.health.size());
+        captured.gameplay_rng_coverage_valid = GetReplayGameplayRngCoverage(
+            captured.gameplay_rng_coverage.data(),
+            captured.gameplay_rng_coverage.size());
+        captured.canonical_valid = GetReplayCanonicalState(
+            captured.canonical_generation, captured.canonical_frame,
+            captured.canonical_hash.data(), captured.canonical_hash.size());
+
+        // PostTick is a guarded world-mode boundary, not a promise that this
+        // particular transition completed a canonical frame. A later
+        // zero-frame transition must not erase the last complete value-only
+        // evidence captured for the current qualification request. The reset
+        // API is the sole boundary that starts a new observer window.
+        auto& terminal = m_replay_qualification_terminal_snapshot;
+        if (captured.presentation_coverage_valid)
+        {
+            terminal.presentation_coverage_valid = true;
+            terminal.presentation_coverage = captured.presentation_coverage;
+        }
+        if (captured.presentation_identity_valid)
+        {
+            terminal.presentation_identity_valid = true;
+            terminal.presentation_identity = captured.presentation_identity;
+        }
+        if (captured.health_valid)
+        {
+            terminal.health_valid = true;
+            terminal.health = captured.health;
+        }
+        if (captured.gameplay_rng_coverage_valid)
+        {
+            terminal.gameplay_rng_coverage_valid = true;
+            terminal.gameplay_rng_coverage = captured.gameplay_rng_coverage;
+        }
+        if (captured.canonical_valid)
+        {
+            terminal.canonical_valid = true;
+            terminal.canonical_generation = captured.canonical_generation;
+            terminal.canonical_frame = captured.canonical_frame;
+            terminal.canonical_hash = captured.canonical_hash;
+        }
+        return terminal.presentation_coverage_valid
+            && terminal.presentation_identity_valid && terminal.health_valid
+            && terminal.gameplay_rng_coverage_valid && terminal.canonical_valid;
     }
 
     std::uint32_t GetReplaySeekStatus(

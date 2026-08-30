@@ -15,6 +15,7 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <Mod/CppUserModBase.hpp>
 #include <Unreal/Hooks/Hooks.hpp>
+#include <Unreal/CoreUObject/UObject/Class.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
 
@@ -85,15 +86,8 @@ using GetReplaySimulationPhaseFn = bool (*)(
 using GetReplaySeekMetricsFn = bool (*)(std::uint64_t*, std::uint64_t*);
 using GetReplayCanonicalStateFn = bool (*)(
     std::uint64_t*, std::uint64_t*, std::byte*, std::size_t);
-using GetReplayCanonicalComponentsFn = bool (*)(std::uint64_t*, std::size_t);
 using GetReplayPresentationCoverageFn = bool (*)(std::uint64_t*, std::size_t);
 using GetReplayPresentationIdentityFn = bool (*)(std::uint64_t*, std::size_t);
-using GetReplayAudioBatchIdentityFn = bool (*)(
-    std::size_t, std::uint64_t*, std::size_t);
-using GetReplayAudioDispatchIdentityFn = bool (*)(
-    std::size_t, std::size_t, std::uint64_t*, std::size_t);
-using GetReplayAudioTerminalIdentityFn = bool (*)(
-    std::size_t, std::size_t, std::uint64_t*, std::size_t);
 using GetReplayQualificationHealthFn = bool (*)(std::uint64_t*, std::size_t);
 using ResetReplayQualificationHealthFn = bool (*)();
 using GetReplayGameplayRngCoverageFn = bool (*)(std::uint64_t*, std::size_t);
@@ -265,25 +259,6 @@ GetReplayCanonicalStateFn ResolveHorseModCanonicalStateApi() noexcept
         const auto candidate = reinterpret_cast<GetReplayCanonicalStateFn>(
             GetProcAddress(modules[index],
                 "horsemod_get_replay_canonical_state"));
-        if (candidate != nullptr) return candidate;
-    }
-    return nullptr;
-}
-
-GetReplayCanonicalComponentsFn ResolveHorseModCanonicalComponentsApi() noexcept
-{
-    std::array<HMODULE, 512> modules{};
-    DWORD required{};
-    if (!K32EnumProcessModules(GetCurrentProcess(), modules.data(),
-            static_cast<DWORD>(sizeof(modules)), &required))
-        return nullptr;
-    const auto count = (std::min)(modules.size(),
-        static_cast<std::size_t>(required / sizeof(HMODULE)));
-    for (std::size_t index = 0; index < count; ++index)
-    {
-        const auto candidate =
-            reinterpret_cast<GetReplayCanonicalComponentsFn>(GetProcAddress(
-                modules[index], "horsemod_get_replay_canonical_components"));
         if (candidate != nullptr) return candidate;
     }
     return nullptr;
@@ -1036,6 +1011,15 @@ public:
         if (disarm_online_observer_ != nullptr)
             disarm_online_observer_();
         s_instance_.store(nullptr, std::memory_order_release);
+        if (battle_terminate_hook_registered_)
+        {
+            try
+            {
+                RC::Unreal::UObjectGlobals::UnregisterHook(
+                    battle_terminate_hook_path_, battle_terminate_hook_ids_);
+            }
+            catch (...) {}
+        }
         if (engine_tick_id_ != RC::Unreal::Hook::ERROR_ID)
         {
             (void)RC::Unreal::Hook::UnregisterCallback(engine_tick_id_);
@@ -1076,6 +1060,12 @@ private:
     void TickGameThread()
     {
         if (!bound_) return;
+        if (!battle_terminate_hook_registered_
+            && ++battle_terminate_hook_poll_divider_ >= 60)
+        {
+            battle_terminate_hook_poll_divider_ = 0;
+            TryRegisterBattleTerminateHook();
+        }
         if (state_ == State::WaitingForLaunch)
         {
             PollLaunch();
@@ -1092,6 +1082,43 @@ private:
         if (state_ == State::Launched || state_ == State::Failed) return;
         if (state_ == State::Idle) LoadRequest();
         if (state_ == State::Importing) StartRequest();
+    }
+
+    void TryRegisterBattleTerminateHook()
+    {
+        using namespace RC::Unreal;
+        UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr, nullptr, battle_terminate_hook_path_);
+        if (function == nullptr) return;
+        UnrealScriptFunctionCallable pre_callback =
+            [](UnrealScriptFunctionCallableContext&, void*) {
+                ReplayQualificationMod* self =
+                    s_instance_.load(std::memory_order_acquire);
+                if (self == nullptr
+                    || self->state_ != State::WaitingForLaunch
+                    || !self->battle_scene_observed_)
+                    return;
+                // Capture the final authored result while BattleManager is
+                // still valid. HorseMod independently freezes its value-only
+                // terminal evidence in the same pre-native boundary, so hook
+                // callback ordering cannot extend native object lifetime.
+                if (self->request_.require_authored_outcomes
+                    || self->request_.stock_round_outcome_control)
+                    (void)self->PollRoundOutcomeQualification();
+                self->battle_terminate_observed_ = true;
+            };
+        UnrealScriptFunctionCallable post_callback =
+            [](UnrealScriptFunctionCallableContext&, void*) {};
+        try
+        {
+            battle_terminate_hook_ids_ = UObjectGlobals::RegisterHook(
+                battle_terminate_hook_path_, pre_callback,
+                post_callback, nullptr);
+        }
+        catch (...) { return; }
+        battle_terminate_hook_registered_ =
+            battle_terminate_hook_ids_.first != 0
+            || battle_terminate_hook_ids_.second != 0;
     }
 
     void PollOnlineQualification()
@@ -1233,6 +1260,7 @@ private:
         player_profiles_requested_ = false;
         playback_context_staged_ = false;
         battle_scene_observed_ = false;
+        battle_terminate_observed_ = false;
         replay_scene_ready_ = false;
         authored_map_logged_ = false;
         battle_manager_ = nullptr;
@@ -1475,8 +1503,9 @@ private:
         const bool phase_available = get_phase_(
             &native_round, &native_time, &round_state_frame,
             &unpause_countdown);
-        if (!phase_available || round_state_frame == 0
-            || unpause_countdown != 0)
+        const bool inactive_phase = !phase_available || round_state_frame == 0
+            || unpause_countdown != 0;
+        if (inactive_phase && !battle_terminate_observed_)
         {
             if (++phase_wait_log_counter_ >= 120)
             {
@@ -1489,6 +1518,14 @@ private:
                     native_round, native_time, round_state_frame,
                     unpause_countdown);
             }
+            return;
+        }
+        if (battle_terminate_observed_
+            && (request_.require_authored_outcomes
+                || request_.stock_round_outcome_control)
+            && !round_outcomes_verified_)
+        {
+            Fail("authored_outcome_missing_at_battle_terminate");
             return;
         }
         phase_wait_log_counter_ = 0;
@@ -1607,6 +1644,7 @@ private:
         if (stock_round_outcome_control)
         {
             if (!PollRoundOutcomeQualification()) return;
+            LogOrderedRoundOutcomes();
             state_ = State::Launched;
             WriteResult("launch_requested", "none");
             std::ostringstream winners;
@@ -1698,80 +1736,12 @@ private:
             capacity_health[11], capacity_health[18],
             capacity_health[12], capacity_health[19],
             capacity_health[13], capacity_health[20], capacity_health[1]);
-        const auto get_audio_batch = ResolveHorseModExport<
-            GetReplayAudioBatchIdentityFn>(
-                "horsemod_get_replay_audio_batch_identity");
-        const auto get_audio_dispatch = ResolveHorseModExport<
-            GetReplayAudioDispatchIdentityFn>(
-                "horsemod_get_replay_audio_dispatch_identity");
-        const auto get_audio_terminal = ResolveHorseModExport<
-            GetReplayAudioTerminalIdentityFn>(
-                "horsemod_get_replay_audio_terminal_identity");
-        if (get_audio_batch == nullptr || get_audio_dispatch == nullptr
-            || get_audio_terminal == nullptr)
-        {
-            Fail("horsemod_audio_identity_diagnostic_api_unavailable");
-            return;
-        }
-        for (std::size_t batch_index = 0;
-             batch_index < presentation_identity[0]; ++batch_index)
-        {
-            std::array<std::uint64_t, 10> batch_identity{};
-            if (!get_audio_batch(batch_index, batch_identity.data(),
-                    batch_identity.size()))
-            {
-                Fail("horsemod_audio_batch_identity_unavailable");
-                return;
-            }
-            if (batch_identity[2] == 0 && batch_identity[8] == 0) continue;
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] audio batch index={} coordinate={}:{} "
-                "dispatches={} sequence=0x{:016x} route=0x{:08x} "
-                "payload=0x{:08x} position=0x{:08x} journal={} "
-                "terminals={} terminal_hash=0x{:016x}\n"),
-                batch_index, batch_identity[0], batch_identity[1],
-                batch_identity[2], batch_identity[3], batch_identity[4],
-                batch_identity[5], batch_identity[6], batch_identity[7],
-                batch_identity[8], batch_identity[9]);
-            for (std::size_t dispatch_index = 0;
-                 dispatch_index < batch_identity[7]; ++dispatch_index)
-            {
-                std::array<std::uint64_t, 7> dispatch{};
-                if (!get_audio_dispatch(batch_index, dispatch_index,
-                        dispatch.data(), dispatch.size()))
-                {
-                    Fail("horsemod_audio_dispatch_identity_unavailable");
-                    return;
-                }
-                Output::send<LogLevel::Default>(STR(
-                    "[ReplayQualification] audio dispatch batch={} index={} "
-                    "event={} payload_ext={} payload=0x{:016x} "
-                    "reserved={} alternate={} direct={} succeeded={}\n"),
-                    batch_index, dispatch_index, dispatch[0], dispatch[1],
-                    dispatch[2], dispatch[3], dispatch[4], dispatch[5],
-                    dispatch[6]);
-            }
-            for (std::size_t terminal_index = 0;
-                 terminal_index < batch_identity[8]; ++terminal_index)
-            {
-                std::array<std::uint64_t, 10> terminal{};
-                if (!get_audio_terminal(batch_index, terminal_index,
-                        terminal.data(), terminal.size()))
-                {
-                    Fail("horsemod_audio_terminal_identity_unavailable");
-                    return;
-                }
-                Output::send<LogLevel::Default>(STR(
-                    "[ReplayQualification] audio terminal batch={} index={} "
-                    "operation={} owner={}:{}:{} playback={} "
-                    "cue_sheet_identity=0x{:x} cue={} value={} "
-                    "source_return_rva=0x{:x} raw_cue_sheet_slot={}\n"),
-                    batch_index, terminal_index, terminal[0], terminal[1],
-                    terminal[2], terminal[3], terminal[4], terminal[5],
-                    static_cast<std::int32_t>(terminal[6]), terminal[7],
-                    terminal[8], terminal[9]);
-            }
-        }
+        // The aggregate identity above already includes every ordered audio
+        // dispatch payload and terminal hash.  Do not synchronously enumerate
+        // thousands of diagnostic records from EngineTick after the authored
+        // match ends: UE4SS output can block this callback and prevent clean
+        // teardown/re-entry.  Terminal failures retain their bounded native
+        // failure ledger; successful runs publish only the exact aggregate.
         const auto get_health = ResolveHorseModQualificationHealthApi();
         std::array<std::uint64_t, 48> health{};
         if (get_health == nullptr
@@ -1857,70 +1827,7 @@ private:
             "[ReplayQualification] final canonical state generation={} "
             "frame={} sha256={}\n"), canonical_generation, canonical_frame,
             RC::to_generic_string(canonical_hex.str()));
-        const auto get_components = ResolveHorseModCanonicalComponentsApi();
-        std::array<std::uint64_t, 72> canonical_components{};
-        if (get_components != nullptr
-            && get_components(canonical_components.data(),
-                canonical_components.size()))
-        {
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] final canonical components "
-                "context=0x{:016x} native=0x{:016x} secondary=0x{:016x} "
-                "animation=0x{:016x} ucrt=0x{:016x} wind=0x{:016x}\n"),
-                canonical_components[0], canonical_components[1],
-                canonical_components[2], canonical_components[3],
-                canonical_components[4], canonical_components[5]);
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] final wind components "
-                "schedule=0x{:016x} callbacks=0x{:016x} "
-                "semantic0=0x{:016x} semantic1=0x{:016x} "
-                "semantic2=0x{:016x} semantic3=0x{:016x} "
-                "semantic4=0x{:016x} semantic5=0x{:016x} "
-                "semantic6=0x{:016x} semantic7=0x{:016x} "
-                "derived0=0x{:016x} derived1=0x{:016x} "
-                "derived2=0x{:016x} derived3=0x{:016x} "
-                "derived4=0x{:016x} derived5=0x{:016x} "
-                "derived6=0x{:016x} derived7=0x{:016x} "
-                "root=0x{:016x} params=0x{:016x}\n"),
-                canonical_components[6], canonical_components[7],
-                canonical_components[8], canonical_components[9],
-                canonical_components[10], canonical_components[11],
-                canonical_components[12], canonical_components[13],
-                canonical_components[14], canonical_components[15],
-                canonical_components[16], canonical_components[17],
-                canonical_components[18], canonical_components[19],
-                canonical_components[20], canonical_components[21],
-                canonical_components[22], canonical_components[23],
-                canonical_components[24], canonical_components[25]);
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] final wind node0 "
-                "chunks=0x{:016x},0x{:016x},0x{:016x},0x{:016x},"
-                "0x{:016x},0x{:016x},0x{:016x},0x{:016x},"
-                "0x{:016x},0x{:016x},0x{:016x},0x{:016x},"
-                "0x{:016x},0x{:016x},0x{:016x},0x{:016x} "
-                "life=0x{:08x} tick={} prepared={} active={} "
-                "step=0x{:08x} repeat={} kind={} present={}\n"),
-                canonical_components[26], canonical_components[27],
-                canonical_components[28], canonical_components[29],
-                canonical_components[30], canonical_components[31],
-                canonical_components[32], canonical_components[33],
-                canonical_components[34], canonical_components[35],
-                canonical_components[36], canonical_components[37],
-                canonical_components[38], canonical_components[39],
-                canonical_components[40], canonical_components[41],
-                canonical_components[58], canonical_components[59],
-                canonical_components[60], canonical_components[61],
-                canonical_components[62], canonical_components[63],
-                canonical_components[64], canonical_components[65]);
-            Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] final wind schedule raw "
-                "active_bank={} pending_count={} schedule_state={} "
-                "effect_pair_scheduled={} active_callback_hash=0x{:016x} "
-                "active_callback_count={}\n"),
-                canonical_components[66], canonical_components[67],
-                canonical_components[68], canonical_components[69],
-                canonical_components[70], canonical_components[71]);
-        }
+        if (request_.require_authored_outcomes) LogOrderedRoundOutcomes();
         state_ = State::Launched;
         WriteResult("launch_requested", "none");
         Output::send<LogLevel::Default>(STR(
@@ -1967,13 +1874,13 @@ private:
                 }
                 const std::int8_t expected =
                     request_.expected_round_winners[observed_round_winner_count_];
-                Output::send<LogLevel::Default>(STR(
-                    "[ReplayQualification] round outcome ordinal={} "
-                    "control={} simulated={} result_type={}\n"),
-                    observed_round_winner_count_ + 1,
-                    expected, observed, result.result_type);
                 if (observed != expected)
                 {
+                    Output::send<LogLevel::Error>(STR(
+                        "[ReplayQualification] round outcome mismatch "
+                        "ordinal={} control={} simulated={} result_type={}\n"),
+                        observed_round_winner_count_ + 1,
+                        expected, observed, result.result_type);
                     Fail("simulated_round_winner_mismatch");
                     return false;
                 }
@@ -1996,6 +1903,11 @@ private:
             return false;
         }
         round_outcomes_verified_ = true;
+        return true;
+    }
+
+    void LogOrderedRoundOutcomes() const
+    {
         std::ostringstream winners;
         for (std::size_t index = 0;
              index < observed_round_winners_.size(); ++index)
@@ -2006,9 +1918,8 @@ private:
         Output::send<LogLevel::Default>(STR(
             "[ReplayQualification] ordered round outcomes verified "
             "rounds={} match_winner={} winners={}\n"),
-            observed_round_winner_count_, result.match_winner_index,
+            observed_round_winner_count_, last_round_result_.match_winner_index,
             RC::to_generic_string(winners.str()));
-        return true;
     }
 
     bool PollStageTerminal()
@@ -2343,6 +2254,12 @@ private:
     std::uint32_t poll_divider_{};
     RC::Unreal::Hook::GlobalCallbackId engine_tick_id_{
         RC::Unreal::Hook::ERROR_ID};
+    RC::StringType battle_terminate_hook_path_{
+        STR("/Script/LuxorGame.LuxBattleGameMode:TerminateBattle")};
+    std::pair<int, int> battle_terminate_hook_ids_{};
+    std::uint32_t battle_terminate_hook_poll_divider_{};
+    bool battle_terminate_hook_registered_{};
+    bool battle_terminate_observed_{};
     bool bound_{};
     bool waiting_context_logged_{};
     bool player_profiles_requested_{};

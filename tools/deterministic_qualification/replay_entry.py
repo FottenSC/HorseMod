@@ -191,6 +191,13 @@ def wait_for_replay_entry(
     raise TimeoutError("native replay entry did not request launch before the timeout")
 
 
+def require_replay_request_healthy(run_id: str) -> None:
+    """Fail immediately if the active native request published a terminal error."""
+    result = _read_result(qualification_root() / "replay_result.txt", run_id)
+    if result is not None and result.result == "failed":
+        raise RuntimeError(f"native replay entry failed: {result.reason}")
+
+
 def remove_request_files(run_id: str) -> None:
     root = qualification_root()
     for name in ("replay_request.txt", "replay_result.txt"):

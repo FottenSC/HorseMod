@@ -1208,6 +1208,12 @@
         }
         self->m_qualification_stage_terminal_requested_ms.store(
             0, std::memory_order_release);
+        // The qualification observer runs from a later EngineTick callback.
+        // Freeze value-only terminal evidence before either valid native exit
+        // route invalidates object-backed replay history. Failure to capture is
+        // fail-closed: the post-exit APIs remain unavailable and the harness
+        // rejects the run.
+        self->CaptureReplayQualificationTerminalSnapshot();
         self->invalidate_stage_break_presentation_identity();
         self->m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();
         self->m_replay_native_runtime.ObserveReplayExit();

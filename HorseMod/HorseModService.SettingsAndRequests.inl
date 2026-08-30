@@ -694,6 +694,27 @@
 
     Horse::Lux                 m_lux;
     Horse::Deterministic::Sc6ReplayRuntime m_replay_native_runtime{m_lux};
+    struct ReplayQualificationTerminalSnapshot
+    {
+        bool presentation_coverage_valid{};
+        bool presentation_identity_valid{};
+        bool health_valid{};
+        bool gameplay_rng_coverage_valid{};
+        bool canonical_valid{};
+        std::array<std::uint64_t, 10> presentation_coverage{};
+        std::array<std::uint64_t, 9> presentation_identity{};
+        std::array<std::uint64_t, 48> health{};
+        std::array<std::uint64_t, 42> gameplay_rng_coverage{};
+        std::uint64_t canonical_generation{};
+        std::uint64_t canonical_frame{};
+        Horse::Deterministic::CanonicalHash canonical_hash{};
+    };
+    // The native replay-exit hooks must invalidate all live object-backed
+    // history before SC6 tears those objects down. Preserve only this bounded,
+    // value-only observer snapshot so a later qualification EngineTick can
+    // read terminal evidence without extending native lifetime.
+    ReplayQualificationTerminalSnapshot
+        m_replay_qualification_terminal_snapshot{};
     std::uint64_t m_replay_qualification_fp_mismatch_baseline{};
     std::uint64_t m_replay_qualification_cursor_mismatch_baseline{};
     std::uint64_t m_replay_qualification_batch_accounting_mismatch_baseline{};

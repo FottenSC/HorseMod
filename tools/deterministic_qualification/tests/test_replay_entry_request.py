@@ -2,7 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from tools.deterministic_qualification.replay_entry import create_request
+from tools.deterministic_qualification.replay_entry import (
+    create_request,
+    require_replay_request_healthy,
+)
 
 
 def test_seek_request_uses_explicit_version_nine_mode_contract(
@@ -138,3 +141,20 @@ def test_outcome_verification_requires_and_serializes_control_oracle(
     ).read_text(encoding="utf-8")
     assert "expected_round_winners=1,0,2\n" in request
     assert "expected_match_winner=1\n" in request
+
+
+def test_active_request_guard_surfaces_native_terminal_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    root = tmp_path / "HorseMod" / "Qualification"
+    root.mkdir(parents=True)
+    (root / "replay_result.txt").write_text(
+        "version=1\nrun_id=current\nresult=failed\n"
+        "reason=horsemod_presentation_coverage_api_unavailable\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="presentation_coverage"):
+        require_replay_request_healthy("current")
+    require_replay_request_healthy("stale")
