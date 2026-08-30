@@ -1504,9 +1504,12 @@ private:
                 RC::to_generic_string(winners.str()));
             return;
         }
+        // Terminal injection must run while the authored battle identity and
+        // actor lists are still live. Outcome verification intentionally
+        // continues afterward through the final round and match result.
+        if (request_.stage_terminal != 0 && !PollStageTerminal()) return;
         if (request_.require_authored_outcomes
             && !PollRoundOutcomeQualification()) return;
-        if (request_.stage_terminal != 0 && !PollStageTerminal()) return;
         if (advanced < request_.watch_frames) return;
         if (seek_index_ < request_.seek_percentages.size())
         {

@@ -243,7 +243,12 @@ def run_offline_campaign(args: Any, root: Path) -> int:
                 with armed_correction(config, row.depth, LOCATION_CODES[row.location]):
                     primary = _invoke_replay(root, row, raw / f"{row.row_id}-primary.json",
                         deployed, config, schema, replay_mod, game_executable, log,
-                        certifying=True, stage_terminal="both",
+                        # Matrix rows certify the presentation activity authored
+                        # by this exact replay on its native map.  The bounded
+                        # stage-terminal request is a separate source-boundary
+                        # diagnostic and cannot invent wall/barrier actors on a
+                        # map whose BattleStageActorManager exposes none.
+                        certifying=True,
                         outcome_control=stock_path, require_authored_outcomes=True,
                         timeout=args.timeout)
                 with armed_baseline(config):
