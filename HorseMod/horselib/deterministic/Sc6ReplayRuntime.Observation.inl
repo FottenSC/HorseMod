@@ -1142,6 +1142,10 @@ void Sc6ReplayRuntime::FillObservedGameplayEnvelope(
         observation.movevm_transition_07_sequence_hash;
     envelope.movevm_transition_07_signature_failures =
         observation.movevm_transition_07_signature_failures;
+    envelope.resolved_hit_calls = observation.resolved_hit_calls;
+    envelope.resolved_hit_sequence_hash = observation.resolved_hit_sequence_hash;
+    envelope.resolved_hit_signature_failures =
+        observation.resolved_hit_signature_failures;
     envelope.tira_random_transition_calls =
         observation.tira_random_transition_calls;
     envelope.tira_random_transition_sequence_hash =

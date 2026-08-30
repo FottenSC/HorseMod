@@ -62,6 +62,8 @@ std::atomic<std::uint64_t>
     DeterministicHookSet::movevm_evaluate_if_trampoline_global_{};
 std::atomic<std::uint64_t>
     DeterministicHookSet::movevm_transition_author_07_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::resolved_hit_consumer_trampoline_global_{};
 std::array<std::atomic<std::uintptr_t>, maximum_battle_audio_handlers>
     DeterministicHookSet::observed_battle_audio_handlers_{};
 std::atomic<bool> DeterministicHookSet::battle_audio_handler_overflow_{};

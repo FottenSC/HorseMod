@@ -36,7 +36,9 @@ bool DeterministicHookSet::ValidateInstallationSignatures(
         && matches(FrameLayout::particle_finished_bind_rva, FrameLayout::particle_finished_bind_signature)
         && matches(FrameLayout::gameplay_xorshift96_rva, FrameLayout::gameplay_xorshift96_signature)
         && matches(FrameLayout::movevm_evaluate_if_rva, FrameLayout::movevm_evaluate_if_signature)
-        && matches(FrameLayout::movevm_transition_author_07_rva, FrameLayout::movevm_transition_author_07_signature);
+        && matches(FrameLayout::movevm_transition_author_07_rva, FrameLayout::movevm_transition_author_07_signature)
+        && matches(FrameLayout::resolved_hit_consumer_rva,
+            FrameLayout::resolved_hit_consumer_signature);
 }
 
 bool DeterministicHookSet::InstallDetour(
@@ -135,7 +137,12 @@ bool DeterministicHookSet::InstallRandomHooks() noexcept
             image_base_ + FrameLayout::movevm_transition_author_07_rva,
             reinterpret_cast<std::uintptr_t>(&MoveVmTransitionAuthor07Detour),
             movevm_transition_author_07_trampoline_,
-            movevm_transition_author_07_trampoline_global_);
+            movevm_transition_author_07_trampoline_global_)
+        && InstallDetour(resolved_hit_consumer_detour_,
+            image_base_ + FrameLayout::resolved_hit_consumer_rva,
+            reinterpret_cast<std::uintptr_t>(&ResolvedHitConsumerDetour),
+            resolved_hit_consumer_trampoline_,
+            resolved_hit_consumer_trampoline_global_);
 }
 
 Status DeterministicHookSet::AbortInstallation() noexcept
@@ -179,6 +186,8 @@ void DeterministicHookSet::Uninstall() noexcept
         return;
     }
     // Hooks are removed in the reverse of their installation order.
+    if (resolved_hit_consumer_detour_)
+        resolved_hit_consumer_detour_->unHook();
     if (movevm_transition_author_07_detour_)
         movevm_transition_author_07_detour_->unHook();
     if (movevm_evaluate_if_detour_)

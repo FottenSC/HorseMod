@@ -37,7 +37,7 @@ struct ReplaySessionCoverage
 {
     std::array<std::uint64_t, 10> presentation{};
     std::uint64_t audio_terminal_calls{};
-    std::array<std::uint64_t, 40> gameplay_rng{};
+    std::array<std::uint64_t, 42> gameplay_rng{};
 };
 
 ReplaySessionCoverage CaptureReplaySessionCoverage(
@@ -96,7 +96,9 @@ ReplaySessionCoverage CaptureReplaySessionCoverage(
         status.observed_tira_state19_at_transition[0],
         status.observed_tira_state19_at_transition[1],
         status.movevm_short25_initial_recorded ? 1ull : 0ull,
-        status.observed_tira_last_transition_target};
+        status.observed_tira_last_transition_target,
+        status.observed_resolved_hit_calls,
+        status.observed_resolved_hit_sequence_hash};
     return coverage;
 }
 
@@ -158,6 +160,8 @@ void RestoreReplaySessionCoverage(ReplayTimelineStatus& status,
     status.movevm_short25_initial_recorded = coverage.gameplay_rng[38] != 0;
     status.observed_tira_last_transition_target = static_cast<std::uint16_t>(
         coverage.gameplay_rng[39]);
+    status.observed_resolved_hit_calls = coverage.gameplay_rng[40];
+    status.observed_resolved_hit_sequence_hash = coverage.gameplay_rng[41];
 }
 
 OwnedCorrectionResult::WindNodeScheduleDiagnostic WindScheduleDiagnostic(

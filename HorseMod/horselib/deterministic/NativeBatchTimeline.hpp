@@ -169,6 +169,9 @@ struct NativeBatchEnvelope
     std::uint32_t movevm_transition_07_calls{};
     std::uint64_t movevm_transition_07_sequence_hash{};
     std::uint32_t movevm_transition_07_signature_failures{};
+    std::uint32_t resolved_hit_calls{};
+    std::uint64_t resolved_hit_sequence_hash{};
+    std::uint32_t resolved_hit_signature_failures{};
     std::uint32_t tira_random_transition_calls{};
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};

@@ -31,6 +31,11 @@ Status Sc6ReplayRuntime::AccumulateObservedGameplayIdentity(
         timeline_status_.failure = FailureCode::AdapterUnqualified;
         return Status::failure(timeline_status_.failure);
     }
+    if (observation.resolved_hit_signature_failures != 0)
+    {
+        timeline_status_.failure = FailureCode::AdapterUnqualified;
+        return Status::failure(timeline_status_.failure);
+    }
     timeline_status_.observed_gameplay_xorshift_draws +=
         observation.gameplay_xorshift_draws;
     timeline_status_.observed_gameplay_xorshift_known_callers |=
@@ -62,6 +67,19 @@ Status Sc6ReplayRuntime::AccumulateObservedGameplayIdentity(
         AppendFnv64(timeline_status_.observed_movevm_transition_07_sequence_hash,
             &observation.movevm_transition_07_sequence_hash,
             sizeof(observation.movevm_transition_07_sequence_hash));
+    }
+    timeline_status_.observed_resolved_hit_calls +=
+        observation.resolved_hit_calls;
+    if (observation.resolved_hit_calls != 0)
+    {
+        AppendFnv64(timeline_status_.observed_resolved_hit_sequence_hash,
+            &observation.batch_id, sizeof(observation.batch_id));
+        AppendFnv64(timeline_status_.observed_resolved_hit_sequence_hash,
+            &observation.resolved_hit_calls,
+            sizeof(observation.resolved_hit_calls));
+        AppendFnv64(timeline_status_.observed_resolved_hit_sequence_hash,
+            &observation.resolved_hit_sequence_hash,
+            sizeof(observation.resolved_hit_sequence_hash));
     }
     timeline_status_.observed_tira_random_transition_calls +=
         observation.tira_random_transition_calls;
@@ -536,6 +554,10 @@ void Sc6ReplayRuntime::ApplyCorrectedPresentationObservation(
         observation.movevm_transition_07_sequence_hash;
     envelope.movevm_transition_07_signature_failures =
         observation.movevm_transition_07_signature_failures;
+    envelope.resolved_hit_calls = observation.resolved_hit_calls;
+    envelope.resolved_hit_sequence_hash = observation.resolved_hit_sequence_hash;
+    envelope.resolved_hit_signature_failures =
+        observation.resolved_hit_signature_failures;
     envelope.tira_random_transition_calls =
         observation.tira_random_transition_calls;
     envelope.tira_random_transition_sequence_hash =

@@ -71,6 +71,8 @@ struct ReplayTimelineStatus
     std::uint64_t observed_gameplay_xorshift_sequence_hash{};
     std::uint64_t observed_movevm_transition_07_calls{};
     std::uint64_t observed_movevm_transition_07_sequence_hash{};
+    std::uint64_t observed_resolved_hit_calls{};
+    std::uint64_t observed_resolved_hit_sequence_hash{};
     std::uint64_t observed_tira_random_transition_calls{};
     std::uint64_t observed_tira_random_transition_sequence_hash{};
     std::uint64_t observed_tira_probability_transition_batches{};

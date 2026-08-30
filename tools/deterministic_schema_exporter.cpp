@@ -60,6 +60,8 @@ void write_schema(std::ostream& output)
            << Schema::Sc6FrameLayout::landing_fencepost_rva << ",\n"
            << "    \"outer_tick_rva\": "
            << Schema::Sc6FrameLayout::outer_tick_rva << ",\n"
+           << "    \"resolved_hit_consumer_rva\": "
+           << Schema::Sc6FrameLayout::resolved_hit_consumer_rva << ",\n"
            << "    \"frame_observation_required_read_mask\": "
            << Schema::Sc6FrameLayout::required_observation_read_mask << ",\n"
            << "    \"outer_tick_required_read_mask\": "

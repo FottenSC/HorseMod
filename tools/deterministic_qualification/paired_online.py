@@ -863,7 +863,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         "case_id": case["case_id"], "display_map_name": case["native_display_name"],
         "stage_package_root": case["stage_package_root"],
         "fighter_order": case["fighter_order"], "renderer": "normal",
-        "protocol_version": 2, "snapshot_schema_version": 46,
+        "protocol_version": 2, "snapshot_schema_version": 47,
         "impairment": impairment_evidence,
         "identities": {
             "source": identity,

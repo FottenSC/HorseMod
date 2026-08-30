@@ -299,6 +299,77 @@ void __fastcall DeterministicHookSet::MoveVmTransitionAuthor07Detour(
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
 
+void __fastcall DeterministicHookSet::ResolvedHitConsumerDetour() noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    DeterministicHookSet* hooks = active_.load(std::memory_order_acquire);
+    const std::uint64_t trampoline = hooks != nullptr
+        ? hooks->resolved_hit_consumer_trampoline_
+        : resolved_hit_consumer_trampoline_global_.load(
+            std::memory_order_acquire);
+    const auto original = reinterpret_cast<ResolvedHitConsumerFn>(trampoline);
+    auto* batch = active_outer_capture_;
+    if (hooks != nullptr && batch != nullptr && batch->observation != nullptr)
+    {
+        // Ghidra contract: LuxBattle_ApplyDamageFromPendingHit consumes this
+        // one-shot attacker pointer before applying reaction and damage. Read
+        // it before the native call clears the latch. Presentation activity is
+        // deliberately not part of this confirmed-hit boundary.
+        constexpr std::uintptr_t pending_reaction_rva = 0x485e738;
+        constexpr std::uintptr_t pending_attacker_rva = 0x485e740;
+        constexpr std::uintptr_t pending_flags_rva = 0x485e748;
+        constexpr std::uintptr_t fighter_roots_rva = 0x470de90;
+        std::uintptr_t attacker{};
+        std::array<std::uintptr_t, 2> fighter_roots{};
+        std::uint32_t reaction_move{};
+        std::uint32_t transition_flags{};
+        auto& observation = *batch->observation;
+        if (!SafeRead(hooks->image_base_ + pending_attacker_rva, attacker))
+            ++observation.resolved_hit_signature_failures;
+        else if (attacker != 0)
+        {
+            if (!SafeRead(hooks->image_base_ + pending_reaction_rva,
+                    reaction_move)
+                || !SafeRead(hooks->image_base_ + pending_flags_rva,
+                    transition_flags)
+                || !SafeRead(hooks->image_base_ + fighter_roots_rva,
+                    fighter_roots))
+            {
+                ++observation.resolved_hit_signature_failures;
+            }
+            else
+            {
+                const std::uint8_t attacker_slot = attacker == fighter_roots[0]
+                    ? 1u : attacker == fighter_roots[1] ? 2u : 0u;
+                if (attacker_slot == 0)
+                    ++observation.resolved_hit_signature_failures;
+                else
+                {
+                    ++observation.resolved_hit_calls;
+                    auto hash = observation.resolved_hit_sequence_hash == 0
+                        ? std::uint64_t{1469598103934665603ull}
+                        : observation.resolved_hit_sequence_hash;
+                    const auto append = [&hash](const auto& value) noexcept {
+                        const auto* bytes = reinterpret_cast<const std::uint8_t*>(
+                            &value);
+                        for (std::size_t index = 0; index < sizeof(value); ++index)
+                        {
+                            hash ^= bytes[index];
+                            hash *= 1099511628211ull;
+                        }
+                    };
+                    append(attacker_slot);
+                    append(reaction_move);
+                    append(transition_flags);
+                    observation.resolved_hit_sequence_hash = hash;
+                }
+            }
+        }
+    }
+    if (original != nullptr) original();
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
 void __fastcall DeterministicHookSet::OuterTickDetour(
     void* battle_manager, float delta_seconds) noexcept
 {
@@ -617,6 +688,10 @@ void DeterministicHookSet::CopyObservedGameplayIdentity(
         observation.movevm_transition_07_sequence_hash;
     output.movevm_transition_07_signature_failures =
         observation.movevm_transition_07_signature_failures;
+    output.resolved_hit_calls = observation.resolved_hit_calls;
+    output.resolved_hit_sequence_hash = observation.resolved_hit_sequence_hash;
+    output.resolved_hit_signature_failures =
+        observation.resolved_hit_signature_failures;
     output.tira_random_transition_calls =
         observation.tira_random_transition_calls;
     output.tira_random_transition_sequence_hash =
@@ -656,6 +731,11 @@ bool DeterministicHookSet::OwnedGameplayIdentityMatches(
             == expected.movevm_transition_07_sequence_hash
         && output.movevm_transition_07_signature_failures == 0
         && expected.movevm_transition_07_signature_failures == 0
+        && output.resolved_hit_calls == expected.resolved_hit_calls
+        && output.resolved_hit_sequence_hash
+            == expected.resolved_hit_sequence_hash
+        && output.resolved_hit_signature_failures == 0
+        && expected.resolved_hit_signature_failures == 0
         && output.tira_random_transition_calls
             == expected.tira_random_transition_calls
         && output.tira_random_transition_sequence_hash

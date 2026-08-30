@@ -8,7 +8,7 @@
 namespace Horse::Deterministic::Schema
 {
 inline constexpr std::uint32_t protocol_version = 2;
-inline constexpr std::uint32_t snapshot_schema_version = 46;
+inline constexpr std::uint32_t snapshot_schema_version = 47;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::size_t maximum_presentation_payload = 256;
 inline constexpr std::uint64_t checkpoint_interval = 30;
@@ -111,6 +111,9 @@ inline constexpr std::uintptr_t particle_finished_bind_rva = 0x533f40;
 inline constexpr std::uintptr_t gameplay_xorshift96_rva = 0x34f1f0;
 inline constexpr std::uintptr_t movevm_evaluate_if_rva = 0x3732f0;
 inline constexpr std::uintptr_t movevm_transition_author_07_rva = 0x2fcc10;
+// LuxBattle_ApplyDamageFromPendingHit consumes and clears the native
+// one-shot pending-hit attacker before applying reaction and damage.
+inline constexpr std::uintptr_t resolved_hit_consumer_rva = 0x2ff620;
 inline constexpr std::uintptr_t particle_wall_return_rva = 0x53d69f;
 inline constexpr std::uintptr_t particle_barrier_hit_return_rva = 0x54a1ef;
 inline constexpr std::uintptr_t particle_barrier_break_return_rva = 0x54a364;
@@ -197,6 +200,13 @@ inline constexpr std::array<std::byte, 11> movevm_transition_author_07_signature
     std::byte{0x41}, std::byte{0xb9}, std::byte{0x01}, std::byte{0x00},
     std::byte{0x00}, std::byte{0x00}, std::byte{0xe9}, std::byte{0x15},
     std::byte{0xfd}, std::byte{0xff}, std::byte{0xff},
+};
+inline constexpr std::array<std::byte, 17> resolved_hit_consumer_signature{
+    std::byte{0x4c}, std::byte{0x8b}, std::byte{0xdc}, std::byte{0x55},
+    std::byte{0x53}, std::byte{0x48}, std::byte{0x8d}, std::byte{0x6c},
+    std::byte{0x24}, std::byte{0x88}, std::byte{0x48}, std::byte{0x81},
+    std::byte{0xec}, std::byte{0x78}, std::byte{0x01}, std::byte{0x00},
+    std::byte{0x00},
 };
 inline constexpr std::array<std::byte, 16> stage_break_dispatch_signature{
     std::byte{0x40}, std::byte{0x56}, std::byte{0x48}, std::byte{0x83},

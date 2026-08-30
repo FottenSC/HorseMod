@@ -475,7 +475,7 @@ public:
     bool GetReplayGameplayRngCoverage(
         std::uint64_t* counts, std::size_t count) const noexcept
     {
-        if (counts == nullptr || count < 40) return false;
+        if (counts == nullptr || count < 42) return false;
         const auto timeline = m_replay_native_runtime.timeline_status();
         counts[0] = timeline.observed_gameplay_xorshift_draws;
         counts[1] = timeline.observed_gameplay_xorshift_known_callers;
@@ -516,6 +516,8 @@ public:
         counts[37] = timeline.observed_tira_state19_at_transition[1];
         counts[38] = timeline.movevm_short25_initial_recorded ? 1 : 0;
         counts[39] = timeline.observed_tira_last_transition_target;
+        counts[40] = timeline.observed_resolved_hit_calls;
+        counts[41] = timeline.observed_resolved_hit_sequence_hash;
         return timeline.canonical_frames != 0;
     }
 

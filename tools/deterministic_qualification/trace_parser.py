@@ -112,7 +112,9 @@ GAMEPLAY_RNG_COVERAGE_PATTERN = re.compile(
     r"state19_at_tira_transition_p0=(?P<state19_transition_p0>\d+) "
     r"state19_at_tira_transition_p1=(?P<state19_transition_p1>\d+) "
     r"state19_initial_valid=(?P<state19_initial_valid>[01]) "
-    r"tira_last_target=0x(?P<tira_last_target>[0-9a-f]{4})"
+    r"tira_last_target=0x(?P<tira_last_target>[0-9a-f]{4}) "
+    r"resolved_hit_calls=(?P<resolved_hit_calls>\d+) "
+    r"resolved_hit_sequence=0x(?P<resolved_hit_sequence>[0-9a-f]{16})"
 )
 STOCK_ROUND_OUTCOME_PATTERN = re.compile(
     r"\[ReplayQualification\] (?:stock round outcome qualification passed|ordered round outcomes verified) "
@@ -288,6 +290,8 @@ class GameplayRngCoverageEvidence:
     state19_at_tira_transition_p1: int
     state19_initial_valid: bool
     tira_last_target: int
+    resolved_hit_calls: int
+    resolved_hit_sequence: int
 
 
 @dataclass(frozen=True)
@@ -833,6 +837,8 @@ def parse_gameplay_rng_coverage_evidence(
         state19_at_tira_transition_p1=int(match.group("state19_transition_p1")),
         state19_initial_valid=match.group("state19_initial_valid") == "1",
         tira_last_target=int(match.group("tira_last_target"), 16),
+        resolved_hit_calls=int(match.group("resolved_hit_calls")),
+        resolved_hit_sequence=int(match.group("resolved_hit_sequence"), 16),
     )
 
 

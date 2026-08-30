@@ -94,6 +94,9 @@ struct OuterTickObservation
     std::uint32_t movevm_transition_07_calls{};
     std::uint64_t movevm_transition_07_sequence_hash{};
     std::uint32_t movevm_transition_07_signature_failures{};
+    std::uint32_t resolved_hit_calls{};
+    std::uint64_t resolved_hit_sequence_hash{};
+    std::uint32_t resolved_hit_signature_failures{};
     std::uint32_t tira_random_transition_calls{};
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};
@@ -298,6 +301,9 @@ struct OwnedBatchReplayResult
     std::uint32_t movevm_transition_07_calls{};
     std::uint64_t movevm_transition_07_sequence_hash{};
     std::uint32_t movevm_transition_07_signature_failures{};
+    std::uint32_t resolved_hit_calls{};
+    std::uint64_t resolved_hit_sequence_hash{};
+    std::uint32_t resolved_hit_signature_failures{};
     std::uint32_t tira_random_transition_calls{};
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};
@@ -494,6 +500,7 @@ private:
         std::uint16_t* arguments);
     using MoveVmTransitionAuthor07Fn = void (__fastcall*)(
         void* chara, std::int32_t argument_count, std::uint16_t* arguments);
+    using ResolvedHitConsumerFn = void (__fastcall*)();
 
     static void __fastcall FrameFencepostDetour(void* battle_manager) noexcept;
     static void __fastcall OuterTickDetour(
@@ -573,6 +580,7 @@ private:
     static void __fastcall MoveVmTransitionAuthor07Detour(
         void* chara, std::int32_t argument_count,
         std::uint16_t* arguments) noexcept;
+    static void __fastcall ResolvedHitConsumerDetour() noexcept;
     static int __cdecl UcrtRandDetour() noexcept;
     static void __cdecl UcrtSrandDetour(unsigned int seed) noexcept;
     void EmitFrameFencepost(void* battle_manager) noexcept;
@@ -688,6 +696,7 @@ private:
     static std::atomic<std::uint64_t> movevm_evaluate_if_trampoline_global_;
     static std::atomic<std::uint64_t>
         movevm_transition_author_07_trampoline_global_;
+    static std::atomic<std::uint64_t> resolved_hit_consumer_trampoline_global_;
     static std::array<std::atomic<std::uintptr_t>,
         maximum_battle_audio_handlers> observed_battle_audio_handlers_;
     static std::atomic<bool> battle_audio_handler_overflow_;
@@ -717,6 +726,7 @@ private:
     std::unique_ptr<PLH::x64Detour> gameplay_xorshift96_detour_{};
     std::unique_ptr<PLH::x64Detour> movevm_evaluate_if_detour_{};
     std::unique_ptr<PLH::x64Detour> movevm_transition_author_07_detour_{};
+    std::unique_ptr<PLH::x64Detour> resolved_hit_consumer_detour_{};
     std::uint64_t frame_fencepost_trampoline_{};
     std::uint64_t replay_post_tick_trampoline_{};
     std::uint64_t outer_tick_trampoline_{};
@@ -741,6 +751,7 @@ private:
     std::uint64_t gameplay_xorshift96_trampoline_{};
     std::uint64_t movevm_evaluate_if_trampoline_{};
     std::uint64_t movevm_transition_author_07_trampoline_{};
+    std::uint64_t resolved_hit_consumer_trampoline_{};
     std::uint64_t next_outer_batch_id_{};
     std::uintptr_t image_base_{};
     std::uintptr_t rand_iat_slot_{};

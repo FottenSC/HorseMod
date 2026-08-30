@@ -544,8 +544,10 @@
             // workload and made this row structurally impossible to pass.
             case 1: return timeline.round_state_frame > 16;
             case 2: return timeline.round_state_frame > 120;
-            case 3: return timeline.observed_battle_audio_dispatches != 0
-                    && timeline.observed_particle_spawn_calls != 0;
+            // Native resolved-hit consumption is the canonical boundary.
+            // Audio and particles are optional presentation and cannot define
+            // a hit across authored characters/maps.
+            case 3: return timeline.observed_resolved_hit_calls != 0;
             case 4: return timeline.observed_stage_wall_calls != 0
                     || timeline.observed_stage_barrier_calls != 0
                     || timeline.observed_battle_audio_stop_all_calls != 0;

@@ -559,14 +559,13 @@ def run_replay_entry(args: argparse.Namespace) -> int:
                     barrier_ok = (not require_barrier
                         or (presentation_coverage.stage_barrier != 0
                             and forced.suppressed_stage_barrier != 0))
-                    particle_ok = (args.correction_location != "confirmed_hit"
-                        or (presentation_coverage.particle_spawn != 0
-                            and forced.suppressed_particle_spawn != 0))
-                    if (not wall_ok or not barrier_ok or not particle_ok
+                    hit_ok = (args.correction_location != "confirmed_hit"
+                        or gameplay_rng_coverage.resolved_hit_calls != 0)
+                    if (not wall_ok or not barrier_ok or not hit_ok
                             or forced.presentation_failures != 0
                             or forced.presentation_terminal_coverage != "complete"):
                         raise RuntimeError(
-                            "forced depth-7 requested stage presentation coverage "
+                            "forced correction native/presentation coverage "
                             "is incomplete"
                         )
             if boot is not None and boot.source_commit != identity["commit"]:

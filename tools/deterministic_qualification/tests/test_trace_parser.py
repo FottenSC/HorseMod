@@ -122,7 +122,8 @@ def test_gameplay_rng_coverage_parser_is_source_bound() -> None:
         "xorshift_landing=0x12345678,0x23456789,0x3456789a "
         "state19_at_tira_transition_p0=1 "
         "state19_at_tira_transition_p1=3 state19_initial_valid=1 "
-        "tira_last_target=0x0205\n"
+        "tira_last_target=0x0205 resolved_hit_calls=11 "
+        "resolved_hit_sequence=0x5023456789abcdef\n"
     )
     evidence = parse_gameplay_rng_coverage_evidence(text)
     assert evidence is not None
@@ -145,6 +146,8 @@ def test_gameplay_rng_coverage_parser_is_source_bound() -> None:
     assert evidence.state19_at_tira_transition_p0 == 1
     assert evidence.state19_initial_valid
     assert evidence.tira_last_target == 0x0205
+    assert evidence.resolved_hit_calls == 11
+    assert evidence.resolved_hit_sequence == 0x5023456789ABCDEF
 
 
 def test_presentation_coverage_parser_is_source_bound() -> None:
