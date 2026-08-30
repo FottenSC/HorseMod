@@ -369,6 +369,33 @@ public:
         values[5] = batch->battle_audio_payload_hash;
         values[6] = batch->battle_audio_position_hash;
         values[7] = batch->battle_audio_journal_count;
+        if (count >= 10)
+        {
+            values[8] = batch->audio_terminal_calls;
+            values[9] = batch->audio_terminal_hash;
+        }
+        return true;
+    }
+
+    bool GetReplayAudioTerminalIdentity(std::size_t batch_index,
+        std::size_t terminal_index, std::uint64_t* values,
+        std::size_t count) const noexcept
+    {
+        if (values == nullptr || count < 8) return false;
+        const auto& batches = m_replay_native_runtime.batch_timeline();
+        const auto* batch = batches.GetBatch(batch_index);
+        if (batch == nullptr
+            || terminal_index >= batch->audio_terminal_journal_count)
+            return false;
+        const auto& terminal = batch->audio_terminal_journal[terminal_index];
+        values[0] = static_cast<std::uint8_t>(terminal.operation);
+        values[1] = static_cast<std::uint8_t>(terminal.owner.domain);
+        values[2] = terminal.owner.index;
+        values[3] = terminal.owner.scope_id;
+        values[4] = terminal.logical_playback_id;
+        values[5] = terminal.cue_sheet_id;
+        values[6] = static_cast<std::uint32_t>(terminal.cue_id);
+        values[7] = terminal.value;
         return true;
     }
 

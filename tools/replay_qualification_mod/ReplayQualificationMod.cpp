@@ -91,6 +91,8 @@ using GetReplayAudioBatchIdentityFn = bool (*)(
     std::size_t, std::uint64_t*, std::size_t);
 using GetReplayAudioDispatchIdentityFn = bool (*)(
     std::size_t, std::size_t, std::uint64_t*, std::size_t);
+using GetReplayAudioTerminalIdentityFn = bool (*)(
+    std::size_t, std::size_t, std::uint64_t*, std::size_t);
 using GetReplayQualificationHealthFn = bool (*)(std::uint64_t*, std::size_t);
 using ResetReplayQualificationHealthFn = bool (*)();
 using GetReplayGameplayRngCoverageFn = bool (*)(std::uint64_t*, std::size_t);
@@ -1579,7 +1581,11 @@ private:
         const auto get_audio_dispatch = ResolveHorseModExport<
             GetReplayAudioDispatchIdentityFn>(
                 "horsemod_get_replay_audio_dispatch_identity");
-        if (get_audio_batch == nullptr || get_audio_dispatch == nullptr)
+        const auto get_audio_terminal = ResolveHorseModExport<
+            GetReplayAudioTerminalIdentityFn>(
+                "horsemod_get_replay_audio_terminal_identity");
+        if (get_audio_batch == nullptr || get_audio_dispatch == nullptr
+            || get_audio_terminal == nullptr)
         {
             Fail("horsemod_audio_identity_diagnostic_api_unavailable");
             return;
@@ -1587,21 +1593,23 @@ private:
         for (std::size_t batch_index = 0;
              batch_index < presentation_identity[0]; ++batch_index)
         {
-            std::array<std::uint64_t, 8> batch_identity{};
+            std::array<std::uint64_t, 10> batch_identity{};
             if (!get_audio_batch(batch_index, batch_identity.data(),
                     batch_identity.size()))
             {
                 Fail("horsemod_audio_batch_identity_unavailable");
                 return;
             }
-            if (batch_identity[2] == 0) continue;
+            if (batch_identity[2] == 0 && batch_identity[8] == 0) continue;
             Output::send<LogLevel::Default>(STR(
                 "[ReplayQualification] audio batch index={} coordinate={}:{} "
                 "dispatches={} sequence=0x{:016x} route=0x{:08x} "
-                "payload=0x{:08x} position=0x{:08x} journal={}\n"),
+                "payload=0x{:08x} position=0x{:08x} journal={} "
+                "terminals={} terminal_hash=0x{:016x}\n"),
                 batch_index, batch_identity[0], batch_identity[1],
                 batch_identity[2], batch_identity[3], batch_identity[4],
-                batch_identity[5], batch_identity[6], batch_identity[7]);
+                batch_identity[5], batch_identity[6], batch_identity[7],
+                batch_identity[8], batch_identity[9]);
             for (std::size_t dispatch_index = 0;
                  dispatch_index < batch_identity[7]; ++dispatch_index)
             {
@@ -1619,6 +1627,24 @@ private:
                     batch_index, dispatch_index, dispatch[0], dispatch[1],
                     dispatch[2], dispatch[3], dispatch[4], dispatch[5],
                     dispatch[6]);
+            }
+            for (std::size_t terminal_index = 0;
+                 terminal_index < batch_identity[8]; ++terminal_index)
+            {
+                std::array<std::uint64_t, 8> terminal{};
+                if (!get_audio_terminal(batch_index, terminal_index,
+                        terminal.data(), terminal.size()))
+                {
+                    Fail("horsemod_audio_terminal_identity_unavailable");
+                    return;
+                }
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] audio terminal batch={} index={} "
+                    "operation={} owner={}:{}:{} playback={} cue_sheet={} "
+                    "cue={} value={}\n"),
+                    batch_index, terminal_index, terminal[0], terminal[1],
+                    terminal[2], terminal[3], terminal[4], terminal[5],
+                    static_cast<std::int32_t>(terminal[6]), terminal[7]);
             }
         }
         const auto get_health = ResolveHorseModQualificationHealthApi();

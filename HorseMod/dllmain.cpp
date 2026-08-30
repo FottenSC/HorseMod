@@ -506,6 +506,15 @@ extern "C"
             batch_index, dispatch_index, values, count);
     }
 
+    HORSE_MOD_API bool horsemod_get_replay_audio_terminal_identity(
+        std::size_t batch_index, std::size_t terminal_index,
+        std::uint64_t* values, std::size_t count)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && mod->GetReplayAudioTerminalIdentity(
+            batch_index, terminal_index, values, count);
+    }
+
     HORSE_MOD_API bool horsemod_get_replay_qualification_health(
         std::uint64_t* values, std::size_t count)
     {
