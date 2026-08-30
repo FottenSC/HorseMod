@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .artifacts import runner_sha256, sha256_file, source_identity
-from .configuration import armed_baseline
+from .configuration import armed_baseline, canonicalize_contract
 from .process_control import (
     close_game,
     find_game_pid,
@@ -385,6 +385,11 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
     schema = required_file(args.schema, "generated schema")
     executable = required_file(args.game_executable, "SoulcaliburVI executable")
     identity = source_identity(ROOT)
+    if args.certifying:
+        # Certification binds the complete native config contract. Remove
+        # legacy/unknown keys that LoadConfig explicitly ignores so reports
+        # describe exactly the configuration that can affect the runtime.
+        canonicalize_contract(config)
     config_fields = {
         key.strip().casefold(): value.strip().casefold()
         for line in config.read_text(encoding="utf-8").splitlines()

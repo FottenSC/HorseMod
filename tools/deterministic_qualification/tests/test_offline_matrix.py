@@ -15,6 +15,16 @@ def test_exact_51_row_shape_and_native_names() -> None:
     }
     assert sum(row.required_corrections == 0 for row in rows) == 3
     assert sum(row.required_corrections == 600 for row in rows) == 48
+    metadata = {
+        row.case_id: (row.replay_metadata_stage, row.replay_metadata_map,
+                      row.replay_metadata_fighters)
+        for row in rows if row.required_corrections == 0
+    }
+    assert metadata == {
+        "astaroth-raphael-silver-wolves-haven": (273, 17, (12, 14)),
+        "raphael-maxi-snow-capped-showdown": (9, 9, (14, 3)),
+        "siegfried-cervantes-murakumo-shrine-grounds": (23, 23, (6, 13)),
+    }
 
 
 def test_evaluator_rejects_weakened_audio_gate() -> None:

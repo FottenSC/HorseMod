@@ -4,9 +4,11 @@ import pytest
 
 from tools.deterministic_qualification.configuration import (
     armed_correction,
+    canonicalize_contract,
     disarm_diagnostics,
     expected_fields,
     is_exact_contract,
+    read_fields,
     require_disarmed,
 )
 
@@ -55,3 +57,19 @@ def test_exact_config_contract_rejects_unknown_or_reordered_fields() -> None:
     assert is_exact_contract(dict(expected), expected)
     assert not is_exact_contract({**expected, "unknown": "false"}, expected)
     assert not is_exact_contract(dict(reversed(list(expected.items()))), expected)
+
+
+def test_certifying_config_canonicalization_drops_ignored_legacy_fields(
+        tmp_path: Path) -> None:
+    config = tmp_path / "rollback.ini"
+    config.write_text(
+        "config_version=1\nenabled=false\nrollback_window=12\ninput_delay=1\n"
+        "trace=true\ncorrection_probe=false\n"
+        "forced_depth7_qualification=false\nqualification_depth=7\n"
+        "qualification_location=2\nrollback_depth=7\n"
+        "local_player_location=2\n",
+        encoding="utf-8",
+    )
+    canonicalize_contract(config)
+    assert is_exact_contract(read_fields(config),
+                             expected_fields(enabled=False, trace=True))

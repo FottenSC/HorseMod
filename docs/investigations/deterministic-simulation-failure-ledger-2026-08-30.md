@@ -239,3 +239,52 @@ an immutable release certificate explicitly promotes it.
   bridge from the new commit, pass all local tests, rerun the focused
   **Silver Wolves’ Haven** round-end depth-1 primary/re-entry pair, and restart
   the complete 51-row matrix from the stock control.
+
+## 2026-08-30 — replay teardown erased terminal presentation evidence
+
+- Source commits: `38c16b25` and repaired candidate `41d77da2`.
+- Repaired HorseMod DLL SHA-256:
+  `FBEB9B4E7E99FF89D293C475E0EA0C2F0B6095415FDD5CBFBFBD47C29D91DA61`.
+- Authored replay map: **Silver Wolves’ Haven**.
+- Symptom: a complete normal-render replay could finish with exact canonical
+  coordinate `17:8284`, yet the bridge subsequently reported
+  `horsemod_presentation_coverage_api_unavailable` after replay exit.
+- Authoritative cause: replay-exit identity deduplication ran before the
+  service captured its terminal value-only health snapshot. Teardown therefore
+  removed the native owner needed to answer the final presentation query.
+- Repair: capture terminal qualification evidence before exit identity
+  deduplication. Three paired full replays and a three-cycle same-process
+  re-entry campaign then preserved exact canonical and presentation evidence.
+- A second occurrence in the `41d77da2` offline campaign had a different cause:
+  both repeated baselines shared one `armed_baseline` scope, but the first run
+  correctly disarmed diagnostics. The second automatic smoke restored that
+  already-disarmed config and launched the full replay without deterministic
+  hooks. Candidate `fc8ff245` rearms each process independently.
+- No canonical divergence was observed. All listed runs remain non-certifying.
+
+## 2026-08-30 — offline evaluator used synthetic replay metadata and legacy config
+
+- Source commit: `fc8ff245b174e961dd3a8144d85c6549c1390454`.
+- HorseMod DLL SHA-256:
+  `2A00104E1D169D898BDF6C6C8541A294097008C152358B54500AC533346A4EC2`.
+- Authored replay map: **Silver Wolves’ Haven**.
+- Completed live rows included the stock baseline, every near-round-start and
+  active-combat depth, confirmed-hit depth 1, and confirmed-hit depth 6 primary.
+  Their subprocess gates passed, including exact canonical convergence and
+  presentation coverage, but the aggregate evaluator marked every completed
+  row failed.
+- Authoritative metadata cause: the manifest recorded map 111 for stage 273
+  and derived fighter indices by subtracting one from launch codes. The native
+  importer reports stage 273/map 17 and fighters 12/14; launch code `012` is
+  already native Astaroth index 12, while other launch codes are one-based.
+  Launch-selection codes therefore cannot serve as replay metadata.
+- Authoritative config cause: the installed config retained ignored legacy
+  fields `rollback_depth` and `local_player_location`. Native `LoadConfig`
+  ignores them, while certification deliberately requires the exact nine-field
+  native contract.
+- Repair: bind explicit stage/map/fighter replay metadata in the candidate
+  manifest and canonicalize certifying configs to the nine fields understood
+  by the native loader. The evaluator remains strict; no gate was weakened.
+- The interrupted confirmed-hit depth-6 re-entry was cleaned up without
+  accepting evidence: SC6 was absent, the request and temporary bridge were
+  removed, and all diagnostic flags were restored to `false`.

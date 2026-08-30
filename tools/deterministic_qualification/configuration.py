@@ -95,6 +95,23 @@ def write_fields(path: Path, values: dict[str, str]) -> None:
     os.replace(temporary, path)
 
 
+def canonicalize_contract(path: Path) -> None:
+    """Publish only the fields understood by the native deterministic loader."""
+    fields = read_fields(path)
+    defaults = expected_fields(enabled=False, trace=False)
+    canonical = {
+        key: fields.get(key, defaults[key])
+        for key in CONFIG_FIELD_ORDER
+    }
+    temporary = path.with_suffix(path.suffix + ".qualification.tmp")
+    with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write("".join(f"{key}={canonical[key]}\n"
+                             for key in CONFIG_FIELD_ORDER))
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+
+
 def disarm_diagnostics(path: Path) -> None:
     write_fields(path, {"enabled": "false", **DIAGNOSTIC_DEFAULTS})
     require_disarmed(path)

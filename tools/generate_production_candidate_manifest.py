@@ -23,13 +23,15 @@ def main() -> int:
     required = (
         "case_id", "replay", "fighter_order", "fighter_names",
         "replay_sha256", "replay_metadata_stage", "replay_metadata_map",
+        "replay_metadata_fighters",
         "stage_selection_code", "authored_stage_code", "stage_package_root",
         "map_path", "localization_key", "native_display_name", "rng_policy",
     )
     for case in cases:
         if any(key not in case for key in required):
             raise RuntimeError("candidate case has an uncontracted field")
-        if case["case_id"] in seen or len(case["fighter_order"]) != 2:
+        if (case["case_id"] in seen or len(case["fighter_order"]) != 2
+                or len(case["replay_metadata_fighters"]) != 2):
             raise RuntimeError("candidate case IDs and fighter ordering must be exact")
         if case["rng_policy"] != "authored_stage_only_random_selection_forbidden":
             raise RuntimeError("wildcard/random stage policy is forbidden")

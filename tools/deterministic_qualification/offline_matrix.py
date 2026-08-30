@@ -37,9 +37,11 @@ def load_candidate_cases(path: Path) -> list[dict[str, Any]]:
         raise RuntimeError("candidate manifest must contain exactly three schema-v1 cases")
     required = {"case_id", "replay", "replay_sha256",
                 "replay_metadata_stage", "replay_metadata_map",
-                "fighter_order", "stage_package_root", "native_display_name"}
+                "replay_metadata_fighters", "fighter_order",
+                "stage_package_root", "native_display_name"}
     for case in cases:
-        if not required <= set(case) or len(case["fighter_order"]) != 2:
+        if (not required <= set(case) or len(case["fighter_order"]) != 2
+                or len(case["replay_metadata_fighters"]) != 2):
             raise RuntimeError("candidate manifest case is incomplete")
     return cases
 
@@ -53,7 +55,7 @@ def build_rows(candidate_manifest: Path) -> tuple[OfflineMatrixRow, ...]:
                       replay_metadata_stage=case["replay_metadata_stage"],
                       replay_metadata_map=case["replay_metadata_map"],
                       replay_metadata_fighters=tuple(
-                          int(value) - 1 for value in case["fighter_order"]),
+                          int(value) for value in case["replay_metadata_fighters"]),
                       display_map_name=case["native_display_name"],
                       stage_package_root=case["stage_package_root"])
         rows.append(OfflineMatrixRow(

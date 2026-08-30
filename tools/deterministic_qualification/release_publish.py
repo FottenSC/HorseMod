@@ -99,7 +99,7 @@ def _strict_seek_gate(report: dict[str, Any], case: dict[str, Any],
     _require(metadata.get("stage") == case["replay_metadata_stage"]
              and metadata.get("map") == case["replay_metadata_map"]
              and (metadata.get("left_character"), metadata.get("right_character"))
-                == tuple(int(value) - 1 for value in case["fighter_order"]),
+                == tuple(case["replay_metadata_fighters"]),
              "strict seek native replay metadata mismatch")
     _require(is_exact_contract(
         report.get("artifacts", {}).get("config_fields"),
