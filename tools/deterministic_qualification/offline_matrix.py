@@ -124,7 +124,7 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
                  "config hash binding missing", failures)
     config = artifacts.get("config_fields", {})
     expected_config = expected_fields(
-        enabled=not bool(row.required_corrections), trace=True,
+        enabled=False, trace=True,
         forced_depth7=bool(row.required_corrections),
         depth=row.depth if row.required_corrections else 7,
         location=(LOCATIONS.index(row.location) + 1)

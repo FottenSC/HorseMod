@@ -57,7 +57,7 @@ def _report(case_id: str, transition: bool):
             "schema_sha256": "schema",
             "runner_sha256": "runner",
             "replay": {"sha256": "replay"},
-            "config_fields": expected_fields(enabled=True, trace=True),
+            "config_fields": expected_fields(enabled=False, trace=True),
         },
         "runtime": {
             "capacity_failures": 0,

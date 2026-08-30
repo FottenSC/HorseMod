@@ -103,7 +103,7 @@ def _strict_seek_gate(report: dict[str, Any], case: dict[str, Any],
              "strict seek native replay metadata mismatch")
     _require(is_exact_contract(
         report.get("artifacts", {}).get("config_fields"),
-        expected_fields(enabled=True, trace=True)),
+        expected_fields(enabled=False, trace=True)),
         "strict seek config contract mismatch")
     _require(report.get("renderer") == "normal", "strict seek renderer is not normal")
     _require(runtime.get("canonical_convergence") == "exact",

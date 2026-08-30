@@ -121,11 +121,10 @@ def armed_correction(path: Path, depth: int, location: int) -> Iterator[None]:
 @contextmanager
 def armed_baseline(path: Path) -> Iterator[None]:
     write_fields(path, {
-        # Offline deterministic playback owns only the authored replay and is
-        # the one place the public switch must be active before release
-        # publication. Online production remains gated by the empty release
-        # allowlist and bilateral authentication.
-        "enabled": "true",
+        # Trace installs the deterministic replay hooks without arming the
+        # production online coordinator. Production remains disabled until
+        # immutable release publication has admitted the exact allowlist.
+        "enabled": "false",
         "trace": "true",
         "correction_probe": "false",
         "forced_depth7_qualification": "false",

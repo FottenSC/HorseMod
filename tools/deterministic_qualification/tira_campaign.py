@@ -108,7 +108,7 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                 case_failures.append("Tira presentation identity is incomplete")
             config = artifacts.get("config_fields", {})
             if not is_exact_contract(
-                    config, expected_fields(enabled=True, trace=True)):
+                    config, expected_fields(enabled=False, trace=True)):
                 case_failures.append("Tira qualification config contract mismatch")
             if runtime.get("stock_round_outcome") is None:
                 case_failures.append("authored round/final winner proof missing")
