@@ -917,6 +917,9 @@
         std::size_t checkpoint_bytes_begin{};
         std::size_t batch_entry_bytes_begin{};
         std::size_t forced_history_bytes_begin{};
+        std::uint64_t round_terminal_stage_wall_baseline{};
+        std::uint64_t round_terminal_stage_barrier_baseline{};
+        std::uint64_t round_terminal_audio_stop_all_baseline{};
         std::uint64_t suppressed_stage_wall_calls{};
         std::uint64_t suppressed_stage_barrier_calls{};
         std::uint64_t semantic_stage_dispatch_calls{};
@@ -939,6 +942,7 @@
         bool active{};
         bool warmup_pending{};
         bool awaiting_generation_history{};
+        bool round_terminal_baseline_ready{};
         bool reported{};
 
         void Record(std::uint64_t value) noexcept
@@ -973,4 +977,3 @@
     std::atomic<std::uint64_t> m_seek_completed_target{};
     std::atomic<std::uint64_t> m_seek_completed_source{};
     std::atomic<std::uint64_t> m_seek_completed_verified{};
-

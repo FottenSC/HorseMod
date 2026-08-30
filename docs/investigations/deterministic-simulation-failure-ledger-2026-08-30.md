@@ -87,3 +87,42 @@ an immutable release certificate explicitly promotes it.
   authored remain mandatory.
 - Cleanup: SC6 was absent, the temporary replay bridge was removed, and all
   diagnostic flags were restored to `false`.
+
+## 2026-08-30 — round-end armed from pre-round lifetime activity
+
+- Source commit: `c14fbefb3398233c27c663e5df12de272c1b65c9`
+- HorseMod DLL SHA-256:
+  `65A81D52C9671C00C523987BF1D616AB2B1048F3ADD483114CF57810774CE490`
+- Authored replay map: **Silver Wolves’ Haven**
+- Matrix row: `round_end`, depth 1, primary pass attempt
+- Preserved bounded log:
+  `docs/investigations/evidence/release-c14fbefb/offline/raw/astaroth-raphael-silver-wolves-haven__round_end__depth_1-primary.log`
+- Terminal harness error:
+  `forced correction native/presentation coverage is incomplete`
+- Correction result: the request armed at generation 6/frame 980 and completed
+  600 corrections through frame 1580 without a generation transition.
+  Canonical convergence was exact; correction p99 was 2200 microseconds and
+  maximum was 2241 microseconds. There were 600 verified audio batches, 600
+  verified camera batches, zero presentation failures, zero capacity failures,
+  zero capacity growth events, and no journal residue.
+- Missing terminal evidence inside the correction window: zero suppressed stage
+  wall calls, zero suppressed stage barrier calls, zero semantic stage
+  dispatches, and zero suppressed battle-audio stop-all calls. The lifetime
+  stop-all counter was already nonzero before the first stable authored replay
+  frame, so location 4 incorrectly treated pre-round setup as a new round-end
+  barrier.
+- Native contract: `LuxBattleManager_Tick_MainStateMachine_At1461 @
+  0x1403FBF30` executes the complete simulation worker first and only then calls
+  the native round-over predicate. Lifetime presentation counters are not that
+  native decision. The Ghidra plate contract now records this ordering and the
+  need for a post-gameplay counter baseline; completeness is 85.54% raw / 98.07%
+  effective with 1.93 fixable points, and the program was saved.
+- Authoritative repair: capture wall, barrier, and stop-all counter baselines
+  after the first stable replay frame and arm location 4 only on a subsequent
+  authored terminal-event delta. Require a suppressed stop-all inside every
+  round-end correction window. Wall/barrier events remain exact when authored,
+  but the matrix must not require a map with no break actor to invent one.
+- Cleanup: SC6 was absent and all diagnostic flags were restored to `false`.
+- Required regression: build a new immutable candidate, rerun unit tests, rerun
+  the **Silver Wolves’ Haven** round-end depth-1 primary/re-entry pair, then
+  restart the complete 51-row normal-render matrix from its stock control.

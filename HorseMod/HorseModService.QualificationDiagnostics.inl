@@ -548,9 +548,34 @@
             // Audio and particles are optional presentation and cannot define
             // a hit across authored characters/maps.
             case 3: return timeline.observed_resolved_hit_calls != 0;
-            case 4: return timeline.observed_stage_wall_calls != 0
-                    || timeline.observed_stage_barrier_calls != 0
-                    || timeline.observed_battle_audio_stop_all_calls != 0;
+            case 4:
+                // These are session-lifetime observation counters.  Initial
+                // battle setup can stop audio before the first stable replay
+                // frame, so raw nonzero values are not a round-end barrier.
+                // Establish a post-start baseline once and require a later
+                // terminal-event delta authored by this replay.
+                if (timeline.round_state_frame <= 16
+                    || timeline.unpause_countdown != 0)
+                {
+                    return false;
+                }
+                if (!qualification.round_terminal_baseline_ready)
+                {
+                    qualification.round_terminal_stage_wall_baseline =
+                        timeline.observed_stage_wall_calls;
+                    qualification.round_terminal_stage_barrier_baseline =
+                        timeline.observed_stage_barrier_calls;
+                    qualification.round_terminal_audio_stop_all_baseline =
+                        timeline.observed_battle_audio_stop_all_calls;
+                    qualification.round_terminal_baseline_ready = true;
+                    return false;
+                }
+                return timeline.observed_stage_wall_calls
+                            > qualification.round_terminal_stage_wall_baseline
+                    || timeline.observed_stage_barrier_calls
+                            > qualification.round_terminal_stage_barrier_baseline
+                    || timeline.observed_battle_audio_stop_all_calls
+                            > qualification.round_terminal_audio_stop_all_baseline;
             default: return false;
             }
         }();
@@ -972,11 +997,12 @@
             // A resolved hit is certified by the native pending-hit consumer.
             // Particle activity is still identity-checked when authored, but
             // it is optional across characters, moves, and maps.
+            // Round-end requires a terminal audio stop authored after the
+            // post-start baseline.  Stage wall/barrier events remain exact
+            // identity gates whenever the map authors them, but maps with no
+            // break actor must not be forced to invent stage presentation.
             && (m_deterministic_config.qualification_location != 4
-                || ((qualification.suppressed_stage_wall_calls != 0
-                        || qualification.suppressed_stage_barrier_calls != 0)
-                    && qualification.semantic_stage_dispatch_calls != 0
-                    && qualification.suppressed_audio_stop_all_calls != 0));
+                || qualification.suppressed_audio_stop_all_calls != 0);
         const auto capture_performance =
             m_replay_native_runtime.capture_performance();
         Horse::Deterministic::AudioTerminalEvent first_failed_audio{};
