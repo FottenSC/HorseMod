@@ -975,7 +975,11 @@ def run_replay_entry(args: argparse.Namespace) -> int:
         raise RuntimeError("certifying deterministic baselines require the smoke preflight")
     if not 60 <= args.smoke_frames <= 120:
         raise RuntimeError("smoke frames must be between 60 and 120")
-    if not args.deterministic_baseline or args.development_smoke:
+    if args.development_smoke:
+        config = required_file(args.config, "deterministic config")
+        with _temporarily_armed_smoke_config(config):
+            return _run_replay_entry_once(args)
+    if not args.deterministic_baseline:
         return _run_replay_entry_once(args)
     config = required_file(args.config, "deterministic config")
     if args.skip_development_smoke:

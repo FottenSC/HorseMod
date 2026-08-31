@@ -48,12 +48,13 @@ inline constexpr std::size_t replay_checkpoint_memory_budget =
     - replay_native_batch_memory_budget - replay_canonical_hash_memory_budget;
 inline constexpr std::size_t replay_input_entry_budget = 128;
 // Leave a fixed schema margin for the bounded cross-family presentation,
-// audio-terminal, and same-generation camera timer/action source journals.
+// 64-dispatch audio burst, audio-terminal, and same-generation camera
+// timer/action source journals.
 // The exact native timer-node boundary adds a 0x2F0 node, fixed 0x41E0 action
 // backing, and four camera scalars to each batch. The aggregate native-batch
 // allocation remains capped at 192 MiB, so the larger fixed entry ceiling
 // reduces retained batch capacity rather than allowing unbounded growth.
-inline constexpr std::size_t replay_native_batch_entry_budget = 36864;
+inline constexpr std::size_t replay_native_batch_entry_budget = 37888;
 inline constexpr std::size_t replay_native_batch_coordinate_budget = 32;
 inline constexpr std::size_t replay_round_image_size = 0xc0;
 inline constexpr std::uint32_t maximum_replay_round_images = 64;

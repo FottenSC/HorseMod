@@ -662,6 +662,26 @@ void test_input_replacement_and_invalidation()
 
 void test_native_batch_timeline_is_exact_and_bounded()
 {
+    NativeBatchEnvelope dense_audio{};
+    dense_audio.batch_id = 1;
+    dense_audio.entry_coordinate = {};
+    dense_audio.exit_coordinate = {1, 1};
+    dense_audio.coordinate_count = 1;
+    dense_audio.battle_audio_dispatches = 17;
+    dense_audio.battle_audio_journal_count = 17;
+    dense_audio.presentation_order_journal_count = 17;
+    for (std::uint8_t index = 0; index < 17; ++index)
+    {
+        dense_audio.battle_audio_journal[index].direct = 1;
+        dense_audio.presentation_order_journal[index] = {
+            PresentationEventFamily::BattleAudioDispatch, index};
+    }
+    const std::array dense_audio_coordinate{FrameCoordinate{1, 1}};
+    NativeBatchTimeline dense_audio_timeline{1, 1};
+    expect(dense_audio_timeline.Append(
+               dense_audio, dense_audio_coordinate).ok(),
+        "batch storage admits the observed 17-dispatch authored audio burst");
+
     NativeBatchTimeline timeline{2, 4};
     NativeBatchEnvelope first{};
     first.batch_id = 10;

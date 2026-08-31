@@ -262,6 +262,43 @@ def test_baseline_wrapper_arms_smoke_and_full_run_then_restores(
     assert config.read_bytes() == original
 
 
+def test_direct_development_smoke_arms_hooks_then_restores(
+    tmp_path, monkeypatch,
+):
+    config = tmp_path / "rollback.ini"
+    original = (
+        b"config_version=1\nenabled=false\nrollback_window=12\n"
+        b"input_delay=1\ntrace=false\ncorrection_probe=false\n"
+        b"forced_depth7_qualification=false\nqualification_depth=7\n"
+        b"qualification_location=2\n"
+    )
+    config.write_bytes(original)
+    observed = []
+
+    def capture(args):
+        observed.append(config.read_text(encoding="utf-8"))
+        return 0
+
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.runner._run_replay_entry_once",
+        capture,
+    )
+    args = SimpleNamespace(
+        certifying=False,
+        skip_development_smoke=False,
+        smoke_frames=120,
+        deterministic_baseline=False,
+        development_smoke=True,
+        config=config,
+    )
+
+    assert run_replay_entry(args) == 0
+    assert len(observed) == 1
+    assert "enabled=false\n" in observed[0]
+    assert "trace=true\n" in observed[0]
+    assert config.read_bytes() == original
+
+
 def test_baseline_smoke_skip_still_arms_full_run_then_restores(
     tmp_path, monkeypatch,
 ):

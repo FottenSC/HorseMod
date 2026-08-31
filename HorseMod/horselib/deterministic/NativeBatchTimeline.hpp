@@ -5,23 +5,29 @@
 #include "BattleAudioSelectorState.hpp"
 #include "NativeCandidateRegions.hpp"
 
+#include <limits>
 #include <optional>
 #include <span>
 #include <vector>
 
 namespace Horse::Deterministic
 {
-inline constexpr std::size_t maximum_battle_audio_journal_dispatches = 16;
-inline constexpr std::size_t maximum_battle_audio_journal_sources =
-    maximum_battle_audio_journal_dispatches;
+// Dispatch density is independent from the number of source scopes. Murakumo
+// Shrine Grounds emits 17 dispatches in one native batch during its authored
+// baseline, so the old shared 16-entry bound rejected valid gameplay. Match
+// the existing six-bit per-frame audio ordinal domain while keeping the less
+// dense source, blueprint, and stop-all journals at their verified bounds.
+inline constexpr std::size_t maximum_battle_audio_journal_dispatches =
+    audio_ordinals_per_frame;
+inline constexpr std::size_t maximum_battle_audio_journal_sources = 16;
 inline constexpr std::size_t maximum_battle_audio_journal_remaps = 8;
 inline constexpr std::size_t maximum_battle_audio_blueprint_journal_events =
-    maximum_battle_audio_journal_dispatches;
+    maximum_battle_audio_journal_sources;
 // One native outer batch can enqueue more than eight independent owner stops;
 // the scheduled-player selector-10 path is a verified multi-owner producer.
-// Keep the journal bounded at the existing per-batch audio dispatch bound.
+// Keep the journal bounded at the independently verified source-scope bound.
 inline constexpr std::size_t maximum_battle_audio_stop_all_journal_events =
-    maximum_battle_audio_journal_dispatches;
+    maximum_battle_audio_journal_sources;
 inline constexpr std::size_t maximum_stage_presentation_journal_events = 8;
 inline constexpr std::size_t maximum_particle_presentation_journal_events = 16;
 // Logical playback IDs reserve six ordinal bits per native frame. Keep the
@@ -38,6 +44,8 @@ inline constexpr std::size_t maximum_presentation_order_events =
     + maximum_audio_terminal_journal_events
     + maximum_stage_presentation_journal_events * 3
     + maximum_particle_presentation_journal_events;
+static_assert(maximum_presentation_order_events
+    <= std::numeric_limits<std::uint8_t>::max());
 inline constexpr std::size_t camera_publication_vector_bytes = 0x60;
 
 enum class PresentationEventFamily : std::uint8_t
