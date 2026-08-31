@@ -288,6 +288,10 @@ struct NativeCameraComponentImage
     std::uint32_t writer_rva{};
     std::uint16_t derived_size{};
     std::int8_t tracked_chara_slot{-1};
+    // StateBuffer's native writer stops at +0x30F, but the knockdown camera
+    // tick consumes these two fighter identities at +0x310/+0x318 before it
+    // rewrites them. Preserve them as process-independent fighter slots.
+    std::array<std::int8_t, 2> state_buffer_chara_slots{{-1, -1}};
     NativeCameraComponentSerialization serialization{
         NativeCameraComponentSerialization::None};
     std::uint8_t present{};

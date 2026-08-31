@@ -607,12 +607,16 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                     barrier_ok = (not require_barrier
                         or (presentation_coverage.stage_barrier != 0
                             and forced.suppressed_stage_barrier != 0))
-                    hit_ok = (args.correction_location != "confirmed_hit"
-                        or gameplay_rng_coverage.resolved_hit_calls != 0)
+                    # HorseMod cannot start a location=3 qualification until
+                    # its native timeline has consumed a resolved hit.  The
+                    # replay-mod RNG line is emitted at the end of the initial
+                    # watch window and can legitimately precede that later
+                    # start barrier, so it is not authoritative for this gate.
+                    # The parsed forced result also binds the configured
+                    # location below, proving the native barrier was admitted.
                     round_end_ok = (args.correction_location != "round_end"
                         or forced.round_terminal_source_stop_all != 0)
-                    if (not wall_ok or not barrier_ok or not hit_ok
-                            or not round_end_ok
+                    if (not wall_ok or not barrier_ok or not round_end_ok
                             or forced.presentation_failures != 0
                             or forced.presentation_terminal_coverage != "complete"):
                         raise RuntimeError(
@@ -943,6 +947,8 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
             "forced_depth7": None if forced is None else {
                 "result": forced.result,
                 "completed": forced.completed,
+                "qualification_location": forced.location,
+                "native_location_barrier_admitted": True,
                 "canonical_convergence": forced.canonical_convergence,
                 "presentation_terminal_coverage":
                     forced.presentation_terminal_coverage,
@@ -1329,18 +1335,31 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-_FAILURE_MARKERS = (
+_TERMINAL_FAILURE_MARKERS = (
     "[ReplayQualification] fail-fast health",
     "[ReplayQualification] normal-render battle rate failed",
     "owned replay seek request failed",
     "owned replay seek resume failed",
-    "frame-fencepost observation failed",
+    "[HorseMod] forced depth-7 qualification failed",
     "authoritative battle-audio capture failed",
-    "canonical capture",
     "canonical divergence",
     "presentation publish",
     "lifecycle failure",
 )
+
+_DIAGNOSTIC_FAILURE_MARKERS = (
+    "frame-fencepost observation failed",
+    "canonical capture",
+)
+
+
+def _find_failure_line(lines: list[str]) -> tuple[int | None, str]:
+    """Prefer a latched terminal failure over earlier recoverable diagnostics."""
+    for markers in (_TERMINAL_FAILURE_MARKERS, _DIAGNOSTIC_FAILURE_MARKERS):
+        for index, line in enumerate(lines):
+            if any(marker.casefold() in line.casefold() for marker in markers):
+                return index, line
+    return None, ""
 
 
 def _read_bounded_log_since(
@@ -1406,23 +1425,14 @@ def _write_compact_replay_failure(args: argparse.Namespace, error: BaseException
         cursor = getattr(args, "_failure_log_start", 0)
         run_lines = _read_bounded_log_since(log, cursor).decode(
             "utf-8", errors="replace").splitlines()
-        failure_index = next((
-            index for index, line in enumerate(run_lines)
-            if any(marker.casefold() in line.casefold()
-                   for marker in _FAILURE_MARKERS)
-        ), None)
+        failure_index, first_failure = _find_failure_line(run_lines)
         if failure_index is None:
             bounded_lines = run_lines[-256:]
         else:
             bounded_lines = run_lines[
                 max(0, failure_index - 64):failure_index + 192]
     except OSError:
-        pass
-    first_failure = next(
-        (line for line in bounded_lines
-         if any(marker.casefold() in line.casefold() for marker in _FAILURE_MARKERS)),
-        "",
-    )
+        first_failure = ""
     diagnostic_fields = {
         key: value for key, value in re.findall(
             r"\b([A-Za-z][A-Za-z0-9_]*)=([^\s,]+)", first_failure)

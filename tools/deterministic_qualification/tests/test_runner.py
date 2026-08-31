@@ -157,6 +157,42 @@ def test_compact_failure_records_terminal_fields_and_restores_flags(
     assert "forced_depth7_qualification=false\n" in restored
 
 
+def test_compact_failure_prefers_terminal_over_earlier_diagnostic(
+    tmp_path, monkeypatch,
+):
+    log = tmp_path / "UE4SS.log"
+    cursor = capture_log_offset(log)
+    log.write_text(
+        "[HorseMod] frame-fencepost observation failed frame=7 mask=0x1\n"
+        "[HorseMod] forced depth-7 qualification failed completed=165 "
+        "frame=1845 status=presentation_failed component_mask=0x40\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "rollback.ini"
+    config.write_text(
+        "enabled=false\ntrace=true\ncorrection_probe=true\n"
+        "forced_depth7_qualification=true\n",
+        encoding="utf-8",
+    )
+    report = tmp_path / "failure.json"
+    args = SimpleNamespace(
+        command="replay-entry", config=config, log=log, report=report,
+        case_id="case", row_id="row", display_map_name="Test Map",
+        stage_package_root="/Game/Test", _failure_log_start=cursor,
+    )
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.runner.find_game_pid",
+        lambda: None,
+    )
+
+    _write_compact_replay_failure(args, RuntimeError("qualification failed"))
+
+    details = json.loads(report.read_text(encoding="utf-8"))["failure"]
+    assert "forced depth-7 qualification failed" in details["first_failure_line"]
+    assert details["first_failing_frame"] == "1845"
+    assert details["field_or_mask"] == "0x40"
+
+
 def test_smoke_config_arms_hooks_and_restores_exact_bytes(tmp_path):
     config = tmp_path / "rollback.ini"
     original = (

@@ -331,20 +331,49 @@ std::uint16_t camera_derived_size(
     }
 }
 
+std::int8_t camera_chara_slot(
+    std::uintptr_t pointer,
+    const std::array<std::uintptr_t, 2>& fighter_roots) noexcept
+{
+    if (pointer == 0) return -1;
+    if (pointer == fighter_roots[0]) return 0;
+    if (pointer == fighter_roots[1]) return 1;
+    return -2;
+}
+
+std::uintptr_t camera_chara_pointer(
+    std::int8_t slot,
+    const std::array<std::uintptr_t, 2>& fighter_roots) noexcept
+{
+    return slot < 0 ? 0 : fighter_roots[static_cast<std::size_t>(slot)];
+}
+
 bool valid_camera_component(const NativeCameraComponentImage& image) noexcept
 {
     if (image.present > 1) return false;
     if (image.present == 0)
         return image.serialization == NativeCameraComponentSerialization::None
             && image.vtable_rva == 0 && image.writer_rva == 0
-            && image.derived_size == 0 && image.tracked_chara_slot == -1;
+            && image.derived_size == 0 && image.tracked_chara_slot == -1
+            && std::all_of(image.state_buffer_chara_slots.begin(),
+                image.state_buffer_chara_slots.end(),
+                [](std::int8_t slot) { return slot == -1; });
+    const bool valid_state_buffer_slots = std::all_of(
+        image.state_buffer_chara_slots.begin(),
+        image.state_buffer_chara_slots.end(),
+        [](std::int8_t slot) { return slot >= -1 && slot <= 1; });
     return image.serialization != NativeCameraComponentSerialization::None
         && image.vtable_rva != 0 && image.writer_rva != 0
         && image.derived_size == camera_derived_size(image.serialization)
         && image.derived_size <= image.derived.size()
         && image.tracked_chara_slot >= -1 && image.tracked_chara_slot <= 1
         && (image.serialization == NativeCameraComponentSerialization::CharaReference
-            || image.tracked_chara_slot == -1);
+            || image.tracked_chara_slot == -1)
+        && valid_state_buffer_slots
+        && (image.serialization == NativeCameraComponentSerialization::StateBuffer
+            || std::all_of(image.state_buffer_chara_slots.begin(),
+                image.state_buffer_chara_slots.end(),
+                [](std::int8_t slot) { return slot == -1; }));
 }
 
 bool capture_input_log_cache(
@@ -1070,10 +1099,22 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
         switch (identity.serialization)
         {
         case NativeCameraComponentSerialization::StateBuffer:
+        {
+            std::array<std::uintptr_t, 2> tracked{};
             if (!read_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x140)))
+                    std::span{component.derived}.first(0x140))
+                || !read_value(memory_, identity.object + 0x310, tracked[0])
+                || !read_value(memory_, identity.object + 0x318, tracked[1]))
                 return region_read_failed(static_cast<std::uint32_t>(90 + index));
+            for (std::size_t slot = 0; slot < tracked.size(); ++slot)
+            {
+                component.state_buffer_chara_slots[slot] = camera_chara_slot(
+                    tracked[slot], addresses_.fighter_roots);
+                if (component.state_buffer_chara_slots[slot] == -2)
+                    return region_read_failed(static_cast<std::uint32_t>(110 + index));
+            }
             break;
+        }
         case NativeCameraComponentSerialization::State:
             if (!read_bytes(identity.object + 0x1D0,
                     std::span{component.derived}.first(0x1C)))
@@ -1191,9 +1232,21 @@ bool NativeCandidateRegions::capture_camera_component(
     switch (identity.serialization)
     {
     case NativeCameraComponentSerialization::StateBuffer:
+    {
+        std::array<std::uintptr_t, 2> tracked{};
         if (!read_bytes(identity.object + 0x1D0,
-                std::span{output.derived}.first(0x140))) return false;
+                std::span{output.derived}.first(0x140))
+            || !read_value(memory_, identity.object + 0x310, tracked[0])
+            || !read_value(memory_, identity.object + 0x318, tracked[1]))
+            return false;
+        for (std::size_t slot = 0; slot < tracked.size(); ++slot)
+        {
+            output.state_buffer_chara_slots[slot] = camera_chara_slot(
+                tracked[slot], addresses_.fighter_roots);
+            if (output.state_buffer_chara_slots[slot] == -2) return false;
+        }
         break;
+    }
     case NativeCameraComponentSerialization::State:
         if (!read_bytes(identity.object + 0x1D0,
                 std::span{output.derived}.first(0x1C))) return false;
@@ -1312,8 +1365,25 @@ bool NativeCandidateRegions::write_camera_component(
         switch (image.serialization)
         {
         case NativeCameraComponentSerialization::StateBuffer:
-            return write_bytes(identity.object + 0x1D0,
-                std::span{image.derived}.first(0x140));
+        {
+            const auto tracked0 = camera_chara_pointer(
+                image.state_buffer_chara_slots[0], addresses_.fighter_roots);
+            const auto tracked1 = camera_chara_pointer(
+                image.state_buffer_chara_slots[1], addresses_.fighter_roots);
+            if (!reverse_fields)
+                return write_bytes(identity.object + 0x1D0,
+                        std::span{image.derived}.first(0x140))
+                    && write_bytes(identity.object + 0x310,
+                        std::as_bytes(std::span{&tracked0, 1}))
+                    && write_bytes(identity.object + 0x318,
+                        std::as_bytes(std::span{&tracked1, 1}));
+            return write_bytes(identity.object + 0x318,
+                    std::as_bytes(std::span{&tracked1, 1}))
+                && write_bytes(identity.object + 0x310,
+                    std::as_bytes(std::span{&tracked0, 1}))
+                && write_bytes(identity.object + 0x1D0,
+                    std::span{image.derived}.first(0x140));
+        }
         case NativeCameraComponentSerialization::State:
             return write_bytes(identity.object + 0x1D0,
                 std::span{image.derived}.first(0x1C));
@@ -1778,9 +1848,19 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
         switch (component.serialization)
         {
         case NativeCameraComponentSerialization::StateBuffer:
+        {
+            const auto tracked0 = camera_chara_pointer(
+                component.state_buffer_chara_slots[0], addresses_.fighter_roots);
+            const auto tracked1 = camera_chara_pointer(
+                component.state_buffer_chara_slots[1], addresses_.fighter_roots);
             if (!write_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x140))) return false;
+                    std::span{component.derived}.first(0x140))
+                || !write_bytes(identity.object + 0x310,
+                    std::as_bytes(std::span{&tracked0, 1}))
+                || !write_bytes(identity.object + 0x318,
+                    std::as_bytes(std::span{&tracked1, 1}))) return false;
             break;
+        }
         case NativeCameraComponentSerialization::State:
             if (!write_bytes(identity.object + 0x1D0,
                     std::span{component.derived}.first(0x1C))) return false;
@@ -1887,9 +1967,19 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
         switch (component.serialization)
         {
         case NativeCameraComponentSerialization::StateBuffer:
+        {
+            const auto tracked0 = camera_chara_pointer(
+                component.state_buffer_chara_slots[0], addresses_.fighter_roots);
+            const auto tracked1 = camera_chara_pointer(
+                component.state_buffer_chara_slots[1], addresses_.fighter_roots);
+            ok = write_bytes(identity.object + 0x318,
+                std::as_bytes(std::span{&tracked1, 1})) && ok;
+            ok = write_bytes(identity.object + 0x310,
+                std::as_bytes(std::span{&tracked0, 1})) && ok;
             ok = write_bytes(identity.object + 0x1D0,
                 std::span{component.derived}.first(0x140)) && ok;
             break;
+        }
         case NativeCameraComponentSerialization::State:
             ok = write_bytes(identity.object + 0x1D0,
                 std::span{component.derived}.first(0x1C)) && ok;
