@@ -124,7 +124,7 @@ def _persistent_campaign_reusable(
             == contract_sha256(expected_config)
         and capture_log_artifact_is_intact(report, path.with_suffix(".log"))
         and runtime.get("process_restarts") == 0
-        and runtime.get("replay_entries") == len(rows)
+        and runtime.get("replay_entries") == 1
         and report.get("cleanup", {}).get("process_absent") is True
         and report.get("cleanup", {}).get("temporary_mod_removed") is True
         and report.get("cleanup", {}).get("config_disarmed") is True
@@ -136,8 +136,8 @@ def _persistent_campaign_reusable(
         valid = (
             all(run_ids)
             and len(set(run_ids)) == len(run_ids)
-            and replay_entries == list(range(1, len(rows) + 1))
-            and len(set(report.get("parent_run_ids", []))) == len(rows)
+            and replay_entries == [1] * len(rows)
+            and len(report.get("parent_run_ids", [])) == 1
         )
     if valid:
         for cycle, row in zip(cycles, rows):
@@ -147,6 +147,10 @@ def _persistent_campaign_reusable(
                     or cycle.get("location") != LOCATION_CODES[row.location]
                     or cycle.get("status") != 3
                     or cycle.get("completed") != "600/600"
+                    or cycle.get("anchors") != "40/40"
+                    or cycle.get("repeats") != 15
+                    or not isinstance(cycle.get("anchor_hash"), int)
+                    or cycle.get("anchor_hash") == 0
                     or cycle.get("failure") != 0
                     or cycle.get("capacity_growth") != 0
                     or cycle.get("duplicates") != 0
@@ -160,6 +164,16 @@ def _persistent_campaign_reusable(
                     or cleanup.get("owned_bytes") != int(owned[0])):
                 valid = False
                 break
+        if valid:
+            for index in range(0, len(cycles), 3):
+                group = cycles[index:index + 3]
+                valid = (len(group) == 3
+                         and [item.get("depth") for item in group]
+                             == [11, 1, 6]
+                         and len({item.get("location") for item in group}) == 1
+                         and len({item.get("anchor_hash") for item in group}) == 1)
+                if not valid:
+                    break
     return report if valid else None
 
 
@@ -181,7 +195,7 @@ def _invoke_persistent_campaign(
         "--display-map-name", rows[0].display_map_name,
         "--stage-package-root", rows[0].stage_package_root,
         "--case-id", rows[0].case_id, "--certifying",
-        "--reenter-each-cycle",
+        "--anchors", "40", "--repeats", "15",
     ]
     for row in rows:
         command.extend([
@@ -259,8 +273,9 @@ def _compose_persistent_row(
             "replay_entry": cycle["replay_entry"],
             "location": row.location,
             "depth": row.depth,
-            "consecutive_corrections": 600,
-            "corrections": 600,
+            "consecutive_corrections": int(
+                str(cycle["completed"]).split("/", 1)[0]),
+            "corrections": int(str(cycle["completed"]).split("/", 1)[0]),
             "canonical_convergence": "exact",
             "capacity_failures": 0,
             "capacity_growth_events": cycle["capacity_growth"],
@@ -278,6 +293,9 @@ def _compose_persistent_row(
                 "pending_clear": cleanup["pending"] == "0/0",
                 "stale_mask": cleanup["stale_mask"],
                 "pending_events": cleanup["pending"],
+                "anchors": cycle["anchors"],
+                "repeats_per_anchor": cycle["repeats"],
+                "anchor_sequence_hash": cycle["anchor_hash"],
                 "owned_bytes_before_cycle": initial_owned,
                 "owned_bytes_after_cleanup": cleanup["owned_bytes"],
                 "fresh_process_lifecycle_report": baseline_artifact,

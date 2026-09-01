@@ -196,11 +196,13 @@ def _persistent_campaign_fixture(tmp_path, rows):
     cycles = []
     for index, row in enumerate(rows, 1):
         cycles.append({
-            "run_id": f"cycle-{index}", "replay_entry": index,
+            "run_id": f"cycle-{index}", "replay_entry": 1,
             "depth": row.depth,
             "location": ("near_round_start", "active_combat",
                          "confirmed_hit", "round_end").index(row.location) + 1,
             "status": 3, "completed": "600/600", "failure": 0,
+            "anchors": "40/40", "repeats": 15,
+            "anchor_hash": 0x1234,
             "capacity_growth": 0, "duplicates": 0, "publish_failures": 0,
             "pending": "0/0", "terminal_coverage": 1,
             "presentation_activity": "12/12/0",
@@ -217,11 +219,10 @@ def _persistent_campaign_fixture(tmp_path, rows):
         "source": {"commit": "frozen"}, "case_id": rows[0].case_id,
         "display_map_name": rows[0].display_map_name,
         "stage_package_root": rows[0].stage_package_root,
-        "parent_run_ids": [f"parent-{index}"
-                           for index in range(1, len(rows) + 1)],
+        "parent_run_ids": ["parent-1"],
         "cycles": cycles,
         "runtime": {
-            "process_restarts": 0, "replay_entries": len(rows),
+            "process_restarts": 0, "replay_entries": 1,
             "normal_render_tick_rate": 60.0,
             "active_battle_tick_rate": 60.0,
             "native_stage": rows[0].replay_metadata_stage,

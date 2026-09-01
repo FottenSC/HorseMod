@@ -74,6 +74,106 @@ public:
         return false;
     }
 #endif
+
+    bool ArmReplayQualificationGroup(std::string_view run_id,
+        std::uint32_t location, std::uint32_t anchors,
+        std::uint32_t repeats_per_anchor) noexcept
+    {
+        std::uint64_t rejection_mask{};
+        if (run_id.empty() || run_id.size() > 96
+            || std::any_of(run_id.begin(), run_id.end(), [](char value) {
+                return !(std::isalnum(static_cast<unsigned char>(value))
+                    || value == '-' || value == '_' || value == '.');
+            })) rejection_mask |= 1ull << 0;
+        if (location < 1 || location > 4) rejection_mask |= 1ull << 1;
+        if (anchors == 0 || anchors > 40
+            || repeats_per_anchor == 0 || repeats_per_anchor > 15)
+            rejection_mask |= 1ull << 2;
+        if (m_forced_qualification_run_id_count
+            >= m_forced_qualification_run_ids.size()) rejection_mask |= 1ull << 3;
+        if (m_deterministic_config.enabled || !m_deterministic_config.trace
+            || m_deterministic_config.correction_probe
+            || m_deterministic_config.forced_depth7_qualification)
+            rejection_mask |= 1ull << 4;
+        if (!m_deterministic_hooks.installed()) rejection_mask |= 1ull << 5;
+        if (!m_replay_identity_active.load(std::memory_order_acquire))
+            rejection_mask |= 1ull << 6;
+        const auto& previous = m_forced_correction_qualification;
+        if (previous.lifecycle != 0
+            && (previous.lifecycle != 5 || !previous.cleanup_verified))
+            rejection_mask |= 1ull << 7;
+        for (std::size_t index = 0;
+             index < m_forced_qualification_run_id_count; ++index)
+            if (run_id == m_forced_qualification_run_ids[index].data())
+                rejection_mask |= 1ull << 8;
+        if (rejection_mask != 0)
+        {
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] qualification group arm rejected run_id={} "
+                "location={} anchors={} repeats={} rejection_mask=0x{:x}\n"),
+                RC::to_generic_string(std::string(run_id)), location,
+                anchors, repeats_per_anchor, rejection_mask);
+            return false;
+        }
+
+        invalidate_stage_break_presentation_identity();
+        m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();
+        std::uint64_t stale_state_mask{};
+        const auto reset = m_replay_native_runtime.ResetQualificationCycle(
+            stale_state_mask);
+        const auto rng_release = m_ucrt_rand_broker.ReleaseOwnership(
+            ::GetCurrentThreadId());
+        if (!m_deterministic_hooks.QualificationPresentationIdentityClear())
+            stale_state_mask |= 1ull << 17;
+        if (!rng_release.ok()
+            || m_ucrt_rand_broker.mode()
+                != Horse::Deterministic::UcrtRandBrokerMode::Observing)
+            stale_state_mask |= 1ull << 19;
+        if (!reset.ok() || stale_state_mask != 0) return false;
+
+        m_frame_fencepost_failure.store(
+            Horse::Deterministic::FailureCode::None,
+            std::memory_order_release);
+        m_frame_fencepost_failure_logged = false;
+        auto& remembered = m_forced_qualification_run_ids[
+            m_forced_qualification_run_id_count++];
+        std::copy(run_id.begin(), run_id.end(), remembered.begin());
+        remembered[run_id.size()] = '\0';
+
+        m_forced_correction_qualification = {};
+        auto& qualification = m_forced_correction_qualification;
+        std::copy(run_id.begin(), run_id.end(), qualification.run_id.begin());
+        qualification.run_id[run_id.size()] = '\0';
+        qualification.depth = kGroupedQualificationDepths.front();
+        qualification.location = location;
+        qualification.cycle_ordinal = ++m_forced_qualification_cycle_ordinal;
+        qualification.lifecycle = 1;
+        qualification.runtime_armed = true;
+        qualification.grouped = true;
+        qualification.grouped_anchor_target = anchors;
+        qualification.grouped_repeats_per_anchor = repeats_per_anchor;
+        qualification.grouped_anchor_sequence_hash.fill(
+            1469598103934665603ull);
+        qualification.storage_begin =
+            m_replay_native_runtime.owned_storage_status();
+        m_replay_native_runtime.SetForcedDepth7QualificationEnabled(true);
+        const auto presentation =
+            m_replay_native_runtime.EnablePresentationOwnership();
+        if (!presentation.ok())
+        {
+            qualification.failure = presentation.code;
+            qualification.lifecycle = 4;
+            qualification.reported = true;
+            return false;
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] qualification group armed run_id={} ordinal={} "
+            "location={} anchors={} repeats={} depths=11,1,6\n"),
+            RC::to_generic_string(std::string(run_id)),
+            qualification.cycle_ordinal, location, anchors,
+            repeats_per_anchor);
+        return true;
+    }
 #if HORSE_ENABLE_OBSERVER_PROBE
     bool ArmOnlineObserverProbe(
         const Horse::Deterministic::OnlineObserverProbeRequest& request) noexcept
@@ -338,6 +438,77 @@ public:
             values[43] = q.presentation_terminal_coverage ? 1 : 0;
         }
         return externally_failed ? 4 : q.lifecycle;
+    }
+
+    std::uint32_t GetReplayQualificationGroupRowReport(
+        std::string_view run_id, std::uint32_t row_index,
+        std::uint64_t* values, std::size_t count) const noexcept
+    {
+        if (values == nullptr || count < 50 || row_index >= 3
+            || run_id.empty()
+            || run_id != m_forced_correction_qualification.run_id.data())
+            return 0;
+        const auto& q = m_forced_correction_qualification;
+        if (!q.grouped) return 0;
+        const auto latched_failure = m_frame_fencepost_failure.load(
+            std::memory_order_acquire);
+        const bool externally_failed = (q.lifecycle == 1 || q.lifecycle == 2)
+            && latched_failure != Horse::Deterministic::FailureCode::None;
+        const auto status = externally_failed ? 4u : q.lifecycle;
+        const auto target = static_cast<std::uint64_t>(
+            q.grouped_anchor_target) * q.grouped_repeats_per_anchor;
+        values[0] = 1;
+        values[1] = status;
+        values[2] = kGroupedQualificationDepths[row_index];
+        values[3] = q.location;
+        values[4] = q.cycle_ordinal * 3 + row_index;
+        values[5] = q.grouped_completed[row_index];
+        values[6] = target;
+        values[7] = static_cast<std::uint16_t>(externally_failed
+            ? latched_failure : q.failure);
+        values[8] = q.first_generation;
+        values[9] = q.generation;
+        values[10] = q.generation_transitions;
+        values[11] = q.first_frame;
+        values[12] = q.last_frame;
+        values[13] = q.GroupedP99(row_index);
+        values[14] = q.grouped_maximum_ns[row_index];
+        values[15] = q.capture_end.total_capture.p99_ns;
+        values[16] = q.capture_end.total_capture.maximum_ns;
+        values[17] = q.capture_end.scratch_capacity_growth_events;
+        values[18] = q.storage_begin.aggregate_bytes;
+        values[19] = q.storage_end.aggregate_bytes;
+        values[20] = q.storage_end.timeline_bytes;
+        values[21] = q.storage_end.forced_snapshot_bytes;
+        values[22] = q.storage_end.presentation_bytes;
+        values[23] = q.storage_end.scratch_metadata_bytes;
+        values[24] = q.pending_events_end;
+        values[25] = q.pending_payload_end;
+        values[26] = q.presentation_end.capacity_failures;
+        values[27] = q.presentation_end.duplicates;
+        values[28] = q.presentation_end.publish_failures;
+        values[29] = q.elapsed_ms;
+        values[30] = q.timing_drift_ms;
+        values[31] = q.cleanup_stale_state_mask;
+        values[32] = q.cleanup_verified ? 1 : 0;
+        values[33] = q.storage_cleanup.aggregate_bytes;
+        values[34] = q.storage_cleanup.timeline_bytes;
+        values[35] = q.storage_cleanup.forced_snapshot_bytes;
+        values[36] = q.pending_events_cleanup;
+        values[37] = q.pending_payload_cleanup;
+        values[38] = q.audio_sequence_mismatches;
+        values[39] = q.presentation_failures;
+        values[40] = q.presentation_end.attempted;
+        values[41] = q.presentation_end.committed;
+        values[42] = q.presentation_end.discarded;
+        values[43] = q.presentation_terminal_coverage ? 1 : 0;
+        values[44] = q.grouped_anchors_completed;
+        values[45] = q.grouped_anchor_target;
+        values[46] = q.grouped_repeats_per_anchor;
+        values[47] = q.grouped_anchor_sequence_hash[row_index];
+        values[48] = q.grouped_failure_anchor;
+        values[49] = q.grouped_failure_repeat;
+        return status;
     }
 
     bool DisarmReplayQualificationCycle(std::string_view run_id) noexcept

@@ -522,9 +522,321 @@
             result.primary_performance.total_restore.maximum_ns / 1000);
     }
 
+    void service_grouped_qualification() noexcept
+    {
+        auto& q = m_forced_correction_qualification;
+        if (!q.grouped || !q.runtime_armed || q.reported) return;
+        const auto timeline = m_replay_native_runtime.timeline_status();
+        const bool location_ready = [&]() noexcept {
+            switch (q.location)
+            {
+            case 1: return timeline.round_state_frame > 16;
+            case 2: return timeline.round_state_frame > 120;
+            case 3: return timeline.observed_resolved_hit_calls != 0;
+            case 4:
+                if (timeline.round_state_frame <= 16
+                    || timeline.unpause_countdown != 0) return false;
+                if (!q.round_terminal_baseline_ready)
+                {
+                    q.round_terminal_audio_stop_all_baseline =
+                        timeline.observed_battle_audio_stop_all_calls;
+                    q.round_terminal_baseline_ready = true;
+                    return false;
+                }
+                q.round_terminal_source_stop_all =
+                    timeline.observed_battle_audio_stop_all_calls
+                        > q.round_terminal_audio_stop_all_baseline;
+                return q.round_terminal_source_stop_all;
+            default: return false;
+            }
+        }();
+        if (timeline.partial
+            || timeline.failure != Horse::Deterministic::FailureCode::None
+            || timeline.round_state_frame <= 16
+            || timeline.unpause_countdown != 0
+            || timeline.last_coordinate.generation == 0
+            || timeline.last_coordinate.frame
+                < kGroupedQualificationDepths.front()
+            || !location_ready) return;
+
+        const auto fail = [&](Horse::Deterministic::Status status,
+                              std::uint32_t depth,
+                              std::uint32_t repetition) noexcept {
+            q.failure = status.code;
+            q.grouped_failure_depth = depth;
+            q.grouped_failure_anchor = q.grouped_anchors_completed;
+            q.grouped_failure_repeat = repetition;
+            q.reported = true;
+            q.lifecycle = 4;
+            q.storage_end = m_replay_native_runtime.owned_storage_status();
+            q.presentation_end =
+                m_replay_native_runtime.presentation_statistics();
+            q.capture_end = m_replay_native_runtime.capture_performance();
+            q.pending_events_end =
+                m_replay_native_runtime.pending_presentation_events();
+            q.pending_payload_end =
+                m_replay_native_runtime.presentation_payload_bytes();
+            q.elapsed_ms = q.started_ms == 0 ? 0
+                : ::GetTickCount64() - q.started_ms;
+            m_frame_fencepost_failure.store(status.code,
+                std::memory_order_release);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] grouped qualification failed location={} "
+                "depth={} anchor={}/{} repetition={}/{} frame={}:{} "
+                "status={} pending={}/{}\n"), q.location, depth,
+                q.grouped_anchors_completed, q.grouped_anchor_target,
+                repetition, q.grouped_repeats_per_anchor,
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame,
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(status.code))),
+                q.pending_events_end, q.pending_payload_end);
+        };
+
+        if (!q.active)
+        {
+            q.active = true;
+            q.lifecycle = 2;
+            q.started_ms = ::GetTickCount64();
+            q.warmup_pending = true;
+            q.first_generation = timeline.last_coordinate.generation;
+            q.generation = timeline.last_coordinate.generation;
+            q.first_frame = timeline.last_coordinate.frame;
+            q.awaiting_generation_history = true;
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] grouped qualification started location={} "
+                "generation={} frame={} anchors={} repeats={} "
+                "depths=11,1,6 normal_render=true\n"), q.location,
+                q.generation, q.first_frame, q.grouped_anchor_target,
+                q.grouped_repeats_per_anchor);
+        }
+        if (timeline.last_coordinate.generation != q.generation)
+        {
+            ++q.generation_transitions;
+            q.generation = timeline.last_coordinate.generation;
+            q.awaiting_generation_history = true;
+            return;
+        }
+
+        for (const auto depth : kGroupedQualificationDepths)
+        {
+            const Horse::Deterministic::FrameCoordinate earliest{
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame - depth + 1};
+            const auto preflight =
+                m_replay_native_runtime.PreflightOwnedCorrection(earliest);
+            if (!preflight.ok()) return;
+        }
+        q.awaiting_generation_history = false;
+
+        // Repeated restores share an exact authoritative anchor, while
+        // successive anchors retain the former 600-tick temporal exposure.
+        // This keeps route/lifecycle coverage without repeating process or
+        // replay entry setup for every depth.
+        if (q.grouped_anchors_completed != 0
+            && q.grouped_last_anchor_generation
+                == timeline.last_coordinate.generation
+            && timeline.last_coordinate.frame
+                < q.grouped_last_anchor_frame
+                    + kGroupedQualificationAnchorSpacing)
+            return;
+
+        auto& expected = q.expected_scratch;
+        auto status = m_replay_native_runtime.CaptureCurrentCanonical(expected);
+        if (!status.ok())
+        {
+            fail(status, 0, 0);
+            return;
+        }
+        const auto execute = [&](std::size_t depth_index,
+                                 std::uint32_t repetition,
+                                 bool measured) noexcept -> bool {
+            const auto depth = kGroupedQualificationDepths[depth_index];
+            const Horse::Deterministic::FrameCoordinate earliest{
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame - depth + 1};
+            Horse::Deterministic::OwnedCorrectionResult result{};
+            auto correction = m_replay_native_runtime.ExecuteOwnedCorrection(
+                earliest, expected.canonical_hash, m_deterministic_hooks,
+                result);
+            const bool exact = correction.ok()
+                && result.replayed_coordinates == depth
+                && result.final_coordinate == timeline.last_coordinate
+                && result.final_hash == expected.canonical_hash;
+            if (!exact && correction.ok())
+                correction = Horse::Deterministic::Status::failure(
+                    Horse::Deterministic::FailureCode::IllegalTransition);
+            if (!correction.ok())
+            {
+                fail(correction, depth, repetition);
+                return false;
+            }
+            if (!measured) return true;
+            q.RecordGrouped(depth_index, result.total_ns);
+            q.suppressed_stage_wall_calls +=
+                result.suppressed_stage_wall_calls;
+            q.suppressed_stage_barrier_calls +=
+                result.suppressed_stage_barrier_calls;
+            q.semantic_stage_dispatch_calls +=
+                result.semantic_stage_dispatch_calls;
+            q.suppressed_audio_calls += result.suppressed_audio_calls;
+            q.discarded_audio_calls += result.discarded_audio_calls;
+            q.suppressed_audio_stop_all_calls +=
+                result.suppressed_audio_stop_all_calls;
+            q.suppressed_audio_terminal_calls +=
+                result.suppressed_audio_terminal_calls;
+            q.suppressed_audio_blueprint_calls +=
+                result.suppressed_audio_blueprint_calls;
+            q.suppressed_particle_spawn_calls +=
+                result.suppressed_particle_spawn_calls;
+            q.suppressed_particle_finished_binds +=
+                result.suppressed_particle_finished_binds;
+            q.unknown_particle_routes += result.unknown_particle_routes;
+            q.verified_audio_batches += result.verified_audio_batches;
+            q.verified_camera_batches += result.verified_camera_batches;
+            q.camera_publication_mismatches +=
+                result.camera_publication_mismatches;
+            q.audio_sequence_mismatches +=
+                result.audio_sequence_mismatches;
+            q.presentation_failures += result.presentation_failures;
+            return true;
+        };
+
+        if (q.warmup_pending)
+        {
+            for (std::size_t depth_index = 0;
+                 depth_index < kGroupedQualificationDepths.size();
+                 ++depth_index)
+                if (!execute(depth_index, 0, false)) return;
+            q.warmup_pending = false;
+            q.first_frame = timeline.last_coordinate.frame;
+            m_replay_native_runtime.ResetCapturePerformanceWindow();
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] grouped qualification warmup complete "
+                "location={} frame={}:{}\n"), q.location,
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame);
+            return;
+        }
+
+        for (std::uint32_t repetition = 0;
+             repetition < q.grouped_repeats_per_anchor; ++repetition)
+            for (std::size_t depth_index = 0;
+                 depth_index < kGroupedQualificationDepths.size();
+                 ++depth_index)
+                if (!execute(depth_index, repetition, true)) return;
+
+        const auto mix = [](std::uint64_t hash,
+                            std::uint64_t value) noexcept {
+            for (std::size_t byte = 0; byte < sizeof(value); ++byte)
+            {
+                hash ^= (value >> (byte * 8)) & 0xffu;
+                hash *= 1099511628211ull;
+            }
+            return hash;
+        };
+        for (auto& hash : q.grouped_anchor_sequence_hash)
+        {
+            hash = mix(hash, timeline.last_coordinate.generation);
+            hash = mix(hash, timeline.last_coordinate.frame);
+            for (const auto value : expected.canonical_hash)
+            {
+                hash ^= std::to_integer<std::uint8_t>(value);
+                hash *= 1099511628211ull;
+            }
+        }
+        ++q.grouped_anchors_completed;
+        q.grouped_last_anchor_generation =
+            timeline.last_coordinate.generation;
+        q.grouped_last_anchor_frame = timeline.last_coordinate.frame;
+        q.completed = q.grouped_completed.front();
+        q.last_frame = timeline.last_coordinate.frame;
+        if (q.grouped_anchors_completed < q.grouped_anchor_target) return;
+
+        const auto presentation_commit =
+            m_replay_native_runtime.CommitPresentationThrough(
+                timeline.last_coordinate, m_deterministic_hooks);
+        q.presentation_end =
+            m_replay_native_runtime.presentation_statistics();
+        q.capture_end = m_replay_native_runtime.capture_performance();
+        q.storage_end = m_replay_native_runtime.owned_storage_status();
+        q.pending_events_end =
+            m_replay_native_runtime.pending_presentation_events();
+        q.pending_payload_end =
+            m_replay_native_runtime.presentation_payload_bytes();
+        const bool presentation_journal_complete = presentation_commit.ok()
+            && q.pending_events_end == 0 && q.pending_payload_end == 0
+            && q.presentation_end.capacity_failures == 0;
+        const bool full_qualification = q.grouped_anchor_target == 40
+            && q.grouped_repeats_per_anchor == 15;
+        q.presentation_terminal_coverage = presentation_journal_complete
+            && (!full_qualification
+                || (q.suppressed_audio_terminal_calls != 0
+                    && q.suppressed_audio_blueprint_calls != 0
+                    && q.verified_audio_batches != 0
+                    && q.verified_camera_batches != 0
+                    && (q.location != 4
+                        || q.round_terminal_source_stop_all)));
+        bool performance_ok = true;
+        for (std::size_t index = 0;
+             index < kGroupedQualificationDepths.size(); ++index)
+            performance_ok = performance_ok
+                && q.GroupedP99(index) < 16'670'000;
+        const bool capture_ok = q.capture_end.total_capture.p99_ns <= 500'000
+            && q.capture_end.total_capture.maximum_ns <= 1'000'000
+            && q.capture_end.scratch_capacity_growth_events == 0;
+        if (!q.presentation_terminal_coverage)
+            q.failure = Horse::Deterministic::FailureCode::PresentationFailed;
+        else if (!performance_ok || !capture_ok)
+            q.failure =
+                Horse::Deterministic::FailureCode::PerformanceBudgetExceeded;
+        q.elapsed_ms = ::GetTickCount64() - q.started_ms;
+        if (m_forced_qualification_first_elapsed_ms == 0)
+            m_forced_qualification_first_elapsed_ms = q.elapsed_ms;
+        q.timing_drift_ms = q.elapsed_ms
+                >= m_forced_qualification_first_elapsed_ms
+            ? q.elapsed_ms - m_forced_qualification_first_elapsed_ms
+            : m_forced_qualification_first_elapsed_ms - q.elapsed_ms;
+        q.reported = true;
+        q.lifecycle = q.failure == Horse::Deterministic::FailureCode::None
+            ? 3u : 4u;
+        if (q.failure != Horse::Deterministic::FailureCode::None)
+            m_frame_fencepost_failure.store(q.failure,
+                std::memory_order_release);
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] grouped qualification {} location={} anchors={}/{} "
+            "repeats={} completed={}/{}/{} anchor_hash={:016x} "
+            "p99_us={}/{}/{} max_us={}/{}/{} pending={}/{} "
+            "capacity_growth={} terminal_coverage={} "
+            "audio_terminals={} audio_blueprint={} audio_batches={} "
+            "camera_batches={} round_terminal={} drift_ms={}\n"),
+            q.failure == Horse::Deterministic::FailureCode::None
+                ? STR("passed") : STR("failed"), q.location,
+            q.grouped_anchors_completed, q.grouped_anchor_target,
+            q.grouped_repeats_per_anchor, q.grouped_completed[0],
+            q.grouped_completed[1], q.grouped_completed[2],
+            q.grouped_anchor_sequence_hash[0], q.GroupedP99(0) / 1000,
+            q.GroupedP99(1) / 1000, q.GroupedP99(2) / 1000,
+            q.grouped_maximum_ns[0] / 1000,
+            q.grouped_maximum_ns[1] / 1000,
+            q.grouped_maximum_ns[2] / 1000, q.pending_events_end,
+            q.pending_payload_end,
+            q.capture_end.scratch_capacity_growth_events,
+            q.presentation_terminal_coverage ? 1 : 0,
+            q.suppressed_audio_terminal_calls,
+            q.suppressed_audio_blueprint_calls, q.verified_audio_batches,
+            q.verified_camera_batches,
+            q.round_terminal_source_stop_all ? 1 : 0, q.timing_drift_ms);
+    }
+
     void service_forced_depth7_qualification() noexcept
     {
         auto& qualification = m_forced_correction_qualification;
+        if (qualification.grouped)
+        {
+            service_grouped_qualification();
+            return;
+        }
         if (!m_deterministic_config.trace
             || (!m_deterministic_config.forced_depth7_qualification
                 && !qualification.runtime_armed)

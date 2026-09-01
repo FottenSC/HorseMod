@@ -1247,6 +1247,9 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
     schema = required_file(args.schema, "generated schema")
     executable = required_file(args.game_executable, "SoulcaliburVI executable")
     require_disarmed(config)
+    if args.certifying and (args.anchors != 40 or args.repeats != 15):
+        raise RuntimeError(
+            "certifying qualification requires exactly 40 anchors and 15 repeats")
     identity = source_identity(ROOT)
     if identity["dirty"] and (args.certifying or not args.allow_dirty):
         raise RuntimeError("qualification campaign requires immutable source or --allow-dirty")
@@ -1257,6 +1260,15 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
                         for depth, location in requested_cycles)
     if not cycle_specs:
         raise RuntimeError("at least one --cycle DEPTH LOCATION is required")
+    if len(cycle_specs) % 3:
+        raise RuntimeError(
+            "qualification cycles must be depth 11, 1, 6 triplets")
+    for index in range(0, len(cycle_specs), 3):
+        group = cycle_specs[index:index + 3]
+        if ([item[1] for item in group] != [11, 1, 6]
+                or len({item[2] for item in group}) != 1):
+            raise RuntimeError(
+                "qualification cycles must be depth 11, 1, 6 at one location")
     pid: int | None = None
     parent_run_id = ""
     parent_run_ids: list[str] = []
@@ -1274,9 +1286,7 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
             armed_config_fields = read_fields(config)
             with TemporaryReplayMod(replay_mod, mods_root):
                 try:
-                    groups = ([tuple([spec]) for spec in cycle_specs]
-                              if getattr(args, "reenter_each_cycle", False)
-                              else [cycle_specs])
+                    groups = [cycle_specs]
                     for replay_entry_index, entry_specs in enumerate(groups, 1):
                         log_start = capture_log_offset(args.log)
                         args._failure_log_start = log_start
@@ -1284,6 +1294,8 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
                             replay, 120, (), args.min_resume_tick_rate, 120,
                             stock_round_outcome_control=False,
                             qualification_cycles=entry_specs,
+                            qualification_anchors=args.anchors,
+                            qualification_repeats=args.repeats,
                         )
                         parent_run_ids.append(parent_run_id)
                         if pid is None:
@@ -1329,10 +1341,19 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
                             activity_valid = (len(activity) == 3
                                 and all(value.isdigit() for value in activity)
                                 and int(activity[0]) > 0)
+                            expected_corrections = args.anchors * args.repeats
                             if (cycle.get("depth") != depth
                                     or cycle.get("location") != location
                                     or cycle.get("status") != 3
-                                    or cycle.get("completed") != "600/600"
+                                    or cycle.get("completed")
+                                        != (f"{expected_corrections}/"
+                                            f"{expected_corrections}")
+                                    or cycle.get("anchors")
+                                        != f"{args.anchors}/{args.anchors}"
+                                    or cycle.get("repeats") != args.repeats
+                                    or not isinstance(
+                                        cycle.get("anchor_hash"), int)
+                                    or cycle.get("anchor_hash") == 0
                                     or cycle.get("failure") != 0
                                     or cycle.get("capacity_growth") != 0
                                     or cycle.get("duplicates") != 0
@@ -1348,7 +1369,15 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
                                     f"{cycle.get('run_id')}")
                             cycle["replay_entry"] = replay_entry_index
                             cycles.append(cycle)
-                        if entry.reason != "qualification_cycles_passed":
+                        for index in range(0, len(entry_cycles), 3):
+                            hashes = {
+                                cycle.get("anchor_hash")
+                                for cycle in entry_cycles[index:index + 3]
+                            }
+                            if len(hashes) != 1:
+                                raise RuntimeError(
+                                    "grouped depth rows did not use identical anchors")
+                        if entry.reason != "qualification_groups_passed":
                             raise RuntimeError(
                                 "persistent qualification did not reach terminal pass")
                         rates.append(rate)
@@ -1399,6 +1428,8 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
         "renderer": "normal",
         "parent_run_ids": parent_run_ids,
         "depth_order": [depth for _, depth, _ in cycle_specs],
+        "qualification_anchors": args.anchors,
+        "qualification_repeats_per_anchor": args.repeats,
         "cycles": cycles,
         "runtime": {
             "process_launches": 1,
@@ -1575,8 +1606,8 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument(
         "--require-tira-probability-transition",
         action="store_true",
-        help=("require Tira helper 0x321B to consume exactly one IF 0x007F "
-              "draw and write an exact state19 0<->1 transition, attributed "
+        help=("require Tira helper 0x321B to consume exactly one gameplay "
+              "RNG draw and write an exact state19 0<->1 transition, attributed "
               "to its enclosing move on the same native source frame"),
     )
     replay.set_defaults(handler=run_replay_entry)
@@ -1621,17 +1652,19 @@ def build_parser() -> argparse.ArgumentParser:
     qualification_campaign.add_argument("--cycle", type=int, nargs=2,
         action="append", metavar=("DEPTH", "LOCATION"),
         help="repeatable; defaults to 11/1, 1/1, 6/1")
-    qualification_campaign.add_argument("--reenter-each-cycle",
-        action="store_true",
-        help=("re-enter the authored replay for every cycle while retaining "
-              "the same SC6 process"))
+    qualification_campaign.add_argument("--anchors", type=int, default=40,
+        choices=range(1, 41), metavar="N",
+        help="authoritative replay anchors per depth/location group")
+    qualification_campaign.add_argument("--repeats", type=int, default=15,
+        choices=range(1, 16), metavar="N",
+        help="repeated restores at each exact anchor")
     qualification_campaign.add_argument("--certifying", action="store_true")
     qualification_campaign.add_argument("--allow-dirty", action="store_true")
     qualification_campaign.set_defaults(
         handler=run_replay_qualification_campaign)
     offline = subcommands.add_parser(
         "offline-matrix",
-        help="run the complete 51-row normal-render offline qualification campaign",
+        help="run the complete 39-row normal-render offline qualification campaign",
     )
     offline.add_argument("--case-manifest", type=Path,
         default=ROOT / "docs" / "investigations" / "deterministic-production-candidate-manifest.json")

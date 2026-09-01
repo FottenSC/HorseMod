@@ -196,9 +196,8 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
                  and isinstance(performance.get("private_bytes"), int)
                  and performance.get("private_bytes") > 0,
                  "per-cycle process memory was not recorded", failures)
-        if row.depth == 7:
-            _require(performance.get("correction_p99_us", 10**9) < 16670,
-                     "depth-7 correction p99 exceeded 16.67 ms", failures)
+        _require(performance.get("correction_p99_us", 10**9) < 16670,
+                 "correction p99 exceeded 16.67 ms", failures)
     else:
         _require(runtime.get("corrections") == 0,
                  "baseline unexpectedly corrected", failures)
@@ -246,5 +245,5 @@ def evaluate_matrix(candidate_manifest: Path, output_dir: Path,
     return {"report_schema": 2, "kind": "offline_matrix_evaluation",
             "certifying": failures == 0, "result": "pass" if failures == 0 else "fail",
             "evaluator_sha256": evaluator_sha256,
-            "expected_rows": 51, "passed_rows": 51 - failures,
+            "expected_rows": 39, "passed_rows": 39 - failures,
             "failed_rows": failures, "rows": row_results}

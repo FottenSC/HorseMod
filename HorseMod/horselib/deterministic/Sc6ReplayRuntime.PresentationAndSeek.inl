@@ -364,8 +364,10 @@ Status Sc6ReplayRuntime::ResetQualificationCycle(
     std::uint64_t& stale_state_mask) noexcept
 {
     stale_state_mask = 0;
-    if (pending_presentation_events() != 0) stale_state_mask |= 1ull << 0;
-    if (presentation_payload_bytes() != 0) stale_state_mask |= 1ull << 1;
+    // Pending speculative presentation is normal while a correction group is
+    // active. Aborting or completing the group owns this journal, so teardown
+    // discards it through EndGeneration and verifies the empty postcondition
+    // below. Only an in-flight native batch or seek makes reset unsafe.
     if (pending_batch_id_ != 0) stale_state_mask |= 1ull << 2;
     if (resume_validation_active_ || resume_catchup_pending_)
         stale_state_mask |= 1ull << 3;

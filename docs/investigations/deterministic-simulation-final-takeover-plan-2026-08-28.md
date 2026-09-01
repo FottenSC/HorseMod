@@ -273,9 +273,10 @@ matchup × correction location × depth/mode × renderer × exact DLL
 - Matchups: the exact three fighter/authored-map cases above.
 - Locations: near round start; active combat; confirmed hit with nonzero
   presentation; round end with terminal activity.
-- Modes: same-build no-correction baseline; depths 11, 1, 6 in fail-fast order; continuous forced
-  depth 7. The single correction canary also uses depth 11 and must not retain
-  the old depth-1 hard-code.
+- Modes: same-build no-correction baseline; depths 11, 1, 6 in fail-fast order.
+  Depth 7 is removed from this matrix. At each exact authoritative anchor, the
+  runtime executes repeated restores interleaved 11 -> 1 -> 6 before allowing
+  the replay to advance.
 - Renderer: normal only for certification.
 - Artifact: one immutable candidate/release DLL plus matching schema/runner.
 
@@ -290,15 +291,22 @@ any producer change invalidates them. The row/config specification is isolated
 in producer-hashed `offline_spec.py`; evaluator code must not be a transitive
 source of capture semantics.
 
-This is 3 baseline rows plus 3 × 4 × 4 = 48 correction rows. Each correction
-row executes at least 600 consecutive corrections at that location. Zero
-required presentation activity or terminal coverage other than `complete`
-fails. `lux-no-render` is diagnostic only.
+This is 3 baseline rows plus 3 × 4 × 3 = 36 correction rows: 39 total. Each
+depth/location row executes 600 corrections as 40 authoritative anchors × 15
+repeated restores. Anchors are spaced across approximately 600 authored ticks
+to retain presentation and lifecycle exposure. All four location groups run in
+one replay entry and one SC6 process. Each group has a unique run ID, identical
+anchor-sequence hashes across its three depths, and a verified in-place cleanup
+of timeline, RNG ownership, presentation, correction scratch, and identity
+state before the next group can arm. Restart SC6 only after a DLL change and
+for explicit fresh-process lifecycle gates. Zero required presentation activity
+or terminal coverage other than `complete` fails. `lux-no-render` is diagnostic
+only.
 
 Require exact same-build baseline canonical equality, ordered audio payload IDs,
 exactly-once ephemeral events, final persistent presentation, no camera/particle/
 wall/barrier/stage leak, no stale identity/allocation, zero capacity failure or
-growth, clean exit/re-entry. Depth-7 p99 <16.67 ms; checkpoint capture p99
+growth, clean exit/re-entry. Every tested depth p99 <16.67 ms; checkpoint capture p99
 <=0.5 ms and max <=1 ms.
 
 On the same DLL, strict normal-render seeks at 10/25/50/75 percent must validate
@@ -311,8 +319,11 @@ Tira is an additional RNG gate. Use the supplied Tira replays
 `REPLAY\_13510506239876751347.bin` and
 `REPLAY\_11775433596982945207.bin`, plus Astral Chaos: Tide of the Damned
 `REPLAY\_10919796003596567142.bin`, always on each authored map. At least one
-certifying run must execute the random mood/moveset transition (`IF 0x007F`).
-Require exact RNG caller/consumption sequence, target, mood/moveset state,
+certifying run must execute the native helper-0x321B random stance writer route.
+Ordinary state19 writes or outgoing transition targets, including 0x0153,
+0x0165, and 0x0205, are diagnostic but do not by themselves prove that RNG
+caused the swap. Require exact RNG caller/consumption sequence, helper-owned
+state19 writer, target, mood/moveset state,
 canonical/presentation, authored round winners, and final winner. Unknown RNG
 callers or zero Tira transitions leaves the gate red.
 

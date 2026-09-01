@@ -287,7 +287,7 @@ def publish_release(args: Any, root: Path) -> int:
     matrix = evaluate_matrix(manifest, offline_dir, hashes["dll"], hashes["schema"],
                              runner_hash, expected,
                              hashes["offline_evaluator"])
-    _require(matrix["certifying"] is True, "51-row offline matrix is incomplete")
+    _require(matrix["certifying"] is True, "39-row offline matrix is incomplete")
     tira = _load(Path(index["tira_report"]).resolve())
     _require(tira.get("certifying") is True and tira.get("transition_runs", 0) > 0,
              "actual Tira helper 0x321B RNG/state19 transition gate is incomplete")

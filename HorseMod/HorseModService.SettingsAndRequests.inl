@@ -932,6 +932,9 @@
     std::atomic_bool m_candidate_batch_entry_first_failure_logged{};
     std::size_t m_owned_correction_probe_index{};
     static constexpr std::uint32_t kForcedQualificationCorrections = 600;
+    static constexpr std::array<std::uint32_t, 3> kGroupedQualificationDepths{
+        11, 1, 6};
+    static constexpr std::uint64_t kGroupedQualificationAnchorSpacing = 15;
     struct ForcedCorrectionQualification
     {
         static constexpr std::uint64_t bucket_width_ns = 50'000;
@@ -995,6 +998,20 @@
         bool reported{};
         bool runtime_armed{};
         bool cleanup_verified{};
+        bool grouped{};
+        std::uint32_t grouped_anchor_target{};
+        std::uint32_t grouped_repeats_per_anchor{};
+        std::uint32_t grouped_anchors_completed{};
+        std::uint32_t grouped_failure_depth{};
+        std::uint32_t grouped_failure_anchor{};
+        std::uint32_t grouped_failure_repeat{};
+        std::uint64_t grouped_last_anchor_generation{};
+        std::uint64_t grouped_last_anchor_frame{};
+        std::array<std::uint32_t, 3> grouped_completed{};
+        std::array<std::uint64_t, 3> grouped_maximum_ns{};
+        std::array<std::uint64_t, 3> grouped_anchor_sequence_hash{};
+        std::array<std::array<std::uint32_t, bucket_count>, 3>
+            grouped_buckets{};
 
         void Record(std::uint64_t value) noexcept
         {
@@ -1012,6 +1029,35 @@
             for (std::size_t index = 0; index < buckets.size(); ++index)
             {
                 cumulative += buckets[index];
+                if (cumulative >= target)
+                    return (index + 1) * bucket_width_ns;
+            }
+            return bucket_count * bucket_width_ns;
+        }
+
+        void RecordGrouped(std::size_t depth_index,
+            std::uint64_t value) noexcept
+        {
+            const auto bucket = static_cast<std::size_t>((std::min)(
+                value / bucket_width_ns,
+                static_cast<std::uint64_t>(bucket_count - 1)));
+            ++grouped_buckets[depth_index][bucket];
+            grouped_maximum_ns[depth_index] = (std::max)(
+                grouped_maximum_ns[depth_index], value);
+            ++grouped_completed[depth_index];
+        }
+
+        [[nodiscard]] std::uint64_t GroupedP99(
+            std::size_t depth_index) const noexcept
+        {
+            const auto completed_count = grouped_completed[depth_index];
+            if (completed_count == 0) return 0;
+            const auto target = (completed_count * 99u + 99u) / 100u;
+            std::uint32_t cumulative{};
+            for (std::size_t index = 0;
+                 index < grouped_buckets[depth_index].size(); ++index)
+            {
+                cumulative += grouped_buckets[depth_index][index];
                 if (cumulative >= target)
                     return (index + 1) * bucket_width_ns;
             }

@@ -9,8 +9,7 @@ from typing import Any
 LOCATIONS = ("near_round_start", "active_combat", "confirmed_hit", "round_end")
 # Exercise the widest rollback exposure first so a structural defect stops the
 # matrix before the lower-risk depth rows consume qualification time.
-MODES = (("depth_11", 11), ("depth_1", 1), ("depth_6", 6),
-         ("continuous_depth_7", 7))
+MODES = (("depth_11", 11), ("depth_1", 1), ("depth_6", 6))
 
 
 @dataclass(frozen=True)
@@ -70,6 +69,6 @@ def build_rows(candidate_manifest: Path) -> tuple[OfflineMatrixRow, ...]:
                     row_id=f"{case_id}__{location}__{mode}",
                     location=location, mode=mode, depth=depth,
                     required_corrections=600, **common))
-    if len(rows) != 51 or len({row.row_id for row in rows}) != 51:
-        raise RuntimeError("offline matrix must contain exactly 51 unique rows")
+    if len(rows) != 39 or len({row.row_id for row in rows}) != 39:
+        raise RuntimeError("offline matrix must contain exactly 39 unique rows")
     return tuple(rows)

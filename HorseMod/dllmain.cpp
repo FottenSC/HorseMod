@@ -584,6 +584,30 @@ extern "C"
                 std::string_view(run_id, run_id_size), depth, location);
     }
 
+    HORSE_MOD_API bool horsemod_arm_replay_qualification_group_v1(
+        const char* run_id, std::size_t run_id_size,
+        std::uint32_t location, std::uint32_t anchors,
+        std::uint32_t repeats_per_anchor)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && run_id != nullptr
+            && mod->ArmReplayQualificationGroup(
+                std::string_view(run_id, run_id_size), location, anchors,
+                repeats_per_anchor);
+    }
+
+    HORSE_MOD_API std::uint32_t
+    horsemod_get_replay_qualification_group_row_report_v1(
+        const char* run_id, std::size_t run_id_size,
+        std::uint32_t row_index, std::uint64_t* values, std::size_t count)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && run_id != nullptr
+            ? mod->GetReplayQualificationGroupRowReport(
+                std::string_view(run_id, run_id_size), row_index,
+                values, count) : 0;
+    }
+
     HORSE_MOD_API std::uint32_t
     horsemod_get_replay_qualification_cycle_report_v1(
         const char* run_id, std::size_t run_id_size,

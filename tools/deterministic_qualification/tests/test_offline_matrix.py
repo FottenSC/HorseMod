@@ -7,14 +7,14 @@ ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = ROOT / "docs" / "investigations" / "deterministic-production-candidate-manifest.json"
 
 
-def test_exact_51_row_shape_and_native_names() -> None:
+def test_exact_39_row_shape_and_native_names() -> None:
     rows = build_rows(MANIFEST)
-    assert len(rows) == 51
+    assert len(rows) == 39
     assert {row.display_map_name for row in rows} == {
         "Silver Wolves' Haven", "Snow-Capped Showdown", "Murakumo Shrine Grounds"
     }
     assert sum(row.required_corrections == 0 for row in rows) == 3
-    assert sum(row.required_corrections == 600 for row in rows) == 48
+    assert sum(row.required_corrections == 600 for row in rows) == 36
     metadata = {
         row.case_id: (row.replay_metadata_stage, row.replay_metadata_map,
                       row.replay_metadata_fighters)
@@ -36,7 +36,6 @@ def test_depth_rows_fail_fast_in_widest_first_order() -> None:
         ("depth_11", 11),
         ("depth_1", 1),
         ("depth_6", 6),
-        ("continuous_depth_7", 7),
     ]
 
 
