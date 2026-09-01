@@ -47,10 +47,24 @@ REPLAY_SEEK_PATTERN = re.compile(
 )
 NORMAL_RENDER_RATE_PATTERN = re.compile(
     r"\[ReplayQualification\] normal-render battle rate "
+    r"(?:viewport_frames|presents)=(?P<frames>\d+) "
+    r"(?:native_ticks|forward_ticks)=(?P<ticks>\d+) "
+    r"owned_ticks=(?P<owned>\d+) elapsed_us=(?P<elapsed>\d+) "
+    r"fps_milli=(?P<fps>\d+) tick_rate_milli=(?P<rate>\d+)"
+)
+NORMAL_RENDER_ACTIVE_RATE_PATTERN = re.compile(
+    r"\[ReplayQualification\] normal-render active battle rate "
+    r"(?:viewport_frames|presents)=(?P<frames>\d+) "
+    r"(?:native_ticks|forward_ticks)=(?P<ticks>\d+) "
+    r"owned_ticks=(?P<owned>\d+) elapsed_us=(?P<elapsed>\d+) "
+    r"fps_milli=(?P<fps>\d+) tick_rate_milli=(?P<rate>\d+)"
+)
+LEGACY_NORMAL_RENDER_RATE_PATTERN = re.compile(
+    r"\[ReplayQualification\] normal-render battle rate "
     r"frames=(?P<frames>\d+) elapsed_us=(?P<elapsed>\d+) "
     r"tick_rate_milli=(?P<rate>\d+)"
 )
-NORMAL_RENDER_ACTIVE_RATE_PATTERN = re.compile(
+LEGACY_NORMAL_RENDER_ACTIVE_RATE_PATTERN = re.compile(
     r"\[ReplayQualification\] normal-render active battle rate "
     r"frames=(?P<frames>\d+) elapsed_us=(?P<elapsed>\d+) "
     r"tick_rate_milli=(?P<rate>\d+)"
@@ -122,6 +136,16 @@ GAMEPLAY_RNG_COVERAGE_PATTERN = re.compile(
     r"tira_writer_sequence=0x(?P<tira_writer_sequence>[0-9a-f]{16}) "
     r"tira_writer_slot_mask=0x(?P<tira_writer_slot_mask>[0-9a-f]+) "
     r"tira_last_writer_move=0x(?P<tira_last_writer_move>[0-9a-f]{4})"
+    r"(?: tira_helper_attempts=(?P<tira_helper_attempts>\d+) "
+    r"tira_helper_exact_draws=(?P<tira_helper_exact_draws>\d+) "
+    r"tira_helper_writes=(?P<tira_helper_writes>\d+) "
+    r"tira_helper_no_write=(?P<tira_helper_no_write>\d+) "
+    r"tira_helper_no_change=(?P<tira_helper_no_change>\d+) "
+    r"tira_helper_signature_failures=(?P<tira_helper_failures>\d+) "
+    r"tira_helper_last_enclosing_move=0x(?P<tira_helper_move>[0-9a-f]{4}) "
+    r"tira_helper_last_chance=(?P<tira_helper_chance>\d+) "
+    r"tira_helper_last_result=(?P<tira_helper_result>-?\d+) "
+    r"tira_helper_last_rejection_mask=0x(?P<tira_helper_rejection>[0-9a-f]+))?"
 )
 STOCK_ROUND_OUTCOME_PATTERN = re.compile(
     r"\[ReplayQualification\] (?:stock round outcome qualification passed|ordered round outcomes verified) "
@@ -217,6 +241,13 @@ class NormalRenderRateEvidence:
     active_frames: int
     active_elapsed_us: int
     active_tick_rate_milli: int
+    fps_milli: int = 0
+    active_fps_milli: int = 0
+    forward_ticks: int = 0
+    active_forward_ticks: int = 0
+    owned_ticks: int = 0
+    active_owned_ticks: int = 0
+    independent_clocks: bool = False
 
 
 @dataclass(frozen=True)
@@ -307,6 +338,16 @@ class GameplayRngCoverageEvidence:
     tira_writer_sequence: int
     tira_writer_slot_mask: int
     tira_last_writer_move: int
+    tira_helper_attempts: int = 0
+    tira_helper_exact_draws: int = 0
+    tira_helper_writes: int = 0
+    tira_helper_no_write: int = 0
+    tira_helper_no_change: int = 0
+    tira_helper_signature_failures: int = 0
+    tira_helper_last_enclosing_move: int = 0
+    tira_helper_last_chance: int = 0
+    tira_helper_last_result: int = 0
+    tira_helper_last_rejection_mask: int = 0
 
 
 @dataclass(frozen=True)
@@ -486,6 +527,12 @@ def parse_normal_render_rate_evidence(
     current_boot = text[source_matches[-1].start():] if source_matches else text
     overall_matches = list(NORMAL_RENDER_RATE_PATTERN.finditer(current_boot))
     active_matches = list(NORMAL_RENDER_ACTIVE_RATE_PATTERN.finditer(current_boot))
+    independent = bool(overall_matches and active_matches)
+    if not independent:
+        overall_matches = list(
+            LEGACY_NORMAL_RENDER_RATE_PATTERN.finditer(current_boot))
+        active_matches = list(
+            LEGACY_NORMAL_RENDER_ACTIVE_RATE_PATTERN.finditer(current_boot))
     if not overall_matches or not active_matches:
         return None
     overall = overall_matches[-1]
@@ -497,6 +544,17 @@ def parse_normal_render_rate_evidence(
         active_frames=int(active.group("frames")),
         active_elapsed_us=int(active.group("elapsed")),
         active_tick_rate_milli=int(active.group("rate")),
+        fps_milli=(int(overall.group("fps")) if independent
+                   else int(overall.group("rate"))),
+        active_fps_milli=(int(active.group("fps")) if independent
+                          else int(active.group("rate"))),
+        forward_ticks=(int(overall.group("ticks")) if independent
+                       else int(overall.group("frames"))),
+        active_forward_ticks=(int(active.group("ticks")) if independent
+                              else int(active.group("frames"))),
+        owned_ticks=int(overall.group("owned")) if independent else 0,
+        active_owned_ticks=int(active.group("owned")) if independent else 0,
+        independent_clocks=independent,
     )
 
 
@@ -873,6 +931,20 @@ def parse_gameplay_rng_coverage_evidence(
         tira_writer_sequence=int(match.group("tira_writer_sequence"), 16),
         tira_writer_slot_mask=int(match.group("tira_writer_slot_mask"), 16),
         tira_last_writer_move=int(match.group("tira_last_writer_move"), 16),
+        tira_helper_attempts=int(match.group("tira_helper_attempts") or 0),
+        tira_helper_exact_draws=int(
+            match.group("tira_helper_exact_draws") or 0),
+        tira_helper_writes=int(match.group("tira_helper_writes") or 0),
+        tira_helper_no_write=int(match.group("tira_helper_no_write") or 0),
+        tira_helper_no_change=int(match.group("tira_helper_no_change") or 0),
+        tira_helper_signature_failures=int(
+            match.group("tira_helper_failures") or 0),
+        tira_helper_last_enclosing_move=int(
+            match.group("tira_helper_move") or "0", 16),
+        tira_helper_last_chance=int(match.group("tira_helper_chance") or 0),
+        tira_helper_last_result=int(match.group("tira_helper_result") or 0),
+        tira_helper_last_rejection_mask=int(
+            match.group("tira_helper_rejection") or "0", 16),
     )
 
 

@@ -215,10 +215,12 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmExecuteBankSlotDetour(
     std::uint16_t character_id{};
     std::uint16_t active_move{};
     std::uint32_t frame_before{};
-    const bool candidate = observation != nullptr && chara != nullptr
-        && argument_count == 2 && arguments != nullptr
+    const bool helper_seen = observation != nullptr && arguments != nullptr
+        && argument_count > 0
         && SafeRead(reinterpret_cast<std::uintptr_t>(arguments), packed_move)
-        && packed_move == tira_stance_helper_packed_move
+        && packed_move == tira_stance_helper_packed_move;
+    const bool candidate = helper_seen && chara != nullptr
+        && argument_count == 2
         && SafeRead(reinterpret_cast<std::uintptr_t>(arguments) + 2, chance)
         && SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x24c,
             character_id)
@@ -230,10 +232,17 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmExecuteBankSlotDetour(
         ? observation->gameplay_xorshift_draws : 0;
 
     const auto prior_helper = tira_stance_helper;
+    if (helper_seen) ++observation->tira_helper_attempts;
     if (candidate)
     {
-        tira_stance_helper = {chara, observation, draws_before, active_move,
-            chance, frame_before, true};
+        tira_stance_helper = {};
+        tira_stance_helper.owner = chara;
+        tira_stance_helper.observation = observation;
+        tira_stance_helper.draws_before = draws_before;
+        tira_stance_helper.active_move = active_move;
+        tira_stance_helper.chance = chance;
+        tira_stance_helper.frame = frame_before;
+        tira_stance_helper.active = true;
     }
     const std::int16_t result = original != nullptr
         ? original(chara, argument_count, arguments) : 0;
@@ -245,8 +254,37 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmExecuteBankSlotDetour(
         const bool exact_frame = SafeRead(
             batch->frame_counter_address, frame_after)
             && frame_after == frame_before;
+        std::uint32_t rejection_mask{};
+        if (!exact_draw) rejection_mask |= 1u << 0;
+        if (!exact_frame) rejection_mask |= 1u << 1;
+        if (!tira_stance_helper.writer_seen) rejection_mask |= 1u << 2;
+        else if (tira_stance_helper.state_before
+                == tira_stance_helper.state_after)
+            rejection_mask |= 1u << 3;
+        if (exact_draw) ++observation->tira_helper_exact_draws;
+        if (tira_stance_helper.writer_seen)
+        {
+            ++observation->tira_helper_writer_outcomes;
+            if (tira_stance_helper.state_before
+                == tira_stance_helper.state_after)
+                ++observation->tira_helper_no_change_outcomes;
+        }
+        else
+            ++observation->tira_helper_no_write_outcomes;
         if (!exact_draw || !exact_frame)
+        {
+            ++observation->tira_helper_signature_failures;
             ++observation->movevm_transition_07_signature_failures;
+        }
+        observation->tira_helper_last_enclosing_move = active_move;
+        observation->tira_helper_last_chance = chance;
+        observation->tira_helper_last_result = result;
+        observation->tira_helper_last_rejection_mask = rejection_mask;
+    }
+    else if (helper_seen)
+    {
+        ++observation->tira_helper_signature_failures;
+        observation->tira_helper_last_rejection_mask = 1u << 4;
     }
     tira_stance_helper = prior_helper;
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
@@ -292,7 +330,7 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmWriteCharaStateShortDetour(
 
     const std::int16_t result = original != nullptr
         ? original(chara, argument_count, arguments) : 0;
-    if (candidate && original != nullptr && authored_value != state_before)
+    if (candidate && original != nullptr)
     {
         std::uint8_t fighter_slot{};
         if (active_move == 0 || authored_value > 1
@@ -305,6 +343,26 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmWriteCharaStateShortDetour(
         {
             const auto fighter_mask = static_cast<std::uint8_t>(
                 1u << fighter_slot);
+            const bool helper_owned = IsTiraStanceHelperWriterMatch(
+                tira_stance_helper.active,
+                tira_stance_helper.owner == chara,
+                tira_stance_helper.observation == observation,
+                active_move, tira_stance_helper.active_move,
+                tira_stance_helper.frame, frame,
+                tira_stance_helper.draws_before,
+                observation->gameplay_xorshift_draws);
+            if (helper_owned)
+            {
+                tira_stance_helper.writer_seen = true;
+                tira_stance_helper.state_before = state_before;
+                tira_stance_helper.state_after = authored_value;
+            }
+            if (authored_value == state_before)
+            {
+                callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+                return result;
+            }
+
             ++observation->tira_state19_writer_calls;
             observation->tira_state19_writer_slot_mask |= fighter_mask;
             observation->tira_last_state19_writer_move = active_move;
@@ -327,14 +385,6 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmWriteCharaStateShortDetour(
             append_writer(&fighter_mask, sizeof(fighter_mask));
             observation->tira_state19_writer_sequence_hash = writer_hash;
 
-            const bool helper_owned = IsTiraStanceHelperWriterMatch(
-                tira_stance_helper.active,
-                tira_stance_helper.owner == chara,
-                tira_stance_helper.observation == observation,
-                active_move, tira_stance_helper.active_move,
-                tira_stance_helper.frame, frame,
-                tira_stance_helper.draws_before,
-                observation->gameplay_xorshift_draws);
             if (helper_owned)
             {
                 ObserveTiraRandomStanceChange(chara,
@@ -824,6 +874,22 @@ void DeterministicHookSet::CopyObservedGameplayIdentity(
         observation.tira_state19_writer_slot_mask;
     output.tira_last_state19_writer_move =
         observation.tira_last_state19_writer_move;
+    output.tira_helper_attempts = observation.tira_helper_attempts;
+    output.tira_helper_exact_draws = observation.tira_helper_exact_draws;
+    output.tira_helper_writer_outcomes =
+        observation.tira_helper_writer_outcomes;
+    output.tira_helper_no_write_outcomes =
+        observation.tira_helper_no_write_outcomes;
+    output.tira_helper_no_change_outcomes =
+        observation.tira_helper_no_change_outcomes;
+    output.tira_helper_signature_failures =
+        observation.tira_helper_signature_failures;
+    output.tira_helper_last_enclosing_move =
+        observation.tira_helper_last_enclosing_move;
+    output.tira_helper_last_chance = observation.tira_helper_last_chance;
+    output.tira_helper_last_result = observation.tira_helper_last_result;
+    output.tira_helper_last_rejection_mask =
+        observation.tira_helper_last_rejection_mask;
     output.tira_random_transition_calls =
         observation.tira_random_transition_calls;
     output.tira_random_transition_sequence_hash =
@@ -876,6 +942,22 @@ bool DeterministicHookSet::OwnedGameplayIdentityMatches(
             == expected.tira_state19_writer_slot_mask
         && output.tira_last_state19_writer_move
             == expected.tira_last_state19_writer_move
+        && output.tira_helper_attempts == expected.tira_helper_attempts
+        && output.tira_helper_exact_draws == expected.tira_helper_exact_draws
+        && output.tira_helper_writer_outcomes
+            == expected.tira_helper_writer_outcomes
+        && output.tira_helper_no_write_outcomes
+            == expected.tira_helper_no_write_outcomes
+        && output.tira_helper_no_change_outcomes
+            == expected.tira_helper_no_change_outcomes
+        && output.tira_helper_signature_failures == 0
+        && expected.tira_helper_signature_failures == 0
+        && output.tira_helper_last_enclosing_move
+            == expected.tira_helper_last_enclosing_move
+        && output.tira_helper_last_chance == expected.tira_helper_last_chance
+        && output.tira_helper_last_result == expected.tira_helper_last_result
+        && output.tira_helper_last_rejection_mask
+            == expected.tira_helper_last_rejection_mask
         && output.tira_random_transition_calls
             == expected.tira_random_transition_calls
         && output.tira_random_transition_sequence_hash
@@ -908,8 +990,11 @@ Status DeterministicHookSet::ExecuteOwnedNativeTick(
     {
         ExecuteQualificationStageTerminalIfRequested(request, output);
         if (output.failure == FailureCode::None)
+        {
+            owned_outer_tick_count_.fetch_add(1, std::memory_order_relaxed);
             original(reinterpret_cast<void*>(request.battle_manager),
                 request.envelope->delta_seconds);
+        }
         if (!CaptureCameraPublicationSignature(
                 image_base_, observation.camera_publication,
                 observation.camera_publication_hash))

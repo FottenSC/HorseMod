@@ -97,6 +97,16 @@ struct ReplayTimelineStatus
     std::uint64_t observed_tira_state19_writer_sequence_hash{};
     std::uint8_t observed_tira_state19_writer_slot_mask{};
     std::uint16_t observed_tira_last_state19_writer_move{};
+    std::uint64_t observed_tira_helper_attempts{};
+    std::uint64_t observed_tira_helper_exact_draws{};
+    std::uint64_t observed_tira_helper_writer_outcomes{};
+    std::uint64_t observed_tira_helper_no_write_outcomes{};
+    std::uint64_t observed_tira_helper_no_change_outcomes{};
+    std::uint64_t observed_tira_helper_signature_failures{};
+    std::uint16_t observed_tira_helper_last_enclosing_move{};
+    std::uint16_t observed_tira_helper_last_chance{};
+    std::int16_t observed_tira_helper_last_result{};
+    std::uint32_t observed_tira_helper_last_rejection_mask{};
     std::uint64_t observed_tira_random_transition_calls{};
     std::uint64_t observed_tira_random_transition_sequence_hash{};
     std::uint64_t observed_tira_probability_transition_batches{};
@@ -575,6 +585,7 @@ private:
         const OuterTickObservation& observation) noexcept;
     Status CapturePendingCameraSource() noexcept;
     void RebaselineAfterIdentityDrift() noexcept;
+    void ResetQualificationStateRetainingStorage() noexcept;
     static void* ResolveReplayPlayer(void* user) noexcept;
     static void* ResolveBattleManager(void* user) noexcept;
     static void* ResolveFighterOne(void* user) noexcept;

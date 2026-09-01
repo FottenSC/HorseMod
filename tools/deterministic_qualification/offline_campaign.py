@@ -301,9 +301,11 @@ def _compose_persistent_row(
                 "fresh_process_lifecycle_report": baseline_artifact,
             },
             "performance": {
-                "normal_render_fps": rate["normal_render_tick_rate"],
+                "normal_render_fps": rate.get(
+                    "normal_render_fps", rate["normal_render_tick_rate"]),
                 "normal_render_tick_rate": rate["normal_render_tick_rate"],
-                "active_battle_fps": rate["active_battle_tick_rate"],
+                "active_battle_fps": rate.get(
+                    "active_battle_fps", rate["active_battle_tick_rate"]),
                 "active_battle_tick_rate": rate["active_battle_tick_rate"],
                 "capture_p99_us": cycle["capture_p99_us"],
                 "capture_max_us": cycle["capture_max_us"],

@@ -552,6 +552,13 @@ extern "C"
             && mod->GetReplayGameplayRngCoverage(counts, count);
     }
 
+    HORSE_MOD_API bool horsemod_get_qualification_clock_v1(
+        std::uint64_t* values, std::size_t count)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && mod->GetQualificationClock(values, count);
+    }
+
     HORSE_MOD_API bool horsemod_request_qualification_stage_terminal(
         std::uint32_t operation)
     {

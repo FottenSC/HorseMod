@@ -92,12 +92,17 @@ private:
     [[nodiscard]] static EventKey Key(const PresentationEvent& event) noexcept;
     [[nodiscard]] static bool Valid(const PresentationEvent& event) noexcept;
     Status RecordInternal(PresentationEvent event, bool presented) noexcept;
-    void ClearSlot(Slot& slot) noexcept;
+    // Occupied journal slots are kept in [0, pending_count_). Removal swaps
+    // the final occupied slot into the hole. Event ordering is derived from
+    // EventKey, never physical slot order, so this preserves semantics while
+    // keeping the hot-path work proportional to pending events.
+    void ClearSlot(std::size_t index) noexcept;
 
     std::size_t maximum_events_{};
     std::size_t maximum_payload_bytes_{};
     std::size_t payload_bytes_{};
     std::size_t pending_count_{};
+    std::size_t watermark_count_{};
     std::unique_ptr<Slot[]> slots_;
     std::unique_ptr<Watermark[]> watermarks_;
     std::unique_ptr<bool[]> replacement_presented_;

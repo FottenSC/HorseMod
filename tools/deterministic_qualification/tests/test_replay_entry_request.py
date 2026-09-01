@@ -173,7 +173,7 @@ def test_persistent_cycles_use_grouped_version_and_unique_runtime_ids(
     request = (tmp_path / "HorseMod" / "Qualification"
                / "replay_request.txt").read_text(encoding="utf-8")
 
-    assert request.startswith("version=11\n")
+    assert request.startswith("version=12\n")
     assert "stock_round_outcome_control=false\n" in request
     assert "qualification_cycles=run11:11:1,run1:1:1,run6:6:1\n" in request
     assert "qualification_anchors=2\n" in request

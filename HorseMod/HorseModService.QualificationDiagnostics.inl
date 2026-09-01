@@ -547,6 +547,17 @@
                     timeline.observed_battle_audio_stop_all_calls
                         > q.round_terminal_audio_stop_all_baseline;
                 return q.round_terminal_source_stop_all;
+            case 5:
+                // Exact natural Tira helper-0x321B event boundary. The
+                // baseline is captured when the request is armed, so an old
+                // transition from replay setup cannot satisfy this location.
+                return timeline.observed_tira_random_transition_calls
+                    > q.tira_transition_baseline;
+            case 6:
+                // Same natural event trigger as location 5, but corrections
+                // are subsequently metered at one depth per authored tick.
+                return timeline.observed_tira_random_transition_calls
+                    > q.tira_transition_baseline;
             default: return false;
             }
         }();
@@ -634,6 +645,7 @@
         // This keeps route/lifecycle coverage without repeating process or
         // replay entry setup for every depth.
         if (q.grouped_anchors_completed != 0
+            && q.location != 6
             && q.grouped_last_anchor_generation
                 == timeline.last_coordinate.generation
             && timeline.last_coordinate.frame
@@ -719,13 +731,6 @@
             return;
         }
 
-        for (std::uint32_t repetition = 0;
-             repetition < q.grouped_repeats_per_anchor; ++repetition)
-            for (std::size_t depth_index = 0;
-                 depth_index < kGroupedQualificationDepths.size();
-                 ++depth_index)
-                if (!execute(depth_index, repetition, true)) return;
-
         const auto mix = [](std::uint64_t hash,
                             std::uint64_t value) noexcept {
             for (std::size_t byte = 0; byte < sizeof(value); ++byte)
@@ -735,8 +740,8 @@
             }
             return hash;
         };
-        for (auto& hash : q.grouped_anchor_sequence_hash)
-        {
+        const auto mix_anchor = [&](std::size_t depth_index) noexcept {
+            auto& hash = q.grouped_anchor_sequence_hash[depth_index];
             hash = mix(hash, timeline.last_coordinate.generation);
             hash = mix(hash, timeline.last_coordinate.frame);
             for (const auto value : expected.canonical_hash)
@@ -744,8 +749,36 @@
                 hash ^= std::to_integer<std::uint8_t>(value);
                 hash *= 1099511628211ull;
             }
+        };
+        if (q.location == 6)
+        {
+            // Production cadence: exactly one owned correction per authored
+            // outer tick, cycling 11 -> 1 -> 6. This measures real scheduling
+            // pressure separately from location 5's same-anchor stress.
+            const auto depth_index = static_cast<std::size_t>(
+                q.grouped_cadence_depth_index);
+            if (!execute(depth_index, q.grouped_anchors_completed, true))
+                return;
+            mix_anchor(depth_index);
+            q.grouped_cadence_depth_index = static_cast<std::uint32_t>(
+                (depth_index + 1) % kGroupedQualificationDepths.size());
+            if (q.grouped_cadence_depth_index == 0)
+                ++q.grouped_anchors_completed;
         }
-        ++q.grouped_anchors_completed;
+        else
+        {
+            for (std::uint32_t repetition = 0;
+                 repetition < q.grouped_repeats_per_anchor; ++repetition)
+                for (std::size_t depth_index = 0;
+                     depth_index < kGroupedQualificationDepths.size();
+                     ++depth_index)
+                    if (!execute(depth_index, repetition, true)) return;
+            for (std::size_t depth_index = 0;
+                 depth_index < kGroupedQualificationDepths.size();
+                 ++depth_index)
+                mix_anchor(depth_index);
+            ++q.grouped_anchors_completed;
+        }
         q.grouped_last_anchor_generation =
             timeline.last_coordinate.generation;
         q.grouped_last_anchor_frame = timeline.last_coordinate.frame;
@@ -767,6 +800,12 @@
         const bool presentation_journal_complete = presentation_commit.ok()
             && q.pending_events_end == 0 && q.pending_payload_end == 0
             && q.presentation_end.capacity_failures == 0;
+        // The grouped correction window is terminal at this point. Do not
+        // keep suppressing/capturing speculative presentation while the
+        // harness measures the rest of its active-battle rate window. The
+        // explicit cleanup request still resets and audits every other owned
+        // subsystem, and observes this already-closed ownership boundary.
+        m_replay_native_runtime.DisablePresentationOwnership();
         const bool full_qualification = q.grouped_anchor_target == 40
             && q.grouped_repeats_per_anchor == 15;
         q.presentation_terminal_coverage = presentation_journal_complete
@@ -781,7 +820,8 @@
         for (std::size_t index = 0;
              index < kGroupedQualificationDepths.size(); ++index)
             performance_ok = performance_ok
-                && q.GroupedP99(index) < 16'670'000;
+                && q.GroupedP99(index) < 16'670'000
+                && q.grouped_maximum_ns[index] < 33'340'000;
         const bool capture_ok = q.capture_end.total_capture.p99_ns <= 500'000
             && q.capture_end.total_capture.maximum_ns <= 1'000'000
             && q.capture_end.scratch_capacity_growth_events == 0;
@@ -886,6 +926,12 @@
                     timeline.observed_battle_audio_stop_all_calls
                         > qualification.round_terminal_audio_stop_all_baseline;
                 return qualification.round_terminal_source_stop_all;
+            case 5:
+                return timeline.observed_tira_random_transition_calls
+                    > qualification.tira_transition_baseline;
+            case 6:
+                return timeline.observed_tira_random_transition_calls
+                    > qualification.tira_transition_baseline;
             default: return false;
             }
         }();

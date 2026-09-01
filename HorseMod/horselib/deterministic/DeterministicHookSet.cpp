@@ -94,6 +94,9 @@ struct TiraStanceHelperContext
     std::uint16_t active_move{};
     std::uint16_t chance{};
     std::uint32_t frame{};
+    std::uint16_t state_before{};
+    std::uint16_t state_after{};
+    bool writer_seen{};
     bool active{};
 };
 

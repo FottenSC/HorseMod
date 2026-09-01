@@ -103,6 +103,16 @@ struct OuterTickObservation
     std::uint64_t tira_state19_writer_sequence_hash{};
     std::uint8_t tira_state19_writer_slot_mask{};
     std::uint16_t tira_last_state19_writer_move{};
+    std::uint32_t tira_helper_attempts{};
+    std::uint32_t tira_helper_exact_draws{};
+    std::uint32_t tira_helper_writer_outcomes{};
+    std::uint32_t tira_helper_no_write_outcomes{};
+    std::uint32_t tira_helper_no_change_outcomes{};
+    std::uint32_t tira_helper_signature_failures{};
+    std::uint16_t tira_helper_last_enclosing_move{};
+    std::uint16_t tira_helper_last_chance{};
+    std::int16_t tira_helper_last_result{};
+    std::uint32_t tira_helper_last_rejection_mask{};
     std::uint32_t tira_random_transition_calls{};
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};
@@ -216,6 +226,9 @@ struct OuterTickObservation
     bool authoritative_input_aborted_before_consume{};
     bool fp_before_valid{};
     bool fp_after_valid{};
+    // Owned correction replay re-enters the native outer-tick detour. This
+    // marker lets performance qualification count authored forward ticks
+    // without falsely treating resimulation work as additional TPS.
 };
 
 using FrameFencepostCallback = void (*)(
@@ -315,6 +328,16 @@ struct OwnedBatchReplayResult
     std::uint64_t tira_state19_writer_sequence_hash{};
     std::uint8_t tira_state19_writer_slot_mask{};
     std::uint16_t tira_last_state19_writer_move{};
+    std::uint32_t tira_helper_attempts{};
+    std::uint32_t tira_helper_exact_draws{};
+    std::uint32_t tira_helper_writer_outcomes{};
+    std::uint32_t tira_helper_no_write_outcomes{};
+    std::uint32_t tira_helper_no_change_outcomes{};
+    std::uint32_t tira_helper_signature_failures{};
+    std::uint16_t tira_helper_last_enclosing_move{};
+    std::uint16_t tira_helper_last_chance{};
+    std::int16_t tira_helper_last_result{};
+    std::uint32_t tira_helper_last_rejection_mask{};
     std::uint32_t tira_random_transition_calls{};
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};
@@ -400,6 +423,10 @@ public:
     Status ExecuteOwnedBatch(
         const OwnedBatchReplayRequest& request,
         OwnedBatchReplayResult& output) noexcept;
+    [[nodiscard]] std::uint64_t owned_outer_tick_count() const noexcept
+    {
+        return owned_outer_tick_count_.load(std::memory_order_acquire);
+    }
     Status BindStageBreakPresentationIdentity(
         std::uint64_t generation,
         std::span<const StageBreakActorRef> actors,
@@ -740,6 +767,7 @@ private:
         maximum_battle_audio_handlers> observed_battle_audio_handlers_;
     static std::atomic<bool> battle_audio_handler_overflow_;
     static thread_local OuterTickCaptureContext* active_outer_capture_;
+    std::atomic<std::uint64_t> owned_outer_tick_count_{};
 
     struct BattleCharaCueSourceContext
     {

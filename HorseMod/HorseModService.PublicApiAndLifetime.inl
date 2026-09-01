@@ -62,6 +62,22 @@
         }
     }
 public:
+    bool GetQualificationClock(
+        std::uint64_t* values, std::size_t count) const noexcept
+    {
+        if (values == nullptr || count < 5) return false;
+        values[0] = 1;
+        // Reserved for the qualification harness's independent viewport-frame
+        // clock. HorseMod owns only simulation clocks; its optional DXGI
+        // overlay may be deliberately disabled and is not a release gate.
+        values[1] = 0;
+        // Reserved for the harness's native battle-frame clock.
+        values[2] = 0;
+        values[3] = m_deterministic_hooks.owned_outer_tick_count();
+        values[4] = ::GetTickCount64();
+        return true;
+    }
+
 #if HORSE_ENABLE_GEKKONET
     bool PrepareModuleUnload() noexcept
     {
@@ -79,13 +95,14 @@ public:
         std::uint32_t location, std::uint32_t anchors,
         std::uint32_t repeats_per_anchor) noexcept
     {
+        const auto arm_started_ms = ::GetTickCount64();
         std::uint64_t rejection_mask{};
         if (run_id.empty() || run_id.size() > 96
             || std::any_of(run_id.begin(), run_id.end(), [](char value) {
                 return !(std::isalnum(static_cast<unsigned char>(value))
                     || value == '-' || value == '_' || value == '.');
             })) rejection_mask |= 1ull << 0;
-        if (location < 1 || location > 4) rejection_mask |= 1ull << 1;
+        if (location < 1 || location > 6) rejection_mask |= 1ull << 1;
         if (anchors == 0 || anchors > 40
             || repeats_per_anchor == 0 || repeats_per_anchor > 15)
             rejection_mask |= 1ull << 2;
@@ -152,6 +169,9 @@ public:
         qualification.grouped = true;
         qualification.grouped_anchor_target = anchors;
         qualification.grouped_repeats_per_anchor = repeats_per_anchor;
+        qualification.tira_transition_baseline =
+            m_replay_native_runtime.timeline_status()
+                .observed_tira_random_transition_calls;
         qualification.grouped_anchor_sequence_hash.fill(
             1469598103934665603ull);
         qualification.storage_begin =
@@ -166,12 +186,13 @@ public:
             qualification.reported = true;
             return false;
         }
+        qualification.arm_elapsed_ms = ::GetTickCount64() - arm_started_ms;
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] qualification group armed run_id={} ordinal={} "
-            "location={} anchors={} repeats={} depths=11,1,6\n"),
+            "location={} anchors={} repeats={} depths=11,1,6 arm_ms={}\n"),
             RC::to_generic_string(std::string(run_id)),
             qualification.cycle_ordinal, location, anchors,
-            repeats_per_anchor);
+            repeats_per_anchor, qualification.arm_elapsed_ms);
         return true;
     }
 #if HORSE_ENABLE_OBSERVER_PROBE
@@ -260,7 +281,7 @@ public:
             })) rejection_mask |= 1ull << 0;
         if (depth != 1 && depth != 6 && depth != 7 && depth != 11)
             rejection_mask |= 1ull << 1;
-        if (location < 1 || location > 4) rejection_mask |= 1ull << 2;
+        if (location < 1 || location > 6) rejection_mask |= 1ull << 2;
         if (m_forced_qualification_run_id_count
             >= m_forced_qualification_run_ids.size()) rejection_mask |= 1ull << 3;
         if (m_deterministic_config.enabled || !m_deterministic_config.trace
@@ -351,6 +372,9 @@ public:
         qualification.run_id[run_id.size()] = '\0';
         qualification.depth = depth;
         qualification.location = location;
+        qualification.tira_transition_baseline =
+            m_replay_native_runtime.timeline_status()
+                .observed_tira_random_transition_calls;
         qualification.cycle_ordinal = ++m_forced_qualification_cycle_ordinal;
         qualification.lifecycle = 1;
         qualification.runtime_armed = true;
@@ -508,6 +532,7 @@ public:
         values[47] = q.grouped_anchor_sequence_hash[row_index];
         values[48] = q.grouped_failure_anchor;
         values[49] = q.grouped_failure_repeat;
+        if (count >= 51) values[50] = q.arm_elapsed_ms;
         return status;
     }
 
@@ -1080,6 +1105,20 @@ public:
             counts[43] = timeline.observed_tira_state19_writer_sequence_hash;
             counts[44] = timeline.observed_tira_state19_writer_slot_mask;
             counts[45] = timeline.observed_tira_last_state19_writer_move;
+        }
+        if (count >= 56)
+        {
+            counts[46] = timeline.observed_tira_helper_attempts;
+            counts[47] = timeline.observed_tira_helper_exact_draws;
+            counts[48] = timeline.observed_tira_helper_writer_outcomes;
+            counts[49] = timeline.observed_tira_helper_no_write_outcomes;
+            counts[50] = timeline.observed_tira_helper_no_change_outcomes;
+            counts[51] = timeline.observed_tira_helper_signature_failures;
+            counts[52] = timeline.observed_tira_helper_last_enclosing_move;
+            counts[53] = timeline.observed_tira_helper_last_chance;
+            counts[54] = static_cast<std::uint64_t>(static_cast<std::int64_t>(
+                timeline.observed_tira_helper_last_result));
+            counts[55] = timeline.observed_tira_helper_last_rejection_mask;
         }
         return timeline.canonical_frames != 0;
     }

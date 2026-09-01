@@ -1383,6 +1383,22 @@ void Sc6ReplayRuntime::FillObservedGameplayEnvelope(
         observation.tira_state19_writer_slot_mask;
     envelope.tira_last_state19_writer_move =
         observation.tira_last_state19_writer_move;
+    envelope.tira_helper_attempts = observation.tira_helper_attempts;
+    envelope.tira_helper_exact_draws = observation.tira_helper_exact_draws;
+    envelope.tira_helper_writer_outcomes =
+        observation.tira_helper_writer_outcomes;
+    envelope.tira_helper_no_write_outcomes =
+        observation.tira_helper_no_write_outcomes;
+    envelope.tira_helper_no_change_outcomes =
+        observation.tira_helper_no_change_outcomes;
+    envelope.tira_helper_signature_failures =
+        observation.tira_helper_signature_failures;
+    envelope.tira_helper_last_enclosing_move =
+        observation.tira_helper_last_enclosing_move;
+    envelope.tira_helper_last_chance = observation.tira_helper_last_chance;
+    envelope.tira_helper_last_result = observation.tira_helper_last_result;
+    envelope.tira_helper_last_rejection_mask =
+        observation.tira_helper_last_rejection_mask;
     envelope.tira_random_transition_calls =
         observation.tira_random_transition_calls;
     envelope.tira_random_transition_sequence_hash =

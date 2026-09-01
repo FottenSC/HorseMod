@@ -38,7 +38,7 @@ struct ReplaySessionCoverage
     std::array<std::uint64_t, 10> presentation{};
     std::uint64_t audio_terminal_calls{};
     std::array<std::uint64_t, 3> accounting{};
-    std::array<std::uint64_t, 46> gameplay_rng{};
+    std::array<std::uint64_t, 56> gameplay_rng{};
 };
 
 ReplaySessionCoverage CaptureReplaySessionCoverage(
@@ -107,7 +107,18 @@ ReplaySessionCoverage CaptureReplaySessionCoverage(
         status.observed_tira_state19_writer_calls,
         status.observed_tira_state19_writer_sequence_hash,
         status.observed_tira_state19_writer_slot_mask,
-        status.observed_tira_last_state19_writer_move};
+        status.observed_tira_last_state19_writer_move,
+        status.observed_tira_helper_attempts,
+        status.observed_tira_helper_exact_draws,
+        status.observed_tira_helper_writer_outcomes,
+        status.observed_tira_helper_no_write_outcomes,
+        status.observed_tira_helper_no_change_outcomes,
+        status.observed_tira_helper_signature_failures,
+        status.observed_tira_helper_last_enclosing_move,
+        status.observed_tira_helper_last_chance,
+        static_cast<std::uint64_t>(static_cast<std::int64_t>(
+            status.observed_tira_helper_last_result)),
+        status.observed_tira_helper_last_rejection_mask};
     return coverage;
 }
 
@@ -180,6 +191,20 @@ void RestoreReplaySessionCoverage(ReplayTimelineStatus& status,
         coverage.gameplay_rng[44]);
     status.observed_tira_last_state19_writer_move =
         static_cast<std::uint16_t>(coverage.gameplay_rng[45]);
+    status.observed_tira_helper_attempts = coverage.gameplay_rng[46];
+    status.observed_tira_helper_exact_draws = coverage.gameplay_rng[47];
+    status.observed_tira_helper_writer_outcomes = coverage.gameplay_rng[48];
+    status.observed_tira_helper_no_write_outcomes = coverage.gameplay_rng[49];
+    status.observed_tira_helper_no_change_outcomes = coverage.gameplay_rng[50];
+    status.observed_tira_helper_signature_failures = coverage.gameplay_rng[51];
+    status.observed_tira_helper_last_enclosing_move =
+        static_cast<std::uint16_t>(coverage.gameplay_rng[52]);
+    status.observed_tira_helper_last_chance =
+        static_cast<std::uint16_t>(coverage.gameplay_rng[53]);
+    status.observed_tira_helper_last_result =
+        static_cast<std::int16_t>(coverage.gameplay_rng[54]);
+    status.observed_tira_helper_last_rejection_mask =
+        static_cast<std::uint32_t>(coverage.gameplay_rng[55]);
 }
 
 OwnedCorrectionResult::WindNodeScheduleDiagnostic WindScheduleDiagnostic(

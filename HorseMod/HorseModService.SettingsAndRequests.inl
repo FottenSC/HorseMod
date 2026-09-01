@@ -704,7 +704,7 @@
         std::array<std::uint64_t, 10> presentation_coverage{};
         std::array<std::uint64_t, 9> presentation_identity{};
         std::array<std::uint64_t, 54> health{};
-        std::array<std::uint64_t, 46> gameplay_rng_coverage{};
+        std::array<std::uint64_t, 56> gameplay_rng_coverage{};
         std::uint64_t canonical_generation{};
         std::uint64_t canonical_frame{};
         Horse::Deterministic::CanonicalHash canonical_hash{};
@@ -964,12 +964,14 @@
         std::uint64_t elapsed_ms{};
         std::uint64_t started_ms{};
         std::uint64_t timing_drift_ms{};
+        std::uint64_t arm_elapsed_ms{};
         std::uint64_t cleanup_stale_state_mask{};
         std::size_t pending_events_end{};
         std::size_t pending_payload_end{};
         std::size_t pending_events_cleanup{};
         std::size_t pending_payload_cleanup{};
         std::uint64_t round_terminal_audio_stop_all_baseline{};
+        std::uint64_t tira_transition_baseline{};
         std::uint64_t suppressed_stage_wall_calls{};
         std::uint64_t suppressed_stage_barrier_calls{};
         std::uint64_t semantic_stage_dispatch_calls{};
@@ -1005,6 +1007,7 @@
         std::uint32_t grouped_failure_depth{};
         std::uint32_t grouped_failure_anchor{};
         std::uint32_t grouped_failure_repeat{};
+        std::uint32_t grouped_cadence_depth_index{};
         std::uint64_t grouped_last_anchor_generation{};
         std::uint64_t grouped_last_anchor_frame{};
         std::array<std::uint32_t, 3> grouped_completed{};

@@ -507,7 +507,11 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                     args.log, args.timeout, guard, log_start
                 )
                 minimum_rate_milli = round(args.min_resume_tick_rate * 1000)
-                if (normal_render_rate.tick_rate_milli < minimum_rate_milli
+                if (not normal_render_rate.independent_clocks
+                        or normal_render_rate.fps_milli < minimum_rate_milli
+                        or normal_render_rate.tick_rate_milli < minimum_rate_milli
+                        or normal_render_rate.active_fps_milli
+                            < minimum_rate_milli
                         or normal_render_rate.active_tick_rate_milli
                             < minimum_rate_milli):
                     raise RuntimeError(
@@ -553,6 +557,10 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                             or gameplay_rng_coverage.tira_slot_mask == 0
                             or gameplay_rng_coverage.tira_writer_calls == 0
                             or gameplay_rng_coverage.tira_writer_sequence == 0
+                            or gameplay_rng_coverage.tira_helper_attempts == 0
+                            or gameplay_rng_coverage.tira_helper_exact_draws == 0
+                            or gameplay_rng_coverage.tira_helper_writes == 0
+                            or gameplay_rng_coverage.tira_helper_signature_failures != 0
                             or gameplay_rng_coverage.tira_writer_slot_mask == 0
                             or not gameplay_rng_coverage.state19_initial_valid):
                         raise RuntimeError(
@@ -819,11 +827,23 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                 ),
                 "normal_render_fps": (
                     None if normal_render_rate is None else
-                    normal_render_rate.tick_rate_milli / 1000.0
+                    normal_render_rate.fps_milli / 1000.0
                 ),
                 "normal_render_tick_rate": (
                     None if normal_render_rate is None else
                     normal_render_rate.tick_rate_milli / 1000.0
+                ),
+                "independent_clocks": (
+                    None if normal_render_rate is None else
+                    normal_render_rate.independent_clocks
+                ),
+                "normal_render_forward_ticks": (
+                    None if normal_render_rate is None else
+                    normal_render_rate.forward_ticks
+                ),
+                "normal_render_owned_resim_ticks": (
+                    None if normal_render_rate is None else
+                    normal_render_rate.owned_ticks
                 ),
                 "active_battle_frames": (
                     None if normal_render_rate is None else
@@ -835,7 +855,7 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                 ),
                 "active_battle_fps": (
                     None if normal_render_rate is None else
-                    normal_render_rate.active_tick_rate_milli / 1000.0
+                    normal_render_rate.active_fps_milli / 1000.0
                 ),
                 "active_battle_tick_rate": (
                     None if normal_render_rate is None else
@@ -940,6 +960,26 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                     f"0x{gameplay_rng_coverage.tira_writer_slot_mask:x}",
                 "tira_last_writer_move":
                     f"0x{gameplay_rng_coverage.tira_last_writer_move:04x}",
+                "tira_helper_attempts":
+                    gameplay_rng_coverage.tira_helper_attempts,
+                "tira_helper_exact_draws":
+                    gameplay_rng_coverage.tira_helper_exact_draws,
+                "tira_helper_writes":
+                    gameplay_rng_coverage.tira_helper_writes,
+                "tira_helper_no_write":
+                    gameplay_rng_coverage.tira_helper_no_write,
+                "tira_helper_no_change":
+                    gameplay_rng_coverage.tira_helper_no_change,
+                "tira_helper_signature_failures":
+                    gameplay_rng_coverage.tira_helper_signature_failures,
+                "tira_helper_last_enclosing_move":
+                    f"0x{gameplay_rng_coverage.tira_helper_last_enclosing_move:04x}",
+                "tira_helper_last_chance":
+                    gameplay_rng_coverage.tira_helper_last_chance,
+                "tira_helper_last_result":
+                    gameplay_rng_coverage.tira_helper_last_result,
+                "tira_helper_last_rejection_mask":
+                    f"0x{gameplay_rng_coverage.tira_helper_last_rejection_mask:x}",
                 "tira_sequence":
                     f"0x{gameplay_rng_coverage.tira_sequence:016x}",
                 "tira_stance_batches": gameplay_rng_coverage.tira_stance_batches,
@@ -1247,9 +1287,22 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
     schema = required_file(args.schema, "generated schema")
     executable = required_file(args.game_executable, "SoulcaliburVI executable")
     require_disarmed(config)
-    if args.certifying and (args.anchors != 40 or args.repeats != 15):
+    event_locked = (args.cycle in (
+        [[11, 5], [1, 5], [6, 5]],
+        [[11, 6], [1, 6], [6, 6]],
+        [(11, 5), (1, 5), (6, 5)],
+        [(11, 6), (1, 6), (6, 6)],
+    ))
+    event_shape = ((args.cycle and args.cycle[0][1] == 5
+                    and args.anchors == 1 and args.repeats == 15)
+                   or (args.cycle and args.cycle[0][1] == 6
+                       and args.anchors == 15 and args.repeats == 1))
+    if (args.certifying
+            and (args.anchors != 40 or args.repeats != 15)
+            and not (event_locked and event_shape)):
         raise RuntimeError(
-            "certifying qualification requires exactly 40 anchors and 15 repeats")
+            "certifying qualification requires 40x15, Tira same-event "
+            "stress 1x15, or Tira production cadence 15x1")
     identity = source_identity(ROOT)
     if identity["dirty"] and (args.certifying or not args.allow_dirty):
         raise RuntimeError("qualification campaign requires immutable source or --allow-dirty")
@@ -1291,7 +1344,8 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
                         log_start = capture_log_offset(args.log)
                         args._failure_log_start = log_start
                         parent_run_id = create_request(
-                            replay, 120, (), args.min_resume_tick_rate, 120,
+                            replay, 120, (), args.min_resume_tick_rate,
+                            args.performance_window,
                             stock_round_outcome_control=False,
                             qualification_cycles=entry_specs,
                             qualification_anchors=args.anchors,
@@ -1314,6 +1368,17 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
                         rate = wait_for_normal_render_rate_evidence(
                             args.log, args.timeout, guard, log_start,
                             source_bound=replay_entry_index == 1)
+                        minimum_rate_milli = round(
+                            args.min_resume_tick_rate * 1000)
+                        if (not rate.independent_clocks
+                                or min(rate.fps_milli,
+                                       rate.tick_rate_milli,
+                                       rate.active_fps_milli,
+                                       rate.active_tick_rate_milli)
+                                    < minimum_rate_milli):
+                            raise RuntimeError(
+                                "persistent qualification independent "
+                                "FPS/TPS canary failed")
                         metadata = wait_for_replay_metadata_evidence(
                             args.log, args.timeout, guard, log_start,
                             source_bound=replay_entry_index == 1)
@@ -1358,6 +1423,8 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
                                     or cycle.get("capacity_growth") != 0
                                     or cycle.get("duplicates") != 0
                                     or cycle.get("publish_failures") != 0
+                                    or cycle.get("cycle_p99_us", 10**9) >= 16_670
+                                    or cycle.get("cycle_max_us", 10**9) >= 33_340
                                     or cycle.get("pending") != "0/0"
                                     or cycle.get("terminal_coverage") != 1
                                     or not activity_valid
@@ -1370,6 +1437,8 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
                             cycle["replay_entry"] = replay_entry_index
                             cycles.append(cycle)
                         for index in range(0, len(entry_cycles), 3):
+                            if entry_cycles[index].get("location") == 6:
+                                continue
                             hashes = {
                                 cycle.get("anchor_hash")
                                 for cycle in entry_cycles[index:index + 3]
@@ -1430,6 +1499,7 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
         "depth_order": [depth for _, depth, _ in cycle_specs],
         "qualification_anchors": args.anchors,
         "qualification_repeats_per_anchor": args.repeats,
+        "qualification_performance_window": args.performance_window,
         "cycles": cycles,
         "runtime": {
             "process_launches": 1,
@@ -1437,8 +1507,14 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
             "replay_entries": len(parent_run_ids),
             "normal_render_tick_rate": min(
                 item.tick_rate_milli for item in rates) / 1000.0,
+            "normal_render_fps": min(
+                item.fps_milli for item in rates) / 1000.0,
             "active_battle_tick_rate": min(
                 item.active_tick_rate_milli for item in rates) / 1000.0,
+            "active_battle_fps": min(
+                item.active_fps_milli for item in rates) / 1000.0,
+            "independent_performance_clocks": all(
+                item.independent_clocks for item in rates),
             "native_stage": metadata.stage,
             "native_map": metadata.map,
             "native_left_character": metadata.left_character,
@@ -1646,6 +1722,9 @@ def build_parser() -> argparse.ArgumentParser:
     qualification_campaign.add_argument("--timeout", type=float, default=600.0)
     qualification_campaign.add_argument("--min-resume-tick-rate", type=float,
                                         default=58.0)
+    qualification_campaign.add_argument("--performance-window", type=int,
+        default=600, choices=range(120, 3601), metavar="FRAMES",
+        help="post-arm normal-render FPS/TPS recovery window")
     qualification_campaign.add_argument("--display-map-name", required=True)
     qualification_campaign.add_argument("--stage-package-root", required=True)
     qualification_campaign.add_argument("--case-id", default="")

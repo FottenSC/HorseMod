@@ -184,6 +184,16 @@ struct NativeBatchEnvelope
     std::uint64_t tira_state19_writer_sequence_hash{};
     std::uint8_t tira_state19_writer_slot_mask{};
     std::uint16_t tira_last_state19_writer_move{};
+    std::uint32_t tira_helper_attempts{};
+    std::uint32_t tira_helper_exact_draws{};
+    std::uint32_t tira_helper_writer_outcomes{};
+    std::uint32_t tira_helper_no_write_outcomes{};
+    std::uint32_t tira_helper_no_change_outcomes{};
+    std::uint32_t tira_helper_signature_failures{};
+    std::uint16_t tira_helper_last_enclosing_move{};
+    std::uint16_t tira_helper_last_chance{};
+    std::int16_t tira_helper_last_result{};
+    std::uint32_t tira_helper_last_rejection_mask{};
     std::uint32_t tira_random_transition_calls{};
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};

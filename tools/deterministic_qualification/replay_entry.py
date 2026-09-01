@@ -140,7 +140,7 @@ def create_request(
                 raise RuntimeError("qualification cycle run ID is invalid")
             if cycle_run_id in seen:
                 raise RuntimeError("qualification cycle run IDs must be unique")
-            if depth not in (1, 6, 11) or location not in (1, 2, 3, 4):
+            if depth not in (1, 6, 11) or location not in (1, 2, 3, 4, 5, 6):
                 raise RuntimeError("qualification cycle depth/location is invalid")
             seen.add(cycle_run_id)
         for index in range(0, len(qualification_cycles), 3):
@@ -154,7 +154,7 @@ def create_request(
                 or stock_round_outcome_control or require_authored_outcomes):
             raise RuntimeError(
                 "persistent qualification cycles cannot combine with other replay modes")
-    version = 11 if qualification_cycles else 9
+    version = 12 if qualification_cycles else 9
     seek_line = (
         "seek_percentages=" + ",".join(map(str, seek_percentages)) + "\n"
         f"min_resume_tick_rate_milli={round(min_resume_tick_rate * 1000)}\n"

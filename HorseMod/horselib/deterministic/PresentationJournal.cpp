@@ -57,15 +57,9 @@ Status PresentationJournal::RecordInternal(
         ++statistics_.duplicates;
         return Status::success();
     }
-    Slot* free_slot{};
-    for (std::size_t index = 0; index < maximum_events_; ++index)
+    for (std::size_t index = 0; index < pending_count_; ++index)
     {
         auto& slot = slots_[index];
-        if (!slot.occupied)
-        {
-            if (free_slot == nullptr) free_slot = &slot;
-            continue;
-        }
         const EventKey existing = Key(slot.event);
         if (existing == key)
         {
@@ -78,16 +72,17 @@ Status PresentationJournal::RecordInternal(
             return Status::success();
         }
     }
-    if (free_slot == nullptr
+    if (pending_count_ == maximum_events_
         || payload_bytes_ + event.payload_size > maximum_payload_bytes_)
     {
         ++statistics_.capacity_failures;
         return Status::failure(FailureCode::CapacityExceeded);
     }
+    auto& free_slot = slots_[pending_count_];
     payload_bytes_ += event.payload_size;
-    free_slot->event = std::move(event);
-    free_slot->occupied = true;
-    free_slot->presented = presented;
+    free_slot.event = std::move(event);
+    free_slot.occupied = true;
+    free_slot.presented = presented;
     ++pending_count_;
     ++statistics_.recorded;
     if (presented) ++statistics_.speculative_presented;
@@ -102,7 +97,7 @@ Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,
 
     std::size_t retained_count{};
     std::size_t retained_payload{};
-    for (std::size_t index = 0; index < maximum_events_; ++index)
+    for (std::size_t index = 0; index < pending_count_; ++index)
     {
         const auto& slot = slots_[index];
         if (!slot.occupied) continue;
@@ -127,7 +122,7 @@ Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,
         const EventKey key = Key(event);
         bool duplicate{};
         for (std::size_t slot_index = 0;
-             slot_index < maximum_events_; ++slot_index)
+             slot_index < pending_count_; ++slot_index)
         {
             const auto& slot = slots_[slot_index];
             if (!slot.occupied
@@ -159,7 +154,7 @@ Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,
         replacement_presented_[index] = false;
         const auto key = Key(replacement[index]);
         for (std::size_t slot_index = 0;
-             slot_index < maximum_events_; ++slot_index)
+             slot_index < pending_count_; ++slot_index)
         {
             const auto& slot = slots_[slot_index];
             if (slot.occupied && slot.presented && Key(slot.event) == key)
@@ -183,16 +178,18 @@ Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,
 
 void PresentationJournal::DiscardFrom(FrameCoordinate coordinate) noexcept
 {
-    for (std::size_t index = 0; index < maximum_events_; ++index)
+    std::size_t index{};
+    while (index < pending_count_)
     {
         auto& slot = slots_[index];
-        if (slot.occupied
-            && slot.event.coordinate.generation == coordinate.generation
+        if (slot.event.coordinate.generation == coordinate.generation
             && slot.event.coordinate.frame >= coordinate.frame)
         {
-            ClearSlot(slot);
+            ClearSlot(index);
             ++statistics_.discarded;
+            continue;
         }
+        ++index;
     }
 }
 
@@ -202,12 +199,11 @@ Status PresentationJournal::CommitThrough(
 {
     for (;;)
     {
-        Slot* next{};
+        std::size_t next_index = pending_count_;
         EventKey next_key{};
-        for (std::size_t index = 0; index < maximum_events_; ++index)
+        for (std::size_t index = 0; index < pending_count_; ++index)
         {
             auto& slot = slots_[index];
-            if (!slot.occupied) continue;
             const auto coordinate = slot.event.coordinate;
             if (coordinate.generation > confirmed.generation
                 || (coordinate.generation == confirmed.generation
@@ -217,62 +213,73 @@ Status PresentationJournal::CommitThrough(
             }
             const EventKey key{coordinate, slot.event.source_ordinal,
                 slot.event.kind, slot.event.identity};
-            if (next == nullptr || key < next_key)
+            if (next_index == pending_count_ || key < next_key)
             {
-                next = &slot;
+                next_index = index;
                 next_key = key;
             }
         }
-        if (next == nullptr) return Status::success();
+        if (next_index == pending_count_) return Status::success();
+        auto& next = slots_[next_index];
 
-        auto* watermark = EnsureWatermark(next->event.coordinate.generation);
+        auto* watermark = EnsureWatermark(next.event.coordinate.generation);
         if (watermark == nullptr)
         {
             ++statistics_.capacity_failures;
             return Status::failure(FailureCode::CapacityExceeded);
         }
-        const Status published = next->presented
-            ? Status::success() : sink.Publish(next->event);
+        const Status published = next.presented
+            ? Status::success() : sink.Publish(next.event);
         if (!published.ok())
         {
             ++statistics_.publish_failures;
             if (statistics_.first_publish_failure == FailureCode::None)
             {
                 statistics_.first_publish_failure = published.code;
-                statistics_.first_failed_event = next->event;
+                statistics_.first_failed_event = next.event;
             }
             statistics_.last_publish_failure = published.code;
-            statistics_.last_failed_event = next->event;
+            statistics_.last_failed_event = next.event;
             return published;
         }
-        if (next->event.coordinate.frame > watermark->frame)
+        if (next.event.coordinate.frame > watermark->frame)
         {
-            watermark->frame = next->event.coordinate.frame;
-            watermark->source_ordinal = next->event.source_ordinal;
+            watermark->frame = next.event.coordinate.frame;
+            watermark->source_ordinal = next.event.source_ordinal;
         }
         else
         {
             watermark->source_ordinal = (std::max)(
-                watermark->source_ordinal, next->event.source_ordinal);
+                watermark->source_ordinal, next.event.source_ordinal);
         }
-        ClearSlot(*next);
+        ClearSlot(next_index);
         ++statistics_.committed;
     }
 }
 
 void PresentationJournal::InvalidateGeneration(std::uint64_t generation) noexcept
 {
-    for (std::size_t index = 0; index < maximum_events_; ++index)
+    std::size_t index{};
+    while (index < pending_count_)
     {
         auto& slot = slots_[index];
-        if (slot.occupied && slot.event.coordinate.generation == generation)
+        if (slot.event.coordinate.generation == generation)
         {
-            ClearSlot(slot);
+            ClearSlot(index);
             ++statistics_.discarded;
+            continue;
         }
+        ++index;
     }
-    if (auto* watermark = FindWatermark(generation); watermark != nullptr)
-        *watermark = {};
+    for (std::size_t watermark_index = 0;
+         watermark_index < watermark_count_; ++watermark_index)
+    {
+        if (watermarks_[watermark_index].generation != generation) continue;
+        --watermark_count_;
+        watermarks_[watermark_index] = watermarks_[watermark_count_];
+        watermarks_[watermark_count_] = {};
+        break;
+    }
 }
 
 std::size_t PresentationJournal::pending_count() const noexcept
@@ -306,9 +313,8 @@ Status PresentationJournal::ResetStatistics() noexcept
 PresentationJournal::Watermark* PresentationJournal::FindWatermark(
     std::uint64_t generation) noexcept
 {
-    for (std::size_t index = 0; index < maximum_events_; ++index)
-        if (watermarks_[index].occupied
-            && watermarks_[index].generation == generation)
+    for (std::size_t index = 0; index < watermark_count_; ++index)
+        if (watermarks_[index].generation == generation)
             return &watermarks_[index];
     return nullptr;
 }
@@ -316,9 +322,8 @@ PresentationJournal::Watermark* PresentationJournal::FindWatermark(
 const PresentationJournal::Watermark* PresentationJournal::FindWatermark(
     std::uint64_t generation) const noexcept
 {
-    for (std::size_t index = 0; index < maximum_events_; ++index)
-        if (watermarks_[index].occupied
-            && watermarks_[index].generation == generation)
+    for (std::size_t index = 0; index < watermark_count_; ++index)
+        if (watermarks_[index].generation == generation)
             return &watermarks_[index];
     return nullptr;
 }
@@ -328,15 +333,10 @@ PresentationJournal::Watermark* PresentationJournal::EnsureWatermark(
 {
     if (auto* existing = FindWatermark(generation); existing != nullptr)
         return existing;
-    for (std::size_t index = 0; index < maximum_events_; ++index)
-    {
-        if (!watermarks_[index].occupied)
-        {
-            watermarks_[index] = {true, generation, 0, 0};
-            return &watermarks_[index];
-        }
-    }
-    return nullptr;
+    if (watermark_count_ == maximum_events_) return nullptr;
+    auto& watermark = watermarks_[watermark_count_++];
+    watermark = {true, generation, 0, 0};
+    return &watermark;
 }
 
 bool PresentationJournal::IsCommitted(const PresentationEvent& event) const noexcept
@@ -361,10 +361,13 @@ bool PresentationJournal::Valid(const PresentationEvent& event) noexcept
         && event.payload_size <= Schema::maximum_presentation_payload;
 }
 
-void PresentationJournal::ClearSlot(Slot& slot) noexcept
+void PresentationJournal::ClearSlot(std::size_t index) noexcept
 {
+    auto& slot = slots_[index];
     payload_bytes_ -= slot.event.payload_size;
-    slot = {};
     --pending_count_;
+    if (index != pending_count_)
+        slot = std::move(slots_[pending_count_]);
+    slots_[pending_count_] = {};
 }
 }

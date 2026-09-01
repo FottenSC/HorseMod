@@ -102,6 +102,7 @@ using GetReplayPresentationIdentityFn = bool (*)(std::uint64_t*, std::size_t);
 using GetReplayQualificationHealthFn = bool (*)(std::uint64_t*, std::size_t);
 using ResetReplayQualificationHealthFn = bool (*)();
 using GetReplayGameplayRngCoverageFn = bool (*)(std::uint64_t*, std::size_t);
+using GetQualificationClockFn = bool (*)(std::uint64_t*, std::size_t);
 using RequestStageTerminalFn = bool (*)(std::uint32_t);
 using GetStageTerminalStatusFn = std::uint32_t (*)(std::uint32_t*);
 using GetForcedQualificationStatusFn = std::uint32_t (*)();
@@ -701,6 +702,10 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
             return false;
         }
     }
+    // v12 keeps the v11 field set and adds the independent-clock/Tira-event
+    // runtime semantics. Normalize only after parsing so older harnesses
+    // remain readable while new producers bind evidence to the new contract.
+    if (fields["version"] == "12") fields["version"] = "11";
     if (!stream.eof() || !ValidRunId(fields["run_id"])
         || (fields["version"] != "2" && fields["version"] != "3"
             && fields["version"] != "4" && fields["version"] != "5"
@@ -879,7 +884,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
                 const auto location = std::stoul(std::string(
                     token.substr(second + 1)));
                 if ((depth != 1 && depth != 6 && depth != 11)
-                    || location < 1 || location > 4) return false;
+                    || location < 1 || location > 6) return false;
                 if (std::any_of(qualification_cycles.begin(),
                         qualification_cycles.end(), [&](const auto& cycle) {
                             return cycle.run_id == cycle_id;
@@ -1128,6 +1133,10 @@ public:
         {
             (void)RC::Unreal::Hook::UnregisterCallback(engine_tick_id_);
         }
+        if (viewport_tick_id_ != RC::Unreal::Hook::ERROR_ID)
+        {
+            (void)RC::Unreal::Hook::UnregisterCallback(viewport_tick_id_);
+        }
     }
 
     void on_unreal_init() override
@@ -1148,6 +1157,23 @@ public:
         options.bReadonly = true;
         options.OwnerModName = STR("ReplayQualificationMod");
         options.HookName = STR("ReplayEntry");
+        viewport_tick_id_ =
+            RC::Unreal::Hook::RegisterGameViewportClientTickPostCallback(
+                [](RC::Unreal::Hook::TCallbackIterationData<void>&,
+                   RC::Unreal::UGameViewportClient*, float) {
+                    ReplayQualificationMod* self =
+                        s_instance_.load(std::memory_order_acquire);
+                    if (self != nullptr)
+                        self->viewport_frame_count_.fetch_add(
+                            1, std::memory_order_relaxed);
+                }, options);
+        if (viewport_tick_id_ == RC::Unreal::Hook::ERROR_ID)
+        {
+            bound_ = false;
+            Output::send<LogLevel::Error>(STR(
+                "[ReplayQualification] viewport-frame clock unavailable\n"));
+            return;
+        }
         engine_tick_id_ = RC::Unreal::Hook::RegisterEngineTickPostCallback(
             [](RC::Unreal::Hook::TCallbackIterationData<void>&,
                RC::Unreal::UEngine*, float, bool) {
@@ -1161,6 +1187,23 @@ public:
     }
 
 private:
+    bool ReadQualificationClock(
+        std::array<std::uint64_t, 5>& clock) const noexcept
+    {
+        if (qualification_clock_ == nullptr
+            || !qualification_clock_(clock.data(), clock.size()))
+            return false;
+        std::uint32_t native_battle_frame{};
+        if (!ReadLuxBattleFrame(native_battle_frame)) return false;
+        clock[1] = viewport_frame_count_.load(std::memory_order_acquire);
+        // The native battle frame is the authored simulation clock. Unlike
+        // HorseMod's outer-tick detour it exists in the rollback-disabled
+        // stock oracle too, so stock and deterministic runs use the same TPS
+        // definition without coupling it to diagnostic hook installation.
+        clock[2] = native_battle_frame;
+        return true;
+    }
+
     void TickGameThread()
     {
         if (!bound_) return;
@@ -1380,6 +1423,9 @@ private:
         battle_active_rate_start_frame_ = 0;
         battle_active_rate_round_ = 0;
         battle_active_rate_logged_ = false;
+        qualification_clock_ = nullptr;
+        battle_clock_start_ = {};
+        active_clock_start_ = {};
         seek_index_ = 0;
         seek_requested_ = false;
         requested_seek_target_ = 0;
@@ -1410,6 +1456,7 @@ private:
             ? 1 : request_.stage_terminal;
         qualification_cycle_index_ = 0;
         qualification_cycle_armed_ = false;
+        qualification_performance_window_started_ = false;
         qualification_group_run_id_.clear();
         arm_qualification_group_ = nullptr;
         get_qualification_group_row_report_ = nullptr;
@@ -1532,7 +1579,56 @@ private:
         return false;
     }
 
-    bool PollQualificationCycles()
+    bool LogFinalQualificationRates()
+    {
+        std::array<std::uint64_t, 5> clock{};
+        if (!ReadQualificationClock(clock)
+            || clock[1] < battle_clock_start_[1]
+            || clock[2] < battle_clock_start_[2]
+            || clock[3] < battle_clock_start_[3]
+            || clock[1] < active_clock_start_[1]
+            || clock[2] < active_clock_start_[2]
+            || clock[3] < active_clock_start_[3])
+        {
+            Fail("horsemod_final_qualification_clock_invalid");
+            return false;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        const auto log_window = [&](const TCHAR* label,
+                                    const auto& start,
+                                    const auto& started_at) noexcept {
+            const auto elapsed_us = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    now - started_at).count());
+            const auto viewport_frames = clock[1] - start[1];
+            const auto ticks = clock[2] - start[2];
+            const auto owned = clock[3] - start[3];
+            const auto fps_milli = elapsed_us == 0 ? 0
+                : viewport_frames * 1'000'000'000ull / elapsed_us;
+            const auto tick_rate_milli = elapsed_us == 0 ? 0
+                : ticks * 1'000'000'000ull / elapsed_us;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] normal-render {} rate "
+                "viewport_frames={} native_ticks={} owned_ticks={} "
+                "elapsed_us={} fps_milli={} tick_rate_milli={}\n"), label,
+                viewport_frames,
+                ticks, owned, elapsed_us, fps_milli, tick_rate_milli);
+            return fps_milli >= request_.min_resume_tick_rate_milli
+                && tick_rate_milli >= request_.min_resume_tick_rate_milli;
+        };
+        const bool overall = log_window(STR("battle"), battle_clock_start_,
+            battle_rate_started_at_);
+        const bool active = log_window(STR("active battle"),
+            active_clock_start_, battle_active_rate_started_at_);
+        if (!overall || !active)
+        {
+            Fail("normal_render_qualification_rate_below_minimum");
+            return false;
+        }
+        return true;
+    }
+
+    bool PollQualificationCycles(bool allow_completion = true)
     {
         if (request_.qualification_cycles.empty()) return false;
         if (qualification_cycle_index_ >= request_.qualification_cycles.size())
@@ -1576,21 +1672,52 @@ private:
                 return true;
             }
             qualification_cycle_armed_ = true;
+            if (!ReadQualificationClock(battle_clock_start_))
+            {
+                Fail("horsemod_qualification_clock_unavailable_after_arm");
+                return true;
+            }
+            active_clock_start_ = battle_clock_start_;
+            battle_rate_started_at_ = std::chrono::steady_clock::now();
+            battle_active_rate_started_at_ = battle_rate_started_at_;
+            qualification_performance_window_started_ = true;
             return true;
         }
-        std::array<std::uint64_t, 50> first_report{};
+        std::array<std::uint64_t, 51> first_report{};
         const auto status = get_qualification_group_row_report_(
             qualification_group_run_id_.data(),
             qualification_group_run_id_.size(), 0, first_report.data(),
             first_report.size());
         if (status == 0) return true;
         if (status != 3 && status != 4) return true;
+        if (!allow_completion) return true;
+        if (!qualification_performance_window_started_)
+        {
+            Fail("horsemod_qualification_performance_window_missing");
+            return true;
+        }
+        std::array<std::uint64_t, 5> performance_clock{};
+        if (!ReadQualificationClock(performance_clock)
+            || performance_clock[1] < battle_clock_start_[1]
+            || performance_clock[2] < battle_clock_start_[2])
+        {
+            Fail("horsemod_qualification_performance_clock_invalid");
+            return true;
+        }
+        // A terminal native group can finish in a few authored frames. Keep
+        // its real restore cost inside a fixed 120-frame normal-render window
+        // and measure recovery instead of judging a partial interval.
+        if (performance_clock[1] - battle_clock_start_[1]
+                < request_.resume_tick_window
+            || performance_clock[2] - battle_clock_start_[2]
+                < request_.resume_tick_window)
+            return true;
         PROCESS_MEMORY_COUNTERS_EX memory{};
         memory.cb = sizeof(memory);
         const bool memory_valid = K32GetProcessMemoryInfo(
             GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(
                 &memory), sizeof(memory)) != FALSE;
-        std::array<std::array<std::uint64_t, 50>, 3> reports{};
+        std::array<std::array<std::uint64_t, 51>, 3> reports{};
         bool reports_valid = true;
         for (std::uint32_t row = 0; row < 3; ++row)
         {
@@ -1614,7 +1741,7 @@ private:
                 "working_set_bytes={} private_bytes={} "
                 "presentation_activity={}/{}/{} terminal_coverage={} "
                 "anchors={}/{} repeats={} anchor_hash=0x{:016x} "
-                "failure_anchor={} failure_repeat={}\n"),
+                "failure_anchor={} failure_repeat={} arm_ms={}\n"),
                 RC::to_generic_string(cycle.run_id), report[4], report[2],
                 report[3], status, report[5], report[6], report[7], report[8],
                 report[9], report[10], report[11], report[12],
@@ -1625,7 +1752,7 @@ private:
                 memory_valid ? memory.WorkingSetSize : 0,
                 memory_valid ? memory.PrivateUsage : 0, report[40],
                 report[41], report[42], report[43], report[44], report[45],
-                report[46], report[47], report[48], report[49]);
+                report[46], report[47], report[48], report[49], report[50]);
         }
         const bool anchor_identity_valid = reports[0][47] != 0
             && reports[0][47] == reports[1][47]
@@ -1634,7 +1761,7 @@ private:
             qualification_group_run_id_.data(),
             qualification_group_run_id_.size());
         qualification_cycle_armed_ = false;
-        std::array<std::uint64_t, 50> cleanup{};
+        std::array<std::uint64_t, 51> cleanup{};
         const auto cleanup_status = get_qualification_group_row_report_(
             qualification_group_run_id_.data(),
             qualification_group_run_id_.size(), 0, cleanup.data(),
@@ -1678,6 +1805,7 @@ private:
         qualification_cycle_index_ += 3;
         if (qualification_cycle_index_ == request_.qualification_cycles.size())
         {
+            if (!LogFinalQualificationRates()) return true;
             WriteResult("launch_requested", "qualification_groups_passed");
             // Persistent qualification owns multiple independent replay
             // entries without restarting SC6.  Reuse the navigator's proven
@@ -1842,6 +1970,20 @@ private:
                 }
             }
             battle_scene_observed_ = true;
+            qualification_clock_ = ResolveHorseModExport<
+                GetQualificationClockFn>(
+                    "horsemod_get_qualification_clock_v1");
+            if (qualification_clock_ == nullptr)
+            {
+                Fail("horsemod_qualification_clock_unavailable");
+                return;
+            }
+            if (!ReadQualificationClock(battle_clock_start_))
+            {
+                Fail("horsemod_qualification_clock_unavailable");
+                return;
+            }
+            active_clock_start_ = battle_clock_start_;
             observed_battle_frame_ = frame;
             initial_battle_frame_ = round_state_frame <= frame + 1
                 ? frame - (round_state_frame - 1) : frame;
@@ -1872,22 +2014,38 @@ private:
                 std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now()
                         - battle_rate_started_at_).count());
-            const auto measured_frames = static_cast<std::uint64_t>(
-                frame - observed_battle_frame_);
+            std::array<std::uint64_t, 5> clock{};
+            if (!ReadQualificationClock(clock)
+                || clock[1] < battle_clock_start_[1]
+                || clock[2] < battle_clock_start_[2]
+                || clock[3] < battle_clock_start_[3])
+            {
+                Fail("horsemod_qualification_clock_invalid");
+                return;
+            }
+            const auto measured_frames = clock[1] - battle_clock_start_[1];
+            const auto measured_ticks = clock[2] - battle_clock_start_[2];
+            const auto owned_ticks = clock[3] - battle_clock_start_[3];
+            const auto fps_milli = elapsed_us == 0 ? 0
+                : measured_frames * 1'000'000'000ull / elapsed_us;
             const auto tick_rate_milli = elapsed_us == 0 ? 0
-                : measured_frames * 1'000'000'000ull
-                    / elapsed_us;
+                : measured_ticks * 1'000'000'000ull / elapsed_us;
             Output::send<LogLevel::Default>(STR(
                 "[ReplayQualification] normal-render battle rate "
-                "frames={} elapsed_us={} tick_rate_milli={}\n"),
-                measured_frames, elapsed_us, tick_rate_milli);
+                "viewport_frames={} native_ticks={} owned_ticks={} elapsed_us={} "
+                "fps_milli={} tick_rate_milli={}\n"),
+                measured_frames, measured_ticks, owned_ticks, elapsed_us,
+                fps_milli, tick_rate_milli);
             battle_rate_logged_ = true;
-            if (tick_rate_milli < request_.min_resume_tick_rate_milli)
+            if (fps_milli < request_.min_resume_tick_rate_milli
+                || tick_rate_milli < request_.min_resume_tick_rate_milli)
             {
                 Output::send<LogLevel::Error>(STR(
                     "[ReplayQualification] normal-render battle rate failed "
-                    "frames={} elapsed_us={} tick_rate_milli={} minimum={}\n"),
-                    measured_frames, elapsed_us, tick_rate_milli,
+                    "viewport_frames={} native_ticks={} elapsed_us={} fps_milli={} "
+                    "tick_rate_milli={} minimum={}\n"),
+                    measured_frames, measured_ticks, elapsed_us, fps_milli,
+                    tick_rate_milli,
                     request_.min_resume_tick_rate_milli);
                 Fail("normal_render_battle_rate_below_minimum");
                 return;
@@ -1907,29 +2065,52 @@ private:
                 battle_active_rate_started_at_ = now;
                 battle_active_rate_start_frame_ = frame;
                 battle_active_rate_round_ = native_round;
+                if (!ReadQualificationClock(active_clock_start_))
+                {
+                    Fail("horsemod_active_qualification_clock_reset_failed");
+                    return;
+                }
             }
             else if (frame - battle_active_rate_start_frame_
-                >= request_.resume_tick_window)
+                >= (request_.qualification_cycles.empty()
+                    ? request_.resume_tick_window : request_.watch_frames))
             {
-                const auto measured_frames = static_cast<std::uint64_t>(
-                    frame - battle_active_rate_start_frame_);
                 const auto elapsed_us = static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::microseconds>(
                         now - battle_active_rate_started_at_).count());
-                const auto tick_rate_milli = elapsed_us == 0 ? 0
+                std::array<std::uint64_t, 5> clock{};
+                if (!ReadQualificationClock(clock)
+                    || clock[1] < active_clock_start_[1]
+                    || clock[2] < active_clock_start_[2]
+                    || clock[3] < active_clock_start_[3])
+                {
+                    Fail("horsemod_active_qualification_clock_invalid");
+                    return;
+                }
+                const auto measured_frames = clock[1] - active_clock_start_[1];
+                const auto measured_ticks = clock[2] - active_clock_start_[2];
+                const auto owned_ticks = clock[3] - active_clock_start_[3];
+                const auto fps_milli = elapsed_us == 0 ? 0
                     : measured_frames * 1'000'000'000ull / elapsed_us;
+                const auto tick_rate_milli = elapsed_us == 0 ? 0
+                    : measured_ticks * 1'000'000'000ull / elapsed_us;
                 Output::send<LogLevel::Default>(STR(
                     "[ReplayQualification] normal-render active battle rate "
-                    "frames={} elapsed_us={} tick_rate_milli={}\n"),
-                    measured_frames, elapsed_us, tick_rate_milli);
+                    "viewport_frames={} native_ticks={} owned_ticks={} elapsed_us={} "
+                    "fps_milli={} tick_rate_milli={}\n"),
+                    measured_frames, measured_ticks, owned_ticks, elapsed_us,
+                    fps_milli, tick_rate_milli);
                 battle_active_rate_logged_ = true;
-                if (tick_rate_milli < request_.min_resume_tick_rate_milli)
+                if (fps_milli < request_.min_resume_tick_rate_milli
+                    || tick_rate_milli < request_.min_resume_tick_rate_milli)
                 {
                     Output::send<LogLevel::Error>(STR(
                         "[ReplayQualification] normal-render active battle "
-                        "rate failed frames={} elapsed_us={} "
-                        "tick_rate_milli={} minimum={}\n"),
-                        measured_frames, elapsed_us, tick_rate_milli,
+                        "rate failed viewport_frames={} native_ticks={} "
+                        "elapsed_us={} fps_milli={} tick_rate_milli={} "
+                        "minimum={}\n"),
+                        measured_frames, measured_ticks, elapsed_us,
+                        fps_milli, tick_rate_milli,
                         request_.min_resume_tick_rate_milli);
                     Fail("normal_render_active_battle_rate_below_minimum");
                     return;
@@ -2087,7 +2268,7 @@ private:
             health[18], health[12], health[19], health[13], health[20]);
         const auto get_rng_coverage =
             ResolveHorseModGameplayRngCoverageApi();
-        std::array<std::uint64_t, 46> rng_coverage{};
+        std::array<std::uint64_t, 56> rng_coverage{};
         if (get_rng_coverage == nullptr
             || !get_rng_coverage(rng_coverage.data(), rng_coverage.size()))
         {
@@ -2115,7 +2296,13 @@ private:
             "tira_last_target=0x{:04x} resolved_hit_calls={} "
             "resolved_hit_sequence=0x{:016x} tira_writer_calls={} "
             "tira_writer_sequence=0x{:016x} tira_writer_slot_mask=0x{:x} "
-            "tira_last_writer_move=0x{:04x}\n"),
+            "tira_last_writer_move=0x{:04x} tira_helper_attempts={} "
+            "tira_helper_exact_draws={} tira_helper_writes={} "
+            "tira_helper_no_write={} tira_helper_no_change={} "
+            "tira_helper_signature_failures={} "
+            "tira_helper_last_enclosing_move=0x{:04x} "
+            "tira_helper_last_chance={} tira_helper_last_result={} "
+            "tira_helper_last_rejection_mask=0x{:x}\n"),
             rng_coverage[0], rng_coverage[1], rng_coverage[2],
             rng_coverage[3], rng_coverage[4], rng_coverage[5],
             rng_coverage[6], rng_coverage[7], rng_coverage[8],
@@ -2131,7 +2318,10 @@ private:
             rng_coverage[36], rng_coverage[37], rng_coverage[38],
             rng_coverage[39], rng_coverage[40], rng_coverage[41],
             rng_coverage[42], rng_coverage[43], rng_coverage[44],
-            rng_coverage[45]);
+            rng_coverage[45], rng_coverage[46], rng_coverage[47],
+            rng_coverage[48], rng_coverage[49], rng_coverage[50],
+            rng_coverage[51], rng_coverage[52], rng_coverage[53],
+            static_cast<std::int64_t>(rng_coverage[54]), rng_coverage[55]);
         const auto get_canonical = ResolveHorseModCanonicalStateApi();
         std::uint64_t canonical_generation{}, canonical_frame{};
         std::array<std::byte, 32> canonical_hash{};
@@ -2627,6 +2817,12 @@ private:
     std::uint32_t battle_active_rate_start_frame_{};
     std::int32_t battle_active_rate_round_{};
     bool battle_active_rate_logged_{};
+    GetQualificationClockFn qualification_clock_{};
+    std::array<std::uint64_t, 5> battle_clock_start_{};
+    std::array<std::uint64_t, 5> active_clock_start_{};
+    RC::Unreal::Hook::GlobalCallbackId viewport_tick_id_{
+        RC::Unreal::Hook::ERROR_ID};
+    std::atomic<std::uint64_t> viewport_frame_count_{};
     std::size_t seek_index_{};
     bool seek_requested_{};
     std::uint64_t requested_seek_target_{};
@@ -2651,6 +2847,7 @@ private:
     DisarmReplayQualificationCycleFn disarm_qualification_cycle_{};
     std::size_t qualification_cycle_index_{};
     bool qualification_cycle_armed_{};
+    bool qualification_performance_window_started_{};
     std::string qualification_group_run_id_{};
     ArmOnlineQualificationFn arm_online_{};
     GetOnlineQualificationStatusFn get_online_status_{};

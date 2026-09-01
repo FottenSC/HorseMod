@@ -19,17 +19,26 @@ from .report import write_report
 def _load_cases(path: Path) -> list[dict[str, Any]]:
     document = json.loads(path.read_text(encoding="utf-8"))
     cases = document.get("cases")
-    if document.get("schema_version") != 1 or not isinstance(cases, list):
-        raise RuntimeError("Tira manifest must be schema v1")
-    if len(cases) != 3:
-        raise RuntimeError("Tira manifest must contain exactly three authored replays")
+    if document.get("schema_version") != 2 or not isinstance(cases, list):
+        raise RuntimeError("Tira manifest must be schema v2")
+    if len(cases) < 3:
+        raise RuntimeError("Tira manifest must contain positive and control replays")
     required = {
         "case_id", "replay", "stage_package_root", "native_display_name",
         "contains_tira", "replay_sha256", "replay_metadata_stage",
-        "replay_metadata_map",
+        "replay_metadata_map", "role",
     }
     if any(not isinstance(case, dict) or not required <= set(case) for case in cases):
         raise RuntimeError("Tira manifest case is incomplete")
+    roles = {case["role"] for case in cases}
+    required_roles = {
+        "helper_321b_success", "deterministic_state19_only",
+        "non_tira_control",
+    }
+    if not required_roles <= roles:
+        raise RuntimeError(
+            "Tira manifest needs a current-build helper success replay, "
+            "a deterministic state19 control, and a non-Tira control")
     return cases
 
 
@@ -67,6 +76,11 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
         "state19_final_p0", "state19_final_p1", "xorshift_landing",
         "state19_at_tira_transition_p0", "state19_at_tira_transition_p1",
         "state19_initial_valid",
+        "tira_helper_attempts", "tira_helper_exact_draws",
+        "tira_helper_writes", "tira_helper_no_write",
+        "tira_helper_no_change", "tira_helper_signature_failures",
+        "tira_helper_last_enclosing_move", "tira_helper_last_chance",
+        "tira_helper_last_result", "tira_helper_last_rejection_mask",
     )
     for case in cases:
         case_failures: list[str] = []
@@ -78,6 +92,7 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
             artifacts = report.get("artifacts", {})
             coverage = runtime.get("gameplay_rng_coverage")
             presentation = runtime.get("presentation", {})
+            performance = runtime.get("performance", {})
             if (report.get("result") != "pass" or report.get("certifying") is not True):
                 case_failures.append("report is not a certifying pass")
             if report.get("renderer") != "normal":
@@ -120,6 +135,13 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                 case_failures.append("authored round/final winner proof missing")
             if runtime.get("final_canonical") is None:
                 case_failures.append("final canonical proof missing")
+            if (performance.get("independent_clocks") is not True
+                    or performance.get("normal_render_fps", 0) <= 59.0
+                    or performance.get("normal_render_tick_rate", 0) <= 59.0
+                    or performance.get("active_battle_fps", 0) <= 59.0
+                    or performance.get("active_battle_tick_rate", 0) <= 59.0):
+                case_failures.append(
+                    "independent active-battle FPS/TPS budget failed")
             if (runtime.get("capacity_failures") != 0
                     or runtime.get("capacity_growth_events") != 0
                     or runtime.get("timeline_accounting_failures") != 0
@@ -135,7 +157,7 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                 if _int_field(coverage, "unknown_callers") != 0:
                     case_failures.append("unknown gameplay RNG caller observed")
                 transition = (
-                    case["contains_tira"]
+                    case["role"] == "helper_321b_success"
                     and _int_field(coverage, "if_draws") > 0
                     and _int_field(coverage, "xorshift_draws") > 0
                     and _int_field(coverage, "tira_probability_batches") > 0
@@ -146,6 +168,11 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                     and _int_field(coverage, "tira_writer_calls") > 0
                     and _int_field(coverage, "tira_writer_sequence") > 0
                     and _int_field(coverage, "tira_writer_slot_mask") > 0
+                    and _int_field(coverage, "tira_helper_attempts") > 0
+                    and _int_field(coverage, "tira_helper_exact_draws") > 0
+                    and _int_field(coverage, "tira_helper_writes") > 0
+                    and _int_field(
+                        coverage, "tira_helper_signature_failures") == 0
                 )
                 if transition:
                     transition_runs += 1
@@ -168,9 +195,20 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                             or _int_field(coverage, "tira_sequence") == 0):
                         case_failures.append(
                             "ordered Tira RNG/transition identity is empty")
-                elif case["contains_tira"]:
+                elif case["role"] == "helper_321b_success":
                     case_failures.append(
                         "authored Tira replay did not execute the exact random transition")
+                elif case["role"] == "deterministic_state19_only":
+                    if (not case["contains_tira"]
+                            or _int_field(coverage, "tira_writer_calls") == 0
+                            or _int_field(coverage, "tira_random_transitions") != 0):
+                        case_failures.append(
+                            "deterministic state19 control did not remain distinct")
+                elif case["role"] == "non_tira_control":
+                    if (case["contains_tira"]
+                            or _int_field(coverage, "tira_random_transitions") != 0
+                            or _int_field(coverage, "tira_helper_attempts") != 0):
+                        case_failures.append("non-Tira control observed Tira helper activity")
             except RuntimeError as error:
                 case_failures.append(str(error))
         if len(pair) == 2:
@@ -218,6 +256,7 @@ def run_tira_campaign(args: Any, root: Path) -> int:
         raise RuntimeError("Tira certification requires frozen deterministic sources")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     reports: list[dict[str, Any]] = []
+    event_restore_reports: list[dict[str, Any]] = []
     try:
         for case in cases:
             replay_path = root / case["replay"]
@@ -259,11 +298,70 @@ def run_tira_campaign(args: Any, root: Path) -> int:
                     "--display-map-name", case["native_display_name"],
                     "--stage-package-root", case["stage_package_root"],
                 ]
-                if case["contains_tira"]:
+                if case["role"] == "helper_321b_success":
                     command.append("--require-tira-probability-transition")
                 with armed_baseline(args.config):
                     subprocess.run(command, cwd=root, check=True)
                 reports.append(json.loads(report_path.read_text(encoding="utf-8")))
+            if case["role"] == "helper_321b_success":
+                for suffix, location, anchors, repeats in (
+                    ("event-restores", 5, 1, 15),
+                    ("production-cadence", 6, 15, 1),
+                ):
+                    event_path = args.output_dir / (
+                        f"{case['case_id']}-{suffix}.json")
+                    event_command = [
+                        sys.executable,
+                        str(root / "tools" / "deterministic_qualification.py"),
+                        "replay-qualification-campaign", "--replay",
+                        str(replay_path), "--dll", str(args.dll),
+                        "--replay-mod", str(args.replay_mod), "--config",
+                        str(args.config), "--schema", str(args.schema), "--log",
+                        str(args.log), "--game-executable",
+                        str(args.game_executable), "--report", str(event_path),
+                        "--timeout", str(args.timeout), "--certifying",
+                        "--anchors", str(anchors), "--repeats", str(repeats),
+                        "--cycle", "11", str(location), "--cycle", "1",
+                        str(location), "--cycle", "6", str(location),
+                        "--case-id", case["case_id"], "--display-map-name",
+                        case["native_display_name"], "--stage-package-root",
+                        case["stage_package_root"], "--min-resume-tick-rate",
+                        "59.001",
+                    ]
+                    disarm_diagnostics(args.config)
+                    subprocess.run(event_command, cwd=root, check=True)
+                    event_report = json.loads(
+                        event_path.read_text(encoding="utf-8"))
+                    runtime = event_report.get("runtime", {})
+                    cycles = event_report.get("cycles", [])
+                    expected = anchors * repeats
+                    valid_cycles = (
+                        len(cycles) == 3
+                        and [cycle.get("depth") for cycle in cycles]
+                            == [11, 1, 6]
+                        and all(cycle.get("location") == location
+                                and cycle.get("completed")
+                                    == f"{expected}/{expected}"
+                                and cycle.get("failure") == 0
+                                for cycle in cycles)
+                    )
+                    if (event_report.get("certifying") is not True
+                            or event_report.get("result") != "pass"
+                            or event_report.get("depth_order") != [11, 1, 6]
+                            or event_report.get("qualification_anchors") != anchors
+                            or event_report.get(
+                                "qualification_repeats_per_anchor") != repeats
+                            or runtime.get(
+                                "independent_performance_clocks") is not True
+                            or min(runtime.get("normal_render_fps", 0),
+                                   runtime.get("normal_render_tick_rate", 0),
+                                   runtime.get("active_battle_fps", 0),
+                                   runtime.get("active_battle_tick_rate", 0))
+                                <= 59.0
+                            or not valid_cycles):
+                        raise RuntimeError(
+                            f"Tira {suffix} 11/1/6 restore gate failed")
+                    event_restore_reports.append(event_report)
     finally:
         disarm_diagnostics(args.config)
         if list_game_processes():
@@ -293,7 +391,24 @@ def run_tira_campaign(args: Any, root: Path) -> int:
             }
             for case in cases for repeat in range(2)
         ],
+        "event_restore_reports": [
+            {
+                "path": str((args.output_dir / f"{case['case_id']}-{suffix}.json").resolve()),
+                "sha256": sha256_file(
+                    args.output_dir / f"{case['case_id']}-{suffix}.json"),
+                "replay_sha256": case["replay_sha256"],
+            }
+            for case in cases if case["role"] == "helper_321b_success"
+            for suffix in ("event-restores", "production-cadence")
+        ],
     }
+    evaluation["event_restore_runs"] = len(event_restore_reports)
+    if len(event_restore_reports) != 2 * sum(
+            case["role"] == "helper_321b_success" for case in cases):
+        evaluation["certifying"] = False
+        evaluation["result"] = "fail"
+        evaluation["failures"].append(
+            "exact-event repeated-restore evidence is incomplete")
     evaluation["source"] = source_identity(root)
     write_report(args.report, evaluation)
     if not evaluation["certifying"]:

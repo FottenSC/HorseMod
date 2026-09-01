@@ -234,6 +234,24 @@ def test_normal_render_rate_parser_supports_explicit_request_local_window() -> N
     assert evidence.active_tick_rate_milli == 58794
 
 
+def test_normal_render_rate_parser_keeps_viewport_and_forward_tick_clocks_distinct() -> None:
+    text = (
+        "[HorseMod] ctor v2.0 source=" + "c" * 40 + "\n"
+        "[ReplayQualification] normal-render battle rate "
+        "viewport_frames=601 native_ticks=600 owned_ticks=45 elapsed_us=10000000 "
+        "fps_milli=60100 tick_rate_milli=60000\n"
+        "[ReplayQualification] normal-render active battle rate "
+        "viewport_frames=121 native_ticks=120 owned_ticks=45 elapsed_us=2000000 "
+        "fps_milli=60500 tick_rate_milli=60000\n"
+    )
+    evidence = parse_normal_render_rate_evidence(text)
+    assert evidence is not None
+    assert evidence.independent_clocks is True
+    assert evidence.fps_milli == 60100
+    assert evidence.tick_rate_milli == 60000
+    assert evidence.active_owned_ticks == 45
+
+
 def test_forced_qualification_parser_prefers_terminal_failure() -> None:
     text = (
         "[HorseMod] ctor v2.0 source=" + "b" * 40 + "\n"

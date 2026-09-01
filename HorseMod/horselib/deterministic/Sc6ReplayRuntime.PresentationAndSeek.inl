@@ -83,6 +83,29 @@ Status Sc6ReplayRuntime::AccumulateObservedGameplayIdentity(
     }
     timeline_status_.observed_tira_state19_writer_calls +=
         observation.tira_state19_writer_calls;
+    timeline_status_.observed_tira_helper_attempts +=
+        observation.tira_helper_attempts;
+    timeline_status_.observed_tira_helper_exact_draws +=
+        observation.tira_helper_exact_draws;
+    timeline_status_.observed_tira_helper_writer_outcomes +=
+        observation.tira_helper_writer_outcomes;
+    timeline_status_.observed_tira_helper_no_write_outcomes +=
+        observation.tira_helper_no_write_outcomes;
+    timeline_status_.observed_tira_helper_no_change_outcomes +=
+        observation.tira_helper_no_change_outcomes;
+    timeline_status_.observed_tira_helper_signature_failures +=
+        observation.tira_helper_signature_failures;
+    if (observation.tira_helper_attempts != 0)
+    {
+        timeline_status_.observed_tira_helper_last_enclosing_move =
+            observation.tira_helper_last_enclosing_move;
+        timeline_status_.observed_tira_helper_last_chance =
+            observation.tira_helper_last_chance;
+        timeline_status_.observed_tira_helper_last_result =
+            observation.tira_helper_last_result;
+        timeline_status_.observed_tira_helper_last_rejection_mask =
+            observation.tira_helper_last_rejection_mask;
+    }
     if (observation.tira_state19_writer_calls != 0)
     {
         AppendFnv64(timeline_status_.observed_tira_state19_writer_sequence_hash,
@@ -360,6 +383,59 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
         next_replay_history_capture_required_;
 }
 
+void Sc6ReplayRuntime::ResetQualificationStateRetainingStorage() noexcept
+{
+    // Runtime re-arm is not a replay/process exit. Clear every logical owner
+    // and identity exactly as an exit does, but retain the already bounded,
+    // prewarmed checkpoint slots and vector capacities. Releasing those slots
+    // here discarded roughly 300 MiB and forced a visible allocation hitch on
+    // every depth/location-only change.
+    input_timeline_.Clear();
+    batch_timeline_.Clear();
+    canonical_timeline_.Clear();
+    archived_last_canonical_.reset();
+    archived_canonical_frames_ = 0;
+    archived_presentation_identity_ = {};
+    forced_qualification_snapshots_.Clear();
+    correction_undo_scratch_ = {};
+    correction_verified_scratch_ = {};
+    correction_canonical_capture_scratch_ = {};
+    timeline_canonical_capture_scratch_ = {};
+    checkpoint_capture_.InvalidateHistory();
+    presentation_controller_.EndGeneration();
+    diagnostic_snapshot_scratch_ = {};
+    if (diagnostic_image_a_ != nullptr) *diagnostic_image_a_ = {};
+    if (diagnostic_image_b_ != nullptr) *diagnostic_image_b_ = {};
+    for (auto& snapshot : corrected_replay_capture_.replacement_landing)
+        snapshot = {};
+    for (auto& snapshot : corrected_replay_capture_.replacement_batch_entry)
+        snapshot = {};
+    corrected_replay_capture_.Clear();
+    timeline_status_ = {};
+    timeline_manager_ = 0;
+    timeline_input_log_ = 0;
+    timeline_thread_id_ = 0;
+    pending_batch_id_ = 0;
+    pending_batch_entry_ = {};
+    pending_camera_source_frame_ = {};
+    pending_batch_coordinates_.clear();
+    last_movevm_short25_ = {};
+    last_movevm_state_shorts_ = {};
+    pending_movevm_state_short_change_masks_ = {};
+    pending_movevm_short25_change_mask_ = 0;
+    pending_movevm_short25_before_ = {};
+    pending_movevm_short25_after_ = {};
+    last_movevm_short25_valid_ = false;
+    resume_target_ = {};
+    resume_source_end_ = {};
+    resume_validation_active_ = false;
+    resume_catchup_pending_ = false;
+    generation_rebaseline_pending_ = false;
+    continuing_session_rebaseline_ = false;
+    replay_history_capture_required_ =
+        next_replay_history_capture_required_;
+}
+
 Status Sc6ReplayRuntime::ResetQualificationCycle(
     std::uint64_t& stale_state_mask) noexcept
 {
@@ -376,7 +452,7 @@ Status Sc6ReplayRuntime::ResetQualificationCycle(
 
     SetForcedDepth7QualificationEnabled(false);
     DisablePresentationOwnership();
-    ObserveReplayExit();
+    ResetQualificationStateRetainingStorage();
 
     if (input_timeline_.size() != 0) stale_state_mask |= 1ull << 4;
     if (batch_timeline_.batch_count() != 0) stale_state_mask |= 1ull << 5;
@@ -679,6 +755,22 @@ void Sc6ReplayRuntime::ApplyCorrectedPresentationObservation(
         observation.tira_state19_writer_slot_mask;
     envelope.tira_last_state19_writer_move =
         observation.tira_last_state19_writer_move;
+    envelope.tira_helper_attempts = observation.tira_helper_attempts;
+    envelope.tira_helper_exact_draws = observation.tira_helper_exact_draws;
+    envelope.tira_helper_writer_outcomes =
+        observation.tira_helper_writer_outcomes;
+    envelope.tira_helper_no_write_outcomes =
+        observation.tira_helper_no_write_outcomes;
+    envelope.tira_helper_no_change_outcomes =
+        observation.tira_helper_no_change_outcomes;
+    envelope.tira_helper_signature_failures =
+        observation.tira_helper_signature_failures;
+    envelope.tira_helper_last_enclosing_move =
+        observation.tira_helper_last_enclosing_move;
+    envelope.tira_helper_last_chance = observation.tira_helper_last_chance;
+    envelope.tira_helper_last_result = observation.tira_helper_last_result;
+    envelope.tira_helper_last_rejection_mask =
+        observation.tira_helper_last_rejection_mask;
     envelope.tira_random_transition_calls =
         observation.tira_random_transition_calls;
     envelope.tira_random_transition_sequence_hash =
