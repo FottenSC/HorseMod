@@ -146,7 +146,7 @@ def required_file(path: Path, label: str) -> Path:
 def load_outcome_control(
     path: Path, replay: Path, dll: Path, replay_mod: Path,
     schema: Path, executable: Path, *, allow_noncertifying: bool = False,
-) -> tuple[tuple[int, ...], int, dict[str, str]]:
+) -> tuple[tuple[int, ...], int, dict[str, object]]:
     control_path = required_file(path, "same-replay stock outcome control")
     data = json.loads(control_path.read_text(encoding="utf-8"))
     certifying = data.get("certifying") is True
@@ -179,8 +179,12 @@ def load_outcome_control(
              runner_sha256(Path(__file__).resolve().parent)),
         ),
     }
+    development_mismatches: list[str] = []
     for label, (observed, expected) in required_identities.items():
         if observed != expected:
+            if allow_noncertifying and label != "game executable":
+                development_mismatches.append(label)
+                continue
             raise RuntimeError(f"stock outcome control {label} hash mismatch")
     outcome = data.get("runtime", {}).get("stock_round_outcome")
     if not isinstance(outcome, dict):
@@ -191,9 +195,12 @@ def load_outcome_control(
         raise RuntimeError("stock outcome control has invalid round winners")
     if winner not in (0, 1) or outcome.get("rounds") != len(winners):
         raise RuntimeError("stock outcome control has invalid match outcome")
-    return winners, winner, {
+    identity: dict[str, object] = {
         "path": str(control_path), "sha256": sha256_file(control_path)
     }
+    if development_mismatches:
+        identity["noncertifying_identity_mismatches"] = development_mismatches
+    return winners, winner, identity
 
 
 def run_online_observer(args: argparse.Namespace) -> int:
@@ -450,7 +457,7 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
     )
     expected_round_winners: tuple[int, ...] = ()
     expected_match_winner: int | None = None
-    outcome_control_artifact: dict[str, str] | None = None
+    outcome_control_artifact: dict[str, object] | None = None
     if require_authored_outcomes and not stock_round_outcome_control:
         if args.outcome_control_report is None:
             raise RuntimeError(
@@ -970,6 +977,89 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_independent_seek_entries(
+    args: argparse.Namespace, config: Path,
+) -> int:
+    percentages = tuple(args.seek_percentages)
+    if len(percentages) < 2:
+        raise RuntimeError("independent seek set requires multiple percentages")
+    child_reports: list[tuple[int, Path, dict[str, object]]] = []
+    for percentage in percentages:
+        child_args = copy.copy(args)
+        child_args.seek_percentages = [percentage]
+        child_args.row_id = f"{args.row_id}__seek-{percentage}"
+        child_args.report = args.report.with_name(
+            f"{args.report.stem}.seek-{percentage}{args.report.suffix}")
+        with armed_baseline(config):
+            _run_replay_entry_once(child_args)
+        data = json.loads(child_args.report.read_text(encoding="utf-8"))
+        runtime = data.get("runtime", {})
+        seeks = runtime.get("seeks", []) if isinstance(runtime, dict) else []
+        if (data.get("result") != "pass" or len(seeks) != 1
+                or seeks[0].get("percentage") != percentage
+                or runtime.get("clean_exit") is not True):
+            raise RuntimeError(
+                f"independent strict seek {percentage}% did not pass cleanly")
+        child_reports.append((percentage, child_args.report.resolve(), data))
+
+    aggregate = copy.deepcopy(child_reports[0][2])
+    first_artifacts = aggregate.get("artifacts")
+    first_metadata = aggregate.get("runtime", {}).get("replay_metadata")
+    first_outcome = aggregate.get("runtime", {}).get("stock_round_outcome")
+    for percentage, _, data in child_reports[1:]:
+        if (data.get("artifacts") != first_artifacts
+                or data.get("runtime", {}).get("replay_metadata") != first_metadata
+                or data.get("runtime", {}).get("stock_round_outcome") != first_outcome):
+            raise RuntimeError(
+                f"independent strict seek {percentage}% identity drifted")
+
+    runtime = aggregate["runtime"]
+    runtime["run_id"] = None
+    runtime["run_ids"] = [
+        data["runtime"]["run_id"] for _, _, data in child_reports
+    ]
+    runtime["seek_percentages"] = list(percentages)
+    runtime["seeks"] = [
+        data["runtime"]["seeks"][0] for _, _, data in child_reports
+    ]
+    runtime["independent_seek_entries"] = True
+    runtime["clean_exit"] = all(
+        data["runtime"]["clean_exit"] is True for _, _, data in child_reports)
+    runtime["graceful_exit_observed"] = all(
+        data["runtime"]["graceful_exit_observed"] is True
+        for _, _, data in child_reports)
+    runtime["process_absent_after_exit"] = all(
+        data["runtime"]["process_absent_after_exit"] is True
+        for _, _, data in child_reports)
+    runtime["temporary_mod_removed"] = all(
+        data["runtime"]["temporary_mod_removed"] is True
+        for _, _, data in child_reports)
+    aggregate["kind"] = "replay_strict_seek_set"
+    aggregate["reason"] = (
+        "independent exact-map authored replay entries for every strict seek")
+    aggregate["created_utc"] = dt.datetime.now(dt.timezone.utc).isoformat()
+    aggregate["row_id"] = args.row_id
+    aggregate["artifacts"]["independent_seek_reports"] = [
+        {
+            "percentage": percentage,
+            "path": str(path),
+            "sha256": sha256_file(path),
+        }
+        for percentage, path, _ in child_reports
+    ]
+    write_report(args.report, aggregate)
+    print(json.dumps(aggregate, indent=2, sort_keys=True))
+    print(f"report: {args.report.resolve()}")
+    return 0
+
+
+def _run_baseline_payload(args: argparse.Namespace, config: Path) -> int:
+    if len(getattr(args, "seek_percentages", ())) > 1:
+        return _run_independent_seek_entries(args, config)
+    with armed_baseline(config):
+        return _run_replay_entry_once(args)
+
+
 def run_replay_entry(args: argparse.Namespace) -> int:
     if args.certifying and args.skip_development_smoke:
         raise RuntimeError("certifying deterministic baselines require the smoke preflight")
@@ -983,11 +1073,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
         return _run_replay_entry_once(args)
     config = required_file(args.config, "deterministic config")
     if args.skip_development_smoke:
-        # The flag skips only the acceleration preflight.  A deterministic
-        # baseline still owns the same reversible hook-arming scope as the
-        # normal smoke+full path below.
-        with armed_baseline(config):
-            return _run_replay_entry_once(args)
+        return _run_baseline_payload(args, config)
     smoke_args = copy.copy(args)
     smoke_args.development_smoke = True
     smoke_args.deterministic_baseline = False
@@ -1009,7 +1095,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     with armed_baseline(config):
         with _temporarily_armed_smoke_config(config):
             _run_replay_entry_once(smoke_args)
-        return _run_replay_entry_once(args)
+    return _run_baseline_payload(args, config)
 
 
 def run_replay_development_campaign(args: argparse.Namespace) -> int:
@@ -1341,7 +1427,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 _TERMINAL_FAILURE_MARKERS = (
     "[ReplayQualification] fail-fast health",
-    "[ReplayQualification] normal-render battle rate failed",
+    "[ReplayQualification] normal-render active battle rate failed",
     "owned replay seek request failed",
     "owned replay seek resume failed",
     "[HorseMod] forced depth-7 qualification failed",

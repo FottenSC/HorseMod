@@ -8,6 +8,7 @@ from tools.deterministic_qualification.artifacts import (
     capture_harness_sha256, sha256_file,
 )
 from tools.deterministic_qualification.runner import (
+    _find_failure_line,
     _read_bounded_log_since,
     _temporarily_armed_smoke_config,
     _write_compact_replay_failure,
@@ -63,6 +64,13 @@ def test_outcome_control_binds_every_executable_artifact(tmp_path):
     _write(dll, b"changed")
     with pytest.raises(RuntimeError, match="HorseMod DLL hash mismatch"):
         load_outcome_control(control, replay, dll, replay_mod, schema, executable)
+    winners, winner, identity = load_outcome_control(
+        control, replay, dll, replay_mod, schema, executable,
+        allow_noncertifying=True,
+    )
+    assert winners == (1, 1)
+    assert winner == 1
+    assert identity["noncertifying_identity_mismatches"] == ["HorseMod DLL"]
 
     _write(dll, b"dll")
     data = json.loads(control.read_text(encoding="utf-8"))
@@ -76,6 +84,13 @@ def test_outcome_control_binds_every_executable_artifact(tmp_path):
     )
     assert winners == (1, 1)
     assert winner == 1
+
+    _write(executable, b"changed-game")
+    with pytest.raises(RuntimeError, match="game executable hash mismatch"):
+        load_outcome_control(
+            control, replay, dll, replay_mod, schema, executable,
+            allow_noncertifying=True,
+        )
 
 
 def test_bounded_failure_log_restarts_after_log_rotation(tmp_path):
@@ -191,6 +206,19 @@ def test_compact_failure_prefers_terminal_over_earlier_diagnostic(
     assert "forced depth-7 qualification failed" in details["first_failure_line"]
     assert details["first_failing_frame"] == "1845"
     assert details["field_or_mask"] == "0x40"
+
+
+def test_compact_failure_prefers_active_rate_terminal_over_setup_diagnostic():
+    lines = [
+        "[HorseMod] frame-fencepost observation failed: generation_mismatch",
+        "[ReplayQualification] normal-render active battle rate failed "
+        "frames=120 elapsed_us=2098193 tick_rate_milli=57192 minimum=58000",
+    ]
+
+    index, line = _find_failure_line(lines)
+
+    assert index == 1
+    assert "active battle rate failed" in line
 
 
 def test_smoke_config_arms_hooks_and_restores_exact_bytes(tmp_path):
