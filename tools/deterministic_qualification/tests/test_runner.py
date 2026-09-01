@@ -13,6 +13,7 @@ from tools.deterministic_qualification.runner import (
     _temporarily_armed_smoke_config,
     _write_compact_replay_failure,
     load_outcome_control,
+    run_replay_development_campaign,
     run_replay_entry,
 )
 from tools.deterministic_qualification.trace_parser import capture_log_offset
@@ -325,6 +326,25 @@ def test_direct_development_smoke_arms_hooks_then_restores(
     assert "enabled=false\n" in observed[0]
     assert "trace=true\n" in observed[0]
     assert config.read_bytes() == original
+
+
+def test_persistent_campaign_rejects_prearmed_config(tmp_path):
+    replay_mod = tmp_path / "ReplayQualificationMod.dll"
+    replay = tmp_path / "replay.bin"
+    replay_mod.write_bytes(b"mod")
+    replay.write_bytes(b"replay")
+    config = tmp_path / "rollback.ini"
+    config.write_text(
+        "config_version=1\nenabled=false\nrollback_window=12\n"
+        "input_delay=1\ntrace=true\ncorrection_probe=false\n"
+        "forced_depth7_qualification=false\nqualification_depth=7\n"
+        "qualification_location=2\n",
+        encoding="utf-8",
+    )
+    args = SimpleNamespace(replay_mod=replay_mod, replay=replay, config=config)
+
+    with pytest.raises(RuntimeError, match="did not verify disarmed"):
+        run_replay_development_campaign(args)
 
 
 def test_baseline_smoke_skip_still_arms_full_run_then_restores(

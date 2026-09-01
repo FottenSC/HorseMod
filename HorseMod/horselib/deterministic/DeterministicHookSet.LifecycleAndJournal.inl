@@ -39,6 +39,10 @@ bool DeterministicHookSet::ValidateInstallationSignatures(
         && matches(FrameLayout::gameplay_xorshift96_rva, FrameLayout::gameplay_xorshift96_signature)
         && matches(FrameLayout::movevm_evaluate_if_rva, FrameLayout::movevm_evaluate_if_signature)
         && matches(FrameLayout::movevm_transition_author_07_rva, FrameLayout::movevm_transition_author_07_signature)
+        && matches(Sc6HookLayout::movevm_execute_bank_slot_rva,
+            Sc6HookLayout::movevm_execute_bank_slot_signature)
+        && matches(Sc6HookLayout::movevm_write_chara_state_short_rva,
+            Sc6HookLayout::movevm_write_chara_state_short_signature)
         && matches(FrameLayout::resolved_hit_consumer_rva,
             FrameLayout::resolved_hit_consumer_signature);
 }
@@ -141,6 +145,17 @@ bool DeterministicHookSet::InstallRandomHooks() noexcept
             reinterpret_cast<std::uintptr_t>(&MoveVmTransitionAuthor07Detour),
             movevm_transition_author_07_trampoline_,
             movevm_transition_author_07_trampoline_global_)
+        && InstallDetour(movevm_execute_bank_slot_detour_,
+            image_base_ + Sc6HookLayout::movevm_execute_bank_slot_rva,
+            reinterpret_cast<std::uintptr_t>(&MoveVmExecuteBankSlotDetour),
+            movevm_execute_bank_slot_trampoline_,
+            movevm_execute_bank_slot_trampoline_global_)
+        && InstallDetour(movevm_write_chara_state_short_detour_,
+            image_base_ + Sc6HookLayout::movevm_write_chara_state_short_rva,
+            reinterpret_cast<std::uintptr_t>(
+                &MoveVmWriteCharaStateShortDetour),
+            movevm_write_chara_state_short_trampoline_,
+            movevm_write_chara_state_short_trampoline_global_)
         && InstallDetour(resolved_hit_consumer_detour_,
             image_base_ + FrameLayout::resolved_hit_consumer_rva,
             reinterpret_cast<std::uintptr_t>(&ResolvedHitConsumerDetour),
@@ -191,6 +206,10 @@ void DeterministicHookSet::Uninstall() noexcept
     // Hooks are removed in the reverse of their installation order.
     if (resolved_hit_consumer_detour_)
         resolved_hit_consumer_detour_->unHook();
+    if (movevm_write_chara_state_short_detour_)
+        movevm_write_chara_state_short_detour_->unHook();
+    if (movevm_execute_bank_slot_detour_)
+        movevm_execute_bank_slot_detour_->unHook();
     if (movevm_transition_author_07_detour_)
         movevm_transition_author_07_detour_->unHook();
     if (movevm_evaluate_if_detour_)

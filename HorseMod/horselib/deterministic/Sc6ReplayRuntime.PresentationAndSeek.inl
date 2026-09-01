@@ -81,6 +81,23 @@ Status Sc6ReplayRuntime::AccumulateObservedGameplayIdentity(
             &observation.resolved_hit_sequence_hash,
             sizeof(observation.resolved_hit_sequence_hash));
     }
+    timeline_status_.observed_tira_state19_writer_calls +=
+        observation.tira_state19_writer_calls;
+    if (observation.tira_state19_writer_calls != 0)
+    {
+        AppendFnv64(timeline_status_.observed_tira_state19_writer_sequence_hash,
+            &observation.batch_id, sizeof(observation.batch_id));
+        AppendFnv64(timeline_status_.observed_tira_state19_writer_sequence_hash,
+            &observation.tira_state19_writer_calls,
+            sizeof(observation.tira_state19_writer_calls));
+        AppendFnv64(timeline_status_.observed_tira_state19_writer_sequence_hash,
+            &observation.tira_state19_writer_sequence_hash,
+            sizeof(observation.tira_state19_writer_sequence_hash));
+        timeline_status_.observed_tira_state19_writer_slot_mask |=
+            observation.tira_state19_writer_slot_mask;
+        timeline_status_.observed_tira_last_state19_writer_move =
+            observation.tira_last_state19_writer_move;
+    }
     timeline_status_.observed_tira_random_transition_calls +=
         observation.tira_random_transition_calls;
     if (observation.tira_random_transition_calls != 0)
@@ -93,24 +110,24 @@ Status Sc6ReplayRuntime::AccumulateObservedGameplayIdentity(
         AppendFnv64(timeline_status_.observed_tira_random_transition_sequence_hash,
             &observation.tira_random_transition_sequence_hash,
             sizeof(observation.tira_random_transition_sequence_hash));
-        timeline_status_.observed_tira_character_slot_mask |=
-            observation.tira_character_slot_mask;
-        for (std::size_t fighter = 0; fighter < 2; ++fighter)
-        {
-            if ((observation.tira_character_slot_mask & (1u << fighter)) != 0)
-                timeline_status_.observed_tira_state19_at_transition[fighter] =
-                    observation.tira_state19_at_transition[fighter];
-        }
+    }
+    timeline_status_.observed_tira_character_slot_mask |=
+        observation.tira_character_slot_mask;
+    for (std::size_t fighter = 0; fighter < 2; ++fighter)
+    {
+        if ((observation.tira_character_slot_mask & (1u << fighter)) != 0)
+            timeline_status_.observed_tira_state19_at_transition[fighter] =
+                observation.tira_state19_at_transition[fighter];
     }
     timeline_status_.observed_tira_random_transition_target_mask |=
         observation.tira_random_transition_target_mask;
-    if (observation.tira_random_transition_calls != 0)
+    if (observation.tira_random_transition_target_mask != 0)
         timeline_status_.observed_tira_last_transition_target =
             observation.tira_last_transition_target;
-    const bool tira_probability_transition =
+    const bool tira_helper_probability_transition =
         (observation.gameplay_xorshift_if_source_mask
             & observation.tira_random_transition_source_mask) != 0;
-    if (tira_probability_transition)
+    if (tira_helper_probability_transition)
     {
         ++timeline_status_.observed_tira_probability_transition_batches;
         const auto changed_tira_slots = static_cast<std::uint8_t>(
@@ -566,6 +583,13 @@ void Sc6ReplayRuntime::ApplyCorrectedPresentationObservation(
     envelope.resolved_hit_sequence_hash = observation.resolved_hit_sequence_hash;
     envelope.resolved_hit_signature_failures =
         observation.resolved_hit_signature_failures;
+    envelope.tira_state19_writer_calls = observation.tira_state19_writer_calls;
+    envelope.tira_state19_writer_sequence_hash =
+        observation.tira_state19_writer_sequence_hash;
+    envelope.tira_state19_writer_slot_mask =
+        observation.tira_state19_writer_slot_mask;
+    envelope.tira_last_state19_writer_move =
+        observation.tira_last_state19_writer_move;
     envelope.tira_random_transition_calls =
         observation.tira_random_transition_calls;
     envelope.tira_random_transition_sequence_hash =

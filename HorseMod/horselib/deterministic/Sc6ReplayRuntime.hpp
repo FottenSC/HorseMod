@@ -93,6 +93,10 @@ struct ReplayTimelineStatus
     std::uint64_t observed_movevm_transition_07_sequence_hash{};
     std::uint64_t observed_resolved_hit_calls{};
     std::uint64_t observed_resolved_hit_sequence_hash{};
+    std::uint64_t observed_tira_state19_writer_calls{};
+    std::uint64_t observed_tira_state19_writer_sequence_hash{};
+    std::uint8_t observed_tira_state19_writer_slot_mask{};
+    std::uint16_t observed_tira_last_state19_writer_move{};
     std::uint64_t observed_tira_random_transition_calls{};
     std::uint64_t observed_tira_random_transition_sequence_hash{};
     std::uint64_t observed_tira_probability_transition_batches{};

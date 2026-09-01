@@ -273,10 +273,22 @@ matchup × correction location × depth/mode × renderer × exact DLL
 - Matchups: the exact three fighter/authored-map cases above.
 - Locations: near round start; active combat; confirmed hit with nonzero
   presentation; round end with terminal activity.
-- Modes: same-build no-correction baseline; depths 1, 6, 11; continuous forced
-  depth 7.
+- Modes: same-build no-correction baseline; depths 11, 1, 6 in fail-fast order; continuous forced
+  depth 7. The single correction canary also uses depth 11 and must not retain
+  the old depth-1 hard-code.
 - Renderer: normal only for certification.
 - Artifact: one immutable candidate/release DLL plus matching schema/runner.
+
+The canary ladder is fast tests, the automatic 60-120-frame normal-render
+smoke, one depth-11 active-combat correction row, strict seeks, then the full
+matrix. Interrupted rows may resume only when the DLL, schema, capture harness,
+replay bridge, config contract, replay, executable, native metadata, workload,
+and bounded-log evidence hashes are unchanged. Capture-producing code lives in
+`offline_capture.py` and has an identity independent of the matrix evaluator,
+so a policy-only evaluator repair may re-evaluate immutable raw captures while
+any producer change invalidates them. The row/config specification is isolated
+in producer-hashed `offline_spec.py`; evaluator code must not be a transitive
+source of capture semantics.
 
 This is 3 baseline rows plus 3 × 4 × 4 = 48 correction rows. Each correction
 row executes at least 600 consecutive corrections at that location. Zero

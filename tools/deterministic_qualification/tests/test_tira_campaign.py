@@ -29,12 +29,20 @@ def _report(case_id: str, transition: bool):
         "unknown_callers": 0,
         "if_draws": 1,
         "xorshift_sequence": "0x11",
-        "transition07_sequence": "0x22",
+        # TransitionAuthor 07 is independent diagnostics, not the causal
+        # helper-0x321B writer boundary, and may be absent.
+        "transition07_sequence": "0x0",
         "tira_sequence": "0x33",
         "tira_random_transitions": 1 if transition else 0,
         "tira_probability_batches": 1 if transition else 0,
         "tira_targets": 1 if transition else 0,
         "tira_last_target": "0x0205" if transition else "0x0000",
+        "tira_writer_calls": 1 if transition else 0,
+        "tira_writer_sequence": "0x77" if transition else "0x0",
+        "tira_writer_slot_mask": "0x2" if transition else "0x0",
+        # A later deterministic stance write is valid and must not erase the
+        # already observed helper-owned random transition.
+        "tira_last_writer_move": "0x306f" if transition else "0x0000",
         "tira_stance_batches": 1 if transition else 0,
         "tira_slot_mask": 2 if transition else 0,
         "state19_sequence_p0": "0x44",

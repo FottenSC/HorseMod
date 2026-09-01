@@ -704,7 +704,7 @@
         std::array<std::uint64_t, 10> presentation_coverage{};
         std::array<std::uint64_t, 9> presentation_identity{};
         std::array<std::uint64_t, 54> health{};
-        std::array<std::uint64_t, 42> gameplay_rng_coverage{};
+        std::array<std::uint64_t, 46> gameplay_rng_coverage{};
         std::uint64_t canonical_generation{};
         std::uint64_t canonical_frame{};
         Horse::Deterministic::CanonicalHash canonical_hash{};

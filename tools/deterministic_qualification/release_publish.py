@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import (
+    capture_harness_sha256, offline_evaluator_sha256,
     require_compiled_candidate_manifest, runner_sha256, sha256_file,
     source_identity, source_identity_sha256,
 )
@@ -57,11 +58,20 @@ def _common_report(report: dict[str, Any], case: dict[str, Any],
     _require(observed_schema == schema_hash, "release schema hash mismatch")
     if expected is not None:
         observed_source = report.get("source", identities.get("source"))
-        _require(observed_source == expected["source"],
-                 "release source identity mismatch")
-        _require((artifacts.get("runner_sha256")
-                  or identities.get("runner_sha256")) == expected["runner"],
-                 "release runner hash mismatch")
+        observed_capture_harness = artifacts.get("capture_harness_sha256")
+        if observed_capture_harness is not None:
+            # Replay capture provenance remains immutable even if only the
+            # offline policy/evaluator layer is repaired afterward.
+            _require(isinstance(observed_source, dict),
+                     "release capture source provenance missing")
+            _require(observed_capture_harness == expected["capture_harness"],
+                     "release capture harness hash mismatch")
+        else:
+            _require(observed_source == expected["source"],
+                     "release source identity mismatch")
+            _require((artifacts.get("runner_sha256")
+                      or identities.get("runner_sha256")) == expected["runner"],
+                     "release runner hash mismatch")
         _require((artifacts.get("game_executable", {}).get("sha256")
                   or identities.get("game_executable_sha256"))
                  == expected["executable"], "release executable hash mismatch")
@@ -213,6 +223,10 @@ def _certificate(case: dict[str, Any], paired: bool, hashes: dict[str, str],
         "schema_sha256": hashes["schema"],
         "candidate_manifest_sha256": hashes["candidate"],
         "region_manifest_sha256": hashes["regions"],
+        "runner_sha256": hashes["runner"],
+        "capture_harness_sha256": hashes["capture_harness"],
+        "offline_evaluator_sha256": hashes["offline_evaluator"],
+        "replay_qualification_mod_sha256": hashes["replay_mod"],
         "loaded_map_sha256": loaded_map,
         "canonical_divergences": 0,
         "ordered_audio_payload_ids": True,
@@ -256,21 +270,27 @@ def publish_release(args: Any, root: Path) -> int:
         "candidate": candidate_hash,
         "regions": sha256_file(args.region_manifest),
         "replay_mod": sha256_file(args.replay_mod),
+        "runner": runner_sha256(
+            root / "tools" / "deterministic_qualification"),
+        "capture_harness": capture_harness_sha256(root),
+        "offline_evaluator": offline_evaluator_sha256(root),
     }
     expected = {
         "source": identity,
-        "runner": runner_sha256(root / "tools" / "deterministic_qualification"),
+        "runner": hashes["runner"],
+        "capture_harness": hashes["capture_harness"],
         "executable": hashes["executable"],
         "replay_mod": hashes["replay_mod"],
     }
     offline_dir = Path(index["offline_output_dir"]).resolve()
     runner_hash = expected["runner"]
     matrix = evaluate_matrix(manifest, offline_dir, hashes["dll"], hashes["schema"],
-                             runner_hash, expected)
+                             runner_hash, expected,
+                             hashes["offline_evaluator"])
     _require(matrix["certifying"] is True, "51-row offline matrix is incomplete")
     tira = _load(Path(index["tira_report"]).resolve())
     _require(tira.get("certifying") is True and tira.get("transition_runs", 0) > 0,
-             "actual Tira IF 0x007F transition gate is incomplete")
+             "actual Tira helper 0x321B RNG/state19 transition gate is incomplete")
     _require(tira.get("artifacts", {}).get("horsemod_dll_sha256") == hashes["dll"]
              and tira.get("artifacts", {}).get("schema_sha256") == hashes["schema"]
              and tira.get("artifacts", {}).get("runner_sha256") == runner_hash,

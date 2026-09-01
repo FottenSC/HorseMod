@@ -16,7 +16,7 @@ from pathlib import Path
 from .artifacts import (
     capture_harness_sha256, runner_sha256, sha256_file, source_identity,
 )
-from .configuration import armed_baseline, canonicalize_contract
+from .configuration import armed_baseline, canonicalize_contract, require_disarmed
 from .process_control import (
     close_game,
     find_game_pid,
@@ -547,10 +547,13 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                             or gameplay_rng_coverage.tira_targets == 0
                             or gameplay_rng_coverage.tira_stance_batches == 0
                             or gameplay_rng_coverage.tira_slot_mask == 0
+                            or gameplay_rng_coverage.tira_writer_calls == 0
+                            or gameplay_rng_coverage.tira_writer_sequence == 0
+                            or gameplay_rng_coverage.tira_writer_slot_mask == 0
                             or not gameplay_rng_coverage.state19_initial_valid):
                         raise RuntimeError(
-                            "joined authored Tira IF 0x007F RNG/target/state19 "
-                            "transition was not observed"
+                            "authored Tira helper 0x321B RNG/state19 transition "
+                            "was not observed"
                         )
                     transitioned_states = []
                     if gameplay_rng_coverage.tira_slot_mask & 1:
@@ -926,6 +929,13 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                 "resolved_hit_calls": gameplay_rng_coverage.resolved_hit_calls,
                 "resolved_hit_sequence":
                     f"0x{gameplay_rng_coverage.resolved_hit_sequence:016x}",
+                "tira_writer_calls": gameplay_rng_coverage.tira_writer_calls,
+                "tira_writer_sequence":
+                    f"0x{gameplay_rng_coverage.tira_writer_sequence:016x}",
+                "tira_writer_slot_mask":
+                    f"0x{gameplay_rng_coverage.tira_writer_slot_mask:x}",
+                "tira_last_writer_move":
+                    f"0x{gameplay_rng_coverage.tira_last_writer_move:04x}",
                 "tira_sequence":
                     f"0x{gameplay_rng_coverage.tira_sequence:016x}",
                 "tira_stance_batches": gameplay_rng_coverage.tira_stance_batches,
@@ -1102,6 +1112,7 @@ def run_replay_development_campaign(args: argparse.Namespace) -> int:
     replay_mod = required_file(args.replay_mod, "replay qualification mod")
     replay = required_file(args.replay, "replay payload")
     config = required_file(args.config, "deterministic config")
+    require_disarmed(config)
     if find_game_pid() is not None:
         raise RuntimeError("SC6 is already running; persistent campaign requires clean entry")
     if not 60 <= args.watch_frames <= 120:
@@ -1308,8 +1319,9 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument(
         "--require-tira-probability-transition",
         action="store_true",
-        help=("require an IF 0x007F draw, Tira-owned CALLCOND 0x07 target, "
-              "and exact mood/moveset state transition on the same native source frame"),
+        help=("require Tira helper 0x321B to consume exactly one IF 0x007F "
+              "draw and write an exact state19 0<->1 transition, attributed "
+              "to its enclosing move on the same native source frame"),
     )
     replay.set_defaults(handler=run_replay_entry)
     development = subcommands.add_parser(

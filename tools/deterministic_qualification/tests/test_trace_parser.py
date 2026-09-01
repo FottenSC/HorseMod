@@ -139,7 +139,9 @@ def test_gameplay_rng_coverage_parser_is_source_bound() -> None:
         "state19_at_tira_transition_p0=1 "
         "state19_at_tira_transition_p1=3 state19_initial_valid=1 "
         "tira_last_target=0x0205 resolved_hit_calls=11 "
-        "resolved_hit_sequence=0x5023456789abcdef\n"
+        "resolved_hit_sequence=0x5023456789abcdef tira_writer_calls=3 "
+        "tira_writer_sequence=0x6023456789abcdef "
+        "tira_writer_slot_mask=0x2 tira_last_writer_move=0x306f\n"
     )
     evidence = parse_gameplay_rng_coverage_evidence(text)
     assert evidence is not None
@@ -164,6 +166,10 @@ def test_gameplay_rng_coverage_parser_is_source_bound() -> None:
     assert evidence.tira_last_target == 0x0205
     assert evidence.resolved_hit_calls == 11
     assert evidence.resolved_hit_sequence == 0x5023456789ABCDEF
+    assert evidence.tira_writer_calls == 3
+    assert evidence.tira_writer_sequence == 0x6023456789ABCDEF
+    assert evidence.tira_writer_slot_mask == 2
+    assert evidence.tira_last_writer_move == 0x306F
 
 
 def test_presentation_coverage_parser_is_source_bound() -> None:

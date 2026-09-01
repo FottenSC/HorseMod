@@ -117,7 +117,11 @@ GAMEPLAY_RNG_COVERAGE_PATTERN = re.compile(
     r"state19_initial_valid=(?P<state19_initial_valid>[01]) "
     r"tira_last_target=0x(?P<tira_last_target>[0-9a-f]{4}) "
     r"resolved_hit_calls=(?P<resolved_hit_calls>\d+) "
-    r"resolved_hit_sequence=0x(?P<resolved_hit_sequence>[0-9a-f]{16})"
+    r"resolved_hit_sequence=0x(?P<resolved_hit_sequence>[0-9a-f]{16}) "
+    r"tira_writer_calls=(?P<tira_writer_calls>\d+) "
+    r"tira_writer_sequence=0x(?P<tira_writer_sequence>[0-9a-f]{16}) "
+    r"tira_writer_slot_mask=0x(?P<tira_writer_slot_mask>[0-9a-f]+) "
+    r"tira_last_writer_move=0x(?P<tira_last_writer_move>[0-9a-f]{4})"
 )
 STOCK_ROUND_OUTCOME_PATTERN = re.compile(
     r"\[ReplayQualification\] (?:stock round outcome qualification passed|ordered round outcomes verified) "
@@ -299,6 +303,10 @@ class GameplayRngCoverageEvidence:
     tira_last_target: int
     resolved_hit_calls: int
     resolved_hit_sequence: int
+    tira_writer_calls: int
+    tira_writer_sequence: int
+    tira_writer_slot_mask: int
+    tira_last_writer_move: int
 
 
 @dataclass(frozen=True)
@@ -861,6 +869,10 @@ def parse_gameplay_rng_coverage_evidence(
         tira_last_target=int(match.group("tira_last_target"), 16),
         resolved_hit_calls=int(match.group("resolved_hit_calls")),
         resolved_hit_sequence=int(match.group("resolved_hit_sequence"), 16),
+        tira_writer_calls=int(match.group("tira_writer_calls")),
+        tira_writer_sequence=int(match.group("tira_writer_sequence"), 16),
+        tira_writer_slot_mask=int(match.group("tira_writer_slot_mask"), 16),
+        tira_last_writer_move=int(match.group("tira_last_writer_move"), 16),
     )
 
 

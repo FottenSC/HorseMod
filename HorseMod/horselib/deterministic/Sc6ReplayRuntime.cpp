@@ -38,7 +38,7 @@ struct ReplaySessionCoverage
     std::array<std::uint64_t, 10> presentation{};
     std::uint64_t audio_terminal_calls{};
     std::array<std::uint64_t, 3> accounting{};
-    std::array<std::uint64_t, 42> gameplay_rng{};
+    std::array<std::uint64_t, 46> gameplay_rng{};
 };
 
 ReplaySessionCoverage CaptureReplaySessionCoverage(
@@ -103,7 +103,11 @@ ReplaySessionCoverage CaptureReplaySessionCoverage(
         status.movevm_short25_initial_recorded ? 1ull : 0ull,
         status.observed_tira_last_transition_target,
         status.observed_resolved_hit_calls,
-        status.observed_resolved_hit_sequence_hash};
+        status.observed_resolved_hit_sequence_hash,
+        status.observed_tira_state19_writer_calls,
+        status.observed_tira_state19_writer_sequence_hash,
+        status.observed_tira_state19_writer_slot_mask,
+        status.observed_tira_last_state19_writer_move};
     return coverage;
 }
 
@@ -170,6 +174,12 @@ void RestoreReplaySessionCoverage(ReplayTimelineStatus& status,
         coverage.gameplay_rng[39]);
     status.observed_resolved_hit_calls = coverage.gameplay_rng[40];
     status.observed_resolved_hit_sequence_hash = coverage.gameplay_rng[41];
+    status.observed_tira_state19_writer_calls = coverage.gameplay_rng[42];
+    status.observed_tira_state19_writer_sequence_hash = coverage.gameplay_rng[43];
+    status.observed_tira_state19_writer_slot_mask = static_cast<std::uint8_t>(
+        coverage.gameplay_rng[44]);
+    status.observed_tira_last_state19_writer_move =
+        static_cast<std::uint16_t>(coverage.gameplay_rng[45]);
 }
 
 OwnedCorrectionResult::WindNodeScheduleDiagnostic WindScheduleDiagnostic(

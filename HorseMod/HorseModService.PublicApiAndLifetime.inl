@@ -600,10 +600,10 @@ public:
             && m_replay_qualification_terminal_snapshot
                 .gameplay_rng_coverage_valid)
         {
-            std::copy(m_replay_qualification_terminal_snapshot
+            std::copy_n(m_replay_qualification_terminal_snapshot
                 .gameplay_rng_coverage.begin(),
-                m_replay_qualification_terminal_snapshot
-                    .gameplay_rng_coverage.end(), counts);
+                (std::min)(count, m_replay_qualification_terminal_snapshot
+                    .gameplay_rng_coverage.size()), counts);
             return true;
         }
         counts[0] = timeline.observed_gameplay_xorshift_draws;
@@ -647,6 +647,13 @@ public:
         counts[39] = timeline.observed_tira_last_transition_target;
         counts[40] = timeline.observed_resolved_hit_calls;
         counts[41] = timeline.observed_resolved_hit_sequence_hash;
+        if (count >= 46)
+        {
+            counts[42] = timeline.observed_tira_state19_writer_calls;
+            counts[43] = timeline.observed_tira_state19_writer_sequence_hash;
+            counts[44] = timeline.observed_tira_state19_writer_slot_mask;
+            counts[45] = timeline.observed_tira_last_state19_writer_move;
+        }
         return timeline.canonical_frames != 0;
     }
 

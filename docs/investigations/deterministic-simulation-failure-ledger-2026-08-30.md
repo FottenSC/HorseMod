@@ -469,3 +469,65 @@ an immutable release certificate explicitly promotes it.
   re-anchoring also passed. SC6 and the temporary qualification mod were absent
   afterward, and `enabled`, `trace`, `correction_probe`, and
   `forced_depth7_qualification` were all restored to `false`.
+
+## 2026-09-01 - Tira transition detector used a non-causal target join
+
+- Diagnostic authored maps: **Snow-Capped Showdown** for replays 34, 35, and
+  37, and **Astral Chaos: Tide of the Damned** for supplied replay
+  `11775433596982945207`. All screening and reruns remain non-certifying.
+- Failure: native state word `0x19` changed from 0 to 1 with nonzero writer
+  activity, while `tira_random_transitions` remained zero. The detector only
+  accepted IF `0x007F` followed by TransitionAuthor target `0x0153` or
+  `0x0205`; the supplied replay also reached `0x0165`.
+- Authoritative cause: decompilation shows packed helper `0x321B`, not the
+  later TransitionAuthor target, consumes the probability draw and toggles
+  state `0x19` through CALLCOND 14. Target `0x0165` can invoke that helper.
+  Other scripts, including observed live move `0x306F`, write the same state
+  deterministically and must not be counted as random transitions.
+- A first helper-context repair still compared the saved enclosing move with
+  the live move. That cannot hold while the nested helper is executing: the
+  live move is `0x321B`, while the saved enclosing move can be `0x0165`.
+- Repair: correlate the exact helper entry, owner, observation/frame, one RNG
+  draw, CALLCOND 14 state-`0x19` write, and 0/1 value change. Record the saved
+  enclosing move as route identity and report all state-`0x19` writers through
+  separate append-only counters, sequence hash, slot mask, and last-live-move
+  fields. The random event is emitted only from helper `0x321B`; deterministic
+  `0x306F` swaps remain observable but do not satisfy that event gate. A later
+  deterministic writer may legitimately become the global last-writer
+  diagnostic without invalidating an earlier helper-owned event. Likewise,
+  aggregate TransitionAuthor-07 activity is independent diagnostics and may be
+  zero; the gate requires the exact xorshift/helper writer sequence instead.
+- Targeted validation: the nesting predicate has compile-time positive and
+  negative fixtures; focused evaluator/parser tests passed; the complete
+  targeted native suite passed 8/8 and Python suite passed 85/85. Two
+  120-frame normal-render canaries on **Astral Chaos: Tide of the Damned**
+  passed with exact canonical state and clean teardown. No long campaign was
+  resumed.
+- Future depth testing runs fail-fast in order 11 -> 1 -> 6, followed by
+  continuous depth 7.
+
+## 2026-09-01 - matrix resume identity omitted its capture producer
+
+- Scope: the 51-row exact-map normal-render offline campaign; no live row was
+  run while correcting the harness.
+- Failure: `offline_campaign.py` contained replay invocation and reuse policy,
+  but contributed only to the evaluator hash. A future argument/config change
+  in that file could have reused raw captures produced by a different
+  protocol. Successful rows also copied the complete cumulative UE4SS log,
+  multiplying old process output into every evidence directory.
+- Repair: raw invocation and reuse acceptance now live in the independently
+  hashed `offline_capture.py`; orchestration/evaluation retains its separate
+  policy identity. Row/config semantics live in producer-hashed
+  `offline_spec.py` rather than the evaluator module. Reuse binds the DLL,
+  schema, capture harness, replay bridge,
+  exact config, replay, executable, native map/fighter metadata, workload,
+  cleanup, and an intact bounded-log hash/size. Each pass stores only the last
+  512 lines from the current subprocess, not prior-process history.
+- Validation: focused resume/integrity tests passed 6/6 and the complete fast
+  Python qualification suite passed 91/91. The canary correction now derives
+  the first active-combat row, which is depth 11 under the fail-fast order.
+  The standalone persistent-process campaign also now refuses a pre-armed
+  config, preventing exact-byte restoration from leaving diagnostics enabled.
+  Release evaluation and generated case certificates bind the independent
+  capture-harness and offline-evaluator identities; strict replay evidence no
+  longer falls back to the aggregate policy-package hash.

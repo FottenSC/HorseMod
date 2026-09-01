@@ -55,6 +55,8 @@ CAPTURE_HARNESS_PATHS = (
     "tools/deterministic_qualification/__init__.py",
     "tools/deterministic_qualification/artifacts.py",
     "tools/deterministic_qualification/configuration.py",
+    "tools/deterministic_qualification/offline_capture.py",
+    "tools/deterministic_qualification/offline_spec.py",
     "tools/deterministic_qualification/process_control.py",
     "tools/deterministic_qualification/replay_entry.py",
     "tools/deterministic_qualification/report.py",

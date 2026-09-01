@@ -121,15 +121,6 @@ std::uint64_t __fastcall DeterministicHookSet::MoveVmEvaluateIfDetour(
         && SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x24c,
             character_id);
 
-    // A successful probability predicate is consumed only by its immediately
-    // following authored transition for this owner. Any intervening IF opcode
-    // invalidates an older pending join so unrelated same-frame work cannot be
-    // credited as Tira RNG-transition coverage.
-    if (owner_valid && tira_probability_join.pending
-        && tira_probability_join.owner == chara)
-    {
-        tira_probability_join = {};
-    }
     const bool candidate = observation != nullptr && arguments_valid
         && owner_valid && opcode == 0x007f && character_id == 0x23;
     const std::uint64_t draws_before = candidate
@@ -144,49 +135,16 @@ std::uint64_t __fastcall DeterministicHookSet::MoveVmEvaluateIfDetour(
         {
             ++observation->movevm_transition_07_signature_failures;
         }
-        else if (result != 0)
-        {
-            std::uint32_t frame{};
-            if (!SafeRead(batch->frame_counter_address, frame))
-            {
-                ++observation->movevm_transition_07_signature_failures;
-            }
-            else
-            {
-                tira_probability_join.owner = chara;
-                tira_probability_join.batch_id = observation->batch_id;
-                tira_probability_join.draw_count_after =
-                    observation->gameplay_xorshift_draws;
-                tira_probability_join.frame = frame;
-                tira_probability_join.pending = true;
-            }
-        }
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
     return result;
 }
 
-void DeterministicHookSet::ObserveTiraRandomTransition(
-    void* chara, std::uint16_t target, OuterTickCaptureContext& batch,
-    OuterTickObservation& observation) noexcept
+void DeterministicHookSet::ObserveTiraRandomStanceChange(
+    void* chara, std::uint16_t active_move, std::uint16_t chance,
+    std::uint16_t state_before, std::uint16_t state_after,
+    std::uint32_t frame, OuterTickObservation& observation) noexcept
 {
-    std::uint32_t frame{};
-    const bool join_owner = tira_probability_join.pending
-        && tira_probability_join.owner == chara
-        && tira_probability_join.batch_id == observation.batch_id;
-    const bool exact_join = join_owner
-        && SafeRead(batch.frame_counter_address, frame)
-        && frame == tira_probability_join.frame
-        && observation.gameplay_xorshift_draws
-            == tira_probability_join.draw_count_after;
-    if (join_owner) tira_probability_join = {};
-    if (!exact_join)
-    {
-        if (join_owner) ++observation.movevm_transition_07_signature_failures;
-        return;
-    }
-    if (target != 0x0153 && target != 0x0205) return;
-
     ++observation.tira_random_transition_calls;
     std::uint8_t fighter_slot_mask{};
     std::uint8_t fighter_slot{};
@@ -196,15 +154,7 @@ void DeterministicHookSet::ObserveTiraRandomTransition(
     else
     {
         fighter_slot_mask = static_cast<std::uint8_t>(1u << fighter_slot);
-        std::uint16_t state19{};
-        if (!SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x19ae,
-                state19))
-        {
-            ++observation.movevm_transition_07_signature_failures;
-            fighter_slot_mask = 0;
-        }
-        else
-            observation.tira_state19_at_transition[fighter_slot] = state19;
+        observation.tira_state19_at_transition[fighter_slot] = state_after;
     }
     observation.tira_character_slot_mask |= fighter_slot_mask;
     auto hash = observation.tira_random_transition_sequence_hash == 0
@@ -218,7 +168,12 @@ void DeterministicHookSet::ObserveTiraRandomTransition(
             hash *= 1099511628211ull;
         }
     };
-    append(&target, sizeof(target));
+    constexpr std::uint16_t helper_packed_move = 0x321b;
+    append(&active_move, sizeof(active_move));
+    append(&helper_packed_move, sizeof(helper_packed_move));
+    append(&chance, sizeof(chance));
+    append(&state_before, sizeof(state_before));
+    append(&state_after, sizeof(state_after));
     append(&fighter_slot_mask, sizeof(fighter_slot_mask));
     if (fighter_slot_mask != 0)
     {
@@ -227,9 +182,9 @@ void DeterministicHookSet::ObserveTiraRandomTransition(
         append(&state19, sizeof(state19));
     }
     observation.tira_random_transition_sequence_hash = hash;
-    observation.tira_random_transition_target_mask |=
-        static_cast<std::uint8_t>(target == 0x0153 ? 1u : 2u);
-    observation.tira_last_transition_target = target;
+    observation.tira_random_transition_target_mask |= static_cast<std::uint8_t>(
+        1u << (active_move & 7u));
+    observation.tira_last_transition_target = active_move;
     if (frame >= observation.before.frame_counter)
     {
         const auto offset = frame - observation.before.frame_counter;
@@ -237,6 +192,160 @@ void DeterministicHookSet::ObserveTiraRandomTransition(
             observation.tira_random_transition_source_mask |=
                 static_cast<std::uint16_t>(1u << offset);
     }
+}
+
+std::int16_t __fastcall DeterministicHookSet::MoveVmExecuteBankSlotDetour(
+    void* chara, std::int32_t argument_count,
+    std::int16_t* arguments) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    DeterministicHookSet* hooks = active_.load(std::memory_order_acquire);
+    const std::uint64_t trampoline = hooks != nullptr
+        ? hooks->movevm_execute_bank_slot_trampoline_
+        : movevm_execute_bank_slot_trampoline_global_.load(
+            std::memory_order_acquire);
+    const auto original = reinterpret_cast<MoveVmExecuteBankSlotFn>(trampoline);
+
+    auto* batch = active_outer_capture_;
+    OuterTickObservation* observation = hooks != nullptr && batch != nullptr
+        ? batch->observation : nullptr;
+    constexpr std::uint16_t tira_stance_helper_packed_move = 0x321b;
+    std::uint16_t packed_move{};
+    std::uint16_t chance{};
+    std::uint16_t character_id{};
+    std::uint16_t active_move{};
+    std::uint32_t frame_before{};
+    const bool candidate = observation != nullptr && chara != nullptr
+        && argument_count == 2 && arguments != nullptr
+        && SafeRead(reinterpret_cast<std::uintptr_t>(arguments), packed_move)
+        && packed_move == tira_stance_helper_packed_move
+        && SafeRead(reinterpret_cast<std::uintptr_t>(arguments) + 2, chance)
+        && SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x24c,
+            character_id)
+        && character_id == 0x23
+        && SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x1c68,
+            active_move)
+        && SafeRead(batch->frame_counter_address, frame_before);
+    const std::uint64_t draws_before = candidate
+        ? observation->gameplay_xorshift_draws : 0;
+
+    const auto prior_helper = tira_stance_helper;
+    if (candidate)
+    {
+        tira_stance_helper = {chara, observation, draws_before, active_move,
+            chance, frame_before, true};
+    }
+    const std::int16_t result = original != nullptr
+        ? original(chara, argument_count, arguments) : 0;
+    if (candidate)
+    {
+        std::uint32_t frame_after{};
+        const bool exact_draw = original != nullptr
+            && observation->gameplay_xorshift_draws == draws_before + 1;
+        const bool exact_frame = SafeRead(
+            batch->frame_counter_address, frame_after)
+            && frame_after == frame_before;
+        if (!exact_draw || !exact_frame)
+            ++observation->movevm_transition_07_signature_failures;
+    }
+    tira_stance_helper = prior_helper;
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return result;
+}
+
+std::int16_t __fastcall DeterministicHookSet::MoveVmWriteCharaStateShortDetour(
+    void* chara, std::int32_t argument_count,
+    std::int16_t* arguments) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    DeterministicHookSet* hooks = active_.load(std::memory_order_acquire);
+    const std::uint64_t trampoline = hooks != nullptr
+        ? hooks->movevm_write_chara_state_short_trampoline_
+        : movevm_write_chara_state_short_trampoline_global_.load(
+            std::memory_order_acquire);
+    const auto original = reinterpret_cast<MoveVmWriteCharaStateShortFn>(
+        trampoline);
+
+    auto* batch = active_outer_capture_;
+    OuterTickObservation* observation = hooks != nullptr && batch != nullptr
+        ? batch->observation : nullptr;
+    std::uint16_t state_index{};
+    std::uint16_t authored_value{};
+    std::uint16_t character_id{};
+    std::uint16_t active_move{};
+    std::uint16_t state_before{};
+    std::uint32_t frame{};
+    const bool candidate = observation != nullptr && chara != nullptr
+        && argument_count == 2 && arguments != nullptr
+        && SafeRead(reinterpret_cast<std::uintptr_t>(arguments), state_index)
+        && state_index == 0x19
+        && SafeRead(reinterpret_cast<std::uintptr_t>(arguments) + 2,
+            authored_value)
+        && SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x24c,
+            character_id)
+        && character_id == 0x23
+        && SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x1c68,
+            active_move)
+        && SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x19ae,
+            state_before)
+        && SafeRead(batch->frame_counter_address, frame);
+
+    const std::int16_t result = original != nullptr
+        ? original(chara, argument_count, arguments) : 0;
+    if (candidate && original != nullptr && authored_value != state_before)
+    {
+        std::uint8_t fighter_slot{};
+        if (active_move == 0 || authored_value > 1
+            || !SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x23c,
+                fighter_slot) || fighter_slot > 1)
+        {
+            ++observation->movevm_transition_07_signature_failures;
+        }
+        else
+        {
+            const auto fighter_mask = static_cast<std::uint8_t>(
+                1u << fighter_slot);
+            ++observation->tira_state19_writer_calls;
+            observation->tira_state19_writer_slot_mask |= fighter_mask;
+            observation->tira_last_state19_writer_move = active_move;
+            auto writer_hash = observation->tira_state19_writer_sequence_hash == 0
+                ? std::uint64_t{1469598103934665603ull}
+                : observation->tira_state19_writer_sequence_hash;
+            const auto append_writer = [&](const void* data,
+                                           std::size_t size) noexcept {
+                const auto* bytes = static_cast<const std::uint8_t*>(data);
+                for (std::size_t index = 0; index < size; ++index)
+                {
+                    writer_hash ^= bytes[index];
+                    writer_hash *= 1099511628211ull;
+                }
+            };
+            append_writer(&frame, sizeof(frame));
+            append_writer(&active_move, sizeof(active_move));
+            append_writer(&state_before, sizeof(state_before));
+            append_writer(&authored_value, sizeof(authored_value));
+            append_writer(&fighter_mask, sizeof(fighter_mask));
+            observation->tira_state19_writer_sequence_hash = writer_hash;
+
+            const bool helper_owned = IsTiraStanceHelperWriterMatch(
+                tira_stance_helper.active,
+                tira_stance_helper.owner == chara,
+                tira_stance_helper.observation == observation,
+                active_move, tira_stance_helper.active_move,
+                tira_stance_helper.frame, frame,
+                tira_stance_helper.draws_before,
+                observation->gameplay_xorshift_draws);
+            if (helper_owned)
+            {
+                ObserveTiraRandomStanceChange(chara,
+                    tira_stance_helper.active_move,
+                    tira_stance_helper.chance, state_before, authored_value,
+                    frame, *observation);
+            }
+        }
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return result;
 }
 
 void DeterministicHookSet::ObserveMoveVmTransition(
@@ -275,9 +384,9 @@ void DeterministicHookSet::ObserveMoveVmTransition(
         return;
     }
     // Native fighter/resource ID 0x23 is Tira; replay metadata uses a
-    // different zero-based reflected character enum.
-    if (character_id == 0x23)
-        ObserveTiraRandomTransition(chara, target, batch, observation);
+    // different zero-based reflected character enum. Exact random stance
+    // changes are observed at synchronous helper 0x321B instead of inferred
+    // from this outgoing transition target.
 }
 
 void __fastcall DeterministicHookSet::MoveVmTransitionAuthor07Detour(
@@ -708,6 +817,13 @@ void DeterministicHookSet::CopyObservedGameplayIdentity(
     output.resolved_hit_sequence_hash = observation.resolved_hit_sequence_hash;
     output.resolved_hit_signature_failures =
         observation.resolved_hit_signature_failures;
+    output.tira_state19_writer_calls = observation.tira_state19_writer_calls;
+    output.tira_state19_writer_sequence_hash =
+        observation.tira_state19_writer_sequence_hash;
+    output.tira_state19_writer_slot_mask =
+        observation.tira_state19_writer_slot_mask;
+    output.tira_last_state19_writer_move =
+        observation.tira_last_state19_writer_move;
     output.tira_random_transition_calls =
         observation.tira_random_transition_calls;
     output.tira_random_transition_sequence_hash =
@@ -752,6 +868,14 @@ bool DeterministicHookSet::OwnedGameplayIdentityMatches(
             == expected.resolved_hit_sequence_hash
         && output.resolved_hit_signature_failures == 0
         && expected.resolved_hit_signature_failures == 0
+        && output.tira_state19_writer_calls
+            == expected.tira_state19_writer_calls
+        && output.tira_state19_writer_sequence_hash
+            == expected.tira_state19_writer_sequence_hash
+        && output.tira_state19_writer_slot_mask
+            == expected.tira_state19_writer_slot_mask
+        && output.tira_last_state19_writer_move
+            == expected.tira_last_state19_writer_move
         && output.tira_random_transition_calls
             == expected.tira_random_transition_calls
         && output.tira_random_transition_sequence_hash

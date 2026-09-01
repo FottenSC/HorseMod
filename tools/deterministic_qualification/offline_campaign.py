@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,12 +11,17 @@ from .artifacts import (
     source_identity,
 )
 from .configuration import (
-    armed_baseline, armed_correction, contract_sha256, disarm_diagnostics,
-    expected_fields, is_exact_contract, read_fields,
+    armed_baseline, armed_correction, disarm_diagnostics, expected_fields,
+    read_fields,
 )
 from .offline_matrix import (
     OfflineMatrixRow, build_rows, evaluate_matrix, evaluate_row,
     load_candidate_cases,
+)
+from .offline_capture import (
+    capture_log_artifact_is_intact,
+    invoke_replay as _invoke_replay,
+    load_reusable_capture as _load_reusable_capture,
 )
 from .process_control import list_game_processes
 from .report import write_report
@@ -32,149 +35,9 @@ LOCATION_CODES = {
 }
 
 
-def _load_reusable_capture(
-    path: Path,
-    row: OfflineMatrixRow,
-    expected_artifacts: dict[str, Any],
-    expected_config: dict[str, str],
-    *,
-    stock: bool,
-    outcome_control: Path | None = None,
-    seek_percentages: tuple[int, ...] = (),
-) -> dict[str, Any] | None:
-    """Return an immutable raw capture only when every producer input matches."""
-    if not path.is_file():
-        return None
-    try:
-        report = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return None
-    artifacts = report.get("artifacts", {})
-    runtime = report.get("runtime", {})
-    metadata = runtime.get("replay_metadata", {})
-    valid = (
-        report.get("report_schema") == 2
-        and report.get("certifying") is True
-        and report.get("result") == "pass"
-        and report.get("case_id") == row.case_id
-        and report.get("row_id") == row.row_id
-        and report.get("renderer") == "normal"
-        and report.get("display_map_name") == row.display_map_name
-        and report.get("stage_package_root") == row.stage_package_root
-        and artifacts.get("horsemod_dll_sha256") == expected_artifacts["dll"]
-        and artifacts.get("schema_sha256") == expected_artifacts["schema"]
-        and artifacts.get("capture_harness_sha256")
-            == expected_artifacts["capture_harness"]
-        and artifacts.get("replay", {}).get("sha256") == row.replay_sha256
-        and artifacts.get("replay_qualification_mod", {}).get("sha256")
-            == expected_artifacts["replay_mod"]
-        and artifacts.get("game_executable", {}).get("sha256")
-            == expected_artifacts["executable"]
-        and is_exact_contract(artifacts.get("config_fields"), expected_config)
-        and artifacts.get("config", {}).get("sha256")
-            == contract_sha256(expected_config)
-        and metadata.get("stage") == row.replay_metadata_stage
-        and metadata.get("map") == row.replay_metadata_map
-        and (metadata.get("left_character"), metadata.get("right_character"))
-            == row.replay_metadata_fighters
-        and runtime.get("watch_frames") == 600
-        and runtime.get("seek_percentages") == list(seek_percentages)
-        and runtime.get("clean_exit") is True
-        and runtime.get("process_absent_after_exit") is True
-        and runtime.get("temporary_mod_removed") is True
-        and (stock or runtime.get("native_replay_import_ready") is True)
-    )
-    if outcome_control is not None:
-        control = artifacts.get("stock_outcome_control", {})
-        valid = (valid and outcome_control.is_file()
-                 and control.get("sha256") == sha256_file(outcome_control))
-    return report if valid else None
-
-
 def _reuse_notice(path: Path, row: OfflineMatrixRow) -> None:
     print(f"hash-safe reuse: {row.row_id} on {row.display_map_name} ({path.name})",
           flush=True)
-
-
-def _invoke_replay(
-    root: Path,
-    row: OfflineMatrixRow,
-    report: Path,
-    dll: Path,
-    config: Path,
-    schema: Path,
-    replay_mod: Path,
-    game_executable: Path,
-    log: Path,
-    *,
-    certifying: bool,
-    stock: bool = False,
-    baseline: bool = False,
-    stage_terminal: str | None = None,
-    outcome_control: Path | None = None,
-    require_authored_outcomes: bool = False,
-    seek_percentages: tuple[int, ...] = (),
-    timeout: float,
-) -> dict[str, Any]:
-    replay_path = root / row.replay
-    if sha256_file(replay_path) != row.replay_sha256:
-        raise RuntimeError(f"frozen replay hash mismatch: {row.row_id}")
-    command = [
-        sys.executable, str(root / "tools" / "deterministic_qualification.py"),
-        "replay-entry", "--replay", str(replay_path),
-        "--replay-mod", str(replay_mod), "--dll", str(dll),
-        "--config", str(config), "--schema", str(schema),
-        "--game-executable", str(game_executable), "--log", str(log),
-        "--report", str(report), "--timeout", str(timeout),
-        "--watch-frames", "600" if certifying else "1",
-        "--case-id", row.case_id, "--row-id", row.row_id,
-        "--display-map-name", row.display_map_name,
-        "--stage-package-root", row.stage_package_root,
-    ]
-    if certifying:
-        command.extend([
-            "--certifying",
-            # Qualify performance over the same full 600-frame workload as
-            # the row, after the authored replay has actually begun. The
-            # takeover plan requires a 600-frame timing gate, so the shorter
-            # 120-frame sample was not certifying evidence.
-            "--min-resume-tick-rate", "58",
-            "--resume-tick-window", "600",
-        ])
-    else:
-        command.append("--allow-dirty")
-    if stock:
-        command.append("--stock-round-outcome-control")
-    if baseline:
-        command.append("--deterministic-baseline")
-    if stage_terminal is not None:
-        command.extend(["--stage-terminal", stage_terminal])
-    if outcome_control is not None:
-        command.extend(["--outcome-control-report", str(outcome_control)])
-    if require_authored_outcomes:
-        command.append("--require-authored-outcomes")
-    if seek_percentages:
-        command.extend(["--seek-percentages", *map(str, seek_percentages)])
-    if row.required_corrections:
-        command.append("--require-presentation-coverage")
-    if row.location is not None:
-        command.extend(["--correction-location", row.location])
-    result = subprocess.run(command, cwd=root, text=True)
-    bounded_log = report.with_suffix(".log")
-    if log.is_file():
-        shutil.copy2(log, bounded_log)
-    if result.returncode != 0:
-        raise RuntimeError(f"offline row subprocess failed ({result.returncode}): {row.row_id}")
-    document = json.loads(report.read_text(encoding="utf-8"))
-    if document.get("result") != "pass":
-        raise RuntimeError(f"offline row report failed: {row.row_id}")
-    document.setdefault("artifacts", {})["bounded_log"] = {
-        "path": str(bounded_log.resolve()),
-        "sha256": sha256_file(bounded_log),
-        "size": bounded_log.stat().st_size,
-    }
-    write_report(report, document)
-    return document
 
 
 def _finish_row(row: OfflineMatrixRow, primary: dict[str, Any],
@@ -260,7 +123,7 @@ def run_offline_campaign(args: Any, root: Path) -> int:
     canary_correction = next(
         row for row in matrix_rows
         if row.case_id == canary_baseline.case_id
-        and row.location == "active_combat" and row.depth == 1)
+        and row.location == "active_combat")
     # Front-load the smallest representative ladder. The remaining matrix is
     # still identical, but a bad candidate now fails before dozens of launches.
     rows = (canary_baseline, canary_correction, *(
@@ -311,11 +174,12 @@ def run_offline_campaign(args: Any, root: Path) -> int:
                         completed_path.read_text(encoding="utf-8"))
                 except (OSError, UnicodeError, json.JSONDecodeError):
                     completed_report = {}
-                if not evaluate_row(
+                if (capture_log_artifact_is_intact(completed_report)
+                        and not evaluate_row(
                         row, completed_report, expected_artifacts["dll"],
                         expected_artifacts["schema"],
                         runner_sha256(root / "tools" / "deterministic_qualification"),
-                        expected_artifacts):
+                        expected_artifacts)):
                     _reuse_notice(completed_path, row)
                     if row == canary_correction:
                         print("canary ladder: reused correction; validating "

@@ -1376,6 +1376,13 @@ void Sc6ReplayRuntime::FillObservedGameplayEnvelope(
     envelope.resolved_hit_sequence_hash = observation.resolved_hit_sequence_hash;
     envelope.resolved_hit_signature_failures =
         observation.resolved_hit_signature_failures;
+    envelope.tira_state19_writer_calls = observation.tira_state19_writer_calls;
+    envelope.tira_state19_writer_sequence_hash =
+        observation.tira_state19_writer_sequence_hash;
+    envelope.tira_state19_writer_slot_mask =
+        observation.tira_state19_writer_slot_mask;
+    envelope.tira_last_state19_writer_move =
+        observation.tira_last_state19_writer_move;
     envelope.tira_random_transition_calls =
         observation.tira_random_transition_calls;
     envelope.tira_random_transition_sequence_hash =

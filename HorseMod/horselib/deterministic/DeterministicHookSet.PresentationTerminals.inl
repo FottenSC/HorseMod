@@ -1191,6 +1191,8 @@ void DeterministicHookSet::ClearState() noexcept
     gameplay_xorshift96_detour_.reset();
     movevm_evaluate_if_detour_.reset();
     movevm_transition_author_07_detour_.reset();
+    movevm_execute_bank_slot_detour_.reset();
+    movevm_write_chara_state_short_detour_.reset();
     resolved_hit_consumer_detour_.reset();
     battle_audio_append_parameter_detour_.reset();
     particle_finished_bind_detour_.reset();
@@ -1239,6 +1241,8 @@ void DeterministicHookSet::ClearState() noexcept
     gameplay_xorshift96_trampoline_ = 0;
     movevm_evaluate_if_trampoline_ = 0;
     movevm_transition_author_07_trampoline_ = 0;
+    movevm_execute_bank_slot_trampoline_ = 0;
+    movevm_write_chara_state_short_trampoline_ = 0;
     resolved_hit_consumer_trampoline_ = 0;
     next_outer_batch_id_ = 0;
     replay_post_tick_trampoline_global_.store(0, std::memory_order_release);
@@ -1283,9 +1287,13 @@ void DeterministicHookSet::ClearState() noexcept
         0, std::memory_order_release);
     movevm_transition_author_07_trampoline_global_.store(
         0, std::memory_order_release);
+    movevm_execute_bank_slot_trampoline_global_.store(
+        0, std::memory_order_release);
+    movevm_write_chara_state_short_trampoline_global_.store(
+        0, std::memory_order_release);
     resolved_hit_consumer_trampoline_global_.store(
         0, std::memory_order_release);
-    tira_probability_join = {};
+    tira_stance_helper = {};
     active_battle_chara_cue_source_ = {};
     active_battle_dispatch_source_ = {};
     for (auto& handler : observed_battle_audio_handlers_)

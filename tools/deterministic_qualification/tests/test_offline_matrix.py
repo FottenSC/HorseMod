@@ -27,6 +27,19 @@ def test_exact_51_row_shape_and_native_names() -> None:
     }
 
 
+def test_depth_rows_fail_fast_in_widest_first_order() -> None:
+    rows = build_rows(MANIFEST)
+    case_id = rows[0].case_id
+    active = [row for row in rows
+              if row.case_id == case_id and row.location == "active_combat"]
+    assert [(row.mode, row.depth) for row in active] == [
+        ("depth_11", 11),
+        ("depth_1", 1),
+        ("depth_6", 6),
+        ("continuous_depth_7", 7),
+    ]
+
+
 def test_evaluator_rejects_weakened_audio_gate() -> None:
     row = next(row for row in build_rows(MANIFEST) if row.required_corrections)
     report = {

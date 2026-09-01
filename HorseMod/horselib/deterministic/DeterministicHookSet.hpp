@@ -99,6 +99,10 @@ struct OuterTickObservation
     std::uint32_t resolved_hit_calls{};
     std::uint64_t resolved_hit_sequence_hash{};
     std::uint32_t resolved_hit_signature_failures{};
+    std::uint32_t tira_state19_writer_calls{};
+    std::uint64_t tira_state19_writer_sequence_hash{};
+    std::uint8_t tira_state19_writer_slot_mask{};
+    std::uint16_t tira_last_state19_writer_move{};
     std::uint32_t tira_random_transition_calls{};
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};
@@ -307,6 +311,10 @@ struct OwnedBatchReplayResult
     std::uint32_t resolved_hit_calls{};
     std::uint64_t resolved_hit_sequence_hash{};
     std::uint32_t resolved_hit_signature_failures{};
+    std::uint32_t tira_state19_writer_calls{};
+    std::uint64_t tira_state19_writer_sequence_hash{};
+    std::uint8_t tira_state19_writer_slot_mask{};
+    std::uint16_t tira_last_state19_writer_move{};
     std::uint32_t tira_random_transition_calls{};
     std::uint64_t tira_random_transition_sequence_hash{};
     std::uint16_t tira_random_transition_source_mask{};
@@ -508,6 +516,10 @@ private:
         std::uint16_t* arguments);
     using MoveVmTransitionAuthor07Fn = void (__fastcall*)(
         void* chara, std::int32_t argument_count, std::uint16_t* arguments);
+    using MoveVmExecuteBankSlotFn = std::int16_t (__fastcall*)(
+        void* chara, std::int32_t argument_count, std::int16_t* arguments);
+    using MoveVmWriteCharaStateShortFn = std::int16_t (__fastcall*)(
+        void* chara, std::int32_t argument_count, std::int16_t* arguments);
     using ResolvedHitConsumerFn = void (__fastcall*)();
 
     static void __fastcall FrameFencepostDetour(void* battle_manager) noexcept;
@@ -591,6 +603,12 @@ private:
     static void __fastcall MoveVmTransitionAuthor07Detour(
         void* chara, std::int32_t argument_count,
         std::uint16_t* arguments) noexcept;
+    static std::int16_t __fastcall MoveVmExecuteBankSlotDetour(
+        void* chara, std::int32_t argument_count,
+        std::int16_t* arguments) noexcept;
+    static std::int16_t __fastcall MoveVmWriteCharaStateShortDetour(
+        void* chara, std::int32_t argument_count,
+        std::int16_t* arguments) noexcept;
     static void __fastcall ResolvedHitConsumerDetour() noexcept;
     static int __cdecl UcrtRandDetour() noexcept;
     static void __cdecl UcrtSrandDetour(unsigned int seed) noexcept;
@@ -652,9 +670,10 @@ private:
     static void ObserveMoveVmTransition(void* chara,
         std::int32_t argument_count, std::uint16_t* arguments,
         OuterTickCaptureContext& batch) noexcept;
-    static void ObserveTiraRandomTransition(void* chara,
-        std::uint16_t target, OuterTickCaptureContext& batch,
-        OuterTickObservation& observation) noexcept;
+    static void ObserveTiraRandomStanceChange(void* chara,
+        std::uint16_t active_move, std::uint16_t chance,
+        std::uint16_t state_before, std::uint16_t state_after,
+        std::uint32_t frame, OuterTickObservation& observation) noexcept;
     [[nodiscard]] bool PrepareAudioOwnerGraph(
         std::uintptr_t battle_manager,
         std::uintptr_t battle_audio_manager_override = 0) noexcept;
@@ -711,6 +730,10 @@ private:
     static std::atomic<std::uint64_t> movevm_evaluate_if_trampoline_global_;
     static std::atomic<std::uint64_t>
         movevm_transition_author_07_trampoline_global_;
+    static std::atomic<std::uint64_t>
+        movevm_execute_bank_slot_trampoline_global_;
+    static std::atomic<std::uint64_t>
+        movevm_write_chara_state_short_trampoline_global_;
     static std::atomic<std::uint64_t> resolved_hit_consumer_trampoline_global_;
     static std::array<std::atomic<std::uintptr_t>,
         maximum_battle_audio_handlers> observed_battle_audio_handlers_;
@@ -792,6 +815,8 @@ private:
     std::unique_ptr<PLH::x64Detour> gameplay_xorshift96_detour_{};
     std::unique_ptr<PLH::x64Detour> movevm_evaluate_if_detour_{};
     std::unique_ptr<PLH::x64Detour> movevm_transition_author_07_detour_{};
+    std::unique_ptr<PLH::x64Detour> movevm_execute_bank_slot_detour_{};
+    std::unique_ptr<PLH::x64Detour> movevm_write_chara_state_short_detour_{};
     std::unique_ptr<PLH::x64Detour> resolved_hit_consumer_detour_{};
     std::uint64_t frame_fencepost_trampoline_{};
     std::uint64_t replay_post_tick_trampoline_{};
@@ -818,6 +843,8 @@ private:
     std::uint64_t gameplay_xorshift96_trampoline_{};
     std::uint64_t movevm_evaluate_if_trampoline_{};
     std::uint64_t movevm_transition_author_07_trampoline_{};
+    std::uint64_t movevm_execute_bank_slot_trampoline_{};
+    std::uint64_t movevm_write_chara_state_short_trampoline_{};
     std::uint64_t resolved_hit_consumer_trampoline_{};
     std::uint64_t next_outer_batch_id_{};
     std::uintptr_t image_base_{};

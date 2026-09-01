@@ -60,6 +60,8 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
         "xorshift_sequence", "transition07_sequence", "tira_sequence",
         "tira_random_transitions", "tira_probability_batches", "tira_targets",
         "tira_last_target",
+        "tira_writer_calls", "tira_writer_sequence",
+        "tira_writer_slot_mask", "tira_last_writer_move",
         "tira_stance_batches", "tira_slot_mask", "state19_sequence_p0",
         "state19_sequence_p1", "state19_initial_p0", "state19_initial_p1",
         "state19_final_p0", "state19_final_p1", "xorshift_landing",
@@ -141,6 +143,9 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                     and _int_field(coverage, "tira_stance_batches") > 0
                     and _int_field(coverage, "tira_targets") > 0
                     and _int_field(coverage, "tira_slot_mask") > 0
+                    and _int_field(coverage, "tira_writer_calls") > 0
+                    and _int_field(coverage, "tira_writer_sequence") > 0
+                    and _int_field(coverage, "tira_writer_slot_mask") > 0
                 )
                 if transition:
                     transition_runs += 1
@@ -149,6 +154,10 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                         case_failures.append("Tira target/slot identity missing")
                     if _int_field(coverage, "tira_last_target") == 0:
                         case_failures.append("exact Tira target is missing")
+                    if ((_int_field(coverage, "tira_writer_slot_mask")
+                            & slot_mask) != slot_mask):
+                        case_failures.append(
+                            "Tira state19 writer slot identity is incomplete")
                     for slot, field in ((1, "state19_at_tira_transition_p0"),
                                         (2, "state19_at_tira_transition_p1")):
                         if slot_mask & slot and _int_field(coverage, field) not in (0, 1):
@@ -156,7 +165,6 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                     if coverage.get("state19_initial_valid") is not True:
                         case_failures.append("initial Tira state19 was not captured")
                     if (_int_field(coverage, "xorshift_sequence") == 0
-                            or _int_field(coverage, "transition07_sequence") == 0
                             or _int_field(coverage, "tira_sequence") == 0):
                         case_failures.append(
                             "ordered Tira RNG/transition identity is empty")
@@ -187,7 +195,8 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
         })
         failures.extend(f"{case['case_id']}: {reason}" for reason in set(case_failures))
     if transition_runs == 0:
-        failures.append("no joined Tira IF 0x007F/target/state19 transition was observed")
+        failures.append(
+            "no Tira helper 0x321B RNG/state19 transition was observed")
     return {
         "report_schema": 2,
         "kind": "tira_rng_transition_evaluation",

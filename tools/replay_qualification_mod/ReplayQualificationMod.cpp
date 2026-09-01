@@ -1815,7 +1815,7 @@ private:
             health[18], health[12], health[19], health[13], health[20]);
         const auto get_rng_coverage =
             ResolveHorseModGameplayRngCoverageApi();
-        std::array<std::uint64_t, 42> rng_coverage{};
+        std::array<std::uint64_t, 46> rng_coverage{};
         if (get_rng_coverage == nullptr
             || !get_rng_coverage(rng_coverage.data(), rng_coverage.size()))
         {
@@ -1841,7 +1841,9 @@ private:
             "state19_at_tira_transition_p0={} "
             "state19_at_tira_transition_p1={} state19_initial_valid={} "
             "tira_last_target=0x{:04x} resolved_hit_calls={} "
-            "resolved_hit_sequence=0x{:016x}\n"),
+            "resolved_hit_sequence=0x{:016x} tira_writer_calls={} "
+            "tira_writer_sequence=0x{:016x} tira_writer_slot_mask=0x{:x} "
+            "tira_last_writer_move=0x{:04x}\n"),
             rng_coverage[0], rng_coverage[1], rng_coverage[2],
             rng_coverage[3], rng_coverage[4], rng_coverage[5],
             rng_coverage[6], rng_coverage[7], rng_coverage[8],
@@ -1855,7 +1857,9 @@ private:
             rng_coverage[30], rng_coverage[31], rng_coverage[32],
             rng_coverage[33], rng_coverage[34], rng_coverage[35],
             rng_coverage[36], rng_coverage[37], rng_coverage[38],
-            rng_coverage[39], rng_coverage[40], rng_coverage[41]);
+            rng_coverage[39], rng_coverage[40], rng_coverage[41],
+            rng_coverage[42], rng_coverage[43], rng_coverage[44],
+            rng_coverage[45]);
         const auto get_canonical = ResolveHorseModCanonicalStateApi();
         std::uint64_t canonical_generation{}, canonical_frame{};
         std::array<std::byte, 32> canonical_hash{};
