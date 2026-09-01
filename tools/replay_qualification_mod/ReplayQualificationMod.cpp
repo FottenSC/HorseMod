@@ -1379,7 +1379,7 @@ private:
             Fail("horsemod_qualification_health_api_unavailable");
             return false;
         }
-        std::array<std::uint64_t, 48> health{};
+        std::array<std::uint64_t, 54> health{};
         // A canonical frame may not exist on the first active replay tick.
         // That is not a failure; poll again on the next engine tick.
         if (!get_health(health.data(), health.size())) return true;
@@ -1391,7 +1391,7 @@ private:
         const bool terminal_failure = health[0] != 0 || health[1] != 0
             || health[2] != 0 || health[5] != 0 || health[6] != 0
             || health[21] != 0 || health[26] != 0 || health[27] != 0
-            || health[31] != 0;
+            || health[31] != 0 || health[48] != 0;
         if (!terminal_failure) return true;
         Output::send<LogLevel::Error>(STR(
             "[ReplayQualification] fail-fast health frame={} "
@@ -1405,6 +1405,9 @@ private:
             "cursor_failure_coordinate={}:{} cursor_input={}:{} "
             "cursor_manager={}:{} pending_dispatch={} "
             "round_image_applied={} round_state={} "
+            "timeline_partial={} partial_reason={} "
+            "partial_coordinate={}:{} checkpoint_failure={} "
+            "batch_entry_checkpoint_failure={} "
             "duplicates={} publish_failures={} fp_mismatches={} "
             "unknown_rng_callers={} audio_sources={} audio_terminals={}\n"),
             frame, health[21], health[22], health[23], health[24], health[25],
@@ -1414,8 +1417,9 @@ private:
             static_cast<std::int64_t>(health[41]),
             static_cast<std::int64_t>(health[42]),
             static_cast<std::int64_t>(health[43]), health[44], health[45],
-            health[46], health[47], health[5], health[6], health[30], health[31],
-            health[34], health[35]);
+            health[46], health[47], health[48], health[49], health[50],
+            health[51], health[52], health[53], health[5], health[6],
+            health[30], health[31], health[34], health[35]);
         Fail("horsemod_fail_fast_health");
         return false;
     }
@@ -1427,7 +1431,7 @@ private:
         const auto get_health = ResolveHorseModQualificationHealthApi();
         std::array<std::uint64_t, 10> coverage{};
         std::array<std::uint64_t, 9> identity{};
-        std::array<std::uint64_t, 48> health{};
+        std::array<std::uint64_t, 54> health{};
         if (get_coverage == nullptr || get_identity == nullptr
             || get_health == nullptr
             || !get_coverage(coverage.data(), coverage.size())
@@ -1782,7 +1786,7 @@ private:
         // teardown/re-entry.  Terminal failures retain their bounded native
         // failure ledger; successful runs publish only the exact aggregate.
         const auto get_health = ResolveHorseModQualificationHealthApi();
-        std::array<std::uint64_t, 48> health{};
+        std::array<std::uint64_t, 54> health{};
         if (get_health == nullptr
             || !get_health(health.data(), health.size()))
         {
@@ -1796,13 +1800,17 @@ private:
             "presentation_owned_bytes={} presentation_duplicate_failures={} "
             "presentation_publish_failures={} cursor_mismatches={} "
             "batch_accounting_mismatches={} round_transition_barriers={} "
+            "timeline_partial={} partial_reason={} "
+            "partial_coordinate={}:{} checkpoint_failure={} "
+            "batch_entry_checkpoint_failure={} "
             "scratch_owner_capture={}->{} scratch_owner_canonical={}->{} "
             "scratch_owner_target={}->{} scratch_owner_transaction={}->{} "
             "scratch_owner_regions={}->{} scratch_owner_motion={}->{} "
             "scratch_owner_dispatch={}->{}\n"),
             health[0], health[1], health[2], health[3], health[4],
             health[5], health[6], health[36], health[37], health[38],
-            health[7], health[14], health[8], health[15],
+            health[48], health[49], health[50], health[51], health[52],
+            health[53], health[7], health[14], health[8], health[15],
             health[9], health[16], health[10], health[17], health[11],
             health[18], health[12], health[19], health[13], health[20]);
         const auto get_rng_coverage =

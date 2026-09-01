@@ -190,6 +190,9 @@ Status Sc6ReplayRuntime::StoreObservedBatch(
         if (stored.code == FailureCode::CapacityExceeded)
         {
             timeline_status_.partial = true;
+            timeline_status_.partial_reason =
+                ReplayTimelinePartialReason::NativeBatch;
+            timeline_status_.partial_coordinate = envelope.exit_coordinate;
             return Status::success();
         }
         timeline_status_.failure = stored.code;

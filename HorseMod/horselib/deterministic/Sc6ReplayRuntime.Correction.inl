@@ -79,7 +79,9 @@ void Sc6ReplayRuntime::ArmResumeValidation(
     timeline_status_.resume_input_scalar_difference_mask = 0;
     timeline_status_.resume_first_input_cache_chunk = UINT32_MAX;
     timeline_status_.resume_first_input_cache_row = UINT32_MAX;
-    timeline_status_.resume_first_wind_semantic_chunk = UINT32_MAX;
+    timeline_status_.resume_first_wind_semantic_word = UINT32_MAX;
+    timeline_status_.resume_expected_wind_semantic_word = 0;
+    timeline_status_.resume_observed_wind_semantic_word = 0;
     timeline_status_.resume_wind_difference_mask = 0;
     resume_target_ = target;
     resume_source_end_ = source_end;

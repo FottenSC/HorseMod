@@ -547,9 +547,22 @@ public:
             values[46] = timeline.last_cursor_mismatch_round_image_applied;
             values[47] = timeline.last_cursor_mismatch_round_state;
         }
+        if (count >= 49)
+            values[48] = timeline.partial ? 1 : 0;
+        if (count >= 54)
+        {
+            values[49] = static_cast<std::uint64_t>(timeline.partial_reason);
+            values[50] = timeline.partial_coordinate.generation;
+            values[51] = timeline.partial_coordinate.frame;
+            values[52] = static_cast<std::uint64_t>(
+                timeline.checkpoint_failure);
+            values[53] = static_cast<std::uint64_t>(
+                timeline.batch_entry_checkpoint_failure);
+        }
         return timeline.canonical_frames != 0
             || timeline.failure
                 != Horse::Deterministic::FailureCode::None
+            || timeline.partial
             || presentation.capacity_failures != 0
             || presentation.duplicates != 0
             || presentation.publish_failures != 0;

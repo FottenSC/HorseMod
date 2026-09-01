@@ -926,6 +926,52 @@ Ghidra effective completeness is 100 for
 remaining fixable points. The verified program was saved through native MCP
 tools.
 
+### Shockwave semantic and presentation-derived boundary (2026-09-01)
+
+A normal-render 50% strict seek on the authored Snow-Capped Showdown replay
+failed at frame 10,264 after two verified resumed frames. The only wind
+semantic difference was packed word 35: expected `0x5F3FC058`, observed
+`0x5F41C058`. That word is ShockWave motion position Y at `+0xF4`, and the
+difference was two floating-point ULPs. Lifecycle-node identity and the
+remaining diagnostic masks matched.
+
+Ghidra writer/reader closure establishes a narrower authoritative boundary.
+`LuxMoveVM_SpawnAttackWindowWindShockwave @ 0x1402FC5B0` seeds the position
+from the selected character bone transform. `IwWind_PrepareShockWaveFrame @
+0x1403322C0`, `IwWind_UpdateShockWaveOscillation @ 0x140332400`, and
+`IwWind_SampleShockWaveForce @ 0x140332B60` use the cone, motion, current-angle,
+and orientation fields only to synthesize the presentation force consumed by
+`LuxBattle_TickStageWindAndAccumulateForces @ 0x140333FD0`. The sampler's
+corrected prototype returns its `Vec4f *` output; the root tick consumes that
+return. No lifecycle, allocation, or RNG branch reads those geometry fields.
+
+Checkpoint schema 50 therefore retains ShockWave `+0x70..+0xCF` (oscillators,
+including the conditional RNG threshold at `+0xCC`) and `+0xE0..+0xE3`
+(lifetime/retirement) in portable canonical identity. It retains `+0xD0..+0xDF`,
+`+0xE4..+0xEF`, `+0xF0..+0x10F`, `+0x120..+0x12B`, and `+0x130..+0x17F` in the
+same-process byte-exact restore image but excludes them from peer-canonical
+hashing as presentation-derived geometry or allocator residue. A native
+self-test proves mutations in those presentation ranges do not alter canonical
+identity and a mutation at `+0xCC` does. This does not permit skipping the wind
+graph or its RNG/lifecycle updates, and final normal-render presentation and
+re-entry gates remain mandatory.
+
+The verified Ghidra program was saved after the five directly relevant
+functions were structurally audited and documented. Remaining fixable
+deductions are 9.93 for the spawn function, 1.45 for prepare, 5.0 for update,
+and 2.29 for sample.
+
+Dirty-development qualification then closed the canary ladder on the normal
+renderer. Silver Wolves' Haven passed a 120-frame smoke with 36 early audio
+sources and 381 native terminals, three same-process re-entry cycles at
+60.417--60.422 TPS, a subsequent clean-process entry, 600 depth-1 active-combat
+corrections at 59.239 TPS with 2.3 ms correction p99, and independent clean
+10/25/50/75% strict seeks at 59.719--59.791 TPS. Snow-Capped Showdown separately
+passed the original 50% reproduction, seeking from frame 11,767 to 10,261 and
+verifying 1,506 historical plus 600 live frames at 59.762 TPS. These dirty
+artifacts are development evidence only; immutable release qualification must
+repeat the gates after source-identity freeze.
+
 | Replay/scene/disconnect | Close replay stop/order and earliest world/online invalidation signals | No identity survives transition/partial failure |
 | Hook teardown | Audit Horse shutdown only after target set is final | Admission gate, reverse removal, zero in-flight callbacks |
 

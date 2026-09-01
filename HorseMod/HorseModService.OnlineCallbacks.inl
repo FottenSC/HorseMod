@@ -376,7 +376,9 @@
                 Output::send<LogLevel::Warning>(STR(
                     "[HorseMod] resumed canonical frame diverged "
                     "coordinate={} verified_before={} component_mask=0x{:x} "
-                    "wind_mask=0x{:x} wind_semantic_chunk={} "
+                    "wind_mask=0x{:x} wind_semantic_word={} "
+                    "wind_semantic_expected=0x{:08x} "
+                    "wind_semantic_observed=0x{:08x} "
                     "wind_node_expected={}/{:08x}/{}/{}/{}/{:08x}/{} "
                     "wind_node_observed={}/{:08x}/{}/{}/{}/{:08x}/{} "
                     "expected_hash_prefix=0x{:016x} "
@@ -385,7 +387,9 @@
                     failed.resumed_frames_verified,
                     failed.resume_component_difference_mask,
                     failed.resume_wind_difference_mask,
-                    failed.resume_first_wind_semantic_chunk,
+                    failed.resume_first_wind_semantic_word,
+                    failed.resume_expected_wind_semantic_word,
+                    failed.resume_observed_wind_semantic_word,
                     failed.resume_expected_wind_node.kind,
                     failed.resume_expected_wind_node.life_bits,
                     failed.resume_expected_wind_node.oscillator_tick,

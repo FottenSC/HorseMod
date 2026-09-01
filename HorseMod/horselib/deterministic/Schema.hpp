@@ -8,7 +8,7 @@
 namespace Horse::Deterministic::Schema
 {
 inline constexpr std::uint32_t protocol_version = 2;
-inline constexpr std::uint32_t snapshot_schema_version = 49;
+inline constexpr std::uint32_t snapshot_schema_version = 50;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::size_t maximum_presentation_payload = 256;
 inline constexpr std::uint64_t checkpoint_interval = 30;
@@ -38,11 +38,11 @@ inline constexpr std::size_t maximum_correction_presentation_events = 8192;
 inline constexpr std::size_t replay_timeline_memory_limit =
     512ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_input_memory_budget =
-    96ull * 1024ull * 1024ull;
-inline constexpr std::size_t replay_native_batch_memory_budget =
-    192ull * 1024ull * 1024ull;
-inline constexpr std::size_t replay_canonical_hash_memory_budget =
     16ull * 1024ull * 1024ull;
+inline constexpr std::size_t replay_native_batch_memory_budget =
+    224ull * 1024ull * 1024ull;
+inline constexpr std::size_t replay_canonical_hash_memory_budget =
+    40ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_checkpoint_memory_budget =
     replay_timeline_memory_limit - replay_input_memory_budget
     - replay_native_batch_memory_budget - replay_canonical_hash_memory_budget;
@@ -52,10 +52,31 @@ inline constexpr std::size_t replay_input_entry_budget = 128;
 // timer/action source journals.
 // The exact native timer-node boundary adds a 0x2F0 node, fixed 0x41E0 action
 // backing, and four camera scalars to each batch. The aggregate native-batch
-// allocation remains capped at 192 MiB, so the larger fixed entry ceiling
+// allocation remains capped at 224 MiB, so the larger fixed entry ceiling
 // reduces retained batch capacity rather than allowing unbounded growth.
 inline constexpr std::size_t replay_native_batch_entry_budget = 37888;
 inline constexpr std::size_t replay_native_batch_coordinate_budget = 32;
+// Reserve envelopes and their worst-case coordinate membership as one bounded
+// unit.  A 50/50 byte split stranded almost the entire coordinate half while
+// limiting the much larger envelope vector to 2,656 entries.  Budgeting the
+// paired allocation retains every supported 12-wide batch within the
+// aggregate 224 MiB ceiling.
+inline constexpr std::size_t replay_native_batch_capacity =
+    replay_native_batch_memory_budget
+    / (replay_native_batch_entry_budget
+        + maximum_supported_native_batch_width
+            * replay_native_batch_coordinate_budget);
+inline constexpr std::size_t replay_native_batch_coordinate_capacity =
+    replay_native_batch_capacity * maximum_supported_native_batch_width;
+static_assert(replay_native_batch_capacity != 0);
+static_assert(
+    replay_input_memory_budget / replay_input_entry_budget
+    >= replay_native_batch_coordinate_capacity);
+static_assert(
+    replay_native_batch_capacity * replay_native_batch_entry_budget
+        + replay_native_batch_coordinate_capacity
+            * replay_native_batch_coordinate_budget
+    <= replay_native_batch_memory_budget);
 inline constexpr std::size_t replay_round_image_size = 0xc0;
 inline constexpr std::uint32_t maximum_replay_round_images = 64;
 

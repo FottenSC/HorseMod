@@ -30,15 +30,25 @@ constexpr std::array ring_out_ranges{
     StageWindStateRange{0x120, 0x0C},
 };
 constexpr std::array shock_wave_ranges{
-    StageWindStateRange{0x70, 0x74},
-    StageWindStateRange{0xF0, 0x20},
-    StageWindStateRange{0x120, 0x0C},
-    StageWindStateRange{0x130, 0x50},
+    // Oscillator state through +0xCC controls the conditional shared-RNG
+    // draw. Lifetime at +0xE0 controls native retirement. The intervening
+    // cone/position fields are presentation-force geometry, not scheduling
+    // or RNG authority.
+    StageWindStateRange{0x70, 0x60},
+    StageWindStateRange{0xE0, 0x04},
 };
 constexpr std::array shock_wave_derived_ranges{
+    // Cone bounds, accumulated travel, motion, current angles, and the
+    // orientation frame only feed the presentation-facing force sampler.
+    // Retain and restore them byte-exactly without making pose-derived float
+    // residue peer-canonical truth.
+    StageWindStateRange{0xD0, 0x10},
     // Current-executable prepare/update/sample virtuals never access this
     // allocator-residue gap. Retain it for byte-exact local rewind only.
     StageWindStateRange{0xE4, 0x0C},
+    StageWindStateRange{0xF0, 0x20},
+    StageWindStateRange{0x120, 0x0C},
+    StageWindStateRange{0x130, 0x50},
 };
 constexpr std::array ring_in_ranges{
     StageWindStateRange{0x70, 0x84},

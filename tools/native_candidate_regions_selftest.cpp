@@ -2373,6 +2373,22 @@ void test_stage_wind_topology_is_bounded_and_pointer_free()
                 != canonical_before_residue,
         "wind lifecycle changes alter canonical state");
 
+    const auto canonical_before_shock_presentation =
+        StageWindTopologyProbe::CanonicalBytes(image);
+    memory.Fill(second + 0xD0, 0x10, std::byte{0x81});
+    memory.Fill(second + 0xF0, 0x20, std::byte{0x82});
+    memory.Fill(second + 0x120, 0x0C, std::byte{0x83});
+    memory.Fill(second + 0x130, 0x50, std::byte{0x84});
+    expect(probe.Capture(image).ok()
+            && StageWindTopologyProbe::CanonicalBytes(image)
+                == canonical_before_shock_presentation,
+        "shock-wave force geometry remains local-restorable but non-canonical");
+    memory.Fill(second + 0xCC, 4, std::byte{0x85});
+    expect(probe.Capture(image).ok()
+            && StageWindTopologyProbe::CanonicalBytes(image)
+                != canonical_before_shock_presentation,
+        "shock-wave conditional RNG threshold remains canonical");
+
     memory.Set(second + 0x10, first);
     expect(probe.Capture(image).code == FailureCode::IdentityMismatch,
         "wind topology rejects cycles");

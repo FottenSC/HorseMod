@@ -18,6 +18,17 @@ class Lux;
 
 namespace Deterministic
 {
+enum class ReplayTimelinePartialReason : std::uint8_t
+{
+    None,
+    NativeBatch,
+    Input,
+    PendingBatchCoordinates,
+    LandingCheckpoint,
+    CanonicalHash,
+    BatchEntryCheckpoint,
+};
+
 struct ReplayTimelineStatus
 {
     FailureCode failure{FailureCode::None};
@@ -140,6 +151,8 @@ struct ReplayTimelineStatus
     std::array<std::uintptr_t, 2> checkpoint_animation_fighters{};
     std::array<std::uintptr_t, 2> batch_entry_animation_fighters{};
     bool partial{};
+    ReplayTimelinePartialReason partial_reason{ReplayTimelinePartialReason::None};
+    FrameCoordinate partial_coordinate{};
     bool resume_validation_active{};
     FrameCoordinate resume_target{};
     FrameCoordinate resume_source_end{};
@@ -155,7 +168,9 @@ struct ReplayTimelineStatus
     std::uint32_t resume_first_input_cache_row{UINT32_MAX};
     NativeInputCacheRowImage resume_expected_input_cache_row{};
     NativeInputCacheRowImage resume_observed_input_cache_row{};
-    std::uint32_t resume_first_wind_semantic_chunk{UINT32_MAX};
+    std::uint32_t resume_first_wind_semantic_word{UINT32_MAX};
+    std::uint32_t resume_expected_wind_semantic_word{};
+    std::uint32_t resume_observed_wind_semantic_word{};
     std::array<std::uint32_t, 12> resume_expected_input_scalars{};
     std::array<std::uint32_t, 12> resume_observed_input_scalars{};
     std::uint32_t resume_wind_difference_mask{};
@@ -619,13 +634,15 @@ private:
     InputTimeline input_timeline_{
         Schema::replay_input_memory_budget / Schema::replay_input_entry_budget};
     NativeBatchTimeline batch_timeline_{
-        (Schema::replay_native_batch_memory_budget / 2)
-            / Schema::replay_native_batch_entry_budget,
-        (Schema::replay_native_batch_memory_budget / 2)
-            / Schema::replay_native_batch_coordinate_budget};
+        Schema::replay_native_batch_capacity,
+        Schema::replay_native_batch_coordinate_capacity};
     CanonicalHashTimeline canonical_timeline_{
         Schema::replay_canonical_hash_memory_budget
             / sizeof(CanonicalHashEntry)};
+    static_assert(
+        Schema::replay_canonical_hash_memory_budget
+            / sizeof(CanonicalHashEntry)
+        >= Schema::replay_native_batch_capacity);
     std::optional<CanonicalHashEntry> archived_last_canonical_{};
     std::uint64_t archived_canonical_frames_{};
     std::array<std::uint64_t, 9> archived_presentation_identity_{};

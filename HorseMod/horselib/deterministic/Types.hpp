@@ -200,7 +200,9 @@ struct CanonicalInputDiagnostic
         const CanonicalInputDiagnostic&,
         const CanonicalInputDiagnostic&) = default;
 };
-using CanonicalWindSemanticDiagnostic = std::array<std::uint64_t, 32>;
+// Exact first-node words localize a wind mismatch without enlarging the old
+// 32-qword diagnostic footprint or changing canonical hash authority.
+using CanonicalWindSemanticDiagnostic = std::array<std::uint32_t, 64>;
 // Wind-only mismatch localization: schedule, callback queue, then semantic and
 // derived fingerprints for up to eight bounded nodes.
 using CanonicalWindFingerprint = std::array<std::uint64_t, 20>;

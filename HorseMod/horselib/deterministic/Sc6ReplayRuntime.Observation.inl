@@ -296,6 +296,9 @@ Status Sc6ReplayRuntime::BeginObservedFrame(
             pending_batch_coordinates_.size() + 1))
     {
         timeline_status_.partial = true;
+        timeline_status_.partial_reason =
+            ReplayTimelinePartialReason::NativeBatch;
+        timeline_status_.partial_coordinate = timeline_status_.last_coordinate;
         pending_batch_id_ = 0;
         pending_camera_source_frame_ = {};
         pending_batch_coordinates_.clear();
@@ -468,6 +471,8 @@ Status Sc6ReplayRuntime::AppendObservedInput(
         if (appended.code == FailureCode::CapacityExceeded)
         {
             timeline_status_.partial = true;
+            timeline_status_.partial_reason = ReplayTimelinePartialReason::Input;
+            timeline_status_.partial_coordinate = coordinate;
             return Status::success();
         }
         if (appended.code == FailureCode::IdentityMismatch
@@ -493,6 +498,9 @@ Status Sc6ReplayRuntime::AppendObservedInput(
     catch (...)
     {
         timeline_status_.partial = true;
+        timeline_status_.partial_reason =
+            ReplayTimelinePartialReason::PendingBatchCoordinates;
+        timeline_status_.partial_coordinate = coordinate;
         pending_batch_id_ = 0;
         pending_camera_source_frame_ = {};
         pending_batch_coordinates_.clear();
@@ -567,15 +575,21 @@ Status Sc6ReplayRuntime::ValidateResumedFrame(
             timeline_status_.resume_expected_wind_node = expected->wind_node;
             timeline_status_.resume_observed_wind_node =
                 observed.canonical_wind_node;
-            timeline_status_.resume_first_wind_semantic_chunk = UINT32_MAX;
+            timeline_status_.resume_first_wind_semantic_word = UINT32_MAX;
+            timeline_status_.resume_expected_wind_semantic_word = 0;
+            timeline_status_.resume_observed_wind_semantic_word = 0;
             for (std::size_t index = 0;
                  index < expected->wind_semantic.size(); ++index)
             {
                 if (expected->wind_semantic[index]
                     != observed.canonical_wind_semantic[index])
                 {
-                    timeline_status_.resume_first_wind_semantic_chunk =
+                    timeline_status_.resume_first_wind_semantic_word =
                         static_cast<std::uint32_t>(index);
+                    timeline_status_.resume_expected_wind_semantic_word =
+                        expected->wind_semantic[index];
+                    timeline_status_.resume_observed_wind_semantic_word =
+                        observed.canonical_wind_semantic[index];
                     break;
                 }
             }
@@ -647,7 +661,12 @@ void Sc6ReplayRuntime::CaptureLandingCheckpoint(
         timeline_status_.checkpoint_animation_fighters =
             checkpoint_status.animation_fighters;
         if (checkpoint.code == FailureCode::CapacityExceeded)
+        {
             timeline_status_.partial = true;
+            timeline_status_.partial_reason =
+                ReplayTimelinePartialReason::LandingCheckpoint;
+            timeline_status_.partial_coordinate = coordinate;
+        }
         else if (checkpoint.code == FailureCode::IdentityMismatch
             || checkpoint.code == FailureCode::GenerationMismatch)
         {
@@ -707,6 +726,9 @@ Status Sc6ReplayRuntime::CaptureCanonicalFrame(
         if (stored.code == FailureCode::CapacityExceeded)
         {
             timeline_status_.partial = true;
+            timeline_status_.partial_reason =
+                ReplayTimelinePartialReason::CanonicalHash;
+            timeline_status_.partial_coordinate = coordinate;
             return Status::success();
         }
         if (!stored.ok())
@@ -943,6 +965,9 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     if (captured.code == FailureCode::CapacityExceeded)
     {
         timeline_status_.partial = true;
+        timeline_status_.partial_reason =
+            ReplayTimelinePartialReason::BatchEntryCheckpoint;
+        timeline_status_.partial_coordinate = coordinate;
         return Status::success();
     }
     if (!captured.ok())

@@ -697,15 +697,15 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         if (!image.wind.nodes.empty())
         {
             const auto& semantic = image.wind.nodes.front().semantic_state;
-            constexpr std::size_t chunk_size = 16;
-            for (std::size_t chunk = 0;
-                 chunk < output.canonical_wind_semantic.size(); ++chunk)
+            constexpr std::size_t word_size = sizeof(std::uint32_t);
+            for (std::size_t word = 0;
+                 word < output.canonical_wind_semantic.size(); ++word)
             {
-                const std::size_t begin = chunk * chunk_size;
+                const std::size_t begin = word * word_size;
                 if (begin >= semantic.size()) break;
-                output.canonical_wind_semantic[chunk] = local_checksum(
-                    std::span{semantic}.subspan(begin,
-                        (std::min)(chunk_size, semantic.size() - begin)));
+                std::memcpy(&output.canonical_wind_semantic[word],
+                    semantic.data() + begin,
+                    (std::min)(word_size, semantic.size() - begin));
             }
         }
         if (!image.wind.nodes.empty())
